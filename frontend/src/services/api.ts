@@ -13,7 +13,7 @@ class ApiService {
 
   constructor() {
     this.api = axios.create({
-      baseURL: process.env.REACT_APP_API_URL || "http://localhost:8000/api",
+      baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api",
     });
 
     // Add auth token to requests
@@ -117,8 +117,7 @@ class ApiService {
   // Preview endpoints
   getPreviewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
-    const baseUrl =
-      process.env.REACT_APP_API_URL || "http://localhost:8000/api";
+    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
     return `${baseUrl}/preview/${connectionId}/file?path=${encodeURIComponent(
       path
     )}&token=${token}`;
@@ -126,8 +125,7 @@ class ApiService {
 
   getDownloadUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
-    const baseUrl =
-      process.env.REACT_APP_API_URL || "http://localhost:8000/api";
+    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
     return `${baseUrl}/preview/${connectionId}/download?path=${encodeURIComponent(
       path
     )}&token=${token}`;

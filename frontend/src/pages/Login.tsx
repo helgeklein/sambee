@@ -42,7 +42,7 @@ const Login: React.FC = () => {
       >
         <Paper elevation={3} sx={{ p: 4, width: "100%" }}>
           <Typography component="h1" variant="h5" align="center" gutterBottom>
-            SamBee Login
+            Sambee Login
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
