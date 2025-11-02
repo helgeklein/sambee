@@ -32,8 +32,8 @@ code .
 # Backend (FastAPI)
 cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-# Frontend (React)
-cd frontend && npm start
+# Frontend (React + Vite)
+cd frontend && npm run dev
 ```
 
 Or use VS Code tasks: `Ctrl+Shift+P` → `Tasks: Run Task`
@@ -48,8 +48,8 @@ Access the application at http://localhost
 
 ## Architecture
 
-- **Backend**: FastAPI (Python 3.11)
-- **Frontend**: React with TypeScript
+- **Backend**: FastAPI (Python 3.13)
+- **Frontend**: React 18 with TypeScript + Vite
 - **Database**: SQLite
 - **SMB Library**: smbprotocol
 - **Reverse Proxy**: Caddy

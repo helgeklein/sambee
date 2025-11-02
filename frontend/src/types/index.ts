@@ -30,7 +30,7 @@ export interface ConnectionCreate {
 
 export enum FileType {
   FILE = "file",
-  DIRECTORY = "directory"
+  DIRECTORY = "directory",
 }
 
 export interface FileInfo {
@@ -57,3 +57,6 @@ export interface AuthToken {
   username: string;
   is_admin: boolean;
 }
+
+// Alias for compatibility
+export type FileEntry = FileInfo;

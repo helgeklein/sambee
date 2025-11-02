@@ -2,8 +2,7 @@
 
 ## Prerequisites
 
-- Windows 10/11 with WSL2
-- Docker Desktop for Windows
+- Windows with WSL2
 - VS Code with Dev Containers extension
 
 ## Dev Container Setup
@@ -12,8 +11,8 @@ The project includes a complete dev container configuration for consistent devel
 
 ### Features
 
-- Python 3.11 with FastAPI
-- Node.js 20 for React development
+- Python with FastAPI
+- Node.js for React development
 - SMB testing utilities
 - SQLite tools
 - Pre-configured VS Code extensions
@@ -66,10 +65,10 @@ API documentation available at: http://localhost:8000/docs
 
 ```bash
 cd frontend
-npm start
+npm run dev
 ```
 
-Development server runs at: http://localhost:3000
+Development server runs at: http://localhost:3000 (powered by Vite ⚡)
 
 ### Running Tests
 

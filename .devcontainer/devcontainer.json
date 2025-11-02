@@ -7,11 +7,7 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "20"
-    },
-    "ghcr.io/devcontainers/features/python:1": {
-      "version": "3.11"
-    },
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    }
   },
 
   "customizations": {
@@ -19,26 +15,20 @@
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-python.black-formatter",
+        "charliermarsh.ruff",
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
-        "bradlc.vscode-tailwindcss",
-        "dsznajder.es7-react-js-snippets",
-        "charliermarsh.ruff",
-        "ms-azuretools.vscode-docker",
         "mtxr.sqltools",
         "mtxr.sqltools-driver-sqlite"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
-        "python.linting.enabled": true,
-        "python.linting.pylintEnabled": false,
-        "python.formatting.provider": "black",
         "[python]": {
-          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.formatOnSave": true,
           "editor.codeActionsOnSave": {
-            "source.organizeImports": true
+            "source.organizeImports": "explicit",
+            "source.fixAll": "explicit"
           }
         },
         "[typescript]": {
@@ -62,5 +52,6 @@
     "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
   ],
   
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true
 }
