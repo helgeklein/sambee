@@ -1,0 +1,96 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend: Start Dev Server",
+      "type": "shell",
+      "command": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+      "options": {
+        "cwd": "${workspaceFolder}/backend",
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}/backend"
+        }
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "development"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Frontend: Start Dev Server",
+      "type": "npm",
+      "script": "start",
+      "path": "frontend/",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new",
+        "group": "development"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Backend: Run Tests",
+      "type": "shell",
+      "command": "pytest -v",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Frontend: Run Tests",
+      "type": "npm",
+      "script": "test",
+      "path": "frontend/",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Database: Reset",
+      "type": "shell",
+      "command": "rm -f data/sambee.db && python -c 'from app.db.database import init_db; init_db()'",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: start - frontend",
+      "type": "npm",
+      "script": "start",
+      "path": "frontend/",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "npm",
+        "pattern": {
+          "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+          "file": 1,
+          "location": 2,
+          "severity": 3,
+          "code": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "webpack compiled|Failed to compile"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+localhost {
+    handle /api/* {
+        reverse_proxy sambee:8000
+    }
+    
+    handle {
+        reverse_proxy sambee:8000
+    }
+}

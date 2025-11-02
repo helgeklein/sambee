@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  devcontainer:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ..:/workspace:cached
+      - /var/run/docker.sock:/var/run/docker.sock
+      - vscode-extensions:/home/vscode/.vscode-server/extensions
+      - vscode-extensions-insiders:/home/vscode/.vscode-server-insiders/extensions
+      - node_modules:/workspace/frontend/node_modules
+      - pip-cache:/home/vscode/.cache/pip
+    command: sleep infinity
+    environment:
+      - TZ=UTC
+    network_mode: host  # Easier for SMB testing
+
+  # Development services
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../Caddyfile.dev:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    profiles: ["with-caddy"]  # Only start when needed
+
+volumes:
+  vscode-extensions:
+  vscode-extensions-insiders:
+  node_modules:
+  pip-cache:
+  caddy_data:
+  caddy_config:
