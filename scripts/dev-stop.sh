@@ -1,0 +1,26 @@
+#!/bin/bash
+
+echo "🛑 Stopping Sambee development servers..."
+
+# Stop backend
+if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
+    echo "Stopping backend server..."
+    pkill -f "uvicorn.*app.main:app"
+    echo "✅ Backend stopped"
+else
+    echo "⚠️  Backend server is not running"
+fi
+
+# Stop frontend
+if pgrep -f "vite" > /dev/null; then
+    echo "Stopping frontend server..."
+    pkill -f "vite"
+    echo "✅ Frontend stopped"
+else
+    echo "⚠️  Frontend server is not running"
+fi
+
+echo ""
+echo "✅ All development servers stopped"
+echo ""
+echo "To start: ./scripts/dev-start.sh"

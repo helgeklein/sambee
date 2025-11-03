@@ -44,13 +44,19 @@
     }
   },
 
-  "forwardPorts": [3000, 8000, 80, 443],
+  "forwardPorts": [3000, 8000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend (Vite)",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Backend (FastAPI)",
+      "onAutoForward": "notify"
+    }
+  },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "git config --global safe.directory /workspace",
-  
-  "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
-  ],
+  "postStartCommand": "bash .devcontainer/post-start.sh",
   
   "remoteUser": "vscode",
   "updateRemoteUserUID": true

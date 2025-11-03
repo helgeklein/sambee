@@ -63,10 +63,5 @@ echo "📦 Installing Node dependencies..."
 cd /workspace/frontend
 npm install
 
-echo "✅ Development environment ready!"
+echo "✅ Development environment setup complete!"
 echo ""
-echo "To start development:"
-echo "  Backend:  cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000"
-echo "  Frontend: cd frontend && npm run dev"
-echo ""
-echo "Or use VS Code tasks (Ctrl+Shift+P -> 'Tasks: Run Task')"

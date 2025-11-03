@@ -46,6 +46,32 @@
       }
     },
     {
+      "label": "Backend: Type Check (mypy)",
+      "type": "shell",
+      "command": "mypy app",
+      "options": {
+        "cwd": "${workspaceFolder}/backend"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": {
+        "owner": "mypy",
+        "source": "mypy",
+        "fileLocation": ["relative", "${workspaceFolder}/backend"],
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+:)? (error|warning|note): (.+?)\\s*\\[(.+?)\\]$",
+          "file": 1,
+          "line": 2,
+          "severity": 4,
+          "message": 5,
+          "code": 6
+        }
+      }
+    },
+    {
       "label": "Frontend: Run Tests",
       "type": "npm",
       "script": "test",
