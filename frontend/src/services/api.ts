@@ -81,6 +81,17 @@ class ApiService {
     return response.data;
   }
 
+  async updateConnection(
+    connectionId: string,
+    connection: Partial<ConnectionCreate>
+  ): Promise<Connection> {
+    const response = await this.api.put<Connection>(
+      `/admin/connections/${connectionId}`,
+      connection
+    );
+    return response.data;
+  }
+
   async deleteConnection(connectionId: string): Promise<void> {
     await this.api.delete(`/admin/connections/${connectionId}`);
   }
@@ -145,6 +156,7 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
+export default apiService;
 
 // Export convenience functions
 export const login = (username: string, password: string) =>

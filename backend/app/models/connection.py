@@ -1,7 +1,8 @@
-from sqlmodel import SQLModel, Field
-from typing import Optional
-from datetime import datetime
 import uuid
+from datetime import datetime
+from typing import Optional
+
+from sqlmodel import Field, SQLModel
 
 
 class Connection(SQLModel, table=True):
@@ -27,6 +28,16 @@ class ConnectionCreate(SQLModel):
     username: str
     password: str
     path_prefix: Optional[str] = "/"
+
+
+class ConnectionUpdate(SQLModel):
+    name: Optional[str] = None
+    host: Optional[str] = None
+    port: Optional[int] = None
+    share_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None  # Only update if provided
+    path_prefix: Optional[str] = None
 
 
 class ConnectionRead(SQLModel):

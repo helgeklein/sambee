@@ -9,7 +9,6 @@ import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import Login from "./pages/Login";
 import Browser from "./pages/Browser";
-import AdminPanel from "./pages/AdminPanel";
 
 const theme = createTheme({
   palette: {
@@ -31,8 +30,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/browser" element={<Browser />} />
-          <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<Navigate to="/browser" replace />} />
         </Routes>
       </Router>
     </ThemeProvider>

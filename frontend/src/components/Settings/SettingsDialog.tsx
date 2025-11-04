@@ -1,29 +1,30 @@
 import React, { useState, useEffect } from "react";
 import {
-  Container,
-  Typography,
-  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  IconButton,
   Box,
   Button,
-  AppBar,
-  Toolbar,
   Snackbar,
   Alert,
-  CircularProgress,
 } from "@mui/material";
-import { Add as AddIcon } from "@mui/icons-material";
-import { useNavigate } from "react-router-dom";
-import ConnectionList from "../components/Admin/ConnectionList";
-import ConnectionDialog from "../components/Admin/ConnectionDialog";
-import DeleteDialog from "../components/Admin/DeleteDialog";
-import api from "../services/api";
-import { Connection } from "../types";
+import { Close as CloseIcon, Add as AddIcon } from "@mui/icons-material";
+import ConnectionList from "../Admin/ConnectionList";
+import ConnectionDialog from "../Admin/ConnectionDialog";
+import DeleteDialog from "../Admin/DeleteDialog";
+import api from "../../services/api";
+import { Connection } from "../../types";
 
-const AdminPanel: React.FC = () => {
-  const navigate = useNavigate();
+interface SettingsDialogProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedConnection, setSelectedConnection] =
     useState<Connection | null>(null);
@@ -39,21 +40,10 @@ const AdminPanel: React.FC = () => {
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
-    checkAuth();
-    loadConnections();
-  }, []);
-
-  const checkAuth = async () => {
-    try {
-      const user = await api.getCurrentUser();
-      if (!user.is_admin) {
-        showNotification("Access denied. Admin privileges required.", "error");
-        navigate("/browser");
-      }
-    } catch (error) {
-      navigate("/login");
+    if (open) {
+      loadConnections();
     }
-  };
+  }, [open]);
 
   const loadConnections = async () => {
     try {
@@ -79,12 +69,12 @@ const AdminPanel: React.FC = () => {
 
   const handleAddClick = () => {
     setSelectedConnection(null);
-    setDialogOpen(true);
+    setConnectionDialogOpen(true);
   };
 
   const handleEdit = (connection: Connection) => {
     setSelectedConnection(connection);
-    setDialogOpen(true);
+    setConnectionDialogOpen(true);
   };
 
   const handleDelete = (connection: Connection) => {
@@ -137,43 +127,44 @@ const AdminPanel: React.FC = () => {
   };
 
   return (
-    <Box>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Admin Panel - SMB Share Management
-          </Typography>
-          <Button
-            color="inherit"
-            startIcon={<AddIcon />}
-            onClick={handleAddClick}
+    <>
+      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+        <DialogTitle>
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
           >
-            Add Connection
-          </Button>
-        </Toolbar>
-      </AppBar>
-
-      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-        <Paper elevation={3} sx={{ p: 3 }}>
-          {loading ? (
-            <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-              <CircularProgress />
+            <Box display="flex" alignItems="center" gap={2}>
+              SMB Connection Settings
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={handleAddClick}
+              >
+                Add Connection
+              </Button>
             </Box>
-          ) : (
-            <ConnectionList
-              connections={connections}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onTest={handleTest}
-              loading={testing}
-            />
-          )}
-        </Paper>
-      </Container>
+            <IconButton onClick={onClose} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <ConnectionList
+            connections={connections}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onTest={handleTest}
+            loading={testing || loading}
+          />
+        </DialogContent>
+      </Dialog>
 
       <ConnectionDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        open={connectionDialogOpen}
+        onClose={() => setConnectionDialogOpen(false)}
         onSave={handleDialogSave}
         connection={selectedConnection}
       />
@@ -199,8 +190,8 @@ const AdminPanel: React.FC = () => {
           {notification.message}
         </Alert>
       </Snackbar>
-    </Box>
+    </>
   );
 };
 
-export default AdminPanel;
+export default SettingsDialog;

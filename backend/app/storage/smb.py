@@ -67,60 +67,55 @@ class SMBBackend(StorageBackend):
         try:
             # Run in executor to avoid blocking
             loop = asyncio.get_event_loop()
-            dir_items = await loop.run_in_executor(
-                None,
-                lambda: list(
-                    smbclient.listdir(
-                        smb_path, username=self.username, password=self.password
-                    )
-                ),
-            )
 
-            for item_name in dir_items:
-                if item_name in [".", ".."]:
-                    continue
+            # Use scandir for better performance - all info from ONE SMB query_directory call
+            def _scan_directory() -> list[FileInfo]:
+                result = []
+                entries = smbclient.scandir(
+                    smb_path, username=self.username, password=self.password
+                )
 
-                item_path = f"{path}/{item_name}" if path else item_name
-                item_smb_path = self._build_smb_path(item_path)
+                for entry in entries:
+                    if entry.name in [".", ".."]:
+                        continue
 
-                try:
-                    stat_info = await loop.run_in_executor(
-                        None,
-                        lambda: smbclient.stat(
-                            item_smb_path,
-                            username=self.username,
-                            password=self.password,
-                        ),
-                    )
+                    item_path = f"{path}/{entry.name}" if path else entry.name
 
-                    is_dir = smbclient.path.isdir(
-                        item_smb_path, username=self.username, password=self.password
-                    )
+                    try:
+                        # Use smb_info which is already populated by scandir - NO extra SMB calls!
+                        info = entry.smb_info
+                        is_dir = entry.is_dir()  # No SMB call - checks file_attributes
 
-                    file_info = FileInfo(
-                        name=item_name,
-                        path=item_path,
-                        type=FileType.DIRECTORY if is_dir else FileType.FILE,
-                        size=stat_info.st_size if not is_dir else None,
-                        mime_type=None if is_dir else self._get_mime_type(item_name),
-                        modified_at=datetime.fromtimestamp(stat_info.st_mtime),
-                        created_at=datetime.fromtimestamp(stat_info.st_ctime),
-                        is_hidden=item_name.startswith("."),
-                    )
-                    items.append(file_info)
-
-                except Exception as e:
-                    logger.warning(f"Failed to stat {item_name}: {e}")
-                    # Add basic entry even if stat fails
-                    items.append(
-                        FileInfo(
-                            name=item_name,
+                        # Convert Windows FILETIME (100ns intervals since 1601) to Python datetime
+                        # The smb_info already has datetime objects
+                        file_info = FileInfo(
+                            name=entry.name,
                             path=item_path,
-                            type=FileType.FILE,
-                            is_readable=False,
-                            is_hidden=item_name.startswith("."),
+                            type=FileType.DIRECTORY if is_dir else FileType.FILE,
+                            size=info.end_of_file if not is_dir else None,
+                            mime_type=None
+                            if is_dir
+                            else self._get_mime_type(entry.name),
+                            modified_at=info.last_write_time,
+                            created_at=info.creation_time,
+                            is_hidden=entry.name.startswith("."),
                         )
-                    )
+                        result.append(file_info)
+                    except Exception as e:
+                        logger.warning(f"Failed to process {entry.name}: {e}")
+                        # Add basic entry even if processing fails
+                        result.append(
+                            FileInfo(
+                                name=entry.name,
+                                path=item_path,
+                                type=FileType.FILE,
+                                is_readable=False,
+                                is_hidden=entry.name.startswith("."),
+                            )
+                        )
+                return result
+
+            items = await loop.run_in_executor(None, _scan_directory)
 
             # Sort: directories first, then alphabetically
             items.sort(key=lambda x: (x.type != FileType.DIRECTORY, x.name.lower()))
@@ -144,7 +139,7 @@ class SMBBackend(StorageBackend):
                 ),
             )
 
-            is_dir = smbclient.path.isdir(
+            is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
                 smb_path, username=self.username, password=self.password
             )
             filename = PurePosixPath(path).name
@@ -204,7 +199,7 @@ class SMBBackend(StorageBackend):
             loop = asyncio.get_event_loop()
             exists = await loop.run_in_executor(
                 None,
-                lambda: smbclient.path.exists(
+                lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
                     smb_path, username=self.username, password=self.password
                 ),
             )
