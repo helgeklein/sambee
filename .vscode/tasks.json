@@ -4,31 +4,39 @@
     {
       "label": "Backend: Start Dev Server",
       "type": "shell",
-      "command": "uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+      "command": "${workspaceFolder}/scripts/start-backend.sh",
       "options": {
-        "cwd": "${workspaceFolder}/backend",
         "env": {
           "PYTHONPATH": "${workspaceFolder}/backend"
         }
       },
       "group": "build",
+      "isBackground": true,
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "development"
+        "panel": "dedicated",
+        "group": "development",
+        "showReuseMessage": false
       },
       "problemMatcher": []
     },
     {
       "label": "Frontend: Start Dev Server",
-      "type": "npm",
-      "script": "start",
-      "path": "frontend/",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/start-frontend.sh",
       "group": "build",
+      "isBackground": true,
+      "runOptions": {
+        "runOn": "folderOpen"
+      },
       "presentation": {
         "reveal": "always",
-        "panel": "new",
-        "group": "development"
+        "panel": "dedicated",
+        "group": "development",
+        "showReuseMessage": false
       },
       "problemMatcher": []
     },

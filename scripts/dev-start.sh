@@ -1,24 +1,41 @@
 #!/bin/bash
 
-echo "🚀 Starting Sambee development servers..."
+# Logging function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a /tmp/dev-start.log
+}
+
+log "=" 
+log "🚀 Starting Sambee development servers..."
+log "   Script: $0"
+log "   PWD: $(pwd)"
+log "   User: $(whoami)"
+log "="
 
 # Check if backend is already running
 if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
-    echo "⚠️  Backend server is already running"
+    BACKEND_PID=$(pgrep -f "uvicorn.*app.main:app")
+    log "⚠️  Backend server is already running (PID: $BACKEND_PID)"
 else
-    echo "Starting backend server..."
+    log "Starting backend server..."
     cd /workspace/backend
     nohup uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1 &
     BACKEND_PID=$!
+    log "   Backend process started (PID: $BACKEND_PID)"
     
     # Wait for backend to actually start (max 10 seconds)
     for i in {1..20}; do
         if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
-            echo "✅ Backend started successfully"
+            ACTUAL_PID=$(pgrep -f "uvicorn.*app.main:app")
+            log "✅ Backend started successfully (PID: $ACTUAL_PID)"
             break
         fi
         if [ $i -eq 20 ]; then
-            echo "⚠️  Backend failed to start, check /tmp/backend.log"
+            log "❌ Backend failed to start after 10 seconds"
+            log "   Check logs: tail -50 /tmp/backend.log"
+            tail -20 /tmp/backend.log | while IFS= read -r line; do
+                log "   | $line"
+            done
         fi
         sleep 0.5
     done
@@ -26,36 +43,53 @@ fi
 
 # Check if frontend is already running
 if pgrep -f "vite" > /dev/null; then
-    echo "⚠️  Frontend server is already running"
+    FRONTEND_PID=$(pgrep -f "vite")
+    log "⚠️  Frontend server is already running (PID: $FRONTEND_PID)"
 else
-    echo "Starting frontend server..."
+    log "Starting frontend server..."
     cd /workspace/frontend
+    
+    # Check node_modules
+    if [ ! -d "node_modules" ]; then
+        log "❌ node_modules not found! Running npm install..."
+        npm install 2>&1 | while IFS= read -r line; do
+            log "   | $line"
+        done
+    fi
+    
     nohup npm run dev > /tmp/frontend.log 2>&1 &
     FRONTEND_PID=$!
+    log "   Frontend process started (PID: $FRONTEND_PID)"
     
     # Wait for frontend to actually start (max 10 seconds)
     for i in {1..20}; do
         if pgrep -f "vite" > /dev/null; then
-            echo "✅ Frontend started successfully"
+            ACTUAL_PID=$(pgrep -f "vite")
+            log "✅ Frontend started successfully (PID: $ACTUAL_PID)"
             break
         fi
         if [ $i -eq 20 ]; then
-            echo "⚠️  Frontend failed to start, check /tmp/frontend.log"
+            log "❌ Frontend failed to start after 10 seconds"
+            log "   Check logs: tail -50 /tmp/frontend.log"
+            tail -20 /tmp/frontend.log | while IFS= read -r line; do
+                log "   | $line"
+            done
         fi
         sleep 0.5
     done
 fi
 
-echo ""
-echo "✅ Development servers are running!"
-echo ""
-echo "Access:"
-echo "  Frontend: http://localhost:3000"
-echo "  Backend:  http://localhost:8000"
-echo "  API Docs: http://localhost:8000/docs"
-echo ""
-echo "View logs:"
-echo "  tail -f /tmp/backend.log"
-echo "  tail -f /tmp/frontend.log"
-echo ""
-echo "To stop: ./dev-stop.sh"
+log ""
+log "✅ Development servers are running!"
+log ""
+log "Access:"
+log "  Frontend: http://localhost:3000"
+log "  Backend:  http://localhost:8000"
+log "  API Docs: http://localhost:8000/docs"
+log ""
+log "View logs:"
+log "  tail -f /tmp/backend.log"
+log "  tail -f /tmp/frontend.log"
+log "  tail -f /tmp/dev-start.log"
+log ""
+log "To stop: /workspace/scripts/dev-stop.sh"

@@ -29,8 +29,9 @@ function App() {
       <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/browser" element={<Browser />} />
-          <Route path="/" element={<Navigate to="/browser" replace />} />
+          <Route path="/browse/:connectionId/*" element={<Browser />} />
+          <Route path="/browse" element={<Browser />} />
+          <Route path="/" element={<Navigate to="/browse" replace />} />
         </Routes>
       </Router>
     </ThemeProvider>

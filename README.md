@@ -58,6 +58,67 @@ Access the application at http://localhost
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development setup instructions.
 
+### Logging & Debugging
+
+Sambee includes comprehensive logging to help diagnose issues:
+
+#### View Logs
+
+```bash
+# View all logs with status
+/workspace/scripts/logs.sh
+
+# Show more lines
+/workspace/scripts/logs.sh -n 100
+
+# Follow logs in real-time
+/workspace/scripts/logs.sh -f
+
+# Or view individual logs
+tail -f /tmp/backend.log
+tail -f /tmp/frontend.log
+tail -f /tmp/dev-start.log
+tail -f /tmp/post-start.log
+```
+
+#### Log Files
+
+- `/tmp/backend.log` - FastAPI backend logs (includes startup, requests, errors)
+- `/tmp/frontend.log` - Vite frontend logs (includes build output, HMR)
+- `/tmp/dev-start.log` - Dev server startup logs
+- `/tmp/post-start.log` - Container post-start hook logs
+
+#### Rotate Logs
+
+If logs get too large:
+
+```bash
+/workspace/scripts/rotate-logs.sh
+```
+
+This archives current logs and starts fresh files.
+
+#### What's Logged
+
+**Backend:**
+- Application startup/shutdown with timestamps
+- Database initialization
+- All HTTP requests with duration (e.g., `→ GET /api/browse - 200 (45.2ms)`)
+- SMB connection attempts and failures
+- Errors with full stack traces
+
+**Frontend:**
+- Vite server startup
+- Build progress
+- Hot module replacement (HMR) updates
+- Build errors
+
+**Startup Scripts:**
+- Post-start command execution
+- Dev server launch attempts
+- Process IDs and verification
+- Failure diagnostics with log tails
+
 ## License
 
 MIT

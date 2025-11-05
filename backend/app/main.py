@@ -1,5 +1,7 @@
 import logging
+import sys
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -9,41 +11,70 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
-from app.api import admin, auth, browser, preview
+from app.api import admin, auth, browser, preview, websocket
 from app.core.config import settings
 from app.core.security import get_password_hash
 from app.db.database import engine, init_db
 from app.models.user import User
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging with more detail
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler("/tmp/backend.log", mode="a"),
+    ],
+)
 logger = logging.getLogger(__name__)
+
+# Log startup time
+logger.info("=" * 80)
+logger.info(f"Sambee Backend Starting - {datetime.now().isoformat()}")
+logger.info(f"Python: {sys.version}")
+logger.info(f"Working Directory: {Path.cwd()}")
+logger.info("=" * 80)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize application on startup"""
-    logger.info("Starting Sambee application...")
+    try:
+        logger.info("Starting Sambee application...")
 
-    # Initialize database
-    init_db()
+        # Initialize database
+        logger.info("Initializing database...")
+        init_db()
+        logger.info("✅ Database initialized")
 
-    # Create default admin user if doesn't exist
-    with Session(engine) as session:
-        statement = select(User).where(User.username == settings.admin_username)
-        admin = session.exec(statement).first()
-        if not admin:
-            admin = User(
-                username=settings.admin_username,
-                password_hash=get_password_hash(settings.admin_password),
-                is_admin=True,
-            )
-            session.add(admin)
-            session.commit()
-            logger.info(f"Created default admin user: {settings.admin_username}")
+        # Create default admin user if doesn't exist
+        logger.info("Checking for admin user...")
+        with Session(engine) as session:
+            statement = select(User).where(User.username == settings.admin_username)
+            admin = session.exec(statement).first()
+            if not admin:
+                admin = User(
+                    username=settings.admin_username,
+                    password_hash=get_password_hash(settings.admin_password),
+                    is_admin=True,
+                )
+                session.add(admin)
+                session.commit()
+                logger.info(f"✅ Created default admin user: {settings.admin_username}")
+            else:
+                logger.info(f"✅ Admin user exists: {settings.admin_username}")
+
+        logger.info("🚀 Sambee application startup complete!")
+        logger.info("API Documentation: http://localhost:8000/docs")
+
+    except Exception as e:
+        logger.error(f"❌ Startup failed: {e}", exc_info=True)
+        raise
 
     yield
 
     logger.info("Shutting down Sambee application...")
+    logger.info(f"Shutdown complete - {datetime.now().isoformat()}")
 
 
 app = FastAPI(
@@ -52,6 +83,35 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """Log all HTTP requests"""
+    start_time = datetime.now()
+
+    # Log request
+    logger.info(f"→ {request.method} {request.url.path}")
+
+    try:
+        response = await call_next(request)
+
+        # Log response
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        logger.info(
+            f"← {request.method} {request.url.path} - {response.status_code} ({duration:.2f}ms)"
+        )
+
+        return response
+    except Exception as e:
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        logger.error(
+            f"❌ {request.method} {request.url.path} failed after {duration:.2f}ms: {e}",
+            exc_info=True,
+        )
+        raise
+
 
 # CORS configuration
 app.add_middleware(
@@ -67,6 +127,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(preview.router, prefix="/api/preview", tags=["preview"])
+app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 
 
 # Health check

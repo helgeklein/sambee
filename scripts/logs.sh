@@ -1,0 +1,114 @@
+#!/bin/bash
+
+# Sambee Log Viewer
+# Shows all relevant logs in a readable format
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}               SAMBEE DEVELOPMENT LOGS${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+# Function to display a log file
+show_log() {
+    local log_file=$1
+    local log_name=$2
+    local lines=${3:-50}
+    
+    if [ -f "$log_file" ]; then
+        local size=$(ls -lh "$log_file" | awk '{print $5}')
+        local modified=$(stat -c %y "$log_file" 2>/dev/null || stat -f %Sm "$log_file" 2>/dev/null)
+        
+        echo -e "${GREEN}━━━ $log_name${NC}"
+        echo -e "${YELLOW}File: $log_file${NC}"
+        echo -e "${YELLOW}Size: $size | Modified: ${modified:0:19}${NC}"
+        echo ""
+        
+        tail -n "$lines" "$log_file" | head -n "$lines"
+        echo ""
+    else
+        echo -e "${RED}━━━ $log_name${NC}"
+        echo -e "${YELLOW}File: $log_file${NC}"
+        echo -e "${RED}⚠️  Log file not found${NC}"
+        echo ""
+    fi
+}
+
+# Parse arguments
+LINES=50
+FOLLOW=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -n|--lines)
+            LINES="$2"
+            shift 2
+            ;;
+        -f|--follow)
+            FOLLOW=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -n, --lines N    Show last N lines (default: 50)"
+            echo "  -f, --follow     Follow logs in real-time"
+            echo "  -h, --help       Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0                    # Show last 50 lines of all logs"
+            echo "  $0 -n 100             # Show last 100 lines"
+            echo "  $0 -f                 # Follow all logs in real-time"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h for help"
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$FOLLOW" = true ]; then
+    echo -e "${BLUE}📡 Following logs (Ctrl+C to stop)...${NC}"
+    echo ""
+    
+    # Follow all logs with labels
+    tail -f /tmp/post-start.log /tmp/dev-start.log /tmp/backend.log /tmp/frontend.log 2>/dev/null
+else
+    # Show current status
+    echo -e "${GREEN}━━━ SERVER STATUS${NC}"
+    if pgrep -f "uvicorn.*app.main:app" > /dev/null; then
+        BACKEND_PID=$(pgrep -f "uvicorn.*app.main:app")
+        echo -e "${GREEN}✅ Backend running (PID: $BACKEND_PID)${NC}"
+    else
+        echo -e "${RED}❌ Backend not running${NC}"
+    fi
+    
+    if pgrep -f "vite" > /dev/null; then
+        FRONTEND_PID=$(pgrep -f "vite")
+        echo -e "${GREEN}✅ Frontend running (PID: $FRONTEND_PID)${NC}"
+    else
+        echo -e "${RED}❌ Frontend not running${NC}"
+    fi
+    echo ""
+    
+    # Show logs
+    show_log "/tmp/post-start.log" "Container Post-Start" "$LINES"
+    show_log "/tmp/dev-start.log" "Dev Start Script" "$LINES"
+    show_log "/tmp/backend.log" "Backend (FastAPI)" "$LINES"
+    show_log "/tmp/frontend.log" "Frontend (Vite)" "$LINES"
+    
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}Tip: Use -f to follow logs in real-time${NC}"
+    echo -e "${YELLOW}     Use -n to show more/fewer lines${NC}"
+    echo ""
+fi

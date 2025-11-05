@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
   Container,
   AppBar,
@@ -46,7 +46,10 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   KeyboardOutlined as KeyboardIcon,
+  Refresh as RefreshIcon,
 } from "@mui/icons-material";
+import { List as FixedSizeList } from "react-window";
+
 import { FileEntry, Connection } from "../types";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -89,6 +92,9 @@ const formatDate = (dateString?: string): string => {
 
 const Browser: React.FC = () => {
   const navigate = useNavigate();
+  const params = useParams<{ connectionId: string; "*": string }>();
+  const location = useLocation();
+
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [currentPath, setCurrentPath] = useState("");
@@ -103,13 +109,238 @@ const Browser: React.FC = () => {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
 
-  const listRef = React.useRef<HTMLUListElement>(null);
+  const listRef = React.useRef<any>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const filesRef = React.useRef<FileEntry[]>([]);
+  const virtualListRef = React.useRef<any>(null);
+  const listContainerRef = React.useRef<HTMLDivElement>(null);
+  const [listHeight, setListHeight] = React.useState(600);
+
+  // Navigation history to restore scroll position and selection when going back
+  const navigationHistory = React.useRef<
+    Map<
+      string,
+      {
+        focusedIndex: number;
+        scrollOffset: number;
+        selectedFileName: string | null;
+      }
+    >
+  >(new Map());
+
+  // Directory listing cache for instant backward navigation
+  const directoryCache = React.useRef<
+    Map<string, { items: FileEntry[]; timestamp: number }>
+  >(new Map());
+
+  // WebSocket for real-time directory updates
+  const wsRef = React.useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = React.useRef<number | null>(null);
+
+  // Track if we're initializing from URL to avoid circular updates
+  const isInitializing = React.useRef<boolean>(true);
+  // Track if we're updating state from URL (back/forward) to avoid circular navigate
+  const isUpdatingFromUrl = React.useRef<boolean>(false);
+
+  // Helper functions for connection name/ID mapping
+  const slugifyConnectionName = (name: string): string => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with dashes
+      .replace(/^-+|-+$/g, ""); // Remove leading/trailing dashes
+  };
+
+  const getConnectionByName = (slug: string): Connection | undefined => {
+    return connections.find((c) => slugifyConnectionName(c.name) === slug);
+  };
+
+  const getConnectionIdentifier = (connection: Connection): string => {
+    return slugifyConnectionName(connection.name);
+  };
 
   useEffect(() => {
     loadConnections();
     checkAdminStatus();
   }, []);
+
+  // Initialize state from URL after connections are loaded
+  useEffect(() => {
+    if (connections.length === 0) return; // Wait for connections to load
+
+    if (params.connectionId) {
+      const connection = getConnectionByName(params.connectionId);
+      if (connection) {
+        setSelectedConnectionId(connection.id);
+        const urlPath = params["*"] || "";
+        setCurrentPath(decodeURIComponent(urlPath));
+      }
+    }
+    // Mark initialization complete after a brief delay
+    setTimeout(() => {
+      isInitializing.current = false;
+    }, 100);
+  }, [connections]);
+
+  // Handle browser back/forward navigation
+  useEffect(() => {
+    if (isInitializing.current || connections.length === 0) return;
+
+    isUpdatingFromUrl.current = true;
+
+    if (params.connectionId) {
+      const connection = getConnectionByName(params.connectionId);
+      if (connection && connection.id !== selectedConnectionId) {
+        setSelectedConnectionId(connection.id);
+      }
+    }
+
+    const urlPath = params["*"] || "";
+    const decodedPath = decodeURIComponent(urlPath);
+    if (decodedPath !== currentPath) {
+      setCurrentPath(decodedPath);
+    }
+
+    // Reset flag after state updates have propagated
+    setTimeout(() => {
+      isUpdatingFromUrl.current = false;
+    }, 50);
+  }, [location.pathname]);
+
+  // WebSocket connection and reconnection logic
+  useEffect(() => {
+    const connectWebSocket = () => {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // In development, use port 8000; in production, use same port as current page
+      const isDev =
+        window.location.port === "3000" ||
+        window.location.hostname === "localhost";
+      const port = isDev ? "8000" : window.location.port;
+      const wsUrl = port
+        ? `${protocol}//${window.location.hostname}:${port}/api/ws`
+        : `${protocol}//${window.location.hostname}/api/ws`;
+
+      console.log(`Connecting to WebSocket: ${wsUrl}`);
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        console.log("WebSocket connected");
+        wsRef.current = ws;
+
+        // Subscribe to current directory if we have one
+        if (selectedConnectionId && currentPath !== undefined) {
+          ws.send(
+            JSON.stringify({
+              action: "subscribe",
+              connection_id: selectedConnectionId,
+              path: currentPath,
+            })
+          );
+        }
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "directory_changed") {
+          console.log(`Directory changed: ${data.connection_id}:${data.path}`);
+
+          // Invalidate cache for this directory
+          const cacheKey = `${data.connection_id}:${data.path}`;
+          directoryCache.current.delete(cacheKey);
+
+          // If we're currently viewing this directory, reload it
+          if (
+            data.connection_id === selectedConnectionId &&
+            data.path === currentPath
+          ) {
+            console.log("Reloading current directory due to change");
+            loadFiles(currentPath, true); // Force reload
+          }
+        } else if (data.type === "subscribed") {
+          console.log(`Subscribed to: ${data.connection_id}:${data.path}`);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected, reconnecting in 5s...");
+        wsRef.current = null;
+
+        // Reconnect after 5 seconds
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          connectWebSocket();
+        }, 5000);
+      };
+    };
+
+    connectWebSocket();
+
+    // Cleanup on unmount
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, []);
+
+  // Subscribe/unsubscribe when directory changes
+  useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN && selectedConnectionId) {
+      // Unsubscribe from all and subscribe to current directory
+      wsRef.current.send(
+        JSON.stringify({
+          action: "subscribe",
+          connection_id: selectedConnectionId,
+          path: currentPath,
+        })
+      );
+    }
+  }, [currentPath, selectedConnectionId]);
+
+  // Sync URL with state changes
+  useEffect(() => {
+    if (selectedConnectionId) {
+      updateUrl(selectedConnectionId, currentPath);
+    }
+  }, [currentPath, selectedConnectionId]);
+
+  // Calculate list height dynamically based on container size
+  useEffect(() => {
+    const updateHeight = () => {
+      if (listContainerRef.current) {
+        const rect = listContainerRef.current.getBoundingClientRect();
+        // Leave some padding
+        const height = rect.height - 16;
+        console.log(
+          "List container height:",
+          rect.height,
+          "→ listHeight:",
+          height > 200 ? height : 600
+        );
+        setListHeight(height > 200 ? height : 600);
+      }
+    };
+
+    // Use ResizeObserver for better performance
+    const observer = new ResizeObserver(updateHeight);
+    if (listContainerRef.current) {
+      observer.observe(listContainerRef.current);
+    }
+
+    // Initial calculation with a small delay to ensure layout is ready
+    const timeout = setTimeout(updateHeight, 100);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeout);
+    };
+  }, [connections, selectedConnectionId]); // Recalculate when connections change
 
   useEffect(() => {
     if (selectedConnectionId) {
@@ -127,15 +358,44 @@ const Browser: React.FC = () => {
       const data = await api.getConnections();
       setConnections(data);
 
-      // Load persisted connection or use first one
+      // Priority: URL param (name slug) > localStorage > first connection
+      if (params.connectionId) {
+        const urlConnection = data.find(
+          (c: Connection) =>
+            slugifyConnectionName(c.name) === params.connectionId
+        );
+        if (urlConnection) {
+          // URL has valid connection, will be set in initialization useEffect
+          // Don't override it here
+          return;
+        } else {
+          // Invalid connection slug in URL - redirect to /browse
+          navigate("/browse", { replace: true });
+          return;
+        }
+      }
+
+      // No URL param, use localStorage or first
       const savedConnectionId = localStorage.getItem("selectedConnectionId");
+      let autoSelectedConnection: Connection | undefined;
+
       if (
         savedConnectionId &&
         data.find((c: Connection) => c.id === savedConnectionId)
       ) {
+        autoSelectedConnection = data.find(
+          (c: Connection) => c.id === savedConnectionId
+        );
         setSelectedConnectionId(savedConnectionId);
       } else if (data.length > 0) {
+        autoSelectedConnection = data[0];
         setSelectedConnectionId(data[0].id);
+      }
+
+      // Update URL to include the auto-selected connection
+      if (autoSelectedConnection) {
+        const identifier = slugifyConnectionName(autoSelectedConnection.name);
+        navigate(`/browse/${identifier}`, { replace: true });
       }
     } catch (err: any) {
       console.error("Error loading connections:", err);
@@ -151,13 +411,61 @@ const Browser: React.FC = () => {
     }
   };
 
-  const loadFiles = async (path: string) => {
+  // Helper to update URL when navigation changes
+  const updateUrl = (connectionId: string, path: string) => {
+    if (isInitializing.current) return; // Don't update URL during initialization
+    if (isUpdatingFromUrl.current) return; // Don't update URL when state is being set from URL
+
+    // Find connection and use its name as identifier
+    const connection = connections.find((c) => c.id === connectionId);
+    if (!connection) return;
+
+    const identifier = getConnectionIdentifier(connection);
+
+    // Encode the path but keep slashes as slashes (not %2F)
+    const encodedPath = path
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+
+    const newUrl = `/browse/${identifier}${
+      encodedPath ? `/${encodedPath}` : ""
+    }`;
+
+    // Only navigate if URL actually changed to avoid duplicate history entries
+    if (location.pathname !== newUrl) {
+      navigate(newUrl, { replace: false });
+    }
+  };
+
+  const loadFiles = async (path: string, forceRefresh: boolean = false) => {
     if (!selectedConnectionId) return;
+
+    // Create cache key
+    const cacheKey = `${selectedConnectionId}:${path}`;
+
+    // Check cache first (unless force refresh)
+    if (!forceRefresh) {
+      const cached = directoryCache.current.get(cacheKey);
+      if (cached) {
+        // Use cached data immediately - no loading spinner!
+        setFiles(cached.items);
+        setError(null);
+        return;
+      }
+    }
 
     try {
       setLoading(true);
       setError(null);
       const listing = await api.listDirectory(selectedConnectionId, path);
+
+      // Store in cache
+      directoryCache.current.set(cacheKey, {
+        items: listing.items,
+        timestamp: Date.now(),
+      });
+
       setFiles(listing.items);
     } catch (err: any) {
       console.error("Error loading files:", err);
@@ -194,6 +502,9 @@ const Browser: React.FC = () => {
     setCurrentPath("");
     setSelectedFile(null);
     setFiles([]);
+    // Clear caches when switching connections
+    directoryCache.current.clear();
+    navigationHistory.current.clear();
     // Persist selection
     localStorage.setItem("selectedConnectionId", connectionId);
   };
@@ -205,27 +516,37 @@ const Browser: React.FC = () => {
   };
 
   const sortedAndFilteredFiles = useMemo(() => {
-    // Filter by search query
+    // Filter by search query first
     let filtered = files;
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = files.filter((f) => f.name.toLowerCase().includes(query));
     }
 
-    // Always keep directories first
-    const directories = filtered.filter((f) => f.type === "directory");
-    const regularFiles = filtered.filter((f) => f.type !== "directory");
+    // Single-pass separation and sorting
+    const directories: FileEntry[] = [];
+    const regularFiles: FileEntry[] = [];
 
+    for (const file of filtered) {
+      if (file.type === "directory") {
+        directories.push(file);
+      } else {
+        regularFiles.push(file);
+      }
+    }
+
+    // Optimized sort function
     const sortFunction = (a: FileEntry, b: FileEntry) => {
       switch (sortBy) {
         case "name":
           return a.name.localeCompare(b.name);
         case "size":
           return (b.size || 0) - (a.size || 0);
-        case "modified":
+        case "modified": {
           const dateA = a.modified_at ? new Date(a.modified_at).getTime() : 0;
           const dateB = b.modified_at ? new Date(b.modified_at).getTime() : 0;
           return dateB - dateA;
+        }
         default:
           return 0;
       }
@@ -237,45 +558,94 @@ const Browser: React.FC = () => {
     return [...directories, ...regularFiles];
   }, [files, sortBy, searchQuery]);
 
-  // Reset focused index when files change
+  // Keep ref updated and restore or reset focused index when files change
   useEffect(() => {
-    setFocusedIndex(0);
-  }, [sortedAndFilteredFiles]);
+    filesRef.current = sortedAndFilteredFiles;
 
-  // Scroll focused item into view
-  useEffect(() => {
-    if (listRef.current && sortedAndFilteredFiles.length > 0) {
-      const focusedElement = listRef.current.querySelector(
-        `[data-index="${focusedIndex}"]`
+    // Check if we have saved state to restore for current path
+    const savedState = navigationHistory.current.get(currentPath);
+    if (savedState && savedState.selectedFileName) {
+      // Find the index of the previously selected item
+      const restoredIndex = sortedAndFilteredFiles.findIndex(
+        (f) => f.name === savedState.selectedFileName
       );
-      if (focusedElement) {
-        focusedElement.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if (restoredIndex >= 0) {
+        setFocusedIndex(restoredIndex);
+        // Restore scroll position after a short delay to ensure list is rendered
+        setTimeout(() => {
+          if (virtualListRef.current) {
+            virtualListRef.current.scrollToRow({
+              index: restoredIndex,
+              align: "smart",
+            });
+          }
+        }, 0);
+        // Clear the saved state after restoring
+        navigationHistory.current.delete(currentPath);
+        return;
       }
     }
-  }, [focusedIndex, sortedAndFilteredFiles.length]);
 
-  // Keyboard navigation
+    // Default: reset to top
+    setFocusedIndex(0);
+  }, [sortedAndFilteredFiles, currentPath]);
+
+  // Scroll focused item into view using VirtualList API
+  useEffect(() => {
+    if (virtualListRef.current && focusedIndex >= 0) {
+      virtualListRef.current.scrollToRow({
+        index: focusedIndex,
+        align: "smart",
+        behavior: "auto",
+      });
+    }
+  }, [focusedIndex]);
+
+  // Keyboard navigation (optimized to avoid recreation on file list changes)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't handle if typing in an input or if a dialog is open
       const target = e.target as HTMLElement;
-      if (
+      const isInInput =
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
-        target.isContentEditable ||
-        settingsOpen ||
-        showHelp
-      ) {
+        target.isContentEditable;
+
+      if (isInInput || settingsOpen || showHelp) {
         // Exception: Allow / to focus search from anywhere
         if (e.key === "/" && !settingsOpen && !showHelp) {
           e.preventDefault();
           searchInputRef.current?.focus();
         }
+        // Exception: Allow Backspace for navigation when search is empty and in search input
+        if (
+          e.key === "Backspace" &&
+          isInInput &&
+          (searchQuery === "" || (target as HTMLInputElement).value === "") &&
+          currentPath
+        ) {
+          // Check if cursor is at the beginning of input (no text to delete)
+          const input = target as HTMLInputElement;
+          if (input.selectionStart === 0 && input.selectionEnd === 0) {
+            e.preventDefault();
+            const pathParts = currentPath.split("/");
+            const newPath = pathParts.slice(0, -1).join("/");
+            setCurrentPath(newPath);
+            setSelectedFile(null);
+            return;
+          }
+        }
         return;
       }
 
-      const fileCount = sortedAndFilteredFiles.length;
-      if (fileCount === 0) return;
+      const files = filesRef.current;
+      const fileCount = files.length;
+
+      // Allow certain keys even when no files
+      const alwaysAllowKeys = ["Backspace", "Escape", "/", "?", "F5"];
+      if (fileCount === 0 && !alwaysAllowKeys.includes(e.key)) {
+        return;
+      }
 
       switch (e.key) {
         case "ArrowDown":
@@ -310,9 +680,12 @@ const Browser: React.FC = () => {
 
         case "Enter":
           e.preventDefault();
-          if (sortedAndFilteredFiles[focusedIndex]) {
-            handleFileClick(sortedAndFilteredFiles[focusedIndex]);
-          }
+          setFocusedIndex((prev) => {
+            if (files[prev]) {
+              handleFileClick(files[prev]);
+            }
+            return prev;
+          });
           break;
 
         case "Backspace":
@@ -341,11 +714,16 @@ const Browser: React.FC = () => {
           setShowHelp(true);
           break;
 
+        case "F5":
+          e.preventDefault();
+          loadFiles(currentPath, true);
+          break;
+
         default:
           // Letter keys - jump to first file starting with that letter
           if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
             const letter = e.key.toLowerCase();
-            const index = sortedAndFilteredFiles.findIndex((f) =>
+            const index = files.findIndex((f) =>
               f.name.toLowerCase().startsWith(letter)
             );
             if (index !== -1) {
@@ -358,22 +736,29 @@ const Browser: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    sortedAndFilteredFiles,
-    focusedIndex,
-    currentPath,
-    settingsOpen,
-    showHelp,
-  ]);
+  }, [currentPath, settingsOpen, showHelp, searchQuery]);
 
   const handleFileClick = (file: FileEntry, index?: number) => {
     if (index !== undefined) {
       setFocusedIndex(index);
     }
     if (file.type === "directory") {
+      // Save current state before navigating into directory
+      const currentScrollOffset =
+        virtualListRef.current?.state?.scrollOffset || 0;
+      navigationHistory.current.set(currentPath, {
+        focusedIndex,
+        scrollOffset: currentScrollOffset,
+        selectedFileName: file.name,
+      });
+
       const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
       setCurrentPath(newPath);
       setSelectedFile(null);
+      // Blur any focused element when navigating so keyboard shortcuts work
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
     } else {
       const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
       setSelectedFile(filePath);
@@ -385,6 +770,11 @@ const Browser: React.FC = () => {
     const newPath = pathParts.slice(0, index + 1).join("/");
     setCurrentPath(newPath);
     setSelectedFile(null);
+    // Blur any focused input
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    // Restoration will happen in useEffect after files are loaded
   };
 
   const handleLogout = () => {
@@ -394,8 +784,72 @@ const Browser: React.FC = () => {
 
   const pathParts = currentPath ? currentPath.split("/") : [];
 
+  // Row renderer for virtual list
+  // Row component for VirtualList (react-window v2)
+  const RowComponent = React.useCallback(
+    ({ index, style, files, focusedIndex: focused, onFileClick }: any) => {
+      const file = files[index];
+
+      const secondaryInfo = [];
+      if (file.size && file.type !== "directory") {
+        secondaryInfo.push(formatFileSize(file.size));
+      }
+      if (file.modified_at) {
+        secondaryInfo.push(formatDate(file.modified_at));
+      }
+
+      return (
+        <ListItem
+          style={style}
+          key={file.name}
+          data-index={index}
+          disablePadding
+          secondaryAction={
+            file.type === "directory" ? (
+              <Chip label="Folder" size="small" variant="outlined" />
+            ) : null
+          }
+        >
+          <ListItemButton
+            selected={index === focused}
+            onClick={() => onFileClick(file, index)}
+            tabIndex={-1}
+            disableRipple={false}
+          >
+            <ListItemIcon>
+              {file.type === "directory" ? (
+                <FolderIcon color="primary" />
+              ) : (
+                <FileIcon color="action" />
+              )}
+            </ListItemIcon>
+            <ListItemText
+              primary={file.name}
+              secondary={secondaryInfo.join(" • ")}
+              secondaryTypographyProps={{
+                variant: "caption",
+                color: "text.secondary",
+              }}
+            />
+          </ListItemButton>
+        </ListItem>
+      );
+    },
+    []
+  );
+
+  // Prepare props for row component
+  const rowProps = React.useMemo(
+    () => ({
+      files: sortedAndFilteredFiles,
+      focusedIndex,
+      onFileClick: handleFileClick,
+    }),
+    [sortedAndFilteredFiles, focusedIndex]
+  );
+
   return (
-    <Box sx={{ flexGrow: 1 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <AppBar position="static">
         <Toolbar>
           <StorageIcon sx={{ mr: 2 }} />
@@ -460,7 +914,17 @@ const Browser: React.FC = () => {
           </Button>
         </Toolbar>
       </AppBar>
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
+      <Container
+        maxWidth="lg"
+        sx={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          pt: 2,
+          pb: 0,
+          overflow: "hidden",
+        }}
+      >
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -511,6 +975,14 @@ const Browser: React.FC = () => {
 
                 {files.length > 0 && (
                   <Box display="flex" alignItems="center" gap={1}>
+                    <IconButton
+                      size="small"
+                      onClick={() => loadFiles(currentPath, true)}
+                      title="Refresh (F5)"
+                      sx={{ mr: 1 }}
+                    >
+                      <RefreshIcon fontSize="small" />
+                    </IconButton>
                     <Typography variant="body2" color="text.secondary">
                       Sort by:
                     </Typography>
@@ -580,10 +1052,26 @@ const Browser: React.FC = () => {
                 <CircularProgress />
               </Box>
             ) : (
-              <Box sx={{ display: "flex", gap: 2 }}>
-                <Paper elevation={2} sx={{ flex: 1, minWidth: 300 }}>
+              <Box
+                sx={{ display: "flex", gap: 2, flex: 1, minHeight: 0, mb: 0 }}
+              >
+                <Paper
+                  ref={listContainerRef}
+                  elevation={2}
+                  tabIndex={0}
+                  sx={{
+                    flex: 1,
+                    minWidth: 300,
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    "&:focus": {
+                      outline: "none",
+                    },
+                  }}
+                >
                   {sortedAndFilteredFiles.length === 0 ? (
-                    <Box sx={{ p: 4, textAlign: "center" }}>
+                    <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
                       <Typography color="text.secondary">
                         {searchQuery
                           ? `No files matching "${searchQuery}"`
@@ -600,59 +1088,27 @@ const Browser: React.FC = () => {
                       )}
                     </Box>
                   ) : (
-                    <List ref={listRef}>
-                      {sortedAndFilteredFiles.map((file, index) => {
-                        const secondaryInfo = [];
-                        if (file.size && file.type !== "directory") {
-                          secondaryInfo.push(formatFileSize(file.size));
-                        }
-                        if (file.modified_at) {
-                          secondaryInfo.push(formatDate(file.modified_at));
-                        }
-
-                        return (
-                          <ListItem
-                            key={index}
-                            data-index={index}
-                            disablePadding
-                            secondaryAction={
-                              file.type === "directory" ? (
-                                <Chip
-                                  label="Folder"
-                                  size="small"
-                                  variant="outlined"
-                                />
-                              ) : null
-                            }
-                          >
-                            <ListItemButton
-                              selected={index === focusedIndex}
-                              onClick={() => handleFileClick(file, index)}
-                            >
-                              <ListItemIcon>
-                                {file.type === "directory" ? (
-                                  <FolderIcon color="primary" />
-                                ) : (
-                                  <FileIcon color="action" />
-                                )}
-                              </ListItemIcon>
-                              <ListItemText
-                                primary={file.name}
-                                secondary={secondaryInfo.join(" • ")}
-                                secondaryTypographyProps={{
-                                  variant: "caption",
-                                  color: "text.secondary",
-                                }}
-                              />
-                            </ListItemButton>
-                          </ListItem>
-                        );
-                      })}
-                    </List>
+                    <FixedSizeList
+                      listRef={virtualListRef}
+                      rowComponent={RowComponent}
+                      rowCount={sortedAndFilteredFiles.length}
+                      rowHeight={68}
+                      rowProps={rowProps}
+                      style={{ height: listHeight, width: "100%" }}
+                    />
                   )}
                 </Paper>
                 {selectedFile && (
-                  <Paper elevation={2} sx={{ flex: 2, p: 2 }}>
+                  <Paper
+                    elevation={2}
+                    sx={{
+                      flex: 2,
+                      p: 2,
+                      overflow: "auto",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
                     <MarkdownPreview
                       connectionId={selectedConnectionId}
                       path={selectedFile}
@@ -731,6 +1187,12 @@ const Browser: React.FC = () => {
                   <strong>?</strong>
                 </TableCell>
                 <TableCell>Show this help dialog</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell>
+                  <strong>F5</strong>
+                </TableCell>
+                <TableCell>Refresh current directory</TableCell>
               </TableRow>
             </TableBody>
           </Table>

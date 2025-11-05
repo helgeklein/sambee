@@ -8,6 +8,7 @@ from typing import AsyncIterator
 import smbclient
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.storage.base import StorageBackend
+from smbclient._os import FileAttributes
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,9 @@ class SMBBackend(StorageBackend):
     async def connect(self) -> None:
         """Establish SMB connection"""
         try:
+            logger.info(
+                f"Connecting to SMB: //{self.host}:{self.port}/{self.share_name} (user: {self.username})"
+            )
             # Register the session for smbclient
             smbclient.register_session(
                 self.host,
@@ -35,16 +39,24 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 port=self.port,
             )
+            logger.info(
+                f"✅ SMB connection established: //{self.host}/{self.share_name}"
+            )
         except Exception as e:
-            logger.error(f"Failed to connect to SMB share: {e}")
+            logger.error(
+                f"❌ Failed to connect to SMB share //{self.host}/{self.share_name}: {e}",
+                exc_info=True,
+            )
             raise
 
     async def disconnect(self) -> None:
         """Close SMB connection"""
         try:
+            logger.debug(f"Disconnecting from SMB: //{self.host}/{self.share_name}")
             smbclient.delete_session(self.host, port=self.port)
-        except Exception:
-            pass
+            logger.debug(f"✅ SMB session deleted: //{self.host}")
+        except Exception as e:
+            logger.warning(f"Error during disconnect from //{self.host}: {e}")
 
     def _build_smb_path(self, path: str) -> str:
         """Build full SMB path from relative path"""
@@ -84,7 +96,14 @@ class SMBBackend(StorageBackend):
                     try:
                         # Use smb_info which is already populated by scandir - NO extra SMB calls!
                         info = entry.smb_info
-                        is_dir = entry.is_dir()  # No SMB call - checks file_attributes
+
+                        # OPTIMIZATION: Check directory flag directly from file_attributes
+                        # to avoid calling is_dir() which might call is_symlink() which might
+                        # call stat() for reparse points (symlinks/junctions)
+                        is_dir = bool(
+                            info.file_attributes
+                            & FileAttributes.FILE_ATTRIBUTE_DIRECTORY
+                        )
 
                         # Convert Windows FILETIME (100ns intervals since 1601) to Python datetime
                         # The smb_info already has datetime objects
@@ -93,9 +112,7 @@ class SMBBackend(StorageBackend):
                             path=item_path,
                             type=FileType.DIRECTORY if is_dir else FileType.FILE,
                             size=info.end_of_file if not is_dir else None,
-                            mime_type=None
-                            if is_dir
-                            else self._get_mime_type(entry.name),
+                            mime_type=None,  # Skip MIME type detection for directory listings (not used by frontend)
                             modified_at=info.last_write_time,
                             created_at=info.creation_time,
                             is_hidden=entry.name.startswith("."),
@@ -117,8 +134,8 @@ class SMBBackend(StorageBackend):
 
             items = await loop.run_in_executor(None, _scan_directory)
 
-            # Sort: directories first, then alphabetically
-            items.sort(key=lambda x: (x.type != FileType.DIRECTORY, x.name.lower()))
+            # NOTE: No sorting here - frontend handles sorting based on user preference
+            # Avoiding unnecessary work on the backend for large directories
 
             return DirectoryListing(path=path or "/", items=items, total=len(items))
 
