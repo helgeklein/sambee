@@ -23,7 +23,7 @@ const Login: React.FC = () => {
 
     try {
       const response = await login(username, password);
-      localStorage.setItem("token", response.access_token);
+      localStorage.setItem("access_token", response.access_token);
       navigate("/browser");
     } catch (err) {
       setError("Invalid username or password");

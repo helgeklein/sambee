@@ -120,6 +120,10 @@ const Browser: React.FC = () => {
   const selectedConnectionIdRef = React.useRef<string>("");
   const currentPathRef = React.useRef<string>("");
 
+  // Incremental search for quick navigation
+  const searchBufferRef = React.useRef<string>("");
+  const searchTimeoutRef = React.useRef<number | null>(null);
+
   // Navigation history to restore scroll position and selection when going back
   const navigationHistory = React.useRef<
     Map<
@@ -363,7 +367,7 @@ const Browser: React.FC = () => {
 
   const loadConnections = async () => {
     try {
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("access_token");
       if (!token) {
         navigate("/login");
         return;
@@ -624,7 +628,7 @@ const Browser: React.FC = () => {
         target.tagName === "TEXTAREA" ||
         target.isContentEditable;
 
-      if (isInInput || settingsOpen || showHelp) {
+      if (isInInput || settingsOpen || showHelp || selectedFile) {
         // Exception: Allow / to focus search from anywhere
         if (e.key === "/" && !settingsOpen && !showHelp) {
           e.preventDefault();
@@ -733,15 +737,28 @@ const Browser: React.FC = () => {
           break;
 
         default:
-          // Letter keys - jump to first file starting with that letter
+          // Incremental search - accumulate keystrokes to match file names
           if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
-            const letter = e.key.toLowerCase();
+            // Clear any existing timeout
+            if (searchTimeoutRef.current) {
+              clearTimeout(searchTimeoutRef.current);
+            }
+
+            // Add this character to the search buffer
+            searchBufferRef.current += e.key.toLowerCase();
+
+            // Find first file matching the accumulated prefix
             const index = files.findIndex((f) =>
-              f.name.toLowerCase().startsWith(letter)
+              f.name.toLowerCase().startsWith(searchBufferRef.current)
             );
             if (index !== -1) {
               setFocusedIndex(index);
             }
+
+            // Reset search buffer after 1 second of no typing
+            searchTimeoutRef.current = window.setTimeout(() => {
+              searchBufferRef.current = "";
+            }, 1000);
           }
           break;
       }
@@ -749,7 +766,7 @@ const Browser: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentPath, settingsOpen, showHelp, searchQuery]);
+  }, [currentPath, settingsOpen, showHelp, searchQuery, selectedFile]);
 
   const handleFileClick = (file: FileEntry, index?: number) => {
     if (index !== undefined) {
@@ -791,7 +808,7 @@ const Browser: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    localStorage.removeItem("access_token");
     navigate("/login");
   };
 
@@ -1111,23 +1128,6 @@ const Browser: React.FC = () => {
                     />
                   )}
                 </Paper>
-                {selectedFile && (
-                  <Paper
-                    elevation={2}
-                    sx={{
-                      flex: 2,
-                      p: 2,
-                      overflow: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                    }}
-                  >
-                    <MarkdownPreview
-                      connectionId={selectedConnectionId}
-                      path={selectedFile}
-                    />
-                  </Paper>
-                )}
               </Box>
             )}
           </>
@@ -1216,6 +1216,14 @@ const Browser: React.FC = () => {
           </Box>
         </DialogContent>
       </Dialog>
+
+      {selectedFile && (
+        <MarkdownPreview
+          connectionId={selectedConnectionId}
+          path={selectedFile}
+          onClose={() => setSelectedFile(null)}
+        />
+      )}
     </Box>
   );
 };
