@@ -845,6 +845,7 @@ const Browser: React.FC = () => {
             onClick={() => onFileClick(file, index)}
             tabIndex={-1}
             disableRipple={false}
+            component="div"
           >
             <ListItemIcon>
               {file.type === "directory" ? (
