@@ -116,6 +116,10 @@ const Browser: React.FC = () => {
   const listContainerRef = React.useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = React.useState(600);
 
+  // Refs to access current values in WebSocket callbacks (avoid closure issues)
+  const selectedConnectionIdRef = React.useRef<string>("");
+  const currentPathRef = React.useRef<string>("");
+
   // Navigation history to restore scroll position and selection when going back
   const navigationHistory = React.useRef<
     Map<
@@ -157,6 +161,15 @@ const Browser: React.FC = () => {
   const getConnectionIdentifier = (connection: Connection): string => {
     return slugifyConnectionName(connection.name);
   };
+
+  // Keep refs in sync with state for WebSocket callbacks
+  useEffect(() => {
+    selectedConnectionIdRef.current = selectedConnectionId;
+  }, [selectedConnectionId]);
+
+  useEffect(() => {
+    currentPathRef.current = currentPath;
+  }, [currentPath]);
 
   useEffect(() => {
     loadConnections();
@@ -242,7 +255,9 @@ const Browser: React.FC = () => {
         const data = JSON.parse(event.data);
 
         if (data.type === "directory_changed") {
-          console.log(`Directory changed: ${data.connection_id}:${data.path}`);
+          // Use refs to get current values (avoid closure issues)
+          const currentConnId = selectedConnectionIdRef.current;
+          const currentDir = currentPathRef.current;
 
           // Invalidate cache for this directory
           const cacheKey = `${data.connection_id}:${data.path}`;
@@ -250,14 +265,12 @@ const Browser: React.FC = () => {
 
           // If we're currently viewing this directory, reload it
           if (
-            data.connection_id === selectedConnectionId &&
-            data.path === currentPath
+            data.connection_id === currentConnId &&
+            data.path === currentDir
           ) {
-            console.log("Reloading current directory due to change");
-            loadFiles(currentPath, true); // Force reload
+            console.log(`Directory changed, reloading: ${data.path}`);
+            loadFiles(currentDir, true); // Force reload
           }
-        } else if (data.type === "subscribed") {
-          console.log(`Subscribed to: ${data.connection_id}:${data.path}`);
         }
       };
 

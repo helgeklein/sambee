@@ -50,13 +50,13 @@ class SMBBackend(StorageBackend):
             raise
 
     async def disconnect(self) -> None:
-        """Close SMB connection"""
-        try:
-            logger.debug(f"Disconnecting from SMB: //{self.host}/{self.share_name}")
-            smbclient.delete_session(self.host, port=self.port)
-            logger.debug(f"✅ SMB session deleted: //{self.host}")
-        except Exception as e:
-            logger.warning(f"Error during disconnect from //{self.host}: {e}")
+        """Close SMB connection - Note: we don't delete the session to allow reuse"""
+        # Don't call delete_session() - smbclient is designed to reuse sessions
+        # Deleting the session after each operation can cause "socket closed" errors
+        # The session will be cleaned up when the process exits
+        logger.debug(
+            f"Keeping SMB session alive for reuse: //{self.host}/{self.share_name}"
+        )
 
     def _build_smb_path(self, path: str) -> str:
         """Build full SMB path from relative path"""

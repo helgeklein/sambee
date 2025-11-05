@@ -74,6 +74,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     logger.info("Shutting down Sambee application...")
+
+    # Stop all directory monitors and clean up SMB handles
+    try:
+        from app.services.directory_monitor import shutdown_monitor
+
+        logger.info("Stopping directory monitors...")
+        shutdown_monitor()
+        logger.info("✅ Directory monitors stopped")
+    except Exception as e:
+        logger.error(f"Error stopping directory monitors: {e}", exc_info=True)
+
     logger.info(f"Shutdown complete - {datetime.now().isoformat()}")
 
 
