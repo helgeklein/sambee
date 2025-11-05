@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from app.core.security import decrypt_password, encrypt_password, get_current_admin_user
@@ -136,7 +136,7 @@ async def update_connection(
     for key, value in update_dict.items():
         setattr(connection, key, value)
 
-    connection.updated_at = datetime.utcnow()
+    connection.updated_at = datetime.now(timezone.utc)
     session.add(connection)
     session.commit()
     session.refresh(connection)

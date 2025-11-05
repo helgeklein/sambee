@@ -80,6 +80,83 @@ cd backend && pytest
 cd frontend && npm test
 ```
 
+## Running Tests
+
+### Backend Tests
+
+Sambee includes comprehensive backend tests using pytest. Tests cover authentication, connection management, file browsing, and more.
+
+```bash
+# Run all tests
+cd backend && pytest
+
+# Run with verbose output
+pytest -v
+
+# Run specific test file
+pytest tests/test_auth.py
+
+# Run specific test class or function
+pytest tests/test_auth.py::TestLoginEndpoint
+pytest tests/test_auth.py::TestLoginEndpoint::test_login_success
+
+# Run with coverage report
+pytest --cov=app --cov-report=html
+
+# View coverage report
+open htmlcov/index.html  # or browse to file:///.../htmlcov/index.html
+```
+
+### Test Organization
+
+Tests are organized in `backend/tests/`:
+
+- `conftest.py` - Shared fixtures (database, users, auth tokens, test connections)
+- `test_auth.py` - Authentication and authorization tests
+- `test_connections.py` - SMB connection management tests  
+- `test_browser.py` - File browsing tests with mocked SMB backend
+
+### Writing New Tests
+
+Use the provided fixtures for consistency:
+
+```python
+import pytest
+from fastapi.testclient import TestClient
+
+@pytest.mark.integration
+class TestMyFeature:
+    """Test my new feature."""
+    
+    def test_admin_can_access(
+        self, 
+        client: TestClient, 
+        auth_headers_admin: dict
+    ):
+        """Test that admin can access the endpoint."""
+        response = client.get(
+            "/api/my-endpoint",
+            headers=auth_headers_admin
+        )
+        assert response.status_code == 200
+```
+
+Available fixtures:
+- `client` - TestClient with database override
+- `session` - Database session
+- `admin_user`, `regular_user` - Test users
+- `admin_token`, `user_token` - JWT tokens
+- `auth_headers_admin`, `auth_headers_user` - Authorization headers
+- `test_connection` - Single test SMB connection
+- `multiple_connections` - List of 3 test connections
+- `mock_smb_backend` - Mocked SMB backend for browser tests
+
+### Frontend Tests
+
+```bash
+cd frontend && npm test
+```
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and adjust as needed:
