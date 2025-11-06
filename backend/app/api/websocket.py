@@ -14,19 +14,19 @@ router = APIRouter()
 class ConnectionManager:
     """Manages WebSocket connections and directory subscriptions"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Map: connection_id -> set of WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         # Map: WebSocket -> set of subscribed directory paths
         self.subscriptions: Dict[WebSocket, Set[str]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         """Accept a new WebSocket connection"""
         await websocket.accept()
         self.subscriptions[websocket] = set()
         logger.info(f"WebSocket connected: {id(websocket)}")
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         """Remove a WebSocket connection and its subscriptions"""
         # Get all subscriptions for this WebSocket before removing
         subscriptions_to_remove = []
@@ -57,7 +57,9 @@ class ConnectionManager:
 
         logger.info(f"WebSocket disconnected: {id(websocket)}")
 
-    async def subscribe(self, websocket: WebSocket, connection_id: str, path: str):
+    async def subscribe(
+        self, websocket: WebSocket, connection_id: str, path: str
+    ) -> None:
         """Subscribe a WebSocket to directory changes and start SMB monitoring"""
         key = f"{connection_id}:{path}"
 
@@ -119,7 +121,9 @@ class ConnectionManager:
                     f"Failed to start SMB monitoring for {key}: {e}", exc_info=True
                 )
 
-    async def unsubscribe(self, websocket: WebSocket, connection_id: str, path: str):
+    async def unsubscribe(
+        self, websocket: WebSocket, connection_id: str, path: str
+    ) -> None:
         """Unsubscribe a WebSocket from directory changes and stop SMB monitoring if last subscriber"""
         key = f"{connection_id}:{path}"
 
@@ -143,7 +147,7 @@ class ConnectionManager:
 
         logger.info(f"WebSocket {id(websocket)} unsubscribed from {key}")
 
-    async def notify_directory_change(self, connection_id: str, path: str):
+    async def notify_directory_change(self, connection_id: str, path: str) -> None:
         """Notify all subscribers about a directory change"""
         key = f"{connection_id}:{path}"
 
@@ -175,7 +179,7 @@ manager = ConnectionManager()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket) -> None:
     """
     WebSocket endpoint for real-time directory change notifications.
 
@@ -224,6 +228,6 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # Helper function to trigger notifications (to be called when files change)
-async def notify_change(connection_id: str, path: str):
+async def notify_change(connection_id: str, path: str) -> None:
     """Notify clients about a directory change"""
     await manager.notify_directory_change(connection_id, path)

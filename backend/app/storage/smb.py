@@ -180,7 +180,7 @@ class SMBBackend(StorageBackend):
             logger.error(f"Failed to get file info for {path}: {e}")
             raise
 
-    async def read_file(  # pyright: ignore[reportIncompatibleMethodOverride]
+    async def read_file(  # type: ignore[override, misc]
         self, path: str, chunk_size: int = 8192
     ) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""

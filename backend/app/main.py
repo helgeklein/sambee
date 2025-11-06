@@ -1,11 +1,12 @@
 import logging
 import sys
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -98,7 +99,9 @@ app = FastAPI(
 
 # Request logging middleware
 @app.middleware("http")
-async def log_requests(request, call_next):
+async def log_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
     """Log all HTTP requests"""
     start_time = datetime.now()
 

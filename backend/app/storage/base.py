@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
-from app.models.file import FileInfo, DirectoryListing
+from collections.abc import AsyncIterator
+
+from app.models.file import DirectoryListing, FileInfo
 
 
 class StorageBackend(ABC):

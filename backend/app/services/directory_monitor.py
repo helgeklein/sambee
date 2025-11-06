@@ -6,16 +6,17 @@ Monitors directories for changes and notifies WebSocket clients.
 import asyncio
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 from typing import Dict, Optional
 
-from smbprotocol.change_notify import (
+from smbprotocol.change_notify import (  # type: ignore[import-untyped]
     ChangeNotifyFlags,
     CompletionFilter,
     FileAction,
     FileSystemWatcher,
 )
-from smbprotocol.connection import Connection
-from smbprotocol.open import (
+from smbprotocol.connection import Connection  # type: ignore[import-untyped]
+from smbprotocol.open import (  # type: ignore[import-untyped]
     CreateDisposition,
     CreateOptions,
     DirectoryAccessMask,
@@ -24,8 +25,8 @@ from smbprotocol.open import (
     Open,
     ShareAccess,
 )
-from smbprotocol.session import Session
-from smbprotocol.tree import TreeConnect
+from smbprotocol.session import Session  # type: ignore[import-untyped]
+from smbprotocol.tree import TreeConnect  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class DirectoryMonitor:
     Manages directory handles and watchers with proper cleanup.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Map: "connection_id:path" -> MonitoredDirectory
         self._monitors: Dict[str, "MonitoredDirectory"] = {}
         self._lock = threading.Lock()
@@ -51,7 +52,7 @@ class DirectoryMonitor:
         username: str,
         password: str,
         port: int = 445,
-        on_change_callback=None,
+        on_change_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ) -> None:
         """
         Start monitoring a directory for changes.
@@ -161,8 +162,8 @@ class MonitoredDirectory:
         username: str,
         password: str,
         port: int,
-        on_change_callback=None,
-    ):
+        on_change_callback: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    ) -> None:
         self.connection_id = connection_id
         self.path = path
         self.host = host
