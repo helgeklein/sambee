@@ -206,8 +206,7 @@ const Browser: React.FC = () => {
 				const cached = directoryCache.current.get(cacheKey);
 				if (cached) {
 					// Use cached data immediately - no loading spinner!
-					// Create new array to ensure React detects the change
-					setFiles([...cached.items]);
+					setFiles(cached.items);
 					setError(null);
 					return;
 				}
@@ -357,12 +356,6 @@ const Browser: React.FC = () => {
 
 	const handleFileClick = useCallback(
 		(file: FileEntry, index?: number) => {
-			console.log("[handleFileClick] Called:", {
-				fileName: file.name,
-				fileType: file.type,
-				currentPath,
-				currentPathRef: currentPathRef.current,
-			});
 			if (index !== undefined) {
 				setFocusedIndex(index);
 			}
@@ -377,11 +370,6 @@ const Browser: React.FC = () => {
 				});
 
 				const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-				console.log("[handleFileClick] Navigating to directory:", {
-					currentPath,
-					fileName: file.name,
-					newPath,
-				});
 				setCurrentPath(newPath);
 				setSelectedFile(null);
 				// Blur any focused element when navigating so keyboard shortcuts work
@@ -699,9 +687,12 @@ const Browser: React.FC = () => {
 				navigationHistory.current.delete(currentPath);
 				return;
 			}
+			// If we have saved state but file not found yet, don't reset to 0
+			// This prevents flickering when files are still loading
+			return;
 		}
 
-		// Default: reset to top
+		// Default: reset to top (only if no saved state exists)
 		setFocusedIndex(0);
 	}, [sortedAndFilteredFiles, currentPath]);
 
@@ -799,6 +790,13 @@ const Browser: React.FC = () => {
 						const file = files[prev];
 						if (file) {
 							if (file.type === "directory") {
+								// Save navigation history before navigating
+								navigationHistory.current.set(currentPathRef.current, {
+									focusedIndex: prev,
+									scrollOffset: 0,
+									selectedFileName: file.name,
+								});
+
 								const newPath = currentPathRef.current
 									? `${currentPathRef.current}/${file.name}`
 									: file.name;
