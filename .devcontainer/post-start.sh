@@ -17,6 +17,19 @@ log "Configuring git safe directory..."
 git config --global safe.directory /workspace
 log "✅ Git configured"
 
+# Ensure backend dependencies exist
+if ! /usr/local/bin/python -c "import uvicorn" 2>/dev/null; then
+    log "⚠️  Backend dependencies not found"
+    log "📦 Installing Python dependencies..."
+    cd /workspace/backend
+    pip install -q -r requirements.txt 2>&1 | while IFS= read -r line; do
+        log "   | $line"
+    done
+    log "✅ Backend dependencies installed"
+else
+    log "✅ Backend dependencies exist"
+fi
+
 # Ensure frontend dependencies exist
 if [ ! -d "/workspace/frontend/node_modules" ]; then
     log "⚠️  Frontend dependencies not found"

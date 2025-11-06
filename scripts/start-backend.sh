@@ -4,6 +4,14 @@
 if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; then
     # We're inside a container
     cd /workspace/backend
+    
+    # Check if uvicorn is installed, install dependencies if not
+    if ! command -v uvicorn &> /dev/null; then
+        echo "⚠️  Backend dependencies not installed. Installing..."
+        pip install -q -r requirements.txt
+        echo "✅ Backend dependencies installed"
+    fi
+    
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 else
     echo "⚠️  Not in a devcontainer. Skipping backend start."
