@@ -27,8 +27,7 @@ const AdminPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedConnection, setSelectedConnection] =
-    useState<Connection | null>(null);
+  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
   const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
@@ -145,11 +144,7 @@ const AdminPanel: React.FC = () => {
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Admin Panel - SMB Share Management
           </Typography>
-          <Button
-            color="inherit"
-            startIcon={<AddIcon />}
-            onClick={handleAddClick}
-          >
+          <Button color="inherit" startIcon={<AddIcon />} onClick={handleAddClick}>
             Add Connection
           </Button>
         </Toolbar>

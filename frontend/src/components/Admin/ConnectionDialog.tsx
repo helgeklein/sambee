@@ -82,10 +82,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
     setShowPassword(false); // Reset password visibility
   }, [connection]);
 
-  const handleChange = (
-    field: keyof ConnectionCreate,
-    value: string | number
-  ) => {
+  const handleChange = (field: keyof ConnectionCreate, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error for this field
     if (errors[field]) {
@@ -133,9 +130,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
       if (connection) {
         // For existing connections, use the test endpoint
         const result = await api.testConnection(connection.id);
-        setTestResult(
-          result as { status: "success" | "error"; message: string }
-        );
+        setTestResult(result as { status: "success" | "error"; message: string });
       } else {
         // For new connections, we'll create a temporary connection to test
         // In production, you might want a separate test endpoint that doesn't save
@@ -143,9 +138,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
         const result = await api.testConnection(tempConnection.id);
         // Delete the temp connection
         await api.deleteConnection(tempConnection.id);
-        setTestResult(
-          result as { status: "success" | "error"; message: string }
-        );
+        setTestResult(result as { status: "success" | "error"; message: string });
       }
     } catch (error: unknown) {
       const message = isApiError(error)
@@ -174,8 +167,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
         if (formData.host !== connection.host) updateData.host = formData.host;
         if (formData.share_name !== connection.share_name)
           updateData.share_name = formData.share_name;
-        if (formData.username !== connection.username)
-          updateData.username = formData.username;
+        if (formData.username !== connection.username) updateData.username = formData.username;
         if (formData.password.trim()) updateData.password = formData.password;
         if (formData.path_prefix !== connection.path_prefix)
           updateData.path_prefix = formData.path_prefix;
@@ -202,9 +194,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        {connection ? "Edit Connection" : "Add New Connection"}
-      </DialogTitle>
+      <DialogTitle>{connection ? "Edit Connection" : "Add New Connection"}</DialogTitle>
       <DialogContent>
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
           <TextField
@@ -256,8 +246,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
             onChange={(e) => handleChange("password", e.target.value)}
             error={!!errors.password}
             helperText={
-              errors.password ||
-              (connection ? "Leave blank to keep existing password" : "")
+              errors.password || (connection ? "Leave blank to keep existing password" : "")
             }
             fullWidth
             required={!connection}
@@ -286,9 +275,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
             fullWidth
           />
 
-          {testResult && (
-            <Alert severity={testResult.status}>{testResult.message}</Alert>
-          )}
+          {testResult && <Alert severity={testResult.status}>{testResult.message}</Alert>}
         </Box>
       </DialogContent>
       <DialogActions>
@@ -299,11 +286,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
         <Button onClick={onClose} disabled={saving}>
           Cancel
         </Button>
-        <Button
-          onClick={handleSave}
-          variant="contained"
-          disabled={saving || testing}
-        >
+        <Button onClick={handleSave} variant="contained" disabled={saving || testing}>
           {saving ? <CircularProgress size={24} /> : "Save"}
         </Button>
       </DialogActions>

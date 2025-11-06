@@ -28,8 +28,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedConnection, setSelectedConnection] =
-    useState<Connection | null>(null);
+  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
   const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
@@ -132,11 +131,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
     <>
       <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
         <DialogTitle>
-          <Box
-            display="flex"
-            justifyContent="space-between"
-            alignItems="center"
-          >
+          <Box display="flex" justifyContent="space-between" alignItems="center">
             <Box display="flex" alignItems="center" gap={2}>
               SMB Connection Settings
               <Button

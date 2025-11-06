@@ -74,6 +74,7 @@ class SMBBackend(StorageBackend):
     async def list_directory(self, path: str = "") -> DirectoryListing:
         """List contents of a directory"""
         smb_path = self._build_smb_path(path)
+        logger.info(f"Listing directory: path='{path}' -> smb_path='{smb_path}'")
         items = []
 
         try:
@@ -140,7 +141,10 @@ class SMBBackend(StorageBackend):
             return DirectoryListing(path=path or "/", items=items, total=len(items))
 
         except Exception as e:
-            logger.error(f"Failed to list directory {path}: {e}")
+            logger.error(
+                f"Failed to list directory '{path}' (smb_path='{smb_path}'): {type(e).__name__}: {e}",
+                exc_info=True,
+            )
             raise
 
     async def get_file_info(self, path: str) -> FileInfo:

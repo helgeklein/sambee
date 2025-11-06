@@ -58,6 +58,48 @@ Access the application at http://localhost
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development setup instructions.
 
+### Code Quality
+
+Sambee uses [Ruff](https://docs.astral.sh/ruff/) for Python (backend) and [Biome](https://biomejs.dev) for TypeScript/JavaScript (frontend).
+
+#### Check code quality (lint)
+
+```bash
+./scripts/lint.sh
+```
+
+This runs:
+- **Backend**: `ruff check` and `ruff format --check`
+- **Frontend**: `biome check`
+
+#### Auto-format code
+
+```bash
+./scripts/format.sh
+```
+
+This runs:
+- **Backend**: `ruff check --fix` and `ruff format`
+- **Frontend**: `biome check --write` and `biome format --write`
+
+#### Individual commands
+
+Backend only:
+```bash
+cd backend
+ruff check app              # Check for issues
+ruff check --fix app        # Auto-fix issues
+ruff format app             # Format code
+```
+
+Frontend only:
+```bash
+cd frontend
+npm run lint                # Check for issues
+npm run lint:fix            # Auto-fix issues
+npm run format              # Format code
+```
+
 ### Logging & Debugging
 
 Sambee includes comprehensive logging to help diagnose issues:

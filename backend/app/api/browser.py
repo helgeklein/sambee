@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Optional
 
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/{connection_id}/list", response_model=DirectoryListing)
@@ -21,6 +23,10 @@ async def list_directory(
     session: Session = Depends(get_session),
 ) -> DirectoryListing:
     """List contents of a directory"""
+    logger.info(
+        f"list_directory called: connection_id={connection_id}, path='{path}', user={current_user.username}"
+    )
+
     connection = session.get(Connection, connection_id)
     if not connection:
         raise HTTPException(
@@ -49,6 +55,10 @@ async def list_directory(
         return listing
 
     except Exception as e:
+        logger.error(
+            f"Error in list_directory endpoint: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list directory: {str(e)}",

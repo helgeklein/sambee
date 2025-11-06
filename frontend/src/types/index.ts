@@ -74,9 +74,5 @@ export interface ApiError {
 
 // Type guard for API errors
 export function isApiError(error: unknown): error is ApiError {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    ("response" in error || "message" in error)
-  );
+  return typeof error === "object" && error !== null && ("response" in error || "message" in error);
 }
