@@ -16,8 +16,7 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
+        "biomejs.biome",
         "mtxr.sqltools",
         "mtxr.sqltools-driver-sqlite"
       ],
@@ -32,11 +31,43 @@
           }
         },
         "[typescript]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
-          "editor.formatOnSave": true
+          "editor.defaultFormatter": "biomejs.biome",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "quickfix.biome": "explicit",
+            "source.organizeImports.biome": "explicit"
+          }
         },
         "[typescriptreact]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.defaultFormatter": "biomejs.biome",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "quickfix.biome": "explicit",
+            "source.organizeImports.biome": "explicit"
+          }
+        },
+        "[javascript]": {
+          "editor.defaultFormatter": "biomejs.biome",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "quickfix.biome": "explicit",
+            "source.organizeImports.biome": "explicit"
+          }
+        },
+        "[javascriptreact]": {
+          "editor.defaultFormatter": "biomejs.biome",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "quickfix.biome": "explicit",
+            "source.organizeImports.biome": "explicit"
+          }
+        },
+        "[json]": {
+          "editor.defaultFormatter": "biomejs.biome",
+          "editor.formatOnSave": true
+        },
+        "[jsonc]": {
+          "editor.defaultFormatter": "biomejs.biome",
           "editor.formatOnSave": true
         },
         "terminal.integrated.defaultProfile.linux": "zsh"

@@ -1,59 +1,58 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
 import {
-  Container,
+  AccessTime as AccessTimeIcon,
+  Clear as ClearIcon,
+  DataUsage as DataUsageIcon,
+  InsertDriveFile as FileIcon,
+  Folder as FolderIcon,
+  Home as HomeIcon,
+  KeyboardOutlined as KeyboardIcon,
+  Refresh as RefreshIcon,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  SortByAlpha as SortByAlphaIcon,
+  Storage as StorageIcon,
+} from "@mui/icons-material";
+import {
+  Alert,
   AppBar,
-  Toolbar,
-  Typography,
-  Button,
   Box,
-  List,
+  Breadcrumbs,
+  Button,
+  Chip,
+  CircularProgress,
+  Container,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  Link,
   ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Breadcrumbs,
-  Link,
-  Paper,
-  IconButton,
-  FormControl,
-  Select,
   MenuItem,
-  Alert,
-  CircularProgress,
-  ToggleButtonGroup,
-  ToggleButton,
-  Chip,
-  TextField,
-  InputAdornment,
-  Dialog,
-  DialogTitle,
-  DialogContent,
+  Paper,
+  Select,
   Table,
   TableBody,
-  TableRow,
   TableCell,
+  TableRow,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Toolbar,
+  Typography,
 } from "@mui/material";
-import {
-  Folder as FolderIcon,
-  InsertDriveFile as FileIcon,
-  Home as HomeIcon,
-  Settings as SettingsIcon,
-  Storage as StorageIcon,
-  SortByAlpha as SortByAlphaIcon,
-  AccessTime as AccessTimeIcon,
-  DataUsage as DataUsageIcon,
-  Search as SearchIcon,
-  Clear as ClearIcon,
-  KeyboardOutlined as KeyboardIcon,
-  Refresh as RefreshIcon,
-} from "@mui/icons-material";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { List as FixedSizeList } from "react-window";
-
-import { FileEntry, Connection } from "../types";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import api from "../services/api";
+import type { Connection, FileEntry } from "../types";
+import { isApiError } from "../types";
 
 type SortField = "name" | "size" | "modified";
 
@@ -109,10 +108,19 @@ const Browser: React.FC = () => {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
 
-  const listRef = React.useRef<any>(null);
+  type ListRef = {
+    readonly element: HTMLDivElement;
+    scrollToRow(config: {
+      align?: "center" | "end" | "start" | "auto" | "smart";
+      behavior?: "auto" | "smooth" | "instant";
+      index: number;
+    }): void;
+  };
+
+  const _listRef = React.useRef<ListRef>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const filesRef = React.useRef<FileEntry[]>([]);
-  const virtualListRef = React.useRef<any>(null);
+  const virtualListRef = React.useRef<ListRef>(null);
   const listContainerRef = React.useRef<HTMLDivElement>(null);
   const [listHeight, setListHeight] = React.useState(600);
 
@@ -151,20 +159,223 @@ const Browser: React.FC = () => {
   const isUpdatingFromUrl = React.useRef<boolean>(false);
 
   // Helper functions for connection name/ID mapping
-  const slugifyConnectionName = (name: string): string => {
+  const slugifyConnectionName = useCallback((name: string): string => {
     return name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with dashes
       .replace(/^-+|-+$/g, ""); // Remove leading/trailing dashes
-  };
+  }, []);
 
-  const getConnectionByName = (slug: string): Connection | undefined => {
-    return connections.find((c) => slugifyConnectionName(c.name) === slug);
-  };
+  const getConnectionByName = useCallback(
+    (slug: string): Connection | undefined => {
+      return connections.find((c) => slugifyConnectionName(c.name) === slug);
+    },
+    [connections, slugifyConnectionName]
+  );
 
-  const getConnectionIdentifier = (connection: Connection): string => {
-    return slugifyConnectionName(connection.name);
-  };
+  const getConnectionIdentifier = useCallback(
+    (connection: Connection): string => {
+      return slugifyConnectionName(connection.name);
+    },
+    [slugifyConnectionName]
+  );
+
+  const checkAdminStatus = useCallback(async () => {
+    try {
+      await api.getConnections();
+      setIsAdmin(true);
+    } catch (error: unknown) {
+      // If 403, user is not admin; if 401, not logged in
+      if (isApiError(error) && error.response?.status === 403) {
+        setIsAdmin(false);
+      }
+    }
+  }, []);
+
+  const loadFiles = useCallback(
+    async (path: string, forceRefresh: boolean = false) => {
+      if (!selectedConnectionId) return;
+
+      // Create cache key
+      const cacheKey = `${selectedConnectionId}:${path}`;
+
+      // Check cache first (unless force refresh)
+      if (!forceRefresh) {
+        const cached = directoryCache.current.get(cacheKey);
+        if (cached) {
+          // Use cached data immediately - no loading spinner!
+          setFiles(cached.items);
+          setError(null);
+          return;
+        }
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const listing = await api.listDirectory(selectedConnectionId, path);
+
+        // Store in cache
+        directoryCache.current.set(cacheKey, {
+          items: listing.items,
+          timestamp: Date.now(),
+        });
+
+        setFiles(listing.items);
+      } catch (err: unknown) {
+        console.error("Error loading files:", err);
+        if (isApiError(err)) {
+          if (err.response?.status === 401) {
+            navigate("/login");
+          } else if (err.response?.status === 404) {
+            setError("Connection not found. Please select another connection.");
+          } else {
+            setError(
+              err.response?.data?.detail ||
+                "Failed to load files. Please check your connection settings."
+            );
+          }
+        } else {
+          setError(
+            "Failed to load files. Please check your connection settings."
+          );
+        }
+        setFiles([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectedConnectionId, navigate]
+  );
+
+  const loadConnections = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("access_token");
+      if (!token) {
+        navigate("/login");
+        return;
+      }
+      const data = await api.getConnections();
+      setConnections(data);
+
+      // Priority: URL param (name slug) > localStorage > first connection
+      if (params.connectionId) {
+        const urlConnection = data.find(
+          (c: Connection) =>
+            slugifyConnectionName(c.name) === params.connectionId
+        );
+        if (urlConnection) {
+          // URL has valid connection, will be set in initialization useEffect
+          // Don't override it here
+          return;
+        } else {
+          // Invalid connection slug in URL - redirect to /browse
+          navigate("/browse", { replace: true });
+          return;
+        }
+      }
+
+      // No URL param, use localStorage or first
+      const savedConnectionId = localStorage.getItem("selectedConnectionId");
+      let autoSelectedConnection: Connection | undefined;
+
+      if (
+        savedConnectionId &&
+        data.find((c: Connection) => c.id === savedConnectionId)
+      ) {
+        autoSelectedConnection = data.find(
+          (c: Connection) => c.id === savedConnectionId
+        );
+        setSelectedConnectionId(savedConnectionId);
+      } else if (data.length > 0) {
+        autoSelectedConnection = data[0];
+        setSelectedConnectionId(data[0].id);
+      }
+
+      // Update URL to include the auto-selected connection
+      if (autoSelectedConnection) {
+        const identifier = slugifyConnectionName(autoSelectedConnection.name);
+        navigate(`/browse/${identifier}`, { replace: true });
+      }
+    } catch (err: unknown) {
+      console.error("Error loading connections:", err);
+      if (isApiError(err)) {
+        if (err.response?.status === 401) {
+          navigate("/login");
+        } else if (err.response?.status === 403) {
+          setError(
+            "Access denied. Please contact an administrator to configure connections."
+          );
+        } else {
+          setError("Failed to load connections. Please try again.");
+        }
+      } else {
+        setError("Failed to load connections. Please try again.");
+      }
+    }
+  }, [navigate, params.connectionId, slugifyConnectionName]);
+
+  // Helper to update URL when navigation changes
+  const updateUrl = useCallback(
+    (connectionId: string, path: string) => {
+      if (isInitializing.current) return; // Don't update URL during initialization
+      if (isUpdatingFromUrl.current) return; // Don't update URL when state is being set from URL
+
+      // Find connection and use its name as identifier
+      const connection = connections.find((c) => c.id === connectionId);
+      if (!connection) return;
+
+      const identifier = getConnectionIdentifier(connection);
+
+      // Encode the path but keep slashes as slashes (not %2F)
+      const encodedPath = path
+        .split("/")
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+
+      const newUrl = `/browse/${identifier}${
+        encodedPath ? `/${encodedPath}` : ""
+      }`;
+
+      // Only navigate if URL actually changed to avoid duplicate history entries
+      if (location.pathname !== newUrl) {
+        navigate(newUrl, { replace: false });
+      }
+    },
+    [connections, getConnectionIdentifier, location.pathname, navigate]
+  );
+
+  const handleFileClick = useCallback(
+    (file: FileEntry, index?: number) => {
+      if (index !== undefined) {
+        setFocusedIndex(index);
+      }
+      if (file.type === "directory") {
+        // Save current state before navigating into directory
+        // Note: scrollOffset tracking removed as it's not available in react-window v2 ListRef
+        const currentScrollOffset = 0;
+        navigationHistory.current.set(currentPath, {
+          focusedIndex,
+          scrollOffset: currentScrollOffset,
+          selectedFileName: file.name,
+        });
+
+        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+        setCurrentPath(newPath);
+        setSelectedFile(null);
+        // Blur any focused element when navigating so keyboard shortcuts work
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      } else {
+        const filePath = currentPath
+          ? `${currentPath}/${file.name}`
+          : file.name;
+        setSelectedFile(filePath);
+      }
+    },
+    [currentPath, focusedIndex]
+  );
 
   // Keep refs in sync with state for WebSocket callbacks
   useEffect(() => {
@@ -178,7 +389,7 @@ const Browser: React.FC = () => {
   useEffect(() => {
     loadConnections();
     checkAdminStatus();
-  }, []);
+  }, [checkAdminStatus, loadConnections]);
 
   // Initialize state from URL after connections are loaded
   useEffect(() => {
@@ -196,7 +407,7 @@ const Browser: React.FC = () => {
     setTimeout(() => {
       isInitializing.current = false;
     }, 100);
-  }, [connections]);
+  }, [connections, getConnectionByName, params.connectionId, params["*"]]);
 
   // Handle browser back/forward navigation
   useEffect(() => {
@@ -221,7 +432,14 @@ const Browser: React.FC = () => {
     setTimeout(() => {
       isUpdatingFromUrl.current = false;
     }, 50);
-  }, [location.pathname]);
+  }, [
+    connections.length,
+    currentPath,
+    getConnectionByName,
+    params.connectionId,
+    params["*"],
+    selectedConnectionId,
+  ]);
 
   // WebSocket connection and reconnection logic
   useEffect(() => {
@@ -304,7 +522,7 @@ const Browser: React.FC = () => {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [currentPath, loadFiles, selectedConnectionId]);
 
   // Subscribe/unsubscribe when directory changes
   useEffect(() => {
@@ -325,7 +543,7 @@ const Browser: React.FC = () => {
     if (selectedConnectionId) {
       updateUrl(selectedConnectionId, currentPath);
     }
-  }, [currentPath, selectedConnectionId]);
+  }, [currentPath, selectedConnectionId, updateUrl]);
 
   // Calculate list height dynamically based on container size
   useEffect(() => {
@@ -357,162 +575,13 @@ const Browser: React.FC = () => {
       observer.disconnect();
       clearTimeout(timeout);
     };
-  }, [connections, selectedConnectionId]); // Recalculate when connections change
+  }, []); // Recalculate when connections change
 
   useEffect(() => {
     if (selectedConnectionId) {
       loadFiles(currentPath);
     }
-  }, [currentPath, selectedConnectionId]);
-
-  const loadConnections = async () => {
-    try {
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        navigate("/login");
-        return;
-      }
-      const data = await api.getConnections();
-      setConnections(data);
-
-      // Priority: URL param (name slug) > localStorage > first connection
-      if (params.connectionId) {
-        const urlConnection = data.find(
-          (c: Connection) =>
-            slugifyConnectionName(c.name) === params.connectionId
-        );
-        if (urlConnection) {
-          // URL has valid connection, will be set in initialization useEffect
-          // Don't override it here
-          return;
-        } else {
-          // Invalid connection slug in URL - redirect to /browse
-          navigate("/browse", { replace: true });
-          return;
-        }
-      }
-
-      // No URL param, use localStorage or first
-      const savedConnectionId = localStorage.getItem("selectedConnectionId");
-      let autoSelectedConnection: Connection | undefined;
-
-      if (
-        savedConnectionId &&
-        data.find((c: Connection) => c.id === savedConnectionId)
-      ) {
-        autoSelectedConnection = data.find(
-          (c: Connection) => c.id === savedConnectionId
-        );
-        setSelectedConnectionId(savedConnectionId);
-      } else if (data.length > 0) {
-        autoSelectedConnection = data[0];
-        setSelectedConnectionId(data[0].id);
-      }
-
-      // Update URL to include the auto-selected connection
-      if (autoSelectedConnection) {
-        const identifier = slugifyConnectionName(autoSelectedConnection.name);
-        navigate(`/browse/${identifier}`, { replace: true });
-      }
-    } catch (err: any) {
-      console.error("Error loading connections:", err);
-      if (err.response?.status === 401) {
-        navigate("/login");
-      } else if (err.response?.status === 403) {
-        setError(
-          "Access denied. Please contact an administrator to configure connections."
-        );
-      } else {
-        setError("Failed to load connections. Please try again.");
-      }
-    }
-  };
-
-  // Helper to update URL when navigation changes
-  const updateUrl = (connectionId: string, path: string) => {
-    if (isInitializing.current) return; // Don't update URL during initialization
-    if (isUpdatingFromUrl.current) return; // Don't update URL when state is being set from URL
-
-    // Find connection and use its name as identifier
-    const connection = connections.find((c) => c.id === connectionId);
-    if (!connection) return;
-
-    const identifier = getConnectionIdentifier(connection);
-
-    // Encode the path but keep slashes as slashes (not %2F)
-    const encodedPath = path
-      .split("/")
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-
-    const newUrl = `/browse/${identifier}${
-      encodedPath ? `/${encodedPath}` : ""
-    }`;
-
-    // Only navigate if URL actually changed to avoid duplicate history entries
-    if (location.pathname !== newUrl) {
-      navigate(newUrl, { replace: false });
-    }
-  };
-
-  const loadFiles = async (path: string, forceRefresh: boolean = false) => {
-    if (!selectedConnectionId) return;
-
-    // Create cache key
-    const cacheKey = `${selectedConnectionId}:${path}`;
-
-    // Check cache first (unless force refresh)
-    if (!forceRefresh) {
-      const cached = directoryCache.current.get(cacheKey);
-      if (cached) {
-        // Use cached data immediately - no loading spinner!
-        setFiles(cached.items);
-        setError(null);
-        return;
-      }
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-      const listing = await api.listDirectory(selectedConnectionId, path);
-
-      // Store in cache
-      directoryCache.current.set(cacheKey, {
-        items: listing.items,
-        timestamp: Date.now(),
-      });
-
-      setFiles(listing.items);
-    } catch (err: any) {
-      console.error("Error loading files:", err);
-      if (err.response?.status === 401) {
-        navigate("/login");
-      } else if (err.response?.status === 404) {
-        setError("Connection not found. Please select another connection.");
-      } else {
-        setError(
-          err.response?.data?.detail ||
-            "Failed to load files. Please check your connection settings."
-        );
-      }
-      setFiles([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkAdminStatus = async () => {
-    try {
-      await api.getConnections();
-      setIsAdmin(true);
-    } catch (error: any) {
-      // If 403, user is not admin; if 401, not logged in
-      if (error.response?.status === 403) {
-        setIsAdmin(false);
-      }
-    }
-  };
+  }, [currentPath, selectedConnectionId, loadFiles]);
 
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
@@ -581,7 +650,7 @@ const Browser: React.FC = () => {
 
     // Check if we have saved state to restore for current path
     const savedState = navigationHistory.current.get(currentPath);
-    if (savedState && savedState.selectedFileName) {
+    if (savedState?.selectedFileName) {
       // Find the index of the previously selected item
       const restoredIndex = sortedAndFilteredFiles.findIndex(
         (f) => f.name === savedState.selectedFileName
@@ -766,34 +835,15 @@ const Browser: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [currentPath, settingsOpen, showHelp, searchQuery, selectedFile]);
-
-  const handleFileClick = (file: FileEntry, index?: number) => {
-    if (index !== undefined) {
-      setFocusedIndex(index);
-    }
-    if (file.type === "directory") {
-      // Save current state before navigating into directory
-      const currentScrollOffset =
-        virtualListRef.current?.state?.scrollOffset || 0;
-      navigationHistory.current.set(currentPath, {
-        focusedIndex,
-        scrollOffset: currentScrollOffset,
-        selectedFileName: file.name,
-      });
-
-      const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-      setCurrentPath(newPath);
-      setSelectedFile(null);
-      // Blur any focused element when navigating so keyboard shortcuts work
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-    } else {
-      const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
-      setSelectedFile(filePath);
-    }
-  };
+  }, [
+    currentPath,
+    settingsOpen,
+    showHelp,
+    searchQuery,
+    selectedFile,
+    handleFileClick,
+    loadFiles,
+  ]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
@@ -816,8 +866,22 @@ const Browser: React.FC = () => {
 
   // Row renderer for virtual list
   // Row component for VirtualList (react-window v2)
+  interface RowComponentProps {
+    index: number;
+    style: React.CSSProperties;
+    files: FileEntry[];
+    focusedIndex: number;
+    onFileClick: (file: FileEntry, index: number) => void;
+  }
+
   const RowComponent = React.useCallback(
-    ({ index, style, files, focusedIndex: focused, onFileClick }: any) => {
+    ({
+      index,
+      style,
+      files,
+      focusedIndex: focused,
+      onFileClick,
+    }: RowComponentProps) => {
       const file = files[index];
 
       const secondaryInfo = [];
@@ -876,7 +940,7 @@ const Browser: React.FC = () => {
       focusedIndex,
       onFileClick: handleFileClick,
     }),
-    [sortedAndFilteredFiles, focusedIndex]
+    [sortedAndFilteredFiles, focusedIndex, handleFileClick]
   );
 
   return (
@@ -994,7 +1058,7 @@ const Browser: React.FC = () => {
                   </Link>
                   {pathParts.map((part, index) => (
                     <Link
-                      key={index}
+                      key={pathParts.slice(0, index + 1).join("/")}
                       component="button"
                       variant="body1"
                       onClick={() => handleBreadcrumbClick(index)}
@@ -1124,7 +1188,7 @@ const Browser: React.FC = () => {
                       rowComponent={RowComponent}
                       rowCount={sortedAndFilteredFiles.length}
                       rowHeight={68}
-                      rowProps={rowProps}
+                      rowProps={rowProps as any}
                       style={{ height: listHeight, width: "100%" }}
                     />
                   )}

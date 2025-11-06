@@ -1,24 +1,24 @@
-import React from "react";
 import {
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  CheckCircle as TestIcon,
+} from "@mui/icons-material";
+import {
+  Box,
+  Chip,
+  IconButton,
+  Paper,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
-  IconButton,
   Tooltip,
-  Chip,
-  Box,
   Typography,
 } from "@mui/material";
-import {
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  CheckCircle as TestIcon,
-} from "@mui/icons-material";
-import { Connection } from "../../types";
+import type React from "react";
+import type { Connection } from "../../types";
 
 interface ConnectionListProps {
   connections: Connection[];
@@ -85,29 +85,17 @@ const ConnectionList: React.FC<ConnectionListProps> = ({
               </TableCell>
               <TableCell align="right">
                 <Tooltip title="Test Connection">
-                  <IconButton
-                    size="small"
-                    onClick={() => onTest(connection)}
-                    color="primary"
-                  >
+                  <IconButton size="small" onClick={() => onTest(connection)} color="primary">
                     <TestIcon />
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="Edit">
-                  <IconButton
-                    size="small"
-                    onClick={() => onEdit(connection)}
-                    color="primary"
-                  >
+                  <IconButton size="small" onClick={() => onEdit(connection)} color="primary">
                     <EditIcon />
                   </IconButton>
                 </Tooltip>
                 <Tooltip title="Delete">
-                  <IconButton
-                    size="small"
-                    onClick={() => onDelete(connection)}
-                    color="error"
-                  >
+                  <IconButton size="small" onClick={() => onDelete(connection)} color="error">
                     <DeleteIcon />
                   </IconButton>
                 </Tooltip>

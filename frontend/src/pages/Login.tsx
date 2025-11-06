@@ -1,14 +1,7 @@
-import React, { useState } from "react";
+import { Alert, Box, Button, Container, Paper, TextField, Typography } from "@mui/material";
+import type React from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Alert,
-} from "@mui/material";
 import { login } from "../services/api";
 
 const Login: React.FC = () => {
@@ -25,7 +18,7 @@ const Login: React.FC = () => {
       const response = await login(username, password);
       localStorage.setItem("access_token", response.access_token);
       navigate("/browser");
-    } catch (err) {
+    } catch (_err) {
       setError("Invalid username or password");
     }
   };
@@ -70,12 +63,7 @@ const Login: React.FC = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-            >
+            <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
               Sign In
             </Button>
           </form>

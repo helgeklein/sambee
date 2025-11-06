@@ -1,14 +1,8 @@
-import React from "react";
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
-import { ThemeProvider, createTheme } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
-import Login from "./pages/Login";
+import { createTheme, ThemeProvider } from "@mui/material/styles";
+import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import Browser from "./pages/Browser";
+import Login from "./pages/Login";
 
 const theme = createTheme({
   palette: {

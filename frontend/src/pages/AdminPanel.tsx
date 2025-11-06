@@ -1,23 +1,25 @@
-import React, { useState, useEffect } from "react";
+import { Add as AddIcon } from "@mui/icons-material";
 import {
-  Container,
-  Typography,
-  Paper,
+  Alert,
+  AppBar,
   Box,
   Button,
-  AppBar,
-  Toolbar,
-  Snackbar,
-  Alert,
   CircularProgress,
+  Container,
+  Paper,
+  Snackbar,
+  Toolbar,
+  Typography,
 } from "@mui/material";
-import { Add as AddIcon } from "@mui/icons-material";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ConnectionList from "../components/Admin/ConnectionList";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
+import ConnectionList from "../components/Admin/ConnectionList";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import api from "../services/api";
-import { Connection } from "../types";
+import type { Connection } from "../types";
+import { isApiError } from "../types";
 
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
@@ -38,44 +40,44 @@ const AdminPanel: React.FC = () => {
   });
   const [testing, setTesting] = useState(false);
 
-  useEffect(() => {
-    checkAuth();
-    loadConnections();
-  }, []);
+  const showNotification = useCallback(
+    (message: string, severity: "success" | "error" | "info") => {
+      setNotification({ open: true, message, severity });
+    },
+    []
+  );
 
-  const checkAuth = async () => {
+  const checkAuth = useCallback(async () => {
     try {
       const user = await api.getCurrentUser();
       if (!user.is_admin) {
         showNotification("Access denied. Admin privileges required.", "error");
         navigate("/browser");
       }
-    } catch (error) {
+    } catch (_error) {
       navigate("/login");
     }
-  };
+  }, [navigate, showNotification]);
 
-  const loadConnections = async () => {
+  const loadConnections = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getConnections();
       setConnections(data);
-    } catch (error: any) {
-      showNotification(
-        error.response?.data?.detail || "Failed to load connections",
-        "error"
-      );
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to load connections"
+        : "Failed to load connections";
+      showNotification(message, "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [showNotification]);
 
-  const showNotification = (
-    message: string,
-    severity: "success" | "error" | "info"
-  ) => {
-    setNotification({ open: true, message, severity });
-  };
+  useEffect(() => {
+    checkAuth();
+    loadConnections();
+  }, [checkAuth, loadConnections]);
 
   const handleAddClick = () => {
     setSelectedConnection(null);
@@ -97,11 +99,11 @@ const AdminPanel: React.FC = () => {
     try {
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
-    } catch (error: any) {
-      showNotification(
-        error.response?.data?.detail || "Failed to test connection",
-        "error"
-      );
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to test connection"
+        : "Failed to test connection";
+      showNotification(message, "error");
     } finally {
       setTesting(false);
     }
@@ -124,11 +126,11 @@ const AdminPanel: React.FC = () => {
       setSelectedConnection(null);
       loadConnections();
       showNotification("Connection deleted successfully", "success");
-    } catch (error: any) {
-      showNotification(
-        error.response?.data?.detail || "Failed to delete connection",
-        "error"
-      );
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to delete connection"
+        : "Failed to delete connection";
+      showNotification(message, "error");
     }
   };
 

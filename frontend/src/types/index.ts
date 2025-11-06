@@ -60,3 +60,23 @@ export interface AuthToken {
 
 // Alias for compatibility
 export type FileEntry = FileInfo;
+
+// API Error type for axios errors
+export interface ApiError {
+  response?: {
+    data?: {
+      detail?: string;
+    };
+    status?: number;
+  };
+  message?: string;
+}
+
+// Type guard for API errors
+export function isApiError(error: unknown): error is ApiError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    ("response" in error || "message" in error)
+  );
+}

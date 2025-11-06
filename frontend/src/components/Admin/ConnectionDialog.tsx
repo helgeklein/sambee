@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from "react";
+import { Visibility, VisibilityOff } from "@mui/icons-material";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Button,
-  TextField,
-  Box,
   Alert,
+  Box,
+  Button,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   InputAdornment,
+  TextField,
 } from "@mui/material";
-import { Visibility, VisibilityOff } from "@mui/icons-material";
-import { Connection, ConnectionCreate } from "../../types";
+import type React from "react";
+import { useEffect, useState } from "react";
 import api from "../../services/api";
+import type { Connection, ConnectionCreate } from "../../types";
+import { isApiError } from "../../types";
 
 interface ConnectionDialogProps {
   open: boolean;
@@ -78,7 +80,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
     setErrors({});
     setTestResult(null);
     setShowPassword(false); // Reset password visibility
-  }, [connection, open]);
+  }, [connection]);
 
   const handleChange = (
     field: keyof ConnectionCreate,
@@ -145,10 +147,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
           result as { status: "success" | "error"; message: string }
         );
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to test connection"
+        : "Failed to test connection";
       setTestResult({
         status: "error",
-        message: error.response?.data?.detail || "Failed to test connection",
+        message,
       });
     } finally {
       setTesting(false);
@@ -182,10 +187,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
       }
       onSave();
       onClose();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to save connection"
+        : "Failed to save connection";
       setTestResult({
         status: "error",
-        message: error.response?.data?.detail || "Failed to save connection",
+        message,
       });
     } finally {
       setSaving(false);

@@ -1,11 +1,11 @@
-import axios, { AxiosInstance } from "axios";
-import {
-  User,
+import axios, { type AxiosInstance } from "axios";
+import type {
+  AuthToken,
   Connection,
   ConnectionCreate,
   DirectoryListing,
   FileInfo,
-  AuthToken,
+  User,
 } from "../types";
 
 class ApiService {
@@ -57,10 +57,7 @@ class ApiService {
     return response.data;
   }
 
-  async changePassword(
-    currentPassword: string,
-    newPassword: string
-  ): Promise<void> {
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
     await this.api.post("/auth/change-password", {
       current_password: currentPassword,
       new_password: newPassword,
@@ -74,10 +71,7 @@ class ApiService {
   }
 
   async createConnection(connection: ConnectionCreate): Promise<Connection> {
-    const response = await this.api.post<Connection>(
-      "/admin/connections",
-      connection
-    );
+    const response = await this.api.post<Connection>("/admin/connections", connection);
     return response.data;
   }
 
@@ -96,32 +90,23 @@ class ApiService {
     await this.api.delete(`/admin/connections/${connectionId}`);
   }
 
-  async testConnection(
-    connectionId: string
-  ): Promise<{ status: string; message: string }> {
-    const response = await this.api.post(
-      `/admin/connections/${connectionId}/test`
-    );
+  async testConnection(connectionId: string): Promise<{ status: string; message: string }> {
+    const response = await this.api.post(`/admin/connections/${connectionId}/test`);
     return response.data;
   }
 
   // Browse endpoints
-  async listDirectory(
-    connectionId: string,
-    path: string = ""
-  ): Promise<DirectoryListing> {
-    const response = await this.api.get<DirectoryListing>(
-      `/browse/${connectionId}/list`,
-      { params: { path } }
-    );
+  async listDirectory(connectionId: string, path: string = ""): Promise<DirectoryListing> {
+    const response = await this.api.get<DirectoryListing>(`/browse/${connectionId}/list`, {
+      params: { path },
+    });
     return response.data;
   }
 
   async getFileInfo(connectionId: string, path: string): Promise<FileInfo> {
-    const response = await this.api.get<FileInfo>(
-      `/browse/${connectionId}/info`,
-      { params: { path } }
-    );
+    const response = await this.api.get<FileInfo>(`/browse/${connectionId}/info`, {
+      params: { path },
+    });
     return response.data;
   }
 
@@ -159,10 +144,9 @@ export const apiService = new ApiService();
 export default apiService;
 
 // Export convenience functions
-export const login = (username: string, password: string) =>
-  apiService.login(username, password);
+export const login = (username: string, password: string) => apiService.login(username, password);
 
-export const browseFiles = async (path: string, token: string) => {
+export const browseFiles = async (path: string, _token: string) => {
   // For simple browsing, we'll use a default connection
   // This should be updated when connections are properly configured
   try {

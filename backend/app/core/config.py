@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+settings = Settings()  # pyright: ignore[reportCallIssue]
 
 # Ensure data directory exists
 settings.data_dir.mkdir(parents=True, exist_ok=True)

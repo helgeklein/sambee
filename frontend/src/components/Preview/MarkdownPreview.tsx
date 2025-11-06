@@ -1,11 +1,8 @@
-import React, { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
+import CloseIcon from "@mui/icons-material/Close";
 import {
+  Alert,
   Box,
   CircularProgress,
-  Alert,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -14,7 +11,10 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
+import React, { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
 import { apiService } from "../../services/api";
 import "highlight.js/styles/github.css";
 
@@ -103,12 +103,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         <Typography variant="h6" component="div" sx={{ fontWeight: 500 }}>
           {filename}
         </Typography>
-        <IconButton
-          edge="end"
-          color="inherit"
-          onClick={onClose}
-          aria-label="close"
-        >
+        <IconButton edge="end" color="inherit" onClick={onClose} aria-label="close">
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -132,12 +127,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         }}
       >
         {loading ? (
-          <Box
-            display="flex"
-            justifyContent="center"
-            alignItems="center"
-            height="100%"
-          >
+          <Box display="flex" justifyContent="center" alignItems="center" height="100%">
             <CircularProgress />
           </Box>
         ) : error ? (
@@ -254,10 +244,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               },
             }}
           >
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              rehypePlugins={[rehypeHighlight]}
-            >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
               {content}
             </ReactMarkdown>
           </Box>

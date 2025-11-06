@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from "react";
+import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
 import {
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  IconButton,
+  Alert,
   Box,
   Button,
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  IconButton,
   Snackbar,
-  Alert,
 } from "@mui/material";
-import { Close as CloseIcon, Add as AddIcon } from "@mui/icons-material";
-import ConnectionList from "../Admin/ConnectionList";
-import ConnectionDialog from "../Admin/ConnectionDialog";
-import DeleteDialog from "../Admin/DeleteDialog";
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "../../services/api";
-import { Connection } from "../../types";
+import type { Connection } from "../../types";
+import { isApiError } from "../../types";
+import ConnectionDialog from "../Admin/ConnectionDialog";
+import ConnectionList from "../Admin/ConnectionList";
+import DeleteDialog from "../Admin/DeleteDialog";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -39,33 +41,33 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   });
   const [testing, setTesting] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      loadConnections();
-    }
-  }, [open]);
+  const showNotification = useCallback(
+    (message: string, severity: "success" | "error" | "info") => {
+      setNotification({ open: true, message, severity });
+    },
+    []
+  );
 
-  const loadConnections = async () => {
+  const loadConnections = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getConnections();
       setConnections(data);
-    } catch (error: any) {
-      showNotification(
-        error.response?.data?.detail || "Failed to load connections",
-        "error"
-      );
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to load connections"
+        : "Failed to load connections";
+      showNotification(message, "error");
     } finally {
       setLoading(false);
     }
-  };
+  }, [showNotification]);
 
-  const showNotification = (
-    message: string,
-    severity: "success" | "error" | "info"
-  ) => {
-    setNotification({ open: true, message, severity });
-  };
+  useEffect(() => {
+    if (open) {
+      loadConnections();
+    }
+  }, [open, loadConnections]);
 
   const handleAddClick = () => {
     setSelectedConnection(null);
@@ -87,11 +89,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
     try {
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
-    } catch (error: any) {
-      showNotification(
-        error.response?.data?.detail || "Failed to test connection",
-        "error"
-      );
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to test connection"
+        : "Failed to test connection";
+      showNotification(message, "error");
     } finally {
       setTesting(false);
     }
@@ -114,11 +116,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
       setSelectedConnection(null);
       loadConnections();
       showNotification("Connection deleted successfully", "success");
-    } catch (error: any) {
-      showNotification(
-        error.response?.data?.detail || "Failed to delete connection",
-        "error"
-      );
+    } catch (error: unknown) {
+      const message = isApiError(error)
+        ? error.response?.data?.detail || "Failed to delete connection"
+        : "Failed to delete connection";
+      showNotification(message, "error");
     }
   };
 
