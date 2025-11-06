@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the repository root (parent of scripts directory)
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -11,7 +16,7 @@ echo -e "${YELLOW}Running linters for backend and frontend...${NC}\n"
 
 # Backend: Ruff
 echo -e "${YELLOW}=== Backend: Ruff ===${NC}"
-cd /workspace/backend || exit 1
+cd "$REPO_ROOT/backend" || exit 1
 
 echo "Checking Python code with Ruff..."
 if ruff check app; then
@@ -31,7 +36,7 @@ fi
 
 # Frontend: Biome
 echo -e "${YELLOW}=== Frontend: Biome ===${NC}"
-cd /workspace/frontend || exit 1
+cd "$REPO_ROOT/frontend" || exit 1
 
 echo "Checking TypeScript/JavaScript with Biome..."
 if npm run lint; then
