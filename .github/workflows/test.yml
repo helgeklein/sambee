@@ -39,6 +39,9 @@ jobs:
         npm ci
 
     - name: Run test script
+      env:
+        SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
+        ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: ./scripts/test.sh
 
     - name: Upload coverage reports
