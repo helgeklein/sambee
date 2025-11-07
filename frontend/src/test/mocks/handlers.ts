@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw";
+import { HttpResponse, http } from "msw";
 
 const API_BASE = "http://localhost:8000/api";
 
@@ -32,7 +32,10 @@ export const handlers = [
 		}
 
 		console.log("MSW: Invalid credentials");
-		return HttpResponse.json({ detail: "Incorrect username or password" }, { status: 401 });
+		return HttpResponse.json(
+			{ detail: "Incorrect username or password" },
+			{ status: 401 },
+		);
 	}),
 
 	// Auth - Get current user
@@ -64,7 +67,10 @@ export const handlers = [
 			});
 		}
 
-		return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
+		return HttpResponse.json(
+			{ detail: "Could not validate credentials" },
+			{ status: 401 },
+		);
 	}),
 
 	// Auth - Change password
@@ -91,7 +97,10 @@ export const handlers = [
 		}
 
 		if (!new_password || new_password.length < 1) {
-			return HttpResponse.json({ detail: "New password is required" }, { status: 400 });
+			return HttpResponse.json(
+				{ detail: "New password is required" },
+				{ status: 400 },
+			);
 		}
 
 		return HttpResponse.json({ message: "Password changed successfully" });
@@ -148,8 +157,15 @@ export const handlers = [
 		const connectionData = body as any;
 
 		// Validate required fields
-		if (!connectionData.name || !connectionData.host || !connectionData.share_name) {
-			return HttpResponse.json({ detail: "Missing required fields" }, { status: 422 });
+		if (
+			!connectionData.name ||
+			!connectionData.host ||
+			!connectionData.share_name
+		) {
+			return HttpResponse.json(
+				{ detail: "Missing required fields" },
+				{ status: 422 },
+			);
 		}
 
 		return HttpResponse.json({
@@ -265,7 +281,7 @@ export const handlers = [
 	}),
 
 	// Preview - Start stream
-		// Preview - Start file preview
+	// Preview - Start file preview
 	http.get(`${API_BASE}/preview/:connectionId/start`, ({ request }) => {
 		const authHeader = request.headers.get("Authorization");
 

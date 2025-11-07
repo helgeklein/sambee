@@ -1,8 +1,11 @@
-import { render as rtlRender, type RenderOptions } from "@testing-library/react";
+import CssBaseline from "@mui/material/CssBaseline";
+import { createTheme, ThemeProvider } from "@mui/material/styles";
+import {
+	type RenderOptions,
+	render as rtlRender,
+} from "@testing-library/react";
 import type { ReactElement } from "react";
 import { BrowserRouter } from "react-router-dom";
-import { ThemeProvider, createTheme } from "@mui/material/styles";
-import CssBaseline from "@mui/material/CssBaseline";
 
 const theme = createTheme({
 	palette: {
@@ -29,7 +32,10 @@ function AllProviders({ children }: AllProvidersProps) {
 	);
 }
 
-function customRender(ui: ReactElement, options?: Omit<RenderOptions, "wrapper">) {
+function customRender(
+	ui: ReactElement,
+	options?: Omit<RenderOptions, "wrapper">,
+) {
 	return rtlRender(ui, { wrapper: AllProviders, ...options });
 }
 

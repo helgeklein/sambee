@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "../../test/utils/test-utils";
 import Login from "../Login";
 
@@ -24,14 +24,18 @@ describe("Login Component", () => {
 		render(<Login />);
 
 		// Check for heading
-		expect(screen.getByRole("heading", { name: /sambee login/i })).toBeInTheDocument();
+		expect(
+			screen.getByRole("heading", { name: /sambee login/i }),
+		).toBeInTheDocument();
 
 		// Check for form fields
 		expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
 		expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
 
 		// Check for submit button
-		expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /sign in/i }),
+		).toBeInTheDocument();
 
 		// Error message should not be visible initially
 		expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -80,7 +84,8 @@ describe("Login Component", () => {
 
 		// Verify login was called with correct credentials
 		expect(mockLogin).toHaveBeenCalledWith("admin", "admin");
-	});	it("displays error message with invalid credentials", async () => {
+	});
+	it("displays error message with invalid credentials", async () => {
 		// Mock failed login
 		vi.mocked(mockLogin).mockRejectedValueOnce(new Error("Unauthorized"));
 
@@ -96,7 +101,9 @@ describe("Login Component", () => {
 
 		// Wait for error message to appear
 		await waitFor(() => {
-			expect(screen.getByRole("alert")).toHaveTextContent(/invalid username or password/i);
+			expect(screen.getByRole("alert")).toHaveTextContent(
+				/invalid username or password/i,
+			);
 		});
 
 		// Token should not be stored
