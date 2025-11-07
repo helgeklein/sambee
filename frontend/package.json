@@ -10,7 +10,11 @@
     "preview": "vite preview",
     "lint": "biome check src",
     "lint:fix": "biome check --write src",
-    "format": "biome format --write src"
+    "format": "biome format --write src",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -29,10 +33,19 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "@vitest/coverage-v8": "^4.0.8",
+    "@vitest/ui": "^4.0.8",
+    "jsdom": "^27.1.0",
+    "msw": "^2.12.0",
     "typescript": "^5.6.3",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "vitest": "^4.0.8"
   }
 }
