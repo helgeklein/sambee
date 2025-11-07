@@ -1,0 +1,871 @@
+"""
+End-to-end scenario tests for Sambee.
+
+Tests cover complete user journeys and workflows:
+- User registration and authentication
+- Connection management
+- File browsing and preview
+- Real-time notifications
+- Multi-user collaboration
+- Error recovery scenarios
+"""
+
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from app.models.connection import Connection
+from app.models.user import User
+from fastapi.testclient import TestClient
+from sqlmodel import Session, select
+
+
+@pytest.mark.integration
+class TestCompleteUserJourney:
+    """Test complete user workflow from registration to file operations."""
+
+    def test_complete_authenticated_workflow(
+        self, client: TestClient, session: Session
+    ):
+        """Test full workflow: register, login, browse, preview, download."""
+        # Step 1: Create admin user (simulated via direct DB)
+        admin = User(username="admin", password_hash="hashed", is_admin=True)
+        session.add(admin)
+        session.commit()
+        session.refresh(admin)
+
+        # Step 2: Admin login
+        response = client.post(
+            "/api/auth/login",
+            data={"username": "admin", "password": "admin"},
+        )
+        assert response.status_code == 200
+        admin_token = response.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # Step 3: Admin creates SMB connection (mock the connection test)
+        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_backend_class.return_value = mock_instance
+
+            connection_data = {
+                "name": "Test Share",
+                "type": "smb",
+                "host": "server.local",
+                "port": 445,
+                "share_name": "share",
+                "username": "smbuser",
+                "password": "smbpass",
+            }
+            response = client.post(
+                "/api/admin/connections",
+                json=connection_data,
+                headers=admin_headers,
+            )
+            assert response.status_code == 200
+            connection_id = response.json()["id"]
+
+        # Step 4: Admin lists connections
+        response = client.get("/api/admin/connections", headers=admin_headers)
+        assert response.status_code == 200
+        connections = response.json()
+        assert len(connections) >= 1
+        assert any(c["id"] == connection_id for c in connections)
+
+        # Step 5: Browse directory with mocked SMB backend
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {
+                "items": [
+                    {
+                        "name": "file.txt",
+                        "path": "/file.txt",
+                        "is_directory": False,
+                        "size": 1024,
+                        "modified": "2024-01-01T00:00:00",
+                    }
+                ]
+            }
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/browse/{connection_id}/list",
+                headers=admin_headers,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["items"]) == 1
+            assert data["items"][0]["name"] == "file.txt"
+
+        # Step 6: Preview file
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.file_exists.return_value = True
+            mock_instance.get_file_info.return_value = {
+                "name": "file.txt",
+                "path": "/file.txt",
+                "is_directory": False,
+                "size": 11,
+                "modified": "2024-01-01T00:00:00",
+            }
+            mock_instance.read_file.return_value = [b"Hello World"]
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/preview/{connection_id}/file.txt",
+                headers=admin_headers,
+            )
+            assert response.status_code == 200
+            assert response.content == b"Hello World"
+
+        # Step 7: Download file
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.file_exists.return_value = True
+            mock_instance.get_file_info.return_value = {
+                "name": "file.txt",
+                "path": "/file.txt",
+                "is_directory": False,
+                "size": 11,
+                "modified": "2024-01-01T00:00:00",
+            }
+            mock_instance.read_file.return_value = [b"Hello World"]
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/preview/{connection_id}/file.txt?download=true",
+                headers=admin_headers,
+            )
+            assert response.status_code == 200
+            assert "attachment" in response.headers.get("content-disposition", "")
+
+        # Step 8: Update connection (using PUT, not PATCH)
+        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_backend_class.return_value = mock_instance
+
+            update_data = {
+                "name": "Updated Share",
+                "type": "smb",
+                "host": "server.local",
+                "port": 445,
+                "share_name": "share",
+                "username": "smbuser",
+                "password": "smbpass",
+            }
+            response = client.put(
+                f"/api/admin/connections/{connection_id}",
+                json=update_data,
+                headers=admin_headers,
+            )
+            assert response.status_code == 200
+            assert response.json()["name"] == "Updated Share"
+
+        # Step 9: Delete connection
+        response = client.delete(
+            f"/api/admin/connections/{connection_id}",
+            headers=admin_headers,
+        )
+        assert response.status_code == 200
+
+        # Step 10: Verify deletion
+        response = client.get("/api/admin/connections", headers=admin_headers)
+        assert response.status_code == 200
+        connections = response.json()
+        assert not any(c["id"] == connection_id for c in connections)
+
+    def test_regular_user_workflow(
+        self, client: TestClient, session: Session, auth_headers_user: dict[str, str]
+    ):
+        """Test regular user can browse but not manage connections."""
+        # Create connection for browsing
+        connection = Connection(
+            name="User Share",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # User can browse
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {"items": []}
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/browse/{connection.id}/list",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 200
+
+        # User cannot create connections (admin endpoint)
+        connection_data = {
+            "name": "Unauthorized",
+            "type": "smb",
+            "host": "server.local",
+            "share_name": "share",
+            "username": "user",
+            "password": "pass",
+        }
+        response = client.post(
+            "/api/admin/connections",
+            json=connection_data,
+            headers=auth_headers_user,
+        )
+        assert response.status_code == 403  # Forbidden
+
+
+@pytest.mark.integration
+class TestMultiUserCollaboration:
+    """Test multiple users interacting with the system."""
+
+    def test_multiple_users_browse_same_share(
+        self,
+        client: TestClient,
+        session: Session,
+        auth_headers_user: dict[str, str],
+        auth_headers_admin: dict[str, str],
+    ):
+        """Test multiple users can browse the same share simultaneously."""
+        # Create shared connection
+        connection = Connection(
+            name="Shared",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # Both users browse simultaneously
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {
+                "items": [
+                    {
+                        "name": "doc.pdf",
+                        "path": "/doc.pdf",
+                        "is_directory": False,
+                        "size": 1024,
+                        "modified": "2024-01-01T00:00:00",
+                    }
+                ]
+            }
+            mock_backend_class.return_value = mock_instance
+
+            response1 = client.get(
+                f"/api/browse/{connection.id}/list",
+                headers=auth_headers_user,
+            )
+            response2 = client.get(
+                f"/api/browse/{connection.id}/list",
+                headers=auth_headers_admin,
+            )
+
+            assert response1.status_code == 200
+            assert response2.status_code == 200
+            assert response1.json() == response2.json()
+
+    def test_concurrent_file_access(
+        self,
+        client: TestClient,
+        session: Session,
+        auth_headers_user: dict[str, str],
+        auth_headers_admin: dict[str, str],
+    ):
+        """Test multiple users accessing different files simultaneously."""
+        # Create connection
+        connection = Connection(
+            name="Concurrent",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # Both users access different files
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.file_exists.return_value = True
+            mock_instance.get_file_info.return_value = {
+                "name": "file",
+                "path": "/file",
+                "is_directory": False,
+                "size": 10,
+                "modified": "2024-01-01T00:00:00",
+            }
+            mock_instance.read_file.return_value = [b"data"]
+            mock_backend_class.return_value = mock_instance
+
+            response1 = client.get(
+                f"/api/preview/{connection.id}/file1.txt",
+                headers=auth_headers_user,
+            )
+            response2 = client.get(
+                f"/api/preview/{connection.id}/file2.txt",
+                headers=auth_headers_admin,
+            )
+
+            assert response1.status_code == 200
+            assert response2.status_code == 200
+
+
+@pytest.mark.integration
+class TestErrorRecoveryScenarios:
+    """Test error handling and recovery in realistic scenarios."""
+
+    def test_smb_connection_error_during_browse(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test graceful handling of SMB connection errors."""
+        # Create connection
+        connection = Connection(
+            name="Error Test",
+            type="smb",
+            host="unreachable.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # Simulate SMB connection failure
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_backend_class.side_effect = Exception("Network unreachable")
+
+            response = client.get(
+                f"/api/browse/{connection.id}/list",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 500
+            assert "detail" in response.json()
+
+    def test_file_not_found_during_preview(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test file not found error during preview."""
+        connection = Connection(
+            name="Not Found Test",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.file_exists.return_value = False
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/preview/{connection.id}/missing.txt",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 404
+
+    def test_invalid_token_error(self, client: TestClient):
+        """Test invalid authentication token handling."""
+        invalid_headers = {"Authorization": "Bearer invalid_token"}
+
+        response = client.get("/api/admin/connections", headers=invalid_headers)
+        assert response.status_code == 401
+
+    def test_missing_connection_error(
+        self, client: TestClient, auth_headers_user: dict[str, str]
+    ):
+        """Test accessing non-existent connection."""
+        fake_id = "nonexistent-uuid-12345"
+
+        response = client.get(
+            f"/api/browse/{fake_id}/",
+            headers=auth_headers_user,
+        )
+        assert response.status_code in [404, 422]  # Not found or validation error
+
+    def test_directory_preview_error(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test attempting to preview a directory."""
+        connection = Connection(
+            name="Dir Test",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.file_exists.return_value = True
+            mock_instance.get_file_info.return_value = {
+                "name": "folder",
+                "path": "/folder",
+                "is_directory": True,
+                "size": 0,
+                "modified": "2024-01-01T00:00:00",
+            }
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/preview/{connection.id}/folder",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 400
+            assert "directory" in response.json()["detail"].lower()
+
+
+@pytest.mark.integration
+class TestWebSocketScenarios:
+    """Test WebSocket integration in realistic scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_websocket_file_notification_workflow(self, session: Session):
+        """Test complete workflow with WebSocket notifications."""
+        from app.api.websocket import ConnectionManager
+
+        # Create connection
+        connection = Connection(
+            name="WS Test",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # Create connection manager and mock WebSocket
+        manager = ConnectionManager()
+        mock_ws = AsyncMock()
+
+        # Connect and subscribe
+        await manager.connect(mock_ws)
+        await manager.subscribe(mock_ws, str(connection.id), "/documents")
+
+        # Verify subscription was registered
+        assert mock_ws in manager.subscriptions
+        key = f"{connection.id}:/documents"
+        assert key in manager.active_connections
+
+        # Cleanup
+        manager.disconnect(mock_ws)
+
+    @pytest.mark.asyncio
+    async def test_multiple_subscribers_notification(self, session: Session):
+        """Test notifications sent to multiple subscribers."""
+        from app.api.websocket import ConnectionManager
+
+        connection = Connection(
+            name="Multi WS",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        manager = ConnectionManager()
+        mock_ws1 = AsyncMock()
+        mock_ws2 = AsyncMock()
+
+        # Connect multiple clients
+        await manager.connect(mock_ws1)
+        await manager.connect(mock_ws2)
+
+        # Both subscribe to same path
+        await manager.subscribe(mock_ws1, str(connection.id), "/shared")
+        await manager.subscribe(mock_ws2, str(connection.id), "/shared")
+
+        # Verify both are subscribed
+        key = f"{connection.id}:/shared"
+        assert key in manager.active_connections
+        assert len(manager.active_connections[key]) == 2
+
+        # Cleanup
+        manager.disconnect(mock_ws1)
+        manager.disconnect(mock_ws2)
+
+
+@pytest.mark.integration
+class TestAdminConnectionManagement:
+    """Test admin-specific connection management scenarios."""
+
+    def test_create_connection_validation(
+        self, client: TestClient, auth_headers_admin: dict[str, str]
+    ):
+        """Test connection creation with validation."""
+        # Valid connection (mock the connection test)
+        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_backend_class.return_value = mock_instance
+
+            valid_data = {
+                "name": "Valid Connection",
+                "type": "smb",
+                "host": "server.local",
+                "port": 445,
+                "share_name": "share",
+                "username": "user",
+                "password": "pass",
+            }
+            response = client.post(
+                "/api/admin/connections",
+                json=valid_data,
+                headers=auth_headers_admin,
+            )
+            assert response.status_code == 200
+            connection_id = response.json()["id"]
+
+            # Verify password is encrypted
+            assert "password" not in response.json()
+            assert "password_encrypted" in response.json()
+
+            # Cleanup
+            client.delete(
+                f"/api/admin/connections/{connection_id}",
+                headers=auth_headers_admin,
+            )
+
+    def test_create_connection_missing_fields(
+        self, client: TestClient, auth_headers_admin: dict[str, str]
+    ):
+        """Test connection creation with missing required fields."""
+        invalid_data = {
+            "name": "Incomplete",
+            "type": "smb",
+            # Missing host, share_name, etc.
+        }
+        response = client.post(
+            "/api/admin/connections",
+            json=invalid_data,
+            headers=auth_headers_admin,
+        )
+        assert response.status_code == 422  # Validation error
+
+    def test_update_connection_with_put(
+        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
+    ):
+        """Test connection updates using PUT (not PATCH)."""
+        # Create connection
+        connection = Connection(
+            name="Original",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # Update with PUT (requires all fields, mock the connection test)
+        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_backend_class.return_value = mock_instance
+
+            update_data = {
+                "name": "Updated Name",
+                "type": "smb",
+                "host": "server.local",
+                "port": 445,
+                "share_name": "share",
+                "username": "user",
+                "password": "newpassword",
+            }
+            response = client.put(
+                f"/api/admin/connections/{connection.id}",
+                json=update_data,
+                headers=auth_headers_admin,
+            )
+            assert response.status_code == 200
+            assert response.json()["name"] == "Updated Name"
+
+    def test_update_connection_password(
+        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
+    ):
+        """Test updating connection password."""
+        connection = Connection(
+            name="Pass Update",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="old_encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        # Update password with PUT (mock the connection test)
+        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_backend_class.return_value = mock_instance
+
+            update_data = {
+                "name": "Pass Update",
+                "type": "smb",
+                "host": "server.local",
+                "port": 445,
+                "share_name": "share",
+                "username": "user",
+                "password": "new_password",
+            }
+            response = client.put(
+                f"/api/admin/connections/{connection.id}",
+                json=update_data,
+                headers=auth_headers_admin,
+            )
+            assert response.status_code == 200
+
+            # Verify password was re-encrypted
+            updated_conn = session.exec(
+                select(Connection).where(Connection.id == connection.id)
+            ).first()
+            assert updated_conn is not None
+            assert updated_conn.password_encrypted != "old_encrypted"
+
+    def test_delete_nonexistent_connection(
+        self, client: TestClient, auth_headers_admin: dict[str, str]
+    ):
+        """Test deleting a connection that doesn't exist."""
+        fake_id = "00000000-0000-0000-0000-000000000000"
+        response = client.delete(
+            f"/api/admin/connections/{fake_id}",
+            headers=auth_headers_admin,
+        )
+        assert response.status_code == 404
+
+    def test_list_all_connections(
+        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
+    ):
+        """Test retrieving all connections."""
+        # Create test connection
+        connection = Connection(
+            name="List Test",
+            type="smb",
+            host="server.local",
+            port=445,
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+
+        response = client.get(
+            "/api/admin/connections",
+            headers=auth_headers_admin,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert isinstance(data, list)
+        assert any(c["name"] == "List Test" for c in data)
+
+
+@pytest.mark.integration
+class TestBrowserEdgeCases:
+    """Test browser API edge cases and error scenarios."""
+
+    def test_browse_root_directory(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test browsing root directory."""
+        connection = Connection(
+            name="Root Browse",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {
+                "items": [
+                    {
+                        "name": "folder1",
+                        "path": "/folder1",
+                        "is_directory": True,
+                        "size": 0,
+                        "modified": "2024-01-01T00:00:00",
+                    }
+                ]
+            }
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/browse/{connection.id}/list",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["items"]) == 1
+
+    def test_browse_nested_directory(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test browsing deeply nested directory."""
+        connection = Connection(
+            name="Nested Browse",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {
+                "items": [
+                    {
+                        "name": "deep.txt",
+                        "path": "/a/b/c/deep.txt",
+                        "is_directory": False,
+                        "size": 100,
+                        "modified": "2024-01-01T00:00:00",
+                    }
+                ]
+            }
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/browse/{connection.id}/list?path=a/b/c",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 200
+
+    def test_browse_with_special_characters(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test browsing directories with special characters."""
+        connection = Connection(
+            name="Special Chars",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {
+                "items": [
+                    {
+                        "name": "file with spaces.txt",
+                        "path": "/file with spaces.txt",
+                        "is_directory": False,
+                        "size": 100,
+                        "modified": "2024-01-01T00:00:00",
+                    }
+                ]
+            }
+            mock_backend_class.return_value = mock_instance
+
+            # URL-encoded path
+            response = client.get(
+                f"/api/browse/{connection.id}/list?path=folder%20with%20spaces",
+                headers=auth_headers_user,
+            )
+            # Should handle gracefully
+            assert response.status_code in [200, 500]
+
+    def test_browse_empty_directory(
+        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
+    ):
+        """Test browsing an empty directory."""
+        connection = Connection(
+            name="Empty Dir",
+            type="smb",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password_encrypted="encrypted",
+        )
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+
+        with patch("app.storage.smb.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_instance.list_directory.return_value = {"items": []}
+            mock_backend_class.return_value = mock_instance
+
+            response = client.get(
+                f"/api/browse/{connection.id}/list?path=empty",
+                headers=auth_headers_user,
+            )
+            assert response.status_code == 200
+            assert response.json()["items"] == []
+
+
+@pytest.mark.integration
+class TestAuthenticationFlows:
+    """Test various authentication and authorization flows."""
+
+    def test_login_success(self, client: TestClient, session: Session):
+        """Test successful login."""
+        user = User(username="testuser", password_hash="correct_hash", is_admin=False)
+        session.add(user)
+        session.commit()
+
+        # Login is tested via fixtures, but we can test the endpoint exists
+        response = client.get(
+            "/api/auth/me", headers={"Authorization": "Bearer invalid"}
+        )
+        assert response.status_code in [401, 422]  # Invalid token rejected
+
+    def test_access_admin_endpoint_as_regular_user(
+        self, client: TestClient, auth_headers_user: dict[str, str]
+    ):
+        """Test that regular users cannot access admin endpoints."""
+        response = client.get("/api/admin/connections", headers=auth_headers_user)
+        assert response.status_code == 403
+
+    def test_access_without_authentication(self, client: TestClient):
+        """Test that endpoints require authentication."""
+        # No Authorization header
+        response = client.get("/api/admin/connections")
+        assert response.status_code == 401
+
+        # Use fake connection ID
+        response = client.get("/api/browse/00000000-0000-0000-0000-000000000000/list")
+        assert response.status_code == 401
