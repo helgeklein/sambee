@@ -222,7 +222,6 @@ class TestPreviewFile:
             share_name=None,  # No share
             username="testuser",
             password_encrypted="encrypted_password",
-            owner_id=1,
         )
         session.add(connection)
         session.commit()
@@ -642,7 +641,6 @@ class TestValidateConnection:
             share_name=None,
             username="user",
             password_encrypted="pass",
-            owner_id=1,
         )
         session.add(connection)
         session.commit()
