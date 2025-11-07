@@ -2,9 +2,9 @@
 
 echo "🚀 Setting up Sambee development environment..."
 
-# Fix pip cache directory ownership if it exists and is owned by root
-if [ -d /home/vscode/.cache/pip ] && [ "$(stat -c %U /home/vscode/.cache/pip)" = "root" ]; then
-    echo "🔧 Fixing pip cache permissions..."
+# Fix cache directory ownership if it exists and is owned by root
+if [ -d /home/vscode/.cache ]; then
+    echo "🔧 Fixing cache permissions..."
     sudo chown -R vscode:vscode /home/vscode/.cache
 fi
 
@@ -61,7 +61,23 @@ python -c "from app.db.database import init_db; init_db()"
 # Frontend setup
 echo "📦 Installing Node dependencies..."
 cd /workspace/frontend
+
+# Fix frontend node_modules ownership if it exists and is owned by root
+if [ -d node_modules ] && [ "$(stat -c %U node_modules 2>/dev/null)" = "root" ]; then
+    echo "🔧 Fixing node_modules permissions..."
+    sudo chown -R vscode:vscode node_modules
+    sudo rm -rf node_modules  # Remove to ensure clean install
+fi
+
 npm install
+
+# Verify npm install succeeded
+if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules 2>/dev/null)" ]; then
+    echo "⚠️  Warning: npm install may have failed. node_modules is empty."
+    echo "   This will be fixed automatically when starting the frontend."
+else
+    echo "✅ Node dependencies installed successfully"
+fi
 
 echo "✅ Development environment setup complete!"
 echo ""

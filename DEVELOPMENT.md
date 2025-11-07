@@ -27,6 +27,25 @@ The project includes a complete dev container configuration for consistent devel
    - Initialize the database
    - Create default `.env` file
 
+### Troubleshooting Initial Setup
+
+If you encounter startup issues after opening the dev container:
+
+**Backend: Missing `.env` file**
+- The backend startup script will automatically create a `.env` file with secure keys if missing
+- The file is created at `/workspace/backend/.env`
+
+**Frontend: `vite: not found` or permission errors**
+- The frontend startup script will automatically:
+  - Fix permission issues with `node_modules`
+  - Reinstall dependencies if needed
+- If issues persist, manually run: `cd /workspace/frontend && sudo rm -rf node_modules && npm install`
+
+**Both services auto-start**
+- Backend runs on `http://localhost:8000` (API docs: `/docs`)
+- Frontend runs on `http://localhost:3000`
+- Services are configured to start automatically via VS Code tasks
+
 ## Project Structure
 
 ```

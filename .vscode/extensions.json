@@ -1,0 +1,11 @@
+{
+  "recommendations": [
+    // Required to build and use the devcontainer
+    "ms-vscode-remote.remote-containers",
+    // Additional recommended extensions for development
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "biomejs.biome"
+  ]
+}

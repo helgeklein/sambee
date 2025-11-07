@@ -4,6 +4,7 @@
 if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; then
     # We're inside a container
     cd /workspace/frontend
+    
     npm run dev
 else
     echo "⚠️  Not in a devcontainer. Skipping frontend start."

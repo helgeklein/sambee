@@ -31,8 +31,20 @@ else
 fi
 
 # Ensure frontend dependencies exist
-if [ ! -d "/workspace/frontend/node_modules" ]; then
-    log "⚠️  Frontend dependencies not found"
+if [ ! -d "/workspace/frontend/node_modules" ] || [ -z "$(ls -A /workspace/frontend/node_modules 2>/dev/null)" ]; then
+    log "⚠️  Frontend dependencies not found or empty"
+    
+    # Fix node_modules ownership if it exists and has permission issues
+    if [ -d "/workspace/frontend/node_modules" ]; then
+        NODE_MODULES_OWNER=$(stat -c %U /workspace/frontend/node_modules 2>/dev/null)
+        if [ "$NODE_MODULES_OWNER" = "root" ] || [ "$NODE_MODULES_OWNER" != "vscode" ]; then
+            log "🔧 Fixing node_modules permissions..."
+            sudo chown -R vscode:vscode /workspace/frontend/node_modules 2>/dev/null || true
+            sudo rm -rf /workspace/frontend/node_modules
+            log "✅ Removed problematic node_modules"
+        fi
+    fi
+    
     log "📦 Installing dependencies..."
     cd /workspace/frontend
     npm install 2>&1 | while IFS= read -r line; do
