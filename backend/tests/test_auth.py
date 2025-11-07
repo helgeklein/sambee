@@ -13,6 +13,7 @@ from app.core.security import (
 )
 from app.models.user import User
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 
 @pytest.mark.unit
@@ -253,3 +254,175 @@ class TestAdminAuthorization:
         )
         # May fail due to SMB connection, but should not be 403
         assert response.status_code != 403
+
+
+@pytest.mark.integration
+class TestGetCurrentUserEndpoint:
+    """Test /me endpoint for getting current user info."""
+
+    def test_get_current_user_info_admin(
+        self, client: TestClient, auth_headers_admin: dict
+    ):
+        """Test getting current user info as admin."""
+        response = client.get("/api/auth/me", headers=auth_headers_admin)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "testadmin"  # From fixture
+        assert data["is_admin"] is True
+        assert "created_at" in data
+
+    def test_get_current_user_info_regular_user(
+        self, client: TestClient, auth_headers_user: dict
+    ):
+        """Test getting current user info as regular user."""
+        response = client.get("/api/auth/me", headers=auth_headers_user)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == "testuser"
+        assert data["is_admin"] is False
+        assert "created_at" in data
+
+    def test_get_current_user_info_without_auth(self, client: TestClient):
+        """Test that /me endpoint requires authentication."""
+        response = client.get("/api/auth/me")
+        assert response.status_code == 401
+
+
+@pytest.mark.integration
+class TestChangePasswordEndpoint:
+    """Test password change functionality."""
+
+    def test_change_password_success(self, client: TestClient, session: Session):
+        """Test successful password change."""
+        from app.core.security import create_access_token, get_password_hash
+        from app.models.user import User
+
+        # Create a fresh user for this test
+        test_user = User(
+            username="password_change_user",
+            password_hash=get_password_hash("oldpass123"),
+            is_admin=False,
+        )
+        session.add(test_user)
+        session.commit()
+        session.refresh(test_user)
+
+        # Create token for this user
+        token = create_access_token(data={"sub": test_user.username})
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.post(
+            "/api/auth/change-password?current_password=oldpass123&new_password=newpass123",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert "success" in response.json()["message"].lower()
+
+        # Verify can login with new password
+        login_response = client.post(
+            "/api/auth/token",
+            data={"username": "password_change_user", "password": "newpass123"},
+        )
+        assert login_response.status_code == 200
+
+    def test_change_password_wrong_current_password(
+        self, client: TestClient, auth_headers_user: dict
+    ):
+        """Test password change fails with wrong current password."""
+        response = client.post(
+            "/api/auth/change-password?current_password=wrongpassword&new_password=newpass123",
+            headers=auth_headers_user,
+        )
+        assert response.status_code == 400
+        assert "incorrect" in response.json()["detail"].lower()
+
+    def test_change_password_without_auth(self, client: TestClient):
+        """Test that password change requires authentication."""
+        response = client.post(
+            "/api/auth/change-password?current_password=testpass&new_password=newpass123"
+        )
+        assert response.status_code == 401
+
+
+@pytest.mark.integration
+class TestTokenExpiration:
+    """Test token expiration and validation."""
+
+    def test_expired_token_rejected(self, client: TestClient):
+        """Test that expired tokens are rejected."""
+        from datetime import timedelta
+
+        from app.core.security import create_access_token
+
+        # Create token that expires immediately
+        expired_token = create_access_token(
+            data={"sub": "testuser"}, expires_delta=timedelta(seconds=-1)
+        )
+
+        response = client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"}
+        )
+        assert response.status_code == 401
+
+    def test_token_with_invalid_signature(self, client: TestClient):
+        """Test that tokens with invalid signatures are rejected."""
+        # Create a token with wrong signature
+        invalid_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0dXNlciJ9.invalid_signature"
+
+        response = client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"}
+        )
+        assert response.status_code == 401
+
+    def test_token_with_missing_subject(self, client: TestClient):
+        """Test that tokens without 'sub' claim are rejected."""
+        from app.core.security import create_access_token
+
+        # Create token without username in 'sub'
+        token_no_sub = create_access_token(data={"other": "data"})
+
+        response = client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {token_no_sub}"}
+        )
+        assert response.status_code == 401
+
+    def test_token_with_nonexistent_user(self, client: TestClient):
+        """Test that tokens for non-existent users are rejected."""
+        from app.core.security import create_access_token
+
+        # Create token for user that doesn't exist
+        token_fake_user = create_access_token(data={"sub": "nonexistentuser"})
+
+        response = client.get(
+            "/api/auth/me", headers={"Authorization": f"Bearer {token_fake_user}"}
+        )
+        assert response.status_code == 401
+
+
+@pytest.mark.integration
+class TestPasswordHashingEdgeCases:
+    """Test password hashing edge cases."""
+
+    def test_empty_password_handling(self):
+        """Test that empty passwords can be hashed and verified."""
+        from app.core.security import get_password_hash, verify_password
+
+        hashed = get_password_hash("")
+        assert verify_password("", hashed)
+        assert not verify_password("not empty", hashed)
+
+    def test_very_long_password(self):
+        """Test handling of very long passwords."""
+        from app.core.security import get_password_hash, verify_password
+
+        long_password = "a" * 1000
+        hashed = get_password_hash(long_password)
+        assert verify_password(long_password, hashed)
+
+    def test_unicode_password(self):
+        """Test handling of unicode characters in passwords."""
+        from app.core.security import get_password_hash, verify_password
+
+        unicode_password = "пароль密码🔐"
+        hashed = get_password_hash(unicode_password)
+        assert verify_password(unicode_password, hashed)
