@@ -1,5 +1,5 @@
 import os
-from typing import Generator
+from typing import Any, Generator
 
 from app.core.config import settings
 from sqlalchemy import event
@@ -48,7 +48,7 @@ else:
 # Enable WAL mode and other performance optimizations for SQLite
 # Only in non-testing environments to avoid threading issues
 @event.listens_for(Engine, "connect")
-def set_sqlite_pragma(dbapi_conn, connection_record):
+def set_sqlite_pragma(dbapi_conn: Any, connection_record: Any) -> None:
     """Configure SQLite connection for better concurrency and performance."""
     cursor = dbapi_conn.cursor()
 
