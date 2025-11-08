@@ -23,6 +23,7 @@ MANIFEST
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.xml
 .tox/
 .hypothesis/
 
@@ -32,6 +33,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# Frontend testing & coverage
+frontend/coverage/
+coverage/
+*.lcov
 
 # React build
 frontend/build/

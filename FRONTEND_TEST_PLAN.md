@@ -1,5 +1,19 @@
 # Frontend Test Implementation Plan
 
+## Current Status
+
+**Overall Progress:** 97 tests passing | 79.63% coverage (target: 85%)
+
+**Phase Summary:**
+- ✅ Phase 1: Complete (Login - 5/5 tests, ~100% coverage)
+- ✅ Phase 2 Part 1: Complete (API Service - initial tests)
+- ✅ Phase 2 Part 2: Complete (Browser - 43/43 tests, 75.64% coverage)
+- 🔄 Phase 3: In Progress (Admin Panel - 8/8 tests)
+- ❌ Phase 4: Blocked (Integration tests - API mocking issues)
+- ⏸️  Phase 5: Not Started (E2E tests - optional)
+
+---
+
 ## Stack & Setup
 
 **Testing Stack:**
@@ -139,6 +153,8 @@ File: `src/components/Settings/__tests__/SettingsDialog.test.tsx`
 
 ## Phase 4: Integration Tests (Week 3-4)
 
+**Status:** ❌ BLOCKED - API service mocking complexity
+
 ### Full Workflow Tests
 File: `src/__tests__/integration/workflows.test.tsx`
 
@@ -147,6 +163,11 @@ File: `src/__tests__/integration/workflows.test.tsx`
 - [ ] Error recovery: failed request → retry
 
 **Target:** 3-4 integration tests
+
+**Note:** Integration tests require refactoring the API service mocking strategy. The current class-based `ApiService` with mixed instance/function exports makes mocking difficult in Vitest. Recommend either:
+1. Converting to pure function exports for easier mocking
+2. Using MSW (Mock Service Worker) instead of vi.mock() for API mocking
+3. Creating integration tests at the API level instead of component level
 
 ---
 
