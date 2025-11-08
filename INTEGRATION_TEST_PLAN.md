@@ -1,0 +1,488 @@
+# Integration Test Plan
+
+## Overview
+
+This document outlines the plan for implementing integration tests for the Sambee application. Integration tests verify that multiple components work together correctly, testing full user workflows and feature interactions.
+
+**Status:** Planning Phase  
+**Coverage Target:** N/A (focused on E2E workflows, not line coverage)  
+**Blocker:** API service architecture incompatible with current mocking approach
+
+---
+
+## Current Blocker
+
+### API Service Mocking Issue
+
+**Problem:** The API service uses a mixed export pattern that prevents effective mocking in integration tests:
+
+```typescript
+// src/services/api.ts exports both:
+export const apiService = new ApiService();  // Instance
+export const login = (user, pass) => apiService.login(...);  // Convenience function
+```
+
+**Impact:** 
+- Vitest's `vi.mock()` replaces entire modules
+- Cannot mock both instance methods AND function exports simultaneously
+- Components using different import patterns fail when mocked together
+- Example: Login uses `login()` function, Browser uses `apiService.getConnections()`
+
+**Recommended Solutions:**
+
+1. **Refactor to Pure Functions** (Breaking change)
+   - Convert `ApiService` class to functional module
+   - All exports become mockable functions
+   - Requires updating all component imports
+
+2. **Use MSW (Mock Service Worker)** (Recommended)
+   - Mock at HTTP layer instead of module layer
+   - No code changes required
+   - More realistic tests (actual fetch calls)
+   - Better for integration testing
+
+3. **API-Level Integration Tests** (Alternative scope)
+   - Test API service methods directly
+   - Skip full component rendering
+   - Simpler, more focused tests
+
+---
+
+## Test Strategy
+
+### Approach: MSW + React Testing Library
+
+Integration tests will use Mock Service Worker to intercept HTTP requests, allowing us to test complete user workflows without mocking individual modules.
+
+**Benefits:**
+- Tests real component interactions
+- No module mocking complexity
+- Closer to production behavior
+- Easy to set up request/response scenarios
+
+**Trade-offs:**
+- Requires MSW setup and configuration
+- Tests are slightly slower than unit tests
+- Need to maintain mock API handlers
+
+---
+
+## Phase 1: MSW Setup
+
+**Status:** ✅ Complete
+
+### Tasks
+
+- [x] Install MSW: `npm install -D msw`
+- [x] Create mock handlers: `src/test/mocks/handlers.ts`
+- [x] Set up MSW in test setup: `src/test/setup.ts`
+- [x] Create reusable test utilities for common scenarios
+- [x] Verify MSW intercepts API calls correctly
+
+### Completion Summary
+
+✅ **MSW Infrastructure:**
+- MSW already installed and configured
+- Mock handlers exist in `src/test/mocks/handlers.ts`
+- MSW server enabled in `src/test/setup.ts`
+- Integration test utilities created in `src/test/integration-utils.tsx`
+
+✅ **Test Utilities Created:**
+- `renderWithRouter()` - Render components with routing
+- `loginUser()` - Helper for login flows
+- `createMockFiles()` / `createMockDirectories()` - Mock data generators
+- `mockApiSuccess()`, `mockApiError()`, `mockNetworkError()` - Scenario helpers
+- `mockNoConnections()`, `mockEmptyDirectory()` - Empty state helpers
+- `assertNoErrors()`, `assertErrorShown()` - Assertion helpers
+
+✅ **Verification Test:**
+- Created `msw-setup.test.tsx` to verify MSW is working
+- All 4 tests passing:
+  - ✅ Intercepts login failure requests
+  - ✅ Handles explicit error responses  
+  - ✅ Handles API errors from MSW
+  - ✅ Handles unauthorized responses from MSW
+- Tests verify MSW successfully intercepts HTTP requests at network layer
+- 3/5 tests require full app integration (redirect logic)
+
+**Note:** Full integration tests require rendering the complete `App` component with routing to test navigation flows. Component-level tests successfully demonstrate MSW is intercepting requests.
+
+### Mock Handlers Structure
+
+```typescript
+// src/test/mocks/handlers.ts
+import { http, HttpResponse } from 'msw';
+
+export const handlers = [
+  // Auth endpoints
+  http.post('/api/auth/login', () => {
+    return HttpResponse.json({
+      token: 'mock-token',
+      expiry: Date.now() + 3600000
+    });
+  }),
+
+  // Connection endpoints
+  http.get('/api/connections', () => {
+    return HttpResponse.json([
+      { id: 1, name: 'Test Server', host: '192.168.1.100' }
+    ]);
+  }),
+
+  // Browse endpoints
+  http.post('/api/browse', () => {
+    return HttpResponse.json({
+      path: '/',
+      files: [/* ... */]
+    });
+  })
+];
+```
+
+---
+
+## Phase 2: Login → Browse Flow
+
+**Status:** ⏸️ Not Started  
+**Priority:** High  
+**Estimated Tests:** 5-8
+
+### Test Scenarios
+
+#### Happy Path
+- [ ] **Complete login and browse workflow**
+  - User logs in with valid credentials
+  - Redirected to browser page
+  - Connections load automatically
+  - Can select connection and browse files
+
+#### Error Handling
+- [ ] **Login failure handling**
+  - Invalid credentials show error message
+  - Error clears when user retries
+  - No redirect on failure
+
+- [ ] **Session expiry during browse**
+  - Token expires while browsing
+  - Redirected back to login
+  - Error message shown
+
+- [ ] **Network failure recovery**
+  - API call fails
+  - Error message displayed
+  - Retry succeeds after network recovery
+
+#### Edge Cases
+- [ ] **Rapid navigation**
+  - User clicks multiple folders quickly
+  - Only latest request completes
+  - No race conditions
+
+- [ ] **Empty states**
+  - No connections configured
+  - Empty directory
+  - Appropriate messages shown
+
+---
+
+## Phase 3: Browse → Preview Flow
+
+**Status:** ⏸️ Not Started  
+**Priority:** High  
+**Estimated Tests:** 4-6
+
+### Test Scenarios
+
+#### Happy Path
+- [ ] **Browse and preview file**
+  - User browses to file
+  - Clicks file to preview
+  - Preview loads correctly
+  - Can navigate back to browser
+
+- [ ] **Preview different file types**
+  - Text files show content
+  - Images display correctly
+  - Unsupported types show message
+
+#### Error Handling
+- [ ] **Preview load failure**
+  - File preview API fails
+  - Error message shown
+  - Can retry or go back
+
+- [ ] **Large file handling**
+  - Large file preview truncated
+  - Warning shown to user
+
+#### Navigation
+- [ ] **Keyboard navigation in preview**
+  - ESC closes preview
+  - Arrow keys navigate (if applicable)
+
+---
+
+## Phase 4: Admin Workflows
+
+**Status:** ⏸️ Not Started  
+**Priority:** Medium  
+**Estimated Tests:** 6-10
+
+### Test Scenarios
+
+#### Connection Management
+- [ ] **Add new connection**
+  - Open admin panel
+  - Fill connection form
+  - Save connection
+  - Connection appears in list
+
+- [ ] **Edit existing connection**
+  - Select connection
+  - Modify details
+  - Save changes
+  - Changes reflected immediately
+
+- [ ] **Delete connection**
+  - Select connection
+  - Confirm deletion
+  - Connection removed from list
+
+- [ ] **Connection validation**
+  - Invalid host format rejected
+  - Duplicate name prevented
+  - Required fields enforced
+
+#### Settings Management
+- [ ] **Update application settings**
+  - Open settings dialog
+  - Change preferences
+  - Save settings
+  - Settings persist across reload
+
+#### Error Recovery
+- [ ] **Admin operations failure**
+  - API call fails during save
+  - Error message shown
+  - Form data preserved
+  - Can retry
+
+---
+
+## Phase 5: WebSocket Integration
+
+**Status:** ⏸️ Not Started  
+**Priority:** Low  
+**Estimated Tests:** 3-5
+
+### Test Scenarios
+
+- [ ] **Real-time file updates**
+  - WebSocket connects on browse
+  - Receives update notification
+  - File list refreshes automatically
+
+- [ ] **WebSocket reconnection**
+  - Connection lost
+  - Automatic reconnect attempt
+  - Updates resume after reconnect
+
+- [ ] **Multiple browser instances**
+  - Two instances open
+  - Change in one reflects in other
+
+---
+
+## Phase 6: Multi-Step Workflows
+
+**Status:** ⏸️ Not Started  
+**Priority:** Medium  
+**Estimated Tests:** 5-8
+
+### Test Scenarios
+
+#### Complete User Journeys
+- [ ] **First-time user setup**
+  - Login with no connections
+  - Create first connection
+  - Browse and preview file
+  - Logout
+
+- [ ] **Power user workflow**
+  - Login
+  - Switch between multiple connections
+  - Browse multiple directories
+  - Preview various files
+  - Use search
+  - Logout
+
+- [ ] **Error recovery journey**
+  - Login
+  - Network failure occurs
+  - User retries operations
+  - Session expires
+  - Re-login and resume
+
+#### State Persistence
+- [ ] **Resume session**
+  - User browses to deep directory
+  - Refreshes page
+  - Returns to same location
+
+- [ ] **Cross-tab behavior**
+  - Open in multiple tabs
+  - Login in one tab
+  - Other tab updates
+
+---
+
+## Test Utilities
+
+### Helper Functions to Create
+
+```typescript
+// src/test/integration-utils.tsx
+
+/**
+ * Render app with MSW and routing
+ */
+export function renderApp(initialRoute = '/') {
+  return render(
+    <MemoryRouter initialEntries={[initialRoute]}>
+      <App />
+    </MemoryRouter>
+  );
+}
+
+/**
+ * Login helper
+ */
+export async function loginUser(username = 'testuser', password = 'password') {
+  const { getByLabelText, getByRole } = screen;
+  
+  await userEvent.type(getByLabelText(/username/i), username);
+  await userEvent.type(getByLabelText(/password/i), password);
+  await userEvent.click(getByRole('button', { name: /login/i }));
+  
+  await waitFor(() => {
+    expect(screen.queryByRole('button', { name: /login/i })).not.toBeInTheDocument();
+  });
+}
+
+/**
+ * Create mock file list
+ */
+export function createMockFiles(count = 5) {
+  return Array.from({ length: count }, (_, i) => ({
+    name: `file-${i + 1}.txt`,
+    type: 'file',
+    size: 1024 * (i + 1),
+    modified: Date.now() - i * 1000
+  }));
+}
+
+/**
+ * Setup MSW scenarios
+ */
+export function mockApiSuccess() {
+  server.use(/* success handlers */);
+}
+
+export function mockApiFailure() {
+  server.use(/* error handlers */);
+}
+
+export function mockSlowNetwork() {
+  server.use(/* delayed handlers */);
+}
+```
+
+---
+
+## Success Criteria
+
+### Phase Completion
+- All planned test scenarios implemented
+- Tests run reliably without flakiness
+- Clear error messages when tests fail
+- Tests complete in reasonable time (<30s total)
+
+### Quality Metrics
+- **No false positives:** Tests only fail for real issues
+- **Good coverage:** All critical user paths tested
+- **Maintainable:** Easy to add new scenarios
+- **Fast feedback:** Tests run quickly in CI/CD
+
+### Documentation
+- README includes integration test commands
+- Test utilities well documented
+- Complex scenarios have comments explaining intent
+
+---
+
+## Implementation Timeline
+
+### Immediate (Week 1)
+- Decide on MSW vs alternative approach
+- Install and configure MSW
+- Create basic mock handlers
+
+### Short-term (Week 2-3)
+- Implement Phase 2 (Login → Browse)
+- Implement Phase 3 (Browse → Preview)
+- Create test utilities
+
+### Medium-term (Week 4-6)
+- Implement Phase 4 (Admin workflows)
+- Implement Phase 6 (Multi-step workflows)
+- Optimize test performance
+
+### Long-term (Later)
+- Implement Phase 5 (WebSocket) if needed
+- Add visual regression tests
+- Consider E2E tests with Playwright
+
+---
+
+## Notes
+
+### Why Not E2E with Playwright?
+
+Integration tests with MSW provide better balance than full E2E:
+
+**Advantages:**
+- Faster execution
+- More reliable (no browser flakiness)
+- Easier to debug
+- Run in same environment as unit tests
+
+**Trade-offs:**
+- Don't test real backend
+- Don't catch browser-specific issues
+- Don't test actual network conditions
+
+**Recommendation:** Use integration tests for majority of testing, add a few critical E2E tests with Playwright for smoke testing.
+
+### CI/CD Integration
+
+Integration tests should:
+- Run on every PR
+- Run before deployment
+- Be separate from unit tests (different npm script)
+- Have reasonable timeout (5 minutes max)
+- Generate coverage report (optional)
+
+### Maintenance
+
+- Review and update mock handlers when API changes
+- Refactor shared test utilities regularly
+- Remove obsolete tests
+- Keep scenarios realistic and valuable
+
+---
+
+## References
+
+- [MSW Documentation](https://mswjs.io/)
+- [Testing Library Best Practices](https://testing-library.com/docs/react-testing-library/intro/)
+- [Kent C. Dodds: Testing Implementation Details](https://kentcdodds.com/blog/testing-implementation-details)

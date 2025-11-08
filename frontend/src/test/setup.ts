@@ -1,26 +1,23 @@
 import "@testing-library/jest-dom";
 import { cleanup } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
-
-// Note: MSW is configured but not working properly with Vitest + axios
-// For now, we'll rely on direct API mocking in tests instead
-// import { server } from "./mocks/server";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
+import { server } from "./mocks/server";
 
 // Start MSW server before all tests
-// beforeAll(() => {
-// 	server.listen({ onUnhandledRequest: "warn" });
-// });
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "warn" });
+});
 
 // Reset handlers and cleanup after each test
 afterEach(() => {
-  // server.resetHandlers();
+  server.resetHandlers();
   cleanup();
 });
 
 // Stop MSW server after all tests
-// afterAll(() => {
-// 	server.close();
-// });
+afterAll(() => {
+  server.close();
+});
 
 // Mock window.matchMedia
 Object.defineProperty(window, "matchMedia", {
