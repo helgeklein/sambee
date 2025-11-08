@@ -12,8 +12,9 @@ class ApiService {
   private api: AxiosInstance;
 
   constructor() {
+    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
     this.api = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api",
+      baseURL,
     });
 
     // Add auth token to requests

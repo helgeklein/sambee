@@ -5,13 +5,54 @@
  * These utilities make it easier to test complete user workflows.
  */
 
+import CssBaseline from "@mui/material/CssBaseline";
+import { createTheme, ThemeProvider } from "@mui/material/styles";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import type { ReactElement } from "react";
-import { MemoryRouter } from "react-router-dom";
+import { Suspense } from "react";
+import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import { expect } from "vitest";
+import Browser from "../pages/Browser";
+import Login from "../pages/Login";
 import { server } from "./mocks/server";
+
+const theme = createTheme({
+  palette: {
+    mode: "light",
+    primary: {
+      main: "#1976d2",
+    },
+    secondary: {
+      main: "#dc004e",
+    },
+  },
+});
+
+/**
+ * Render the full App with MemoryRouter for integration testing
+ */
+export function renderApp(initialRoute = "/") {
+  return render(
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <MemoryRouter
+        initialEntries={[initialRoute]}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        <Suspense fallback={<div>Loading...</div>}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/browse/:connectionId/*" element={<Browser />} />
+            <Route path="/browse" element={<Browser />} />
+            <Route path="/" element={<Navigate to="/browse" replace />} />
+          </Routes>
+        </Suspense>
+      </MemoryRouter>
+    </ThemeProvider>
+  );
+}
 
 /**
  * Render a component with React Router
