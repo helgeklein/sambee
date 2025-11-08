@@ -3,7 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./mocks/server";
 
-// Set up fake location for jsdom/MSW
+// Set up fake location for jsdom/MSW - must be before MSW setup
 Object.defineProperty(window, "location", {
   writable: true,
   value: {
