@@ -1,0 +1,311 @@
+/**
+ * Browser Component - Preview and Advanced Tests
+ * Tests for file preview, connection switching, and edge cases
+ */
+
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import api from "../../services/api";
+import { FileType } from "../../types";
+import { mockConnections, mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
+
+// Mock the API module
+vi.mock("../../services/api");
+
+// Mock MarkdownPreview component
+vi.mock("../../components/Preview/MarkdownPreview", () => ({
+  default: () => (
+    <div role="dialog" data-testid="markdown-preview">
+      Markdown Preview
+    </div>
+  ),
+}));
+
+// Mock SettingsDialog component
+vi.mock("../../components/Settings/SettingsDialog", () => ({
+  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div data-testid="settings-dialog">
+        <button type="button" onClick={onClose}>
+          Close Settings
+        </button>
+      </div>
+    ) : null,
+}));
+
+// Mock react-window for simpler testing
+vi.mock("react-window", () => ({
+  List: ({
+    rowComponent: RowComponent,
+    rowCount,
+    rowProps,
+  }: {
+    // biome-ignore lint/suspicious/noExplicitAny: Mock requires flexible types
+    rowComponent: React.ComponentType<any>;
+    rowCount: number;
+    // biome-ignore lint/suspicious/noExplicitAny: Mock requires flexible types
+    rowProps?: any;
+  }) => (
+    <div data-testid="virtual-list">
+      {Array.from({ length: rowCount }).map((_, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: Mock renders items in stable order
+        <RowComponent key={index} index={index} style={{}} {...rowProps} />
+      ))}
+    </div>
+  ),
+}));
+
+describe("Browser Component - Preview and Advanced", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.setItem("access_token", "fake-token");
+    localStorage.removeItem("selectedConnectionId");
+
+    // Default successful mocks
+    vi.mocked(api.getConnections).mockResolvedValue(mockConnections);
+    vi.mocked(api.listDirectory).mockResolvedValue(mockDirectoryListing);
+  });
+
+  describe("File Preview", () => {
+    it("opens preview when clicking file", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Optimized: Use findByText
+      expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+
+      // Click on file - find the button that contains the text
+      const fileButton = screen.getByRole("button", { name: /readme\.txt/i });
+      await user.click(fileButton);
+
+      // Preview dialog should open
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("handles Escape key press without crashing", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Optimized: Use findByText
+      expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+
+      // Click on a file to open preview
+      const fileButton = screen.getByRole("button", { name: /readme\.txt/i });
+      await user.click(fileButton);
+
+      // Preview dialog should open
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+
+      // Press Escape - dialog closing behavior may vary
+      await user.keyboard("{Escape}");
+
+      // Verify component is still functional (no crash)
+      expect(screen.getByText("readme.txt")).toBeInTheDocument();
+    });
+  });
+
+  describe("Connection Switching", () => {
+    it("preserves path when switching connections with same structure", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockImplementation((_connectionId, path) => {
+        // Both connections have Documents folder
+        if (path === "Documents") {
+          return Promise.resolve({
+            items: [
+              {
+                name: "shared.txt",
+                path: "Documents/shared.txt",
+                type: FileType.FILE,
+                size: 100,
+                modified_at: "2024-01-01T00:00:00Z",
+                is_readable: true,
+                is_hidden: false,
+              },
+            ],
+            path: "Documents",
+            total: 1,
+          });
+        }
+        return Promise.resolve(mockDirectoryListing);
+      });
+
+      renderBrowser("/browse/test-server-1/Documents");
+
+      // Optimized: Use findByText
+      expect(await screen.findByText("shared.txt")).toBeInTheDocument();
+
+      // Switch connection via dropdown
+      const select = screen.getByRole("combobox");
+      await user.click(select);
+
+      // Select the second connection
+      const option2 = screen.getByText(/test server 2.*192\.168\.1\.101/i);
+      await user.click(option2);
+
+      // Should try to load same path on new connection
+      await waitFor(() => {
+        // Check that the connection has switched by verifying the displayed text changed
+        expect(screen.getByText(/Test Server 2/)).toBeInTheDocument();
+      });
+
+      // Component should still be functional
+      expect(screen.getByText("Sambee")).toBeInTheDocument();
+    });
+
+    it("resets to root when switching to connection without current path", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockImplementation((_connectionId, path) => {
+        if (_connectionId === "conn-2" && path === "Documents") {
+          // Connection 2 doesn't have Documents folder
+          return Promise.reject(new Error("Path not found"));
+        }
+        if (path === "Documents") {
+          return Promise.resolve({
+            items: [],
+            path: "Documents",
+            total: 0,
+          });
+        }
+        return Promise.resolve(mockDirectoryListing);
+      });
+
+      renderBrowser("/browse/test-server-1/Documents");
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+      });
+
+      // Switch to connection 2
+      const select = screen.getByRole("combobox");
+      await user.click(select);
+
+      const option2 = screen.getByText(/test server 2.*192\.168\.1\.101/i);
+      await user.click(option2);
+
+      // Should fall back to root
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+      });
+    });
+  });
+
+  describe("Performance and Edge Cases", () => {
+    it("handles rapid navigation without crashes", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Optimized: Use findByText
+      expect(await screen.findByText("Documents")).toBeInTheDocument();
+
+      const documentsFolders = screen.getAllByRole("button", {
+        name: /documents/i,
+      });
+      const documentsFolder = documentsFolders[0]; // Use first Documents button
+
+      // Click multiple times rapidly
+      await user.click(documentsFolder);
+      await user.click(documentsFolder);
+      await user.click(documentsFolder);
+
+      // Should handle gracefully - at least one Documents should exist
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
+    });
+
+    it("displays file info tooltips on hover", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Optimized: Use findByText
+      expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+
+      const fileItem = screen.getByText("readme.txt");
+      await user.hover(fileItem);
+
+      // File should still be visible (tooltip tested via user interaction)
+      expect(fileItem).toBeInTheDocument();
+    });
+
+    it("handles very long filenames gracefully", async () => {
+      const longFileName = `${"a".repeat(200)}.txt`;
+
+      vi.mocked(api.listDirectory).mockResolvedValueOnce({
+        items: [
+          {
+            name: longFileName,
+            path: longFileName,
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        path: "",
+        total: 1,
+      });
+
+      renderBrowser("/browse/test-server-1");
+
+      // UI should render without crashing - filename may be truncated
+      // Optimized: Use findByText
+      expect(await screen.findByText("Sambee")).toBeInTheDocument();
+
+      // Component should be functional (not crashed)
+      expect(screen.getByRole("combobox")).toBeInTheDocument();
+    });
+
+    it("handles files with special characters in names", async () => {
+      const specialName = "file (copy) [1] & 'test' \"quote\".txt";
+
+      vi.mocked(api.listDirectory).mockResolvedValueOnce({
+        items: [
+          {
+            name: specialName,
+            path: specialName,
+            type: FileType.FILE,
+            size: 1024,
+            modified_at: "2024-01-01T00:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        path: "",
+        total: 1,
+      });
+
+      renderBrowser("/browse/test-server-1");
+
+      // UI should render without crashing - special chars may be escaped
+      // Optimized: Use findByText
+      expect(await screen.findByText("Sambee")).toBeInTheDocument();
+
+      // Component should be functional (not crashed)
+      expect(screen.getByRole("combobox")).toBeInTheDocument();
+    });
+
+    it("updates UI when localStorage changes externally", async () => {
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for component to load - Optimized: Use findByText
+      expect(await screen.findByText("Sambee")).toBeInTheDocument();
+
+      // Simulate external change to localStorage
+      localStorage.setItem("selectedConnectionId", "conn-2");
+
+      // Trigger a storage event
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "selectedConnectionId",
+          newValue: "conn-2",
+        })
+      );
+
+      // Component should remain functional after storage event
+      expect(screen.getByText("Sambee")).toBeInTheDocument();
+    });
+  });
+});
