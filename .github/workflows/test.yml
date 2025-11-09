@@ -47,6 +47,22 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-node-20-modules-
 
+    - name: Cache mypy
+      uses: actions/cache@v4
+      with:
+        path: backend/.mypy_cache
+        key: ${{ runner.os }}-mypy-${{ hashFiles('backend/app/**/*.py') }}
+        restore-keys: |
+          ${{ runner.os }}-mypy-
+
+    - name: Cache TypeScript build info
+      uses: actions/cache@v4
+      with:
+        path: frontend/.tsbuildinfo
+        key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles('frontend/src/**/*.ts', 'frontend/src/**/*.tsx') }}
+        restore-keys: |
+          ${{ runner.os }}-tsbuildinfo-
+
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
       run: |
@@ -90,7 +106,6 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: coverage-reports
-        path: |
-          backend/coverage.xml
-          backend/htmlcov/
-        retention-days: 30
+        path: backend/coverage.xml
+        retention-days: 7
+        compression-level: 6

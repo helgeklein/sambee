@@ -14,6 +14,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Incremental compilation */
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
+
     /* Linting */
     "strict": false,
     "noUnusedLocals": false,

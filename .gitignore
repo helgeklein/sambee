@@ -26,6 +26,7 @@ htmlcov/
 coverage.xml
 .tox/
 .hypothesis/
+.mypy_cache/
 
 # Node
 node_modules/
@@ -33,6 +34,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
 
 # Frontend testing & coverage
 frontend/coverage/

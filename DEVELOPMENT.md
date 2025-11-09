@@ -200,6 +200,8 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 **Dependency Caching:**
 - Python virtual environment is cached (`.venv/`)
 - Node modules are cached (`node_modules/`)
+- mypy cache is cached (`.mypy_cache/`)
+- TypeScript build info is cached (`.tsbuildinfo`)
 - On cache hit: installation skipped, saving ~30-40 seconds
 - Cache invalidates when `requirements*.txt` or `package-lock.json` changes
 
@@ -208,16 +210,28 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 - Provides ~35% speedup (~20s vs ~31s)
 - Compatible with coverage collection
 
+**Incremental Type Checking:**
+- mypy uses cache for faster incremental checks
+- Only analyzes changed Python files on subsequent runs
+- TypeScript uses incremental compilation (`.tsbuildinfo`)
+- Only re-checks changed TypeScript/React files
+
+**Optimized Artifacts:**
+- Only coverage.xml uploaded (not HTML reports)
+- 7-day retention (reduced from 30 days)
+- Faster upload, lower storage costs
+
 **Test Scope:**
 - Backend: Type checking (mypy), unit tests with coverage
 - Frontend: Type checking (TypeScript), unit tests
 - Production build validation is handled separately (not in test workflow)
 
 **Current CI Runtime:**
-- First run (cache miss): ~1m 30s
-- Subsequent runs (cache hit): ~50-60s
-- Backend tests: ~16s (with coverage, parallel)
-- Frontend tests: ~10-15s (type check + unit tests)
+- Baseline (no optimizations): ~120s
+- First run (cache miss): ~90s
+- Subsequent runs (cache hit): ~40-45s (63% improvement from baseline)
+- Backend tests: ~16s (with coverage, parallel with 4 workers)
+- Frontend tests: ~8-12s (incremental type check + unit tests)
 
 ### Local Development with Virtual Environment
 
