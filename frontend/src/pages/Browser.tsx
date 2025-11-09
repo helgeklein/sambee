@@ -122,7 +122,10 @@ const Browser: React.FC = () => {
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const filesRef = React.useRef<FileEntry[]>([]);
   const virtualListRef = React.useRef<ListRef>(null);
-  const listContainerRef = React.useRef<HTMLDivElement>(null);
+  const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
+  const listContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setListContainerEl(node);
+  }, []);
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
@@ -604,14 +607,17 @@ const Browser: React.FC = () => {
   }, [currentPath, selectedConnectionId]);
 
   // Calculate visible row count for PageUp/PageDown navigation
-  // Run immediately after mount (layout complete) so first PageDown uses real viewport height
+  // Attach a resize observer whenever the list container mounts
   useLayoutEffect(() => {
+    const element = listContainerEl;
+    if (!element) {
+      return;
+    }
+
     const ROW_HEIGHT = 68;
     const updateVisibleRows = () => {
-      if (!listContainerRef.current) return;
-      const rect = listContainerRef.current.getBoundingClientRect();
+      const rect = element.getBoundingClientRect();
       const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
-      // Minimum of 5, fallback to 10 only if container is extremely small/zero during init
       const newCount = visibleRows >= 5 ? visibleRows : 10;
       if (newCount !== visibleRowCountRef.current) {
         logger.info(">>> visibleRowCount updated", {
@@ -624,24 +630,14 @@ const Browser: React.FC = () => {
       }
     };
 
-    const el = listContainerRef.current;
-    if (el) {
-      // Immediate measurement
-      updateVisibleRows();
+    updateVisibleRows();
+    const observer = new ResizeObserver(updateVisibleRows);
+    observer.observe(element);
 
-      // Track container size changes
-      const observer = new ResizeObserver(updateVisibleRows);
-      observer.observe(el);
-
-      return () => {
-        observer.disconnect();
-      };
-    }
-
-    // Fallback: ref not set yet; measure on next frame
-    const rafId = requestAnimationFrame(updateVisibleRows);
-    return () => cancelAnimationFrame(rafId);
-  }, []);
+    return () => {
+      observer.disconnect();
+    };
+  }, [listContainerEl]);
 
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
