@@ -35,9 +35,6 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# TypeScript
-*.tsbuildinfo
-
 # Frontend testing & coverage
 frontend/coverage/
 coverage/

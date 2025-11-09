@@ -55,14 +55,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-mypy-
 
-    - name: Cache TypeScript build info
-      uses: actions/cache@v4
-      with:
-        path: frontend/.tsbuildinfo
-        key: ${{ runner.os }}-tsbuildinfo-${{ hashFiles('frontend/src/**/*.ts', 'frontend/src/**/*.tsx') }}
-        restore-keys: |
-          ${{ runner.os }}-tsbuildinfo-
-
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
       run: |

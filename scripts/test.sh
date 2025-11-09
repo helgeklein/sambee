@@ -82,7 +82,7 @@ cd "$REPO_ROOT/frontend" || exit 1
 
 # TypeScript - Type checking
 echo -e "${BLUE}Running TypeScript compiler (type checking)...${NC}"
-if npx tsc --build; then
+if npx tsc --noEmit; then
     echo -e "${GREEN}✓ TypeScript type check passed${NC}\n"
 else
     echo -e "${RED}✗ TypeScript type check failed${NC}\n"

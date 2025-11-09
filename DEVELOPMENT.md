@@ -201,7 +201,6 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 - Python virtual environment is cached (`.venv/`)
 - Node modules are cached (`node_modules/`)
 - mypy cache is cached (`.mypy_cache/`)
-- TypeScript build info is cached (`.tsbuildinfo`)
 - On cache hit: installation skipped, saving ~30-40 seconds
 - Cache invalidates when `requirements*.txt` or `package-lock.json` changes
 
@@ -213,8 +212,6 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 **Incremental Type Checking:**
 - mypy uses cache for faster incremental checks
 - Only analyzes changed Python files on subsequent runs
-- TypeScript uses incremental compilation (`.tsbuildinfo`)
-- Only re-checks changed TypeScript/React files
 
 **Optimized Artifacts:**
 - Only coverage.xml uploaded (not HTML reports)
@@ -229,9 +226,9 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 **Current CI Runtime:**
 - Baseline (no optimizations): ~120s
 - First run (cache miss): ~90s
-- Subsequent runs (cache hit): ~40-45s (63% improvement from baseline)
+- Subsequent runs (cache hit): ~45-50s (60% improvement from baseline)
 - Backend tests: ~16s (with coverage, parallel with 4 workers)
-- Frontend tests: ~8-12s (incremental type check + unit tests)
+- Frontend tests: ~10-15s (type check + unit tests)
 
 ### Local Development with Virtual Environment
 
