@@ -1,7 +1,7 @@
-import logging
 import uuid
 from typing import Optional
 
+from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user
 from app.db.database import get_session
 from app.models.connection import Connection
@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @router.get("/{connection_id}/list", response_model=DirectoryListing)
@@ -23,17 +23,26 @@ async def list_directory(
     session: Session = Depends(get_session),
 ) -> DirectoryListing:
     """List contents of a directory"""
+    # Set user context for logging
+    set_user(current_user.username)
+
     logger.info(
-        f"list_directory called: connection_id={connection_id}, path='{path}', user={current_user.username}"
+        f"Listing directory: connection_id={connection_id}, path='{path}', user={current_user.username}"
     )
 
     connection = session.get(Connection, connection_id)
     if not connection:
+        logger.warning(
+            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
+        logger.warning(
+            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -52,11 +61,16 @@ async def list_directory(
         listing = await backend.list_directory(path or "")
         await backend.disconnect()
 
+        logger.info(
+            f"Successfully listed directory: connection_id={connection_id}, path='{path}', items={len(listing.items)}"
+        )
         return listing
 
     except Exception as e:
         logger.error(
-            f"Error in list_directory endpoint: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            f"Failed to list directory: connection_id={connection_id}, path='{path}', "
+            f"host={connection.host}, share={connection.share_name}, "
+            f"error={type(e).__name__}: {e}",
             exc_info=True,
         )
         raise HTTPException(
@@ -73,13 +87,26 @@ async def get_file_info(
     session: Session = Depends(get_session),
 ) -> FileInfo:
     """Get information about a specific file or directory"""
+    # Set user context for logging
+    set_user(current_user.username)
+
+    logger.info(
+        f"Getting file info: connection_id={connection_id}, path='{path}', user={current_user.username}"
+    )
+
     connection = session.get(Connection, connection_id)
     if not connection:
+        logger.warning(
+            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
+        logger.warning(
+            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -98,9 +125,18 @@ async def get_file_info(
         file_info = await backend.get_file_info(path)
         await backend.disconnect()
 
+        logger.info(
+            f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}"
+        )
         return file_info
 
     except Exception as e:
+        logger.error(
+            f"Failed to get file info: connection_id={connection_id}, path='{path}', "
+            f"host={connection.host}, share={connection.share_name}, "
+            f"error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get file info: {str(e)}",

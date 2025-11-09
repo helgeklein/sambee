@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List
 
+from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, encrypt_password, get_current_admin_user
 from app.db.database import get_session
 from app.models.connection import (
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 @router.get("/connections", response_model=List[ConnectionRead])
@@ -24,7 +26,11 @@ async def list_connections(
     session: Session = Depends(get_session),
 ) -> list[Connection]:
     """List all configured connections"""
+    set_user(current_user.username)
+    logger.info(f"Listing connections: user={current_user.username}")
+
     connections = session.exec(select(Connection)).all()
+    logger.info(f"Found {len(list(connections))} connections")
     return list(connections)
 
 
@@ -35,6 +41,12 @@ async def create_connection(
     session: Session = Depends(get_session),
 ) -> Connection:
     """Create a new SMB connection"""
+    set_user(current_user.username)
+    logger.info(
+        f"Creating connection: name={connection_data.name}, host={connection_data.host}, "
+        f"share={connection_data.share_name}, user={current_user.username}"
+    )
+
     # Test connection before saving
     try:
         backend = SMBBackend(
@@ -46,7 +58,13 @@ async def create_connection(
         )
         await backend.connect()
         await backend.disconnect()
+        logger.info(f"Connection test successful: name={connection_data.name}")
     except Exception as e:
+        logger.error(
+            f"Connection test failed: name={connection_data.name}, host={connection_data.host}, "
+            f"share={connection_data.share_name}, error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to connect to SMB share: {str(e)}",

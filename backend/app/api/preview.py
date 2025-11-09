@@ -1,6 +1,7 @@
 import uuid
 from collections.abc import AsyncIterator
 
+from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user
 from app.db.database import get_session
 from app.models.connection import Connection
@@ -11,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def validate_connection(connection: Connection) -> None:
@@ -30,13 +32,24 @@ async def preview_file(
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     """Stream file contents for preview"""
+    set_user(current_user.username)
+    logger.info(
+        f"Preview file: connection_id={connection_id}, path='{path}', user={current_user.username}"
+    )
+
     connection = session.get(Connection, connection_id)
     if not connection:
+        logger.warning(
+            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
+        logger.warning(
+            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -57,6 +70,9 @@ async def preview_file(
         file_info = await backend.get_file_info(path)
 
         if file_info.type != "file":
+            logger.warning(
+                f"Path is not a file: connection_id={connection_id}, path='{path}', type={file_info.type}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file"
             )
@@ -69,13 +85,24 @@ async def preview_file(
             finally:
                 await backend.disconnect()
 
+        logger.info(
+            f"Streaming file for preview: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}"
+        )
         return StreamingResponse(
             file_streamer(),
             media_type=file_info.mime_type or "application/octet-stream",
             headers={"Content-Disposition": f'inline; filename="{file_info.name}"'},
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(
+            f"Failed to preview file: connection_id={connection_id}, path='{path}', "
+            f"host={connection.host}, share={connection.share_name}, "
+            f"error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to read file: {str(e)}",
@@ -90,13 +117,24 @@ async def download_file(
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     """Download a file"""
+    set_user(current_user.username)
+    logger.info(
+        f"Download file: connection_id={connection_id}, path='{path}', user={current_user.username}"
+    )
+
     connection = session.get(Connection, connection_id)
     if not connection:
+        logger.warning(
+            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
+        logger.warning(
+            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -117,6 +155,9 @@ async def download_file(
         file_info = await backend.get_file_info(path)
 
         if file_info.type != "file":
+            logger.warning(
+                f"Path is not a file: connection_id={connection_id}, path='{path}', type={file_info.type}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file"
             )
@@ -133,13 +174,24 @@ async def download_file(
         if file_info.size:
             headers["Content-Length"] = str(file_info.size)
 
+        logger.info(
+            f"Streaming file for download: connection_id={connection_id}, path='{path}', size={file_info.size}"
+        )
         return StreamingResponse(
             file_streamer(),
             media_type="application/octet-stream",
             headers=headers,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(
+            f"Failed to download file: connection_id={connection_id}, path='{path}', "
+            f"host={connection.host}, share={connection.share_name}, "
+            f"error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to download file: {str(e)}",

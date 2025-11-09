@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from app.api import admin, auth, browser, preview, websocket
 from app.core.config import settings
+from app.core.logging import set_request_id
 from app.core.security import get_password_hash
 from app.db.database import engine, init_db
 from app.models.user import User
@@ -102,14 +103,20 @@ app = FastAPI(
 async def log_requests(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    """Log all HTTP requests"""
+    """Log all HTTP requests with request ID and user context"""
     start_time = datetime.now()
+
+    # Set request ID for this request context
+    request_id = set_request_id()
 
     # Log request
     logger.info(f"→ {request.method} {request.url.path}")
 
     try:
         response = await call_next(request)
+
+        # Add request ID to response headers for client-side correlation
+        response.headers["X-Request-ID"] = request_id
 
         # Log response
         duration = (datetime.now() - start_time).total_seconds() * 1000

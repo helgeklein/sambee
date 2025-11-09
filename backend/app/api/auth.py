@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from app.core.config import settings
+from app.core.logging import get_logger, set_user
 from app.core.security import (
     create_access_token,
     get_current_user,
@@ -15,6 +16,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 @router.post("/token")
@@ -23,10 +25,13 @@ async def login(
     session: Session = Depends(get_session),
 ) -> dict[str, str | bool]:
     """Login endpoint for OAuth2 password flow"""
+    logger.info(f"Login attempt: username={form_data.username}")
+
     statement = select(User).where(User.username == form_data.username)
     user = session.exec(statement).first()
 
     if not user or not verify_password(form_data.password, user.password_hash):
+        logger.warning(f"Failed login attempt: username={form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -38,6 +43,7 @@ async def login(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
 
+    logger.info(f"Successful login: username={user.username}, is_admin={user.is_admin}")
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -51,6 +57,9 @@ async def get_current_user_info(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Get current user information"""
+    set_user(current_user.username)
+    logger.info(f"User info requested: username={current_user.username}")
+
     return {
         "username": current_user.username,
         "is_admin": current_user.is_admin,
@@ -66,7 +75,13 @@ async def change_password(
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Change current user's password"""
+    set_user(current_user.username)
+    logger.info(f"Password change requested: username={current_user.username}")
+
     if not verify_password(current_password, current_user.password_hash):
+        logger.warning(
+            f"Password change failed - incorrect current password: username={current_user.username}"
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
@@ -75,5 +90,7 @@ async def change_password(
     current_user.password_hash = get_password_hash(new_password)
     session.add(current_user)
     session.commit()
+
+    logger.info(f"Password changed successfully: username={current_user.username}")
 
     return {"message": "Password changed successfully"}
