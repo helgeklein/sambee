@@ -5,6 +5,35 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
     # We're inside a container
     cd /workspace/backend
     
+    # Kill any existing uvicorn processes and clean up port
+    echo "🔍 Checking for existing backend processes..."
+    if pgrep -f "uvicorn app.main:app" > /dev/null; then
+        echo "⚠️  Found existing uvicorn process. Stopping it..."
+        pkill -TERM -f "uvicorn app.main:app"
+        sleep 2
+        # Force kill if still running
+        if pgrep -f "uvicorn app.main:app" > /dev/null; then
+            pkill -KILL -f "uvicorn app.main:app"
+            sleep 1
+        fi
+        echo "✅ Cleaned up existing processes"
+    fi
+    
+    # Check if port 8000 is in use and wait for it to be free
+    MAX_WAIT=10
+    WAITED=0
+    while lsof -i :8000 >/dev/null 2>&1; do
+        if [ $WAITED -ge $MAX_WAIT ]; then
+            echo "❌ Port 8000 still in use after ${MAX_WAIT}s. Attempting to free it..."
+            fuser -k 8000/tcp 2>/dev/null || true
+            sleep 1
+            break
+        fi
+        echo "⏳ Waiting for port 8000 to be free... (${WAITED}s)"
+        sleep 1
+        WAITED=$((WAITED + 1))
+    done
+    
     # Check if .env file exists, if not create it from example
     if [ ! -f .env ]; then
         echo "⚠️  .env file not found. Creating from example..."

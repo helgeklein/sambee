@@ -1,130 +1,130 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Backend: Start Dev Server",
-      "type": "shell",
-      "command": "${workspaceFolder}/scripts/start-backend.sh",
-      "options": {
-        "env": {
-          "PYTHONPATH": "${workspaceFolder}/backend"
-        }
-      },
-      "group": "build",
-      "isBackground": true,
-      "runOptions": {
-        "runOn": "folderOpen"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "group": "development",
-        "showReuseMessage": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Frontend: Start Dev Server",
-      "type": "shell",
-      "command": "${workspaceFolder}/scripts/start-frontend.sh",
-      "group": "build",
-      "isBackground": true,
-      "runOptions": {
-        "runOn": "folderOpen"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "group": "development",
-        "showReuseMessage": false
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Backend: Run Tests",
-      "type": "shell",
-      "command": "pytest -v",
-      "options": {
-        "cwd": "${workspaceFolder}/backend"
-      },
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    },
-    {
-      "label": "Backend: Type Check (mypy)",
-      "type": "shell",
-      "command": "mypy app",
-      "options": {
-        "cwd": "${workspaceFolder}/backend"
-      },
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      },
-      "problemMatcher": {
-        "owner": "mypy",
-        "source": "mypy",
-        "fileLocation": ["relative", "${workspaceFolder}/backend"],
-        "pattern": {
-          "regexp": "^(.+?):(\\d+):(\\d+:)? (error|warning|note): (.+?)\\s*\\[(.+?)\\]$",
-          "file": 1,
-          "line": 2,
-          "severity": 4,
-          "message": 5,
-          "code": 6
-        }
-      }
-    },
-    {
-      "label": "Frontend: Run Tests",
-      "type": "npm",
-      "script": "test",
-      "path": "frontend/",
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    },
-    {
-      "label": "Database: Reset",
-      "type": "shell",
-      "command": "rm -f data/sambee.db && python -c 'from app.db.database import init_db; init_db()'",
-      "options": {
-        "cwd": "${workspaceFolder}/backend"
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "npm: start - frontend",
-      "type": "npm",
-      "script": "start",
-      "path": "frontend/",
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "npm",
-        "pattern": {
-          "regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
-          "file": 1,
-          "location": 2,
-          "severity": 3,
-          "code": 4,
-          "message": 5
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".*",
-          "endsPattern": "webpack compiled|Failed to compile"
-        }
-      }
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Backend: Start Dev Server",
+			"type": "shell",
+			"command": "${workspaceFolder}/scripts/start-backend.sh",
+			"options": {
+				"env": {
+					"PYTHONPATH": "${workspaceFolder}/backend"
+				}
+			},
+			"group": "build",
+			"isBackground": true,
+			"runOptions": {
+				"runOn": "folderOpen"
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"group": "development",
+				"showReuseMessage": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Frontend: Start Dev Server",
+			"type": "shell",
+			"command": "${workspaceFolder}/scripts/start-frontend.sh",
+			"group": "build",
+			"isBackground": true,
+			"runOptions": {
+				"runOn": "folderOpen"
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"group": "development",
+				"showReuseMessage": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Run Tests",
+			"type": "shell",
+			"command": "pytest -v",
+			"options": {
+				"cwd": "${workspaceFolder}/backend"
+			},
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Backend: Type Check (mypy)",
+			"type": "shell",
+			"command": "mypy app",
+			"options": {
+				"cwd": "${workspaceFolder}/backend"
+			},
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": {
+				"owner": "mypy",
+				"source": "mypy",
+				"fileLocation": ["relative", "${workspaceFolder}/backend"],
+				"pattern": {
+					"regexp": "^(.+?):(\\d+):(\\d+:)? (error|warning|note): (.+?)\\s*\\[(.+?)\\]$",
+					"file": 1,
+					"line": 2,
+					"severity": 4,
+					"message": 5,
+					"code": 6
+				}
+			}
+		},
+		{
+			"label": "Frontend: Run Tests",
+			"type": "npm",
+			"script": "test",
+			"path": "frontend/",
+			"group": "test",
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			}
+		},
+		{
+			"label": "Database: Reset",
+			"type": "shell",
+			"command": "rm -f data/sambee.db && python -c 'from app.db.database import init_db; init_db()'",
+			"options": {
+				"cwd": "${workspaceFolder}/backend"
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "new"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "npm: start - frontend",
+			"type": "npm",
+			"script": "start",
+			"path": "frontend/",
+			"isBackground": true,
+			"problemMatcher": {
+				"owner": "npm",
+				"pattern": {
+					"regexp": "^([^\\s].*)\\((\\d+|\\d+,\\d+|\\d+,\\d+,\\d+,\\d+)\\):\\s+(error|warning|info)\\s+(TS\\d+)\\s*:\\s*(.*)$",
+					"file": 1,
+					"location": 2,
+					"severity": 3,
+					"code": 4,
+					"message": 5
+				},
+				"background": {
+					"activeOnStart": true,
+					"beginsPattern": ".*",
+					"endsPattern": "webpack compiled|Failed to compile"
+				}
+			}
+		}
+	]
 }
