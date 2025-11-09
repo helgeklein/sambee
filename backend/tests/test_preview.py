@@ -253,9 +253,8 @@ class TestPreviewFile:
                 params={"path": "/folder"},
             )
 
-            # Currently returns 500 due to HTTPException being caught by generic handler
-            # TODO: This should return 400 when bug is fixed in preview.py
-            assert response.status_code == 500
+            # Returns 400 Bad Request when path is a directory, not a file
+            assert response.status_code == 400
 
     def test_preview_file_no_mime_type(
         self, client, auth_headers_user, test_connection
@@ -474,9 +473,8 @@ class TestDownloadFile:
                 params={"path": "/folder"},
             )
 
-            # Currently returns 500 due to HTTPException being caught by generic handler
-            # TODO: This should return 400 when bug is fixed in preview.py
-            assert response.status_code == 500
+            # Returns 400 Bad Request when path is a directory, not a file
+            assert response.status_code == 400
 
     def test_download_nonexistent_connection(self, client, auth_headers_user):
         """Test download with non-existent connection ID."""

@@ -436,9 +436,8 @@ class TestErrorRecoveryScenarios:
                 f"/api/preview/{connection.id}/file?path=folder",
                 headers=auth_headers_user,
             )
-            # Current implementation catches HTTPException and returns 500
-            # This should be 400, but the endpoint has a bug where it catches all exceptions
-            assert response.status_code == 500
+            # Returns 400 Bad Request when path is a directory, not a file
+            assert response.status_code == 400
 
 
 @pytest.mark.integration
