@@ -10,7 +10,6 @@ import api from "../../services/api";
 import {
   type ApiMock,
   createMarkdownPreviewMock,
-  createReactWindowMock,
   createSettingsDialogMock,
   setupNavigationApiMocks,
 } from "../../test/helpers";
@@ -24,7 +23,8 @@ vi.mock("../../services/api");
 // Mock components using lazy mock factories
 vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
 vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
-vi.mock("react-window", () => createReactWindowMock());
+// react-window mock is auto-discovered from __mocks__/react-window.tsx
+vi.mock("react-window");
 
 describe("Browser Component - Navigation", () => {
   beforeEach(() => {

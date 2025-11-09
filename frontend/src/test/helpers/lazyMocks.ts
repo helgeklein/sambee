@@ -123,3 +123,49 @@ export function createGenericComponentMock(testId: string, displayName = "MockCo
     default: () => React.createElement("div", { "data-testid": testId }, displayName),
   };
 }
+
+/**
+ * Light mocks - Minimal component mocks for simple render tests
+ * Use these for basic tests that don't need full component functionality
+ * Significantly faster collection time than full mocks
+ */
+export function createLightMocks() {
+  return {
+    MarkdownPreview: () => null,
+    SettingsDialog: () => null,
+    List: ({ children }: { children: React.ReactNode }) =>
+      React.createElement("div", { "data-testid": "light-list" }, children),
+  };
+}
+
+/**
+ * Create light react-window mock
+ * Returns just null to minimize rendering overhead
+ */
+export function createLightReactWindowMock() {
+  const LightList = () => React.createElement("div", { "data-testid": "light-list" });
+  return {
+    List: LightList,
+    FixedSizeList: LightList,
+  };
+}
+
+/**
+ * Create light MarkdownPreview mock
+ * Returns null to skip preview rendering
+ */
+export function createLightMarkdownPreviewMock() {
+  return {
+    default: () => null,
+  };
+}
+
+/**
+ * Create light SettingsDialog mock
+ * Returns null to skip dialog rendering
+ */
+export function createLightSettingsDialogMock() {
+  return {
+    default: () => null,
+  };
+}
