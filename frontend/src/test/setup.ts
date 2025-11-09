@@ -59,7 +59,7 @@ class MockResizeObserver {
 
 global.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
 
-// Mock WebSocket
+// Mock WebSocket - Prevent actual connections and reconnect delays in tests
 class MockWebSocket {
   static CONNECTING = 0;
   static OPEN = 1;
@@ -67,7 +67,7 @@ class MockWebSocket {
   static CLOSED = 3;
 
   url: string;
-  readyState: number = MockWebSocket.CONNECTING;
+  readyState: number = MockWebSocket.CLOSED; // Start as CLOSED to prevent connection attempts
   onopen: ((event: Event) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
@@ -75,13 +75,8 @@ class MockWebSocket {
 
   constructor(url: string) {
     this.url = url;
-    // Simulate connection opening asynchronously
-    setTimeout(() => {
-      this.readyState = MockWebSocket.OPEN;
-      if (this.onopen) {
-        this.onopen(new Event("open"));
-      }
-    }, 0);
+    // DO NOT simulate connection - just stay closed to avoid console spam and delays
+    // Tests that need WebSocket behavior can override this mock
   }
 
   close() {

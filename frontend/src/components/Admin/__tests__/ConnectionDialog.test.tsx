@@ -101,15 +101,24 @@ describe("ConnectionDialog Component", () => {
     const user = userEvent.setup();
     render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
 
-    // Fill in form
-    await user.type(screen.getByLabelText(/connection name/i), "New Server");
-    await user.type(screen.getByLabelText(/host/i), "192.168.1.200");
-    await user.type(screen.getByLabelText(/share name/i), "newshare");
-    await user.type(screen.getByLabelText(/username/i), "newuser");
+    // Fill in form - using paste() is faster than type() for known values
+    await user.click(screen.getByLabelText(/connection name/i));
+    await user.paste("New Server");
+
+    await user.click(screen.getByLabelText(/host/i));
+    await user.paste("192.168.1.200");
+
+    await user.click(screen.getByLabelText(/share name/i));
+    await user.paste("newshare");
+
+    await user.click(screen.getByLabelText(/username/i));
+    await user.paste("newuser");
+
     // Get password input using getAllByLabelText
     const passwordFields = screen.getAllByLabelText(/password/i);
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT") as HTMLElement;
-    await user.type(passwordInput, "newpass");
+    await user.click(passwordInput);
+    await user.paste("newpass");
 
     // Save
     const saveButton = screen.getByRole("button", { name: /^save$/i });
@@ -145,10 +154,10 @@ describe("ConnectionDialog Component", () => {
       />
     );
 
-    // Change the name
+    // Change the name - using paste() is faster than type()
     const nameField = screen.getByLabelText(/connection name/i);
     await user.clear(nameField);
-    await user.type(nameField, "Updated Server");
+    await user.paste("Updated Server");
 
     // Save
     const saveButton = screen.getByRole("button", { name: /^save$/i });
@@ -172,15 +181,24 @@ describe("ConnectionDialog Component", () => {
     const user = userEvent.setup();
     render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
 
-    // Fill in form
-    await user.type(screen.getByLabelText(/connection name/i), "New Server");
-    await user.type(screen.getByLabelText(/host/i), "192.168.1.200");
-    await user.type(screen.getByLabelText(/share name/i), "share");
-    await user.type(screen.getByLabelText(/username/i), "user");
+    // Fill in form - using paste() is faster than type()
+    await user.click(screen.getByLabelText(/connection name/i));
+    await user.paste("New Server");
+
+    await user.click(screen.getByLabelText(/host/i));
+    await user.paste("192.168.1.200");
+
+    await user.click(screen.getByLabelText(/share name/i));
+    await user.paste("share");
+
+    await user.click(screen.getByLabelText(/username/i));
+    await user.paste("user");
+
     // Get password input using getAllByLabelText
     const passwordFields = screen.getAllByLabelText(/password/i);
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT") as HTMLElement;
-    await user.type(passwordInput, "wrongpass");
+    await user.click(passwordInput);
+    await user.paste("wrongpass");
 
     // Save
     const saveButton = screen.getByRole("button", { name: /^save$/i });

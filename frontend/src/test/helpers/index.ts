@@ -5,3 +5,4 @@
 
 export * from "./lazyMocks";
 export * from "./mockFactories";
+export * from "./websocketMock";
