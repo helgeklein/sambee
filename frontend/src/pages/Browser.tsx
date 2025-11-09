@@ -746,8 +746,6 @@ const Browser: React.FC = () => {
 
   // Track when we've already scrolled manually (to prevent double-scroll)
   const manualScrollRef = React.useRef<boolean>(false);
-  // Edge advance: indicates we scrolled one row at edge but kept focusedIndex; effect will advance it
-  const pendingEdgeAdvanceRef = React.useRef<null | { direction: 1 | -1 }>(null);
 
   useLayoutEffect(() => {
     if (virtualListRef.current && focusedIndex >= 0) {
@@ -772,14 +770,7 @@ const Browser: React.FC = () => {
         visibleRowCount,
       });
 
-      // If we performed an edge scroll without advancing focus yet, advance now before calculating alignment
-      if (pendingEdgeAdvanceRef.current) {
-        const { direction } = pendingEdgeAdvanceRef.current;
-        pendingEdgeAdvanceRef.current = null;
-        prevFocusedIndexRef.current = focusedIndex; // prevent infinite loop
-        setFocusedIndex(focusedIndex + direction);
-        return; // wait for next cycle
-      }
+      // No pending edge-advance logic; scrolling is handled in key handler to avoid mid-frame jumps
 
       // Determine alignment and behavior based on jump size
       // Default for arrow navigation: 'auto' (do minimal scroll, do NOT re-center)
@@ -913,13 +904,15 @@ const Browser: React.FC = () => {
               const visibleCapacity = Math.floor(height / itemSize);
               const lastVisible = firstVisible + visibleCapacity - 1;
               if (focusedIndex === lastVisible) {
-                // Scroll one row; defer focusedIndex update to effect to avoid intermediate jump.
+                // Manual scroll first, then update state in next frame to keep selection pinned at bottom
                 manualScrollRef.current = true;
-                pendingEdgeAdvanceRef.current = { direction: 1 };
                 virtualListRef.current?.scrollToRow({
                   index: next,
                   align: "end",
                   behavior: "instant",
+                });
+                requestAnimationFrame(() => {
+                  setFocusedIndex(next);
                 });
                 break;
               }
@@ -949,11 +942,13 @@ const Browser: React.FC = () => {
               const firstVisible = Math.floor(scrollOffset / itemSize);
               if (focusedIndex === firstVisible) {
                 manualScrollRef.current = true;
-                pendingEdgeAdvanceRef.current = { direction: -1 };
                 virtualListRef.current?.scrollToRow({
                   index: next,
                   align: "start",
                   behavior: "instant",
+                });
+                requestAnimationFrame(() => {
+                  setFocusedIndex(next);
                 });
                 break;
               }
