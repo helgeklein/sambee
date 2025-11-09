@@ -89,16 +89,6 @@ else
     OVERALL_STATUS=1
 fi
 
-# Frontend: Build Test
-echo -e "${YELLOW}=== Frontend: Build Test ===${NC}"
-echo -e "${BLUE}Running production build...${NC}"
-if npm run build; then
-    echo -e "${GREEN}✓ Frontend build passed${NC}\n"
-else
-    echo -e "${RED}✗ Frontend build failed${NC}\n"
-    OVERALL_STATUS=1
-fi
-
 # Frontend: Unit Tests (if they exist)
 if grep -q '"test"' package.json; then
     echo -e "${YELLOW}=== Frontend: Unit Tests ===${NC}"

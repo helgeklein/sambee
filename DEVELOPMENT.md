@@ -208,10 +208,16 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 - Provides ~35% speedup (~20s vs ~31s)
 - Compatible with coverage collection
 
+**Test Scope:**
+- Backend: Type checking (mypy), unit tests with coverage
+- Frontend: Type checking (TypeScript), unit tests
+- Production build validation is handled separately (not in test workflow)
+
 **Current CI Runtime:**
-- First run (cache miss): ~2 minutes
-- Subsequent runs (cache hit): ~1-1.5 minutes
-- Backend tests: ~22s (with coverage, parallel)
+- First run (cache miss): ~1m 30s
+- Subsequent runs (cache hit): ~50-60s
+- Backend tests: ~16s (with coverage, parallel)
+- Frontend tests: ~10-15s (type check + unit tests)
 
 ### Local Development with Virtual Environment
 
