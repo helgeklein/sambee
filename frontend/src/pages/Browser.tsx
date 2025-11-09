@@ -123,6 +123,10 @@ const Browser: React.FC = () => {
   const filesRef = React.useRef<FileEntry[]>([]);
   const virtualListRef = React.useRef<ListRef>(null);
   const listContainerRef = React.useRef<HTMLDivElement>(null);
+  const [visibleRowCount, setVisibleRowCount] = React.useState(10);
+  const lastNavigationTypeRef = React.useRef<
+    "pageup" | "pagedown" | "arrowup" | "arrowdown" | null
+  >(null);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -595,6 +599,33 @@ const Browser: React.FC = () => {
     }
   }, [currentPath, selectedConnectionId]);
 
+  // Calculate visible row count for PageUp/PageDown navigation
+  useEffect(() => {
+    const ROW_HEIGHT = 68;
+    const updateVisibleRows = () => {
+      if (listContainerRef.current) {
+        const rect = listContainerRef.current.getBoundingClientRect();
+        const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
+        // Set visible row count, with a minimum of 5 and fallback of 10
+        setVisibleRowCount(visibleRows > 5 ? visibleRows : 10);
+      }
+    };
+
+    // Use ResizeObserver to track container size changes
+    const observer = new ResizeObserver(updateVisibleRows);
+    if (listContainerRef.current) {
+      observer.observe(listContainerRef.current);
+    }
+
+    // Initial calculation with a small delay to ensure layout is ready
+    const timeout = setTimeout(updateVisibleRows, 100);
+
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeout);
+    };
+  }, []);
+
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
     setCurrentPath("");
@@ -694,11 +725,27 @@ const Browser: React.FC = () => {
   // Scroll focused item into view using VirtualList API
   useEffect(() => {
     if (virtualListRef.current && focusedIndex >= 0) {
+      // Different alignment strategies for different navigation types:
+      // - PageDown: align to end (newly selected item appears at bottom, keeping visual position)
+      // - PageUp: align to start (newly selected item appears at top, keeping visual position)
+      // - Arrow keys: use auto (minimal scrolling without centering)
+      let align: "start" | "end" | "smart" | "auto" = "auto";
+
+      if (lastNavigationTypeRef.current === "pagedown") {
+        align = "end";
+      } else if (lastNavigationTypeRef.current === "pageup") {
+        align = "start";
+      }
+      // Arrow keys and other navigation use "auto" alignment
+
       virtualListRef.current.scrollToRow({
         index: focusedIndex,
-        align: "smart",
+        align,
         behavior: "auto",
       });
+
+      // Reset navigation type after scrolling
+      lastNavigationTypeRef.current = null;
     }
   }, [focusedIndex]);
 
@@ -749,11 +796,13 @@ const Browser: React.FC = () => {
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
+          // Use default "smart" alignment - only scrolls when needed
           setFocusedIndex((prev) => Math.min(prev + 1, fileCount - 1));
           break;
 
         case "ArrowUp":
           e.preventDefault();
+          // Use default "smart" alignment - only scrolls when needed
           setFocusedIndex((prev) => Math.max(prev - 1, 0));
           break;
 
@@ -769,14 +818,15 @@ const Browser: React.FC = () => {
 
         case "PageDown":
           e.preventDefault();
-          setFocusedIndex((prev) => Math.min(prev + 10, fileCount - 1));
+          lastNavigationTypeRef.current = "pagedown";
+          setFocusedIndex((prev) => Math.min(prev + visibleRowCount, fileCount - 1));
           break;
 
         case "PageUp":
           e.preventDefault();
-          setFocusedIndex((prev) => Math.max(prev - 10, 0));
+          lastNavigationTypeRef.current = "pageup";
+          setFocusedIndex((prev) => Math.max(prev - visibleRowCount, 0));
           break;
-
         case "Enter":
           e.preventDefault();
           setFocusedIndex((prev) => {
@@ -867,7 +917,7 @@ const Browser: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [settingsOpen, showHelp, searchQuery, selectedFile, loadFiles]);
+  }, [settingsOpen, showHelp, searchQuery, selectedFile, loadFiles, visibleRowCount]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");

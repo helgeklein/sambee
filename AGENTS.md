@@ -4,5 +4,5 @@
 
 ## Coding style
 
-- **Indentation:** use spaces, not tabs.
+- **Indentation:** never use tabs. Only use spaces for indentation.
 - **Comments:** add docstrings and comments for non-obvious code.
