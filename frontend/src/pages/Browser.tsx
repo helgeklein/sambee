@@ -124,9 +124,6 @@ const Browser: React.FC = () => {
   const virtualListRef = React.useRef<ListRef>(null);
   const listContainerRef = React.useRef<HTMLDivElement>(null);
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
-  const lastNavigationTypeRef = React.useRef<
-    "pageup" | "pagedown" | "arrowup" | "arrowdown" | null
-  >(null);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -723,29 +720,16 @@ const Browser: React.FC = () => {
   }, [sortedAndFilteredFiles, currentPath]);
 
   // Scroll focused item into view using VirtualList API
+  // Note: PageUp/PageDown handle scrolling synchronously to prevent flicker
   useEffect(() => {
     if (virtualListRef.current && focusedIndex >= 0) {
-      // Different alignment strategies for different navigation types:
-      // - PageDown: align to end (newly selected item appears at bottom, keeping visual position)
-      // - PageUp: align to start (newly selected item appears at top, keeping visual position)
-      // - Arrow keys: use auto (minimal scrolling without centering)
-      let align: "start" | "end" | "smart" | "auto" = "auto";
-
-      if (lastNavigationTypeRef.current === "pagedown") {
-        align = "end";
-      } else if (lastNavigationTypeRef.current === "pageup") {
-        align = "start";
-      }
-      // Arrow keys and other navigation use "auto" alignment
-
+      // For most navigation (arrow keys, Home, End, etc.), use "auto" alignment
+      // which only scrolls when necessary
       virtualListRef.current.scrollToRow({
         index: focusedIndex,
-        align,
+        align: "auto",
         behavior: "auto",
       });
-
-      // Reset navigation type after scrolling
-      lastNavigationTypeRef.current = null;
     }
   }, [focusedIndex]);
 
@@ -818,14 +802,34 @@ const Browser: React.FC = () => {
 
         case "PageDown":
           e.preventDefault();
-          lastNavigationTypeRef.current = "pagedown";
-          setFocusedIndex((prev) => Math.min(prev + visibleRowCount, fileCount - 1));
+          setFocusedIndex((prev) => {
+            const newIndex = Math.min(prev + visibleRowCount, fileCount - 1);
+            // Scroll BEFORE updating state to prevent flicker
+            if (virtualListRef.current) {
+              virtualListRef.current.scrollToRow({
+                index: newIndex,
+                align: "end",
+                behavior: "auto",
+              });
+            }
+            return newIndex;
+          });
           break;
 
         case "PageUp":
           e.preventDefault();
-          lastNavigationTypeRef.current = "pageup";
-          setFocusedIndex((prev) => Math.max(prev - visibleRowCount, 0));
+          setFocusedIndex((prev) => {
+            const newIndex = Math.max(prev - visibleRowCount, 0);
+            // Scroll BEFORE updating state to prevent flicker
+            if (virtualListRef.current) {
+              virtualListRef.current.scrollToRow({
+                index: newIndex,
+                align: "start",
+                behavior: "auto",
+              });
+            }
+            return newIndex;
+          });
           break;
         case "Enter":
           e.preventDefault();
