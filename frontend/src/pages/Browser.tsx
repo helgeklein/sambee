@@ -45,7 +45,7 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { List as FixedSizeList } from "react-window";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
@@ -421,6 +421,11 @@ const Browser: React.FC = () => {
     currentPathRef.current = currentPath;
   }, [currentPath]);
 
+  // Debug: Log when focusedIndex state changes
+  useEffect(() => {
+    logger.info(">>> STATE CHANGED: focusedIndex updated", { focusedIndex });
+  }, [focusedIndex]);
+
   // Initial load - run once on mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only once on mount to avoid aborting requests
   useEffect(() => {
@@ -604,7 +609,8 @@ const Browser: React.FC = () => {
         const rect = listContainerRef.current.getBoundingClientRect();
         const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
         // Set visible row count, with a minimum of 5 and fallback of 10
-        setVisibleRowCount(visibleRows > 5 ? visibleRows : 10);
+        const newCount = visibleRows > 5 ? visibleRows : 10;
+        setVisibleRowCount(newCount);
       }
     };
 
@@ -720,18 +726,71 @@ const Browser: React.FC = () => {
   }, [sortedAndFilteredFiles, currentPath]);
 
   // Scroll focused item into view using VirtualList API
-  // Note: PageUp/PageDown handle scrolling synchronously to prevent flicker
-  useEffect(() => {
+  // Use useLayoutEffect to run synchronously BEFORE React renders components
+  // This prevents the old viewport from rendering with the new focusedIndex
+  const prevFocusedIndexRef = React.useRef<number>(0);
+
+  // Track when we've already scrolled manually (to prevent double-scroll)
+  const manualScrollRef = React.useRef<boolean>(false);
+
+  useLayoutEffect(() => {
     if (virtualListRef.current && focusedIndex >= 0) {
-      // For most navigation (arrow keys, Home, End, etc.), use "auto" alignment
-      // which only scrolls when necessary
+      const prev = prevFocusedIndexRef.current;
+      const diff = focusedIndex - prev;
+
+      // If we already scrolled manually in the event handler, skip this effect
+      if (manualScrollRef.current) {
+        logger.info(">>> useLayoutEffect: SKIPPING - manual scroll already done", {
+          prev,
+          current: focusedIndex,
+        });
+        manualScrollRef.current = false;
+        prevFocusedIndexRef.current = focusedIndex;
+        return;
+      }
+
+      logger.info(">>> useLayoutEffect[focusedIndex] running", {
+        prev,
+        current: focusedIndex,
+        diff,
+        visibleRowCount,
+      });
+
+      // Determine alignment and behavior based on jump size
+      let align: "auto" | "smart" | "center" | "end" | "start" = "smart";
+      let behavior: "auto" | "smooth" | "instant" = "auto";
+
+      // Large forward jump (likely PageDown) - align to bottom with instant scroll
+      if (diff >= visibleRowCount) {
+        align = "end";
+        behavior = "instant";
+        logger.info(">>> Detected PageDown - using align=end, behavior=instant");
+      }
+      // Large backward jump (likely PageUp) - align to top with instant scroll
+      else if (diff <= -visibleRowCount) {
+        align = "start";
+        behavior = "instant";
+        logger.info(">>> Detected PageUp - using align=start, behavior=instant");
+      }
+
+      logger.info(">>> About to call scrollToRow", {
+        index: focusedIndex,
+        align,
+        behavior,
+      });
+
       virtualListRef.current.scrollToRow({
         index: focusedIndex,
-        align: "auto",
-        behavior: "auto",
+        align,
+        behavior,
       });
+
+      logger.info(">>> scrollToRow completed (returned)");
+
+      // Update previous value
+      prevFocusedIndexRef.current = focusedIndex;
     }
-  }, [focusedIndex]);
+  }, [focusedIndex, visibleRowCount]);
 
   // Keyboard navigation (optimized to avoid recreation on file list changes)
   useEffect(() => {
@@ -802,34 +861,53 @@ const Browser: React.FC = () => {
 
         case "PageDown":
           e.preventDefault();
-          setFocusedIndex((prev) => {
-            const newIndex = Math.min(prev + visibleRowCount, fileCount - 1);
-            // Scroll BEFORE updating state to prevent flicker
+          {
+            const newIndex = Math.min(focusedIndex + visibleRowCount, fileCount - 1);
+
+            logger.info(">>> PageDown: About to scroll BEFORE state update", {
+              currentFocus: focusedIndex,
+              newIndex,
+            });
+
+            // Scroll FIRST, before any state updates
             if (virtualListRef.current) {
               virtualListRef.current.scrollToRow({
                 index: newIndex,
                 align: "end",
-                behavior: "auto",
+                behavior: "instant",
               });
+              logger.info(">>> PageDown: Scroll completed, now updating state");
+
+              // Set flag to skip useLayoutEffect scroll
+              manualScrollRef.current = true;
             }
-            return newIndex;
-          });
+
+            // Now update state
+            setFocusedIndex(newIndex);
+            logger.info(">>> PageDown: State update called");
+          }
           break;
 
         case "PageUp":
           e.preventDefault();
-          setFocusedIndex((prev) => {
-            const newIndex = Math.max(prev - visibleRowCount, 0);
-            // Scroll BEFORE updating state to prevent flicker
+          {
+            const newIndex = Math.max(focusedIndex - visibleRowCount, 0);
+
+            // Scroll FIRST, before any state updates
             if (virtualListRef.current) {
               virtualListRef.current.scrollToRow({
                 index: newIndex,
                 align: "start",
-                behavior: "auto",
+                behavior: "instant",
               });
+
+              // Set flag to skip useLayoutEffect scroll
+              manualScrollRef.current = true;
             }
-            return newIndex;
-          });
+
+            // Now update state
+            setFocusedIndex(newIndex);
+          }
           break;
         case "Enter":
           e.preventDefault();
@@ -921,7 +999,7 @@ const Browser: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [settingsOpen, showHelp, searchQuery, selectedFile, loadFiles, visibleRowCount]);
+  }, [settingsOpen, showHelp, searchQuery, selectedFile, loadFiles, visibleRowCount, focusedIndex]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
@@ -955,6 +1033,17 @@ const Browser: React.FC = () => {
   const RowComponent = React.useCallback(
     ({ index, style, files, focusedIndex: focused, onFileClick }: RowComponentProps) => {
       const file = files[index];
+      const isSelected = index === focused;
+
+      // Log every row render during PageDown/PageUp (large jumps)
+      // This helps us see when rows appear and with what selection state
+      logger.info(">>> Row render", {
+        index,
+        fileName: file.name.substring(0, 30),
+        focused,
+        isSelected,
+        timestamp: performance.now(),
+      });
 
       const secondaryInfo = [];
       if (file.size && file.type !== "directory") {
@@ -977,7 +1066,7 @@ const Browser: React.FC = () => {
           }
         >
           <ListItemButton
-            selected={index === focused}
+            selected={isSelected}
             onClick={() => onFileClick(file, index)}
             tabIndex={-1}
             disableRipple={false}
