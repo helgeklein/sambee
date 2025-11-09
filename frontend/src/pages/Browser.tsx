@@ -124,6 +124,8 @@ const Browser: React.FC = () => {
   const virtualListRef = React.useRef<ListRef>(null);
   const listContainerRef = React.useRef<HTMLDivElement>(null);
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
+  // Mirror of visibleRowCount to avoid capturing state in effects
+  const visibleRowCountRef = React.useRef<number>(10);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -602,31 +604,43 @@ const Browser: React.FC = () => {
   }, [currentPath, selectedConnectionId]);
 
   // Calculate visible row count for PageUp/PageDown navigation
-  useEffect(() => {
+  // Run immediately after mount (layout complete) so first PageDown uses real viewport height
+  useLayoutEffect(() => {
     const ROW_HEIGHT = 68;
     const updateVisibleRows = () => {
-      if (listContainerRef.current) {
-        const rect = listContainerRef.current.getBoundingClientRect();
-        const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
-        // Set visible row count, with a minimum of 5 and fallback of 10
-        const newCount = visibleRows > 5 ? visibleRows : 10;
+      if (!listContainerRef.current) return;
+      const rect = listContainerRef.current.getBoundingClientRect();
+      const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
+      // Minimum of 5, fallback to 10 only if container is extremely small/zero during init
+      const newCount = visibleRows >= 5 ? visibleRows : 10;
+      if (newCount !== visibleRowCountRef.current) {
+        logger.info(">>> visibleRowCount updated", {
+          height: rect.height,
+          visibleRows,
+          newCount,
+        });
         setVisibleRowCount(newCount);
+        visibleRowCountRef.current = newCount;
       }
     };
 
-    // Use ResizeObserver to track container size changes
-    const observer = new ResizeObserver(updateVisibleRows);
-    if (listContainerRef.current) {
-      observer.observe(listContainerRef.current);
+    const el = listContainerRef.current;
+    if (el) {
+      // Immediate measurement
+      updateVisibleRows();
+
+      // Track container size changes
+      const observer = new ResizeObserver(updateVisibleRows);
+      observer.observe(el);
+
+      return () => {
+        observer.disconnect();
+      };
     }
 
-    // Initial calculation with a small delay to ensure layout is ready
-    const timeout = setTimeout(updateVisibleRows, 100);
-
-    return () => {
-      observer.disconnect();
-      clearTimeout(timeout);
-    };
+    // Fallback: ref not set yet; measure on next frame
+    const rafId = requestAnimationFrame(updateVisibleRows);
+    return () => cancelAnimationFrame(rafId);
   }, []);
 
   const handleConnectionChange = (connectionId: string) => {
@@ -732,6 +746,8 @@ const Browser: React.FC = () => {
 
   // Track when we've already scrolled manually (to prevent double-scroll)
   const manualScrollRef = React.useRef<boolean>(false);
+  // Edge advance: indicates we scrolled one row at edge but kept focusedIndex; effect will advance it
+  const pendingEdgeAdvanceRef = React.useRef<null | { direction: 1 | -1 }>(null);
 
   useLayoutEffect(() => {
     if (virtualListRef.current && focusedIndex >= 0) {
@@ -756,21 +772,59 @@ const Browser: React.FC = () => {
         visibleRowCount,
       });
 
+      // If we performed an edge scroll without advancing focus yet, advance now before calculating alignment
+      if (pendingEdgeAdvanceRef.current) {
+        const { direction } = pendingEdgeAdvanceRef.current;
+        pendingEdgeAdvanceRef.current = null;
+        prevFocusedIndexRef.current = focusedIndex; // prevent infinite loop
+        setFocusedIndex(focusedIndex + direction);
+        return; // wait for next cycle
+      }
+
       // Determine alignment and behavior based on jump size
-      let align: "auto" | "smart" | "center" | "end" | "start" = "smart";
+      // Default for arrow navigation: 'auto' (do minimal scroll, do NOT re-center)
+      let align: "auto" | "smart" | "center" | "end" | "start" = "auto";
       let behavior: "auto" | "smooth" | "instant" = "auto";
 
-      // Large forward jump (likely PageDown) - align to bottom with instant scroll
+      // Large forward jump (PageDown) - lock new focused item at bottom
       if (diff >= visibleRowCount) {
         align = "end";
         behavior = "instant";
         logger.info(">>> Detected PageDown - using align=end, behavior=instant");
       }
-      // Large backward jump (likely PageUp) - align to top with instant scroll
+      // Large backward jump (PageUp) - lock new focused item at top
       else if (diff <= -visibleRowCount) {
         align = "start";
         behavior = "instant";
         logger.info(">>> Detected PageUp - using align=start, behavior=instant");
+      } else {
+        // Single-step arrow navigation: we want minimal scroll.
+        // react-window 'smart' can center after large off-screen moves; 'auto' is safer here.
+        // Additional heuristic: if moving down and the item would be just below viewport end, force end; similarly for up near the top.
+        try {
+          const list = virtualListRef.current as unknown as {
+            state?: { scrollOffset: number; itemSize: number; height: number };
+          } | null;
+          const state = list?.state;
+          const scrollOffset = state?.scrollOffset;
+          const itemSize = state?.itemSize;
+          const height = state?.height;
+          if (scrollOffset != null && itemSize && height) {
+            const firstVisible = Math.floor(scrollOffset / itemSize);
+            const visibleCapacity = Math.floor(height / itemSize);
+            const lastVisible = firstVisible + visibleCapacity - 1;
+            // If moving down one step and previous index was bottom -> keep new focus at bottom
+            if (diff === 1 && prev === lastVisible) {
+              align = "end";
+            }
+            // If moving up one step and previous index was top -> keep new focus at top
+            if (diff === -1 && prev === firstVisible) {
+              align = "start";
+            }
+          }
+        } catch {
+          // Ignore heuristic failures
+        }
       }
 
       logger.info(">>> About to call scrollToRow", {
@@ -837,17 +891,77 @@ const Browser: React.FC = () => {
       }
 
       switch (e.key) {
-        case "ArrowDown":
+        case "ArrowDown": {
           e.preventDefault();
-          // Use default "smart" alignment - only scrolls when needed
-          setFocusedIndex((prev) => Math.min(prev + 1, fileCount - 1));
-          break;
+          if (focusedIndex < 0) return;
+          const next = Math.min(focusedIndex + 1, fileCount - 1);
+          if (next === focusedIndex) break;
 
-        case "ArrowUp":
-          e.preventDefault();
-          // Use default "smart" alignment - only scrolls when needed
-          setFocusedIndex((prev) => Math.max(prev - 1, 0));
+          // Heuristic: if current focusedIndex is the last visible item, scroll viewport up one row first, keep selection visually pinned at bottom.
+          try {
+            const list = virtualListRef.current as unknown as {
+              state?: {
+                scrollOffset: number;
+                itemSize: number;
+                height: number;
+              };
+            } | null;
+            const state = list?.state;
+            if (state) {
+              const { scrollOffset, itemSize, height } = state;
+              const firstVisible = Math.floor(scrollOffset / itemSize);
+              const visibleCapacity = Math.floor(height / itemSize);
+              const lastVisible = firstVisible + visibleCapacity - 1;
+              if (focusedIndex === lastVisible) {
+                // Scroll one row; defer focusedIndex update to effect to avoid intermediate jump.
+                manualScrollRef.current = true;
+                pendingEdgeAdvanceRef.current = { direction: 1 };
+                virtualListRef.current?.scrollToRow({
+                  index: next,
+                  align: "end",
+                  behavior: "instant",
+                });
+                break;
+              }
+            }
+          } catch {}
+          // Normal in-viewport move; let auto alignment handle minimal scroll.
+          setFocusedIndex(next);
           break;
+        }
+
+        case "ArrowUp": {
+          e.preventDefault();
+          if (focusedIndex < 0) return;
+          const next = Math.max(focusedIndex - 1, 0);
+          if (next === focusedIndex) break;
+          try {
+            const list = virtualListRef.current as unknown as {
+              state?: {
+                scrollOffset: number;
+                itemSize: number;
+                height: number;
+              };
+            } | null;
+            const state = list?.state;
+            if (state) {
+              const { scrollOffset, itemSize } = state;
+              const firstVisible = Math.floor(scrollOffset / itemSize);
+              if (focusedIndex === firstVisible) {
+                manualScrollRef.current = true;
+                pendingEdgeAdvanceRef.current = { direction: -1 };
+                virtualListRef.current?.scrollToRow({
+                  index: next,
+                  align: "start",
+                  behavior: "instant",
+                });
+                break;
+              }
+            }
+          } catch {}
+          setFocusedIndex(next);
+          break;
+        }
 
         case "Home":
           e.preventDefault();
