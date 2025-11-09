@@ -63,7 +63,7 @@ jobs:
         cd backend
         echo "✓ Python dependencies restored from cache"
         source .venv/bin/activate
-        pip list
+        pip list | grep -E "pytest|coverage"
 
     - name: Install Node.js dependencies
       if: steps.node-cache.outputs.cache-hit != 'true'

@@ -49,13 +49,22 @@ echo -e "${BLUE}Running pytest...${NC}"
 # Use number of CPU cores, or default to 4
 NUM_WORKERS="${PYTEST_WORKERS:-auto}"
 
+# Show parallel execution info
+if [ "$NUM_WORKERS" = "auto" ]; then
+    echo -e "${BLUE}Parallel execution: auto-detect CPU cores${NC}"
+else
+    echo -e "${BLUE}Parallel execution: $NUM_WORKERS workers${NC}"
+fi
+
 # Use coverage only if COVERAGE env var is set
 if [ "${COVERAGE:-0}" = "1" ]; then
     # Coverage with parallel execution
     PYTEST_CMD="pytest -n $NUM_WORKERS -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml"
+    echo -e "${BLUE}Coverage: enabled${NC}"
 else
     # Parallel execution without coverage (fastest)
     PYTEST_CMD="pytest -n $NUM_WORKERS -v"
+    echo -e "${BLUE}Coverage: disabled${NC}"
 fi
 
 if $PYTEST_CMD; then
