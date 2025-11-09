@@ -86,7 +86,7 @@ describe("AdminPanel Component", () => {
     render(<AdminPanel />);
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith("/browser");
+      expect(mockNavigate).toHaveBeenCalledWith("/browse");
     });
 
     // Should show error notification

@@ -123,7 +123,6 @@ const Browser: React.FC = () => {
   const filesRef = React.useRef<FileEntry[]>([]);
   const virtualListRef = React.useRef<ListRef>(null);
   const listContainerRef = React.useRef<HTMLDivElement>(null);
-  const [listHeight, setListHeight] = React.useState(600);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -589,45 +588,6 @@ const Browser: React.FC = () => {
   }, [currentPath, selectedConnectionId, updateUrl]);
 
   // Load files when connection or path changes
-  useEffect(() => {
-    if (selectedConnectionId) {
-      // Use ref to avoid dependency on loadFiles function
-      loadFilesRef.current?.(currentPath);
-    }
-  }, [currentPath, selectedConnectionId]);
-
-  // Calculate list height dynamically based on container size
-  useEffect(() => {
-    const updateHeight = () => {
-      if (listContainerRef.current) {
-        const rect = listContainerRef.current.getBoundingClientRect();
-        // Leave some padding
-        const height = rect.height - 16;
-        console.log(
-          "List container height:",
-          rect.height,
-          "→ listHeight:",
-          height > 200 ? height : 600
-        );
-        setListHeight(height > 200 ? height : 600);
-      }
-    };
-
-    // Use ResizeObserver for better performance
-    const observer = new ResizeObserver(updateHeight);
-    if (listContainerRef.current) {
-      observer.observe(listContainerRef.current);
-    }
-
-    // Initial calculation with a small delay to ensure layout is ready
-    const timeout = setTimeout(updateHeight, 100);
-
-    return () => {
-      observer.disconnect();
-      clearTimeout(timeout);
-    };
-  }, []); // Recalculate when connections change
-
   useEffect(() => {
     if (selectedConnectionId) {
       // Use ref to avoid dependency on loadFiles function
@@ -1204,6 +1164,8 @@ const Browser: React.FC = () => {
                   sx={{
                     flex: 1,
                     minWidth: 300,
+                    minHeight: 0,
+                    height: "100%",
                     display: "flex",
                     flexDirection: "column",
                     overflow: "hidden",
@@ -1233,7 +1195,7 @@ const Browser: React.FC = () => {
                       rowHeight={68}
                       // biome-ignore lint/suspicious/noExplicitAny: react-window v2 type mismatch with ExcludeForbiddenKeys
                       rowProps={rowProps as any}
-                      style={{ height: listHeight, width: "100%" }}
+                      style={{ height: "100%", width: "100%" }}
                     />
                   )}
                 </Paper>

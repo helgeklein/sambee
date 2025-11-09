@@ -17,7 +17,7 @@ const Login: React.FC = () => {
     try {
       const response = await login(username, password);
       localStorage.setItem("access_token", response.access_token);
-      navigate("/browser");
+      navigate("/browse");
     } catch (_err) {
       setError("Invalid username or password");
     }

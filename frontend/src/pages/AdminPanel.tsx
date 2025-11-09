@@ -51,7 +51,7 @@ const AdminPanel: React.FC = () => {
       const user = await api.getCurrentUser();
       if (!user.is_admin) {
         showNotification("Access denied. Admin privileges required.", "error");
-        navigate("/browser");
+        navigate("/browse");
       }
     } catch (_error) {
       navigate("/login");
