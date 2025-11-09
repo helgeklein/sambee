@@ -7,54 +7,23 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
+import {
+  type ApiMock,
+  createMarkdownPreviewMock,
+  createReactWindowMock,
+  createSettingsDialogMock,
+  setupSuccessfulApiMocks,
+} from "../../test/helpers";
 import { FileType } from "../../types";
-import { mockConnections, mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
+import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
 
 // Mock the API module
 vi.mock("../../services/api");
 
-// Mock MarkdownPreview component
-vi.mock("../../components/Preview/MarkdownPreview", () => ({
-  default: () => (
-    <div role="dialog" data-testid="markdown-preview">
-      Markdown Preview
-    </div>
-  ),
-}));
-
-// Mock SettingsDialog component
-vi.mock("../../components/Settings/SettingsDialog", () => ({
-  default: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
-    open ? (
-      <div data-testid="settings-dialog">
-        <button type="button" onClick={onClose}>
-          Close Settings
-        </button>
-      </div>
-    ) : null,
-}));
-
-// Mock react-window for simpler testing
-vi.mock("react-window", () => ({
-  List: ({
-    rowComponent: RowComponent,
-    rowCount,
-    rowProps,
-  }: {
-    // biome-ignore lint/suspicious/noExplicitAny: Mock requires flexible types
-    rowComponent: React.ComponentType<any>;
-    rowCount: number;
-    // biome-ignore lint/suspicious/noExplicitAny: Mock requires flexible types
-    rowProps?: any;
-  }) => (
-    <div data-testid="virtual-list">
-      {Array.from({ length: rowCount }).map((_, index) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: Mock renders items in stable order
-        <RowComponent key={index} index={index} style={{}} {...rowProps} />
-      ))}
-    </div>
-  ),
-}));
+// Mock components using lazy mock factories
+vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
+vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
+vi.mock("react-window", () => createReactWindowMock());
 
 describe("Browser Component - Preview and Advanced", () => {
   beforeEach(() => {
@@ -62,9 +31,8 @@ describe("Browser Component - Preview and Advanced", () => {
     localStorage.setItem("access_token", "fake-token");
     localStorage.removeItem("selectedConnectionId");
 
-    // Default successful mocks
-    vi.mocked(api.getConnections).mockResolvedValue(mockConnections);
-    vi.mocked(api.listDirectory).mockResolvedValue(mockDirectoryListing);
+    // Use mock factory for successful API responses
+    setupSuccessfulApiMocks(api as unknown as ApiMock);
   });
 
   describe("File Preview", () => {

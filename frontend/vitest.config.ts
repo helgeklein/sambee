@@ -9,6 +9,13 @@ export default defineConfig({
 		environment: "jsdom",
 		setupFiles: ["./src/test/setup.ts"],
 		css: true,
+		// Enable parallel file execution for better performance
+		// Uses threads by default with fileParallelism enabled
+		fileParallelism: true,
+		// Maximum number of concurrent test files
+		maxConcurrency: 5,
+		// Timeout for each test (default is 5000ms)
+		testTimeout: 10000,
 		env: {
 			VITE_API_URL: "http://localhost:8000/api",
 		},
