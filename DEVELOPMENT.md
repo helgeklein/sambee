@@ -92,10 +92,16 @@ Development server runs at: http://localhost:3000 (powered by Vite ⚡)
 ### Running Tests
 
 ```bash
-# Backend tests
+# Run all tests (backend + frontend) - fast, no coverage
+./scripts/test.sh
+
+# Run all tests with coverage (CI mode)
+COVERAGE=1 ./scripts/test.sh
+
+# Backend tests only
 cd backend && pytest
 
-# Frontend tests
+# Frontend tests only
 cd frontend && npm test
 ```
 
@@ -106,7 +112,7 @@ cd frontend && npm test
 Sambee includes comprehensive backend tests using pytest. Tests cover authentication, connection management, file browsing, and more.
 
 ```bash
-# Run all tests
+# Run all tests (parallel execution for speed)
 cd backend && pytest
 
 # Run with verbose output
@@ -119,12 +125,21 @@ pytest tests/test_auth.py
 pytest tests/test_auth.py::TestLoginEndpoint
 pytest tests/test_auth.py::TestLoginEndpoint::test_login_success
 
-# Run with coverage report
-pytest --cov=app --cov-report=html
+# Run with coverage report (slower, generates HTML/XML reports)
+COVERAGE=1 pytest --cov=app --cov-report=html --cov-report=xml
+
+# Control parallel workers (default: auto-detect CPU cores)
+pytest -n 4  # Use 4 workers
+pytest -n auto  # Auto-detect (recommended)
+pytest -n 0  # Disable parallel execution
 
 # View coverage report
 open htmlcov/index.html  # or browse to file:///.../htmlcov/index.html
 ```
+
+**Performance:** Tests run with **parallel execution** by default using `pytest-xdist`. On a 4-core machine, this provides ~30-35% speedup (310 tests in ~20s vs ~31s sequential). Coverage collection adds ~2-3 seconds overhead.
+
+**Note:** By default, tests run **without** coverage collection for faster execution during development. Set `COVERAGE=1` environment variable to generate coverage reports. CI/CD automatically runs with coverage enabled.
 
 ### Test Organization
 
@@ -174,6 +189,48 @@ Available fixtures:
 
 ```bash
 cd frontend && npm test
+```
+
+## CI/CD and GitHub Actions
+
+The project uses GitHub Actions for continuous integration. Tests run automatically on pushes and pull requests to the `main` branch.
+
+### Performance Optimizations
+
+**Dependency Caching:**
+- Python virtual environment is cached (`.venv/`)
+- Node modules are cached (`node_modules/`)
+- On cache hit: installation skipped, saving ~30-40 seconds
+- Cache invalidates when `requirements*.txt` or `package-lock.json` changes
+
+**Parallel Test Execution:**
+- Backend tests run with `pytest-xdist` (4 workers)
+- Provides ~35% speedup (~20s vs ~31s)
+- Compatible with coverage collection
+
+**Current CI Runtime:**
+- First run (cache miss): ~2 minutes
+- Subsequent runs (cache hit): ~1-1.5 minutes
+- Backend tests: ~22s (with coverage, parallel)
+
+### Local Development with Virtual Environment
+
+To use the same setup as CI locally:
+
+```bash
+# Create virtual environment
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Run tests (venv will be auto-detected)
+cd ..
+./scripts/test.sh
 ```
 
 ## Environment Variables

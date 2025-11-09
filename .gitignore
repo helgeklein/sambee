@@ -62,6 +62,10 @@ frontend/.env.production.local
 .env
 .env.local
 !.env.example
+.venv/
+venv/
+env/
+ENV/
 
 # Database
 data/

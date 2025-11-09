@@ -26,6 +26,12 @@ OVERALL_STATUS=0
 echo -e "${YELLOW}=== Backend: Static Analysis ===${NC}"
 cd "$REPO_ROOT/backend" || exit 1
 
+# Activate virtual environment if it exists (for CI)
+if [ -d ".venv" ]; then
+    echo -e "${BLUE}Activating Python virtual environment...${NC}"
+    source .venv/bin/activate
+fi
+
 # mypy - Type checking (non-fatal, just warnings)
 echo -e "${BLUE}Running mypy (type checking)...${NC}"
 if mypy app; then
@@ -38,11 +44,18 @@ fi
 # Backend: Unit Tests
 echo -e "${YELLOW}=== Backend: Unit Tests ===${NC}"
 echo -e "${BLUE}Running pytest...${NC}"
+
+# Determine number of workers for parallel execution
+# Use number of CPU cores, or default to 4
+NUM_WORKERS="${PYTEST_WORKERS:-auto}"
+
 # Use coverage only if COVERAGE env var is set
 if [ "${COVERAGE:-0}" = "1" ]; then
-    PYTEST_CMD="pytest -v --cov=app --cov-report=term-missing --cov-report=xml"
+    # Coverage with parallel execution
+    PYTEST_CMD="pytest -n $NUM_WORKERS -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml"
 else
-    PYTEST_CMD="pytest -v"
+    # Parallel execution without coverage (fastest)
+    PYTEST_CMD="pytest -n $NUM_WORKERS -v"
 fi
 
 if $PYTEST_CMD; then
