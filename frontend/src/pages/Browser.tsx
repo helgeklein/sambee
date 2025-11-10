@@ -53,13 +53,74 @@ import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
 
+// Performance Profiling System
+// =============================
+// To enable detailed performance profiling, set these flags to true:
+//   - FOCUS_TRACE_ENABLED: Logs focus overlay visibility changes
+//   - PERF_TRACE_ENABLED: Logs detailed timing measurements for all operations
+//
+// When PERF_TRACE_ENABLED is true, you'll see console output like:
+//   [PERF] overlayUpdate: 3.45ms (operations that take longer than threshold)
+//   [PERF] getVirtualItems: 1.23ms
+//   [PERF] layoutRead: 0.15ms
+//   [PERF] styleUpdate: 0.08ms
+//   [PERF] scrollRAF: 5.67ms
+//   [PERF] fileRow_0: 2.34ms (per visible row)
+//   [PERF] fileRow_0_formatting: 0.12ms
+//   [PERF] fileRow_0_render: 1.89ms
+//   [PERF SCROLL] Scroll events: 45.2/s | RAF callbacks: 60.0/s | Overlay updates: 3 | Renders: 12
+//
+// This helps identify which operations are consuming CPU during scrolling:
+//   - If overlayUpdate is consistently >5ms, overlay positioning is slow
+//   - If getVirtualItems is >1ms, TanStack Virtual calculation is slow
+//   - If fileRow times are high, rendering individual rows is slow
+//   - If scrollRAF is >10ms, the scroll handler RAF callback is slow
+//   - The aggregate SCROLL report shows overall event frequencies
+//
+// To use:
+//   1. Set PERF_TRACE_ENABLED = true below
+//   2. Open browser DevTools console
+//   3. Scroll through a long file list
+//   4. Observe timing measurements in console
+//   5. Identify bottlenecks (operations exceeding thresholds)
+//   6. Set flag back to false when done profiling
+
 const FOCUS_TRACE_ENABLED = false;
+const PERF_TRACE_ENABLED = false; // Enable to see performance metrics in console
 
 const traceFocus = (message: string, payload?: Record<string, unknown>) => {
   if (!FOCUS_TRACE_ENABLED) {
     return;
   }
   logger.info(message, payload);
+};
+
+// Performance tracking utilities
+const perfMarkers = new Map<string, number>();
+
+const perfStart = (marker: string) => {
+  if (!PERF_TRACE_ENABLED) return;
+  perfMarkers.set(marker, performance.now());
+};
+
+const perfEnd = (marker: string, threshold = 0) => {
+  if (!PERF_TRACE_ENABLED) return;
+  const start = perfMarkers.get(marker);
+  if (start) {
+    const duration = performance.now() - start;
+    if (duration > threshold) {
+      console.log(`[PERF] ${marker}: ${duration.toFixed(2)}ms`);
+    }
+    perfMarkers.delete(marker);
+  }
+};
+
+// Track scroll performance
+const scrollMetrics = {
+  events: 0,
+  rafCallbacks: 0,
+  overlayUpdates: 0,
+  renderCount: 0,
 };
 
 type SortField = "name" | "size" | "modified";
@@ -100,6 +161,15 @@ const formatDate = (dateString?: string): string => {
 };
 
 const Browser: React.FC = () => {
+  // Track renders for performance monitoring
+  const renderCountRef = React.useRef(0);
+  React.useEffect(() => {
+    renderCountRef.current++;
+    if (PERF_TRACE_ENABLED && renderCountRef.current % 10 === 0) {
+      console.log(`[PERF] Browser component renders: ${renderCountRef.current}`);
+    }
+  });
+
   const navigate = useNavigate();
   const params = useParams<{ connectionId: string; "*": string }>();
   const location = useLocation();
@@ -435,8 +505,9 @@ const Browser: React.FC = () => {
       if (file.type === "directory") {
         // Save current state before navigating into directory
         const currentScrollOffset = parentRef.current?.scrollTop || 0;
+        const currentFocusedIndex = focusedIndexRef.current; // Use ref instead of state
         navigationHistory.current.set(currentPath, {
-          focusedIndex,
+          focusedIndex: currentFocusedIndex,
           scrollOffset: currentScrollOffset,
           selectedFileName: file.name,
         });
@@ -468,7 +539,7 @@ const Browser: React.FC = () => {
         setSelectedFile(filePath);
       }
     },
-    [currentPath, focusedIndex, updateFocus]
+    [currentPath, updateFocus] // Removed focusedIndex dependency
   );
 
   // Keep refs in sync with state for WebSocket callbacks
@@ -753,17 +824,22 @@ const Browser: React.FC = () => {
     return [...directories, ...regularFiles];
   }, [files, sortBy, searchQuery]);
 
+  // Memoize measureElement to prevent rowVirtualizer from changing on every render
+  const measureElement = React.useMemo(
+    () =>
+      typeof window !== "undefined" && navigator.userAgent.includes("Firefox")
+        ? undefined
+        : (element: Element) => element.getBoundingClientRect().height,
+    []
+  );
+
   // TanStack Virtual: Initialize the virtualizer for efficient rendering of large lists
   const rowVirtualizer = useVirtualizer({
     count: sortedAndFilteredFiles.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10, // Increased overscan for smoother scrolling during rapid navigation
-    // Enable measurement for Firefox (optional, improves accuracy)
-    measureElement:
-      typeof window !== "undefined" && navigator.userAgent.includes("Firefox")
-        ? undefined
-        : (element) => element.getBoundingClientRect().height,
+    measureElement,
   });
 
   // Keep ref updated and restore or reset focused index when files change
@@ -779,12 +855,12 @@ const Browser: React.FC = () => {
       );
       if (restoredIndex >= 0) {
         updateFocus(restoredIndex, { immediate: true });
-        // Restore scroll position after a short delay to ensure list is rendered
-        setTimeout(() => {
+        // Restore scroll position in next frame to ensure list is rendered
+        requestAnimationFrame(() => {
           rowVirtualizer.scrollToIndex(restoredIndex, {
             align: "auto",
           });
-        }, 0);
+        });
         // Clear the saved state after restoring
         navigationHistory.current.delete(currentPath);
         return;
@@ -806,96 +882,232 @@ const Browser: React.FC = () => {
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
 
   // Focus overlay update - synced with TanStack Virtual's virtual items
+  // Use ref for focusedIndex to avoid recreating callback on every focus change
+  const focusedIndexRef = React.useRef<number>(focusedIndex);
+  focusedIndexRef.current = focusedIndex;
+
+  // Cache virtual items within each RAF frame to avoid multiple getVirtualItems() calls
+  const virtualItemsCacheRef = React.useRef<{
+    items: ReturnType<typeof rowVirtualizer.getVirtualItems>;
+    timestamp: number;
+  } | null>(null);
+
+  const getCachedVirtualItems = React.useCallback(() => {
+    const now = performance.now();
+    // Cache is valid for current frame (use 16ms threshold for 60fps)
+    if (virtualItemsCacheRef.current && now - virtualItemsCacheRef.current.timestamp < 16) {
+      return virtualItemsCacheRef.current.items;
+    }
+    const items = rowVirtualizer.getVirtualItems();
+    virtualItemsCacheRef.current = { items, timestamp: now };
+    return items;
+  }, [rowVirtualizer]);
+
+  // Get virtual items for rendering - this will be called during each render,
+  // but TanStack Virtual internally optimizes this call
+  const virtualItemsForRender = rowVirtualizer.getVirtualItems();
+
   const updateFocusOverlayImmediate = React.useCallback(() => {
+    perfStart("overlayUpdate");
+    scrollMetrics.overlayUpdates++;
+
     const overlay = focusOverlayRef.current;
     const listElement = parentRef.current;
+    const currentFocusedIndex = focusedIndexRef.current;
 
     if (!overlay || !listElement) {
+      perfEnd("overlayUpdate");
       return;
     }
 
-    if (focusedIndex < 0 || filesRef.current.length === 0) {
+    if (currentFocusedIndex < 0 || filesRef.current.length === 0) {
       if (overlay.style.opacity !== "0") {
         overlay.style.opacity = "0";
       }
+      perfEnd("overlayUpdate");
       return;
     }
 
-    // Get virtual items to check if focused item is currently rendered
-    const virtualItems = rowVirtualizer.getVirtualItems();
-    const focusedVirtualItem = virtualItems.find((item) => item.index === focusedIndex);
+    // Use cached virtual items to avoid expensive recalculation
+    perfStart("getVirtualItems");
+    const virtualItems = getCachedVirtualItems();
+    perfEnd("getVirtualItems", 1);
+
+    const focusedVirtualItem = virtualItems.find((item) => item.index === currentFocusedIndex);
 
     if (!focusedVirtualItem) {
       // Focused item is not in the viewport - hide overlay
       if (overlay.style.opacity !== "0") {
         overlay.style.opacity = "0";
       }
+      perfEnd("overlayUpdate");
       return;
     }
 
-    // Position overlay using TanStack Virtual's computed position
+    // Batch all layout reads together to minimize reflows
+    perfStart("layoutRead");
     const scrollTop = listElement.scrollTop;
+    const availableHeight = listElement.clientHeight;
+    perfEnd("layoutRead", 1);
+
+    // Calculate position
     const top = focusedVirtualItem.start - scrollTop;
 
     // Check if the overlay would be visible in the viewport
-    const availableHeight = listElement.clientHeight;
     if (top < -ROW_HEIGHT || top > availableHeight) {
       if (overlay.style.opacity !== "0") {
         overlay.style.opacity = "0";
       }
+      perfEnd("overlayUpdate");
       return;
     }
 
-    // Update overlay position and visibility
+    // Batch all style writes together
     const targetOpacity = "1";
     const targetTransform = `translateY(${Math.round(top)}px)`;
     const targetHeight = `${focusedVirtualItem.size}px`;
 
-    if (overlay.style.opacity !== targetOpacity) {
-      overlay.style.opacity = targetOpacity;
+    // Use cssText for batched style updates (single reflow instead of multiple)
+    if (
+      overlay.style.opacity !== targetOpacity ||
+      overlay.style.transform !== targetTransform ||
+      overlay.style.height !== targetHeight
+    ) {
+      perfStart("styleUpdate");
+      overlay.style.cssText = `
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: ${targetHeight};
+        border-radius: inherit;
+        pointer-events: none;
+        background-color: ${overlay.style.backgroundColor};
+        opacity: ${targetOpacity};
+        transform: ${targetTransform};
+        transition: transform 0s, opacity 40ms ease-out;
+        will-change: transform;
+        z-index: 2;
+      `;
+      perfEnd("styleUpdate", 1);
     }
-    if (overlay.style.transform !== targetTransform) {
-      overlay.style.transform = targetTransform;
-    }
-    if (overlay.style.height !== targetHeight) {
-      overlay.style.height = targetHeight;
-    }
-  }, [focusedIndex, rowVirtualizer]);
+    perfEnd("overlayUpdate", 5);
+  }, [getCachedVirtualItems]); // ✅ Stable - only changes when rowVirtualizer changes
 
-  const queueFocusOverlayUpdate = React.useCallback(() => {
-    // Request animation frame for smooth overlay updates during scroll
-    requestAnimationFrame(() => {
-      updateFocusOverlayImmediate();
-    });
-  }, [updateFocusOverlayImmediate]);
-
-  // Update overlay position on layout changes and when focused index changes
+  // Update overlay position when focused index changes
+  // We use focusedIndex directly here to trigger updates, but the callback itself
+  // uses a ref to avoid being recreated on every change (optimization)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: focusedIndex is intentionally in deps to trigger updates
   useLayoutEffect(() => {
     updateFocusOverlayImmediate();
-  }, [updateFocusOverlayImmediate]);
+  }, [focusedIndex, updateFocusOverlayImmediate]);
 
   // Update overlay position during scroll events
+  // Use RAF throttling to limit updates to max 60fps during continuous scrolling
   useEffect(() => {
     const listElement = parentRef.current;
     if (!listElement) {
       return;
     }
 
+    let rafId: number | null = null;
+    let isScheduled = false;
+    let lastScrollTime = 0;
+    let isRapidScrolling = false;
+    let restoreTimeoutId: number | null = null;
+
+    // Performance tracking
+    let scrollCount = 0;
+    let rafCount = 0;
+    let lastReport = performance.now();
+
+    const reportMetrics = () => {
+      if (PERF_TRACE_ENABLED) {
+        const now = performance.now();
+        const elapsed = now - lastReport;
+        if (elapsed > 1000) {
+          // Report every second
+          const scrollFreq = (scrollCount / elapsed) * 1000;
+          const rafFreq = (rafCount / elapsed) * 1000;
+          console.log(
+            `[PERF SCROLL] Scroll events: ${scrollFreq.toFixed(1)}/s | RAF callbacks: ${rafFreq.toFixed(1)}/s | Overlay updates: ${scrollMetrics.overlayUpdates} | Renders: ${renderCountRef.current}`
+          );
+          scrollCount = 0;
+          rafCount = 0;
+          scrollMetrics.overlayUpdates = 0;
+          lastReport = now;
+        }
+      }
+    };
+
     const handleScroll = () => {
-      queueFocusOverlayUpdate();
+      scrollCount++;
+      scrollMetrics.events++;
+
+      if (isScheduled) {
+        reportMetrics();
+        return; // Already scheduled an update for next frame
+      }
+
+      const now = performance.now();
+      const timeSinceLastScroll = now - lastScrollTime;
+      lastScrollTime = now;
+
+      // Detect rapid scrolling (mouse wheel / trackpad) - consecutive scrolls within 50ms
+      // During rapid scrolling, skip overlay updates entirely for better performance
+      isRapidScrolling = timeSinceLastScroll < 50;
+
+      // Clear any pending restore timeout
+      if (restoreTimeoutId !== null) {
+        clearTimeout(restoreTimeoutId);
+        restoreTimeoutId = null;
+      }
+
+      if (isRapidScrolling) {
+        // Hide overlay during rapid scroll for better performance
+        const overlay = focusOverlayRef.current;
+        if (overlay && overlay.style.opacity !== "0") {
+          overlay.style.opacity = "0";
+        }
+        reportMetrics();
+        return; // Skip RAF scheduling during rapid scroll
+      }
+
+      // Scrolling has slowed down - restore overlay after a brief delay
+      restoreTimeoutId = window.setTimeout(() => {
+        if (!isScheduled) {
+          isScheduled = true;
+          rafCount++;
+          scrollMetrics.rafCallbacks++;
+          rafId = requestAnimationFrame(() => {
+            perfStart("scrollRAF");
+            isScheduled = false;
+            updateFocusOverlayImmediate();
+            perfEnd("scrollRAF", 10);
+            reportMetrics();
+          });
+        }
+      }, 100); // Wait 100ms after scrolling slows to restore overlay
     };
 
     listElement.addEventListener("scroll", handleScroll, { passive: true });
+
     return () => {
       listElement.removeEventListener("scroll", handleScroll);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      if (restoreTimeoutId !== null) {
+        clearTimeout(restoreTimeoutId);
+      }
     };
-  }, [queueFocusOverlayUpdate]);
+  }, [updateFocusOverlayImmediate]);
 
   useEffect(() => {
     if (listContainerEl && visibleRowCount >= 0) {
-      queueFocusOverlayUpdate();
+      updateFocusOverlayImmediate();
     }
-  }, [queueFocusOverlayUpdate, listContainerEl, visibleRowCount]);
+  }, [updateFocusOverlayImmediate, listContainerEl, visibleRowCount]);
 
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
@@ -1205,6 +1417,92 @@ const Browser: React.FC = () => {
   const pathParts = currentPath ? currentPath.split("/") : [];
 
   // Memoized FileRow component for optimal performance
+  // FileRow component styles - memoized outside to prevent recreation on every scroll
+  const fileRowStyles = React.useMemo(
+    () => ({
+      iconBox: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 36,
+        flexShrink: 0,
+      },
+      contentBox: {
+        flex: 1,
+        minWidth: 0,
+      },
+      chip: {
+        flexShrink: 0,
+      },
+      buttonBase: {
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        height: "100%",
+        width: "100%",
+        px: 2,
+        py: 1.5,
+        cursor: "pointer",
+        userSelect: "none",
+        border: "none",
+        borderRadius: theme.shape.borderRadius,
+        transition: "background-color 80ms ease-out",
+        textAlign: "left",
+        "&:hover": {
+          backgroundColor: theme.palette.action.hover,
+        },
+        "&:active": {
+          backgroundColor: theme.palette.action.selected,
+        },
+      },
+      buttonSelected: {
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        height: "100%",
+        width: "100%",
+        px: 2,
+        py: 1.5,
+        cursor: "pointer",
+        userSelect: "none",
+        border: "none",
+        background: theme.palette.action.selected,
+        borderRadius: theme.shape.borderRadius,
+        transition: "background-color 80ms ease-out",
+        textAlign: "left",
+        "&:hover": {
+          backgroundColor: theme.palette.action.hover,
+        },
+        "&:active": {
+          backgroundColor: theme.palette.action.selected,
+        },
+      },
+      buttonNotSelected: {
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        height: "100%",
+        width: "100%",
+        px: 2,
+        py: 1.5,
+        cursor: "pointer",
+        userSelect: "none",
+        border: "none",
+        background: "transparent",
+        borderRadius: theme.shape.borderRadius,
+        transition: "background-color 80ms ease-out",
+        textAlign: "left",
+        "&:hover": {
+          backgroundColor: theme.palette.action.hover,
+        },
+        "&:active": {
+          backgroundColor: theme.palette.action.selected,
+        },
+      },
+    }),
+    [theme]
+  );
+
   const FileRow = React.memo<{
     file: FileEntry;
     index: number;
@@ -1214,6 +1512,9 @@ const Browser: React.FC = () => {
     onClick: (file: FileEntry, index: number) => void;
   }>(
     ({ file, index, isSelected, virtualStart, virtualSize, onClick }) => {
+      perfStart(`fileRow_${index}`);
+
+      perfStart(`fileRow_${index}_formatting`);
       const secondaryInfo: string[] = [];
       if (file.size && file.type !== "directory") {
         secondaryInfo.push(formatFileSize(file.size));
@@ -1222,8 +1523,10 @@ const Browser: React.FC = () => {
         secondaryInfo.push(formatDate(file.modified_at));
       }
       const secondaryText = secondaryInfo.join(" • ");
+      perfEnd(`fileRow_${index}_formatting`, 1);
 
-      return (
+      perfStart(`fileRow_${index}_render`);
+      const result = (
         <div
           data-index={index}
           style={{
@@ -1240,45 +1543,16 @@ const Browser: React.FC = () => {
             component="button"
             tabIndex={-1}
             onClick={() => onClick(file, index)}
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-              height: "100%",
-              width: "100%",
-              px: 2,
-              py: 1.5,
-              cursor: "pointer",
-              userSelect: "none",
-              border: "none",
-              background: isSelected ? theme.palette.action.selected : "transparent",
-              borderRadius: theme.shape.borderRadius,
-              transition: "background-color 80ms ease-out",
-              textAlign: "left",
-              "&:hover": {
-                backgroundColor: theme.palette.action.hover,
-              },
-              "&:active": {
-                backgroundColor: theme.palette.action.selected,
-              },
-            }}
+            sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
           >
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 36,
-                flexShrink: 0,
-              }}
-            >
+            <Box sx={fileRowStyles.iconBox}>
               {file.type === "directory" ? (
                 <FolderIcon color="primary" />
               ) : (
                 <FileIcon color="action" />
               )}
             </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={fileRowStyles.contentBox}>
               <Typography variant="body2" noWrap title={file.name} color="text.primary">
                 {file.name}
               </Typography>
@@ -1289,11 +1563,15 @@ const Browser: React.FC = () => {
               ) : null}
             </Box>
             {file.type === "directory" ? (
-              <Chip label="Folder" size="small" variant="outlined" sx={{ flexShrink: 0 }} />
+              <Chip label="Folder" size="small" variant="outlined" sx={fileRowStyles.chip} />
             ) : null}
           </Box>
         </div>
       );
+      perfEnd(`fileRow_${index}_render`, 2);
+      perfEnd(`fileRow_${index}`, 5);
+
+      return result;
     },
     // Custom comparison for optimal re-renders
     (prev, next) =>
@@ -1570,7 +1848,7 @@ const Browser: React.FC = () => {
                             position: "relative",
                           }}
                         >
-                          {rowVirtualizer.getVirtualItems().map((virtualItem) => (
+                          {virtualItemsForRender.map((virtualItem) => (
                             <FileRow
                               key={virtualItem.key}
                               file={sortedAndFilteredFiles[virtualItem.index]}
