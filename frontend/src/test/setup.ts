@@ -3,6 +3,16 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./mocks/server";
 
+// Suppress jsdom CSS parsing errors
+const originalStderrWrite = process.stderr.write.bind(process.stderr);
+// biome-ignore lint/suspicious/noExplicitAny: Overriding process.stderr.write
+process.stderr.write = (chunk: any, encoding?: any, callback?: any): boolean => {
+  if (typeof chunk === "string" && chunk.includes("Could not parse CSS stylesheet")) {
+    return true;
+  }
+  return originalStderrWrite(chunk, encoding, callback);
+};
+
 // Set up fake location for jsdom/MSW - must be before MSW setup
 Object.defineProperty(window, "location", {
   writable: true,
@@ -21,7 +31,16 @@ Object.defineProperty(window, "location", {
 
 // Start MSW server before all tests
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: "warn" });
+  server.listen({
+    onUnhandledRequest(request, print) {
+      // Ignore WebSocket connection attempts - they're mocked separately
+      if (request.url.includes("/api/ws") || request.url.startsWith("ws://")) {
+        return;
+      }
+      // Warn about other unhandled requests
+      print.warning();
+    },
+  });
 });
 
 // Reset handlers and cleanup after each test

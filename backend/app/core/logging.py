@@ -52,7 +52,7 @@ def clear_context() -> None:
     user_var.set(None)
 
 
-class ContextAdapter(logging.LoggerAdapter):
+class ContextAdapter(logging.LoggerAdapter[logging.Logger]):
     """
     Logging adapter that automatically adds request context to log messages.
 
@@ -80,7 +80,7 @@ class ContextAdapter(logging.LoggerAdapter):
         return msg, kwargs
 
 
-def get_logger(name: str) -> logging.LoggerAdapter:
+def get_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
     """
     Get a context-aware logger.
 

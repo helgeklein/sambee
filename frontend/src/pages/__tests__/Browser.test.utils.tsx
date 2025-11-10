@@ -21,7 +21,10 @@ export {
 // Helper function to render Browser component with routing
 export const renderBrowser = (initialPath = "/browse") => {
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
+    <MemoryRouter
+      initialEntries={[initialPath]}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
       <Routes>
         <Route path="/browse/:connectionId/*" element={<Browser />} />
         <Route path="/browse" element={<Browser />} />

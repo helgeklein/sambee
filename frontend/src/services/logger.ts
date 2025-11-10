@@ -31,9 +31,17 @@ interface LogEntry {
 class Logger {
   private minLevel: LogLevel;
   private isDevelopment: boolean;
+  private isTest: boolean;
 
   constructor() {
     this.isDevelopment = import.meta.env.DEV;
+    // Detect test environment - vitest sets this or we can check if vitest globals exist
+    this.isTest =
+      import.meta.env.VITEST === true ||
+      (typeof process !== "undefined" && process.env?.VITEST === "true") ||
+      // Alternative: check if vitest globals are available
+      (typeof globalThis !== "undefined" &&
+        ("describe" in globalThis || "it" in globalThis || "test" in globalThis));
     this.minLevel = this.isDevelopment ? LogLevel.DEBUG : LogLevel.INFO;
   }
 
@@ -102,8 +110,8 @@ class Logger {
       entry.requestId = String(context.requestId);
     }
 
-    // Console output in development
-    if (this.isDevelopment) {
+    // Console output in development (but not during tests to keep output clean)
+    if (this.isDevelopment && !this.isTest) {
       this.consoleLog(level, entry);
     }
 
