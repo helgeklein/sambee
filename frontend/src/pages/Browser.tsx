@@ -841,6 +841,9 @@ const Browser: React.FC = () => {
     estimateSize: () => ROW_HEIGHT,
     overscan: 10, // Increased overscan for smoother scrolling during rapid navigation
     measureElement,
+    // Use stable file/directory name as key instead of index for proper React reconciliation
+    // This ensures each FileRow is properly tracked across sorting/filtering changes
+    getItemKey: (index: number) => sortedAndFilteredFiles[index]?.name ?? index,
   });
 
   // Keep ref updated and restore or reset focused index when files change
