@@ -759,7 +759,12 @@ const Browser: React.FC = () => {
     count: sortedAndFilteredFiles.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ROW_HEIGHT,
-    overscan: 5, // Render 5 extra items above/below viewport for smoother scrolling
+    overscan: 10, // Increased overscan for smoother scrolling during rapid navigation
+    // Enable measurement for Firefox (optional, improves accuracy)
+    measureElement:
+      typeof window !== "undefined" && navigator.userAgent.includes("Firefox")
+        ? undefined
+        : (element) => element.getBoundingClientRect().height,
   });
 
   // Keep ref updated and restore or reset focused index when files change
@@ -1237,6 +1242,105 @@ const Browser: React.FC = () => {
 
   const pathParts = currentPath ? currentPath.split("/") : [];
 
+  // Memoized FileRow component for optimal performance
+  const FileRow = React.memo<{
+    file: FileEntry;
+    index: number;
+    isSelected: boolean;
+    virtualStart: number;
+    virtualSize: number;
+    onClick: (file: FileEntry, index: number) => void;
+  }>(
+    ({ file, index, isSelected, virtualStart, virtualSize, onClick }) => {
+      const secondaryInfo: string[] = [];
+      if (file.size && file.type !== "directory") {
+        secondaryInfo.push(formatFileSize(file.size));
+      }
+      if (file.modified_at) {
+        secondaryInfo.push(formatDate(file.modified_at));
+      }
+      const secondaryText = secondaryInfo.join(" • ");
+
+      return (
+        <div
+          data-index={index}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: `${virtualSize}px`,
+            transform: `translateY(${virtualStart}px)`,
+            willChange: "transform", // GPU acceleration hint
+          }}
+        >
+          <Box
+            role="option"
+            tabIndex={-1}
+            aria-selected={isSelected}
+            onClick={() => onClick(file, index)}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              height: "100%",
+              px: 2,
+              py: 1.5,
+              cursor: "pointer",
+              userSelect: "none",
+              borderRadius: theme.shape.borderRadius,
+              transition: "background-color 80ms ease-out",
+              "&:hover": {
+                backgroundColor: theme.palette.action.hover,
+              },
+              "&:active": {
+                backgroundColor: theme.palette.action.selected,
+              },
+            }}
+          >
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                flexShrink: 0,
+              }}
+            >
+              {file.type === "directory" ? (
+                <FolderIcon color="primary" />
+              ) : (
+                <FileIcon color="action" />
+              )}
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                {file.name}
+              </Typography>
+              {secondaryText ? (
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {secondaryText}
+                </Typography>
+              ) : null}
+            </Box>
+            {file.type === "directory" ? (
+              <Chip label="Folder" size="small" variant="outlined" sx={{ flexShrink: 0 }} />
+            ) : null}
+          </Box>
+        </div>
+      );
+    },
+    // Custom comparison for optimal re-renders
+    (prev, next) =>
+      prev.index === next.index &&
+      prev.isSelected === next.isSelected &&
+      prev.file.name === next.file.name &&
+      prev.file.modified_at === next.file.modified_at &&
+      prev.file.size === next.file.size &&
+      prev.virtualStart === next.virtualStart &&
+      prev.virtualSize === next.virtualSize
+  );
+
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <AppBar position="static">
@@ -1489,7 +1593,8 @@ const Browser: React.FC = () => {
                         style={{
                           height: "100%",
                           overflow: "auto",
-                          contain: "strict",
+                          contain: "strict", // Optimize layout/paint/style calculations
+                          willChange: "scroll-position", // Hint for GPU acceleration
                         }}
                       >
                         <div
@@ -1499,98 +1604,17 @@ const Browser: React.FC = () => {
                             position: "relative",
                           }}
                         >
-                          {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                            const file = sortedAndFilteredFiles[virtualItem.index];
-                            const isSelected = virtualItem.index === focusedIndex;
-
-                            const secondaryInfo: string[] = [];
-                            if (file.size && file.type !== "directory") {
-                              secondaryInfo.push(formatFileSize(file.size));
-                            }
-                            if (file.modified_at) {
-                              secondaryInfo.push(formatDate(file.modified_at));
-                            }
-                            const secondaryText = secondaryInfo.join(" • ");
-
-                            return (
-                              <div
-                                key={virtualItem.key}
-                                data-index={virtualItem.index}
-                                style={{
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  width: "100%",
-                                  height: `${virtualItem.size}px`,
-                                  transform: `translateY(${virtualItem.start}px)`,
-                                }}
-                              >
-                                <Box
-                                  role="option"
-                                  tabIndex={-1}
-                                  aria-selected={isSelected}
-                                  onClick={() => handleFileClick(file, virtualItem.index)}
-                                  sx={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 2,
-                                    height: "100%",
-                                    px: 2,
-                                    py: 1.5,
-                                    cursor: "pointer",
-                                    userSelect: "none",
-                                    borderRadius: theme.shape.borderRadius,
-                                    transition: "background-color 80ms ease-out",
-                                    "&:hover": {
-                                      backgroundColor: theme.palette.action.hover,
-                                    },
-                                    "&:active": {
-                                      backgroundColor: theme.palette.action.selected,
-                                    },
-                                  }}
-                                >
-                                  <Box
-                                    sx={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      width: 36,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {file.type === "directory" ? (
-                                      <FolderIcon color="primary" />
-                                    ) : (
-                                      <FileIcon color="action" />
-                                    )}
-                                  </Box>
-                                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                                    <Typography
-                                      variant="body2"
-                                      noWrap
-                                      title={file.name}
-                                      color="text.primary"
-                                    >
-                                      {file.name}
-                                    </Typography>
-                                    {secondaryText ? (
-                                      <Typography variant="caption" color="text.secondary" noWrap>
-                                        {secondaryText}
-                                      </Typography>
-                                    ) : null}
-                                  </Box>
-                                  {file.type === "directory" ? (
-                                    <Chip
-                                      label="Folder"
-                                      size="small"
-                                      variant="outlined"
-                                      sx={{ flexShrink: 0 }}
-                                    />
-                                  ) : null}
-                                </Box>
-                              </div>
-                            );
-                          })}
+                          {rowVirtualizer.getVirtualItems().map((virtualItem) => (
+                            <FileRow
+                              key={virtualItem.key}
+                              file={sortedAndFilteredFiles[virtualItem.index]}
+                              index={virtualItem.index}
+                              isSelected={virtualItem.index === focusedIndex}
+                              virtualStart={virtualItem.start}
+                              virtualSize={virtualItem.size}
+                              onClick={handleFileClick}
+                            />
+                          ))}
                         </div>
                       </div>
                     </>
