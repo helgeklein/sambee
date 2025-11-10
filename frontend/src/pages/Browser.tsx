@@ -1241,6 +1241,17 @@ const Browser: React.FC = () => {
           e.preventDefault();
           searchInputRef.current?.focus();
         }
+        // Exception: Allow ArrowDown in search box to move to first file in list
+        if (e.key === "ArrowDown" && isInInput && target === searchInputRef.current) {
+          e.preventDefault();
+          // Blur the search input
+          searchInputRef.current?.blur();
+          // Focus on the list container
+          listContainerEl?.focus();
+          // Set focus to first item
+          updateFocus(0, { immediate: true });
+          return;
+        }
         // Exception: Allow Backspace for navigation when search is empty and in search input
         if (
           e.key === "Backspace" &&
@@ -1292,6 +1303,13 @@ const Browser: React.FC = () => {
         case "ArrowUp": {
           e.preventDefault();
           if (focusedIndex < 0) return;
+          
+          // If at first item (index 0), move focus to search box
+          if (focusedIndex === 0 && searchInputRef.current) {
+            searchInputRef.current.focus();
+            return;
+          }
+          
           const next = Math.max(focusedIndex - 1, 0);
           if (next === focusedIndex) break;
 
@@ -1454,6 +1472,7 @@ const Browser: React.FC = () => {
     focusedIndex,
     updateFocus,
     rowVirtualizer,
+    listContainerEl,
   ]);
 
   const handleBreadcrumbClick = (index: number) => {
