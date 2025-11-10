@@ -1560,15 +1560,18 @@ const Browser: React.FC = () => {
     [theme]
   );
 
-  const FileRow = React.memo<{
-    file: FileEntry;
-    index: number;
-    isSelected: boolean;
-    virtualStart: number;
-    virtualSize: number;
-    onClick: (file: FileEntry, index: number) => void;
-  }>(
-    ({ file, index, isSelected, virtualStart, virtualSize, onClick }) => {
+  const FileRow = React.memo(
+    React.forwardRef<
+      HTMLDivElement,
+      {
+        file: FileEntry;
+        index: number;
+        isSelected: boolean;
+        virtualStart: number;
+        virtualSize: number;
+        onClick: (file: FileEntry, index: number) => void;
+      }
+    >(({ file, index, isSelected, virtualStart, virtualSize, onClick }, ref) => {
       perfStart(`fileRow_${index}`);
 
       perfStart(`fileRow_${index}_formatting`);
@@ -1585,6 +1588,7 @@ const Browser: React.FC = () => {
       perfStart(`fileRow_${index}_render`);
       const result = (
         <div
+          ref={ref}
           data-index={index}
           style={{
             position: "absolute",
@@ -1629,7 +1633,7 @@ const Browser: React.FC = () => {
       perfEnd(`fileRow_${index}`, 5);
 
       return result;
-    },
+    }),
     // Custom comparison for optimal re-renders
     (prev, next) =>
       prev.index === next.index &&
@@ -1907,6 +1911,7 @@ const Browser: React.FC = () => {
                         >
                           {virtualItemsForRender.map((virtualItem) => (
                             <FileRow
+                              ref={rowVirtualizer.measureElement}
                               key={virtualItem.key}
                               file={sortedAndFilteredFiles[virtualItem.index]}
                               index={virtualItem.index}
