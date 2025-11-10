@@ -28,10 +28,6 @@ import {
   IconButton,
   InputAdornment,
   Link,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
   MenuItem,
   Paper,
   Select,
@@ -45,6 +41,7 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
@@ -56,7 +53,25 @@ import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
 
+const FOCUS_TRACE_ENABLED = false;
+
+const traceFocus = (message: string, payload?: Record<string, unknown>) => {
+  if (!FOCUS_TRACE_ENABLED) {
+    return;
+  }
+  logger.info(message, payload);
+};
+
+const traceFocusWarn = (message: string, payload?: Record<string, unknown>) => {
+  if (!FOCUS_TRACE_ENABLED) {
+    return;
+  }
+  logger.warn(message, payload);
+};
+
 type SortField = "name" | "size" | "modified";
+
+const ROW_HEIGHT = 68;
 
 const formatFileSize = (bytes?: number): string => {
   if (!bytes) return "";
@@ -95,6 +110,7 @@ const Browser: React.FC = () => {
   const navigate = useNavigate();
   const params = useParams<{ connectionId: string; "*": string }>();
   const location = useLocation();
+  const theme = useTheme();
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
@@ -109,6 +125,59 @@ const Browser: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
+
+  const pendingFocusedIndexRef = React.useRef<number | null>(null);
+  const focusCommitRafRef = React.useRef<number | null>(null);
+
+  const updateFocus = React.useCallback(
+    (next: number, options?: { flush?: boolean; immediate?: boolean }) => {
+      const shouldFlush = options?.flush ?? false;
+      const immediate = options?.immediate ?? false;
+
+      const commit = () => {
+        setFocusedIndex((prev) => (prev === next ? prev : next));
+      };
+
+      if (shouldFlush || immediate) {
+        if (focusCommitRafRef.current !== null) {
+          cancelAnimationFrame(focusCommitRafRef.current);
+          focusCommitRafRef.current = null;
+        }
+        pendingFocusedIndexRef.current = null;
+        if (shouldFlush) {
+          flushSync(commit);
+        } else {
+          commit();
+        }
+        return;
+      }
+
+      pendingFocusedIndexRef.current = next;
+
+      if (focusCommitRafRef.current !== null) {
+        return;
+      }
+
+      focusCommitRafRef.current = requestAnimationFrame(() => {
+        focusCommitRafRef.current = null;
+        const target = pendingFocusedIndexRef.current;
+        pendingFocusedIndexRef.current = null;
+        if (target === null) {
+          return;
+        }
+        setFocusedIndex((prev) => (prev === target ? prev : target));
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (focusCommitRafRef.current !== null) {
+        cancelAnimationFrame(focusCommitRafRef.current);
+      }
+    };
+  }, []);
 
   type ListRef = {
     readonly element: HTMLDivElement;
@@ -130,6 +199,17 @@ const Browser: React.FC = () => {
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
+  const focusOverlayRef = React.useRef<HTMLDivElement | null>(null);
+  const navThrottleRafRef = React.useRef<number | null>(null);
+  const viewportRangeRef = React.useRef<{
+    firstVisible: number;
+    lastVisible: number;
+    visibleCapacity: number;
+  }>({
+    firstVisible: 0,
+    lastVisible: visibleRowCountRef.current - 1,
+    visibleCapacity: visibleRowCountRef.current,
+  });
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -376,7 +456,7 @@ const Browser: React.FC = () => {
   const handleFileClick = useCallback(
     (file: FileEntry, index?: number) => {
       if (index !== undefined) {
-        setFocusedIndex(index);
+        updateFocus(index, { immediate: true });
       }
       if (file.type === "directory") {
         // Save current state before navigating into directory
@@ -415,7 +495,7 @@ const Browser: React.FC = () => {
         setSelectedFile(filePath);
       }
     },
-    [currentPath, focusedIndex]
+    [currentPath, focusedIndex, updateFocus]
   );
 
   // Keep refs in sync with state for WebSocket callbacks
@@ -429,7 +509,7 @@ const Browser: React.FC = () => {
 
   // Debug: Log when focusedIndex state changes
   useEffect(() => {
-    logger.info(">>> STATE CHANGED: focusedIndex updated", { focusedIndex });
+    traceFocus(">>> STATE CHANGED: focusedIndex updated", { focusedIndex });
   }, [focusedIndex]);
 
   // Initial load - run once on mount
@@ -615,13 +695,12 @@ const Browser: React.FC = () => {
       return;
     }
 
-    const ROW_HEIGHT = 68;
     const updateVisibleRows = () => {
       const rect = element.getBoundingClientRect();
       const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
       const newCount = visibleRows >= 5 ? visibleRows : 10;
       if (newCount !== visibleRowCountRef.current) {
-        logger.info(">>> visibleRowCount updated", {
+        traceFocus(">>> visibleRowCount updated", {
           height: rect.height,
           visibleRows,
           newCount,
@@ -713,7 +792,7 @@ const Browser: React.FC = () => {
         (f) => f.name === savedState.selectedFileName
       );
       if (restoredIndex >= 0) {
-        setFocusedIndex(restoredIndex);
+        updateFocus(restoredIndex, { immediate: true });
         // Restore scroll position after a short delay to ensure list is rendered
         setTimeout(() => {
           if (virtualListRef.current) {
@@ -731,36 +810,154 @@ const Browser: React.FC = () => {
       // This prevents flickering when files are still loading
       return;
     }
-
     // Default: reset to top (only if no saved state exists)
-    setFocusedIndex(0);
-  }, [sortedAndFilteredFiles, currentPath]);
+    updateFocus(0, { immediate: true });
+  }, [sortedAndFilteredFiles, currentPath, updateFocus]);
 
   // Scroll focused item into view using VirtualList API
   // Use useLayoutEffect to run synchronously BEFORE React renders components
   // This prevents the old viewport from rendering with the new focusedIndex
   const prevFocusedIndexRef = React.useRef<number>(0);
 
-  // Track when we've already scrolled manually (to prevent double-scroll)
-  const manualScrollRef = React.useRef<boolean>(false);
+  // Store pending scroll requests initiated during keyboard handling.
+  const pendingScrollRequestRef = React.useRef<{ index: number; align: "start" | "end" } | null>(
+    null
+  );
+  const skipNextLayoutScrollRef = React.useRef<boolean>(false);
+
+  const focusOverlayUpdateRafRef = React.useRef<number | null>(null);
+
+  const updateFocusOverlayImmediate = React.useCallback(() => {
+    const overlay = focusOverlayRef.current;
+    const listElement = virtualListRef.current?.element;
+
+    if (!overlay || !listElement) {
+      return;
+    }
+
+    if (focusedIndex < 0 || filesRef.current.length === 0) {
+      if (overlay.style.opacity !== "0") {
+        overlay.style.opacity = "0";
+      }
+      return;
+    }
+
+    const scrollTop = listElement.scrollTop;
+    const availableHeight = listElement.clientHeight;
+    const top = focusedIndex * ROW_HEIGHT - scrollTop;
+
+    if (top < -ROW_HEIGHT || top > availableHeight) {
+      if (overlay.style.opacity !== "0") {
+        overlay.style.opacity = "0";
+      }
+      return;
+    }
+
+    const targetOpacity = "1";
+    const targetTransform = `translateY(${Math.round(top)}px)`;
+
+    if (overlay.style.opacity !== targetOpacity) {
+      overlay.style.opacity = targetOpacity;
+    }
+    if (overlay.style.transform !== targetTransform) {
+      overlay.style.transform = targetTransform;
+    }
+  }, [focusedIndex]);
+
+  const queueFocusOverlayUpdate = React.useCallback(() => {
+    if (focusOverlayUpdateRafRef.current !== null) {
+      return;
+    }
+    focusOverlayUpdateRafRef.current = requestAnimationFrame(() => {
+      focusOverlayUpdateRafRef.current = null;
+      updateFocusOverlayImmediate();
+    });
+  }, [updateFocusOverlayImmediate]);
+
+  useEffect(() => {
+    return () => {
+      if (focusOverlayUpdateRafRef.current !== null) {
+        cancelAnimationFrame(focusOverlayUpdateRafRef.current);
+        focusOverlayUpdateRafRef.current = null;
+      }
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    updateFocusOverlayImmediate();
+  }, [updateFocusOverlayImmediate]);
+
+  useEffect(() => {
+    const listElement = virtualListRef.current?.element;
+    if (!listElement) {
+      return;
+    }
+
+    const handleScroll = () => {
+      queueFocusOverlayUpdate();
+    };
+
+    listElement.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      listElement.removeEventListener("scroll", handleScroll);
+    };
+  }, [queueFocusOverlayUpdate]);
+
+  useEffect(() => {
+    if (listContainerEl && visibleRowCount >= 0) {
+      queueFocusOverlayUpdate();
+    }
+  }, [queueFocusOverlayUpdate, listContainerEl, visibleRowCount]);
+
+  const getViewportMetrics = React.useCallback(() => {
+    return viewportRangeRef.current;
+  }, []);
+
+  const handleRowsRendered = React.useCallback(
+    ({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) => {
+      const firstVisible = Math.max(startIndex, 0);
+      const lastVisible = Math.max(stopIndex, firstVisible);
+      viewportRangeRef.current = {
+        firstVisible,
+        lastVisible,
+        visibleCapacity: Math.max(lastVisible - firstVisible + 1, 1),
+      };
+    },
+    []
+  );
 
   useLayoutEffect(() => {
     if (virtualListRef.current && focusedIndex >= 0) {
       const prev = prevFocusedIndexRef.current;
       const diff = focusedIndex - prev;
 
-      // If we already scrolled manually in the event handler, skip this effect
-      if (manualScrollRef.current) {
-        logger.info(">>> useLayoutEffect: SKIPPING - manual scroll already done", {
-          prev,
-          current: focusedIndex,
-        });
-        manualScrollRef.current = false;
+      if (skipNextLayoutScrollRef.current) {
+        traceFocus(">>> useLayoutEffect: skipping scroll (already handled synchronously)");
+        skipNextLayoutScrollRef.current = false;
         prevFocusedIndexRef.current = focusedIndex;
         return;
       }
 
-      logger.info(">>> useLayoutEffect[focusedIndex] running", {
+      const pendingScroll = pendingScrollRequestRef.current;
+      if (pendingScroll) {
+        if (virtualListRef.current) {
+          traceFocus(">>> useLayoutEffect: applying pending scroll", pendingScroll);
+          pendingScrollRequestRef.current = null;
+          virtualListRef.current.scrollToRow({
+            index: pendingScroll.index,
+            align: pendingScroll.align,
+            behavior: "instant",
+          });
+          prevFocusedIndexRef.current = focusedIndex;
+          return;
+        }
+        traceFocusWarn(
+          ">>> useLayoutEffect: pending scroll found but list ref missing; will retry next tick"
+        );
+        return;
+      }
+
+      traceFocus(">>> useLayoutEffect[focusedIndex] running", {
         prev,
         current: focusedIndex,
         diff,
@@ -778,44 +975,58 @@ const Browser: React.FC = () => {
       if (diff >= visibleRowCount) {
         align = "end";
         behavior = "instant";
-        logger.info(">>> Detected PageDown - using align=end, behavior=instant");
+        traceFocus(">>> Detected PageDown - using align=end, behavior=instant");
       }
       // Large backward jump (PageUp) - lock new focused item at top
       else if (diff <= -visibleRowCount) {
         align = "start";
         behavior = "instant";
-        logger.info(">>> Detected PageUp - using align=start, behavior=instant");
+        traceFocus(">>> Detected PageUp - using align=start, behavior=instant");
       } else {
         // Single-step arrow navigation: we want minimal scroll.
         // react-window 'smart' can center after large off-screen moves; 'auto' is safer here.
         // Additional heuristic: if moving down and the item would be just below viewport end, force end; similarly for up near the top.
-        try {
-          const list = virtualListRef.current as unknown as {
-            state?: { scrollOffset: number; itemSize: number; height: number };
-          } | null;
-          const state = list?.state;
-          const scrollOffset = state?.scrollOffset;
-          const itemSize = state?.itemSize;
-          const height = state?.height;
-          if (scrollOffset != null && itemSize && height) {
-            const firstVisible = Math.floor(scrollOffset / itemSize);
-            const visibleCapacity = Math.floor(height / itemSize);
-            const lastVisible = firstVisible + visibleCapacity - 1;
-            // If moving down one step and previous index was bottom -> keep new focus at bottom
-            if (diff === 1 && prev === lastVisible) {
-              align = "end";
-            }
-            // If moving up one step and previous index was top -> keep new focus at top
-            if (diff === -1 && prev === firstVisible) {
-              align = "start";
-            }
+        const viewport = getViewportMetrics();
+        const { firstVisible, lastVisible, visibleCapacity } = viewport;
+        const isCurrentlyVisible = focusedIndex >= firstVisible && focusedIndex <= lastVisible;
+        traceFocus(">>> Layout visibility snapshot", {
+          firstVisible,
+          lastVisible,
+          visibleCapacity,
+          isCurrentlyVisible,
+        });
+
+        if (pendingScrollRequestRef.current === null && diff === 1 && isCurrentlyVisible) {
+          traceFocus(">>> Layout: focused index already visible post-scroll; skipping scrollToRow");
+          prevFocusedIndexRef.current = focusedIndex;
+          return;
+        }
+
+        if (diff === 1 && prev === lastVisible) {
+          align = "end";
+          traceFocus(">>> Layout: diff=1 and prev at bottom -> align=end");
+        }
+        if (diff === -1 && prev === firstVisible) {
+          align = "start";
+          traceFocus(">>> Layout: diff=-1 and prev at top -> align=start");
+        }
+        if (align === "auto") {
+          if (diff === 1 && focusedIndex > lastVisible) {
+            align = "end";
+            traceFocus(">>> Layout: diff=1 and next below viewport -> align=end");
+          } else if (diff === -1 && focusedIndex < firstVisible) {
+            align = "start";
+            traceFocus(">>> Layout: diff=-1 and next above viewport -> align=start");
+          } else if (!isCurrentlyVisible) {
+            align = diff >= 0 ? "end" : "start";
+            traceFocus(">>> Layout: not visible -> aligning", { align });
+          } else {
+            traceFocus(">>> Layout: focusedIndex visible -> keep align=auto");
           }
-        } catch {
-          // Ignore heuristic failures
         }
       }
 
-      logger.info(">>> About to call scrollToRow", {
+      traceFocus(">>> About to call scrollToRow", {
         index: focusedIndex,
         align,
         behavior,
@@ -827,12 +1038,12 @@ const Browser: React.FC = () => {
         behavior,
       });
 
-      logger.info(">>> scrollToRow completed (returned)");
+      traceFocus(">>> scrollToRow completed (returned)");
 
       // Update previous value
       prevFocusedIndexRef.current = focusedIndex;
     }
-  }, [focusedIndex, visibleRowCount]);
+  }, [focusedIndex, visibleRowCount, getViewportMetrics]);
 
   // Keyboard navigation (optimized to avoid recreation on file list changes)
   useEffect(() => {
@@ -881,154 +1092,231 @@ const Browser: React.FC = () => {
       switch (e.key) {
         case "ArrowDown": {
           e.preventDefault();
+          if (e.repeat && navThrottleRafRef.current !== null) {
+            return;
+          }
           if (focusedIndex < 0) return;
           const next = Math.min(focusedIndex + 1, fileCount - 1);
           if (next === focusedIndex) break;
 
-          try {
-            const list = virtualListRef.current as unknown as {
-              state?: {
-                scrollOffset: number;
-                itemSize: number;
-                height: number;
-              };
-            } | null;
-            const state = list?.state;
-            if (state) {
-              const { scrollOffset, itemSize, height } = state;
-              const firstVisible = Math.floor(scrollOffset / itemSize);
-              const visibleCapacity = Math.floor(height / itemSize);
-              const lastVisible = firstVisible + visibleCapacity - 1;
-              if (focusedIndex === lastVisible) {
-                manualScrollRef.current = true;
-                if (virtualListRef.current) {
-                  virtualListRef.current.scrollToRow({
-                    index: next,
-                    align: "end",
-                    behavior: "instant",
-                  });
-                  flushSync(() => {
-                    setFocusedIndex(next);
-                  });
-                  break;
-                }
-                setFocusedIndex(next);
-                break;
-              }
+          const viewport = getViewportMetrics();
+          const { firstVisible, lastVisible, visibleCapacity } = viewport;
+          traceFocus(">>> ArrowDown visibility snapshot", {
+            currentFocus: focusedIndex,
+            candidate: next,
+            firstVisible,
+            lastVisible,
+            visibleCapacity,
+          });
+          if (focusedIndex >= lastVisible - 1) {
+            if (virtualListRef.current) {
+              traceFocus(">>> ArrowDown near bottom -> scrolling synchronously", {
+                index: next,
+                align: "end",
+                firstVisible,
+                lastVisible,
+              });
+              virtualListRef.current.scrollToRow({
+                index: next,
+                align: "end",
+                behavior: "instant",
+              });
+              skipNextLayoutScrollRef.current = true;
+              updateFocus(next);
+              break;
             }
-          } catch {}
-          setFocusedIndex(next);
+            pendingScrollRequestRef.current = {
+              index: next,
+              align: "end",
+            };
+            traceFocus(">>> ArrowDown near bottom -> queued pending scroll", {
+              index: next,
+              align: "end",
+              firstVisible,
+              lastVisible,
+            });
+            updateFocus(next);
+            break;
+          }
+          if (focusedIndex === lastVisible) {
+            pendingScrollRequestRef.current = {
+              index: next,
+              align: "end",
+            };
+            traceFocus(">>> ArrowDown queued pending scroll", {
+              index: next,
+              align: "end",
+            });
+            updateFocus(next);
+            break;
+          }
+          updateFocus(next);
+          if (navThrottleRafRef.current === null) {
+            navThrottleRafRef.current = requestAnimationFrame(() => {
+              navThrottleRafRef.current = null;
+            });
+          }
           break;
         }
 
         case "ArrowUp": {
           e.preventDefault();
+          if (e.repeat && navThrottleRafRef.current !== null) {
+            return;
+          }
           if (focusedIndex < 0) return;
           const next = Math.max(focusedIndex - 1, 0);
           if (next === focusedIndex) break;
-          try {
-            const list = virtualListRef.current as unknown as {
-              state?: {
-                scrollOffset: number;
-                itemSize: number;
-                height: number;
-              };
-            } | null;
-            const state = list?.state;
-            if (state) {
-              const { scrollOffset, itemSize } = state;
-              const firstVisible = Math.floor(scrollOffset / itemSize);
-              if (focusedIndex === firstVisible) {
-                manualScrollRef.current = true;
-                if (virtualListRef.current) {
-                  virtualListRef.current.scrollToRow({
-                    index: next,
-                    align: "start",
-                    behavior: "instant",
-                  });
-                  flushSync(() => {
-                    setFocusedIndex(next);
-                  });
-                  break;
-                }
-                setFocusedIndex(next);
-                break;
-              }
+          const viewport = getViewportMetrics();
+          const { firstVisible, lastVisible, visibleCapacity } = viewport;
+          traceFocus(">>> ArrowUp visibility snapshot", {
+            currentFocus: focusedIndex,
+            candidate: next,
+            firstVisible,
+            lastVisible,
+            visibleCapacity,
+          });
+          if (focusedIndex <= firstVisible + 1) {
+            if (virtualListRef.current) {
+              traceFocus(">>> ArrowUp near top -> scrolling synchronously", {
+                index: next,
+                align: "start",
+                firstVisible,
+                lastVisible,
+              });
+              virtualListRef.current.scrollToRow({
+                index: next,
+                align: "start",
+                behavior: "instant",
+              });
+              skipNextLayoutScrollRef.current = true;
+              updateFocus(next);
+              break;
             }
-          } catch {}
-          setFocusedIndex(next);
+            pendingScrollRequestRef.current = {
+              index: next,
+              align: "start",
+            };
+            traceFocus(">>> ArrowUp near top -> queued pending scroll", {
+              index: next,
+              align: "start",
+              firstVisible,
+              lastVisible,
+            });
+            updateFocus(next);
+            break;
+          }
+          if (focusedIndex === firstVisible) {
+            pendingScrollRequestRef.current = {
+              index: next,
+              align: "start",
+            };
+            traceFocus(">>> ArrowUp queued pending scroll", {
+              index: next,
+              align: "start",
+            });
+            updateFocus(next);
+            break;
+          }
+          updateFocus(next);
+          if (navThrottleRafRef.current === null) {
+            navThrottleRafRef.current = requestAnimationFrame(() => {
+              navThrottleRafRef.current = null;
+            });
+          }
           break;
         }
 
         case "Home":
           e.preventDefault();
-          setFocusedIndex(0);
+          if (e.repeat && navThrottleRafRef.current !== null) {
+            return;
+          }
+          updateFocus(0);
+          if (navThrottleRafRef.current === null) {
+            navThrottleRafRef.current = requestAnimationFrame(() => {
+              navThrottleRafRef.current = null;
+            });
+          }
           break;
 
         case "End":
           e.preventDefault();
-          setFocusedIndex(fileCount - 1);
+          if (e.repeat && navThrottleRafRef.current !== null) {
+            return;
+          }
+          updateFocus(fileCount - 1);
+          if (navThrottleRafRef.current === null) {
+            navThrottleRafRef.current = requestAnimationFrame(() => {
+              navThrottleRafRef.current = null;
+            });
+          }
           break;
 
         case "PageDown":
           e.preventDefault();
+          if (e.repeat && navThrottleRafRef.current !== null) {
+            return;
+          }
           {
             const newIndex = Math.min(focusedIndex + visibleRowCount, fileCount - 1);
 
-            logger.info(">>> PageDown: About to scroll BEFORE state update", {
+            traceFocus(">>> PageDown: About to scroll BEFORE state update", {
               currentFocus: focusedIndex,
               newIndex,
             });
 
-            // Scroll FIRST, before any state updates
-            if (virtualListRef.current) {
-              virtualListRef.current.scrollToRow({
-                index: newIndex,
-                align: "end",
-                behavior: "instant",
-              });
-              logger.info(">>> PageDown: Scroll completed, now updating state");
-
-              // Set flag to skip useLayoutEffect scroll
-              manualScrollRef.current = true;
-            }
-
-            // Now update state
-            setFocusedIndex(newIndex);
-            logger.info(">>> PageDown: State update called");
+            pendingScrollRequestRef.current = {
+              index: newIndex,
+              align: "end",
+            };
+            traceFocus(">>> PageDown queued pending scroll", {
+              index: newIndex,
+              align: "end",
+            });
+            updateFocus(newIndex);
+            traceFocus(">>> PageDown: State update called");
+          }
+          if (navThrottleRafRef.current === null) {
+            navThrottleRafRef.current = requestAnimationFrame(() => {
+              navThrottleRafRef.current = null;
+            });
           }
           break;
 
         case "PageUp":
           e.preventDefault();
+          if (e.repeat && navThrottleRafRef.current !== null) {
+            return;
+          }
           {
             const newIndex = Math.max(focusedIndex - visibleRowCount, 0);
 
-            // Scroll FIRST, before any state updates
-            if (virtualListRef.current) {
-              virtualListRef.current.scrollToRow({
-                index: newIndex,
-                align: "start",
-                behavior: "instant",
-              });
-
-              // Set flag to skip useLayoutEffect scroll
-              manualScrollRef.current = true;
-            }
-
-            // Now update state
-            setFocusedIndex(newIndex);
+            pendingScrollRequestRef.current = {
+              index: newIndex,
+              align: "start",
+            };
+            traceFocus(">>> PageUp queued pending scroll", {
+              index: newIndex,
+              align: "start",
+            });
+            updateFocus(newIndex);
+          }
+          if (navThrottleRafRef.current === null) {
+            navThrottleRafRef.current = requestAnimationFrame(() => {
+              navThrottleRafRef.current = null;
+            });
           }
           break;
         case "Enter":
           e.preventDefault();
-          setFocusedIndex((prev) => {
-            const file = files[prev];
+          {
+            const current = focusedIndex;
+            const file = files[current];
             if (file) {
               if (file.type === "directory") {
-                // Save navigation history before navigating
                 navigationHistory.current.set(currentPathRef.current, {
-                  focusedIndex: prev,
+                  focusedIndex: current,
                   scrollOffset: 0,
                   selectedFileName: file.name,
                 });
@@ -1045,8 +1333,7 @@ const Browser: React.FC = () => {
                 setSelectedFile(filePath);
               }
             }
-            return prev;
-          });
+          }
           break;
 
         case "Backspace":
@@ -1096,7 +1383,7 @@ const Browser: React.FC = () => {
               f.name.toLowerCase().startsWith(searchBufferRef.current)
             );
             if (index !== -1) {
-              setFocusedIndex(index);
+              updateFocus(index);
             }
 
             // Reset search buffer after 1 second of no typing
@@ -1110,7 +1397,17 @@ const Browser: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [settingsOpen, showHelp, searchQuery, selectedFile, loadFiles, visibleRowCount, focusedIndex]);
+  }, [
+    settingsOpen,
+    showHelp,
+    searchQuery,
+    selectedFile,
+    loadFiles,
+    visibleRowCount,
+    focusedIndex,
+    getViewportMetrics,
+    updateFocus,
+  ]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
@@ -1142,67 +1439,86 @@ const Browser: React.FC = () => {
   }
 
   const RowComponent = React.useCallback(
-    ({ index, style, files, focusedIndex: focused, onFileClick }: RowComponentProps) => {
+    ({ index, style, files, focusedIndex: focusStateIndex, onFileClick }: RowComponentProps) => {
       const file = files[index];
-      const isSelected = index === focused;
+      const isSelected = index === focusStateIndex;
 
-      // Log every row render during PageDown/PageUp (large jumps)
-      // This helps us see when rows appear and with what selection state
-      logger.info(">>> Row render", {
+      traceFocus(">>> Row render", {
         index,
         fileName: file.name.substring(0, 30),
-        focused,
+        focusStateIndex,
         isSelected,
         timestamp: performance.now(),
       });
 
-      const secondaryInfo = [];
+      const secondaryInfo: string[] = [];
       if (file.size && file.type !== "directory") {
         secondaryInfo.push(formatFileSize(file.size));
       }
       if (file.modified_at) {
         secondaryInfo.push(formatDate(file.modified_at));
       }
+      const secondaryText = secondaryInfo.join(" • ");
 
       return (
-        <ListItem
-          style={style}
-          key={file.name}
-          data-index={index}
-          disablePadding
-          secondaryAction={
-            file.type === "directory" ? (
-              <Chip label="Folder" size="small" variant="outlined" />
-            ) : null
-          }
-        >
-          <ListItemButton
-            selected={isSelected}
-            onClick={() => onFileClick(file, index)}
+        <div style={style} key={file.name} data-index={index}>
+          <Box
+            role="option"
             tabIndex={-1}
-            disableRipple={false}
-            component="div"
+            aria-selected={isSelected}
+            onClick={() => onFileClick(file, index)}
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 2,
+              height: "100%",
+              px: 2,
+              py: 1.5,
+              cursor: "pointer",
+              userSelect: "none",
+              borderRadius: theme.shape.borderRadius,
+              transition: "background-color 80ms ease-out",
+              "&:hover": {
+                backgroundColor: theme.palette.action.hover,
+              },
+              "&:active": {
+                backgroundColor: theme.palette.action.selected,
+              },
+            }}
           >
-            <ListItemIcon>
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 36,
+                flexShrink: 0,
+              }}
+            >
               {file.type === "directory" ? (
                 <FolderIcon color="primary" />
               ) : (
                 <FileIcon color="action" />
               )}
-            </ListItemIcon>
-            <ListItemText
-              primary={file.name}
-              secondary={secondaryInfo.join(" • ")}
-              secondaryTypographyProps={{
-                variant: "caption",
-                color: "text.secondary",
-              }}
-            />
-          </ListItemButton>
-        </ListItem>
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                {file.name}
+              </Typography>
+              {secondaryText ? (
+                <Typography variant="caption" color="text.secondary" noWrap>
+                  {secondaryText}
+                </Typography>
+              ) : null}
+            </Box>
+            {file.type === "directory" ? (
+              <Chip label="Folder" size="small" variant="outlined" sx={{ flexShrink: 0 }} />
+            ) : null}
+          </Box>
+        </div>
       );
     },
-    []
+    [theme]
   );
 
   // Prepare props for row component
@@ -1423,6 +1739,7 @@ const Browser: React.FC = () => {
                     display: "flex",
                     flexDirection: "column",
                     overflow: "hidden",
+                    position: "relative",
                     "&:focus": {
                       outline: "none",
                     },
@@ -1442,15 +1759,36 @@ const Browser: React.FC = () => {
                       )}
                     </Box>
                   ) : (
-                    <FixedSizeList
-                      listRef={virtualListRef}
-                      rowComponent={RowComponent}
-                      rowCount={sortedAndFilteredFiles.length}
-                      rowHeight={68}
-                      // biome-ignore lint/suspicious/noExplicitAny: react-window v2 type mismatch with ExcludeForbiddenKeys
-                      rowProps={rowProps as any}
-                      style={{ height: "100%", width: "100%" }}
-                    />
+                    <>
+                      <div
+                        ref={focusOverlayRef}
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          right: 0,
+                          top: 0,
+                          height: ROW_HEIGHT,
+                          borderRadius: theme.shape.borderRadius,
+                          pointerEvents: "none",
+                          backgroundColor: theme.palette.action.selected,
+                          opacity: 0,
+                          transform: "translateY(0px)",
+                          transition: "transform 0s, opacity 40ms ease-out",
+                          willChange: "transform",
+                          zIndex: 2,
+                        }}
+                      />
+                      <FixedSizeList
+                        listRef={virtualListRef}
+                        rowComponent={RowComponent}
+                        rowCount={sortedAndFilteredFiles.length}
+                        rowHeight={68}
+                        // biome-ignore lint/suspicious/noExplicitAny: react-window v2 type mismatch with ExcludeForbiddenKeys
+                        rowProps={rowProps as any}
+                        onRowsRendered={handleRowsRendered}
+                        style={{ height: "100%", width: "100%" }}
+                      />
+                    </>
                   )}
                 </Paper>
               </Box>
