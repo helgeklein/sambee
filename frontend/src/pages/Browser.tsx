@@ -86,7 +86,8 @@ import { isApiError } from "../types";
 //   6. Set flag back to false when done profiling
 
 const FOCUS_TRACE_ENABLED = false;
-const PERF_TRACE_ENABLED = false; // Enable to see performance metrics in console
+// Don't forget to disable performance tracing after profiling!
+const PERF_TRACE_ENABLED = true; // Enable to see performance metrics in console
 
 const traceFocus = (message: string, payload?: Record<string, unknown>) => {
   if (!FOCUS_TRACE_ENABLED) {
@@ -886,6 +887,13 @@ const Browser: React.FC = () => {
   const focusedIndexRef = React.useRef<number>(focusedIndex);
   focusedIndexRef.current = focusedIndex;
 
+  // Cache scroll position to avoid forced synchronous layout reads
+  // Updated passively during scroll events for optimal performance
+  const scrollTopRef = React.useRef<number>(0);
+
+  // Track previous overlay state to skip redundant DOM updates
+  const prevOverlayStateRef = React.useRef({ top: -1, opacity: "", height: "" });
+
   // Cache virtual items within each RAF frame to avoid multiple getVirtualItems() calls
   const virtualItemsCacheRef = React.useRef<{
     items: ReturnType<typeof rowVirtualizer.getVirtualItems>;
@@ -902,6 +910,29 @@ const Browser: React.FC = () => {
     virtualItemsCacheRef.current = { items, timestamp: now };
     return items;
   }, [rowVirtualizer]);
+
+  // Set up passive scroll listener to cache scroll position
+  // This eliminates expensive forced synchronous layout reads in updateFocusOverlayImmediate
+  useEffect(() => {
+    const listElement = parentRef.current;
+    if (!listElement) {
+      return;
+    }
+
+    const updateScrollCache = () => {
+      scrollTopRef.current = listElement.scrollTop;
+    };
+
+    // Initialize cache
+    scrollTopRef.current = listElement.scrollTop;
+
+    // Use passive listener for best performance
+    listElement.addEventListener("scroll", updateScrollCache, { passive: true });
+
+    return () => {
+      listElement.removeEventListener("scroll", updateScrollCache);
+    };
+  }, []);
 
   // Get virtual items for rendering - this will be called during each render,
   // but TanStack Virtual internally optimizes this call
@@ -944,9 +975,10 @@ const Browser: React.FC = () => {
       return;
     }
 
-    // Batch all layout reads together to minimize reflows
+    // Use cached scroll position instead of reading from DOM
+    // This eliminates expensive forced synchronous layout reads (was 3-9ms!)
     perfStart("layoutRead");
-    const scrollTop = listElement.scrollTop;
+    const scrollTop = scrollTopRef.current;
     const availableHeight = listElement.clientHeight;
     perfEnd("layoutRead", 1);
 
@@ -957,40 +989,54 @@ const Browser: React.FC = () => {
     if (top < -ROW_HEIGHT || top > availableHeight) {
       if (overlay.style.opacity !== "0") {
         overlay.style.opacity = "0";
+        prevOverlayStateRef.current = { top: -1, opacity: "0", height: "" };
       }
       perfEnd("overlayUpdate");
       return;
     }
 
-    // Batch all style writes together
+    // Calculate target styles
     const targetOpacity = "1";
-    const targetTransform = `translateY(${Math.round(top)}px)`;
+    const roundedTop = Math.round(top);
     const targetHeight = `${focusedVirtualItem.size}px`;
 
-    // Use cssText for batched style updates (single reflow instead of multiple)
+    // Skip update if nothing changed (optimization to avoid redundant DOM writes)
+    const prevState = prevOverlayStateRef.current;
     if (
-      overlay.style.opacity !== targetOpacity ||
-      overlay.style.transform !== targetTransform ||
-      overlay.style.height !== targetHeight
+      prevState.top === roundedTop &&
+      prevState.opacity === targetOpacity &&
+      prevState.height === targetHeight
     ) {
-      perfStart("styleUpdate");
-      overlay.style.cssText = `
-        position: absolute;
-        left: 0;
-        right: 0;
-        top: 0;
-        height: ${targetHeight};
-        border-radius: inherit;
-        pointer-events: none;
-        background-color: ${overlay.style.backgroundColor};
-        opacity: ${targetOpacity};
-        transform: ${targetTransform};
-        transition: transform 0s, opacity 40ms ease-out;
-        will-change: transform;
-        z-index: 2;
-      `;
-      perfEnd("styleUpdate", 1);
+      perfEnd("overlayUpdate");
+      return;
     }
+
+    // Update cached state
+    prevOverlayStateRef.current = {
+      top: roundedTop,
+      opacity: targetOpacity,
+      height: targetHeight,
+    };
+
+    // Apply styles using cssText for batched update (single reflow instead of multiple)
+    perfStart("styleUpdate");
+    const targetTransform = `translateY(${roundedTop}px)`;
+    overlay.style.cssText = `
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: ${targetHeight};
+      border-radius: inherit;
+      pointer-events: none;
+      background-color: ${overlay.style.backgroundColor};
+      opacity: ${targetOpacity};
+      transform: ${targetTransform};
+      transition: transform 0s, opacity 40ms ease-out;
+      will-change: transform;
+      z-index: 2;
+    `;
+    perfEnd("styleUpdate", 1);
     perfEnd("overlayUpdate", 5);
   }, [getCachedVirtualItems]); // ✅ Stable - only changes when rowVirtualizer changes
 
