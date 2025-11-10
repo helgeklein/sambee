@@ -447,7 +447,7 @@ const Browser: React.FC = () => {
         navigate(`/browse/${identifier}`, { replace: true });
       }
     } catch (err: unknown) {
-      console.error("Error loading connections:", err);
+      logger.error("Error loading connections", { error: err });
       if (isApiError(err)) {
         if (err.response?.status === 401) {
           navigate("/login");

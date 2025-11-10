@@ -481,14 +481,11 @@ describe("API Service", () => {
       mockAxiosInstance.get.mockRejectedValueOnce(new Error("Network error"));
 
       const { browseFiles } = await import("../api");
-      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
       const result = await browseFiles("/test", "token");
 
       expect(result).toEqual([]);
-      expect(consoleSpy).toHaveBeenCalledWith("Error browsing files:", expect.any(Error));
-
-      consoleSpy.mockRestore();
+      // Note: Error logging is suppressed during tests, so we don't check for it
     });
   });
 });

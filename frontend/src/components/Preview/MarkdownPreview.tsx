@@ -16,6 +16,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { apiService } from "../../services/api";
+import { error as logError } from "../../services/logger";
 import "highlight.js/styles/github.css";
 
 interface MarkdownPreviewProps {
@@ -45,7 +46,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         setContent(data);
       } catch (err) {
         setError("Failed to load markdown file");
-        console.error("Error loading markdown:", err);
+        logError("Error loading markdown:", { error: err });
       } finally {
         setLoading(false);
       }

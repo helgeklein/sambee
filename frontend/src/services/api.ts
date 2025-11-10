@@ -216,7 +216,7 @@ export const browseFiles = async (path: string, _token: string) => {
     const listing = await apiService.listDirectory(connections[0].id, path);
     return listing.items;
   } catch (err) {
-    console.error("Error browsing files:", err);
+    logger.error("Error browsing files", { error: err });
     return [];
   }
 };
