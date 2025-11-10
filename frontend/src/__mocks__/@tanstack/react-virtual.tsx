@@ -9,7 +9,10 @@ import { vi } from "vitest";
  * Mock for useVirtualizer hook - simulates virtualization without actual DOM measurements
  * This renders all items for testing purposes while maintaining the API shape
  */
-export const useVirtualizer = ({ count, estimateSize }: {
+export const useVirtualizer = ({
+  count,
+  estimateSize,
+}: {
   count: number;
   estimateSize: () => number;
   getScrollElement: () => HTMLElement | null;
@@ -18,9 +21,9 @@ export const useVirtualizer = ({ count, estimateSize }: {
   measureElement?: (element: Element) => number;
 }) => {
   const itemSize = estimateSize();
-  
+
   return {
-    getVirtualItems: () => 
+    getVirtualItems: () =>
       Array.from({ length: count }, (_, i) => ({
         index: i,
         key: i,

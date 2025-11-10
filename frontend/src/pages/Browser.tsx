@@ -42,10 +42,10 @@ import {
   Typography,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { List as FixedSizeList } from "react-window";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import api from "../services/api";
@@ -60,13 +60,6 @@ const traceFocus = (message: string, payload?: Record<string, unknown>) => {
     return;
   }
   logger.info(message, payload);
-};
-
-const traceFocusWarn = (message: string, payload?: Record<string, unknown>) => {
-  if (!FOCUS_TRACE_ENABLED) {
-    return;
-  }
-  logger.warn(message, payload);
 };
 
 type SortField = "name" | "size" | "modified";
@@ -179,19 +172,10 @@ const Browser: React.FC = () => {
     };
   }, []);
 
-  type ListRef = {
-    readonly element: HTMLDivElement;
-    scrollToRow(config: {
-      align?: "center" | "end" | "start" | "auto" | "smart";
-      behavior?: "auto" | "smooth" | "instant";
-      index: number;
-    }): void;
-  };
-
-  const _listRef = React.useRef<ListRef>(null);
+  // Ref for the parent scroll container element (used by TanStack Virtual)
+  const parentRef = React.useRef<HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const filesRef = React.useRef<FileEntry[]>([]);
-  const virtualListRef = React.useRef<ListRef>(null);
   const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
   const listContainerRef = useCallback((node: HTMLDivElement | null) => {
     setListContainerEl(node);
@@ -780,6 +764,14 @@ const Browser: React.FC = () => {
     return [...directories, ...regularFiles];
   }, [files, sortBy, searchQuery]);
 
+  // TanStack Virtual: Initialize the virtualizer for efficient rendering of large lists
+  const rowVirtualizer = useVirtualizer({
+    count: sortedAndFilteredFiles.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 5, // Render 5 extra items above/below viewport for smoother scrolling
+  });
+
   // Keep ref updated and restore or reset focused index when files change
   useEffect(() => {
     filesRef.current = sortedAndFilteredFiles;
@@ -795,12 +787,9 @@ const Browser: React.FC = () => {
         updateFocus(restoredIndex, { immediate: true });
         // Restore scroll position after a short delay to ensure list is rendered
         setTimeout(() => {
-          if (virtualListRef.current) {
-            virtualListRef.current.scrollToRow({
-              index: restoredIndex,
-              align: "smart",
-            });
-          }
+          rowVirtualizer.scrollToIndex(restoredIndex, {
+            align: "auto",
+          });
         }, 0);
         // Clear the saved state after restoring
         navigationHistory.current.delete(currentPath);
@@ -812,7 +801,7 @@ const Browser: React.FC = () => {
     }
     // Default: reset to top (only if no saved state exists)
     updateFocus(0, { immediate: true });
-  }, [sortedAndFilteredFiles, currentPath, updateFocus]);
+  }, [sortedAndFilteredFiles, currentPath, updateFocus, rowVirtualizer]);
 
   // Scroll focused item into view using VirtualList API
   // Use useLayoutEffect to run synchronously BEFORE React renders components
@@ -829,7 +818,7 @@ const Browser: React.FC = () => {
 
   const updateFocusOverlayImmediate = React.useCallback(() => {
     const overlay = focusOverlayRef.current;
-    const listElement = virtualListRef.current?.element;
+    const listElement = parentRef.current;
 
     if (!overlay || !listElement) {
       return;
@@ -888,7 +877,7 @@ const Browser: React.FC = () => {
   }, [updateFocusOverlayImmediate]);
 
   useEffect(() => {
-    const listElement = virtualListRef.current?.element;
+    const listElement = parentRef.current;
     if (!listElement) {
       return;
     }
@@ -913,21 +902,8 @@ const Browser: React.FC = () => {
     return viewportRangeRef.current;
   }, []);
 
-  const handleRowsRendered = React.useCallback(
-    ({ startIndex, stopIndex }: { startIndex: number; stopIndex: number }) => {
-      const firstVisible = Math.max(startIndex, 0);
-      const lastVisible = Math.max(stopIndex, firstVisible);
-      viewportRangeRef.current = {
-        firstVisible,
-        lastVisible,
-        visibleCapacity: Math.max(lastVisible - firstVisible + 1, 1),
-      };
-    },
-    []
-  );
-
   useLayoutEffect(() => {
-    if (virtualListRef.current && focusedIndex >= 0) {
+    if (focusedIndex >= 0) {
       const prev = prevFocusedIndexRef.current;
       const diff = focusedIndex - prev;
 
@@ -940,20 +916,12 @@ const Browser: React.FC = () => {
 
       const pendingScroll = pendingScrollRequestRef.current;
       if (pendingScroll) {
-        if (virtualListRef.current) {
-          traceFocus(">>> useLayoutEffect: applying pending scroll", pendingScroll);
-          pendingScrollRequestRef.current = null;
-          virtualListRef.current.scrollToRow({
-            index: pendingScroll.index,
-            align: pendingScroll.align,
-            behavior: "instant",
-          });
-          prevFocusedIndexRef.current = focusedIndex;
-          return;
-        }
-        traceFocusWarn(
-          ">>> useLayoutEffect: pending scroll found but list ref missing; will retry next tick"
-        );
+        traceFocus(">>> useLayoutEffect: applying pending scroll", pendingScroll);
+        pendingScrollRequestRef.current = null;
+        rowVirtualizer.scrollToIndex(pendingScroll.index, {
+          align: pendingScroll.align,
+        });
+        prevFocusedIndexRef.current = focusedIndex;
         return;
       }
 
@@ -964,86 +932,56 @@ const Browser: React.FC = () => {
         visibleRowCount,
       });
 
-      // No pending edge-advance logic; scrolling is handled in key handler to avoid mid-frame jumps
-
-      // Determine alignment and behavior based on jump size
-      // Default for arrow navigation: 'auto' (do minimal scroll, do NOT re-center)
-      let align: "auto" | "smart" | "center" | "end" | "start" = "auto";
-      let behavior: "auto" | "smooth" | "instant" = "auto";
+      // Determine alignment based on jump size
+      let align: "auto" | "center" | "end" | "start" = "auto";
 
       // Large forward jump (PageDown) - lock new focused item at bottom
       if (diff >= visibleRowCount) {
         align = "end";
-        behavior = "instant";
-        traceFocus(">>> Detected PageDown - using align=end, behavior=instant");
+        traceFocus(">>> Detected PageDown - using align=end");
       }
       // Large backward jump (PageUp) - lock new focused item at top
       else if (diff <= -visibleRowCount) {
         align = "start";
-        behavior = "instant";
-        traceFocus(">>> Detected PageUp - using align=start, behavior=instant");
+        traceFocus(">>> Detected PageUp - using align=start");
       } else {
-        // Single-step arrow navigation: we want minimal scroll.
-        // react-window 'smart' can center after large off-screen moves; 'auto' is safer here.
-        // Additional heuristic: if moving down and the item would be just below viewport end, force end; similarly for up near the top.
+        // Single-step arrow navigation
         const viewport = getViewportMetrics();
-        const { firstVisible, lastVisible, visibleCapacity } = viewport;
+        const { firstVisible, lastVisible } = viewport;
         const isCurrentlyVisible = focusedIndex >= firstVisible && focusedIndex <= lastVisible;
         traceFocus(">>> Layout visibility snapshot", {
           firstVisible,
           lastVisible,
-          visibleCapacity,
           isCurrentlyVisible,
         });
-
-        if (pendingScrollRequestRef.current === null && diff === 1 && isCurrentlyVisible) {
-          traceFocus(">>> Layout: focused index already visible post-scroll; skipping scrollToRow");
-          prevFocusedIndexRef.current = focusedIndex;
-          return;
-        }
 
         if (diff === 1 && prev === lastVisible) {
           align = "end";
           traceFocus(">>> Layout: diff=1 and prev at bottom -> align=end");
-        }
-        if (diff === -1 && prev === firstVisible) {
+        } else if (diff === -1 && prev === firstVisible) {
           align = "start";
           traceFocus(">>> Layout: diff=-1 and prev at top -> align=start");
-        }
-        if (align === "auto") {
-          if (diff === 1 && focusedIndex > lastVisible) {
-            align = "end";
-            traceFocus(">>> Layout: diff=1 and next below viewport -> align=end");
-          } else if (diff === -1 && focusedIndex < firstVisible) {
-            align = "start";
-            traceFocus(">>> Layout: diff=-1 and next above viewport -> align=start");
-          } else if (!isCurrentlyVisible) {
-            align = diff >= 0 ? "end" : "start";
-            traceFocus(">>> Layout: not visible -> aligning", { align });
-          } else {
-            traceFocus(">>> Layout: focusedIndex visible -> keep align=auto");
-          }
+        } else if (!isCurrentlyVisible) {
+          align = diff >= 0 ? "end" : "start";
+          traceFocus(">>> Layout: not visible -> aligning", { align });
         }
       }
 
-      traceFocus(">>> About to call scrollToRow", {
+      traceFocus(">>> About to call scrollToIndex", {
         index: focusedIndex,
         align,
-        behavior,
       });
 
-      virtualListRef.current.scrollToRow({
-        index: focusedIndex,
+      rowVirtualizer.scrollToIndex(focusedIndex, {
         align,
-        behavior,
       });
 
-      traceFocus(">>> scrollToRow completed (returned)");
+      traceFocus(">>> scrollToIndex completed");
 
       // Update previous value
       prevFocusedIndexRef.current = focusedIndex;
     }
-  }, [focusedIndex, visibleRowCount, getViewportMetrics]);
+  }, [focusedIndex, visibleRowCount, getViewportMetrics, rowVirtualizer]);
 
   // Keyboard navigation (optimized to avoid recreation on file list changes)
   useEffect(() => {
@@ -1109,32 +1047,16 @@ const Browser: React.FC = () => {
             visibleCapacity,
           });
           if (focusedIndex >= lastVisible - 1) {
-            if (virtualListRef.current) {
-              traceFocus(">>> ArrowDown near bottom -> scrolling synchronously", {
-                index: next,
-                align: "end",
-                firstVisible,
-                lastVisible,
-              });
-              virtualListRef.current.scrollToRow({
-                index: next,
-                align: "end",
-                behavior: "instant",
-              });
-              skipNextLayoutScrollRef.current = true;
-              updateFocus(next);
-              break;
-            }
-            pendingScrollRequestRef.current = {
-              index: next,
-              align: "end",
-            };
-            traceFocus(">>> ArrowDown near bottom -> queued pending scroll", {
+            traceFocus(">>> ArrowDown near bottom -> scrolling synchronously", {
               index: next,
               align: "end",
               firstVisible,
               lastVisible,
             });
+            rowVirtualizer.scrollToIndex(next, {
+              align: "end",
+            });
+            skipNextLayoutScrollRef.current = true;
             updateFocus(next);
             break;
           }
@@ -1177,32 +1099,16 @@ const Browser: React.FC = () => {
             visibleCapacity,
           });
           if (focusedIndex <= firstVisible + 1) {
-            if (virtualListRef.current) {
-              traceFocus(">>> ArrowUp near top -> scrolling synchronously", {
-                index: next,
-                align: "start",
-                firstVisible,
-                lastVisible,
-              });
-              virtualListRef.current.scrollToRow({
-                index: next,
-                align: "start",
-                behavior: "instant",
-              });
-              skipNextLayoutScrollRef.current = true;
-              updateFocus(next);
-              break;
-            }
-            pendingScrollRequestRef.current = {
-              index: next,
-              align: "start",
-            };
-            traceFocus(">>> ArrowUp near top -> queued pending scroll", {
+            traceFocus(">>> ArrowUp near top -> scrolling synchronously", {
               index: next,
               align: "start",
               firstVisible,
               lastVisible,
             });
+            rowVirtualizer.scrollToIndex(next, {
+              align: "start",
+            });
+            skipNextLayoutScrollRef.current = true;
             updateFocus(next);
             break;
           }
@@ -1407,6 +1313,7 @@ const Browser: React.FC = () => {
     focusedIndex,
     getViewportMetrics,
     updateFocus,
+    rowVirtualizer,
   ]);
 
   const handleBreadcrumbClick = (index: number) => {
@@ -1427,109 +1334,6 @@ const Browser: React.FC = () => {
   };
 
   const pathParts = currentPath ? currentPath.split("/") : [];
-
-  // Row renderer for virtual list
-  // Row component for VirtualList (react-window v2)
-  interface RowComponentProps {
-    index: number;
-    style: React.CSSProperties;
-    files: FileEntry[];
-    focusedIndex: number;
-    onFileClick: (file: FileEntry, index: number) => void;
-  }
-
-  const RowComponent = React.useCallback(
-    ({ index, style, files, focusedIndex: focusStateIndex, onFileClick }: RowComponentProps) => {
-      const file = files[index];
-      const isSelected = index === focusStateIndex;
-
-      traceFocus(">>> Row render", {
-        index,
-        fileName: file.name.substring(0, 30),
-        focusStateIndex,
-        isSelected,
-        timestamp: performance.now(),
-      });
-
-      const secondaryInfo: string[] = [];
-      if (file.size && file.type !== "directory") {
-        secondaryInfo.push(formatFileSize(file.size));
-      }
-      if (file.modified_at) {
-        secondaryInfo.push(formatDate(file.modified_at));
-      }
-      const secondaryText = secondaryInfo.join(" • ");
-
-      return (
-        <div style={style} key={file.name} data-index={index}>
-          <Box
-            role="option"
-            tabIndex={-1}
-            aria-selected={isSelected}
-            onClick={() => onFileClick(file, index)}
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-              height: "100%",
-              px: 2,
-              py: 1.5,
-              cursor: "pointer",
-              userSelect: "none",
-              borderRadius: theme.shape.borderRadius,
-              transition: "background-color 80ms ease-out",
-              "&:hover": {
-                backgroundColor: theme.palette.action.hover,
-              },
-              "&:active": {
-                backgroundColor: theme.palette.action.selected,
-              },
-            }}
-          >
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 36,
-                flexShrink: 0,
-              }}
-            >
-              {file.type === "directory" ? (
-                <FolderIcon color="primary" />
-              ) : (
-                <FileIcon color="action" />
-              )}
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="body2" noWrap title={file.name} color="text.primary">
-                {file.name}
-              </Typography>
-              {secondaryText ? (
-                <Typography variant="caption" color="text.secondary" noWrap>
-                  {secondaryText}
-                </Typography>
-              ) : null}
-            </Box>
-            {file.type === "directory" ? (
-              <Chip label="Folder" size="small" variant="outlined" sx={{ flexShrink: 0 }} />
-            ) : null}
-          </Box>
-        </div>
-      );
-    },
-    [theme]
-  );
-
-  // Prepare props for row component
-  const rowProps = React.useMemo(
-    () => ({
-      files: sortedAndFilteredFiles,
-      focusedIndex,
-      onFileClick: handleFileClick,
-    }),
-    [sortedAndFilteredFiles, focusedIndex, handleFileClick]
-  );
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -1778,16 +1582,115 @@ const Browser: React.FC = () => {
                           zIndex: 2,
                         }}
                       />
-                      <FixedSizeList
-                        listRef={virtualListRef}
-                        rowComponent={RowComponent}
-                        rowCount={sortedAndFilteredFiles.length}
-                        rowHeight={68}
-                        // biome-ignore lint/suspicious/noExplicitAny: react-window v2 type mismatch with ExcludeForbiddenKeys
-                        rowProps={rowProps as any}
-                        onRowsRendered={handleRowsRendered}
-                        style={{ height: "100%", width: "100%" }}
-                      />
+                      <div
+                        ref={parentRef}
+                        style={{
+                          height: "100%",
+                          overflow: "auto",
+                          contain: "strict",
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: `${rowVirtualizer.getTotalSize()}px`,
+                            width: "100%",
+                            position: "relative",
+                          }}
+                        >
+                          {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                            const file = sortedAndFilteredFiles[virtualItem.index];
+                            const isSelected = virtualItem.index === focusedIndex;
+
+                            const secondaryInfo: string[] = [];
+                            if (file.size && file.type !== "directory") {
+                              secondaryInfo.push(formatFileSize(file.size));
+                            }
+                            if (file.modified_at) {
+                              secondaryInfo.push(formatDate(file.modified_at));
+                            }
+                            const secondaryText = secondaryInfo.join(" • ");
+
+                            return (
+                              <div
+                                key={virtualItem.key}
+                                data-index={virtualItem.index}
+                                style={{
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  width: "100%",
+                                  height: `${virtualItem.size}px`,
+                                  transform: `translateY(${virtualItem.start}px)`,
+                                }}
+                              >
+                                <Box
+                                  role="option"
+                                  tabIndex={-1}
+                                  aria-selected={isSelected}
+                                  onClick={() => handleFileClick(file, virtualItem.index)}
+                                  sx={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 2,
+                                    height: "100%",
+                                    px: 2,
+                                    py: 1.5,
+                                    cursor: "pointer",
+                                    userSelect: "none",
+                                    borderRadius: theme.shape.borderRadius,
+                                    transition: "background-color 80ms ease-out",
+                                    "&:hover": {
+                                      backgroundColor: theme.palette.action.hover,
+                                    },
+                                    "&:active": {
+                                      backgroundColor: theme.palette.action.selected,
+                                    },
+                                  }}
+                                >
+                                  <Box
+                                    sx={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      width: 36,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {file.type === "directory" ? (
+                                      <FolderIcon color="primary" />
+                                    ) : (
+                                      <FileIcon color="action" />
+                                    )}
+                                  </Box>
+                                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography
+                                      variant="body2"
+                                      noWrap
+                                      title={file.name}
+                                      color="text.primary"
+                                    >
+                                      {file.name}
+                                    </Typography>
+                                    {secondaryText ? (
+                                      <Typography variant="caption" color="text.secondary" noWrap>
+                                        {secondaryText}
+                                      </Typography>
+                                    ) : null}
+                                  </Box>
+                                  {file.type === "directory" ? (
+                                    <Chip
+                                      label="Folder"
+                                      size="small"
+                                      variant="outlined"
+                                      sx={{ flexShrink: 0 }}
+                                    />
+                                  ) : null}
+                                </Box>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </>
                   )}
                 </Paper>

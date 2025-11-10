@@ -480,10 +480,16 @@ Document the migration for future reference.
 - [x] Create new mock for @tanstack/react-virtual
 - [x] Remove old react-window mock
 
-### Phase 2: Core Virtualization Migration
-- [ ] Replace imports
-- [ ] Implement useVirtualizer hook
-- [ ] Refactor row rendering
+### Phase 2: Core Virtualization Migration ✅ COMPLETED
+- [x] Replace imports (react-window → @tanstack/react-virtual)
+- [x] Implement useVirtualizer hook with proper configuration
+- [x] Refactor row rendering from component-based to inline rendering
+- [x] Remove old RowComponent and rowProps
+- [x] Update all virtualListRef references to use parentRef
+- [x] Replace scrollToRow calls with scrollToIndex
+- [x] Fix dependency arrays in useEffect hooks
+- [x] Remove unused code (handleRowsRendered, traceFocusWarn)
+- [x] Verify build compiles successfully
 
 ### Phase 3: Keyboard Navigation Optimization
 - [ ] Replace scrollToRow with scrollToIndex
