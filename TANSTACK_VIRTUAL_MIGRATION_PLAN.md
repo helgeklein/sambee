@@ -491,11 +491,24 @@ Document the migration for future reference.
 - [x] Remove unused code (handleRowsRendered, traceFocusWarn)
 - [x] Verify build compiles successfully
 
-### Phase 3: Keyboard Navigation Optimization
-- [ ] Replace scrollToRow with scrollToIndex
-- [ ] Simplify viewport tracking
-- [ ] Optimize ArrowUp/Down handlers
-- [ ] Enhance PageUp/PageDown
+### Phase 3: Keyboard Navigation Optimization ✅ COMPLETED
+- [x] Replace manual viewport tracking with TanStack Virtual's getVirtualItems()
+- [x] Remove obsolete viewportRangeRef (TanStack provides this data)
+- [x] Optimize ArrowUp/Down handlers for smooth key-hold scrolling
+  - [x] Implement immediate feedback for key repeat events
+  - [x] Use synchronous scrolling at viewport edges
+  - [x] Simplify logic by removing throttling (TanStack handles this)
+- [x] Optimize PageUp/PageDown handlers
+  - [x] Use actual visible items count for accurate page jumps
+  - [x] Implement synchronous scroll + focus for instant feedback
+  - [x] Remove complex pending scroll queue logic
+- [x] Simplify Home/End handlers (remove unnecessary throttling)
+- [x] Remove obsolete code
+  - [x] navThrottleRafRef (no longer needed)
+  - [x] pendingScrollRequestRef (replaced with synchronous scrolling)
+  - [x] RAF-based throttling in navigation handlers
+- [x] Verify build compiles successfully (bundle size reduced by ~700 bytes)
+- [x] Fix linting issues
 
 ### Phase 4: Focus Overlay Refinement
 - [ ] Sync overlay with TanStack virtual items

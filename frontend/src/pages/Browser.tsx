@@ -184,16 +184,6 @@ const Browser: React.FC = () => {
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
   const focusOverlayRef = React.useRef<HTMLDivElement | null>(null);
-  const navThrottleRafRef = React.useRef<number | null>(null);
-  const viewportRangeRef = React.useRef<{
-    firstVisible: number;
-    lastVisible: number;
-    visibleCapacity: number;
-  }>({
-    firstVisible: 0,
-    lastVisible: visibleRowCountRef.current - 1,
-    visibleCapacity: visibleRowCountRef.current,
-  });
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -808,10 +798,7 @@ const Browser: React.FC = () => {
   // This prevents the old viewport from rendering with the new focusedIndex
   const prevFocusedIndexRef = React.useRef<number>(0);
 
-  // Store pending scroll requests initiated during keyboard handling.
-  const pendingScrollRequestRef = React.useRef<{ index: number; align: "start" | "end" } | null>(
-    null
-  );
+  // Skip the layout effect scroll if we already handled it synchronously in the keyboard handler
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
 
   const focusOverlayUpdateRafRef = React.useRef<number | null>(null);
@@ -898,9 +885,24 @@ const Browser: React.FC = () => {
     }
   }, [queueFocusOverlayUpdate, listContainerEl, visibleRowCount]);
 
+  // Get current viewport metrics from TanStack Virtual
   const getViewportMetrics = React.useCallback(() => {
-    return viewportRangeRef.current;
-  }, []);
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    if (virtualItems.length === 0) {
+      return {
+        firstVisible: 0,
+        lastVisible: 0,
+        visibleCapacity: 0,
+      };
+    }
+    const firstVisible = virtualItems[0].index;
+    const lastVisible = virtualItems[virtualItems.length - 1].index;
+    return {
+      firstVisible,
+      lastVisible,
+      visibleCapacity: virtualItems.length,
+    };
+  }, [rowVirtualizer]);
 
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
@@ -910,17 +912,6 @@ const Browser: React.FC = () => {
       if (skipNextLayoutScrollRef.current) {
         traceFocus(">>> useLayoutEffect: skipping scroll (already handled synchronously)");
         skipNextLayoutScrollRef.current = false;
-        prevFocusedIndexRef.current = focusedIndex;
-        return;
-      }
-
-      const pendingScroll = pendingScrollRequestRef.current;
-      if (pendingScroll) {
-        traceFocus(">>> useLayoutEffect: applying pending scroll", pendingScroll);
-        pendingScrollRequestRef.current = null;
-        rowVirtualizer.scrollToIndex(pendingScroll.index, {
-          align: pendingScroll.align,
-        });
         prevFocusedIndexRef.current = focusedIndex;
         return;
       }
@@ -1030,188 +1021,91 @@ const Browser: React.FC = () => {
       switch (e.key) {
         case "ArrowDown": {
           e.preventDefault();
-          if (e.repeat && navThrottleRafRef.current !== null) {
-            return;
-          }
           if (focusedIndex < 0) return;
           const next = Math.min(focusedIndex + 1, fileCount - 1);
           if (next === focusedIndex) break;
 
-          const viewport = getViewportMetrics();
-          const { firstVisible, lastVisible, visibleCapacity } = viewport;
-          traceFocus(">>> ArrowDown visibility snapshot", {
-            currentFocus: focusedIndex,
-            candidate: next,
-            firstVisible,
-            lastVisible,
-            visibleCapacity,
-          });
-          if (focusedIndex >= lastVisible - 1) {
-            traceFocus(">>> ArrowDown near bottom -> scrolling synchronously", {
-              index: next,
-              align: "end",
-              firstVisible,
-              lastVisible,
-            });
-            rowVirtualizer.scrollToIndex(next, {
-              align: "end",
-            });
-            skipNextLayoutScrollRef.current = true;
+          // For key repeat (holding down arrow), ensure smooth scrolling
+          if (e.repeat) {
+            // Use synchronous scroll for immediate visual feedback
+            const viewport = getViewportMetrics();
+            const { lastVisible } = viewport;
+
+            if (focusedIndex >= lastVisible - 1) {
+              // Near bottom edge - scroll to keep item visible at bottom
+              rowVirtualizer.scrollToIndex(next, { align: "end" });
+              skipNextLayoutScrollRef.current = true;
+            }
+            updateFocus(next, { immediate: true });
+          } else {
+            // Single press - let layout effect handle scrolling
             updateFocus(next);
-            break;
-          }
-          if (focusedIndex === lastVisible) {
-            pendingScrollRequestRef.current = {
-              index: next,
-              align: "end",
-            };
-            traceFocus(">>> ArrowDown queued pending scroll", {
-              index: next,
-              align: "end",
-            });
-            updateFocus(next);
-            break;
-          }
-          updateFocus(next);
-          if (navThrottleRafRef.current === null) {
-            navThrottleRafRef.current = requestAnimationFrame(() => {
-              navThrottleRafRef.current = null;
-            });
           }
           break;
         }
 
         case "ArrowUp": {
           e.preventDefault();
-          if (e.repeat && navThrottleRafRef.current !== null) {
-            return;
-          }
           if (focusedIndex < 0) return;
           const next = Math.max(focusedIndex - 1, 0);
           if (next === focusedIndex) break;
-          const viewport = getViewportMetrics();
-          const { firstVisible, lastVisible, visibleCapacity } = viewport;
-          traceFocus(">>> ArrowUp visibility snapshot", {
-            currentFocus: focusedIndex,
-            candidate: next,
-            firstVisible,
-            lastVisible,
-            visibleCapacity,
-          });
-          if (focusedIndex <= firstVisible + 1) {
-            traceFocus(">>> ArrowUp near top -> scrolling synchronously", {
-              index: next,
-              align: "start",
-              firstVisible,
-              lastVisible,
-            });
-            rowVirtualizer.scrollToIndex(next, {
-              align: "start",
-            });
-            skipNextLayoutScrollRef.current = true;
+
+          // For key repeat (holding down arrow), ensure smooth scrolling
+          if (e.repeat) {
+            // Use synchronous scroll for immediate visual feedback
+            const viewport = getViewportMetrics();
+            const { firstVisible } = viewport;
+
+            if (focusedIndex <= firstVisible + 1) {
+              // Near top edge - scroll to keep item visible at top
+              rowVirtualizer.scrollToIndex(next, { align: "start" });
+              skipNextLayoutScrollRef.current = true;
+            }
+            updateFocus(next, { immediate: true });
+          } else {
+            // Single press - let layout effect handle scrolling
             updateFocus(next);
-            break;
-          }
-          if (focusedIndex === firstVisible) {
-            pendingScrollRequestRef.current = {
-              index: next,
-              align: "start",
-            };
-            traceFocus(">>> ArrowUp queued pending scroll", {
-              index: next,
-              align: "start",
-            });
-            updateFocus(next);
-            break;
-          }
-          updateFocus(next);
-          if (navThrottleRafRef.current === null) {
-            navThrottleRafRef.current = requestAnimationFrame(() => {
-              navThrottleRafRef.current = null;
-            });
           }
           break;
         }
 
         case "Home":
           e.preventDefault();
-          if (e.repeat && navThrottleRafRef.current !== null) {
-            return;
-          }
           updateFocus(0);
-          if (navThrottleRafRef.current === null) {
-            navThrottleRafRef.current = requestAnimationFrame(() => {
-              navThrottleRafRef.current = null;
-            });
-          }
           break;
 
         case "End":
           e.preventDefault();
-          if (e.repeat && navThrottleRafRef.current !== null) {
-            return;
-          }
           updateFocus(fileCount - 1);
-          if (navThrottleRafRef.current === null) {
-            navThrottleRafRef.current = requestAnimationFrame(() => {
-              navThrottleRafRef.current = null;
-            });
-          }
           break;
 
         case "PageDown":
           e.preventDefault();
-          if (e.repeat && navThrottleRafRef.current !== null) {
-            return;
-          }
           {
-            const newIndex = Math.min(focusedIndex + visibleRowCount, fileCount - 1);
+            // Use actual visible items count for more accurate page jumps
+            const viewport = getViewportMetrics();
+            const pageSize = viewport.visibleCapacity || visibleRowCount;
+            const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
 
-            traceFocus(">>> PageDown: About to scroll BEFORE state update", {
-              currentFocus: focusedIndex,
-              newIndex,
-            });
-
-            pendingScrollRequestRef.current = {
-              index: newIndex,
-              align: "end",
-            };
-            traceFocus(">>> PageDown queued pending scroll", {
-              index: newIndex,
-              align: "end",
-            });
-            updateFocus(newIndex);
-            traceFocus(">>> PageDown: State update called");
-          }
-          if (navThrottleRafRef.current === null) {
-            navThrottleRafRef.current = requestAnimationFrame(() => {
-              navThrottleRafRef.current = null;
-            });
+            // Synchronously scroll and update focus for instant feedback
+            rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
+            skipNextLayoutScrollRef.current = true;
+            updateFocus(newIndex, { immediate: true });
           }
           break;
 
         case "PageUp":
           e.preventDefault();
-          if (e.repeat && navThrottleRafRef.current !== null) {
-            return;
-          }
           {
-            const newIndex = Math.max(focusedIndex - visibleRowCount, 0);
+            // Use actual visible items count for more accurate page jumps
+            const viewport = getViewportMetrics();
+            const pageSize = viewport.visibleCapacity || visibleRowCount;
+            const newIndex = Math.max(focusedIndex - pageSize, 0);
 
-            pendingScrollRequestRef.current = {
-              index: newIndex,
-              align: "start",
-            };
-            traceFocus(">>> PageUp queued pending scroll", {
-              index: newIndex,
-              align: "start",
-            });
-            updateFocus(newIndex);
-          }
-          if (navThrottleRafRef.current === null) {
-            navThrottleRafRef.current = requestAnimationFrame(() => {
-              navThrottleRafRef.current = null;
-            });
+            // Synchronously scroll and update focus for instant feedback
+            rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
+            skipNextLayoutScrollRef.current = true;
+            updateFocus(newIndex, { immediate: true });
           }
           break;
         case "Enter":
