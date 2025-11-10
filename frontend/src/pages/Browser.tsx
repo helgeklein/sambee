@@ -86,8 +86,7 @@ import { isApiError } from "../types";
 //   6. Set flag back to false when done profiling
 
 const FOCUS_TRACE_ENABLED = false;
-// Don't forget to disable performance tracing after profiling!
-const PERF_TRACE_ENABLED = true; // Enable to see performance metrics in console
+const PERF_TRACE_ENABLED = false; // Enable to see performance metrics in console
 
 const traceFocus = (message: string, payload?: Record<string, unknown>) => {
   if (!FOCUS_TRACE_ENABLED) {
@@ -1891,7 +1890,7 @@ const Browser: React.FC = () => {
                           backgroundColor: theme.palette.action.selected,
                           opacity: 0,
                           transform: "translateY(0px)",
-                          transition: "transform 0s, opacity 40ms ease-out",
+                          transition: "none", // No transitions for instant visual feedback
                           willChange: "transform",
                           zIndex: 2,
                         }}
