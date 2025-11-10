@@ -434,8 +434,7 @@ const Browser: React.FC = () => {
       }
       if (file.type === "directory") {
         // Save current state before navigating into directory
-        // Note: scrollOffset tracking removed as it's not available in react-window v2 ListRef
-        const currentScrollOffset = 0;
+        const currentScrollOffset = parentRef.current?.scrollTop || 0;
         navigationHistory.current.set(currentPath, {
           focusedIndex,
           scrollOffset: currentScrollOffset,
@@ -898,25 +897,6 @@ const Browser: React.FC = () => {
     }
   }, [queueFocusOverlayUpdate, listContainerEl, visibleRowCount]);
 
-  // Get current viewport metrics from TanStack Virtual
-  const getViewportMetrics = React.useCallback(() => {
-    const virtualItems = rowVirtualizer.getVirtualItems();
-    if (virtualItems.length === 0) {
-      return {
-        firstVisible: 0,
-        lastVisible: 0,
-        visibleCapacity: 0,
-      };
-    }
-    const firstVisible = virtualItems[0].index;
-    const lastVisible = virtualItems[virtualItems.length - 1].index;
-    return {
-      firstVisible,
-      lastVisible,
-      visibleCapacity: virtualItems.length,
-    };
-  }, [rowVirtualizer]);
-
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
       const prev = prevFocusedIndexRef.current;
@@ -948,27 +928,16 @@ const Browser: React.FC = () => {
       else if (diff <= -visibleRowCount) {
         align = "start";
         traceFocus(">>> Detected PageUp - using align=start");
+      } else if (Math.abs(diff) === 1) {
+        // Single-step arrow navigation - use simple edge detection without forced reflow
+        // Use "auto" alignment which lets TanStack Virtual decide based on its internal state
+        // This avoids calling getVirtualItems() which causes layout thrashing
+        align = "auto";
+        traceFocus(">>> Single-step navigation - using align=auto");
       } else {
-        // Single-step arrow navigation
-        const viewport = getViewportMetrics();
-        const { firstVisible, lastVisible } = viewport;
-        const isCurrentlyVisible = focusedIndex >= firstVisible && focusedIndex <= lastVisible;
-        traceFocus(">>> Layout visibility snapshot", {
-          firstVisible,
-          lastVisible,
-          isCurrentlyVisible,
-        });
-
-        if (diff === 1 && prev === lastVisible) {
-          align = "end";
-          traceFocus(">>> Layout: diff=1 and prev at bottom -> align=end");
-        } else if (diff === -1 && prev === firstVisible) {
-          align = "start";
-          traceFocus(">>> Layout: diff=-1 and prev at top -> align=start");
-        } else if (!isCurrentlyVisible) {
-          align = diff >= 0 ? "end" : "start";
-          traceFocus(">>> Layout: not visible -> aligning", { align });
-        }
+        // Multi-step jump (Home/End or programmatic) - align to appropriate edge
+        align = diff > 0 ? "end" : "start";
+        traceFocus(">>> Multi-step jump - aligning to edge", { align });
       }
 
       traceFocus(">>> About to call scrollToIndex", {
@@ -985,7 +954,7 @@ const Browser: React.FC = () => {
       // Update previous value
       prevFocusedIndexRef.current = focusedIndex;
     }
-  }, [focusedIndex, visibleRowCount, getViewportMetrics, rowVirtualizer]);
+  }, [focusedIndex, visibleRowCount, rowVirtualizer]);
 
   // Keyboard navigation (optimized to avoid recreation on file list changes)
   useEffect(() => {
@@ -1038,18 +1007,10 @@ const Browser: React.FC = () => {
           const next = Math.min(focusedIndex + 1, fileCount - 1);
           if (next === focusedIndex) break;
 
-          // For key repeat (holding down arrow), ensure smooth scrolling
+          // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
           if (e.repeat) {
-            // Use synchronous scroll for immediate visual feedback
-            const viewport = getViewportMetrics();
-            const { lastVisible } = viewport;
-
-            if (focusedIndex >= lastVisible - 1) {
-              // Near bottom edge - scroll to keep item visible at bottom
-              rowVirtualizer.scrollToIndex(next, { align: "end" });
-              skipNextLayoutScrollRef.current = true;
-            }
-            updateFocus(next, { immediate: true });
+            // Let TanStack Virtual handle scrolling smoothly without forced reflows
+            updateFocus(next, { immediate: false });
           } else {
             // Single press - let layout effect handle scrolling
             updateFocus(next);
@@ -1063,18 +1024,10 @@ const Browser: React.FC = () => {
           const next = Math.max(focusedIndex - 1, 0);
           if (next === focusedIndex) break;
 
-          // For key repeat (holding down arrow), ensure smooth scrolling
+          // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
           if (e.repeat) {
-            // Use synchronous scroll for immediate visual feedback
-            const viewport = getViewportMetrics();
-            const { firstVisible } = viewport;
-
-            if (focusedIndex <= firstVisible + 1) {
-              // Near top edge - scroll to keep item visible at top
-              rowVirtualizer.scrollToIndex(next, { align: "start" });
-              skipNextLayoutScrollRef.current = true;
-            }
-            updateFocus(next, { immediate: true });
+            // Let TanStack Virtual handle scrolling smoothly without forced reflows
+            updateFocus(next, { immediate: false });
           } else {
             // Single press - let layout effect handle scrolling
             updateFocus(next);
@@ -1095,30 +1048,40 @@ const Browser: React.FC = () => {
         case "PageDown":
           e.preventDefault();
           {
-            // Use actual visible items count for more accurate page jumps
-            const viewport = getViewportMetrics();
-            const pageSize = viewport.visibleCapacity || visibleRowCount;
+            // Use estimated page size to avoid forced reflows during key repeat
+            // TanStack Virtual will handle the actual scrolling smoothly
+            const pageSize = visibleRowCount;
             const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
 
-            // Synchronously scroll and update focus for instant feedback
-            rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
-            skipNextLayoutScrollRef.current = true;
-            updateFocus(newIndex, { immediate: true });
+            if (e.repeat) {
+              // During key repeat, use async scrolling to avoid layout thrashing
+              updateFocus(newIndex, { immediate: false });
+            } else {
+              // Single press - use synchronous scroll for instant feedback
+              rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
+              skipNextLayoutScrollRef.current = true;
+              updateFocus(newIndex, { immediate: true });
+            }
           }
           break;
 
         case "PageUp":
           e.preventDefault();
           {
-            // Use actual visible items count for more accurate page jumps
-            const viewport = getViewportMetrics();
-            const pageSize = viewport.visibleCapacity || visibleRowCount;
+            // Use estimated page size to avoid forced reflows during key repeat
+            // TanStack Virtual will handle the actual scrolling smoothly
+            const pageSize = visibleRowCount;
             const newIndex = Math.max(focusedIndex - pageSize, 0);
 
-            // Synchronously scroll and update focus for instant feedback
-            rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
-            skipNextLayoutScrollRef.current = true;
-            updateFocus(newIndex, { immediate: true });
+            if (e.repeat) {
+              // During key repeat, use async scrolling to avoid layout thrashing
+              updateFocus(newIndex, { immediate: false });
+            } else {
+              // Single press - use synchronous scroll for instant feedback
+              rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
+              skipNextLayoutScrollRef.current = true;
+              updateFocus(newIndex, { immediate: true });
+            }
           }
           break;
         case "Enter":
@@ -1218,7 +1181,6 @@ const Browser: React.FC = () => {
     loadFiles,
     visibleRowCount,
     focusedIndex,
-    getViewportMetrics,
     updateFocus,
     rowVirtualizer,
   ]);
