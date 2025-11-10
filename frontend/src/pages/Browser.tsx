@@ -887,9 +887,10 @@ const Browser: React.FC = () => {
   const focusedIndexRef = React.useRef<number>(focusedIndex);
   focusedIndexRef.current = focusedIndex;
 
-  // Cache scroll position to avoid forced synchronous layout reads
+  // Cache scroll position and viewport height to avoid forced synchronous layout reads
   // Updated passively during scroll events for optimal performance
   const scrollTopRef = React.useRef<number>(0);
+  const clientHeightRef = React.useRef<number>(0);
 
   // Track previous overlay state to skip redundant DOM updates
   const prevOverlayStateRef = React.useRef({ top: -1, opacity: "", height: "" });
@@ -911,7 +912,7 @@ const Browser: React.FC = () => {
     return items;
   }, [rowVirtualizer]);
 
-  // Set up passive scroll listener to cache scroll position
+  // Set up passive scroll listener to cache scroll position and viewport height
   // This eliminates expensive forced synchronous layout reads in updateFocusOverlayImmediate
   useEffect(() => {
     const listElement = parentRef.current;
@@ -921,16 +922,25 @@ const Browser: React.FC = () => {
 
     const updateScrollCache = () => {
       scrollTopRef.current = listElement.scrollTop;
+      clientHeightRef.current = listElement.clientHeight;
     };
 
     // Initialize cache
     scrollTopRef.current = listElement.scrollTop;
+    clientHeightRef.current = listElement.clientHeight;
 
-    // Use passive listener for best performance
+    // Update cache on scroll (passive for performance)
     listElement.addEventListener("scroll", updateScrollCache, { passive: true });
+
+    // Update cache on resize (viewport height can change)
+    const updateHeightCache = () => {
+      clientHeightRef.current = listElement.clientHeight;
+    };
+    window.addEventListener("resize", updateHeightCache, { passive: true });
 
     return () => {
       listElement.removeEventListener("scroll", updateScrollCache);
+      window.removeEventListener("resize", updateHeightCache);
     };
   }, []);
 
@@ -975,11 +985,11 @@ const Browser: React.FC = () => {
       return;
     }
 
-    // Use cached scroll position instead of reading from DOM
+    // Use cached scroll position and viewport height instead of reading from DOM
     // This eliminates expensive forced synchronous layout reads (was 3-9ms!)
     perfStart("layoutRead");
     const scrollTop = scrollTopRef.current;
-    const availableHeight = listElement.clientHeight;
+    const availableHeight = clientHeightRef.current;
     perfEnd("layoutRead", 1);
 
     // Calculate position
