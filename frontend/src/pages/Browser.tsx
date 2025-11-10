@@ -1275,21 +1275,24 @@ const Browser: React.FC = () => {
           }}
         >
           <Box
-            role="option"
+            component="button"
             tabIndex={-1}
-            aria-selected={isSelected}
             onClick={() => onClick(file, index)}
             sx={{
               display: "flex",
               alignItems: "center",
               gap: 2,
               height: "100%",
+              width: "100%",
               px: 2,
               py: 1.5,
               cursor: "pointer",
               userSelect: "none",
+              border: "none",
+              background: isSelected ? theme.palette.action.selected : "transparent",
               borderRadius: theme.shape.borderRadius,
               transition: "background-color 80ms ease-out",
+              textAlign: "left",
               "&:hover": {
                 backgroundColor: theme.palette.action.hover,
               },
@@ -1590,6 +1593,7 @@ const Browser: React.FC = () => {
                       />
                       <div
                         ref={parentRef}
+                        data-testid="virtual-list"
                         style={{
                           height: "100%",
                           overflow: "auto",

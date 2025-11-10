@@ -8,10 +8,15 @@ import { vi } from "vitest";
 /**
  * Mock for useVirtualizer hook - simulates virtualization without actual DOM measurements
  * This renders all items for testing purposes while maintaining the API shape
+ *
+ * In production, TanStack Virtual only renders visible items plus overscan.
+ * For tests, we render all items to simplify assertions.
  */
 export const useVirtualizer = ({
   count,
   estimateSize,
+  getScrollElement,
+  overscan = 5,
 }: {
   count: number;
   estimateSize: () => number;
@@ -22,7 +27,16 @@ export const useVirtualizer = ({
 }) => {
   const itemSize = estimateSize();
 
+  const scrollToIndexMock = vi.fn((index: number) => {
+    // Simulate scrolling by setting scrollTop
+    const scrollElement = getScrollElement();
+    if (scrollElement) {
+      scrollElement.scrollTop = index * itemSize;
+    }
+  });
+
   return {
+    // Render ALL items for testing (production only renders visible + overscan)
     getVirtualItems: () =>
       Array.from({ length: count }, (_, i) => ({
         index: i,
@@ -33,14 +47,19 @@ export const useVirtualizer = ({
         lane: 0,
       })),
     getTotalSize: () => count * itemSize,
-    scrollToIndex: vi.fn(),
+    scrollToIndex: scrollToIndexMock,
     measureElement: vi.fn(),
-    scrollToOffset: vi.fn(),
+    scrollToOffset: vi.fn((offset: number) => {
+      const scrollElement = getScrollElement();
+      if (scrollElement) {
+        scrollElement.scrollTop = offset;
+      }
+    }),
     measure: vi.fn(),
     options: {
       count,
       estimateSize,
-      overscan: 5,
+      overscan,
     },
   };
 };
