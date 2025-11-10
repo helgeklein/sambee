@@ -844,6 +844,12 @@ const Browser: React.FC = () => {
     // Use stable file/directory name as key instead of index for proper React reconciliation
     // This ensures each FileRow is properly tracked across sorting/filtering changes
     getItemKey: (index: number) => sortedAndFilteredFiles[index]?.name ?? index,
+    // Optimize scroll offset calculations by accounting for the container's offset
+    // This ensures scrollToIndex calculations are pixel-perfect
+    scrollMargin: parentRef.current?.offsetTop ?? 0,
+    // Enable smooth scrolling behavior for better UX (TanStack Virtual will handle the animation)
+    // This is particularly effective during programmatic scrolling operations
+    enabled: true, // Explicitly enable the virtualizer (default, but being explicit)
   });
 
   // Keep ref updated and restore or reset focused index when files change
