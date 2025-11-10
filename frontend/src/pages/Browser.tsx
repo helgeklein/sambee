@@ -594,10 +594,12 @@ const Browser: React.FC = () => {
 
     // Only update if the path actually changed (using ref to avoid stale closure)
     if (currentPathRef.current !== decodedPath) {
-      console.log("[URL Navigation useEffect] Setting currentPath to:", decodedPath);
+      logger.debug("[URL Navigation useEffect] Setting currentPath to:", {
+        path: decodedPath,
+      });
       setCurrentPath(decodedPath);
     } else {
-      console.log("[URL Navigation useEffect] Path unchanged, skipping update");
+      logger.debug("[URL Navigation useEffect] Path unchanged, skipping update");
     }
 
     // Reset flag after state updates have propagated
