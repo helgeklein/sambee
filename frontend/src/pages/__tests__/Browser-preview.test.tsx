@@ -22,8 +22,8 @@ vi.mock("../../services/api");
 // Mock components using lazy mock factories
 vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
 vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
-// react-window mock is auto-discovered from __mocks__/react-window.tsx
-vi.mock("react-window");
+// @tanstack/react-virtual mock - explicitly import the mock
+vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react-virtual"));
 
 describe("Browser Component - Preview and Advanced", () => {
   beforeEach(() => {
