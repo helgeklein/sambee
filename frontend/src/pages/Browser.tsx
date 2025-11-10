@@ -46,6 +46,7 @@ import {
   Typography,
 } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { List as FixedSizeList } from "react-window";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
@@ -884,7 +885,6 @@ const Browser: React.FC = () => {
           const next = Math.min(focusedIndex + 1, fileCount - 1);
           if (next === focusedIndex) break;
 
-          // Heuristic: if current focusedIndex is the last visible item, scroll viewport up one row first, keep selection visually pinned at bottom.
           try {
             const list = virtualListRef.current as unknown as {
               state?: {
@@ -900,21 +900,23 @@ const Browser: React.FC = () => {
               const visibleCapacity = Math.floor(height / itemSize);
               const lastVisible = firstVisible + visibleCapacity - 1;
               if (focusedIndex === lastVisible) {
-                // Manual scroll first, then update state in next frame to keep selection pinned at bottom
                 manualScrollRef.current = true;
-                virtualListRef.current?.scrollToRow({
-                  index: next,
-                  align: "end",
-                  behavior: "instant",
-                });
-                requestAnimationFrame(() => {
-                  setFocusedIndex(next);
-                });
+                if (virtualListRef.current) {
+                  virtualListRef.current.scrollToRow({
+                    index: next,
+                    align: "end",
+                    behavior: "instant",
+                  });
+                  flushSync(() => {
+                    setFocusedIndex(next);
+                  });
+                  break;
+                }
+                setFocusedIndex(next);
                 break;
               }
             }
           } catch {}
-          // Normal in-viewport move; let auto alignment handle minimal scroll.
           setFocusedIndex(next);
           break;
         }
@@ -938,14 +940,18 @@ const Browser: React.FC = () => {
               const firstVisible = Math.floor(scrollOffset / itemSize);
               if (focusedIndex === firstVisible) {
                 manualScrollRef.current = true;
-                virtualListRef.current?.scrollToRow({
-                  index: next,
-                  align: "start",
-                  behavior: "instant",
-                });
-                requestAnimationFrame(() => {
-                  setFocusedIndex(next);
-                });
+                if (virtualListRef.current) {
+                  virtualListRef.current.scrollToRow({
+                    index: next,
+                    align: "start",
+                    behavior: "instant",
+                  });
+                  flushSync(() => {
+                    setFocusedIndex(next);
+                  });
+                  break;
+                }
+                setFocusedIndex(next);
                 break;
               }
             }
