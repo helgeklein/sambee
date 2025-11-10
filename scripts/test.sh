@@ -59,11 +59,11 @@ fi
 # Use coverage only if COVERAGE env var is set
 if [ "${COVERAGE:-0}" = "1" ]; then
     # Coverage with parallel execution
-    PYTEST_CMD="pytest -n $NUM_WORKERS -v --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml"
+    PYTEST_CMD="pytest -n $NUM_WORKERS --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml"
     echo -e "${BLUE}Coverage: enabled${NC}"
 else
     # Parallel execution without coverage (fastest)
-    PYTEST_CMD="pytest -n $NUM_WORKERS -v"
+    PYTEST_CMD="pytest -n $NUM_WORKERS"
     echo -e "${BLUE}Coverage: disabled${NC}"
 fi
 
