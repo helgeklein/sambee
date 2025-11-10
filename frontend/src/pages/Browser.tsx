@@ -44,7 +44,6 @@ import {
 import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -192,47 +191,41 @@ const Browser: React.FC = () => {
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
 
-  const updateFocus = React.useCallback(
-    (next: number, options?: { flush?: boolean; immediate?: boolean }) => {
-      const shouldFlush = options?.flush ?? false;
-      const immediate = options?.immediate ?? false;
+  const updateFocus = React.useCallback((next: number, options?: { immediate?: boolean }) => {
+    const immediate = options?.immediate ?? false;
 
-      const commit = () => {
-        setFocusedIndex((prev) => (prev === next ? prev : next));
-      };
+    const commit = () => {
+      setFocusedIndex((prev) => (prev === next ? prev : next));
+    };
 
-      if (shouldFlush || immediate) {
-        if (focusCommitRafRef.current !== null) {
-          cancelAnimationFrame(focusCommitRafRef.current);
-          focusCommitRafRef.current = null;
-        }
-        pendingFocusedIndexRef.current = null;
-        if (shouldFlush) {
-          flushSync(commit);
-        } else {
-          commit();
-        }
-        return;
-      }
-
-      pendingFocusedIndexRef.current = next;
-
+    if (immediate) {
+      // Cancel pending RAF batching and commit immediately
       if (focusCommitRafRef.current !== null) {
+        cancelAnimationFrame(focusCommitRafRef.current);
+        focusCommitRafRef.current = null;
+      }
+      pendingFocusedIndexRef.current = null;
+      commit(); // Regular setState - React will batch automatically
+      return;
+    }
+
+    // RAF batching for smooth updates during key repeat
+    pendingFocusedIndexRef.current = next;
+
+    if (focusCommitRafRef.current !== null) {
+      return; // Already scheduled
+    }
+
+    focusCommitRafRef.current = requestAnimationFrame(() => {
+      focusCommitRafRef.current = null;
+      const target = pendingFocusedIndexRef.current;
+      pendingFocusedIndexRef.current = null;
+      if (target === null) {
         return;
       }
-
-      focusCommitRafRef.current = requestAnimationFrame(() => {
-        focusCommitRafRef.current = null;
-        const target = pendingFocusedIndexRef.current;
-        pendingFocusedIndexRef.current = null;
-        if (target === null) {
-          return;
-        }
-        setFocusedIndex((prev) => (prev === target ? prev : target));
-      });
-    },
-    []
-  );
+      setFocusedIndex((prev) => (prev === target ? prev : target));
+    });
+  }, []);
 
   useEffect(() => {
     return () => {
