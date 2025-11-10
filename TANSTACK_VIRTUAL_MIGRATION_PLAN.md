@@ -510,9 +510,23 @@ Document the migration for future reference.
 - [x] Verify build compiles successfully (bundle size reduced by ~700 bytes)
 - [x] Fix linting issues
 
-### Phase 4: Focus Overlay Refinement
-- [ ] Sync overlay with TanStack virtual items
-- [ ] Remove complex RAF coordination
+### Phase 4: Focus Overlay Refinement ✅ COMPLETED
+- [x] Sync overlay with TanStack Virtual's virtual items
+  - [x] Use `getVirtualItems().find()` to locate focused item
+  - [x] Use `virtualItem.start` for accurate positioning
+  - [x] Use `virtualItem.size` for dynamic height (future-proof)
+  - [x] Hide overlay when focused item is not rendered (out of viewport)
+- [x] Simplify RAF coordination
+  - [x] Removed `focusOverlayUpdateRafRef` tracking
+  - [x] Simplified `queueFocusOverlayUpdate` to use direct RAF call
+  - [x] Removed cleanup effect (no longer needed)
+- [x] Improve overlay positioning accuracy
+  - [x] Position based on TanStack's computed `start` position
+  - [x] Account for scroll offset automatically
+  - [x] Smoother tracking during rapid scrolling
+- [x] Add clear comments explaining overlay update triggers
+- [x] Verify build compiles successfully
+- [x] All lint checks pass
 
 ### Phase 5: Performance Optimization
 - [ ] Configure optimal overscan

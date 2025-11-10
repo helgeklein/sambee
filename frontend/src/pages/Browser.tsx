@@ -801,8 +801,7 @@ const Browser: React.FC = () => {
   // Skip the layout effect scroll if we already handled it synchronously in the keyboard handler
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
 
-  const focusOverlayUpdateRafRef = React.useRef<number | null>(null);
-
+  // Focus overlay update - synced with TanStack Virtual's virtual items
   const updateFocusOverlayImmediate = React.useCallback(() => {
     const overlay = focusOverlayRef.current;
     const listElement = parentRef.current;
@@ -818,10 +817,24 @@ const Browser: React.FC = () => {
       return;
     }
 
-    const scrollTop = listElement.scrollTop;
-    const availableHeight = listElement.clientHeight;
-    const top = focusedIndex * ROW_HEIGHT - scrollTop;
+    // Get virtual items to check if focused item is currently rendered
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    const focusedVirtualItem = virtualItems.find((item) => item.index === focusedIndex);
 
+    if (!focusedVirtualItem) {
+      // Focused item is not in the viewport - hide overlay
+      if (overlay.style.opacity !== "0") {
+        overlay.style.opacity = "0";
+      }
+      return;
+    }
+
+    // Position overlay using TanStack Virtual's computed position
+    const scrollTop = listElement.scrollTop;
+    const top = focusedVirtualItem.start - scrollTop;
+
+    // Check if the overlay would be visible in the viewport
+    const availableHeight = listElement.clientHeight;
     if (top < -ROW_HEIGHT || top > availableHeight) {
       if (overlay.style.opacity !== "0") {
         overlay.style.opacity = "0";
@@ -829,8 +842,10 @@ const Browser: React.FC = () => {
       return;
     }
 
+    // Update overlay position and visibility
     const targetOpacity = "1";
     const targetTransform = `translateY(${Math.round(top)}px)`;
+    const targetHeight = `${focusedVirtualItem.size}px`;
 
     if (overlay.style.opacity !== targetOpacity) {
       overlay.style.opacity = targetOpacity;
@@ -838,31 +853,24 @@ const Browser: React.FC = () => {
     if (overlay.style.transform !== targetTransform) {
       overlay.style.transform = targetTransform;
     }
-  }, [focusedIndex]);
+    if (overlay.style.height !== targetHeight) {
+      overlay.style.height = targetHeight;
+    }
+  }, [focusedIndex, rowVirtualizer]);
 
   const queueFocusOverlayUpdate = React.useCallback(() => {
-    if (focusOverlayUpdateRafRef.current !== null) {
-      return;
-    }
-    focusOverlayUpdateRafRef.current = requestAnimationFrame(() => {
-      focusOverlayUpdateRafRef.current = null;
+    // Request animation frame for smooth overlay updates during scroll
+    requestAnimationFrame(() => {
       updateFocusOverlayImmediate();
     });
   }, [updateFocusOverlayImmediate]);
 
-  useEffect(() => {
-    return () => {
-      if (focusOverlayUpdateRafRef.current !== null) {
-        cancelAnimationFrame(focusOverlayUpdateRafRef.current);
-        focusOverlayUpdateRafRef.current = null;
-      }
-    };
-  }, []);
-
+  // Update overlay position on layout changes and when focused index changes
   useLayoutEffect(() => {
     updateFocusOverlayImmediate();
   }, [updateFocusOverlayImmediate]);
 
+  // Update overlay position during scroll events
   useEffect(() => {
     const listElement = parentRef.current;
     if (!listElement) {
