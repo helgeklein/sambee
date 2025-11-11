@@ -40,6 +40,9 @@ frontend/coverage/
 coverage/
 *.lcov
 
+# Backend coverage
+backend/coverage.json
+
 # React build
 frontend/build/
 frontend/.env.local
