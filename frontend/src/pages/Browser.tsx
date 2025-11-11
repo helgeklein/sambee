@@ -1303,13 +1303,13 @@ const Browser: React.FC = () => {
         case "ArrowUp": {
           e.preventDefault();
           if (focusedIndex < 0) return;
-          
+
           // If at first item (index 0), move focus to search box
           if (focusedIndex === 0 && searchInputRef.current) {
             searchInputRef.current.focus();
             return;
           }
-          
+
           const next = Math.max(focusedIndex - 1, 0);
           if (next === focusedIndex) break;
 
