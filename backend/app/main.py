@@ -30,12 +30,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Log startup time
-logger.info("=" * 80)
-logger.info(f"Sambee Backend Starting - {datetime.now().isoformat()}")
-logger.info(f"Python: {sys.version}")
-logger.info(f"Working Directory: {Path.cwd()}")
-logger.info("=" * 80)
+# Log startup time (skip during tests to reduce noise)
+if "pytest" not in sys.modules:
+    logger.info("=" * 80)
+    logger.info(f"Sambee Backend Starting - {datetime.now().isoformat()}")
+    logger.info(f"Python: {sys.version}")
+    logger.info(f"Working Directory: {Path.cwd()}")
+    logger.info("=" * 80)
 
 
 @asynccontextmanager
