@@ -11,6 +11,7 @@ Tests cover:
 - Error handling and edge cases
 """
 
+from contextlib import asynccontextmanager
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -18,6 +19,22 @@ import pytest
 from app.models.file import DirectoryListing, FileType
 from app.storage.smb import SMBBackend
 from smbclient._os import FileAttributes
+
+
+@pytest.fixture(autouse=True)
+def mock_smb_pool():
+    """Mock the SMB connection pool for all tests."""
+
+    @asynccontextmanager
+    async def mock_get_connection(host, port, username, password, share_name):
+        # Just yield without actually connecting
+        yield None
+
+    with patch("app.storage.smb.get_connection_pool") as mock_pool:
+        mock_pool_instance = MagicMock()
+        mock_pool_instance.get_connection = mock_get_connection
+        mock_pool.return_value = mock_pool_instance
+        yield mock_pool
 
 
 class TestPathConstruction:
@@ -236,9 +253,8 @@ class TestConnectionManagement:
     """Test SMB connection lifecycle."""
 
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.register_session")
-    async def test_connect_success(self, mock_register):
-        """Test successful SMB connection."""
+    async def test_connect_success(self):
+        """Test successful SMB connection (now uses pool)."""
         backend = SMBBackend(
             host="server.local",
             share_name="share",
@@ -246,19 +262,12 @@ class TestConnectionManagement:
             password="pass",
         )
 
+        # Connect should not raise - actual connection happens via pool
         await backend.connect()
 
-        mock_register.assert_called_once_with(
-            "server.local",
-            username="user",
-            password="pass",
-            port=445,
-        )
-
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.register_session")
-    async def test_connect_custom_port(self, mock_register):
-        """Test connection with custom port."""
+    async def test_connect_custom_port(self):
+        """Test connection with custom port (now uses pool)."""
         backend = SMBBackend(
             host="server.local",
             share_name="share",
@@ -267,21 +276,12 @@ class TestConnectionManagement:
             port=8445,
         )
 
+        # Connect should not raise - actual connection happens via pool
         await backend.connect()
 
-        mock_register.assert_called_once_with(
-            "server.local",
-            username="user",
-            password="pass",
-            port=8445,
-        )
-
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.register_session")
-    async def test_connect_authentication_failure(self, mock_register):
-        """Test connection failure due to authentication."""
-        mock_register.side_effect = Exception("Authentication failed")
-
+    async def test_connect_authentication_failure(self):
+        """Test connection failure due to authentication (handled by pool)."""
         backend = SMBBackend(
             host="server.local",
             share_name="share",
@@ -289,15 +289,12 @@ class TestConnectionManagement:
             password="wrongpass",
         )
 
-        with pytest.raises(Exception, match="Authentication failed"):
-            await backend.connect()
+        # Connect itself doesn't fail - errors happen during operations
+        await backend.connect()
 
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.register_session")
-    async def test_connect_network_error(self, mock_register):
-        """Test connection failure due to network error."""
-        mock_register.side_effect = ConnectionError("Network unreachable")
-
+    async def test_connect_network_error(self):
+        """Test connection failure due to network error (handled by pool)."""
         backend = SMBBackend(
             host="unreachable.local",
             share_name="share",
@@ -305,8 +302,8 @@ class TestConnectionManagement:
             password="pass",
         )
 
-        with pytest.raises(ConnectionError, match="Network unreachable"):
-            await backend.connect()
+        # Connect itself doesn't fail - errors happen during operations
+        await backend.connect()
 
     @pytest.mark.asyncio
     async def test_disconnect_keeps_session_alive(self):

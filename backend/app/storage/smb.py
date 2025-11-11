@@ -8,6 +8,7 @@ from typing import AsyncIterator
 import smbclient
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.storage.base import StorageBackend
+from app.storage.smb_pool import get_connection_pool
 from smbclient._os import FileAttributes
 
 logger = logging.getLogger(__name__)
@@ -25,37 +26,35 @@ class SMBBackend(StorageBackend):
         self.password = password
         self.port = port
         self._base_path = f"\\\\{host}\\{share_name}"
+        self._pool_connection = None  # Track current pool connection context
 
     async def connect(self) -> None:
-        """Establish SMB connection"""
-        try:
-            logger.info(
-                f"Connecting to SMB: //{self.host}:{self.port}/{self.share_name} (user: {self.username})"
-            )
-            # Register the session for smbclient
-            smbclient.register_session(
-                self.host,
-                username=self.username,
-                password=self.password,
-                port=self.port,
-            )
-            logger.info(
-                f"✅ SMB connection established: //{self.host}/{self.share_name}"
-            )
-        except Exception as e:
-            logger.error(
-                f"❌ Failed to connect to SMB share //{self.host}/{self.share_name}: {e}",
-                exc_info=True,
-            )
-            raise
+        """
+        Establish SMB connection using connection pool.
+
+        This acquires a connection from the global pool. If a connection
+        to this server already exists, it will be reused. Otherwise, a new
+        connection is created.
+
+        The connection is NOT immediately established here - it's acquired
+        through the pool's context manager when operations are performed.
+        """
+        # Connection pooling is handled transparently in operations
+        # No explicit connection establishment needed
+        logger.debug(
+            f"SMB backend ready (will use pooled connection): //{self.host}:{self.port}/{self.share_name}"
+        )
 
     async def disconnect(self) -> None:
-        """Close SMB connection - Note: we don't delete the session to allow reuse"""
-        # Don't call delete_session() - smbclient is designed to reuse sessions
-        # Deleting the session after each operation can cause "socket closed" errors
-        # The session will be cleaned up when the process exits
+        """
+        Release SMB connection back to pool.
+
+        The connection is not actually closed - it's returned to the pool
+        for reuse by other requests. The pool will clean up idle connections
+        automatically.
+        """
         logger.debug(
-            f"Keeping SMB session alive for reuse: //{self.host}/{self.share_name}"
+            f"SMB backend released (connection remains in pool): //{self.host}/{self.share_name}"
         )
 
     def _build_smb_path(self, path: str) -> str:
@@ -75,70 +74,78 @@ class SMBBackend(StorageBackend):
         """List contents of a directory"""
         smb_path = self._build_smb_path(path)
         logger.info(f"Listing directory: path='{path}' -> smb_path='{smb_path}'")
-        items = []
 
         try:
-            # Run in executor to avoid blocking
-            loop = asyncio.get_event_loop()
+            # Acquire connection from pool
+            pool = await get_connection_pool()
 
-            # Use scandir for better performance - all info from ONE SMB query_directory call
-            def _scan_directory() -> list[FileInfo]:
-                result = []
-                entries = smbclient.scandir(
-                    smb_path, username=self.username, password=self.password
-                )
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                # Run in executor to avoid blocking
+                loop = asyncio.get_event_loop()
 
-                for entry in entries:
-                    if entry.name in [".", ".."]:
-                        continue
+                # Use scandir for better performance - all info from ONE SMB query_directory call
+                def _scan_directory() -> list[FileInfo]:
+                    result = []
+                    # Don't pass username/password - use the registered session from pool
+                    entries = smbclient.scandir(smb_path)
 
-                    item_path = f"{path}/{entry.name}" if path else entry.name
+                    for entry in entries:
+                        if entry.name in [".", ".."]:
+                            continue
 
-                    try:
-                        # Use smb_info which is already populated by scandir - NO extra SMB calls!
-                        info = entry.smb_info
+                        item_path = f"{path}/{entry.name}" if path else entry.name
 
-                        # OPTIMIZATION: Check directory flag directly from file_attributes
-                        # to avoid calling is_dir() which might call is_symlink() which might
-                        # call stat() for reparse points (symlinks/junctions)
-                        is_dir = bool(
-                            info.file_attributes
-                            & FileAttributes.FILE_ATTRIBUTE_DIRECTORY
-                        )
+                        try:
+                            # Use smb_info which is already populated by scandir - NO extra SMB calls!
+                            info = entry.smb_info
 
-                        # Convert Windows FILETIME (100ns intervals since 1601) to Python datetime
-                        # The smb_info already has datetime objects
-                        file_info = FileInfo(
-                            name=entry.name,
-                            path=item_path,
-                            type=FileType.DIRECTORY if is_dir else FileType.FILE,
-                            size=info.end_of_file if not is_dir else None,
-                            mime_type=None,  # Skip MIME type detection for directory listings (not used by frontend)
-                            modified_at=info.last_write_time,
-                            created_at=info.creation_time,
-                            is_hidden=entry.name.startswith("."),
-                        )
-                        result.append(file_info)
-                    except Exception as e:
-                        logger.warning(f"Failed to process {entry.name}: {e}")
-                        # Add basic entry even if processing fails
-                        result.append(
-                            FileInfo(
+                            # OPTIMIZATION: Check directory flag directly from file_attributes
+                            # to avoid calling is_dir() which might call is_symlink() which might
+                            # call stat() for reparse points (symlinks/junctions)
+                            is_dir = bool(
+                                info.file_attributes
+                                & FileAttributes.FILE_ATTRIBUTE_DIRECTORY
+                            )
+
+                            # Convert Windows FILETIME (100ns intervals since 1601) to Python datetime
+                            # The smb_info already has datetime objects
+                            file_info = FileInfo(
                                 name=entry.name,
                                 path=item_path,
-                                type=FileType.FILE,
-                                is_readable=False,
+                                type=FileType.DIRECTORY if is_dir else FileType.FILE,
+                                size=info.end_of_file if not is_dir else None,
+                                mime_type=None,  # Skip MIME type detection for directory listings (not used by frontend)
+                                modified_at=info.last_write_time,
+                                created_at=info.creation_time,
                                 is_hidden=entry.name.startswith("."),
                             )
-                        )
-                return result
+                            result.append(file_info)
+                        except Exception as e:
+                            logger.warning(f"Failed to process {entry.name}: {e}")
+                            # Add basic entry even if processing fails
+                            result.append(
+                                FileInfo(
+                                    name=entry.name,
+                                    path=item_path,
+                                    type=FileType.FILE,
+                                    is_readable=False,
+                                    is_hidden=entry.name.startswith("."),
+                                )
+                            )
+                    return result
 
-            items = await loop.run_in_executor(None, _scan_directory)
+                items = await loop.run_in_executor(None, _scan_directory)
 
-            # NOTE: No sorting here - frontend handles sorting based on user preference
-            # Avoiding unnecessary work on the backend for large directories
+                # NOTE: No sorting here - frontend handles sorting based on user preference
+                # Avoiding unnecessary work on the backend for large directories
 
-            return DirectoryListing(path=path or "/", items=items, total=len(items))
+                return DirectoryListing(path=path or "/", items=items, total=len(items))
 
         except Exception as e:
             logger.error(
@@ -152,29 +159,37 @@ class SMBBackend(StorageBackend):
         smb_path = self._build_smb_path(path)
 
         try:
-            loop = asyncio.get_event_loop()
-            stat_info = await loop.run_in_executor(
-                None,
-                lambda: smbclient.stat(
-                    smb_path, username=self.username, password=self.password
-                ),
-            )
+            # Acquire connection from pool
+            pool = await get_connection_pool()
 
-            is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
-                smb_path, username=self.username, password=self.password
-            )
-            filename = PurePosixPath(path).name
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                # Don't pass username/password - use the registered session from pool
+                stat_info = await loop.run_in_executor(
+                    None, lambda: smbclient.stat(smb_path)
+                )
 
-            return FileInfo(
-                name=filename,
-                path=path,
-                type=FileType.DIRECTORY if is_dir else FileType.FILE,
-                size=stat_info.st_size if not is_dir else None,
-                mime_type=None if is_dir else self._get_mime_type(filename),
-                modified_at=datetime.fromtimestamp(stat_info.st_mtime),
-                created_at=datetime.fromtimestamp(stat_info.st_ctime),
-                is_hidden=filename.startswith("."),
-            )
+                is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
+                    smb_path
+                )
+                filename = PurePosixPath(path).name
+
+                return FileInfo(
+                    name=filename,
+                    path=path,
+                    type=FileType.DIRECTORY if is_dir else FileType.FILE,
+                    size=stat_info.st_size if not is_dir else None,
+                    mime_type=None if is_dir else self._get_mime_type(filename),
+                    modified_at=datetime.fromtimestamp(stat_info.st_mtime),
+                    created_at=datetime.fromtimestamp(stat_info.st_ctime),
+                    is_hidden=filename.startswith("."),
+                )
 
         except Exception as e:
             logger.error(f"Failed to get file info for {path}: {e}")
@@ -187,26 +202,34 @@ class SMBBackend(StorageBackend):
         smb_path = self._build_smb_path(path)
 
         try:
-            loop = asyncio.get_event_loop()
+            # Acquire connection from pool
+            pool = await get_connection_pool()
 
-            # Open file in executor
-            file_handle = await loop.run_in_executor(
-                None,
-                lambda: smbclient.open_file(
-                    smb_path, mode="rb", username=self.username, password=self.password
-                ),
-            )
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
 
-            try:
-                while True:
-                    chunk = await loop.run_in_executor(
-                        None, file_handle.read, chunk_size
-                    )
-                    if not chunk:
-                        break
-                    yield chunk
-            finally:
-                await loop.run_in_executor(None, file_handle.close)
+                # Open file in executor
+                # Don't pass username/password - use the registered session from pool
+                file_handle = await loop.run_in_executor(
+                    None, lambda: smbclient.open_file(smb_path, mode="rb")
+                )
+
+                try:
+                    while True:
+                        chunk = await loop.run_in_executor(
+                            None, file_handle.read, chunk_size
+                        )
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    await loop.run_in_executor(None, file_handle.close)
 
         except Exception as e:
             logger.error(f"Failed to read file {path}: {e}")
@@ -217,13 +240,24 @@ class SMBBackend(StorageBackend):
         smb_path = self._build_smb_path(path)
 
         try:
-            loop = asyncio.get_event_loop()
-            exists = await loop.run_in_executor(
-                None,
-                lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
-                    smb_path, username=self.username, password=self.password
-                ),
-            )
-            return bool(exists)
+            # Acquire connection from pool
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                # Don't pass username/password - use the registered session from pool
+                exists = await loop.run_in_executor(
+                    None,
+                    lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                        smb_path
+                    ),
+                )
+                return bool(exists)
         except Exception:
             return False
