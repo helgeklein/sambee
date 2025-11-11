@@ -182,6 +182,7 @@ const Browser: React.FC = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingConnections, setLoadingConnections] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("name");
   const [searchQuery, setSearchQuery] = useState("");
@@ -405,6 +406,7 @@ const Browser: React.FC = () => {
 
   const loadConnections = useCallback(async () => {
     try {
+      setLoadingConnections(true);
       const token = localStorage.getItem("access_token");
       if (!token) {
         navigate("/login");
@@ -459,6 +461,8 @@ const Browser: React.FC = () => {
       } else {
         setError("Failed to load connections. Please try again.");
       }
+    } finally {
+      setLoadingConnections(false);
     }
   }, [navigate, params.connectionId, slugifyConnectionName]);
 
@@ -1749,7 +1753,13 @@ const Browser: React.FC = () => {
           </Alert>
         )}
 
-        {connections.length === 0 && !error && (
+        {loadingConnections && !error && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Loading connections...
+          </Alert>
+        )}
+
+        {connections.length === 0 && !error && !loadingConnections && (
           <Alert severity="info" sx={{ mb: 2 }}>
             No SMB connections configured.
             {isAdmin && " Click the settings icon to add a connection."}
