@@ -18,6 +18,7 @@ from app.core.logging import set_request_id
 from app.core.security import get_password_hash
 from app.db.database import engine, init_db
 from app.models.user import User
+from app.storage.smb_pool import shutdown_connection_pool
 
 # Configure logging with more detail
 logging.basicConfig(
@@ -76,7 +77,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    # Shutdown
     logger.info("Shutting down Sambee application...")
+
+    # Close all SMB connection pool connections
+    logger.info("Closing SMB connection pool...")
+    await shutdown_connection_pool()
+    logger.info("✅ SMB connection pool closed")
+
+    logger.info("👋 Sambee application shutdown complete")
 
     # Stop all directory monitors and clean up SMB handles
     try:
