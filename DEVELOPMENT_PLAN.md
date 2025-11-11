@@ -17,12 +17,10 @@
 
 ---
 
-## Phase 1: Enhanced File Preview & Viewing (High Priority)
+## Enhanced File Preview & Viewing
 
-### 1.1 Rich Preview Support
-**Goal:** Support multiple file types beyond Markdown
+### Rich Preview Support
 
-**Tasks:**
 - [ ] **Image Preview Component**
   - Support: PNG, JPEG, GIF, WebP, SVG
   - Features: zoom, pan, rotation, metadata display
@@ -55,10 +53,11 @@
 
 ---
 
-## Phase 2: UI/UX Enhancements (Medium Priority)
+## UI/UX Enhancements
 
-### 2.1 Advanced Browser Features
-- [ ] **Multi-select & Batch Operations**
+### Advanced Browser Features
+
+  - [ ] **Multi-select & Batch Operations**
   - Shift+Click for range selection
   - Ctrl/Cmd+Click for individual items
   - Bulk download (as ZIP)
@@ -69,7 +68,7 @@
   - Backend: implement archive creation endpoint
   
 - [ ] **Enhanced Search**
-  - Server-side search (for large directories)
+  - Server-side search (for large directories) (?)
   - Fuzzy search option
   - Search within subdirectories (recursive)
   - Filter by type, date, size
@@ -80,12 +79,13 @@
   - Detail view (with extended metadata)
   - User preference persistence
 
-### 2.2 Navigation & Layout
+### Navigation & Layout
+
 - [ ] **Breadcrumb Improvements**
-  - Dropdown for intermediate paths (like VS Code)
+  - Dropdown for intermediate paths (like VS Code) (?)
   - Copy path functionality
   
-- [ ] **Split View / Dual Pane**
+- [ ] **Split View / Dual Pane** (?)
   - Browse two directories side-by-side
   - Useful for comparing directories
   
@@ -94,7 +94,8 @@
   - Bookmark frequently used paths
   - Persist per user in database
 
-### 2.3 Visual Polish
+### Visual Polish
+
 - [ ] **File Icons**
   - Better file type icons (use icon library like react-icons)
   - Thumbnail previews for images in list view
@@ -109,11 +110,17 @@
   - Skeleton loaders for file lists
   - Toast notifications for operations
 
+- [ ] **Theming Systems**
+  - UI theming (colors, font sizes)
+  - Switch between different themes
+  - Additional themes to be added by users
+
 ---
 
-## Phase 3: Performance & Scalability (Medium Priority)
+## Performance & Scalability
 
-### 3.1 Frontend Optimizations
+### Frontend Optimizations
+
 - [ ] **Code Splitting**
   - Lazy load preview components
   - Route-based splitting
@@ -124,7 +131,8 @@
   - Cache static assets
   - Install as desktop app
 
-### 3.2 Monitoring & Observability
+### Monitoring & Observability
+
 - [ ] **Metrics & Analytics**
   - Prometheus metrics endpoint
   - Track: API latency, error rates, active connections
@@ -132,7 +140,7 @@
 - [ ] **Structured Logging**
   - JSON log format for production
   - Log aggregation (ELK stack compatible)
-  - Request tracing IDs (already implemented ✅)
+  - ✅ Request tracing IDs
   
 - [ ] **Health Checks**
   - Deep health endpoint (check DB, SMB connectivity)
@@ -140,9 +148,10 @@
 
 ---
 
-## Phase 4: Security & Compliance (High Priority)
+## Security & Compliance
 
-### 4.1 Authentication & Authorization
+### Authentication & Authorization
+
 - [ ] **LDAP/Active Directory Integration**
   - Authenticate against AD
   - Map AD groups to admin roles
@@ -160,7 +169,8 @@
   - Admin actions (user/connection CRUD)
   - Tamper-proof audit trail
 
-### 4.2 Security Hardening
+### Security Hardening
+
 - [ ] **Rate Limiting**
   - Per-user, per-IP limits
   - Use slowapi or custom middleware
@@ -183,16 +193,17 @@
 
 ---
 
-## Phase 5: Multi-Protocol Support (Low-Medium Priority)
+## Multi-Protocol Support
 
-### 5.1 Protocol Abstraction
+### Protocol Abstraction
+
 - [ ] **Refactor Storage Layer**
   - Make `StorageBackend` truly pluggable
   - Clean interface for all protocols
   
 - [ ] **Additional Protocols**
   - **FTP/SFTP**: Common in legacy systems
-  - **WebDAV**: Nextcloud, ownCloud support
+  - **WebDAV**: Nextcloud, ownCloud support (?)
   - **S3-compatible**: MinIO, AWS S3, R2
   - **Google Drive / Dropbox**: OAuth-based cloud storage
   
@@ -202,9 +213,10 @@
 
 ---
 
-## Phase 6: Collaboration & Sharing (Low Priority)
+## Collaboration & Sharing (?)
 
-### 6.1 Sharing Features
+### Sharing Features
+
 - [ ] **Share Links**
   - Generate time-limited, password-protected links
   - Share files/folders with non-users
@@ -215,7 +227,8 @@
   - Per-connection permissions
   - Share-level ACLs
 
-### 6.2 Comments & Annotations
+### Comments & Annotations
+
 - [ ] **File Comments**
   - Add notes to files/folders
   - Collaborative annotations
@@ -223,16 +236,16 @@
 
 ---
 
-## Phase 7: Administration & Operations (Medium Priority)
+## Administration & Operations
 
-### 7.1 Admin Dashboard
+### Admin Dashboard
+
 - [ ] **User Management UI**
   - CRUD users via web interface
   - Role assignment (admin/regular)
   - Password reset
   
 - [ ] **Connection Management Improvements**
-  - Test connection before saving
   - Connection health monitoring
   - Auto-reconnect on failure
   
@@ -241,7 +254,8 @@
   - Feature flags for new features
   - Email/notification settings
 
-### 7.2 Deployment & Operations
+### Deployment & Operations
+
 - [ ] **Database Migrations**
   - Alembic for schema migrations
   - Version tracking
@@ -262,12 +276,12 @@
 ## Technical Debt & Code Quality
 
 ### Immediate Actions
-1. **Improve directory_monitor.py coverage** (currently 74%)
+
+1. **Improve directory_monitor.py coverage**
    - Add tests for edge cases: rapid changes, network failures
    - Mock SMB connection failures
    
 2. **Type Safety**
-   - Continue using mypy strict mode ✅
    - Add type hints to remaining untyped code
    
 3. **Error Handling**
@@ -276,82 +290,53 @@
    - Graceful degradation (e.g., preview fallback)
 
 ### Best Practices to Maintain
+
 1. **Testing**
    - Keep coverage >80% for all new code
    - Integration tests for all new API endpoints
    - Frontend: test keyboard interactions, error states
    
 2. **Documentation**
-   - API documentation (OpenAPI/Swagger - FastAPI does this ✅)
+   - ✅ API documentation (OpenAPI/Swagger - FastAPI does this)
    - User guide for keyboard shortcuts, features
-   - Developer setup guide (already good ✅)
+   - ✅ Developer setup guide
    
 3. **Code Review Standards**
-   - All code passes lint (Ruff/Biome) ✅
-   - Tests included with PRs
+   - ✅ All code passes lint (Ruff/Biome)
+   - ✅ Tests included with PRs
    - Performance considerations documented
-
----
-
-## Prioritized Roadmap
-
-### Q1 2026: Core Completeness
-- ✅ Image preview
-- ✅ Code/text preview with syntax highlighting
-- ✅ File download (single files)
-- ✅ Dark mode
-- ✅ Improve test coverage to 90%+
-
-### Q2 2026: Enterprise Features
-- ✅ LDAP/AD authentication
-- ✅ Audit logging
-- ✅ Rate limiting & security hardening
-- ✅ Admin dashboard improvements
-- ✅ Multi-select & bulk operations
-
-### Q3 2026: Scale & Performance
-- ✅ Redis caching
-- ✅ Background jobs (Celery)
-- ✅ Monitoring & metrics
-- ✅ PDF viewer
-- ✅ Media preview (audio/video)
-
-### Q4 2026: Advanced Features
-- ✅ Additional protocol support (FTP, S3)
-- ✅ Sharing & collaboration
-- ✅ Split view / dual pane
-- ✅ PWA support
 
 ---
 
 ## Elegant Architecture Principles
 
-### 1. **Separation of Concerns**
+### **Separation of Concerns**
+
    - Keep preview components independent and composable
    - Protocol implementations strictly adhere to `StorageBackend` interface
    - Clear boundaries: API → Service → Storage
 
-### 2. **Progressive Enhancement**
+### **Progressive Enhancement**
    - Basic functionality works without JS (server-rendered fallback)
    - Preview degrades gracefully for unsupported types
    - Mobile-first, responsive design
 
-### 3. **Performance by Default**
+### **Performance by Default**
    - Lazy load everything possible
    - Stream large files, never load fully into memory
    - Database indexes on frequent queries
    - CDN-ready static assets
 
-### 4. **Security by Design**
+### **Security by Design**
    - Principle of least privilege
-   - Encrypted credentials at rest ✅
+   - ✅ Encrypted credentials at rest
    - Secure defaults (HTTPS, SameSite cookies)
    - Regular dependency updates
 
 ### 5. **Developer Experience**
-   - Consistent code style (enforced by tools) ✅
+   - ✅ Consistent code style (enforced by tools)
    - Clear error messages with actionable advice
-   - Fast feedback loop (hot reload, quick tests) ✅
+   - ✅ Fast feedback loop (hot reload, quick tests)
    - Documentation as code
 
 ---
@@ -359,24 +344,6 @@
 ## Success Metrics
 
 - **Performance**: <100ms API response time (p95)
-- **Reliability**: 99.9% uptime in production
 - **Coverage**: >85% test coverage (backend & frontend)
 - **Security**: Zero critical vulnerabilities
 - **UX**: <3 clicks to any major feature
-- **Adoption**: Used by 100+ users in production
-
----
-
-## Getting Started
-
-**Next Steps:**
-1. Create GitHub issues for Phase 1 tasks
-2. Set up project board (Kanban)
-3. Prioritize based on user feedback
-4. Start with Image Preview (highest user value)
-
-**Questions to Answer:**
-- What are the most common file types users need to preview?
-- Is multi-protocol support a real requirement?
-- Should we support file uploads (write operations)?
-- What's the target deployment scale (users, files, connections)?
