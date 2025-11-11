@@ -540,21 +540,49 @@ const Browser: React.FC = () => {
         }
       } else {
         const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
-        const mimeType = file.mime_type || "application/octet-stream";
+
+        // Get MIME type - fallback to guessing from filename if backend didn't provide it
+        let mimeType = file.mime_type;
+        if (!mimeType) {
+          // Guess MIME type from file extension
+          const ext = file.name.toLowerCase().split(".").pop();
+          const mimeTypeMap: Record<string, string> = {
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            png: "image/png",
+            gif: "image/gif",
+            webp: "image/webp",
+            svg: "image/svg+xml",
+            md: "text/markdown",
+            markdown: "text/markdown",
+            txt: "text/plain",
+            pdf: "application/pdf",
+          };
+          mimeType = ext
+            ? mimeTypeMap[ext] || "application/octet-stream"
+            : "application/octet-stream";
+        }
+
+        // Check if it's an image for gallery mode
+        const isImage = isImageFile(file.name);
 
         logger.info("File selected for preview", {
           path: filePath,
           fileName: file.name,
           size: file.size,
           mimeType,
+          mimeTypeSource: file.mime_type ? "backend" : "guessed",
+          isImage,
+          imageFilesCount: imageFiles.length,
         });
-
-        // Check if it's an image for gallery mode
-        const isImage = isImageFile(file.name);
 
         if (isImage && imageFiles.length > 0) {
           // Gallery mode for images
           const imageIndex = imageFiles.indexOf(filePath);
+          logger.info("Opening image in gallery mode", {
+            imageIndex,
+            totalImages: imageFiles.length,
+          });
           setPreviewInfo({
             path: filePath,
             mimeType,
@@ -563,6 +591,10 @@ const Browser: React.FC = () => {
           });
         } else {
           // Single file preview
+          logger.info("Opening file in single preview mode", {
+            isImage,
+            hasPreviewSupport: mimeType !== "application/octet-stream",
+          });
           setPreviewInfo({
             path: filePath,
             mimeType,
@@ -2111,25 +2143,61 @@ const DynamicPreview: React.FC<{
   };
   onClose: () => void;
 }> = ({ connectionId, previewInfo, onClose }) => {
+  console.log("🎬 DynamicPreview rendered", {
+    mimeType: previewInfo.mimeType,
+    path: previewInfo.path,
+    hasImages: !!previewInfo.images,
+    imagesCount: previewInfo.images?.length,
+  });
+
   const [PreviewComponent, setPreviewComponent] = useState<PreviewComponent | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
+    logger.info("DynamicPreview: Loading preview component", {
+      mimeType: previewInfo.mimeType,
+      path: previewInfo.path,
+    });
+
     getPreviewComponent(previewInfo.mimeType).then((component) => {
-      if (mounted && component) {
-        setPreviewComponent(() => component);
+      if (mounted) {
+        console.log("✅ Preview component loaded", {
+          mimeType: previewInfo.mimeType,
+          componentFound: !!component,
+          componentName: component?.name || "unknown",
+        });
+        logger.info("DynamicPreview: Preview component loaded", {
+          mimeType: previewInfo.mimeType,
+          componentFound: !!component,
+        });
+        if (component) {
+          setPreviewComponent(() => component);
+        }
       }
     });
 
     return () => {
       mounted = false;
     };
-  }, [previewInfo.mimeType]);
+  }, [previewInfo.mimeType, previewInfo.path]);
 
   if (!PreviewComponent) {
+    logger.debug("DynamicPreview: No preview component yet", {
+      mimeType: previewInfo.mimeType,
+    });
     return null;
   }
+
+  logger.debug("DynamicPreview: Rendering preview component", {
+    mimeType: previewInfo.mimeType,
+  });
+
+  console.log("🎨 Rendering PreviewComponent", {
+    mimeType: previewInfo.mimeType,
+    path: previewInfo.path,
+    hasImages: !!previewInfo.images,
+  });
 
   return (
     <PreviewComponent

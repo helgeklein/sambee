@@ -16,14 +16,7 @@ export const createPhotoViewMock = () => ({
 
 // Mock for MarkdownPreview component
 export const createMarkdownPreviewMock = () => ({
-  default: ({
-    path,
-    onClose,
-  }: {
-    connectionId: string;
-    path: string;
-    onClose: () => void;
-  }) => (
+  default: ({ path, onClose }: { connectionId: string; path: string; onClose: () => void }) => (
     <div data-testid="markdown-preview" data-path={path}>
       Markdown Preview
       <button onClick={onClose} type="button">

@@ -1,15 +1,17 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PhotoProvider, PhotoView } from "react-photo-view";
 import "react-photo-view/dist/react-photo-view.css";
+import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { ImageControls } from "./ImageControls";
 import type { PreviewComponentProps } from "./PreviewRegistry";
 
 /**
  * Image Preview Component
- * Displays images with zoom, pan, rotate, and gallery navigation features
- * Uses react-photo-view for smooth image interactions
+ * Displays images with zoom, pan, rotate, and gallery navigation features.
+ * Uses react-photo-view for advanced image viewing capabilities.
+ * Fetches images via Axios to include authentication headers, then creates blob URLs.
  */
 const ImagePreview: React.FC<PreviewComponentProps> = ({
   connectionId,
@@ -18,29 +20,77 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   images = [path],
   currentIndex: initialIndex = 0,
 }) => {
+  // DEBUG: Verify this component is being called
+  console.log("🖼️ ImagePreview component initialized", {
+    connectionId,
+    path,
+    imagesCount: images.length,
+    initialIndex,
+  });
+
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [photoVisible, setPhotoVisible] = useState(false);
   const [rotate, setRotate] = useState(0);
   const [scale, setScale] = useState(1);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Get current image path
   const currentPath = images[currentIndex];
   const filename = currentPath.split("/").pop() || currentPath;
 
-  // Construct all image URLs for PhotoProvider
-  const imageData = useMemo(
-    () =>
-      images.map((imgPath) => ({
-        src: `/api/preview/${connectionId}/file?path=${encodeURIComponent(imgPath)}`,
-        key: imgPath,
-      })),
-    [images, connectionId]
-  );
-
-  // Open photo view on mount
+  // Fetch image via Axios to include Authorization header, then create blob URL
   useEffect(() => {
-    setPhotoVisible(true);
-  }, []);
+    let isMounted = true;
+    let blobUrl: string | null = null;
+
+    const fetchImage = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        logInfo("Fetching image via Axios with auth header", {
+          path: currentPath,
+          connectionId,
+        });
+
+        // Fetch with Axios - this will include Authorization header via interceptor
+        const blob = await apiService.getImageBlob(connectionId, currentPath);
+
+        if (!isMounted) return;
+
+        // Create blob URL from response
+        blobUrl = URL.createObjectURL(blob);
+        logInfo("Created blob URL for image", {
+          path: currentPath,
+          blobUrl,
+          size: blob.size,
+        });
+
+        setImageUrl(blobUrl);
+        setLoading(false);
+      } catch (err) {
+        if (!isMounted) return;
+        logError("Failed to fetch image", {
+          path: currentPath,
+          error: err,
+        });
+        setError("Failed to load image");
+        setLoading(false);
+      }
+    };
+
+    fetchImage();
+
+    // Cleanup: revoke blob URL when component unmounts or image changes
+    return () => {
+      isMounted = false;
+      if (blobUrl) {
+        logInfo("Revoking blob URL", { blobUrl });
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, [connectionId, currentPath]);
 
   // Navigation handlers
   const handleNext = useCallback(() => {
@@ -61,108 +111,10 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     }
   }, [currentIndex]);
 
-  // Jump to first/last image
-  const handleJumpToFirst = useCallback(() => {
-    if (currentIndex !== 0) {
-      setCurrentIndex(0);
-      setScale(1);
-      setRotate(0);
-      logInfo("Jumped to first image");
-    }
-  }, [currentIndex]);
-
-  const handleJumpToLast = useCallback(() => {
-    const lastIndex = images.length - 1;
-    if (currentIndex !== lastIndex) {
-      setCurrentIndex(lastIndex);
-      setScale(1);
-      setRotate(0);
-      logInfo("Jumped to last image");
-    }
-  }, [currentIndex, images.length]);
-
   // Handle close
   const handleClose = useCallback(() => {
-    setPhotoVisible(false);
     onClose();
   }, [onClose]);
-
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!photoVisible) return;
-
-      switch (e.key) {
-        case "ArrowLeft":
-          e.preventDefault();
-          handlePrevious();
-          break;
-        case "ArrowRight":
-          e.preventDefault();
-          handleNext();
-          break;
-        case "Escape":
-          e.preventDefault();
-          handleClose();
-          break;
-        case "+":
-        case "=":
-          e.preventDefault();
-          setScale((s) => s * 1.2);
-          break;
-        case "-":
-        case "_":
-          e.preventDefault();
-          setScale((s) => s * 0.8);
-          break;
-        case "r":
-        case "R":
-          e.preventDefault();
-          if (e.shiftKey) {
-            setRotate((r) => r - 90);
-          } else {
-            setRotate((r) => r + 90);
-          }
-          break;
-        case "Home":
-          e.preventDefault();
-          handleJumpToFirst();
-          break;
-        case "End":
-          e.preventDefault();
-          handleJumpToLast();
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [photoVisible, handleNext, handlePrevious, handleJumpToFirst, handleJumpToLast, handleClose]);
-
-  // Preload adjacent images for smooth navigation
-  useEffect(() => {
-    if (images.length > 1) {
-      const preloadImage = (imgPath: string) => {
-        const img = new Image();
-        img.src = `/api/preview/${connectionId}/file?path=${encodeURIComponent(imgPath)}`;
-      };
-
-      // Preload next image
-      if (currentIndex < images.length - 1) {
-        preloadImage(images[currentIndex + 1]);
-      }
-
-      // Preload previous image
-      if (currentIndex > 0) {
-        preloadImage(images[currentIndex - 1]);
-      }
-
-      // Optionally preload one more ahead for smoother experience
-      if (currentIndex < images.length - 2) {
-        preloadImage(images[currentIndex + 2]);
-      }
-    }
-  }, [currentIndex, images, connectionId]);
 
   // Log when image preview opens
   useEffect(() => {
@@ -186,67 +138,89 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   }, [currentPath, connectionId]);
 
   return (
-    <PhotoProvider
-      overlayRender={() => (
-        <ImageControls
-          filename={filename}
-          onRotate={setRotate}
-          onScale={setScale}
-          rotate={rotate}
-          scale={scale}
-          onClose={handleClose}
-          onNext={handleNext}
-          onPrevious={handlePrevious}
-          currentIndex={currentIndex}
-          totalImages={images.length}
-        />
-      )}
-      maskOpacity={0.9}
+    <Dialog
+      open={true}
+      onClose={handleClose}
+      maxWidth={false}
+      fullScreen
+      PaperProps={{
+        style: {
+          backgroundColor: "rgba(0, 0, 0, 0.9)",
+          boxShadow: "none",
+        },
+      }}
     >
-      <Dialog
-        open={true}
-        onClose={handleClose}
-        maxWidth={false}
-        fullScreen
-        PaperProps={{
-          style: {
-            backgroundColor: "transparent",
-            boxShadow: "none",
-          },
+      <Box
+        sx={{
+          position: "relative",
+          width: "100%",
+          height: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
-        {imageData.map((img, idx) => (
-          <PhotoView key={img.key} src={img.src}>
-            {idx === currentIndex && (
+        {/* Image Controls Overlay */}
+        <Box
+          sx={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 1,
+          }}
+        >
+          <ImageControls
+            filename={filename}
+            onRotate={setRotate}
+            onScale={setScale}
+            rotate={rotate}
+            scale={scale}
+            onClose={handleClose}
+            onNext={handleNext}
+            onPrevious={handlePrevious}
+            currentIndex={currentIndex}
+            totalImages={images.length}
+          />
+        </Box>
+
+        {/* Loading state */}
+        {loading && (
+          <Box display="flex" flexDirection="column" alignItems="center" gap={2}>
+            <CircularProgress />
+            <Box color="white">Loading image...</Box>
+          </Box>
+        )}
+
+        {/* Error state */}
+        {error && (
+          <Box color="error.main" textAlign="center">
+            {error}
+          </Box>
+        )}
+
+        {/* Image with react-photo-view for zoom functionality */}
+        {!loading && !error && imageUrl && (
+          <PhotoProvider>
+            <PhotoView src={imageUrl}>
               <img
-                src={img.src}
-                alt={img.key.split("/").pop() || ""}
+                src={imageUrl}
+                alt={filename}
                 style={{
-                  maxWidth: "100%",
-                  maxHeight: "100vh",
-                  cursor: "pointer",
-                  display: idx === currentIndex ? "block" : "none",
+                  maxWidth: "90vw",
+                  maxHeight: "90vh",
+                  objectFit: "contain",
+                  transform: `rotate(${rotate}deg) scale(${scale})`,
+                  transition: "transform 0.3s ease",
+                  cursor: "zoom-in",
                 }}
                 onError={handleError}
               />
-            )}
-          </PhotoView>
-        ))}
-        {!photoVisible && (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100vh",
-              bgcolor: "rgba(0, 0, 0, 0.9)",
-            }}
-          >
-            <CircularProgress size={60} sx={{ color: "white" }} />
-          </Box>
+            </PhotoView>
+          </PhotoProvider>
         )}
-      </Dialog>
-    </PhotoProvider>
+      </Box>
+    </Dialog>
   );
 };
 
