@@ -519,7 +519,7 @@ class TestErrorHandling:
 
     def test_invalid_json_message(self, client):
         """Test handling of invalid JSON messages."""
-        with client.websocket_connect("/api/ws") as websocket:
+        with client.websocket_connect("/api/ws"):
             # This should cause an error but not crash the server
             # FastAPI's TestClient handles this gracefully
             pass

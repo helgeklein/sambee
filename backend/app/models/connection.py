@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
+from pydantic import field_validator
 from sqlmodel import Field, SQLModel
 
 
@@ -28,6 +29,14 @@ class ConnectionCreate(SQLModel):
     username: str
     password: str
     path_prefix: Optional[str] = "/"
+
+    @field_validator("name", "host", "share_name", "username")
+    @classmethod
+    def validate_not_empty(cls, v: str) -> str:
+        """Validate that required string fields are not empty."""
+        if not v or not v.strip():
+            raise ValueError("Field cannot be empty")
+        return v
 
 
 class ConnectionUpdate(SQLModel):
