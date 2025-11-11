@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Paths
     data_dir: Path = Path("data")
 
+    # Preview limits
+    max_image_preview_size: int = 50 * 1024 * 1024  # 50MB - maximum image size for preview
+
     # Optional test SMB
     test_smb_host: Optional[str] = None
     test_smb_share: Optional[str] = None

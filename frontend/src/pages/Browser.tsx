@@ -46,6 +46,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import MarkdownPreview from "../components/Preview/MarkdownPreview";
+import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
+import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import api from "../services/api";
 import { logger } from "../services/logger";
@@ -179,6 +181,12 @@ const Browser: React.FC = () => {
   const [currentPath, setCurrentPath] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [previewInfo, setPreviewInfo] = useState<{
+    path: string;
+    mimeType: string;
+    images?: string[];
+    currentIndex?: number;
+  } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -494,6 +502,13 @@ const Browser: React.FC = () => {
     [connections, getConnectionIdentifier, location.pathname, navigate]
   );
 
+  // Get all image files in current directory for gallery mode
+  const imageFiles = useMemo(() => {
+    return files
+      .filter((f) => f.type === "file" && isImageFile(f.name))
+      .map((f) => (currentPath ? `${currentPath}/${f.name}` : f.name));
+  }, [files, currentPath]);
+
   const handleFileClick = useCallback(
     (file: FileEntry, index?: number) => {
       if (index !== undefined) {
@@ -525,18 +540,42 @@ const Browser: React.FC = () => {
         }
       } else {
         const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+        const mimeType = file.mime_type || "application/octet-stream";
 
         logger.info("File selected for preview", {
           path: filePath,
           fileName: file.name,
           size: file.size,
-          mimeType: file.mime_type,
+          mimeType,
         });
 
-        setSelectedFile(filePath);
+        // Check if it's an image for gallery mode
+        const isImage = isImageFile(file.name);
+
+        if (isImage && imageFiles.length > 0) {
+          // Gallery mode for images
+          const imageIndex = imageFiles.indexOf(filePath);
+          setPreviewInfo({
+            path: filePath,
+            mimeType,
+            images: imageFiles,
+            currentIndex: imageIndex >= 0 ? imageIndex : 0,
+          });
+        } else {
+          // Single file preview
+          setPreviewInfo({
+            path: filePath,
+            mimeType,
+          });
+        }
+
+        // Keep old behavior for markdown (backward compatibility)
+        if (mimeType === "text/markdown") {
+          setSelectedFile(filePath);
+        }
       }
     },
-    [currentPath, updateFocus] // Removed focusedIndex dependency
+    [currentPath, updateFocus, imageFiles] // Added imageFiles dependency
   );
 
   // Keep refs in sync with state for WebSocket callbacks
@@ -2048,7 +2087,58 @@ const Browser: React.FC = () => {
           onClose={() => setSelectedFile(null)}
         />
       )}
+
+      {previewInfo && (
+        <DynamicPreview
+          connectionId={selectedConnectionId}
+          previewInfo={previewInfo}
+          onClose={() => setPreviewInfo(null)}
+        />
+      )}
     </Box>
+  );
+};
+
+// Dynamic Preview Component
+// Loads the appropriate preview component based on MIME type
+const DynamicPreview: React.FC<{
+  connectionId: string;
+  previewInfo: {
+    path: string;
+    mimeType: string;
+    images?: string[];
+    currentIndex?: number;
+  };
+  onClose: () => void;
+}> = ({ connectionId, previewInfo, onClose }) => {
+  const [PreviewComponent, setPreviewComponent] = useState<PreviewComponent | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    getPreviewComponent(previewInfo.mimeType).then((component) => {
+      if (mounted && component) {
+        setPreviewComponent(() => component);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [previewInfo.mimeType]);
+
+  if (!PreviewComponent) {
+    return null;
+  }
+
+  return (
+    <PreviewComponent
+      connectionId={connectionId}
+      path={previewInfo.path}
+      onClose={onClose}
+      images={previewInfo.images}
+      currentIndex={previewInfo.currentIndex}
+    />
   );
 };
 
