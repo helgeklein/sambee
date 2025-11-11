@@ -45,7 +45,6 @@ import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import MarkdownPreview from "../components/Preview/MarkdownPreview";
 import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
 import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -180,7 +179,6 @@ const Browser: React.FC = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [currentPath, setCurrentPath] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState<{
     path: string;
     mimeType: string;
@@ -533,7 +531,7 @@ const Browser: React.FC = () => {
         });
 
         setCurrentPath(newPath);
-        setSelectedFile(null);
+        setPreviewInfo(null);
         // Blur any focused element when navigating so keyboard shortcuts work
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
@@ -602,9 +600,7 @@ const Browser: React.FC = () => {
         }
 
         // Keep old behavior for markdown (backward compatibility)
-        if (mimeType === "text/markdown") {
-          setSelectedFile(filePath);
-        }
+        // Preview component is managed exclusively through previewInfo state
       }
     },
     [currentPath, updateFocus, imageFiles] // Added imageFiles dependency
@@ -836,7 +832,7 @@ const Browser: React.FC = () => {
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
     setCurrentPath("");
-    setSelectedFile(null);
+    setPreviewInfo(null);
     setFiles([]);
     // Clear caches when switching connections
     directoryCache.current.clear();
@@ -1310,7 +1306,7 @@ const Browser: React.FC = () => {
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      if (isInInput || settingsOpen || showHelp || selectedFile) {
+      if (isInInput || settingsOpen || showHelp || previewInfo) {
         // Exception: Allow / to focus search from anywhere
         if (e.key === "/" && !settingsOpen && !showHelp) {
           e.preventDefault();
@@ -1341,7 +1337,7 @@ const Browser: React.FC = () => {
             const pathParts = currentPathRef.current.split("/");
             const newPath = pathParts.slice(0, -1).join("/");
             setCurrentPath(newPath);
-            setSelectedFile(null);
+            setPreviewInfo(null);
             return;
           }
         }
@@ -1454,24 +1450,7 @@ const Browser: React.FC = () => {
             const current = focusedIndex;
             const file = files[current];
             if (file) {
-              if (file.type === "directory") {
-                navigationHistory.current.set(currentPathRef.current, {
-                  focusedIndex: current,
-                  scrollOffset: 0,
-                  selectedFileName: file.name,
-                });
-
-                const newPath = currentPathRef.current
-                  ? `${currentPathRef.current}/${file.name}`
-                  : file.name;
-                setCurrentPath(newPath);
-                setSelectedFile(null);
-              } else {
-                const filePath = currentPathRef.current
-                  ? `${currentPathRef.current}/${file.name}`
-                  : file.name;
-                setSelectedFile(filePath);
-              }
+              handleFileClick(file, current);
             }
           }
           break;
@@ -1482,13 +1461,13 @@ const Browser: React.FC = () => {
             const pathParts = currentPathRef.current.split("/");
             const newPath = pathParts.slice(0, -1).join("/");
             setCurrentPath(newPath);
-            setSelectedFile(null);
+            setPreviewInfo(null);
           }
           break;
 
         case "Escape":
           e.preventDefault();
-          setSelectedFile(null);
+          setPreviewInfo(null);
           setSearchQuery("");
           break;
 
@@ -1541,20 +1520,21 @@ const Browser: React.FC = () => {
     settingsOpen,
     showHelp,
     searchQuery,
-    selectedFile,
+    previewInfo,
     loadFiles,
     visibleRowCount,
     focusedIndex,
     updateFocus,
     rowVirtualizer,
     listContainerEl,
+    handleFileClick,
   ]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
     const newPath = pathParts.slice(0, index + 1).join("/");
     setCurrentPath(newPath);
-    setSelectedFile(null);
+    setPreviewInfo(null);
     // Blur any focused input
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -1848,7 +1828,7 @@ const Browser: React.FC = () => {
                     variant="body1"
                     onClick={() => {
                       setCurrentPath("");
-                      setSelectedFile(null);
+                      setPreviewInfo(null);
                     }}
                     sx={{ display: "flex", alignItems: "center" }}
                   >
@@ -2111,15 +2091,6 @@ const Browser: React.FC = () => {
           </Box>
         </DialogContent>
       </Dialog>
-
-      {selectedFile && (
-        <MarkdownPreview
-          connectionId={selectedConnectionId}
-          path={selectedFile}
-          onClose={() => setSelectedFile(null)}
-        />
-      )}
-
       {previewInfo && (
         <DynamicPreview
           connectionId={selectedConnectionId}
@@ -2143,13 +2114,6 @@ const DynamicPreview: React.FC<{
   };
   onClose: () => void;
 }> = ({ connectionId, previewInfo, onClose }) => {
-  console.log("🎬 DynamicPreview rendered", {
-    mimeType: previewInfo.mimeType,
-    path: previewInfo.path,
-    hasImages: !!previewInfo.images,
-    imagesCount: previewInfo.images?.length,
-  });
-
   const [PreviewComponent, setPreviewComponent] = useState<PreviewComponent | null>(null);
 
   useEffect(() => {
@@ -2162,11 +2126,6 @@ const DynamicPreview: React.FC<{
 
     getPreviewComponent(previewInfo.mimeType).then((component) => {
       if (mounted) {
-        console.log("✅ Preview component loaded", {
-          mimeType: previewInfo.mimeType,
-          componentFound: !!component,
-          componentName: component?.name || "unknown",
-        });
         logger.info("DynamicPreview: Preview component loaded", {
           mimeType: previewInfo.mimeType,
           componentFound: !!component,
@@ -2191,12 +2150,6 @@ const DynamicPreview: React.FC<{
 
   logger.debug("DynamicPreview: Rendering preview component", {
     mimeType: previewInfo.mimeType,
-  });
-
-  console.log("🎨 Rendering PreviewComponent", {
-    mimeType: previewInfo.mimeType,
-    path: previewInfo.path,
-    hasImages: !!previewInfo.images,
   });
 
   return (

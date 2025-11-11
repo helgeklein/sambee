@@ -20,14 +20,6 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   images = [path],
   currentIndex: initialIndex = 0,
 }) => {
-  // DEBUG: Verify this component is being called
-  console.log("🖼️ ImagePreview component initialized", {
-    connectionId,
-    path,
-    imagesCount: images.length,
-    initialIndex,
-  });
-
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [rotate, setRotate] = useState(0);
   const [scale, setScale] = useState(1);
@@ -43,6 +35,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   useEffect(() => {
     let isMounted = true;
     let blobUrl: string | null = null;
+    const abortController = new AbortController();
 
     const fetchImage = async () => {
       try {
@@ -55,7 +48,13 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
         });
 
         // Fetch with Axios - this will include Authorization header via interceptor
-        const blob = await apiService.getImageBlob(connectionId, currentPath);
+        const blob = await apiService.getImageBlob(connectionId, currentPath, {
+          signal: abortController.signal,
+        });
+
+        if (!blob || blob.size === 0) {
+          throw new Error("Received empty image blob");
+        }
 
         if (!isMounted) return;
 
@@ -85,6 +84,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     // Cleanup: revoke blob URL when component unmounts or image changes
     return () => {
       isMounted = false;
+      abortController.abort();
       if (blobUrl) {
         logInfo("Revoking blob URL", { blobUrl });
         URL.revokeObjectURL(blobUrl);

@@ -202,12 +202,20 @@ class ApiService {
    * Fetch image as blob with authentication headers.
    * Returns blob data that can be used to create object URLs.
    */
-  async getImageBlob(connectionId: string, path: string): Promise<Blob> {
-    const response = await this.api.get(`/preview/${connectionId}/file`, {
+  async getImageBlob(
+    connectionId: string,
+    path: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<Blob> {
+    const response = await this.api.get<ArrayBuffer>(`/preview/${connectionId}/file`, {
       params: { path },
-      responseType: "blob",
+      responseType: "arraybuffer",
+      signal: options.signal,
     });
-    return response.data;
+
+    const contentType = response.headers["content-type"] ?? "application/octet-stream";
+    const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
+    return new Blob([data], { type: contentType });
   }
 }
 
