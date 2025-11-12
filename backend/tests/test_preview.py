@@ -243,6 +243,7 @@ class TestPreviewFile:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_directory
+            backend_instance.read_file = lambda path: AsyncIteratorMock([b""])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -347,6 +348,7 @@ class TestPreviewFile:
             backend_instance.get_file_info.side_effect = FileNotFoundError(
                 "File not found"
             )
+            backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
 
             response = client.get(
@@ -355,7 +357,7 @@ class TestPreviewFile:
                 params={"path": "/nonexistent.txt"},
             )
 
-            assert response.status_code == 500
+            assert response.status_code == 404
 
 
 class TestDownloadFile:

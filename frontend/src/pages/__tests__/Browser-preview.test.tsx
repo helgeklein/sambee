@@ -40,11 +40,31 @@ describe("Browser Component - Preview and Advanced", () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");
 
-      // Optimized: Use findByText
-      expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+      // Wait for the browser to load - find an image file which has preview support
+      // Add a mock image file to the directory listing
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          ...mockDirectoryListing.items,
+          {
+            name: "image.png",
+            type: FileType.FILE,
+            path: "image.png",
+            size: 51200,
+            modified_at: "2024-01-13T10:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+            mime_type: "image/png",
+          },
+        ],
+        total: mockDirectoryListing.total + 1,
+      });
+
+      // Re-render to get the updated file list
+      expect(await screen.findByText("image.png")).toBeInTheDocument();
 
       // Click on file - find the button that contains the text
-      const fileButton = screen.getByRole("button", { name: /readme\.txt/i });
+      const fileButton = screen.getByRole("button", { name: /image\.png/i });
       await user.click(fileButton);
 
       // Preview dialog should open
@@ -55,11 +75,30 @@ describe("Browser Component - Preview and Advanced", () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");
 
-      // Optimized: Use findByText
-      expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+      // Add a mock image file
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          ...mockDirectoryListing.items,
+          {
+            name: "test-image.jpg",
+            type: FileType.FILE,
+            path: "test-image.jpg",
+            size: 102400,
+            modified_at: "2024-01-13T10:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+            mime_type: "image/jpeg",
+          },
+        ],
+        total: mockDirectoryListing.total + 1,
+      });
+
+      // Wait for file to appear
+      expect(await screen.findByText("test-image.jpg")).toBeInTheDocument();
 
       // Click on a file to open preview
-      const fileButton = screen.getByRole("button", { name: /readme\.txt/i });
+      const fileButton = screen.getByRole("button", { name: /test-image\.jpg/i });
       await user.click(fileButton);
 
       // Preview dialog should open
@@ -69,7 +108,7 @@ describe("Browser Component - Preview and Advanced", () => {
       await user.keyboard("{Escape}");
 
       // Verify component is still functional (no crash)
-      expect(screen.getByText("readme.txt")).toBeInTheDocument();
+      expect(screen.getByText("test-image.jpg")).toBeInTheDocument();
     });
   });
 

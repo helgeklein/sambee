@@ -24,6 +24,7 @@ export interface ApiMock {
   createConnection: Mock;
   updateConnection: Mock;
   deleteConnection: Mock;
+  getImageBlob: Mock;
 }
 
 /**
@@ -48,6 +49,9 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
     Promise.resolve({ id: "conn-1", ...data } as Connection)
   );
   api.deleteConnection.mockResolvedValue(undefined);
+
+  // Mock getImageBlob to return a fake blob
+  api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));
 }
 
 /**
@@ -78,6 +82,7 @@ export function setupErrorApiMocks(api: ApiMock, status = 500): void {
   api.createConnection.mockRejectedValue(error);
   api.updateConnection.mockRejectedValue(error);
   api.deleteConnection.mockRejectedValue(error);
+  api.getImageBlob.mockRejectedValue(error);
 }
 
 /**
@@ -153,6 +158,7 @@ export function createMockApi(): ApiMock {
     createConnection: vi.fn(),
     updateConnection: vi.fn(),
     deleteConnection: vi.fn(),
+    getImageBlob: vi.fn(),
   };
 }
 

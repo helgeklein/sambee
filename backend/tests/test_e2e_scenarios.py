@@ -378,14 +378,15 @@ class TestErrorRecoveryScenarios:
             mock_instance.get_file_info.side_effect = FileNotFoundError(
                 "File not found"
             )
+            mock_instance.disconnect.return_value = None
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
                 f"/api/preview/{connection.id}/file?path=missing.txt",
                 headers=auth_headers_user,
             )
-            # Current implementation returns 500 for any error
-            assert response.status_code == 500
+            # Returns 404 when file is not found
+            assert response.status_code == 404
 
     def test_invalid_token_error(self, client: TestClient):
         """Test invalid authentication token handling."""
@@ -430,6 +431,7 @@ class TestErrorRecoveryScenarios:
                 path="/folder",
                 type=FileType.DIRECTORY,
             )
+            mock_instance.disconnect.return_value = None
             mock_backend_class.return_value = mock_instance
 
             response = client.get(

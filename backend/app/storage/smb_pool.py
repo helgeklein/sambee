@@ -60,15 +60,15 @@ class SMBConnectionPool:
             max_idle_time: How long to keep idle connections alive
             cleanup_interval: How often to run cleanup of idle connections
         """
-        self._connections: dict[tuple, PooledConnection] = {}
+        self._connections: dict[tuple[str, int, str, str], PooledConnection] = {}
         self._lock = asyncio.Lock()
         self._max_idle_time = max_idle_time
         self._cleanup_interval = cleanup_interval
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task[None]] = None
 
     def _get_pool_key(
         self, host: str, port: int, username: str, share_name: str
-    ) -> tuple:
+    ) -> tuple[str, int, str, str]:
         """Generate a unique key for connection pooling."""
         return (host.lower(), port, username, share_name)
 
@@ -216,7 +216,7 @@ class SMBConnectionPool:
         if self._cleanup_task is not None:
             return  # Already running
 
-        async def cleanup_loop():
+        async def cleanup_loop() -> None:
             """Periodically clean up idle connections."""
             while True:
                 try:
@@ -258,7 +258,7 @@ class SMBConnectionPool:
             self._connections.clear()
             logger.info("All SMB connections closed")
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, int]:
         """
         Get statistics about the connection pool.
 

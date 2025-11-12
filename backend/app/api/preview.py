@@ -66,13 +66,38 @@ async def preview_file(
 
         await backend.connect()
 
-        # Determine MIME type from filename to avoid extra SMB operation
+        # Check if path is a file (not a directory)
+        try:
+            file_info = await backend.get_file_info(path)
+            if file_info.type.value == "directory":
+                await backend.disconnect()
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot preview a directory",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            await backend.disconnect()
+            logger.error(
+                f"Failed to get file info: connection_id={connection_id}, path='{path}', "
+                f"error={type(e).__name__}: {e}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"File not found: {path}",
+            )
+
+        # Determine MIME type from filename to avoid guessing wrong types
         import mimetypes
         from pathlib import PurePosixPath
 
         filename = PurePosixPath(path).name
         mime_type, _ = mimetypes.guess_type(filename)
-        mime_type = mime_type or "application/octet-stream"
+        # Only use guessed type if it's not a strange default
+        # For unknown extensions, use application/octet-stream
+        if not mime_type or mime_type.startswith("chemical/"):
+            mime_type = "application/octet-stream"
 
         # Stream the file
         async def file_streamer() -> AsyncIterator[bytes]:
