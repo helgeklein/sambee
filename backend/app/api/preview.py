@@ -66,16 +66,13 @@ async def preview_file(
 
         await backend.connect()
 
-        # Get file info for MIME type
-        file_info = await backend.get_file_info(path)
+        # Determine MIME type from filename to avoid extra SMB operation
+        import mimetypes
+        from pathlib import PurePosixPath
 
-        if file_info.type != "file":
-            logger.warning(
-                f"Path is not a file: connection_id={connection_id}, path='{path}', type={file_info.type}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file"
-            )
+        filename = PurePosixPath(path).name
+        mime_type, _ = mimetypes.guess_type(filename)
+        mime_type = mime_type or "application/octet-stream"
 
         # Stream the file
         async def file_streamer() -> AsyncIterator[bytes]:
@@ -86,12 +83,12 @@ async def preview_file(
                 await backend.disconnect()
 
         logger.info(
-            f"Streaming file for preview: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}"
+            f"Streaming file for preview: connection_id={connection_id}, path='{path}', mime_type={mime_type}"
         )
         return StreamingResponse(
             file_streamer(),
-            media_type=file_info.mime_type or "application/octet-stream",
-            headers={"Content-Disposition": f'inline; filename="{file_info.name}"'},
+            media_type=mime_type,
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
         )
 
     except HTTPException:

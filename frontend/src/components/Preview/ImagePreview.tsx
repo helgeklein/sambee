@@ -116,6 +116,81 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     onClose();
   }, [onClose]);
 
+  // Keyboard shortcuts for gallery navigation while dialog is open
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      switch (event.key) {
+        case "ArrowRight":
+        case "d":
+        case "D":
+          if (images.length > 1) {
+            event.preventDefault();
+            handleNext();
+          }
+          break;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          if (images.length > 1) {
+            event.preventDefault();
+            handlePrevious();
+          }
+          break;
+        case "Home":
+          if (images.length > 1) {
+            event.preventDefault();
+            setCurrentIndex(0);
+            setScale(1);
+            setRotate(0);
+          }
+          break;
+        case "End":
+          if (images.length > 1) {
+            event.preventDefault();
+            setCurrentIndex(images.length - 1);
+            setScale(1);
+            setRotate(0);
+          }
+          break;
+        case "+":
+        case "=":
+          event.preventDefault();
+          setScale((value) => Math.min(value * 1.2, 3));
+          break;
+        case "-":
+        case "_":
+          event.preventDefault();
+          setScale((value) => Math.max(value * 0.8, 0.3));
+          break;
+        case "r":
+          event.preventDefault();
+          setRotate((value) => value + 90);
+          break;
+        case "R":
+          event.preventDefault();
+          if (event.shiftKey) {
+            setRotate((value) => value - 90);
+          } else {
+            setRotate((value) => value + 90);
+          }
+          break;
+        case "Escape":
+          event.preventDefault();
+          handleClose();
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleClose, handleNext, handlePrevious, images.length]);
+
   // Log when image preview opens
   useEffect(() => {
     logInfo("Image preview opened", {

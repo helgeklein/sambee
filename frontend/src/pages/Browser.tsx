@@ -2121,7 +2121,6 @@ const DynamicPreview: React.FC<{
 
     logger.info("DynamicPreview: Loading preview component", {
       mimeType: previewInfo.mimeType,
-      path: previewInfo.path,
     });
 
     getPreviewComponent(previewInfo.mimeType).then((component) => {
@@ -2139,7 +2138,7 @@ const DynamicPreview: React.FC<{
     return () => {
       mounted = false;
     };
-  }, [previewInfo.mimeType, previewInfo.path]);
+  }, [previewInfo.mimeType]); // Only reload component when MIME type changes, not path
 
   if (!PreviewComponent) {
     logger.debug("DynamicPreview: No preview component yet", {
