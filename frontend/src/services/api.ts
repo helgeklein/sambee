@@ -13,7 +13,7 @@ class ApiService {
   private api: AxiosInstance;
 
   constructor() {
-    const baseURL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+    const baseURL = import.meta.env.VITE_API_URL || "/api";
     this.api = axios.create({
       baseURL,
     });
@@ -60,6 +60,10 @@ class ApiService {
         return response;
       },
       (error: AxiosError) => {
+        if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
+          return Promise.reject(error);
+        }
+
         const requestId = logger.extractRequestId(
           error.response?.headers as Record<string, string>
         );
@@ -172,7 +176,7 @@ class ApiService {
   // Preview endpoints
   getPreviewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+    const baseUrl = import.meta.env.VITE_API_URL || "/api";
     return `${baseUrl}/preview/${connectionId}/file?path=${encodeURIComponent(
       path
     )}&token=${token}`;
@@ -180,7 +184,7 @@ class ApiService {
 
   getDownloadUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+    const baseUrl = import.meta.env.VITE_API_URL || "/api";
     return `${baseUrl}/preview/${connectionId}/download?path=${encodeURIComponent(
       path
     )}&token=${token}`;
@@ -196,6 +200,26 @@ class ApiService {
       responseType: "text",
     });
     return response.data;
+  }
+
+  /**
+   * Fetch image as blob with authentication headers.
+   * Returns blob data that can be used to create object URLs.
+   */
+  async getImageBlob(
+    connectionId: string,
+    path: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<Blob> {
+    const response = await this.api.get<ArrayBuffer>(`/preview/${connectionId}/file`, {
+      params: { path },
+      responseType: "arraybuffer",
+      signal: options.signal,
+    });
+
+    const contentType = response.headers["content-type"] ?? "application/octet-stream";
+    const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
+    return new Blob([data], { type: contentType });
   }
 }
 

@@ -45,7 +45,8 @@ import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import MarkdownPreview from "../components/Preview/MarkdownPreview";
+import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
+import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import api from "../services/api";
 import { logger } from "../services/logger";
@@ -178,7 +179,12 @@ const Browser: React.FC = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [currentPath, setCurrentPath] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [previewInfo, setPreviewInfo] = useState<{
+    path: string;
+    mimeType: string;
+    images?: string[];
+    currentIndex?: number;
+  } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -240,6 +246,8 @@ const Browser: React.FC = () => {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const filesRef = React.useRef<FileEntry[]>([]);
+  const currentPreviewIndexRef = React.useRef<number | null>(null);
+  const currentPreviewImagesRef = React.useRef<string[] | undefined>(undefined);
   const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
   const listContainerRef = useCallback((node: HTMLDivElement | null) => {
     setListContainerEl(node);
@@ -494,51 +502,6 @@ const Browser: React.FC = () => {
     [connections, getConnectionIdentifier, location.pathname, navigate]
   );
 
-  const handleFileClick = useCallback(
-    (file: FileEntry, index?: number) => {
-      if (index !== undefined) {
-        updateFocus(index, { immediate: true });
-      }
-      if (file.type === "directory") {
-        // Save current state before navigating into directory
-        const currentScrollOffset = parentRef.current?.scrollTop || 0;
-        const currentFocusedIndex = focusedIndexRef.current; // Use ref instead of state
-        navigationHistory.current.set(currentPath, {
-          focusedIndex: currentFocusedIndex,
-          scrollOffset: currentScrollOffset,
-          selectedFileName: file.name,
-        });
-
-        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-
-        logger.info("Navigating to directory", {
-          from: currentPath,
-          to: newPath,
-          directory: file.name,
-        });
-
-        setCurrentPath(newPath);
-        setSelectedFile(null);
-        // Blur any focused element when navigating so keyboard shortcuts work
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-      } else {
-        const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
-
-        logger.info("File selected for preview", {
-          path: filePath,
-          fileName: file.name,
-          size: file.size,
-          mimeType: file.mime_type,
-        });
-
-        setSelectedFile(filePath);
-      }
-    },
-    [currentPath, updateFocus] // Removed focusedIndex dependency
-  );
-
   // Keep refs in sync with state for WebSocket callbacks
   useEffect(() => {
     selectedConnectionIdRef.current = selectedConnectionId;
@@ -765,7 +728,7 @@ const Browser: React.FC = () => {
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
     setCurrentPath("");
-    setSelectedFile(null);
+    setPreviewInfo(null);
     setFiles([]);
     // Clear caches when switching connections
     directoryCache.current.clear();
@@ -822,6 +785,172 @@ const Browser: React.FC = () => {
 
     return [...directories, ...regularFiles];
   }, [files, sortBy, searchQuery]);
+
+  // Get all image files in current directory for gallery mode
+  // Use sortedAndFilteredFiles to match the display order
+  const imageFiles = useMemo(() => {
+    return sortedAndFilteredFiles
+      .filter((f) => f.type === "file" && isImageFile(f.name))
+      .map((f) => (currentPath ? `${currentPath}/${f.name}` : f.name));
+  }, [sortedAndFilteredFiles, currentPath]);
+
+  const handleFileClick = useCallback(
+    (file: FileEntry, index?: number) => {
+      if (index !== undefined) {
+        updateFocus(index, { immediate: true });
+      }
+      if (file.type === "directory") {
+        // Save current state before navigating into directory
+        const currentScrollOffset = parentRef.current?.scrollTop || 0;
+        const currentFocusedIndex = focusedIndexRef.current; // Use ref instead of state
+        navigationHistory.current.set(currentPath, {
+          focusedIndex: currentFocusedIndex,
+          scrollOffset: currentScrollOffset,
+          selectedFileName: file.name,
+        });
+
+        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+
+        logger.info("Navigating to directory", {
+          from: currentPath,
+          to: newPath,
+          directory: file.name,
+        });
+
+        setCurrentPath(newPath);
+        setPreviewInfo(null);
+        // Blur any focused element when navigating so keyboard shortcuts work
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      } else {
+        const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+
+        // Get MIME type - fallback to guessing from filename if backend didn't provide it
+        let mimeType = file.mime_type;
+        if (!mimeType) {
+          // Guess MIME type from file extension
+          const ext = file.name.toLowerCase().split(".").pop();
+          const mimeTypeMap: Record<string, string> = {
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            png: "image/png",
+            gif: "image/gif",
+            webp: "image/webp",
+            svg: "image/svg+xml",
+            md: "text/markdown",
+            markdown: "text/markdown",
+            txt: "text/plain",
+            pdf: "application/pdf",
+          };
+          mimeType = ext
+            ? mimeTypeMap[ext] || "application/octet-stream"
+            : "application/octet-stream";
+        }
+
+        // Check if it's an image for gallery mode
+        const isImage = isImageFile(file.name);
+
+        logger.info("File selected for preview", {
+          path: filePath,
+          fileName: file.name,
+          size: file.size,
+          mimeType,
+          mimeTypeSource: file.mime_type ? "backend" : "guessed",
+          isImage,
+          imageFilesCount: imageFiles.length,
+        });
+
+        if (isImage && imageFiles.length > 0) {
+          // Gallery mode for images
+          const imageIndex = imageFiles.indexOf(filePath);
+          logger.info("Opening image in gallery mode", {
+            imageIndex,
+            totalImages: imageFiles.length,
+          });
+          const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
+          currentPreviewIndexRef.current = effectiveIndex;
+          currentPreviewImagesRef.current = imageFiles;
+          setPreviewInfo({
+            path: filePath,
+            mimeType,
+            images: imageFiles,
+            currentIndex: effectiveIndex,
+          });
+        } else {
+          currentPreviewIndexRef.current = null;
+          currentPreviewImagesRef.current = undefined;
+          // Single file preview
+          logger.info("Opening file in single preview mode", {
+            isImage,
+            hasPreviewSupport: mimeType !== "application/octet-stream",
+          });
+          setPreviewInfo({
+            path: filePath,
+            mimeType,
+          });
+        }
+
+        // Keep old behavior for markdown (backward compatibility)
+        // Preview component is managed exclusively through previewInfo state
+      }
+    },
+    [currentPath, updateFocus, imageFiles]
+  );
+
+  const handlePreviewIndexChange = useCallback((index: number) => {
+    currentPreviewIndexRef.current = index;
+    setPreviewInfo((prev) => {
+      if (!prev || !prev.images || prev.images.length === 0) {
+        return prev;
+      }
+
+      const nextPath = prev.images[index] ?? prev.path;
+      if (prev.currentIndex === index && prev.path === nextPath) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        currentIndex: index,
+        path: nextPath,
+      };
+    });
+  }, []);
+
+  const handlePreviewClose = useCallback(() => {
+    const images = currentPreviewImagesRef.current ?? previewInfo?.images;
+    const indexFromRef = currentPreviewIndexRef.current ?? previewInfo?.currentIndex ?? null;
+
+    let finalPath: string | undefined;
+    if (images && images.length > 0) {
+      const clampedIndex =
+        indexFromRef !== null ? Math.min(Math.max(indexFromRef, 0), images.length - 1) : 0;
+      finalPath = images[clampedIndex];
+    } else if (previewInfo?.path) {
+      finalPath = previewInfo.path;
+    }
+
+    setPreviewInfo(null);
+    currentPreviewIndexRef.current = null;
+    currentPreviewImagesRef.current = undefined;
+
+    if (!finalPath) {
+      return;
+    }
+
+    const targetIndex = sortedAndFilteredFiles.findIndex((file) => {
+      if (file.type !== "file") {
+        return false;
+      }
+      const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+      return fullPath === finalPath;
+    });
+
+    if (targetIndex >= 0) {
+      updateFocus(targetIndex, { immediate: true });
+    }
+  }, [currentPath, previewInfo, sortedAndFilteredFiles, updateFocus]);
 
   // Memoize measureElement to prevent rowVirtualizer from changing on every render
   const measureElement = React.useMemo(
@@ -1239,7 +1368,7 @@ const Browser: React.FC = () => {
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      if (isInInput || settingsOpen || showHelp || selectedFile) {
+      if (isInInput || settingsOpen || showHelp || previewInfo) {
         // Exception: Allow / to focus search from anywhere
         if (e.key === "/" && !settingsOpen && !showHelp) {
           e.preventDefault();
@@ -1270,7 +1399,7 @@ const Browser: React.FC = () => {
             const pathParts = currentPathRef.current.split("/");
             const newPath = pathParts.slice(0, -1).join("/");
             setCurrentPath(newPath);
-            setSelectedFile(null);
+            setPreviewInfo(null);
             return;
           }
         }
@@ -1383,24 +1512,7 @@ const Browser: React.FC = () => {
             const current = focusedIndex;
             const file = files[current];
             if (file) {
-              if (file.type === "directory") {
-                navigationHistory.current.set(currentPathRef.current, {
-                  focusedIndex: current,
-                  scrollOffset: 0,
-                  selectedFileName: file.name,
-                });
-
-                const newPath = currentPathRef.current
-                  ? `${currentPathRef.current}/${file.name}`
-                  : file.name;
-                setCurrentPath(newPath);
-                setSelectedFile(null);
-              } else {
-                const filePath = currentPathRef.current
-                  ? `${currentPathRef.current}/${file.name}`
-                  : file.name;
-                setSelectedFile(filePath);
-              }
+              handleFileClick(file, current);
             }
           }
           break;
@@ -1411,13 +1523,13 @@ const Browser: React.FC = () => {
             const pathParts = currentPathRef.current.split("/");
             const newPath = pathParts.slice(0, -1).join("/");
             setCurrentPath(newPath);
-            setSelectedFile(null);
+            setPreviewInfo(null);
           }
           break;
 
         case "Escape":
           e.preventDefault();
-          setSelectedFile(null);
+          setPreviewInfo(null);
           setSearchQuery("");
           break;
 
@@ -1470,20 +1582,21 @@ const Browser: React.FC = () => {
     settingsOpen,
     showHelp,
     searchQuery,
-    selectedFile,
+    previewInfo,
     loadFiles,
     visibleRowCount,
     focusedIndex,
     updateFocus,
     rowVirtualizer,
     listContainerEl,
+    handleFileClick,
   ]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
     const newPath = pathParts.slice(0, index + 1).join("/");
     setCurrentPath(newPath);
-    setSelectedFile(null);
+    setPreviewInfo(null);
     // Blur any focused input
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -1777,7 +1890,7 @@ const Browser: React.FC = () => {
                     variant="body1"
                     onClick={() => {
                       setCurrentPath("");
-                      setSelectedFile(null);
+                      setPreviewInfo(null);
                     }}
                     sx={{ display: "flex", alignItems: "center" }}
                   >
@@ -2040,15 +2153,77 @@ const Browser: React.FC = () => {
           </Box>
         </DialogContent>
       </Dialog>
-
-      {selectedFile && (
-        <MarkdownPreview
+      {previewInfo && (
+        <DynamicPreview
           connectionId={selectedConnectionId}
-          path={selectedFile}
-          onClose={() => setSelectedFile(null)}
+          previewInfo={previewInfo}
+          onClose={handlePreviewClose}
+          onIndexChange={handlePreviewIndexChange}
         />
       )}
     </Box>
+  );
+};
+
+// Dynamic Preview Component
+// Loads the appropriate preview component based on MIME type
+const DynamicPreview: React.FC<{
+  connectionId: string;
+  previewInfo: {
+    path: string;
+    mimeType: string;
+    images?: string[];
+    currentIndex?: number;
+  };
+  onClose: () => void;
+  onIndexChange?: (index: number) => void;
+}> = ({ connectionId, previewInfo, onClose, onIndexChange }) => {
+  const [PreviewComponent, setPreviewComponent] = useState<PreviewComponent | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    logger.info("DynamicPreview: Loading preview component", {
+      mimeType: previewInfo.mimeType,
+    });
+
+    getPreviewComponent(previewInfo.mimeType).then((component) => {
+      if (mounted) {
+        logger.info("DynamicPreview: Preview component loaded", {
+          mimeType: previewInfo.mimeType,
+          componentFound: !!component,
+        });
+        if (component) {
+          setPreviewComponent(() => component);
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [previewInfo.mimeType]); // Only reload component when MIME type changes, not path
+
+  if (!PreviewComponent) {
+    logger.debug("DynamicPreview: No preview component yet", {
+      mimeType: previewInfo.mimeType,
+    });
+    return null;
+  }
+
+  logger.debug("DynamicPreview: Rendering preview component", {
+    mimeType: previewInfo.mimeType,
+  });
+
+  return (
+    <PreviewComponent
+      connectionId={connectionId}
+      path={previewInfo.path}
+      onClose={onClose}
+      images={previewInfo.images}
+      currentIndex={previewInfo.currentIndex}
+      onCurrentIndexChange={onIndexChange}
+    />
   );
 };
 
