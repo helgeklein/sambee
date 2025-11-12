@@ -246,6 +246,8 @@ const Browser: React.FC = () => {
   const parentRef = React.useRef<HTMLDivElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const filesRef = React.useRef<FileEntry[]>([]);
+  const currentPreviewIndexRef = React.useRef<number | null>(null);
+  const currentPreviewImagesRef = React.useRef<string[] | undefined>(undefined);
   const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
   const listContainerRef = useCallback((node: HTMLDivElement | null) => {
     setListContainerEl(node);
@@ -866,13 +868,18 @@ const Browser: React.FC = () => {
             imageIndex,
             totalImages: imageFiles.length,
           });
+          const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
+          currentPreviewIndexRef.current = effectiveIndex;
+          currentPreviewImagesRef.current = imageFiles;
           setPreviewInfo({
             path: filePath,
             mimeType,
             images: imageFiles,
-            currentIndex: imageIndex >= 0 ? imageIndex : 0,
+            currentIndex: effectiveIndex,
           });
         } else {
+          currentPreviewIndexRef.current = null;
+          currentPreviewImagesRef.current = undefined;
           // Single file preview
           logger.info("Opening file in single preview mode", {
             isImage,
@@ -890,6 +897,60 @@ const Browser: React.FC = () => {
     },
     [currentPath, updateFocus, imageFiles]
   );
+
+  const handlePreviewIndexChange = useCallback((index: number) => {
+    currentPreviewIndexRef.current = index;
+    setPreviewInfo((prev) => {
+      if (!prev || !prev.images || prev.images.length === 0) {
+        return prev;
+      }
+
+      const nextPath = prev.images[index] ?? prev.path;
+      if (prev.currentIndex === index && prev.path === nextPath) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        currentIndex: index,
+        path: nextPath,
+      };
+    });
+  }, []);
+
+  const handlePreviewClose = useCallback(() => {
+    const images = currentPreviewImagesRef.current ?? previewInfo?.images;
+    const indexFromRef = currentPreviewIndexRef.current ?? previewInfo?.currentIndex ?? null;
+
+    let finalPath: string | undefined;
+    if (images && images.length > 0) {
+      const clampedIndex =
+        indexFromRef !== null ? Math.min(Math.max(indexFromRef, 0), images.length - 1) : 0;
+      finalPath = images[clampedIndex];
+    } else if (previewInfo?.path) {
+      finalPath = previewInfo.path;
+    }
+
+    setPreviewInfo(null);
+    currentPreviewIndexRef.current = null;
+    currentPreviewImagesRef.current = undefined;
+
+    if (!finalPath) {
+      return;
+    }
+
+    const targetIndex = sortedAndFilteredFiles.findIndex((file) => {
+      if (file.type !== "file") {
+        return false;
+      }
+      const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+      return fullPath === finalPath;
+    });
+
+    if (targetIndex >= 0) {
+      updateFocus(targetIndex, { immediate: true });
+    }
+  }, [currentPath, previewInfo, sortedAndFilteredFiles, updateFocus]);
 
   // Memoize measureElement to prevent rowVirtualizer from changing on every render
   const measureElement = React.useMemo(
@@ -2096,7 +2157,8 @@ const Browser: React.FC = () => {
         <DynamicPreview
           connectionId={selectedConnectionId}
           previewInfo={previewInfo}
-          onClose={() => setPreviewInfo(null)}
+          onClose={handlePreviewClose}
+          onIndexChange={handlePreviewIndexChange}
         />
       )}
     </Box>
@@ -2114,7 +2176,8 @@ const DynamicPreview: React.FC<{
     currentIndex?: number;
   };
   onClose: () => void;
-}> = ({ connectionId, previewInfo, onClose }) => {
+  onIndexChange?: (index: number) => void;
+}> = ({ connectionId, previewInfo, onClose, onIndexChange }) => {
   const [PreviewComponent, setPreviewComponent] = useState<PreviewComponent | null>(null);
 
   useEffect(() => {
@@ -2159,6 +2222,7 @@ const DynamicPreview: React.FC<{
       onClose={onClose}
       images={previewInfo.images}
       currentIndex={previewInfo.currentIndex}
+      onCurrentIndexChange={onIndexChange}
     />
   );
 };

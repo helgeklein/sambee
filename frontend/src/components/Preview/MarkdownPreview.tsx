@@ -17,15 +17,10 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { apiService } from "../../services/api";
 import { error as logError } from "../../services/logger";
+import type { PreviewComponentProps } from "./PreviewRegistry";
 import "highlight.js/styles/github.css";
 
-interface MarkdownPreviewProps {
-  connectionId: string;
-  path: string;
-  onClose: () => void;
-}
-
-export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
+export const MarkdownPreview: React.FC<PreviewComponentProps> = ({
   connectionId,
   path,
   onClose,

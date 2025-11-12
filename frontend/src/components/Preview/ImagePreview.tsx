@@ -1,7 +1,6 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
-import { PhotoProvider, PhotoView } from "react-photo-view";
-import "react-photo-view/dist/react-photo-view.css";
+import type { MouseEvent, TouchEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { ImageControls } from "./ImageControls";
@@ -19,6 +18,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   onClose,
   images = [path],
   currentIndex: initialIndex = 0,
+  onCurrentIndexChange,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [rotate, setRotate] = useState(0);
@@ -27,10 +27,17 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [_isFullscreen, setIsFullscreen] = useState(false);
+  const lastTapRef = useRef<number>(0);
 
   // Get current image path
   const currentPath = images[currentIndex];
   const filename = currentPath.split("/").pop() || currentPath;
+
+  useEffect(() => {
+    setScale(1);
+    setRotate(0);
+    onCurrentIndexChange?.(currentIndex);
+  }, [currentIndex, onCurrentIndexChange]);
 
   // Fetch image via Axios to include Authorization header, then create blob URL
   useEffect(() => {
@@ -125,19 +132,17 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   // Navigation handlers
   const handleNext = useCallback(() => {
     if (currentIndex < images.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-      setScale(1);
-      setRotate(0);
-      logInfo("Navigated to next image", { index: currentIndex + 1 });
+      const nextIndex = currentIndex + 1;
+      setCurrentIndex(nextIndex);
+      logInfo("Navigated to next image", { index: nextIndex });
     }
   }, [currentIndex, images.length]);
 
   const handlePrevious = useCallback(() => {
     if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-      setScale(1);
-      setRotate(0);
-      logInfo("Navigated to previous image", { index: currentIndex - 1 });
+      const prevIndex = currentIndex - 1;
+      setCurrentIndex(prevIndex);
+      logInfo("Navigated to previous image", { index: prevIndex });
     }
   }, [currentIndex]);
 
@@ -145,6 +150,28 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   const handleClose = useCallback(() => {
     onClose();
   }, [onClose]);
+
+  const handleDoubleZoom = useCallback(() => {
+    setScale((value) => (value > 1 ? 1 : Math.min(value * 2, 3)));
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (event: TouchEvent<HTMLImageElement>) => {
+      if (event.touches.length > 0 || event.changedTouches.length !== 1) {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastTapRef.current < 300) {
+        event.preventDefault();
+        handleDoubleZoom();
+        lastTapRef.current = 0;
+      } else {
+        lastTapRef.current = now;
+      }
+    },
+    [handleDoubleZoom]
+  );
 
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(async () => {
@@ -164,6 +191,14 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
       logError("Failed to toggle fullscreen", { error: err });
     }
   }, []);
+
+  const handleDoubleClick = useCallback(
+    (event: MouseEvent<HTMLImageElement>) => {
+      event.preventDefault();
+      toggleFullscreen();
+    },
+    [toggleFullscreen]
+  );
 
   // Listen for fullscreen changes (e.g., user pressing F11 or ESC)
   useEffect(() => {
@@ -207,16 +242,12 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           if (images.length > 1) {
             event.preventDefault();
             setCurrentIndex(0);
-            setScale(1);
-            setRotate(0);
           }
           break;
         case "End":
           if (images.length > 1) {
             event.preventDefault();
             setCurrentIndex(images.length - 1);
-            setScale(1);
-            setRotate(0);
           }
           break;
         case "+":
@@ -295,10 +326,25 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
       onClose={handleClose}
       maxWidth={false}
       fullScreen
+      sx={{
+        "& .MuiDialog-container": {
+          alignItems: "stretch",
+          justifyContent: "stretch",
+          padding: 0,
+          height: "100dvh",
+          width: "100dvw",
+        },
+      }}
       PaperProps={{
-        style: {
+        sx: {
           backgroundColor: "rgba(0, 0, 0, 0.9)",
           boxShadow: "none",
+          margin: 0,
+          width: "100dvw",
+          maxWidth: "100dvw",
+          height: "100dvh",
+          maxHeight: "100dvh",
+          overflow: "hidden",
         },
       }}
     >
@@ -306,19 +352,17 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
         sx={{
           position: "relative",
           width: "100%",
-          height: "100vh",
+          height: "100%",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          flexDirection: "column",
+          overflow: "hidden",
+          boxSizing: "border-box",
         }}
       >
         {/* Image Controls Overlay */}
         <Box
           sx={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
+            flexShrink: 0,
             zIndex: 1,
           }}
         >
@@ -336,41 +380,54 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           />
         </Box>
 
-        {/* Loading state - only show if loading is true AND we don't have an image yet */}
-        {loading && !imageUrl && (
-          <Box display="flex" alignItems="center" justifyContent="center">
-            <CircularProgress />
-          </Box>
-        )}
+        {/* Image content area - flex grows to fill remaining space */}
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "hidden",
+            minHeight: 0, // Important for flex child with overflow
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          }}
+        >
+          {/* Loading state - only show if loading is true AND we don't have an image yet */}
+          {loading && !imageUrl && (
+            <Box display="flex" alignItems="center" justifyContent="center">
+              <CircularProgress />
+            </Box>
+          )}
 
-        {/* Error state */}
-        {error && (
-          <Box color="error.main" textAlign="center">
-            {error}
-          </Box>
-        )}
+          {/* Error state */}
+          {error && (
+            <Box color="error.main" textAlign="center">
+              {error}
+            </Box>
+          )}
 
-        {/* Image with react-photo-view for zoom functionality */}
-        {/* Keep showing image even while loading next one to avoid flicker */}
-        {!error && imageUrl && (
-          <PhotoProvider>
-            <PhotoView src={imageUrl}>
-              <img
-                src={imageUrl}
-                alt={filename}
-                style={{
-                  maxWidth: "90vw",
-                  maxHeight: "90vh",
-                  objectFit: "contain",
-                  transform: `rotate(${rotate}deg) scale(${scale})`,
-                  transition: "transform 0.3s ease",
-                  cursor: "zoom-in",
-                }}
-                onError={handleError}
-              />
-            </PhotoView>
-          </PhotoProvider>
-        )}
+          {/* Image with zoom, pan, and rotate functionality */}
+          {/* Keep showing image even while loading next one to avoid flicker */}
+          {!error && imageUrl && (
+            <Box
+              component="img"
+              src={imageUrl}
+              alt={filename}
+              onError={handleError}
+              onDoubleClick={handleDoubleClick}
+              onTouchEnd={handleTouchEnd}
+              sx={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                width: "auto",
+                height: "auto",
+                objectFit: "contain",
+                transform: `rotate(${rotate}deg) scale(${scale})`,
+                transition: "transform 0.3s ease",
+              }}
+            />
+          )}
+        </Box>
       </Box>
     </Dialog>
   );

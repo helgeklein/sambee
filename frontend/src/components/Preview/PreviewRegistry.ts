@@ -12,6 +12,7 @@ export interface PreviewComponentProps {
   // Gallery mode support
   images?: string[];
   currentIndex?: number;
+  onCurrentIndexChange?: (index: number) => void;
 }
 
 export type PreviewComponent = React.ComponentType<PreviewComponentProps>;
