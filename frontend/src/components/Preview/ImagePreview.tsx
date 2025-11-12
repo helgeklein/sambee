@@ -26,6 +26,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [_isFullscreen, setIsFullscreen] = useState(false);
 
   // Get current image path
   const currentPath = images[currentIndex];
@@ -145,12 +146,47 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     onClose();
   }, [onClose]);
 
+  // Toggle fullscreen mode
+  const toggleFullscreen = useCallback(async () => {
+    try {
+      if (!document.fullscreenElement) {
+        // Enter fullscreen
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+        logInfo("Entered fullscreen mode");
+      } else {
+        // Exit fullscreen
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+        logInfo("Exited fullscreen mode");
+      }
+    } catch (err) {
+      logError("Failed to toggle fullscreen", { error: err });
+    }
+  }, []);
+
+  // Listen for fullscreen changes (e.g., user pressing F11 or ESC)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
   // Keyboard shortcuts for gallery navigation while dialog is open
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
 
       switch (event.key) {
+        case "Enter":
+          event.preventDefault();
+          toggleFullscreen();
+          break;
         case "ArrowRight":
         case "d":
         case "D":
@@ -207,7 +243,12 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           break;
         case "Escape":
           event.preventDefault();
-          handleClose();
+          // If in fullscreen, exit fullscreen first, otherwise close dialog
+          if (document.fullscreenElement) {
+            document.exitFullscreen();
+          } else {
+            handleClose();
+          }
           break;
         default:
           break;
@@ -218,7 +259,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [handleClose, handleNext, handlePrevious, images.length]);
+  }, [handleClose, handleNext, handlePrevious, images.length, toggleFullscreen]);
 
   // Log when image preview opens
   useEffect(() => {
@@ -227,11 +268,18 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
       gallerySize: images.length,
       isGallery: images.length > 1,
     });
-
-    return () => {
-      logInfo("Image preview closed", { filename });
-    };
   }, [filename, images.length]);
+
+  // Cleanup when component unmounts
+  useEffect(() => {
+    return () => {
+      logInfo("Image preview closed");
+      // Exit fullscreen if still active when component unmounts
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      }
+    };
+  }, []);
 
   // Handle errors
   const handleError = useCallback(() => {
