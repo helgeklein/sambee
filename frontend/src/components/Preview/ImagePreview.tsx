@@ -290,9 +290,8 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
 
         {/* Loading state - only show if loading is true AND we don't have an image yet */}
         {loading && !imageUrl && (
-          <Box display="flex" flexDirection="column" alignItems="center" gap={2}>
+          <Box display="flex" alignItems="center" justifyContent="center">
             <CircularProgress />
-            <Box color="white">Loading image...</Box>
           </Box>
         )}
 
