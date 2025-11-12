@@ -500,112 +500,6 @@ const Browser: React.FC = () => {
     [connections, getConnectionIdentifier, location.pathname, navigate]
   );
 
-  // Get all image files in current directory for gallery mode
-  const imageFiles = useMemo(() => {
-    return files
-      .filter((f) => f.type === "file" && isImageFile(f.name))
-      .map((f) => (currentPath ? `${currentPath}/${f.name}` : f.name));
-  }, [files, currentPath]);
-
-  const handleFileClick = useCallback(
-    (file: FileEntry, index?: number) => {
-      if (index !== undefined) {
-        updateFocus(index, { immediate: true });
-      }
-      if (file.type === "directory") {
-        // Save current state before navigating into directory
-        const currentScrollOffset = parentRef.current?.scrollTop || 0;
-        const currentFocusedIndex = focusedIndexRef.current; // Use ref instead of state
-        navigationHistory.current.set(currentPath, {
-          focusedIndex: currentFocusedIndex,
-          scrollOffset: currentScrollOffset,
-          selectedFileName: file.name,
-        });
-
-        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-
-        logger.info("Navigating to directory", {
-          from: currentPath,
-          to: newPath,
-          directory: file.name,
-        });
-
-        setCurrentPath(newPath);
-        setPreviewInfo(null);
-        // Blur any focused element when navigating so keyboard shortcuts work
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-      } else {
-        const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
-
-        // Get MIME type - fallback to guessing from filename if backend didn't provide it
-        let mimeType = file.mime_type;
-        if (!mimeType) {
-          // Guess MIME type from file extension
-          const ext = file.name.toLowerCase().split(".").pop();
-          const mimeTypeMap: Record<string, string> = {
-            jpg: "image/jpeg",
-            jpeg: "image/jpeg",
-            png: "image/png",
-            gif: "image/gif",
-            webp: "image/webp",
-            svg: "image/svg+xml",
-            md: "text/markdown",
-            markdown: "text/markdown",
-            txt: "text/plain",
-            pdf: "application/pdf",
-          };
-          mimeType = ext
-            ? mimeTypeMap[ext] || "application/octet-stream"
-            : "application/octet-stream";
-        }
-
-        // Check if it's an image for gallery mode
-        const isImage = isImageFile(file.name);
-
-        logger.info("File selected for preview", {
-          path: filePath,
-          fileName: file.name,
-          size: file.size,
-          mimeType,
-          mimeTypeSource: file.mime_type ? "backend" : "guessed",
-          isImage,
-          imageFilesCount: imageFiles.length,
-        });
-
-        if (isImage && imageFiles.length > 0) {
-          // Gallery mode for images
-          const imageIndex = imageFiles.indexOf(filePath);
-          logger.info("Opening image in gallery mode", {
-            imageIndex,
-            totalImages: imageFiles.length,
-          });
-          setPreviewInfo({
-            path: filePath,
-            mimeType,
-            images: imageFiles,
-            currentIndex: imageIndex >= 0 ? imageIndex : 0,
-          });
-        } else {
-          // Single file preview
-          logger.info("Opening file in single preview mode", {
-            isImage,
-            hasPreviewSupport: mimeType !== "application/octet-stream",
-          });
-          setPreviewInfo({
-            path: filePath,
-            mimeType,
-          });
-        }
-
-        // Keep old behavior for markdown (backward compatibility)
-        // Preview component is managed exclusively through previewInfo state
-      }
-    },
-    [currentPath, updateFocus, imageFiles] // Added imageFiles dependency
-  );
-
   // Keep refs in sync with state for WebSocket callbacks
   useEffect(() => {
     selectedConnectionIdRef.current = selectedConnectionId;
@@ -889,6 +783,113 @@ const Browser: React.FC = () => {
 
     return [...directories, ...regularFiles];
   }, [files, sortBy, searchQuery]);
+
+  // Get all image files in current directory for gallery mode
+  // Use sortedAndFilteredFiles to match the display order
+  const imageFiles = useMemo(() => {
+    return sortedAndFilteredFiles
+      .filter((f) => f.type === "file" && isImageFile(f.name))
+      .map((f) => (currentPath ? `${currentPath}/${f.name}` : f.name));
+  }, [sortedAndFilteredFiles, currentPath]);
+
+  const handleFileClick = useCallback(
+    (file: FileEntry, index?: number) => {
+      if (index !== undefined) {
+        updateFocus(index, { immediate: true });
+      }
+      if (file.type === "directory") {
+        // Save current state before navigating into directory
+        const currentScrollOffset = parentRef.current?.scrollTop || 0;
+        const currentFocusedIndex = focusedIndexRef.current; // Use ref instead of state
+        navigationHistory.current.set(currentPath, {
+          focusedIndex: currentFocusedIndex,
+          scrollOffset: currentScrollOffset,
+          selectedFileName: file.name,
+        });
+
+        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+
+        logger.info("Navigating to directory", {
+          from: currentPath,
+          to: newPath,
+          directory: file.name,
+        });
+
+        setCurrentPath(newPath);
+        setPreviewInfo(null);
+        // Blur any focused element when navigating so keyboard shortcuts work
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+      } else {
+        const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+
+        // Get MIME type - fallback to guessing from filename if backend didn't provide it
+        let mimeType = file.mime_type;
+        if (!mimeType) {
+          // Guess MIME type from file extension
+          const ext = file.name.toLowerCase().split(".").pop();
+          const mimeTypeMap: Record<string, string> = {
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            png: "image/png",
+            gif: "image/gif",
+            webp: "image/webp",
+            svg: "image/svg+xml",
+            md: "text/markdown",
+            markdown: "text/markdown",
+            txt: "text/plain",
+            pdf: "application/pdf",
+          };
+          mimeType = ext
+            ? mimeTypeMap[ext] || "application/octet-stream"
+            : "application/octet-stream";
+        }
+
+        // Check if it's an image for gallery mode
+        const isImage = isImageFile(file.name);
+
+        logger.info("File selected for preview", {
+          path: filePath,
+          fileName: file.name,
+          size: file.size,
+          mimeType,
+          mimeTypeSource: file.mime_type ? "backend" : "guessed",
+          isImage,
+          imageFilesCount: imageFiles.length,
+        });
+
+        if (isImage && imageFiles.length > 0) {
+          // Gallery mode for images
+          const imageIndex = imageFiles.indexOf(filePath);
+          logger.info("Opening image in gallery mode", {
+            imageIndex,
+            totalImages: imageFiles.length,
+          });
+          setPreviewInfo({
+            path: filePath,
+            mimeType,
+            images: imageFiles,
+            currentIndex: imageIndex >= 0 ? imageIndex : 0,
+          });
+        } else {
+          // Single file preview
+          logger.info("Opening file in single preview mode", {
+            isImage,
+            hasPreviewSupport: mimeType !== "application/octet-stream",
+          });
+          setPreviewInfo({
+            path: filePath,
+            mimeType,
+          });
+        }
+
+        // Keep old behavior for markdown (backward compatibility)
+        // Preview component is managed exclusively through previewInfo state
+      }
+    },
+    [currentPath, updateFocus, imageFiles]
+  );
 
   // Memoize measureElement to prevent rowVirtualizer from changing on every render
   const measureElement = React.useMemo(
