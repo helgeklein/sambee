@@ -238,6 +238,11 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
             handlePrevious();
           }
           break;
+        case "ArrowUp":
+        case "ArrowDown":
+          // Prevent default scrolling behavior on mobile when image preview is open
+          event.preventDefault();
+          break;
         case "Home":
           if (images.length > 1) {
             event.preventDefault();
