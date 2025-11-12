@@ -6,10 +6,12 @@ import {
   Folder as FolderIcon,
   Home as HomeIcon,
   KeyboardOutlined as KeyboardIcon,
+  MoreHoriz as MoreHorizIcon,
   Refresh as RefreshIcon,
   Search as SearchIcon,
   Settings as SettingsIcon,
   SortByAlpha as SortByAlphaIcon,
+  Sort as SortIcon,
   Storage as StorageIcon,
 } from "@mui/icons-material";
 import {
@@ -28,6 +30,7 @@ import {
   IconButton,
   InputAdornment,
   Link,
+  Menu,
   MenuItem,
   Paper,
   Select,
@@ -40,6 +43,7 @@ import {
   ToggleButtonGroup,
   Toolbar,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -174,6 +178,7 @@ const Browser: React.FC = () => {
   const params = useParams<{ connectionId: string; "*": string }>();
   const location = useLocation();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
@@ -191,9 +196,34 @@ const Browser: React.FC = () => {
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("name");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
+  const [breadcrumbMenuAnchor, setBreadcrumbMenuAnchor] = useState<HTMLElement | null>(null);
+  const [sortMenuAnchor, setSortMenuAnchor] = useState<HTMLElement | null>(null);
+
+  const handleBreadcrumbMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setBreadcrumbMenuAnchor(event.currentTarget);
+  };
+
+  const handleBreadcrumbMenuClose = () => {
+    setBreadcrumbMenuAnchor(null);
+  };
+
+  const handleSortMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setSortMenuAnchor(event.currentTarget);
+  };
+
+  const handleSortMenuClose = () => {
+    setSortMenuAnchor(null);
+  };
+
+  const handleSortChange = (field: SortField, direction: "asc" | "desc") => {
+    setSortBy(field);
+    setSortDirection(direction);
+    handleSortMenuClose();
+  };
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -765,26 +795,31 @@ const Browser: React.FC = () => {
 
     // Optimized sort function
     const sortFunction = (a: FileEntry, b: FileEntry) => {
+      let comparison = 0;
       switch (sortBy) {
         case "name":
-          return a.name.localeCompare(b.name);
+          comparison = a.name.localeCompare(b.name);
+          break;
         case "size":
-          return (b.size || 0) - (a.size || 0);
+          comparison = (a.size || 0) - (b.size || 0);
+          break;
         case "modified": {
           const dateA = a.modified_at ? new Date(a.modified_at).getTime() : 0;
           const dateB = b.modified_at ? new Date(b.modified_at).getTime() : 0;
-          return dateB - dateA;
+          comparison = dateA - dateB;
+          break;
         }
         default:
-          return 0;
+          comparison = 0;
       }
+      return sortDirection === "asc" ? comparison : -comparison;
     };
 
     directories.sort(sortFunction);
     regularFiles.sort(sortFunction);
 
     return [...directories, ...regularFiles];
-  }, [files, sortBy, searchQuery]);
+  }, [files, sortBy, sortDirection, searchQuery]);
 
   // Get all image files in current directory for gallery mode
   // Use sortedAndFilteredFiles to match the display order
@@ -1611,6 +1646,20 @@ const Browser: React.FC = () => {
 
   const pathParts = currentPath ? currentPath.split("/") : [];
 
+  // Breadcrumb logic for mobile: collapse middle segments if path is too long
+  const breadcrumbSegments = pathParts.map((part, index) => ({
+    label: part,
+    index,
+    key: pathParts.slice(0, index + 1).join("/"),
+  }));
+
+  // On mobile, if we have more than 2 segments, show: Root / ... / current
+  const shouldCollapseBreadcrumbs = isMobile && breadcrumbSegments.length > 2;
+  const collapsedBreadcrumbSegments = shouldCollapseBreadcrumbs
+    ? breadcrumbSegments.slice(0, -1) // All except the last one
+    : [];
+  const terminalBreadcrumb = breadcrumbSegments[breadcrumbSegments.length - 1];
+
   // Memoized FileRow component for optimal performance
   // FileRow component styles - memoized outside to prevent recreation on every scroll
   const fileRowStyles = React.useMemo(
@@ -1786,14 +1835,24 @@ const Browser: React.FC = () => {
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <AppBar position="static">
-        <Toolbar>
-          <StorageIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" component="div" sx={{ mr: 3 }}>
-            Sambee
-          </Typography>
+        <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
+          <StorageIcon sx={{ mr: { xs: 1, sm: 2 } }} />
+          {!isMobile && (
+            <Typography variant="h6" component="div" sx={{ mr: 3 }}>
+              Sambee
+            </Typography>
+          )}
 
           {connections.length > 0 && (
-            <FormControl size="small" sx={{ minWidth: 250, mr: 2 }}>
+            <FormControl
+              size="small"
+              sx={{
+                minWidth: { xs: 300, sm: 250 },
+                mr: { xs: 1, sm: 2 },
+                flex: { xs: 1, sm: "0 0 auto" },
+                maxWidth: { xs: "none", sm: 250 },
+              }}
+            >
               <Select
                 value={selectedConnectionId}
                 onChange={(e) => handleConnectionChange(e.target.value)}
@@ -1825,28 +1884,32 @@ const Browser: React.FC = () => {
 
           <Box sx={{ flexGrow: 1 }} />
 
-          <IconButton
-            color="inherit"
-            onClick={() => setShowHelp(true)}
-            sx={{ mr: 1 }}
-            title="Keyboard Shortcuts (?)"
-          >
-            <KeyboardIcon />
-          </IconButton>
+          {!isMobile && (
+            <IconButton
+              color="inherit"
+              onClick={() => setShowHelp(true)}
+              sx={{ mr: 1 }}
+              title="Keyboard Shortcuts (?)"
+            >
+              <KeyboardIcon />
+            </IconButton>
+          )}
 
           {isAdmin && (
             <IconButton
               color="inherit"
               onClick={() => setSettingsOpen(true)}
-              sx={{ mr: 1 }}
+              sx={{ mr: { xs: 0.5, sm: 1 } }}
               title="Settings"
             >
               <SettingsIcon />
             </IconButton>
           )}
-          <Button color="inherit" onClick={handleLogout}>
-            Logout
-          </Button>
+          {!isMobile && (
+            <Button color="inherit" onClick={handleLogout}>
+              Logout
+            </Button>
+          )}
         </Toolbar>
       </AppBar>
       <Container
@@ -1883,8 +1946,23 @@ const Browser: React.FC = () => {
         {selectedConnectionId && (
           <>
             <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Breadcrumbs>
+              <Box
+                display="flex"
+                flexDirection={{ xs: "column", md: "row" }}
+                gap={{ xs: 2, md: 0 }}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", md: "center" }}
+              >
+                <Breadcrumbs
+                  separator="/"
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    "& .MuiBreadcrumbs-ol": {
+                      flexWrap: isMobile ? "nowrap" : "wrap",
+                    },
+                  }}
+                >
                   <Link
                     component="button"
                     variant="body1"
@@ -1897,16 +1975,69 @@ const Browser: React.FC = () => {
                     <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
                     Root
                   </Link>
-                  {pathParts.map((part, index) => (
-                    <Link
-                      key={pathParts.slice(0, index + 1).join("/")}
-                      component="button"
-                      variant="body1"
-                      onClick={() => handleBreadcrumbClick(index)}
-                    >
-                      {part}
-                    </Link>
-                  ))}
+                  {/* Mobile: Show collapsed breadcrumbs (Root / ... / current) */}
+                  {shouldCollapseBreadcrumbs ? (
+                    <>
+                      {/* "..." button that opens menu with hidden segments */}
+                      {collapsedBreadcrumbSegments.length > 0 && (
+                        <Link
+                          component="button"
+                          variant="body1"
+                          onClick={handleBreadcrumbMenuOpen}
+                          sx={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            minWidth: "auto",
+                          }}
+                          aria-label="Show hidden path segments"
+                        >
+                          <MoreHorizIcon fontSize="small" />
+                        </Link>
+                      )}
+                      {/* Show current (last) segment as non-clickable text */}
+                      {terminalBreadcrumb && (
+                        <Typography
+                          variant="body1"
+                          color="text.primary"
+                          sx={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: { xs: 120, sm: 200 },
+                          }}
+                        >
+                          {terminalBreadcrumb.label}
+                        </Typography>
+                      )}
+                    </>
+                  ) : (
+                    /* Desktop or short paths: Show all segments */
+                    pathParts.map((part, index) => {
+                      const isLast = index === pathParts.length - 1;
+                      if (isLast) {
+                        // Last segment is non-clickable
+                        return (
+                          <Typography
+                            key={pathParts.slice(0, index + 1).join("/")}
+                            variant="body1"
+                            color="text.primary"
+                          >
+                            {part}
+                          </Typography>
+                        );
+                      }
+                      return (
+                        <Link
+                          key={pathParts.slice(0, index + 1).join("/")}
+                          component="button"
+                          variant="body1"
+                          onClick={() => handleBreadcrumbClick(index)}
+                        >
+                          {part}
+                        </Link>
+                      );
+                    })
+                  )}
                 </Breadcrumbs>
 
                 {files.length > 0 && (
@@ -1915,31 +2046,49 @@ const Browser: React.FC = () => {
                       size="small"
                       onClick={() => loadFiles(currentPath, true)}
                       title="Refresh (F5)"
-                      sx={{ mr: 1 }}
                     >
                       <RefreshIcon fontSize="small" />
                     </IconButton>
-                    <Typography variant="body2" color="text.secondary">
-                      Sort by:
-                    </Typography>
-                    <ToggleButtonGroup
-                      value={sortBy}
-                      exclusive
-                      onChange={(_, newSort) => {
-                        if (newSort !== null) setSortBy(newSort);
-                      }}
-                      size="small"
-                    >
-                      <ToggleButton value="name" aria-label="sort by name">
-                        <SortByAlphaIcon fontSize="small" />
-                      </ToggleButton>
-                      <ToggleButton value="size" aria-label="sort by size">
-                        <DataUsageIcon fontSize="small" />
-                      </ToggleButton>
-                      <ToggleButton value="modified" aria-label="sort by date">
-                        <AccessTimeIcon fontSize="small" />
-                      </ToggleButton>
-                    </ToggleButtonGroup>
+
+                    {/* Desktop: Show full sorting controls */}
+                    {!isMobile && (
+                      <>
+                        <Typography variant="body2" color="text.secondary">
+                          Sort by:
+                        </Typography>
+                        <ToggleButtonGroup
+                          value={sortBy}
+                          exclusive
+                          onChange={(_, newSort) => {
+                            if (newSort !== null) setSortBy(newSort);
+                          }}
+                          size="small"
+                        >
+                          <ToggleButton value="name" aria-label="sort by name">
+                            <SortByAlphaIcon fontSize="small" />
+                          </ToggleButton>
+                          <ToggleButton value="size" aria-label="sort by size">
+                            <DataUsageIcon fontSize="small" />
+                          </ToggleButton>
+                          <ToggleButton value="modified" aria-label="sort by date">
+                            <AccessTimeIcon fontSize="small" />
+                          </ToggleButton>
+                        </ToggleButtonGroup>
+                      </>
+                    )}
+
+                    {/* Mobile: Show compact sort button */}
+                    {isMobile && (
+                      <IconButton
+                        size="small"
+                        onClick={handleSortMenuOpen}
+                        title="Sort"
+                        aria-label="Sort options"
+                      >
+                        <SortIcon fontSize="small" />
+                      </IconButton>
+                    )}
+
                     <Chip
                       label={`${sortedAndFilteredFiles.length}/${
                         files.length
@@ -1951,6 +2100,91 @@ const Browser: React.FC = () => {
                 )}
               </Box>
             </Paper>
+
+            {/* Breadcrumb overflow menu - shows hidden path segments on mobile */}
+            <Menu
+              anchorEl={breadcrumbMenuAnchor}
+              open={Boolean(breadcrumbMenuAnchor)}
+              onClose={handleBreadcrumbMenuClose}
+              anchorOrigin={{
+                vertical: "bottom",
+                horizontal: "left",
+              }}
+              transformOrigin={{
+                vertical: "top",
+                horizontal: "left",
+              }}
+            >
+              {collapsedBreadcrumbSegments.map((segment) => (
+                <MenuItem
+                  key={segment.key}
+                  onClick={() => {
+                    handleBreadcrumbClick(segment.index);
+                    handleBreadcrumbMenuClose();
+                  }}
+                >
+                  {segment.label}
+                </MenuItem>
+              ))}
+            </Menu>
+
+            {/* Sort menu - mobile only */}
+            <Menu
+              anchorEl={sortMenuAnchor}
+              open={Boolean(sortMenuAnchor)}
+              onClose={handleSortMenuClose}
+              anchorOrigin={{
+                vertical: "bottom",
+                horizontal: "right",
+              }}
+              transformOrigin={{
+                vertical: "top",
+                horizontal: "right",
+              }}
+            >
+              <MenuItem
+                onClick={() => handleSortChange("name", "asc")}
+                selected={sortBy === "name" && sortDirection === "asc"}
+              >
+                <SortByAlphaIcon sx={{ mr: 2 }} fontSize="small" />
+                Name (A-Z)
+              </MenuItem>
+              <MenuItem
+                onClick={() => handleSortChange("name", "desc")}
+                selected={sortBy === "name" && sortDirection === "desc"}
+              >
+                <SortByAlphaIcon sx={{ mr: 2 }} fontSize="small" />
+                Name (Z-A)
+              </MenuItem>
+              <MenuItem
+                onClick={() => handleSortChange("size", "asc")}
+                selected={sortBy === "size" && sortDirection === "asc"}
+              >
+                <DataUsageIcon sx={{ mr: 2 }} fontSize="small" />
+                Size (Smallest)
+              </MenuItem>
+              <MenuItem
+                onClick={() => handleSortChange("size", "desc")}
+                selected={sortBy === "size" && sortDirection === "desc"}
+              >
+                <DataUsageIcon sx={{ mr: 2 }} fontSize="small" />
+                Size (Largest)
+              </MenuItem>
+              <MenuItem
+                onClick={() => handleSortChange("modified", "asc")}
+                selected={sortBy === "modified" && sortDirection === "asc"}
+              >
+                <AccessTimeIcon sx={{ mr: 2 }} fontSize="small" />
+                Modified (Oldest)
+              </MenuItem>
+              <MenuItem
+                onClick={() => handleSortChange("modified", "desc")}
+                selected={sortBy === "modified" && sortDirection === "desc"}
+              >
+                <AccessTimeIcon sx={{ mr: 2 }} fontSize="small" />
+                Modified (Newest)
+              </MenuItem>
+            </Menu>
 
             {files.length > 0 && (
               <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
