@@ -35,12 +35,21 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   useEffect(() => {
     let isMounted = true;
     let blobUrl: string | null = null;
+    let loadingTimeoutId: number | null = null;
     const abortController = new AbortController();
 
     const fetchImage = async () => {
       try {
-        setLoading(true);
         setError(null);
+        // Don't clear imageUrl yet - keep showing the previous image during load
+
+        // Delay showing loading indicator by 250ms to avoid flickering on fast loads
+        // If image loads quickly (<250ms), user never sees the loading state
+        loadingTimeoutId = window.setTimeout(() => {
+          if (isMounted) {
+            setLoading(true);
+          }
+        }, 250);
 
         logInfo("Fetching image via Axios with auth header", {
           path: currentPath,
@@ -58,6 +67,12 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
 
         if (!isMounted) return;
 
+        // Clear the loading timeout since we're done (may not have triggered yet)
+        if (loadingTimeoutId !== null) {
+          clearTimeout(loadingTimeoutId);
+          loadingTimeoutId = null;
+        }
+
         // Create blob URL from response
         blobUrl = URL.createObjectURL(blob);
         logInfo("Created blob URL for image", {
@@ -66,10 +81,18 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           size: blob.size,
         });
 
+        // Update to new image URL - this triggers a re-render with the new image
         setImageUrl(blobUrl);
         setLoading(false);
       } catch (err) {
         if (!isMounted) return;
+
+        // Clear loading timeout on error
+        if (loadingTimeoutId !== null) {
+          clearTimeout(loadingTimeoutId);
+          loadingTimeoutId = null;
+        }
+
         logError("Failed to fetch image", {
           path: currentPath,
           error: err,
@@ -85,6 +108,12 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     return () => {
       isMounted = false;
       abortController.abort();
+
+      // Clear any pending loading timeout
+      if (loadingTimeoutId !== null) {
+        clearTimeout(loadingTimeoutId);
+      }
+
       if (blobUrl) {
         logInfo("Revoking blob URL", { blobUrl });
         URL.revokeObjectURL(blobUrl);
@@ -259,8 +288,8 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           />
         </Box>
 
-        {/* Loading state */}
-        {loading && (
+        {/* Loading state - only show if loading is true AND we don't have an image yet */}
+        {loading && !imageUrl && (
           <Box display="flex" flexDirection="column" alignItems="center" gap={2}>
             <CircularProgress />
             <Box color="white">Loading image...</Box>
@@ -275,7 +304,8 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
         )}
 
         {/* Image with react-photo-view for zoom functionality */}
-        {!loading && !error && imageUrl && (
+        {/* Keep showing image even while loading next one to avoid flicker */}
+        {!error && imageUrl && (
           <PhotoProvider>
             <PhotoView src={imageUrl}>
               <img
