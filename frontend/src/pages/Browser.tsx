@@ -12,7 +12,6 @@ import {
   Search as SearchIcon,
   Settings as SettingsIcon,
   SortByAlpha as SortByAlphaIcon,
-  Sort as SortIcon,
   Storage as StorageIcon,
 } from "@mui/icons-material";
 import {
@@ -31,7 +30,6 @@ import {
   IconButton,
   InputAdornment,
   Link,
-  Menu,
   MenuItem,
   Paper,
   Select,
@@ -198,26 +196,11 @@ const Browser: React.FC = () => {
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("name");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortDirection, _setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
-  const [sortMenuAnchor, setSortMenuAnchor] = useState<HTMLElement | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const handleSortMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setSortMenuAnchor(event.currentTarget);
-  };
-
-  const handleSortMenuClose = () => {
-    setSortMenuAnchor(null);
-  };
-
-  const handleSortChange = (field: SortField, direction: "asc" | "desc") => {
-    setSortBy(field);
-    setSortDirection(direction);
-    handleSortMenuClose();
-  };
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -2086,98 +2069,6 @@ const Browser: React.FC = () => {
                 </Box>
               </Paper>
             )}
-
-            {/* Mobile: Compact controls bar */}
-            {isMobile && files.length > 0 && (
-              <Paper elevation={2} sx={{ p: 1.5, mb: 2 }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
-                  <IconButton
-                    size="small"
-                    onClick={() => loadFiles(currentPath, true)}
-                    title="Refresh"
-                    aria-label="Refresh file list"
-                  >
-                    <RefreshIcon />
-                  </IconButton>
-
-                  <IconButton
-                    size="small"
-                    onClick={handleSortMenuOpen}
-                    title="Sort"
-                    aria-label="Sort options"
-                  >
-                    <SortIcon />
-                  </IconButton>
-
-                  <Box sx={{ flexGrow: 1 }} />
-
-                  <Chip
-                    label={`${sortedAndFilteredFiles.length}`}
-                    size="small"
-                    variant="outlined"
-                    title={`${sortedAndFilteredFiles.length} of ${files.length} items`}
-                  />
-                </Box>
-              </Paper>
-            )}
-
-            {/* Sort menu - mobile only */}
-            <Menu
-              anchorEl={sortMenuAnchor}
-              open={Boolean(sortMenuAnchor)}
-              onClose={handleSortMenuClose}
-              anchorOrigin={{
-                vertical: "bottom",
-                horizontal: "right",
-              }}
-              transformOrigin={{
-                vertical: "top",
-                horizontal: "right",
-              }}
-            >
-              <MenuItem
-                onClick={() => handleSortChange("name", "asc")}
-                selected={sortBy === "name" && sortDirection === "asc"}
-              >
-                <SortByAlphaIcon sx={{ mr: 2 }} fontSize="small" />
-                Name (A-Z)
-              </MenuItem>
-              <MenuItem
-                onClick={() => handleSortChange("name", "desc")}
-                selected={sortBy === "name" && sortDirection === "desc"}
-              >
-                <SortByAlphaIcon sx={{ mr: 2 }} fontSize="small" />
-                Name (Z-A)
-              </MenuItem>
-              <MenuItem
-                onClick={() => handleSortChange("size", "asc")}
-                selected={sortBy === "size" && sortDirection === "asc"}
-              >
-                <DataUsageIcon sx={{ mr: 2 }} fontSize="small" />
-                Size (Smallest)
-              </MenuItem>
-              <MenuItem
-                onClick={() => handleSortChange("size", "desc")}
-                selected={sortBy === "size" && sortDirection === "desc"}
-              >
-                <DataUsageIcon sx={{ mr: 2 }} fontSize="small" />
-                Size (Largest)
-              </MenuItem>
-              <MenuItem
-                onClick={() => handleSortChange("modified", "asc")}
-                selected={sortBy === "modified" && sortDirection === "asc"}
-              >
-                <AccessTimeIcon sx={{ mr: 2 }} fontSize="small" />
-                Modified (Oldest)
-              </MenuItem>
-              <MenuItem
-                onClick={() => handleSortChange("modified", "desc")}
-                selected={sortBy === "modified" && sortDirection === "desc"}
-              >
-                <AccessTimeIcon sx={{ mr: 2 }} fontSize="small" />
-                Modified (Newest)
-              </MenuItem>
-            </Menu>
 
             {files.length > 0 && (
               <Paper
