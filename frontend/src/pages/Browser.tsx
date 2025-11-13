@@ -49,6 +49,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
+import PullToRefresh from "../components/Mobile/PullToRefresh";
 import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
 import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -130,6 +131,7 @@ const scrollMetrics = {
 type SortField = "name" | "size" | "modified";
 
 const ROW_HEIGHT = 68;
+const DIRECTORY_CACHE_TTL_MS = 30_000;
 
 const formatFileSize = (bytes?: number): string => {
   if (!bytes) return "";
@@ -201,6 +203,8 @@ const Browser: React.FC = () => {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -263,6 +267,7 @@ const Browser: React.FC = () => {
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
   const focusOverlayRef = React.useRef<HTMLDivElement | null>(null);
+  const pullWrapperRef = React.useRef<HTMLDivElement | null>(null);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -314,110 +319,188 @@ const Browser: React.FC = () => {
     [connections, slugifyConnectionName]
   );
 
-  const getConnectionIdentifier = useCallback(
-    (connection: Connection): string => {
-      return slugifyConnectionName(connection.name);
-    },
-    [slugifyConnectionName]
-  );
-
   const checkAdminStatus = useCallback(async () => {
     try {
-      await api.getConnections();
-      setIsAdmin(true);
-    } catch (error: unknown) {
-      // If 403, user is not admin; if 401, not logged in
-      if (isApiError(error) && error.response?.status === 403) {
-        setIsAdmin(false);
-      }
+      const user = await api.getCurrentUser();
+      setIsAdmin(user.is_admin);
+    } catch (err) {
+      logger.warn("Failed to verify admin status", { error: err });
+      setIsAdmin(false);
     }
   }, []);
 
-  const loadFiles = useCallback(
-    async (path: string, forceRefresh: boolean = false) => {
-      if (!selectedConnectionId) return;
-
-      // Create cache key
-      const cacheKey = `${selectedConnectionId}:${path}`;
-
-      // Check cache first (unless force refresh)
-      if (!forceRefresh) {
-        const cached = directoryCache.current.get(cacheKey);
-        if (cached) {
-          // Use cached data immediately - no loading spinner!
-          logger.debug("Using cached directory listing", {
-            connectionId: selectedConnectionId,
-            path,
-            cacheAge: Date.now() - cached.timestamp,
-          });
-          setFiles(cached.items);
-          setError(null);
-          return;
-        }
-      }
-      try {
-        setLoading(true);
-        setError(null);
-
-        logger.info("Loading directory", {
-          connectionId: selectedConnectionId,
-          path,
-          forceRefresh,
-        });
-
-        const listing = await api.listDirectory(selectedConnectionId, path);
-
-        // Store in cache
-        directoryCache.current.set(cacheKey, {
-          items: listing.items,
-          timestamp: Date.now(),
-        });
-
-        logger.info("Directory loaded successfully", {
-          connectionId: selectedConnectionId,
-          path,
-          itemCount: listing.items.length,
-        });
-
-        setFiles(listing.items);
-      } catch (err: unknown) {
-        logger.error(
-          "Failed to load directory",
-          {
-            connectionId: selectedConnectionId,
-            path,
-            status: isApiError(err) ? err.response?.status : undefined,
-            detail: isApiError(err) ? err.response?.data?.detail : undefined,
-          },
-          err instanceof Error ? err : undefined
-        );
-
-        if (isApiError(err)) {
-          if (err.response?.status === 401) {
-            navigate("/login");
-          } else if (err.response?.status === 404) {
-            setError("Connection not found. Please select another connection.");
-          } else {
-            setError(
-              err.response?.data?.detail ||
-                "Failed to load files. Please check your connection settings."
-            );
-          }
-        } else {
-          setError("Failed to load files. Please check your connection settings.");
-        }
-        setFiles([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [selectedConnectionId, navigate]
-  );
-
-  // Keep loadFiles ref in sync
+  // Pull-to-refresh using touch events (mobile only)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: files.length needed to re-run when files load and DOM is ready
   useEffect(() => {
-    loadFilesRef.current = loadFiles;
-  }, [loadFiles]);
+    if (!isMobile) {
+      return;
+    }
+
+    const scrollContainer = parentRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+
+    let startY = 0;
+    let isDragging = false;
+    let activeTouchId: number | null = null;
+    let currentPullDistance = 0;
+
+    const resetPull = () => {
+      isDragging = false;
+      activeTouchId = null;
+      currentPullDistance = 0;
+
+      // Reset DOM transform
+      if (pullWrapperRef.current) {
+        pullWrapperRef.current.style.transform = "translateY(0px)";
+      }
+
+      setPullDistance(0);
+    };
+
+    const getTrackedTouch = (touchList: TouchList) => {
+      if (touchList.length === 0) {
+        return null;
+      }
+
+      if (activeTouchId === null) {
+        return touchList[0];
+      }
+
+      return Array.from(touchList).find((touch) => touch.identifier === activeTouchId) ?? null;
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      // Check if touch is on the scroll container
+      const target = event.target as HTMLElement;
+      if (!scrollContainer.contains(target)) {
+        return;
+      }
+
+      if (isRefreshing) {
+        return;
+      }
+
+      if (event.touches.length !== 1) {
+        resetPull();
+        return;
+      }
+
+      if (scrollContainer.scrollTop > 5) {
+        resetPull();
+        return;
+      }
+
+      const touch = event.touches[0];
+      if (!touch) {
+        return;
+      }
+
+      startY = touch.clientY;
+      activeTouchId = touch.identifier;
+      isDragging = true;
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (!isDragging) {
+        return;
+      }
+
+      const trackedTouch = getTrackedTouch(event.touches);
+      if (!trackedTouch) {
+        resetPull();
+        return;
+      }
+
+      const diff = trackedTouch.clientY - startY;
+
+      if (diff <= 0) {
+        resetPull();
+        return;
+      }
+
+      // Check scroll position - if user scrolled down, stop pull gesture
+      if (scrollContainer.scrollTop > 5) {
+        resetPull();
+        return;
+      }
+
+      const distance = Math.min(diff * 0.75, 140);
+
+      // Track distance in local variable
+      currentPullDistance = distance;
+
+      // Use direct DOM manipulation for instant visual feedback
+      if (pullWrapperRef.current) {
+        pullWrapperRef.current.style.transform = `translateY(${distance}px)`;
+      }
+    };
+
+    const handleTouchEnd = (event: TouchEvent) => {
+      if (!isDragging) {
+        return;
+      }
+
+      const endedActiveTouch = Array.from(event.changedTouches).some(
+        (touch) => touch.identifier === activeTouchId
+      );
+
+      if (!endedActiveTouch) {
+        return;
+      }
+
+      isDragging = false;
+      activeTouchId = null;
+
+      // Check if we should trigger refresh
+      if (currentPullDistance >= 80) {
+        setIsRefreshing(true);
+        setPullDistance(currentPullDistance); // Update state for indicator animation
+
+        loadFilesRef.current?.(currentPath, true).finally(() => {
+          setIsRefreshing(false);
+          // Reset after refresh completes
+          currentPullDistance = 0;
+          if (pullWrapperRef.current) {
+            pullWrapperRef.current.style.transform = "translateY(0px)";
+          }
+          setPullDistance(0);
+        });
+      } else {
+        // Below threshold - just reset with animation
+        currentPullDistance = 0;
+        if (pullWrapperRef.current) {
+          pullWrapperRef.current.style.transform = "translateY(0px)";
+          pullWrapperRef.current.style.transition = "transform 0.3s ease-out";
+          // Remove transition after animation
+          setTimeout(() => {
+            if (pullWrapperRef.current) {
+              pullWrapperRef.current.style.transition = "none";
+            }
+          }, 300);
+        }
+        setPullDistance(0);
+      }
+    };
+
+    const handleTouchCancel = () => {
+      resetPull();
+    };
+
+    // Attach to document to avoid scroll container event blocking issues
+    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    document.addEventListener("touchmove", handleTouchMove, { passive: true });
+    document.addEventListener("touchend", handleTouchEnd, { passive: true });
+    document.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+
+    return () => {
+      document.removeEventListener("touchstart", handleTouchStart);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("touchend", handleTouchEnd);
+      document.removeEventListener("touchcancel", handleTouchCancel);
+    };
+  }, [isMobile, isRefreshing, currentPath, files.length]);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -481,6 +564,57 @@ const Browser: React.FC = () => {
     }
   }, [navigate, params.connectionId, slugifyConnectionName]);
 
+  const loadFiles = useCallback(
+    async (path: string, forceRefresh = false) => {
+      if (!selectedConnectionId) {
+        return;
+      }
+
+      const cacheKey = `${selectedConnectionId}:${path}`;
+      const now = Date.now();
+
+      if (!forceRefresh) {
+        const cached = directoryCache.current.get(cacheKey);
+        if (cached && now - cached.timestamp < DIRECTORY_CACHE_TTL_MS) {
+          setFiles(cached.items);
+          setLoading(false);
+          setError(null);
+          return;
+        }
+      } else {
+        directoryCache.current.delete(cacheKey);
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const listing = await api.listDirectory(selectedConnectionId, path);
+        const items = listing.items ?? [];
+        directoryCache.current.set(cacheKey, { items, timestamp: now });
+        setFiles(items);
+      } catch (err) {
+        logger.error("Error loading directory", {
+          error: err,
+          connectionId: selectedConnectionId,
+          path,
+        });
+        if (isApiError(err) && err.response?.status === 404) {
+          setError("Directory not found. It may have been removed or renamed.");
+        } else {
+          setError("Failed to load directory contents. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectedConnectionId]
+  );
+
+  useEffect(() => {
+    loadFilesRef.current = loadFiles;
+  }, [loadFiles]);
+
   // Helper to update URL when navigation changes
   const updateUrl = useCallback(
     (connectionId: string, path: string) => {
@@ -491,7 +625,7 @@ const Browser: React.FC = () => {
       const connection = connections.find((c) => c.id === connectionId);
       if (!connection) return;
 
-      const identifier = getConnectionIdentifier(connection);
+      const identifier = slugifyConnectionName(connection.name);
 
       // Encode the path but keep slashes as slashes (not %2F)
       const encodedPath = path
@@ -506,7 +640,7 @@ const Browser: React.FC = () => {
         navigate(newUrl, { replace: false });
       }
     },
-    [connections, getConnectionIdentifier, location.pathname, navigate]
+    [connections, slugifyConnectionName, location.pathname, navigate]
   );
 
   // Keep refs in sync with state for WebSocket callbacks
@@ -1557,7 +1691,7 @@ const Browser: React.FC = () => {
 
         case "F5":
           e.preventDefault();
-          loadFiles(currentPathRef.current, true);
+          loadFilesRef.current?.(currentPathRef.current, true);
           break;
 
         default:
@@ -1595,7 +1729,6 @@ const Browser: React.FC = () => {
     showHelp,
     searchQuery,
     previewInfo,
-    loadFiles,
     visibleRowCount,
     focusedIndex,
     updateFocus,
@@ -2166,6 +2299,15 @@ const Browser: React.FC = () => {
                     </Box>
                   ) : (
                     <>
+                      {/* Pull-to-refresh indicator (mobile only) */}
+                      {isMobile && (
+                        <PullToRefresh
+                          pullDistance={pullDistance}
+                          isRefreshing={isRefreshing}
+                          threshold={80}
+                        />
+                      )}
+
                       <div
                         ref={focusOverlayRef}
                         style={{
@@ -2190,29 +2332,36 @@ const Browser: React.FC = () => {
                         style={{
                           height: "100%",
                           overflow: "auto",
-                          contain: "strict", // Optimize layout/paint/style calculations
-                          willChange: "scroll-position", // Hint for GPU acceleration
+                          WebkitOverflowScrolling: "touch", // Smooth scrolling on iOS
+                          overscrollBehavior: "contain", // Prevent pull-to-refresh on mobile browsers
                         }}
                       >
                         <div
+                          ref={pullWrapperRef}
                           style={{
-                            height: `${rowVirtualizer.getTotalSize()}px`,
-                            width: "100%",
-                            position: "relative",
+                            transition: isRefreshing ? "transform 0.3s ease-out" : "none",
                           }}
                         >
-                          {virtualItemsForRender.map((virtualItem) => (
-                            <FileRow
-                              ref={rowVirtualizer.measureElement}
-                              key={virtualItem.key}
-                              file={sortedAndFilteredFiles[virtualItem.index]}
-                              index={virtualItem.index}
-                              isSelected={virtualItem.index === focusedIndex}
-                              virtualStart={virtualItem.start}
-                              virtualSize={virtualItem.size}
-                              onClick={handleFileClick}
-                            />
-                          ))}
+                          <div
+                            style={{
+                              height: `${rowVirtualizer.getTotalSize()}px`,
+                              width: "100%",
+                              position: "relative",
+                            }}
+                          >
+                            {virtualItemsForRender.map((virtualItem) => (
+                              <FileRow
+                                ref={rowVirtualizer.measureElement}
+                                key={virtualItem.key}
+                                file={sortedAndFilteredFiles[virtualItem.index]}
+                                index={virtualItem.index}
+                                isSelected={virtualItem.index === focusedIndex}
+                                virtualStart={virtualItem.start}
+                                virtualSize={virtualItem.size}
+                                onClick={handleFileClick}
+                              />
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </>
