@@ -2248,24 +2248,53 @@ const Browser: React.FC = () => {
             </Menu>
 
             {files.length > 0 && (
-              <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
+              <Paper
+                elevation={2}
+                sx={{
+                  p: { xs: 1.5, sm: 2 },
+                  mb: 2,
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 10,
+                  backgroundColor: "background.paper",
+                }}
+              >
                 <TextField
                   fullWidth
                   size="small"
-                  placeholder="Search files and folders... (press / to focus)"
+                  placeholder={
+                    isMobile ? "Search..." : "Search files and folders... (press / to focus)"
+                  }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   inputRef={searchInputRef}
+                  sx={{
+                    "& .MuiInputBase-root": {
+                      fontSize: { xs: "16px", sm: "14px" }, // Prevent zoom on iOS
+                    },
+                    "& .MuiInputBase-input": {
+                      padding: { xs: "10px 14px", sm: "8.5px 14px" }, // Ensure min 44px touch target
+                    },
+                  }}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <SearchIcon />
+                        <SearchIcon fontSize={isMobile ? "medium" : "small"} />
                       </InputAdornment>
                     ),
                     endAdornment: searchQuery && (
                       <InputAdornment position="end">
-                        <IconButton size="small" onClick={() => setSearchQuery("")} edge="end">
-                          <ClearIcon fontSize="small" />
+                        <IconButton
+                          size="small"
+                          onClick={() => setSearchQuery("")}
+                          edge="end"
+                          sx={{
+                            minWidth: { xs: 44, sm: "auto" },
+                            minHeight: { xs: 44, sm: "auto" },
+                          }}
+                          aria-label="Clear search"
+                        >
+                          <ClearIcon fontSize={isMobile ? "medium" : "small"} />
                         </IconButton>
                       </InputAdornment>
                     ),
