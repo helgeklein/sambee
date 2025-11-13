@@ -8,7 +8,6 @@ import {
   Home as HomeIcon,
   KeyboardOutlined as KeyboardIcon,
   Menu as MenuIcon,
-  MoreHoriz as MoreHorizIcon,
   Refresh as RefreshIcon,
   Search as SearchIcon,
   Settings as SettingsIcon,
@@ -203,17 +202,8 @@ const Browser: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
-  const [breadcrumbMenuAnchor, setBreadcrumbMenuAnchor] = useState<HTMLElement | null>(null);
   const [sortMenuAnchor, setSortMenuAnchor] = useState<HTMLElement | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const handleBreadcrumbMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
-    setBreadcrumbMenuAnchor(event.currentTarget);
-  };
-
-  const handleBreadcrumbMenuClose = () => {
-    setBreadcrumbMenuAnchor(null);
-  };
 
   const handleSortMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setSortMenuAnchor(event.currentTarget);
@@ -1660,20 +1650,6 @@ const Browser: React.FC = () => {
     setPreviewInfo(null);
   };
 
-  // Breadcrumb logic for mobile: collapse middle segments if path is too long
-  const breadcrumbSegments = pathParts.map((part, index) => ({
-    label: part,
-    index,
-    key: pathParts.slice(0, index + 1).join("/"),
-  }));
-
-  // On mobile, if we have more than 2 segments, show: Root / ... / current
-  const shouldCollapseBreadcrumbs = isMobile && breadcrumbSegments.length > 2;
-  const collapsedBreadcrumbSegments = shouldCollapseBreadcrumbs
-    ? breadcrumbSegments.slice(0, -1) // All except the last one
-    : [];
-  const terminalBreadcrumb = breadcrumbSegments[breadcrumbSegments.length - 1];
-
   // Memoized FileRow component for optimal performance
   // FileRow component styles - memoized outside to prevent recreation on every scroll
   const fileRowStyles = React.useMemo(
@@ -2006,74 +1982,40 @@ const Browser: React.FC = () => {
 
         {selectedConnectionId && (
           <>
-            <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
-              <Box
-                display="flex"
-                flexDirection={{ xs: "column", md: "row" }}
-                gap={{ xs: 2, md: 0 }}
-                justifyContent="space-between"
-                alignItems={{ xs: "stretch", md: "center" }}
-              >
-                <Breadcrumbs
-                  separator="/"
-                  sx={{
-                    flex: 1,
-                    minWidth: 0,
-                    "& .MuiBreadcrumbs-ol": {
-                      flexWrap: isMobile ? "nowrap" : "wrap",
-                    },
-                  }}
+            {/* Desktop: Breadcrumbs and controls header */}
+            {!isMobile && (
+              <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
+                <Box
+                  display="flex"
+                  flexDirection={{ xs: "column", md: "row" }}
+                  gap={{ xs: 2, md: 0 }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "stretch", md: "center" }}
                 >
-                  <Link
-                    component="button"
-                    variant="body1"
-                    onClick={() => {
-                      setCurrentPath("");
-                      setPreviewInfo(null);
+                  <Breadcrumbs
+                    separator="/"
+                    sx={{
+                      flex: 1,
+                      minWidth: 0,
+                      "& .MuiBreadcrumbs-ol": {
+                        flexWrap: "wrap",
+                      },
                     }}
-                    sx={{ display: "flex", alignItems: "center" }}
                   >
-                    <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-                    Root
-                  </Link>
-                  {/* Mobile: Show collapsed breadcrumbs (Root / ... / current) */}
-                  {shouldCollapseBreadcrumbs ? (
-                    <>
-                      {/* "..." button that opens menu with hidden segments */}
-                      {collapsedBreadcrumbSegments.length > 0 && (
-                        <Link
-                          component="button"
-                          variant="body1"
-                          onClick={handleBreadcrumbMenuOpen}
-                          sx={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            minWidth: "auto",
-                          }}
-                          aria-label="Show hidden path segments"
-                        >
-                          <MoreHorizIcon fontSize="small" />
-                        </Link>
-                      )}
-                      {/* Show current (last) segment as non-clickable text */}
-                      {terminalBreadcrumb && (
-                        <Typography
-                          variant="body1"
-                          color="text.primary"
-                          sx={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            maxWidth: { xs: 120, sm: 200 },
-                          }}
-                        >
-                          {terminalBreadcrumb.label}
-                        </Typography>
-                      )}
-                    </>
-                  ) : (
-                    /* Desktop or short paths: Show all segments */
-                    pathParts.map((part, index) => {
+                    <Link
+                      component="button"
+                      variant="body1"
+                      onClick={() => {
+                        setCurrentPath("");
+                        setPreviewInfo(null);
+                      }}
+                      sx={{ display: "flex", alignItems: "center" }}
+                    >
+                      <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
+                      Root
+                    </Link>
+                    {/* Desktop: Show all segments */}
+                    {pathParts.map((part, index) => {
                       const isLast = index === pathParts.length - 1;
                       if (isLast) {
                         // Last segment is non-clickable
@@ -2097,97 +2039,87 @@ const Browser: React.FC = () => {
                           {part}
                         </Link>
                       );
-                    })
-                  )}
-                </Breadcrumbs>
+                    })}
+                  </Breadcrumbs>
 
-                {files.length > 0 && (
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <IconButton
-                      size="small"
-                      onClick={() => loadFiles(currentPath, true)}
-                      title="Refresh (F5)"
-                    >
-                      <RefreshIcon fontSize="small" />
-                    </IconButton>
-
-                    {/* Desktop: Show full sorting controls */}
-                    {!isMobile && (
-                      <>
-                        <Typography variant="body2" color="text.secondary">
-                          Sort by:
-                        </Typography>
-                        <ToggleButtonGroup
-                          value={sortBy}
-                          exclusive
-                          onChange={(_, newSort) => {
-                            if (newSort !== null) setSortBy(newSort);
-                          }}
-                          size="small"
-                        >
-                          <ToggleButton value="name" aria-label="sort by name">
-                            <SortByAlphaIcon fontSize="small" />
-                          </ToggleButton>
-                          <ToggleButton value="size" aria-label="sort by size">
-                            <DataUsageIcon fontSize="small" />
-                          </ToggleButton>
-                          <ToggleButton value="modified" aria-label="sort by date">
-                            <AccessTimeIcon fontSize="small" />
-                          </ToggleButton>
-                        </ToggleButtonGroup>
-                      </>
-                    )}
-
-                    {/* Mobile: Show compact sort button */}
-                    {isMobile && (
+                  {files.length > 0 && (
+                    <Box display="flex" alignItems="center" gap={1}>
                       <IconButton
                         size="small"
-                        onClick={handleSortMenuOpen}
-                        title="Sort"
-                        aria-label="Sort options"
+                        onClick={() => loadFiles(currentPath, true)}
+                        title="Refresh (F5)"
                       >
-                        <SortIcon fontSize="small" />
+                        <RefreshIcon fontSize="small" />
                       </IconButton>
-                    )}
 
-                    <Chip
-                      label={`${sortedAndFilteredFiles.length}/${
-                        files.length
-                      } item${files.length !== 1 ? "s" : ""}`}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </Box>
-                )}
-              </Box>
-            </Paper>
+                      <Typography variant="body2" color="text.secondary">
+                        Sort by:
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={sortBy}
+                        exclusive
+                        onChange={(_, newSort) => {
+                          if (newSort !== null) setSortBy(newSort);
+                        }}
+                        size="small"
+                      >
+                        <ToggleButton value="name" aria-label="sort by name">
+                          <SortByAlphaIcon fontSize="small" />
+                        </ToggleButton>
+                        <ToggleButton value="size" aria-label="sort by size">
+                          <DataUsageIcon fontSize="small" />
+                        </ToggleButton>
+                        <ToggleButton value="modified" aria-label="sort by date">
+                          <AccessTimeIcon fontSize="small" />
+                        </ToggleButton>
+                      </ToggleButtonGroup>
 
-            {/* Breadcrumb overflow menu - shows hidden path segments on mobile */}
-            <Menu
-              anchorEl={breadcrumbMenuAnchor}
-              open={Boolean(breadcrumbMenuAnchor)}
-              onClose={handleBreadcrumbMenuClose}
-              anchorOrigin={{
-                vertical: "bottom",
-                horizontal: "left",
-              }}
-              transformOrigin={{
-                vertical: "top",
-                horizontal: "left",
-              }}
-            >
-              {collapsedBreadcrumbSegments.map((segment) => (
-                <MenuItem
-                  key={segment.key}
-                  onClick={() => {
-                    handleBreadcrumbClick(segment.index);
-                    handleBreadcrumbMenuClose();
-                  }}
-                >
-                  {segment.label}
-                </MenuItem>
-              ))}
-            </Menu>
+                      <Chip
+                        label={`${sortedAndFilteredFiles.length}/${
+                          files.length
+                        } item${files.length !== 1 ? "s" : ""}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Box>
+                  )}
+                </Box>
+              </Paper>
+            )}
+
+            {/* Mobile: Compact controls bar */}
+            {isMobile && files.length > 0 && (
+              <Paper elevation={2} sx={{ p: 1.5, mb: 2 }}>
+                <Box display="flex" alignItems="center" justifyContent="space-between" gap={1}>
+                  <IconButton
+                    size="small"
+                    onClick={() => loadFiles(currentPath, true)}
+                    title="Refresh"
+                    aria-label="Refresh file list"
+                  >
+                    <RefreshIcon />
+                  </IconButton>
+
+                  <IconButton
+                    size="small"
+                    onClick={handleSortMenuOpen}
+                    title="Sort"
+                    aria-label="Sort options"
+                  >
+                    <SortIcon />
+                  </IconButton>
+
+                  <Box sx={{ flexGrow: 1 }} />
+
+                  <Chip
+                    label={`${sortedAndFilteredFiles.length}`}
+                    size="small"
+                    variant="outlined"
+                    title={`${sortedAndFilteredFiles.length} of ${files.length} items`}
+                  />
+                </Box>
+              </Paper>
+            )}
 
             {/* Sort menu - mobile only */}
             <Menu
