@@ -133,7 +133,7 @@ export function createForbiddenError() {
 export function createNotFoundError() {
   return {
     response: {
-      data: { detail: "Not found" },
+      data: { detail: "Connection not found" },
       status: 404,
     },
   };
@@ -143,7 +143,10 @@ export function createNotFoundError() {
  * Create a mock for network errors
  */
 export function createNetworkError() {
-  return new Error("Network error");
+  const error = new Error("Network Error") as Error & { code?: string };
+  // Add additional properties to make it identifiable
+  error.code = "ECONNREFUSED";
+  return error;
 }
 
 /**

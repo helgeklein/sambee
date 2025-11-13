@@ -427,11 +427,34 @@ const Browser: React.FC = () => {
           connectionId: selectedConnectionId,
           path,
         });
-        if (isApiError(err) && err.response?.status === 404) {
-          setError("Directory not found. It may have been removed or renamed.");
-        } else {
-          setError("Failed to load directory contents. Please try again.");
+
+        // Extract error message from API response if available
+        let errorMessage = "Failed to load directory contents. Please try again.";
+
+        // Check for network errors first (before API errors)
+        if (err && typeof err === "object" && "message" in err && !isApiError(err)) {
+          const error = err as Error & { code?: string };
+          const message = error.message;
+          if (
+            message.includes("Network Error") ||
+            message.includes("ECONNREFUSED") ||
+            error.code === "ECONNREFUSED"
+          ) {
+            errorMessage = "Failed to load files. Please check your connection settings.";
+          }
+        } else if (isApiError(err)) {
+          // API errors with response
+          if (err.response?.status === 404) {
+            // Check if there's a specific detail message
+            const detail = err.response?.data?.detail;
+            errorMessage = detail || "Directory not found. It may have been removed or renamed.";
+          } else if (err.response?.data?.detail) {
+            // Use the detail message from the API
+            errorMessage = err.response.data.detail;
+          }
         }
+
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }

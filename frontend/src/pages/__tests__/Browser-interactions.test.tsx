@@ -425,7 +425,7 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       expect(
-        await screen.findByText(/Failed to load files. Please check your connection settings/i)
+        await screen.findByText(/Failed to load directory contents. Please try again/i)
       ).toBeInTheDocument();
     });
   });
