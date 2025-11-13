@@ -49,7 +49,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
-import PullToRefresh from "../components/Mobile/PullToRefresh";
 import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
 import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -203,8 +202,6 @@ const Browser: React.FC = () => {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -272,7 +269,6 @@ const Browser: React.FC = () => {
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
   const focusOverlayRef = React.useRef<HTMLDivElement | null>(null);
-  const pullWrapperRef = React.useRef<HTMLDivElement | null>(null);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -333,206 +329,6 @@ const Browser: React.FC = () => {
       setIsAdmin(false);
     }
   }, []);
-
-  // Pull-to-refresh using touch events (mobile only)
-  useEffect(() => {
-    if (!isMobile) {
-      return;
-    }
-
-    let startY = 0;
-    let isDragging = false;
-    let activeTouchId: number | null = null;
-    let currentPullDistance = 0;
-
-    const resetPull = () => {
-      isDragging = false;
-      activeTouchId = null;
-      currentPullDistance = 0;
-
-      // Reset DOM transform
-      if (pullWrapperRef.current) {
-        pullWrapperRef.current.style.transform = "translateY(0px)";
-      }
-
-      // Defer state update to avoid triggering re-renders during event handling
-      setTimeout(() => setPullDistance(0), 0);
-    };
-
-    const getTrackedTouch = (touchList: TouchList) => {
-      if (touchList.length === 0) {
-        return null;
-      }
-
-      if (activeTouchId === null) {
-        return touchList[0];
-      }
-
-      return Array.from(touchList).find((touch) => touch.identifier === activeTouchId) ?? null;
-    };
-
-    const handleTouchStart = (event: TouchEvent) => {
-      const scrollContainer = parentRef.current;
-      if (!scrollContainer) {
-        return;
-      }
-
-      // Check if touch is on the scroll container
-      const target = event.target as HTMLElement;
-      if (!scrollContainer.contains(target)) {
-        return;
-      }
-
-      if (isRefreshing) {
-        return;
-      }
-
-      if (event.touches.length !== 1) {
-        resetPull();
-        return;
-      }
-
-      if (scrollContainer.scrollTop > 5) {
-        resetPull();
-        return;
-      }
-
-      const touch = event.touches[0];
-      if (!touch) {
-        return;
-      }
-
-      startY = touch.clientY;
-      activeTouchId = touch.identifier;
-      isDragging = true;
-    };
-
-    const handleTouchMove = (event: TouchEvent) => {
-      if (!isDragging) {
-        return;
-      }
-
-      const scrollContainer = parentRef.current;
-      if (!scrollContainer) {
-        return;
-      }
-
-      const trackedTouch = getTrackedTouch(event.touches);
-      if (!trackedTouch) {
-        resetPull();
-        return;
-      }
-
-      const diff = trackedTouch.clientY - startY;
-
-      if (diff <= 0) {
-        resetPull();
-        return;
-      }
-
-      // Check scroll position - if user scrolled down, stop pull gesture
-      if (scrollContainer.scrollTop > 5) {
-        resetPull();
-        return;
-      }
-
-      const distance = Math.min(diff * 0.75, 140);
-
-      // Track distance in local variable
-      currentPullDistance = distance;
-
-      // Use direct DOM manipulation for instant visual feedback
-      if (pullWrapperRef.current) {
-        pullWrapperRef.current.style.transform = `translateY(${distance}px)`;
-      }
-    };
-
-    const handleTouchEnd = (event: TouchEvent) => {
-      if (!isDragging) {
-        return;
-      }
-
-      const endedActiveTouch = Array.from(event.changedTouches).some(
-        (touch) => touch.identifier === activeTouchId
-      );
-
-      if (!endedActiveTouch) {
-        return;
-      }
-
-      isDragging = false;
-      activeTouchId = null;
-
-      // Check if we should trigger refresh
-      if (currentPullDistance >= 80) {
-        setIsRefreshing(true);
-
-        // Keep pullDistance at current value to maintain visual feedback
-        setTimeout(() => setPullDistance(currentPullDistance), 0);
-
-        loadFilesRef.current?.(currentPathRef.current, true).finally(() => {
-          // Reset pull distance FIRST to avoid gap (before setIsRefreshing)
-          currentPullDistance = 0;
-          setPullDistance(0);
-
-          // Then clear refresh state
-          setIsRefreshing(false);
-
-          // Reset transform if element exists
-          if (pullWrapperRef.current) {
-            pullWrapperRef.current.style.transform = "translateY(0px)";
-          }
-        });
-      } else {
-        // Below threshold - just reset with animation
-        if (pullWrapperRef.current) {
-          const wrapper = pullWrapperRef.current;
-
-          // Disable transition
-          wrapper.style.transition = "none";
-
-          // Force reflow to ensure transition is disabled
-          wrapper.offsetHeight;
-
-          // Set the transform to current computed value (this ensures we start from actual position)
-          wrapper.style.transform = `translateY(${currentPullDistance}px)`;
-
-          // Force another reflow to commit this transform
-          wrapper.offsetHeight;
-
-          // Now enable transition and animate to 0
-          wrapper.style.transition = "transform 0.3s ease-out";
-          wrapper.style.transform = "translateY(0px)";
-
-          // Remove transition after animation completes
-          setTimeout(() => {
-            if (pullWrapperRef.current) {
-              pullWrapperRef.current.style.transition = "none";
-            }
-          }, 300);
-        }
-        currentPullDistance = 0;
-        setTimeout(() => setPullDistance(0), 0);
-      }
-    };
-
-    const handleTouchCancel = () => {
-      resetPull();
-    };
-
-    // Attach to document to avoid scroll container event blocking issues
-    document.addEventListener("touchstart", handleTouchStart, { passive: true });
-    document.addEventListener("touchmove", handleTouchMove, { passive: true });
-    document.addEventListener("touchend", handleTouchEnd, { passive: true });
-    document.addEventListener("touchcancel", handleTouchCancel, { passive: true });
-
-    return () => {
-      document.removeEventListener("touchstart", handleTouchStart);
-      document.removeEventListener("touchmove", handleTouchMove);
-      document.removeEventListener("touchend", handleTouchEnd);
-      document.removeEventListener("touchcancel", handleTouchCancel);
-    };
-  }, [isMobile, isRefreshing]);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -2325,33 +2121,26 @@ const Browser: React.FC = () => {
                     </Box>
                   ) : (
                     <>
-                      {/* Pull-to-refresh indicator (mobile only) */}
-                      {isMobile && (
-                        <PullToRefresh
-                          pullDistance={pullDistance}
-                          isRefreshing={isRefreshing}
-                          threshold={80}
+                      {!isMobile && (
+                        <div
+                          ref={focusOverlayRef}
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            height: ROW_HEIGHT,
+                            borderRadius: theme.shape.borderRadius,
+                            pointerEvents: "none",
+                            backgroundColor: theme.palette.action.selected,
+                            opacity: 0,
+                            transform: "translateY(0px)",
+                            transition: "none", // No transitions for instant visual feedback
+                            willChange: "transform",
+                            zIndex: 2,
+                          }}
                         />
                       )}
-
-                      <div
-                        ref={focusOverlayRef}
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          right: 0,
-                          top: 0,
-                          height: ROW_HEIGHT,
-                          borderRadius: theme.shape.borderRadius,
-                          pointerEvents: "none",
-                          backgroundColor: theme.palette.action.selected,
-                          opacity: 0,
-                          transform: "translateY(0px)",
-                          transition: "none", // No transitions for instant visual feedback
-                          willChange: "transform",
-                          zIndex: 2,
-                        }}
-                      />
                       <div
                         ref={parentRef}
                         data-testid="virtual-list"
@@ -2359,38 +2148,27 @@ const Browser: React.FC = () => {
                           height: "100%",
                           overflow: "auto",
                           WebkitOverflowScrolling: "touch", // Smooth scrolling on iOS
-                          overscrollBehavior: "contain", // Prevent pull-to-refresh on mobile browsers
                         }}
                       >
                         <div
-                          ref={pullWrapperRef}
-                          key="pull-wrapper-stable"
-                          style={
-                            {
-                              // Transition is controlled by touch handlers
-                            }
-                          }
+                          style={{
+                            height: `${rowVirtualizer.getTotalSize()}px`,
+                            width: "100%",
+                            position: "relative",
+                          }}
                         >
-                          <div
-                            style={{
-                              height: `${rowVirtualizer.getTotalSize()}px`,
-                              width: "100%",
-                              position: "relative",
-                            }}
-                          >
-                            {virtualItemsForRender.map((virtualItem) => (
-                              <FileRow
-                                ref={rowVirtualizer.measureElement}
-                                key={virtualItem.key}
-                                file={sortedAndFilteredFiles[virtualItem.index]}
-                                index={virtualItem.index}
-                                isSelected={virtualItem.index === focusedIndex}
-                                virtualStart={virtualItem.start}
-                                virtualSize={virtualItem.size}
-                                onClick={handleFileClick}
-                              />
-                            ))}
-                          </div>
+                          {virtualItemsForRender.map((virtualItem) => (
+                            <FileRow
+                              ref={rowVirtualizer.measureElement}
+                              key={virtualItem.key}
+                              file={sortedAndFilteredFiles[virtualItem.index]}
+                              index={virtualItem.index}
+                              isSelected={virtualItem.index === focusedIndex}
+                              virtualStart={virtualItem.start}
+                              virtualSize={virtualItem.size}
+                              onClick={handleFileClick}
+                            />
+                          ))}
                         </div>
                       </div>
                     </>
