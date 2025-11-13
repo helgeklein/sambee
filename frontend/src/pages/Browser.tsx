@@ -59,24 +59,16 @@ import { isApiError } from "../types";
 
 // Performance Profiling System
 // =============================
-// To enable detailed performance profiling, set these flags to true:
-//   - FOCUS_TRACE_ENABLED: Logs focus overlay visibility changes
-//   - PERF_TRACE_ENABLED: Logs detailed timing measurements for all operations
+// To enable detailed performance profiling, set PERF_TRACE_ENABLED to true:
 //
 // When PERF_TRACE_ENABLED is true, you'll see console output like:
-//   [PERF] overlayUpdate: 3.45ms (operations that take longer than threshold)
-//   [PERF] getVirtualItems: 1.23ms
-//   [PERF] layoutRead: 0.15ms
-//   [PERF] styleUpdate: 0.08ms
 //   [PERF] scrollRAF: 5.67ms
 //   [PERF] fileRow_0: 2.34ms (per visible row)
 //   [PERF] fileRow_0_formatting: 0.12ms
 //   [PERF] fileRow_0_render: 1.89ms
-//   [PERF SCROLL] Scroll events: 45.2/s | RAF callbacks: 60.0/s | Overlay updates: 3 | Renders: 12
+//   [PERF SCROLL] Scroll events: 45.2/s | RAF callbacks: 60.0/s | Renders: 12
 //
 // This helps identify which operations are consuming CPU during scrolling:
-//   - If overlayUpdate is consistently >5ms, overlay positioning is slow
-//   - If getVirtualItems is >1ms, TanStack Virtual calculation is slow
 //   - If fileRow times are high, rendering individual rows is slow
 //   - If scrollRAF is >10ms, the scroll handler RAF callback is slow
 //   - The aggregate SCROLL report shows overall event frequencies
@@ -89,15 +81,7 @@ import { isApiError } from "../types";
 //   5. Identify bottlenecks (operations exceeding thresholds)
 //   6. Set flag back to false when done profiling
 
-const FOCUS_TRACE_ENABLED = false;
 const PERF_TRACE_ENABLED = false; // Enable to see performance metrics in console
-
-const traceFocus = (message: string, payload?: Record<string, unknown>) => {
-  if (!FOCUS_TRACE_ENABLED) {
-    return;
-  }
-  logger.info(message, payload);
-};
 
 // Performance tracking utilities
 const perfMarkers = new Map<string, number>();
@@ -117,14 +101,6 @@ const perfEnd = (marker: string, threshold = 0) => {
     }
     perfMarkers.delete(marker);
   }
-};
-
-// Track scroll performance
-const scrollMetrics = {
-  events: 0,
-  rafCallbacks: 0,
-  overlayUpdates: 0,
-  renderCount: 0,
 };
 
 type SortField = "name" | "size" | "modified";
@@ -268,7 +244,6 @@ const Browser: React.FC = () => {
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
-  const focusOverlayRef = React.useRef<HTMLDivElement | null>(null);
 
   // Refs to access current values in WebSocket callbacks (avoid closure issues)
   const selectedConnectionIdRef = React.useRef<string>("");
@@ -503,11 +478,6 @@ const Browser: React.FC = () => {
     currentPathRef.current = currentPath;
   }, [currentPath]);
 
-  // Debug: Log when focusedIndex state changes
-  useEffect(() => {
-    traceFocus(">>> STATE CHANGED: focusedIndex updated", { focusedIndex });
-  }, [focusedIndex]);
-
   // Initial load - run once on mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only once on mount to avoid aborting requests
   useEffect(() => {
@@ -698,11 +668,6 @@ const Browser: React.FC = () => {
       const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
       const newCount = visibleRows >= 5 ? visibleRows : 10;
       if (newCount !== visibleRowCountRef.current) {
-        traceFocus(">>> visibleRowCount updated", {
-          height: rect.height,
-          visibleRows,
-          newCount,
-        });
         setVisibleRowCount(newCount);
         visibleRowCountRef.current = newCount;
       }
@@ -799,7 +764,7 @@ const Browser: React.FC = () => {
       if (file.type === "directory") {
         // Save current state before navigating into directory
         const currentScrollOffset = parentRef.current?.scrollTop || 0;
-        const currentFocusedIndex = focusedIndexRef.current; // Use ref instead of state
+        const currentFocusedIndex = focusedIndex;
         navigationHistory.current.set(currentPath, {
           focusedIndex: currentFocusedIndex,
           scrollOffset: currentScrollOffset,
@@ -892,7 +857,7 @@ const Browser: React.FC = () => {
         // Preview component is managed exclusively through previewInfo state
       }
     },
-    [currentPath, updateFocus, imageFiles]
+    [currentPath, updateFocus, imageFiles, focusedIndex]
   );
 
   const handlePreviewIndexChange = useCallback((index: number) => {
@@ -1015,307 +980,17 @@ const Browser: React.FC = () => {
   // Skip the layout effect scroll if we already handled it synchronously in the keyboard handler
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
 
-  // Focus overlay update - synced with TanStack Virtual's virtual items
-  // Use ref for focusedIndex to avoid recreating callback on every focus change
-  const focusedIndexRef = React.useRef<number>(focusedIndex);
-  focusedIndexRef.current = focusedIndex;
-
-  // Cache scroll position and viewport height to avoid forced synchronous layout reads
-  // Updated passively during scroll events for optimal performance
-  const scrollTopRef = React.useRef<number>(0);
-  const clientHeightRef = React.useRef<number>(0);
-
-  // Track previous overlay state to skip redundant DOM updates
-  const prevOverlayStateRef = React.useRef({ top: -1, opacity: "", height: "" });
-
-  // Cache virtual items within each RAF frame to avoid multiple getVirtualItems() calls
-  const virtualItemsCacheRef = React.useRef<{
-    items: ReturnType<typeof rowVirtualizer.getVirtualItems>;
-    timestamp: number;
-  } | null>(null);
-
-  const getCachedVirtualItems = React.useCallback(() => {
-    const now = performance.now();
-    // Cache is valid for current frame (use 16ms threshold for 60fps)
-    if (virtualItemsCacheRef.current && now - virtualItemsCacheRef.current.timestamp < 16) {
-      return virtualItemsCacheRef.current.items;
-    }
-    const items = rowVirtualizer.getVirtualItems();
-    virtualItemsCacheRef.current = { items, timestamp: now };
-    return items;
-  }, [rowVirtualizer]);
-
-  // Set up passive scroll listener to cache scroll position and viewport height
-  // This eliminates expensive forced synchronous layout reads in updateFocusOverlayImmediate
-  useEffect(() => {
-    const listElement = parentRef.current;
-    if (!listElement) {
-      return;
-    }
-
-    const updateScrollCache = () => {
-      scrollTopRef.current = listElement.scrollTop;
-      clientHeightRef.current = listElement.clientHeight;
-    };
-
-    // Initialize cache
-    scrollTopRef.current = listElement.scrollTop;
-    clientHeightRef.current = listElement.clientHeight;
-
-    // Update cache on scroll (passive for performance)
-    listElement.addEventListener("scroll", updateScrollCache, { passive: true });
-
-    // Update cache on resize (viewport height can change)
-    const updateHeightCache = () => {
-      clientHeightRef.current = listElement.clientHeight;
-    };
-    window.addEventListener("resize", updateHeightCache, { passive: true });
-
-    return () => {
-      listElement.removeEventListener("scroll", updateScrollCache);
-      window.removeEventListener("resize", updateHeightCache);
-    };
-  }, []);
-
-  // Get virtual items for rendering - this will be called during each render,
-  // but TanStack Virtual internally optimizes this call
-  const virtualItemsForRender = rowVirtualizer.getVirtualItems();
-
-  const updateFocusOverlayImmediate = React.useCallback(() => {
-    perfStart("overlayUpdate");
-    scrollMetrics.overlayUpdates++;
-
-    const overlay = focusOverlayRef.current;
-    const listElement = parentRef.current;
-    const currentFocusedIndex = focusedIndexRef.current;
-
-    if (!overlay || !listElement) {
-      perfEnd("overlayUpdate");
-      return;
-    }
-
-    if (currentFocusedIndex < 0 || filesRef.current.length === 0) {
-      if (overlay.style.opacity !== "0") {
-        overlay.style.opacity = "0";
-      }
-      perfEnd("overlayUpdate");
-      return;
-    }
-
-    // Use cached virtual items to avoid expensive recalculation
-    perfStart("getVirtualItems");
-    const virtualItems = getCachedVirtualItems();
-    perfEnd("getVirtualItems", 1);
-
-    const focusedVirtualItem = virtualItems.find((item) => item.index === currentFocusedIndex);
-
-    if (!focusedVirtualItem) {
-      // Focused item is not in the viewport - hide overlay
-      if (overlay.style.opacity !== "0") {
-        overlay.style.opacity = "0";
-      }
-      perfEnd("overlayUpdate");
-      return;
-    }
-
-    // Use cached scroll position and viewport height instead of reading from DOM
-    // This eliminates expensive forced synchronous layout reads (was 3-9ms!)
-    perfStart("layoutRead");
-    const scrollTop = scrollTopRef.current;
-    const availableHeight = clientHeightRef.current;
-    perfEnd("layoutRead", 1);
-
-    // Calculate position
-    const top = focusedVirtualItem.start - scrollTop;
-
-    // Check if the overlay would be visible in the viewport
-    if (top < -ROW_HEIGHT || top > availableHeight) {
-      if (overlay.style.opacity !== "0") {
-        overlay.style.opacity = "0";
-        prevOverlayStateRef.current = { top: -1, opacity: "0", height: "" };
-      }
-      perfEnd("overlayUpdate");
-      return;
-    }
-
-    // Calculate target styles
-    const targetOpacity = "1";
-    const roundedTop = Math.round(top);
-    const targetHeight = `${focusedVirtualItem.size}px`;
-
-    // Skip update if nothing changed (optimization to avoid redundant DOM writes)
-    const prevState = prevOverlayStateRef.current;
-    if (
-      prevState.top === roundedTop &&
-      prevState.opacity === targetOpacity &&
-      prevState.height === targetHeight
-    ) {
-      perfEnd("overlayUpdate");
-      return;
-    }
-
-    // Update cached state
-    prevOverlayStateRef.current = {
-      top: roundedTop,
-      opacity: targetOpacity,
-      height: targetHeight,
-    };
-
-    // Apply styles using cssText for batched update (single reflow instead of multiple)
-    perfStart("styleUpdate");
-    const targetTransform = `translateY(${roundedTop}px)`;
-    overlay.style.cssText = `
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      height: ${targetHeight};
-      border-radius: inherit;
-      pointer-events: none;
-      background-color: ${overlay.style.backgroundColor};
-      opacity: ${targetOpacity};
-      transform: ${targetTransform};
-      transition: transform 0s, opacity 40ms ease-out;
-      will-change: transform;
-      z-index: 2;
-    `;
-    perfEnd("styleUpdate", 1);
-    perfEnd("overlayUpdate", 5);
-  }, [getCachedVirtualItems]); // ✅ Stable - only changes when rowVirtualizer changes
-
-  // Update overlay position when focused index changes
-  // We use focusedIndex directly here to trigger updates, but the callback itself
-  // uses a ref to avoid being recreated on every change (optimization)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: focusedIndex is intentionally in deps to trigger updates
-  useLayoutEffect(() => {
-    updateFocusOverlayImmediate();
-  }, [focusedIndex, updateFocusOverlayImmediate]);
-
-  // Update overlay position during scroll events
-  // Use RAF throttling to limit updates to max 60fps during continuous scrolling
-  useEffect(() => {
-    const listElement = parentRef.current;
-    if (!listElement) {
-      return;
-    }
-
-    let rafId: number | null = null;
-    let isScheduled = false;
-    let lastScrollTime = 0;
-    let isRapidScrolling = false;
-    let restoreTimeoutId: number | null = null;
-
-    // Performance tracking
-    let scrollCount = 0;
-    let rafCount = 0;
-    let lastReport = performance.now();
-
-    const reportMetrics = () => {
-      if (PERF_TRACE_ENABLED) {
-        const now = performance.now();
-        const elapsed = now - lastReport;
-        if (elapsed > 1000) {
-          // Report every second
-          const scrollFreq = (scrollCount / elapsed) * 1000;
-          const rafFreq = (rafCount / elapsed) * 1000;
-          console.log(
-            `[PERF SCROLL] Scroll events: ${scrollFreq.toFixed(1)}/s | RAF callbacks: ${rafFreq.toFixed(1)}/s | Overlay updates: ${scrollMetrics.overlayUpdates} | Renders: ${renderCountRef.current}`
-          );
-          scrollCount = 0;
-          rafCount = 0;
-          scrollMetrics.overlayUpdates = 0;
-          lastReport = now;
-        }
-      }
-    };
-
-    const handleScroll = () => {
-      scrollCount++;
-      scrollMetrics.events++;
-
-      if (isScheduled) {
-        reportMetrics();
-        return; // Already scheduled an update for next frame
-      }
-
-      const now = performance.now();
-      const timeSinceLastScroll = now - lastScrollTime;
-      lastScrollTime = now;
-
-      // Detect rapid scrolling (mouse wheel / trackpad) - consecutive scrolls within 50ms
-      // During rapid scrolling, skip overlay updates entirely for better performance
-      isRapidScrolling = timeSinceLastScroll < 50;
-
-      // Clear any pending restore timeout
-      if (restoreTimeoutId !== null) {
-        clearTimeout(restoreTimeoutId);
-        restoreTimeoutId = null;
-      }
-
-      if (isRapidScrolling) {
-        // Hide overlay during rapid scroll for better performance
-        const overlay = focusOverlayRef.current;
-        if (overlay && overlay.style.opacity !== "0") {
-          overlay.style.opacity = "0";
-        }
-        reportMetrics();
-        return; // Skip RAF scheduling during rapid scroll
-      }
-
-      // Scrolling has slowed down - restore overlay after a brief delay
-      restoreTimeoutId = window.setTimeout(() => {
-        if (!isScheduled) {
-          isScheduled = true;
-          rafCount++;
-          scrollMetrics.rafCallbacks++;
-          rafId = requestAnimationFrame(() => {
-            perfStart("scrollRAF");
-            isScheduled = false;
-            updateFocusOverlayImmediate();
-            perfEnd("scrollRAF", 10);
-            reportMetrics();
-          });
-        }
-      }, 100); // Wait 100ms after scrolling slows to restore overlay
-    };
-
-    listElement.addEventListener("scroll", handleScroll, { passive: true });
-
-    return () => {
-      listElement.removeEventListener("scroll", handleScroll);
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-      if (restoreTimeoutId !== null) {
-        clearTimeout(restoreTimeoutId);
-      }
-    };
-  }, [updateFocusOverlayImmediate]);
-
-  useEffect(() => {
-    if (listContainerEl && visibleRowCount >= 0) {
-      updateFocusOverlayImmediate();
-    }
-  }, [updateFocusOverlayImmediate, listContainerEl, visibleRowCount]);
-
+  // Update focused index when files change or search query changes
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
       const prev = prevFocusedIndexRef.current;
       const diff = focusedIndex - prev;
 
       if (skipNextLayoutScrollRef.current) {
-        traceFocus(">>> useLayoutEffect: skipping scroll (already handled synchronously)");
         skipNextLayoutScrollRef.current = false;
         prevFocusedIndexRef.current = focusedIndex;
         return;
       }
-
-      traceFocus(">>> useLayoutEffect[focusedIndex] running", {
-        prev,
-        current: focusedIndex,
-        diff,
-        visibleRowCount,
-      });
 
       // Determine alignment based on jump size
       let align: "auto" | "center" | "end" | "start" = "auto";
@@ -1323,34 +998,23 @@ const Browser: React.FC = () => {
       // Large forward jump (PageDown) - lock new focused item at bottom
       if (diff >= visibleRowCount) {
         align = "end";
-        traceFocus(">>> Detected PageDown - using align=end");
       }
       // Large backward jump (PageUp) - lock new focused item at top
       else if (diff <= -visibleRowCount) {
         align = "start";
-        traceFocus(">>> Detected PageUp - using align=start");
       } else if (Math.abs(diff) === 1) {
         // Single-step arrow navigation - use simple edge detection without forced reflow
         // Use "auto" alignment which lets TanStack Virtual decide based on its internal state
         // This avoids calling getVirtualItems() which causes layout thrashing
         align = "auto";
-        traceFocus(">>> Single-step navigation - using align=auto");
       } else {
         // Multi-step jump (Home/End or programmatic) - align to appropriate edge
         align = diff > 0 ? "end" : "start";
-        traceFocus(">>> Multi-step jump - aligning to edge", { align });
       }
-
-      traceFocus(">>> About to call scrollToIndex", {
-        index: focusedIndex,
-        align,
-      });
 
       rowVirtualizer.scrollToIndex(focusedIndex, {
         align,
       });
-
-      traceFocus(">>> scrollToIndex completed");
 
       // Update previous value
       prevFocusedIndexRef.current = focusedIndex;
@@ -1643,7 +1307,7 @@ const Browser: React.FC = () => {
         cursor: "pointer",
         userSelect: "none",
         border: "none",
-        borderRadius: theme.shape.borderRadius,
+        borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
         "&:hover": {
@@ -1665,7 +1329,7 @@ const Browser: React.FC = () => {
         userSelect: "none",
         border: "none",
         background: theme.palette.action.selected,
-        borderRadius: theme.shape.borderRadius,
+        borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
         "&:hover": {
@@ -1687,7 +1351,7 @@ const Browser: React.FC = () => {
         userSelect: "none",
         border: "none",
         background: "transparent",
-        borderRadius: theme.shape.borderRadius,
+        borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
         "&:hover": {
@@ -1783,6 +1447,10 @@ const Browser: React.FC = () => {
       prev.virtualStart === next.virtualStart &&
       prev.virtualSize === next.virtualSize
   );
+
+  // Get virtual items for rendering - this will be called during each render,
+  // but TanStack Virtual internally optimizes this call
+  const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -2155,58 +1823,36 @@ const Browser: React.FC = () => {
                       )}
                     </Box>
                   ) : (
-                    <>
-                      {!isMobile && (
-                        <div
-                          ref={focusOverlayRef}
-                          style={{
-                            position: "absolute",
-                            left: 0,
-                            right: 0,
-                            top: 0,
-                            height: ROW_HEIGHT,
-                            borderRadius: theme.shape.borderRadius,
-                            pointerEvents: "none",
-                            backgroundColor: theme.palette.action.selected,
-                            opacity: 0,
-                            transform: "translateY(0px)",
-                            transition: "none", // No transitions for instant visual feedback
-                            willChange: "transform",
-                            zIndex: 2,
-                          }}
-                        />
-                      )}
+                    <div
+                      ref={parentRef}
+                      data-testid="virtual-list"
+                      style={{
+                        height: "100%",
+                        overflow: "auto",
+                        WebkitOverflowScrolling: "touch", // Smooth scrolling on iOS
+                      }}
+                    >
                       <div
-                        ref={parentRef}
-                        data-testid="virtual-list"
                         style={{
-                          height: "100%",
-                          overflow: "auto",
-                          WebkitOverflowScrolling: "touch", // Smooth scrolling on iOS
+                          height: `${rowVirtualizer.getTotalSize()}px`,
+                          width: "100%",
+                          position: "relative",
                         }}
                       >
-                        <div
-                          style={{
-                            height: `${rowVirtualizer.getTotalSize()}px`,
-                            width: "100%",
-                            position: "relative",
-                          }}
-                        >
-                          {virtualItemsForRender.map((virtualItem) => (
-                            <FileRow
-                              ref={rowVirtualizer.measureElement}
-                              key={virtualItem.key}
-                              file={sortedAndFilteredFiles[virtualItem.index]}
-                              index={virtualItem.index}
-                              isSelected={virtualItem.index === focusedIndex}
-                              virtualStart={virtualItem.start}
-                              virtualSize={virtualItem.size}
-                              onClick={handleFileClick}
-                            />
-                          ))}
-                        </div>
+                        {virtualItemsForRender.map((virtualItem) => (
+                          <FileRow
+                            ref={rowVirtualizer.measureElement}
+                            key={virtualItem.key}
+                            file={sortedAndFilteredFiles[virtualItem.index]}
+                            index={virtualItem.index}
+                            isSelected={virtualItem.index === focusedIndex}
+                            virtualStart={virtualItem.start}
+                            virtualSize={virtualItem.size}
+                            onClick={handleFileClick}
+                          />
+                        ))}
                       </div>
-                    </>
+                    </div>
                   )}
                 </Paper>
               </Box>
