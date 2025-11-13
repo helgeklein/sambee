@@ -1307,7 +1307,7 @@ const Browser: React.FC = () => {
         cursor: "pointer",
         userSelect: "none",
         border: "none",
-        borderRadius: theme.shape.borderRadius,
+        borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
         "&:hover": {
@@ -1329,7 +1329,7 @@ const Browser: React.FC = () => {
         userSelect: "none",
         border: "none",
         background: theme.palette.action.selected,
-        borderRadius: theme.shape.borderRadius,
+        borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
         "&:hover": {
@@ -1351,7 +1351,7 @@ const Browser: React.FC = () => {
         userSelect: "none",
         border: "none",
         background: "transparent",
-        borderRadius: theme.shape.borderRadius,
+        borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
         "&:hover": {
