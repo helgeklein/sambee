@@ -1723,6 +1723,7 @@ const Browser: React.FC = () => {
             tabIndex={-1}
             onClick={() => onClick(file, index)}
             sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
+            aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
           >
             <Box sx={fileRowStyles.iconBox}>
               {file.type === "directory" ? (
@@ -1787,7 +1788,11 @@ const Browser: React.FC = () => {
                 color="inherit"
                 edge="start"
                 onClick={() => setDrawerOpen(true)}
-                sx={{ mr: 1 }}
+                sx={{
+                  mr: 1,
+                  minWidth: 44,
+                  minHeight: 44,
+                }}
                 aria-label="Open menu"
               >
                 <MenuIcon />
@@ -1811,6 +1816,10 @@ const Browser: React.FC = () => {
                 disabled={!canNavigateUp}
                 title="Navigate up"
                 aria-label="Navigate to parent directory"
+                sx={{
+                  minWidth: 44,
+                  minHeight: 44,
+                }}
               >
                 <ArrowUpwardIcon />
               </IconButton>
@@ -1949,6 +1958,7 @@ const Browser: React.FC = () => {
                         setPreviewInfo(null);
                       }}
                       sx={{ display: "flex", alignItems: "center" }}
+                      aria-label="Navigate to root directory"
                     >
                       <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
                       Root
@@ -1974,6 +1984,7 @@ const Browser: React.FC = () => {
                           component="button"
                           variant="body1"
                           onClick={() => handleBreadcrumbClick(index)}
+                          aria-label={`Navigate to ${part}`}
                         >
                           {part}
                         </Link>
@@ -1987,6 +1998,7 @@ const Browser: React.FC = () => {
                         size="small"
                         onClick={() => loadFiles(currentPath, true)}
                         title="Refresh (F5)"
+                        aria-label="Refresh file list"
                       >
                         <RefreshIcon fontSize="small" />
                       </IconButton>

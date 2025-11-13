@@ -60,7 +60,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
       <Box sx={{ p: 2 }}>
         {/* App Logo/Title */}
         <Box sx={{ display: "flex", alignItems: "center", mb: 3 }}>
-          <Typography variant="h6" component="div" sx={{ fontWeight: 600 }}>
+          <Typography variant="h6" component="h1" sx={{ fontWeight: 600 }}>
             Sambee
           </Typography>
         </Box>
@@ -76,6 +76,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
                 value={selectedConnectionId}
                 onChange={(e) => handleConnectionChange(e.target.value)}
                 displayEmpty
+                aria-label="Select connection"
               >
                 {connections.map((conn) => (
                   <MenuItem key={conn.id} value={conn.id}>
@@ -101,6 +102,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               onNavigateToRoot();
               onClose();
             }}
+            aria-label="Navigate to root directory"
           >
             <ListItemIcon>
               <HomeIcon />
@@ -116,6 +118,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
                 onOpenSettings();
                 onClose();
               }}
+              aria-label="Open settings"
             >
               <ListItemIcon>
                 <SettingsIcon />
@@ -126,7 +129,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         )}
 
         <ListItem disablePadding>
-          <ListItemButton onClick={onLogout}>
+          <ListItemButton onClick={onLogout} aria-label="Logout">
             <ListItemIcon>
               <LogoutIcon />
             </ListItemIcon>
