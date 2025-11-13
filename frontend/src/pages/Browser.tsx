@@ -1838,13 +1838,14 @@ const Browser: React.FC = () => {
                 <MenuIcon />
               </IconButton>
               <Typography
-                variant="h6"
+                variant="body1"
                 component="div"
                 sx={{
                   flexGrow: 1,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
+                  fontWeight: "bold",
                 }}
               >
                 {currentDirectoryName}
