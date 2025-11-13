@@ -3,8 +3,6 @@ import {
   ArrowUpward as ArrowUpwardIcon,
   Clear as ClearIcon,
   DataUsage as DataUsageIcon,
-  InsertDriveFile as FileIcon,
-  Folder as FolderIcon,
   Home as HomeIcon,
   KeyboardOutlined as KeyboardIcon,
   Menu as MenuIcon,
@@ -56,6 +54,7 @@ import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
+import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System
 // =============================
@@ -105,41 +104,47 @@ const perfEnd = (marker: string, threshold = 0) => {
 
 type SortField = "name" | "size" | "modified";
 
-const ROW_HEIGHT = 68;
+const ROW_HEIGHT_DESKTOP = 40;
+const ROW_HEIGHT_MOBILE = 56;
 const DIRECTORY_CACHE_TTL_MS = 30_000;
 
-const formatFileSize = (bytes?: number): string => {
-  if (!bytes) return "";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = bytes;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex++;
-  }
-  return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
-};
+// Formatting functions commented out - will be used when implementing view modes (list, detail, thumbnail)
+// const formatFileSize = (bytes?: number): string => {
+//   if (!bytes) return "";
+//   const units = ["B", "KB", "MB", "GB", "TB"];
+//   let size = bytes;
+//   let unitIndex = 0;
+//   while (size >= 1024 && unitIndex < units.length - 1) {
+//     size /= 1024;
+//     unitIndex++;
+//   }
+//   return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+// };
 
-const formatDate = (dateString?: string): string => {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+// const formatDate = (dateString?: string): string => {
+//   if (!dateString) return "";
+//   const date = new Date(dateString);
+//   const now = new Date();
+//   const diffMs = now.getTime() - date.getTime();
+//   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-  if (diffDays === 0) {
-    return `Today ${date.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
-  } else if (diffDays === 1) {
-    return "Yesterday";
-  } else if (diffDays < 7) {
-    return `${diffDays} days ago`;
-  } else {
-    return date.toLocaleDateString();
-  }
-};
+//   if (diffDays === 0) {
+//     return `Today ${date.toLocaleTimeString(undefined, {
+//       hour: "2-digit",
+//       minute: "2-digit",
+//     })}`;
+//   } else if (diffDays === 1) {
+//     return "Yesterday";
+//   } else if (diffDays < 7) {
+//     return `${diffDays} days ago`;
+//   } else {
+//     return date.toLocaleDateString(undefined, {
+//       year: "numeric",
+//       month: "short",
+//       day: "numeric",
+//     });
+//   }
+// };
 
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
@@ -156,6 +161,11 @@ const Browser: React.FC = () => {
   const location = useLocation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  // Detect touch capability for optimal row height
+  // Use pointer:coarse to detect touch devices (more reliable than hover)
+  const isTouchDevice = useMediaQuery("(pointer: coarse)");
+  const rowHeight = isTouchDevice ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP;
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
@@ -665,7 +675,7 @@ const Browser: React.FC = () => {
 
     const updateVisibleRows = () => {
       const rect = element.getBoundingClientRect();
-      const visibleRows = Math.floor(rect.height / ROW_HEIGHT);
+      const visibleRows = Math.floor(rect.height / rowHeight);
       const newCount = visibleRows >= 5 ? visibleRows : 10;
       if (newCount !== visibleRowCountRef.current) {
         setVisibleRowCount(newCount);
@@ -680,7 +690,7 @@ const Browser: React.FC = () => {
     return () => {
       observer.disconnect();
     };
-  }, [listContainerEl]);
+  }, [listContainerEl, rowHeight]);
 
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
@@ -927,7 +937,7 @@ const Browser: React.FC = () => {
   const rowVirtualizer = useVirtualizer({
     count: sortedAndFilteredFiles.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 10, // Increased overscan for smoother scrolling during rapid navigation
     measureElement,
     // Use stable file/directory name as key instead of index for proper React reconciliation
@@ -1289,7 +1299,7 @@ const Browser: React.FC = () => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: 36,
+        width: 24,
         flexShrink: 0,
       },
       contentBox: {
@@ -1299,7 +1309,7 @@ const Browser: React.FC = () => {
       buttonBase: {
         display: "flex",
         alignItems: "center",
-        gap: 2,
+        gap: 1,
         height: "100%",
         width: "100%",
         px: 2,
@@ -1320,7 +1330,7 @@ const Browser: React.FC = () => {
       buttonSelected: {
         display: "flex",
         alignItems: "center",
-        gap: 2,
+        gap: 1,
         height: "100%",
         width: "100%",
         px: 2,
@@ -1342,7 +1352,7 @@ const Browser: React.FC = () => {
       buttonNotSelected: {
         display: "flex",
         alignItems: "center",
-        gap: 2,
+        gap: 1,
         height: "100%",
         width: "100%",
         px: 2,
@@ -1380,14 +1390,9 @@ const Browser: React.FC = () => {
       perfStart(`fileRow_${index}`);
 
       perfStart(`fileRow_${index}_formatting`);
-      const secondaryInfo: string[] = [];
-      if (file.size && file.type !== "directory") {
-        secondaryInfo.push(formatFileSize(file.size));
-      }
-      if (file.modified_at) {
-        secondaryInfo.push(formatDate(file.modified_at));
-      }
-      const secondaryText = secondaryInfo.join(" • ");
+      // Secondary info removed for cleaner, more compact display
+      // Will be added back when implementing multiple view modes (list, detail, thumbnail)
+      const secondaryText = "";
       perfEnd(`fileRow_${index}_formatting`, 1);
 
       perfStart(`fileRow_${index}_render`);
@@ -1413,11 +1418,11 @@ const Browser: React.FC = () => {
             aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
           >
             <Box sx={fileRowStyles.iconBox}>
-              {file.type === "directory" ? (
-                <FolderIcon color="primary" />
-              ) : (
-                <FileIcon color="action" />
-              )}
+              {getFileIcon({
+                filename: file.name,
+                isDirectory: file.type === "directory",
+                size: 24,
+              })}
             </Box>
             <Box sx={fileRowStyles.contentBox}>
               <Typography variant="body2" noWrap title={file.name} color="text.primary">
