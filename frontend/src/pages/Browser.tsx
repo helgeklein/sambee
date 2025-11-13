@@ -1,11 +1,13 @@
 import {
   AccessTime as AccessTimeIcon,
+  ArrowUpward as ArrowUpwardIcon,
   Clear as ClearIcon,
   DataUsage as DataUsageIcon,
   InsertDriveFile as FileIcon,
   Folder as FolderIcon,
   Home as HomeIcon,
   KeyboardOutlined as KeyboardIcon,
+  Menu as MenuIcon,
   Refresh as RefreshIcon,
   Search as SearchIcon,
   Settings as SettingsIcon,
@@ -40,11 +42,13 @@ import {
   ToggleButtonGroup,
   Toolbar,
   Typography,
+  useMediaQuery,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
 import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -126,6 +130,7 @@ const scrollMetrics = {
 type SortField = "name" | "size" | "modified";
 
 const ROW_HEIGHT = 68;
+const DIRECTORY_CACHE_TTL_MS = 30_000;
 
 const formatFileSize = (bytes?: number): string => {
   if (!bytes) return "";
@@ -174,6 +179,7 @@ const Browser: React.FC = () => {
   const params = useParams<{ connectionId: string; "*": string }>();
   const location = useLocation();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
@@ -191,9 +197,11 @@ const Browser: React.FC = () => {
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("name");
+  const [sortDirection, _setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -249,9 +257,14 @@ const Browser: React.FC = () => {
   const currentPreviewIndexRef = React.useRef<number | null>(null);
   const currentPreviewImagesRef = React.useRef<string[] | undefined>(undefined);
   const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
-  const listContainerRef = useCallback((node: HTMLDivElement | null) => {
-    setListContainerEl(node);
-  }, []);
+  const listContainerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node !== listContainerEl) {
+        setListContainerEl(node);
+      }
+    },
+    [listContainerEl]
+  );
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
@@ -307,110 +320,15 @@ const Browser: React.FC = () => {
     [connections, slugifyConnectionName]
   );
 
-  const getConnectionIdentifier = useCallback(
-    (connection: Connection): string => {
-      return slugifyConnectionName(connection.name);
-    },
-    [slugifyConnectionName]
-  );
-
   const checkAdminStatus = useCallback(async () => {
     try {
-      await api.getConnections();
-      setIsAdmin(true);
-    } catch (error: unknown) {
-      // If 403, user is not admin; if 401, not logged in
-      if (isApiError(error) && error.response?.status === 403) {
-        setIsAdmin(false);
-      }
+      const user = await api.getCurrentUser();
+      setIsAdmin(user.is_admin);
+    } catch (err) {
+      logger.warn("Failed to verify admin status", { error: err });
+      setIsAdmin(false);
     }
   }, []);
-
-  const loadFiles = useCallback(
-    async (path: string, forceRefresh: boolean = false) => {
-      if (!selectedConnectionId) return;
-
-      // Create cache key
-      const cacheKey = `${selectedConnectionId}:${path}`;
-
-      // Check cache first (unless force refresh)
-      if (!forceRefresh) {
-        const cached = directoryCache.current.get(cacheKey);
-        if (cached) {
-          // Use cached data immediately - no loading spinner!
-          logger.debug("Using cached directory listing", {
-            connectionId: selectedConnectionId,
-            path,
-            cacheAge: Date.now() - cached.timestamp,
-          });
-          setFiles(cached.items);
-          setError(null);
-          return;
-        }
-      }
-      try {
-        setLoading(true);
-        setError(null);
-
-        logger.info("Loading directory", {
-          connectionId: selectedConnectionId,
-          path,
-          forceRefresh,
-        });
-
-        const listing = await api.listDirectory(selectedConnectionId, path);
-
-        // Store in cache
-        directoryCache.current.set(cacheKey, {
-          items: listing.items,
-          timestamp: Date.now(),
-        });
-
-        logger.info("Directory loaded successfully", {
-          connectionId: selectedConnectionId,
-          path,
-          itemCount: listing.items.length,
-        });
-
-        setFiles(listing.items);
-      } catch (err: unknown) {
-        logger.error(
-          "Failed to load directory",
-          {
-            connectionId: selectedConnectionId,
-            path,
-            status: isApiError(err) ? err.response?.status : undefined,
-            detail: isApiError(err) ? err.response?.data?.detail : undefined,
-          },
-          err instanceof Error ? err : undefined
-        );
-
-        if (isApiError(err)) {
-          if (err.response?.status === 401) {
-            navigate("/login");
-          } else if (err.response?.status === 404) {
-            setError("Connection not found. Please select another connection.");
-          } else {
-            setError(
-              err.response?.data?.detail ||
-                "Failed to load files. Please check your connection settings."
-            );
-          }
-        } else {
-          setError("Failed to load files. Please check your connection settings.");
-        }
-        setFiles([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [selectedConnectionId, navigate]
-  );
-
-  // Keep loadFiles ref in sync
-  useEffect(() => {
-    loadFilesRef.current = loadFiles;
-  }, [loadFiles]);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -474,6 +392,80 @@ const Browser: React.FC = () => {
     }
   }, [navigate, params.connectionId, slugifyConnectionName]);
 
+  const loadFiles = useCallback(
+    async (path: string, forceRefresh = false) => {
+      if (!selectedConnectionId) {
+        return;
+      }
+
+      const cacheKey = `${selectedConnectionId}:${path}`;
+      const now = Date.now();
+
+      if (!forceRefresh) {
+        const cached = directoryCache.current.get(cacheKey);
+        if (cached && now - cached.timestamp < DIRECTORY_CACHE_TTL_MS) {
+          setFiles(cached.items);
+          setLoading(false);
+          setError(null);
+          return;
+        }
+      } else {
+        directoryCache.current.delete(cacheKey);
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const listing = await api.listDirectory(selectedConnectionId, path);
+        const items = listing.items ?? [];
+        directoryCache.current.set(cacheKey, { items, timestamp: now });
+        setFiles(items);
+      } catch (err) {
+        logger.error("Error loading directory", {
+          error: err,
+          connectionId: selectedConnectionId,
+          path,
+        });
+
+        // Extract error message from API response if available
+        let errorMessage = "Failed to load directory contents. Please try again.";
+
+        // Check for network errors first (before API errors)
+        if (err && typeof err === "object" && "message" in err && !isApiError(err)) {
+          const error = err as Error & { code?: string };
+          const message = error.message;
+          if (
+            message.includes("Network Error") ||
+            message.includes("ECONNREFUSED") ||
+            error.code === "ECONNREFUSED"
+          ) {
+            errorMessage = "Failed to load files. Please check your connection settings.";
+          }
+        } else if (isApiError(err)) {
+          // API errors with response
+          if (err.response?.status === 404) {
+            // Check if there's a specific detail message
+            const detail = err.response?.data?.detail;
+            errorMessage = detail || "Directory not found. It may have been removed or renamed.";
+          } else if (err.response?.data?.detail) {
+            // Use the detail message from the API
+            errorMessage = err.response.data.detail;
+          }
+        }
+
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectedConnectionId]
+  );
+
+  useEffect(() => {
+    loadFilesRef.current = loadFiles;
+  }, [loadFiles]);
+
   // Helper to update URL when navigation changes
   const updateUrl = useCallback(
     (connectionId: string, path: string) => {
@@ -484,7 +476,7 @@ const Browser: React.FC = () => {
       const connection = connections.find((c) => c.id === connectionId);
       if (!connection) return;
 
-      const identifier = getConnectionIdentifier(connection);
+      const identifier = slugifyConnectionName(connection.name);
 
       // Encode the path but keep slashes as slashes (not %2F)
       const encodedPath = path
@@ -499,7 +491,7 @@ const Browser: React.FC = () => {
         navigate(newUrl, { replace: false });
       }
     },
-    [connections, getConnectionIdentifier, location.pathname, navigate]
+    [connections, slugifyConnectionName, location.pathname, navigate]
   );
 
   // Keep refs in sync with state for WebSocket callbacks
@@ -765,26 +757,31 @@ const Browser: React.FC = () => {
 
     // Optimized sort function
     const sortFunction = (a: FileEntry, b: FileEntry) => {
+      let comparison = 0;
       switch (sortBy) {
         case "name":
-          return a.name.localeCompare(b.name);
+          comparison = a.name.localeCompare(b.name);
+          break;
         case "size":
-          return (b.size || 0) - (a.size || 0);
+          comparison = (a.size || 0) - (b.size || 0);
+          break;
         case "modified": {
           const dateA = a.modified_at ? new Date(a.modified_at).getTime() : 0;
           const dateB = b.modified_at ? new Date(b.modified_at).getTime() : 0;
-          return dateB - dateA;
+          comparison = dateA - dateB;
+          break;
         }
         default:
-          return 0;
+          comparison = 0;
       }
+      return sortDirection === "asc" ? comparison : -comparison;
     };
 
     directories.sort(sortFunction);
     regularFiles.sort(sortFunction);
 
     return [...directories, ...regularFiles];
-  }, [files, sortBy, searchQuery]);
+  }, [files, sortBy, sortDirection, searchQuery]);
 
   // Get all image files in current directory for gallery mode
   // Use sortedAndFilteredFiles to match the display order
@@ -1545,7 +1542,7 @@ const Browser: React.FC = () => {
 
         case "F5":
           e.preventDefault();
-          loadFiles(currentPathRef.current, true);
+          loadFilesRef.current?.(currentPathRef.current, true);
           break;
 
         default:
@@ -1583,7 +1580,6 @@ const Browser: React.FC = () => {
     showHelp,
     searchQuery,
     previewInfo,
-    loadFiles,
     visibleRowCount,
     focusedIndex,
     updateFocus,
@@ -1610,6 +1606,16 @@ const Browser: React.FC = () => {
   };
 
   const pathParts = currentPath ? currentPath.split("/") : [];
+  const currentDirectoryName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : "Root";
+  const canNavigateUp = currentPath !== "";
+
+  const handleNavigateUp = () => {
+    if (!canNavigateUp) return;
+    const pathParts = currentPath.split("/");
+    const newPath = pathParts.slice(0, -1).join("/");
+    setCurrentPath(newPath);
+    setPreviewInfo(null);
+  };
 
   // Memoized FileRow component for optimal performance
   // FileRow component styles - memoized outside to prevent recreation on every scroll
@@ -1625,9 +1631,6 @@ const Browser: React.FC = () => {
       contentBox: {
         flex: 1,
         minWidth: 0,
-      },
-      chip: {
-        flexShrink: 0,
       },
       buttonBase: {
         display: "flex",
@@ -1743,6 +1746,7 @@ const Browser: React.FC = () => {
             tabIndex={-1}
             onClick={() => onClick(file, index)}
             sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
+            aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
           >
             <Box sx={fileRowStyles.iconBox}>
               {file.type === "directory" ? (
@@ -1761,9 +1765,6 @@ const Browser: React.FC = () => {
                 </Typography>
               ) : null}
             </Box>
-            {file.type === "directory" ? (
-              <Chip label="Folder" size="small" variant="outlined" sx={fileRowStyles.chip} />
-            ) : null}
           </Box>
         </div>
       );
@@ -1785,68 +1786,138 @@ const Browser: React.FC = () => {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <AppBar position="static">
-        <Toolbar>
-          <StorageIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" component="div" sx={{ mr: 3 }}>
-            Sambee
-          </Typography>
+      {/* Hamburger Menu - Mobile Only */}
+      <HamburgerMenu
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        connections={connections}
+        selectedConnectionId={selectedConnectionId}
+        onConnectionChange={handleConnectionChange}
+        onNavigateToRoot={() => {
+          setCurrentPath("");
+          setPreviewInfo(null);
+        }}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onLogout={handleLogout}
+        isAdmin={isAdmin}
+      />
 
-          {connections.length > 0 && (
-            <FormControl size="small" sx={{ minWidth: 250, mr: 2 }}>
-              <Select
-                value={selectedConnectionId}
-                onChange={(e) => handleConnectionChange(e.target.value)}
-                displayEmpty
+      <AppBar position="static">
+        <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
+          {/* Mobile: Hamburger + Current Directory + Up Button */}
+          {isMobile ? (
+            <>
+              <IconButton
+                color="inherit"
+                edge="start"
+                onClick={() => setDrawerOpen(true)}
                 sx={{
-                  color: "white",
-                  ".MuiOutlinedInput-notchedOutline": {
-                    borderColor: "rgba(255, 255, 255, 0.23)",
-                  },
-                  "&:hover .MuiOutlinedInput-notchedOutline": {
-                    borderColor: "rgba(255, 255, 255, 0.4)",
-                  },
-                  "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                    borderColor: "white",
-                  },
-                  ".MuiSvgIcon-root": {
-                    color: "white",
-                  },
+                  mr: 1,
+                  minWidth: 44,
+                  minHeight: 44,
+                }}
+                aria-label="Open menu"
+              >
+                <MenuIcon />
+              </IconButton>
+              <Typography
+                variant="body1"
+                component="div"
+                sx={{
+                  flexGrow: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  fontWeight: "bold",
                 }}
               >
-                {connections.map((conn) => (
-                  <MenuItem key={conn.id} value={conn.id}>
-                    {conn.name} ({conn.host}/{conn.share_name})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+                {currentDirectoryName}
+              </Typography>
+              <IconButton
+                color="inherit"
+                onClick={handleNavigateUp}
+                disabled={!canNavigateUp}
+                title="Navigate up"
+                aria-label="Navigate to parent directory"
+                sx={{
+                  minWidth: 44,
+                  minHeight: 44,
+                }}
+              >
+                <ArrowUpwardIcon />
+              </IconButton>
+            </>
+          ) : (
+            /* Desktop: Original layout */
+            <>
+              <StorageIcon sx={{ mr: 2 }} />
+              <Typography variant="h6" component="div" sx={{ mr: 3 }}>
+                Sambee
+              </Typography>
+
+              {connections.length > 0 && (
+                <FormControl
+                  size="small"
+                  sx={{
+                    minWidth: 250,
+                    mr: 2,
+                  }}
+                >
+                  <Select
+                    value={selectedConnectionId}
+                    onChange={(e) => handleConnectionChange(e.target.value)}
+                    displayEmpty
+                    sx={{
+                      color: "white",
+                      ".MuiOutlinedInput-notchedOutline": {
+                        borderColor: "rgba(255, 255, 255, 0.23)",
+                      },
+                      "&:hover .MuiOutlinedInput-notchedOutline": {
+                        borderColor: "rgba(255, 255, 255, 0.4)",
+                      },
+                      "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        borderColor: "white",
+                      },
+                      ".MuiSvgIcon-root": {
+                        color: "white",
+                      },
+                    }}
+                  >
+                    {connections.map((conn) => (
+                      <MenuItem key={conn.id} value={conn.id}>
+                        {conn.name} ({conn.host}/{conn.share_name})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+
+              <Box sx={{ flexGrow: 1 }} />
+
+              <IconButton
+                color="inherit"
+                onClick={() => setShowHelp(true)}
+                sx={{ mr: 1 }}
+                title="Keyboard Shortcuts (?)"
+              >
+                <KeyboardIcon />
+              </IconButton>
+
+              {isAdmin && (
+                <IconButton
+                  color="inherit"
+                  onClick={() => setSettingsOpen(true)}
+                  sx={{ mr: 1 }}
+                  title="Settings"
+                >
+                  <SettingsIcon />
+                </IconButton>
+              )}
+              <Button color="inherit" onClick={handleLogout}>
+                Logout
+              </Button>
+            </>
           )}
-
-          <Box sx={{ flexGrow: 1 }} />
-
-          <IconButton
-            color="inherit"
-            onClick={() => setShowHelp(true)}
-            sx={{ mr: 1 }}
-            title="Keyboard Shortcuts (?)"
-          >
-            <KeyboardIcon />
-          </IconButton>
-
-          {isAdmin && (
-            <IconButton
-              color="inherit"
-              onClick={() => setSettingsOpen(true)}
-              sx={{ mr: 1 }}
-              title="Settings"
-            >
-              <SettingsIcon />
-            </IconButton>
-          )}
-          <Button color="inherit" onClick={handleLogout}>
-            Logout
-          </Button>
         </Toolbar>
       </AppBar>
       <Container
@@ -1882,95 +1953,162 @@ const Browser: React.FC = () => {
 
         {selectedConnectionId && (
           <>
-            <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Breadcrumbs>
-                  <Link
-                    component="button"
-                    variant="body1"
-                    onClick={() => {
-                      setCurrentPath("");
-                      setPreviewInfo(null);
+            {/* Desktop: Breadcrumbs and controls header */}
+            {!isMobile && (
+              <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
+                <Box
+                  display="flex"
+                  flexDirection={{ xs: "column", md: "row" }}
+                  gap={{ xs: 2, md: 0 }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: "stretch", md: "center" }}
+                >
+                  <Breadcrumbs
+                    separator="/"
+                    sx={{
+                      flex: 1,
+                      minWidth: 0,
+                      "& .MuiBreadcrumbs-ol": {
+                        flexWrap: "wrap",
+                      },
                     }}
-                    sx={{ display: "flex", alignItems: "center" }}
                   >
-                    <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-                    Root
-                  </Link>
-                  {pathParts.map((part, index) => (
                     <Link
-                      key={pathParts.slice(0, index + 1).join("/")}
                       component="button"
                       variant="body1"
-                      onClick={() => handleBreadcrumbClick(index)}
-                    >
-                      {part}
-                    </Link>
-                  ))}
-                </Breadcrumbs>
-
-                {files.length > 0 && (
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <IconButton
-                      size="small"
-                      onClick={() => loadFiles(currentPath, true)}
-                      title="Refresh (F5)"
-                      sx={{ mr: 1 }}
-                    >
-                      <RefreshIcon fontSize="small" />
-                    </IconButton>
-                    <Typography variant="body2" color="text.secondary">
-                      Sort by:
-                    </Typography>
-                    <ToggleButtonGroup
-                      value={sortBy}
-                      exclusive
-                      onChange={(_, newSort) => {
-                        if (newSort !== null) setSortBy(newSort);
+                      onClick={() => {
+                        setCurrentPath("");
+                        setPreviewInfo(null);
                       }}
-                      size="small"
+                      sx={{ display: "flex", alignItems: "center" }}
+                      aria-label="Navigate to root directory"
                     >
-                      <ToggleButton value="name" aria-label="sort by name">
-                        <SortByAlphaIcon fontSize="small" />
-                      </ToggleButton>
-                      <ToggleButton value="size" aria-label="sort by size">
-                        <DataUsageIcon fontSize="small" />
-                      </ToggleButton>
-                      <ToggleButton value="modified" aria-label="sort by date">
-                        <AccessTimeIcon fontSize="small" />
-                      </ToggleButton>
-                    </ToggleButtonGroup>
-                    <Chip
-                      label={`${sortedAndFilteredFiles.length}/${
-                        files.length
-                      } item${files.length !== 1 ? "s" : ""}`}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </Box>
-                )}
-              </Box>
-            </Paper>
+                      <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
+                      Root
+                    </Link>
+                    {/* Desktop: Show all segments */}
+                    {pathParts.map((part, index) => {
+                      const isLast = index === pathParts.length - 1;
+                      if (isLast) {
+                        // Last segment is non-clickable
+                        return (
+                          <Typography
+                            key={pathParts.slice(0, index + 1).join("/")}
+                            variant="body1"
+                            color="text.primary"
+                          >
+                            {part}
+                          </Typography>
+                        );
+                      }
+                      return (
+                        <Link
+                          key={pathParts.slice(0, index + 1).join("/")}
+                          component="button"
+                          variant="body1"
+                          onClick={() => handleBreadcrumbClick(index)}
+                          aria-label={`Navigate to ${part}`}
+                        >
+                          {part}
+                        </Link>
+                      );
+                    })}
+                  </Breadcrumbs>
+
+                  {files.length > 0 && (
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <IconButton
+                        size="small"
+                        onClick={() => loadFiles(currentPath, true)}
+                        title="Refresh (F5)"
+                        aria-label="Refresh file list"
+                      >
+                        <RefreshIcon fontSize="small" />
+                      </IconButton>
+
+                      <Typography variant="body2" color="text.secondary">
+                        Sort by:
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={sortBy}
+                        exclusive
+                        onChange={(_, newSort) => {
+                          if (newSort !== null) setSortBy(newSort);
+                        }}
+                        size="small"
+                      >
+                        <ToggleButton value="name" aria-label="sort by name">
+                          <SortByAlphaIcon fontSize="small" />
+                        </ToggleButton>
+                        <ToggleButton value="size" aria-label="sort by size">
+                          <DataUsageIcon fontSize="small" />
+                        </ToggleButton>
+                        <ToggleButton value="modified" aria-label="sort by date">
+                          <AccessTimeIcon fontSize="small" />
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+
+                      <Chip
+                        label={`${sortedAndFilteredFiles.length}/${
+                          files.length
+                        } item${files.length !== 1 ? "s" : ""}`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Box>
+                  )}
+                </Box>
+              </Paper>
+            )}
 
             {files.length > 0 && (
-              <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
+              <Paper
+                elevation={2}
+                sx={{
+                  p: { xs: 1.5, sm: 2 },
+                  mb: 2,
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 10,
+                  backgroundColor: "background.paper",
+                }}
+              >
                 <TextField
                   fullWidth
                   size="small"
-                  placeholder="Search files and folders... (press / to focus)"
+                  placeholder={
+                    isMobile ? "Search..." : "Search files and folders... (press / to focus)"
+                  }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   inputRef={searchInputRef}
+                  sx={{
+                    "& .MuiInputBase-root": {
+                      fontSize: { xs: "16px", sm: "14px" }, // Prevent zoom on iOS
+                    },
+                    "& .MuiInputBase-input": {
+                      padding: { xs: "10px 14px", sm: "8.5px 14px" }, // Ensure min 44px touch target
+                    },
+                  }}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <SearchIcon />
+                        <SearchIcon fontSize={isMobile ? "medium" : "small"} />
                       </InputAdornment>
                     ),
                     endAdornment: searchQuery && (
                       <InputAdornment position="end">
-                        <IconButton size="small" onClick={() => setSearchQuery("")} edge="end">
-                          <ClearIcon fontSize="small" />
+                        <IconButton
+                          size="small"
+                          onClick={() => setSearchQuery("")}
+                          edge="end"
+                          sx={{
+                            minWidth: { xs: 44, sm: "auto" },
+                            minHeight: { xs: 44, sm: "auto" },
+                          }}
+                          aria-label="Clear search"
+                        >
+                          <ClearIcon fontSize={isMobile ? "medium" : "small"} />
                         </IconButton>
                       </InputAdornment>
                     ),
@@ -2018,32 +2156,33 @@ const Browser: React.FC = () => {
                     </Box>
                   ) : (
                     <>
-                      <div
-                        ref={focusOverlayRef}
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          right: 0,
-                          top: 0,
-                          height: ROW_HEIGHT,
-                          borderRadius: theme.shape.borderRadius,
-                          pointerEvents: "none",
-                          backgroundColor: theme.palette.action.selected,
-                          opacity: 0,
-                          transform: "translateY(0px)",
-                          transition: "none", // No transitions for instant visual feedback
-                          willChange: "transform",
-                          zIndex: 2,
-                        }}
-                      />
+                      {!isMobile && (
+                        <div
+                          ref={focusOverlayRef}
+                          style={{
+                            position: "absolute",
+                            left: 0,
+                            right: 0,
+                            top: 0,
+                            height: ROW_HEIGHT,
+                            borderRadius: theme.shape.borderRadius,
+                            pointerEvents: "none",
+                            backgroundColor: theme.palette.action.selected,
+                            opacity: 0,
+                            transform: "translateY(0px)",
+                            transition: "none", // No transitions for instant visual feedback
+                            willChange: "transform",
+                            zIndex: 2,
+                          }}
+                        />
+                      )}
                       <div
                         ref={parentRef}
                         data-testid="virtual-list"
                         style={{
                           height: "100%",
                           overflow: "auto",
-                          contain: "strict", // Optimize layout/paint/style calculations
-                          willChange: "scroll-position", // Hint for GPU acceleration
+                          WebkitOverflowScrolling: "touch", // Smooth scrolling on iOS
                         }}
                       >
                         <div

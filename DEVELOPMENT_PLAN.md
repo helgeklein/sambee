@@ -55,6 +55,26 @@
 
 ## UI/UX Enhancements
 
+### Professional Mobile UI
+
+  - [ ] **File List**
+    - Principles:
+      - Maximize screen space for the actual list
+      - Follow layout best practices from established file management apps.
+    - Sections from top to bottom:
+      - Top bar with:
+        - Name of the current directory or view
+        - Icon for moving one directory level up
+        - Hamburger menu
+      - Search bar
+      - File list with:
+        - Sorting options at the top
+    - Reloading via pull down gesture
+    - Hamburger menu contents:
+      - App logo
+      - Root (of the current share)
+      - Settings
+
 ### Advanced Browser Features
 
   - [ ] **Multi-select & Batch Operations**
