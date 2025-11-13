@@ -260,9 +260,14 @@ const Browser: React.FC = () => {
   const currentPreviewIndexRef = React.useRef<number | null>(null);
   const currentPreviewImagesRef = React.useRef<string[] | undefined>(undefined);
   const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
-  const listContainerRef = useCallback((node: HTMLDivElement | null) => {
-    setListContainerEl(node);
-  }, []);
+  const listContainerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node !== listContainerEl) {
+        setListContainerEl(node);
+      }
+    },
+    [listContainerEl]
+  );
   const [visibleRowCount, setVisibleRowCount] = React.useState(10);
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
@@ -330,14 +335,8 @@ const Browser: React.FC = () => {
   }, []);
 
   // Pull-to-refresh using touch events (mobile only)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: files.length needed to re-run when files load and DOM is ready
   useEffect(() => {
     if (!isMobile) {
-      return;
-    }
-
-    const scrollContainer = parentRef.current;
-    if (!scrollContainer) {
       return;
     }
 
@@ -356,7 +355,8 @@ const Browser: React.FC = () => {
         pullWrapperRef.current.style.transform = "translateY(0px)";
       }
 
-      setPullDistance(0);
+      // Defer state update to avoid triggering re-renders during event handling
+      setTimeout(() => setPullDistance(0), 0);
     };
 
     const getTrackedTouch = (touchList: TouchList) => {
@@ -372,6 +372,11 @@ const Browser: React.FC = () => {
     };
 
     const handleTouchStart = (event: TouchEvent) => {
+      const scrollContainer = parentRef.current;
+      if (!scrollContainer) {
+        return;
+      }
+
       // Check if touch is on the scroll container
       const target = event.target as HTMLElement;
       if (!scrollContainer.contains(target)) {
@@ -404,6 +409,11 @@ const Browser: React.FC = () => {
 
     const handleTouchMove = (event: TouchEvent) => {
       if (!isDragging) {
+        return;
+      }
+
+      const scrollContainer = parentRef.current;
+      if (!scrollContainer) {
         return;
       }
 
@@ -456,31 +466,53 @@ const Browser: React.FC = () => {
       // Check if we should trigger refresh
       if (currentPullDistance >= 80) {
         setIsRefreshing(true);
-        setPullDistance(currentPullDistance); // Update state for indicator animation
 
-        loadFilesRef.current?.(currentPath, true).finally(() => {
-          setIsRefreshing(false);
-          // Reset after refresh completes
+        // Keep pullDistance at current value to maintain visual feedback
+        setTimeout(() => setPullDistance(currentPullDistance), 0);
+
+        loadFilesRef.current?.(currentPathRef.current, true).finally(() => {
+          // Reset pull distance FIRST to avoid gap (before setIsRefreshing)
           currentPullDistance = 0;
+          setPullDistance(0);
+
+          // Then clear refresh state
+          setIsRefreshing(false);
+
+          // Reset transform if element exists
           if (pullWrapperRef.current) {
             pullWrapperRef.current.style.transform = "translateY(0px)";
           }
-          setPullDistance(0);
         });
       } else {
         // Below threshold - just reset with animation
-        currentPullDistance = 0;
         if (pullWrapperRef.current) {
-          pullWrapperRef.current.style.transform = "translateY(0px)";
-          pullWrapperRef.current.style.transition = "transform 0.3s ease-out";
-          // Remove transition after animation
+          const wrapper = pullWrapperRef.current;
+
+          // Disable transition
+          wrapper.style.transition = "none";
+
+          // Force reflow to ensure transition is disabled
+          wrapper.offsetHeight;
+
+          // Set the transform to current computed value (this ensures we start from actual position)
+          wrapper.style.transform = `translateY(${currentPullDistance}px)`;
+
+          // Force another reflow to commit this transform
+          wrapper.offsetHeight;
+
+          // Now enable transition and animate to 0
+          wrapper.style.transition = "transform 0.3s ease-out";
+          wrapper.style.transform = "translateY(0px)";
+
+          // Remove transition after animation completes
           setTimeout(() => {
             if (pullWrapperRef.current) {
               pullWrapperRef.current.style.transition = "none";
             }
           }, 300);
         }
-        setPullDistance(0);
+        currentPullDistance = 0;
+        setTimeout(() => setPullDistance(0), 0);
       }
     };
 
@@ -500,7 +532,7 @@ const Browser: React.FC = () => {
       document.removeEventListener("touchend", handleTouchEnd);
       document.removeEventListener("touchcancel", handleTouchCancel);
     };
-  }, [isMobile, isRefreshing, currentPath, files.length]);
+  }, [isMobile, isRefreshing]);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -1781,9 +1813,6 @@ const Browser: React.FC = () => {
         flex: 1,
         minWidth: 0,
       },
-      chip: {
-        flexShrink: 0,
-      },
       buttonBase: {
         display: "flex",
         alignItems: "center",
@@ -1916,9 +1945,6 @@ const Browser: React.FC = () => {
                 </Typography>
               ) : null}
             </Box>
-            {file.type === "directory" ? (
-              <Chip label="Folder" size="small" variant="outlined" sx={fileRowStyles.chip} />
-            ) : null}
           </Box>
         </div>
       );
@@ -2338,9 +2364,12 @@ const Browser: React.FC = () => {
                       >
                         <div
                           ref={pullWrapperRef}
-                          style={{
-                            transition: isRefreshing ? "transform 0.3s ease-out" : "none",
-                          }}
+                          key="pull-wrapper-stable"
+                          style={
+                            {
+                              // Transition is controlled by touch handlers
+                            }
+                          }
                         >
                           <div
                             style={{
