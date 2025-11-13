@@ -1299,7 +1299,7 @@ const Browser: React.FC = () => {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: 36,
+        width: 24,
         flexShrink: 0,
       },
       contentBox: {
@@ -1309,7 +1309,7 @@ const Browser: React.FC = () => {
       buttonBase: {
         display: "flex",
         alignItems: "center",
-        gap: 2,
+        gap: 1,
         height: "100%",
         width: "100%",
         px: 2,
@@ -1330,7 +1330,7 @@ const Browser: React.FC = () => {
       buttonSelected: {
         display: "flex",
         alignItems: "center",
-        gap: 2,
+        gap: 1,
         height: "100%",
         width: "100%",
         px: 2,
@@ -1352,7 +1352,7 @@ const Browser: React.FC = () => {
       buttonNotSelected: {
         display: "flex",
         alignItems: "center",
-        gap: 2,
+        gap: 1,
         height: "100%",
         width: "100%",
         px: 2,
