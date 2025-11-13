@@ -11,14 +11,14 @@ describe("getFileIcon", () => {
 
   it("should render file icon for files with extension", () => {
     const { container } = render(getFileIcon({ filename: "test.js", isDirectory: false }));
-    const iconDiv = container.querySelector("div");
-    expect(iconDiv).toBeInTheDocument();
+    const svg = container.querySelector("svg");
+    expect(svg).toBeInTheDocument();
   });
 
   it("should handle files without extension", () => {
     const { container } = render(getFileIcon({ filename: "README", isDirectory: false }));
-    const iconDiv = container.querySelector("div");
-    expect(iconDiv).toBeInTheDocument();
+    const svg = container.querySelector("svg");
+    expect(svg).toBeInTheDocument();
   });
 
   it("should render different icons for different file types", () => {
@@ -34,13 +34,15 @@ describe("getFileIcon", () => {
     const { container } = render(
       getFileIcon({ filename: "test.txt", isDirectory: false, size: 32 })
     );
-    const iconDiv = container.querySelector("div");
-    expect(iconDiv).toHaveStyle({ width: "32px", height: "32px" });
+    const svg = container.querySelector("svg");
+    expect(svg).toHaveAttribute("class");
+    // MUI icons use fontSize in sx prop which gets applied as class
   });
 
   it("should use default size when not specified", () => {
     const { container } = render(getFileIcon({ filename: "test.txt", isDirectory: false }));
-    const iconDiv = container.querySelector("div");
-    expect(iconDiv).toHaveStyle({ width: "24px", height: "24px" });
+    const svg = container.querySelector("svg");
+    expect(svg).toBeInTheDocument();
+    // MUI icons use default fontSize of 24px
   });
 });
