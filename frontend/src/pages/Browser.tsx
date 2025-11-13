@@ -1,11 +1,13 @@
 import {
   AccessTime as AccessTimeIcon,
+  ArrowUpward as ArrowUpwardIcon,
   Clear as ClearIcon,
   DataUsage as DataUsageIcon,
   InsertDriveFile as FileIcon,
   Folder as FolderIcon,
   Home as HomeIcon,
   KeyboardOutlined as KeyboardIcon,
+  Menu as MenuIcon,
   MoreHoriz as MoreHorizIcon,
   Refresh as RefreshIcon,
   Search as SearchIcon,
@@ -49,6 +51,7 @@ import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
 import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -202,6 +205,7 @@ const Browser: React.FC = () => {
   const [showHelp, setShowHelp] = useState(false);
   const [breadcrumbMenuAnchor, setBreadcrumbMenuAnchor] = useState<HTMLElement | null>(null);
   const [sortMenuAnchor, setSortMenuAnchor] = useState<HTMLElement | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleBreadcrumbMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setBreadcrumbMenuAnchor(event.currentTarget);
@@ -1645,6 +1649,16 @@ const Browser: React.FC = () => {
   };
 
   const pathParts = currentPath ? currentPath.split("/") : [];
+  const currentDirectoryName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : "Root";
+  const canNavigateUp = currentPath !== "";
+
+  const handleNavigateUp = () => {
+    if (!canNavigateUp) return;
+    const pathParts = currentPath.split("/");
+    const newPath = pathParts.slice(0, -1).join("/");
+    setCurrentPath(newPath);
+    setPreviewInfo(null);
+  };
 
   // Breadcrumb logic for mobile: collapse middle segments if path is too long
   const breadcrumbSegments = pathParts.map((part, index) => ({
@@ -1834,81 +1848,128 @@ const Browser: React.FC = () => {
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      {/* Hamburger Menu - Mobile Only */}
+      <HamburgerMenu
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        connections={connections}
+        selectedConnectionId={selectedConnectionId}
+        onConnectionChange={handleConnectionChange}
+        onNavigateToRoot={() => {
+          setCurrentPath("");
+          setPreviewInfo(null);
+        }}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onLogout={handleLogout}
+        isAdmin={isAdmin}
+      />
+
       <AppBar position="static">
         <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-          <StorageIcon sx={{ mr: { xs: 1, sm: 2 } }} />
-          {!isMobile && (
-            <Typography variant="h6" component="div" sx={{ mr: 3 }}>
-              Sambee
-            </Typography>
-          )}
-
-          {connections.length > 0 && (
-            <FormControl
-              size="small"
-              sx={{
-                minWidth: { xs: 300, sm: 250 },
-                mr: { xs: 1, sm: 2 },
-                flex: { xs: 1, sm: "0 0 auto" },
-                maxWidth: { xs: "none", sm: 250 },
-              }}
-            >
-              <Select
-                value={selectedConnectionId}
-                onChange={(e) => handleConnectionChange(e.target.value)}
-                displayEmpty
+          {/* Mobile: Hamburger + Current Directory + Up Button */}
+          {isMobile ? (
+            <>
+              <IconButton
+                color="inherit"
+                edge="start"
+                onClick={() => setDrawerOpen(true)}
+                sx={{ mr: 1 }}
+                aria-label="Open menu"
+              >
+                <MenuIcon />
+              </IconButton>
+              <Typography
+                variant="h6"
+                component="div"
                 sx={{
-                  color: "white",
-                  ".MuiOutlinedInput-notchedOutline": {
-                    borderColor: "rgba(255, 255, 255, 0.23)",
-                  },
-                  "&:hover .MuiOutlinedInput-notchedOutline": {
-                    borderColor: "rgba(255, 255, 255, 0.4)",
-                  },
-                  "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                    borderColor: "white",
-                  },
-                  ".MuiSvgIcon-root": {
-                    color: "white",
-                  },
+                  flexGrow: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
-                {connections.map((conn) => (
-                  <MenuItem key={conn.id} value={conn.id}>
-                    {conn.name} ({conn.host}/{conn.share_name})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
+                {currentDirectoryName}
+              </Typography>
+              <IconButton
+                color="inherit"
+                onClick={handleNavigateUp}
+                disabled={!canNavigateUp}
+                title="Navigate up"
+                aria-label="Navigate to parent directory"
+              >
+                <ArrowUpwardIcon />
+              </IconButton>
+            </>
+          ) : (
+            /* Desktop: Original layout */
+            <>
+              <StorageIcon sx={{ mr: 2 }} />
+              <Typography variant="h6" component="div" sx={{ mr: 3 }}>
+                Sambee
+              </Typography>
 
-          <Box sx={{ flexGrow: 1 }} />
+              {connections.length > 0 && (
+                <FormControl
+                  size="small"
+                  sx={{
+                    minWidth: 250,
+                    mr: 2,
+                  }}
+                >
+                  <Select
+                    value={selectedConnectionId}
+                    onChange={(e) => handleConnectionChange(e.target.value)}
+                    displayEmpty
+                    sx={{
+                      color: "white",
+                      ".MuiOutlinedInput-notchedOutline": {
+                        borderColor: "rgba(255, 255, 255, 0.23)",
+                      },
+                      "&:hover .MuiOutlinedInput-notchedOutline": {
+                        borderColor: "rgba(255, 255, 255, 0.4)",
+                      },
+                      "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                        borderColor: "white",
+                      },
+                      ".MuiSvgIcon-root": {
+                        color: "white",
+                      },
+                    }}
+                  >
+                    {connections.map((conn) => (
+                      <MenuItem key={conn.id} value={conn.id}>
+                        {conn.name} ({conn.host}/{conn.share_name})
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
 
-          {!isMobile && (
-            <IconButton
-              color="inherit"
-              onClick={() => setShowHelp(true)}
-              sx={{ mr: 1 }}
-              title="Keyboard Shortcuts (?)"
-            >
-              <KeyboardIcon />
-            </IconButton>
-          )}
+              <Box sx={{ flexGrow: 1 }} />
 
-          {isAdmin && (
-            <IconButton
-              color="inherit"
-              onClick={() => setSettingsOpen(true)}
-              sx={{ mr: { xs: 0.5, sm: 1 } }}
-              title="Settings"
-            >
-              <SettingsIcon />
-            </IconButton>
-          )}
-          {!isMobile && (
-            <Button color="inherit" onClick={handleLogout}>
-              Logout
-            </Button>
+              <IconButton
+                color="inherit"
+                onClick={() => setShowHelp(true)}
+                sx={{ mr: 1 }}
+                title="Keyboard Shortcuts (?)"
+              >
+                <KeyboardIcon />
+              </IconButton>
+
+              {isAdmin && (
+                <IconButton
+                  color="inherit"
+                  onClick={() => setSettingsOpen(true)}
+                  sx={{ mr: 1 }}
+                  title="Settings"
+                >
+                  <SettingsIcon />
+                </IconButton>
+              )}
+              <Button color="inherit" onClick={handleLogout}>
+                Logout
+              </Button>
+            </>
           )}
         </Toolbar>
       </AppBar>
