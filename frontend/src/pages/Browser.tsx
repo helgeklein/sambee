@@ -3,8 +3,6 @@ import {
   ArrowUpward as ArrowUpwardIcon,
   Clear as ClearIcon,
   DataUsage as DataUsageIcon,
-  InsertDriveFile as FileIcon,
-  Folder as FolderIcon,
   Home as HomeIcon,
   KeyboardOutlined as KeyboardIcon,
   Menu as MenuIcon,
@@ -56,6 +54,7 @@ import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
+import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System
 // =============================
@@ -1419,11 +1418,11 @@ const Browser: React.FC = () => {
             aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
           >
             <Box sx={fileRowStyles.iconBox}>
-              {file.type === "directory" ? (
-                <FolderIcon color="primary" />
-              ) : (
-                <FileIcon color="action" />
-              )}
+              {getFileIcon({
+                filename: file.name,
+                isDirectory: file.type === "directory",
+                size: 24,
+              })}
             </Box>
             <Box sx={fileRowStyles.contentBox}>
               <Typography variant="body2" noWrap title={file.name} color="text.primary">
