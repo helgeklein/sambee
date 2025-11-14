@@ -25,11 +25,14 @@ import pyvips
 
 # Check libvips availability and configure
 try:
-    # Test basic vips functionality
+    # Test basic vips functionality and configure cache
     pyvips.cache_set_max(100)  # 100MB cache
-    pyvips.concurrency_set(4)  # 4 worker threads
+    # Note: libvips handles concurrency automatically
     VIPS_AVAILABLE = True
-except Exception:
+except Exception as e:
+    import sys
+
+    print(f"ERROR: Failed to initialize libvips: {e}", file=sys.stderr)
     VIPS_AVAILABLE = False
 
 
@@ -136,7 +139,7 @@ def convert_image_to_jpeg(
         image = pyvips.Image.new_from_buffer(image_bytes, "")
 
         # Determine output format based on transparency and file type
-        has_alpha = image.hasalpha()
+        has_alpha = image.hasalpha()  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         if extension == ".ico" and has_alpha:
             output_format = "png"
             mime_type = "image/png"
@@ -149,32 +152,32 @@ def convert_image_to_jpeg(
         # Step 1: Handle transparency
         if has_alpha and output_format == "jpeg":
             # Flatten alpha channel onto white background
-            image = image.flatten(background=[255, 255, 255])
+            image = image.flatten(background=[255, 255, 255])  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Step 2: Handle color space conversions
         # libvips handles most conversions automatically, but ensure sRGB for web
-        if image.interpretation != "srgb":
+        if image.interpretation != "srgb":  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
             # Convert to sRGB if not already
-            if image.interpretation in ["cmyk", "lab", "xyz"]:
-                image = image.colourspace("srgb")
+            if image.interpretation in ["cmyk", "lab", "xyz"]:  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+                image = image.colourspace("srgb")  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Step 3: Resize if needed
-        if max_dimension and max(image.width, image.height) > max_dimension:
+        if max_dimension and max(image.width, image.height) > max_dimension:  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
             # thumbnail_image maintains aspect ratio
             # Uses high-quality interpolation (lanczos3 by default)
-            image = image.thumbnail_image(max_dimension, height=max_dimension)
+            image = image.thumbnail_image(max_dimension, height=max_dimension)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Step 4: Convert to output format
         # Pipeline executes NOW when we call save
         if output_format == "jpeg":
-            output_bytes = image.jpegsave_buffer(
+            output_bytes = image.jpegsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 Q=quality,  # JPEG quality
                 optimize_coding=True,  # Optimize Huffman tables
                 strip=True,  # Remove metadata (smaller files)
                 interlace=False,  # Standard (not progressive) JPEG
             )
         else:  # PNG
-            output_bytes = image.pngsave_buffer(
+            output_bytes = image.pngsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 compression=6,  # PNG compression level (0-9)
                 strip=True,  # Remove metadata
             )
@@ -186,10 +189,9 @@ def convert_image_to_jpeg(
         error_msg = str(e)
 
         # Check for missing loader (e.g., HEIC support)
-        if (
-            "no known loader" in error_msg.lower()
-            or "unable to load" in error_msg.lower()
-        ):
+        # Distinguish between "format not supported" vs "corrupt data"
+        if "no known loader" in error_msg.lower():
+            # This is truly an unsupported format
             if extension in {".heic", ".heif"}:
                 raise ImportError(
                     "HEIC/HEIF support requires libvips built with libheif. "
@@ -199,6 +201,12 @@ def convert_image_to_jpeg(
                 f"Image format {extension} not supported. "
                 f"libvips may be missing required loader."
             ) from e
+        elif (
+            "unable to load from buffer" in error_msg.lower()
+            or "not in a known format" in error_msg.lower()
+        ):
+            # This is corrupt/invalid image data
+            raise ValueError(f"Failed to convert image: {error_msg}") from e
 
         # Generic conversion error
         raise ValueError(f"Failed to convert image: {error_msg}") from e
@@ -226,19 +234,19 @@ def get_image_info(image_bytes: bytes) -> dict[str, Any]:
 
         # Extract metadata
         return {
-            "format": image.get("vips-loader")
-            if image.get_typeof("vips-loader") != 0
+            "format": image.get("vips-loader")  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            if image.get_typeof("vips-loader") != 0  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
             else "unknown",
-            "mode": image.interpretation,
-            "size": (image.width, image.height),
-            "width": image.width,
-            "height": image.height,
-            "bands": image.bands,
-            "has_alpha": image.hasalpha(),
+            "mode": image.interpretation,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            "size": (image.width, image.height),  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            "width": image.width,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            "height": image.height,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            "bands": image.bands,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            "has_alpha": image.hasalpha(),  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
             "info": {
-                "interpretation": image.interpretation,
-                "format": image.format,
-                "coding": image.coding,
+                "interpretation": image.interpretation,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+                "format": image.format,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+                "coding": image.coding,  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
             },
         }
     except Exception as e:

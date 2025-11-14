@@ -88,19 +88,19 @@ class TestImageConversion:
 
         if mode == "RGB":
             # Create RGB image
-            image = pyvips.Image.black(width, height, bands=3)
+            image = pyvips.Image.black(width, height, bands=3)  # pyright: ignore[reportAttributeAccessIssue]
             image = image + [255, 0, 0]  # Red color
         elif mode == "RGBA":
             # Create RGBA image with transparency
-            image = pyvips.Image.black(width, height, bands=4)
+            image = pyvips.Image.black(width, height, bands=4)  # pyright: ignore[reportAttributeAccessIssue]
             image = image + [255, 0, 0, 255]  # Red with full opacity
         elif mode == "L":
             # Create grayscale image
-            image = pyvips.Image.black(width, height, bands=1)
+            image = pyvips.Image.black(width, height, bands=1)  # pyright: ignore[reportAttributeAccessIssue]
             image = image + 128  # Mid-gray
         elif mode == "P":
             # Palette mode - create RGB and we'll handle it
-            image = pyvips.Image.black(width, height, bands=3)
+            image = pyvips.Image.black(width, height, bands=3)  # pyright: ignore[reportAttributeAccessIssue]
             image = image + [100, 100, 100]  # Gray color
         else:
             raise ValueError(f"Unsupported mode: {mode}")
@@ -111,7 +111,7 @@ class TestImageConversion:
     def create_test_bmp(self, size: tuple = (100, 100)) -> bytes:
         """Create a test BMP image."""
         width, height = size
-        image = pyvips.Image.black(width, height, bands=3)
+        image = pyvips.Image.black(width, height, bands=3)  # pyright: ignore[reportAttributeAccessIssue]
         image = image + [0, 255, 0]  # Green color
 
         # Save as BMP via magick (ImageMagick backend)
@@ -132,9 +132,9 @@ class TestImageConversion:
 
         # Verify it's a valid JPEG using pyvips
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
-        assert result_img.width == 200
-        assert result_img.height == 150
-        assert result_img.bands >= 3  # RGB or grayscale
+        assert result_img.width == 200  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height == 150  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB or grayscale
 
     def test_convert_rgba_to_jpeg(self):
         """Test converting RGBA image to JPEG (removes alpha)."""
@@ -146,8 +146,8 @@ class TestImageConversion:
 
         # Verify alpha channel was handled (composite on white)
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
-        assert not result_img.hasalpha()  # No alpha in JPEG
-        assert result_img.bands == 3  # RGB
+        assert not result_img.hasalpha()  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # No alpha in JPEG
+        assert result_img.bands == 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB
 
     def test_convert_bmp_to_jpeg(self):
         """Test converting BMP to JPEG."""
@@ -157,8 +157,8 @@ class TestImageConversion:
 
         assert mime_type == "image/jpeg"
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
-        assert result_img.width == 150
-        assert result_img.height == 200
+        assert result_img.width == 150  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height == 200  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
     def test_convert_with_max_dimension(self):
         """Test image downscaling with max_dimension."""
@@ -170,9 +170,9 @@ class TestImageConversion:
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Image should be scaled down proportionally
-        assert max(result_img.width, result_img.height) <= 800
+        assert max(result_img.width, result_img.height) <= 800  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         # Aspect ratio should be preserved (approximately)
-        assert abs(result_img.width / result_img.height - 2000 / 1500) < 0.01
+        assert abs(result_img.width / result_img.height - 2000 / 1500) < 0.01  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
     def test_convert_quality_setting(self):
         """Test JPEG quality setting affects output size."""
@@ -183,15 +183,6 @@ class TestImageConversion:
 
         # Higher quality should result in larger file
         assert len(high_quality) > len(low_quality)
-
-    @pytest.mark.skip(
-        reason="HEIC support check not applicable with libvips - it either has it or doesn't"
-    )
-    def test_heic_without_support_raises_error(self):
-        """Test HEIC conversion fails gracefully without libheif."""
-        # This test is skipped because libvips either has heif support or doesn't
-        # There's no runtime check we can mock like pillow-heif
-        pass
 
     def test_invalid_image_raises_error(self):
         """Test that invalid image data raises ValueError."""
@@ -223,7 +214,7 @@ class TestEdgeCases:
 
     def test_grayscale_image_preserved(self):
         """Test that grayscale images are preserved."""
-        image = pyvips.Image.black(100, 100, bands=1)
+        image = pyvips.Image.black(100, 100, bands=1)  # pyright: ignore[reportAttributeAccessIssue]
         image = image + 128  # Mid-gray
         image_bytes = bytes(image.pngsave_buffer())
 
@@ -231,23 +222,23 @@ class TestEdgeCases:
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Grayscale can be stored as 1 or 3 bands in JPEG
-        assert result_img.bands in (1, 3)
+        assert result_img.bands in (1, 3)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
     def test_palette_mode_conversion(self):
         """Test palette mode (P) images are converted."""
         # Create a simple RGB image (pyvips doesn't have palette mode like PIL)
-        image = pyvips.Image.black(100, 100, bands=3)
+        image = pyvips.Image.black(100, 100, bands=3)  # pyright: ignore[reportAttributeAccessIssue]
         image = image + [100, 100, 100]
         image_bytes = bytes(image.pngsave_buffer())
 
         result_bytes, mime_type = convert_image_to_jpeg(image_bytes, "palette.png")
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
-        assert result_img.bands >= 3  # RGB
+        assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB
 
     def test_small_image_no_downscaling(self):
         """Test that small images are not upscaled."""
-        image = pyvips.Image.black(50, 50, bands=3)
+        image = pyvips.Image.black(50, 50, bands=3)  # pyright: ignore[reportAttributeAccessIssue]
         image = image + [255, 0, 0]
         image_bytes = bytes(image.pngsave_buffer())
 
@@ -257,5 +248,5 @@ class TestEdgeCases:
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Should remain 50x50, not upscaled
-        assert result_img.width == 50
-        assert result_img.height == 50
+        assert result_img.width == 50  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height == 50  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
