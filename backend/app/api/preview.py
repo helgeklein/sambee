@@ -113,7 +113,7 @@ async def preview_file(
                 converted_bytes, converted_mime = convert_image_to_jpeg(
                     image_bytes,
                     filename,
-                    quality=80,  # Optimized for fast encoding with good visual quality
+                    quality=85,  # Good balance of quality and size
                 )
 
                 logger.info(
