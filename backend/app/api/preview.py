@@ -6,9 +6,10 @@ from app.core.security import decrypt_password, get_current_user
 from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.user import User
+from app.services.image_converter import convert_image_to_jpeg, needs_conversion
 from app.storage.smb import SMBBackend
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlmodel import Session
 
 router = APIRouter()
@@ -24,13 +25,13 @@ def validate_connection(connection: Connection) -> None:
         )
 
 
-@router.get("/{connection_id}/file")
+@router.get("/{connection_id}/file", response_model=None)
 async def preview_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
-) -> StreamingResponse:
+) -> Response | StreamingResponse:
     """Stream file contents for preview"""
     set_user(current_user.username)
     logger.info(
@@ -99,7 +100,73 @@ async def preview_file(
         if not mime_type or mime_type.startswith("chemical/"):
             mime_type = "application/octet-stream"
 
-        # Stream the file
+        # Check if image needs conversion for browser compatibility
+        if needs_conversion(filename):
+            logger.info(
+                f"Image requires conversion for browser: connection_id={connection_id}, "
+                f"path='{path}', original_mime={mime_type}"
+            )
+
+            try:
+                # Read entire file into memory for conversion
+                chunks = []
+                async for chunk in backend.read_file(path):
+                    chunks.append(chunk)
+                image_bytes = b"".join(chunks)
+
+                await backend.disconnect()
+
+                # Convert to JPEG
+                converted_bytes, converted_mime = convert_image_to_jpeg(
+                    image_bytes,
+                    filename,
+                    quality=85,  # Good balance of quality and size
+                    max_dimension=4096,  # Prevent huge images from consuming too much memory
+                )
+
+                logger.info(
+                    f"Image converted successfully: connection_id={connection_id}, "
+                    f"path='{path}', original_size={len(image_bytes)}, "
+                    f"converted_size={len(converted_bytes)}, mime_type={converted_mime}"
+                )
+
+                return Response(
+                    content=converted_bytes,
+                    media_type=converted_mime,
+                    headers={"Content-Disposition": f'inline; filename="{filename}"'},
+                )
+
+            except ImportError as e:
+                logger.error(
+                    f"Image conversion failed - missing dependency: {e}",
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+                    detail="Image format not supported: HEIC/HEIF requires additional system libraries",
+                )
+            except ValueError as e:
+                logger.error(
+                    f"Image conversion failed: connection_id={connection_id}, "
+                    f"path='{path}', error={e}",
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Failed to convert image: {str(e)}",
+                )
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error during image conversion: connection_id={connection_id}, "
+                    f"path='{path}', error={type(e).__name__}: {e}",
+                    exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to process image",
+                )
+
+        # Stream the file (browser-native format or non-image)
         async def file_streamer() -> AsyncIterator[bytes]:
             try:
                 async for chunk in backend.read_file(path):

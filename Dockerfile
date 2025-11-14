@@ -15,6 +15,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     libmagic1 \
+    libheif-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libwebp-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install backend dependencies

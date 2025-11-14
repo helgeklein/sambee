@@ -4,7 +4,6 @@ Provides test database, test client, authentication, and mock SMB backend.
 """
 
 import os
-import tempfile
 import uuid
 from typing import Generator
 
@@ -19,11 +18,16 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 
-@pytest.fixture(name="test_db_path")
-def test_db_path_fixture() -> Generator[str, None, None]:
-    """Create a temporary database file for testing."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
+@pytest.fixture(name="test_db_path", scope="session")
+def test_db_path_fixture(tmp_path_factory) -> Generator[str, None, None]:
+    """Create a temporary database file for testing.
+
+    Uses session scope and tmp_path_factory to ensure each pytest-xdist
+    worker gets its own database file to avoid race conditions.
+    """
+    # Get worker-specific temp directory (automatically handles xdist workers)
+    temp_dir = tmp_path_factory.mktemp("test_db")
+    path = str(temp_dir / f"test_{uuid.uuid4().hex}.db")
     yield path
     # Cleanup
     try:
@@ -32,14 +36,21 @@ def test_db_path_fixture() -> Generator[str, None, None]:
         pass
 
 
-@pytest.fixture(name="engine")
+@pytest.fixture(name="engine", scope="session")
 def engine_fixture(test_db_path: str):
-    """Create a test database engine with in-memory pool."""
-    # Use SQLite in-memory for speed, but with shared cache for multi-threaded access
+    """Create a test database engine with in-memory pool.
+
+    Uses session scope to share the database across all tests in a worker,
+    avoiding the overhead of recreating tables for each test.
+    """
+    from app.core.config import settings
+
+    # Use SQLite with shared cache for multi-threaded access
     engine = create_engine(
         f"sqlite:///{test_db_path}",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
+        echo=settings.debug,  # Match production engine settings
     )
     SQLModel.metadata.create_all(engine)
     yield engine
@@ -47,13 +58,48 @@ def engine_fixture(test_db_path: str):
     engine.dispose()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def patch_db_engine(engine):
+    """Patch the global database engine to use test engine.
+
+    This ensures that any code importing from app.db.database or app.main
+    gets the test engine instead of the production one.
+    """
+    import app.db.database as db_module
+    import app.main as main_module
+
+    # Patch database module
+    original_db_engine = db_module.engine
+    db_module.engine = engine
+
+    # Patch main module (used in lifespan startup)
+    original_main_engine = main_module.engine
+    main_module.engine = engine
+
+    yield
+
+    # Restore original engines after tests
+    db_module.engine = original_db_engine
+    main_module.engine = original_main_engine
+
+
 @pytest.fixture(name="session")
 def session_fixture(engine) -> Generator[Session, None, None]:
-    """Create a test database session."""
-    with Session(engine) as session:
-        yield session
-        # Explicitly close the session
-        session.close()
+    """Create a test database session with transaction rollback.
+
+    Each test runs in its own transaction which is rolled back after the test,
+    ensuring a clean state for the next test while sharing the same database schema.
+    """
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
+
+    yield session
+
+    # Rollback the transaction to undo all changes made during the test
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 
 @pytest.fixture(name="client")
