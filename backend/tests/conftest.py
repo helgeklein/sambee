@@ -43,16 +43,37 @@ def engine_fixture(test_db_path: str):
     Uses session scope to share the database across all tests in a worker,
     avoiding the overhead of recreating tables for each test.
     """
+    from app.core.config import settings
+
     # Use SQLite with shared cache for multi-threaded access
     engine = create_engine(
         f"sqlite:///{test_db_path}",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
+        echo=settings.debug,  # Match production engine settings
     )
     SQLModel.metadata.create_all(engine)
     yield engine
     # Cleanup: dispose of the engine to close all connections
     engine.dispose()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def patch_db_engine(engine):
+    """Patch the global database engine to use test engine.
+
+    This ensures that any code importing from app.db.database
+    gets the test engine instead of the production one.
+    """
+    import app.db.database as db_module
+
+    original_engine = db_module.engine
+    db_module.engine = engine
+
+    yield
+
+    # Restore original engine after tests
+    db_module.engine = original_engine
 
 
 @pytest.fixture(name="session")

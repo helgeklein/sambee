@@ -6,3 +6,7 @@
 
 - **Indentation:** never use tabs. Only use spaces for indentation.
 - **Comments:** add docstrings and comments for non-obvious code.
+
+## Git Commits
+
+- Never commit your changes. That will be done manually.
