@@ -103,11 +103,23 @@ export const getFileIcon = ({ filename, isDirectory, size = 24 }: FileIconProps)
   }
 
   // Media - Images
-  if (["jpg", "jpeg", "png", "gif", "webp", "bmp"].includes(ext)) {
+  if (["jpg", "jpeg", "png", "gif", "webp", "bmp", "dib"].includes(ext)) {
     return <ImageIcon sx={{ ...iconSize, color: "#00b4d8" }} />; // Image cyan
+  }
+  if (["tif", "tiff"].includes(ext)) {
+    return <ImageIcon sx={{ ...iconSize, color: "#0077b6" }} />; // TIFF dark cyan
+  }
+  if (["heic", "heif"].includes(ext)) {
+    return <ImageIcon sx={{ ...iconSize, color: "#0096c7" }} />; // HEIC blue
+  }
+  if (["ico"].includes(ext)) {
+    return <ImageIcon sx={{ ...iconSize, color: "#48cae4" }} />; // ICO light cyan
   }
   if (["svg"].includes(ext)) {
     return <ImageIcon sx={{ ...iconSize, color: "#ffb13b" }} />; // SVG orange
+  }
+  if (["avif"].includes(ext)) {
+    return <ImageIcon sx={{ ...iconSize, color: "#90e0ef" }} />; // AVIF light blue
   }
 
   // Media - Video

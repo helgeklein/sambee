@@ -20,10 +20,17 @@ export type PreviewComponent = React.ComponentType<PreviewComponentProps>;
 /**
  * Registry mapping MIME type patterns to preview components
  * Components are lazily loaded to reduce initial bundle size
+ *
+ * Note: Server-side conversion handles TIFF, HEIC, BMP, ICO and other
+ * non-browser-native formats by converting them to JPEG/PNG before streaming
  */
 const PREVIEW_REGISTRY: Map<RegExp, () => Promise<{ default: PreviewComponent }>> = new Map([
   [/^text\/markdown$/, () => import("./MarkdownPreview")],
-  [/^image\/(png|jpeg|jpg|gif|webp|svg\+xml)$/i, () => import("./ImagePreview")],
+  // Images - includes both browser-native and server-converted formats
+  [
+    /^image\/(png|jpeg|jpg|gif|webp|svg\+xml|tiff|heic|heif|bmp|x-ms-bmp|x-icon|vnd\.microsoft\.icon|x-tiff)$/i,
+    () => import("./ImagePreview"),
+  ],
   // Future preview components can be added here:
   // [/^application\/pdf$/, () => import('./PdfPreview')],
   // [/^text\/plain$/, () => import('./TextPreview')],
@@ -70,9 +77,13 @@ export const hasPreviewSupport = (mimeType: string): boolean => {
  * This is a convenience method for quick checks without MIME type
  * @param filename - The filename to check
  * @returns true if the extension is likely supported
+ *
+ * Includes both browser-native formats and formats that are converted server-side:
+ * - Browser-native: PNG, JPEG, GIF, WebP, SVG
+ * - Server-converted: TIFF, HEIC/HEIF, BMP, ICO
  */
 export const isImageFile = (filename: string): boolean => {
-  return /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
+  return /\.(png|jpe?g|gif|webp|svg|tiff?|heic|heif|bmp|dib|ico|avif)$/i.test(filename);
 };
 
 export const isMarkdownFile = (filename: string): boolean => {
