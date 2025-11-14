@@ -20,7 +20,7 @@ from PIL import Image
 
 # Register HEIF/HEIC support
 try:
-    from pillow_heif import register_heif_opener
+    from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 
     register_heif_opener()
     HEIF_SUPPORT = True

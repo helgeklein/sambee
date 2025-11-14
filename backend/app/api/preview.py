@@ -31,7 +31,7 @@ async def preview_file(
     path: str = Query(..., description="Path to the file"),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
-):
+) -> Response | StreamingResponse:
     """Stream file contents for preview"""
     set_user(current_user.username)
     logger.info(
