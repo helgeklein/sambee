@@ -20,10 +20,13 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - **TIFF** (`.tif`, `.tiff`) - `image/tiff`
 - **HEIC/HEIF** (`.heic`, `.heif`) - `image/heic`, `image/heif` (iPhone photos)
 - **BMP** (`.bmp`, `.dib`) - `image/bmp`
-- **ICO** (`.ico`) - `image/x-icon`
+- **ICO** (`.ico`) - `image/x-icon` (converted to PNG to preserve transparency)
+- **CUR** (`.cur`) - Cursor files
 - **PCX** (`.pcx`) - `image/x-pcx`
 - **TGA** (`.tga`) - `image/x-tga`
-- **PNM/PBM/PGM/PPM** (`.pnm`, `.pbm`, `.pgm`, `.ppm`) - Various portable pixmap formats
+- **PNM/PBM/PGM/PPM** (`.pnm`, `.pbm`, `.pgm`, `.ppm`) - Portable pixmap formats
+- **XBM** (`.xbm`) - X11 Bitmap
+- **XPM** (`.xpm`) - X11 Pixmap
 
 **Image Features:**
 - Zoom controls (mouse wheel, pinch-to-zoom)

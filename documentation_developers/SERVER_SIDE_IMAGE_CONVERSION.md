@@ -2,28 +2,9 @@
 
 ## Overview
 
-Sambee now supports previewing a broad range of image formats through server-side conversion. Non-browser-native formats (TIFF, HEIC, BMP, ICO, etc.) are automatically converted to JPEG or PNG on the server before streaming to the client.
+Sambee supports previewing a broad range of image formats through server-side conversion. Non-browser-native formats (TIFF, HEIC, BMP, ICO, etc.) are automatically converted to JPEG or PNG on the server before streaming to the client.
 
-## Supported Image Formats
-
-### Browser-Native Formats (Direct Streaming)
-These formats are supported natively by modern browsers and are streamed without conversion:
-- **JPEG** (`.jpg`, `.jpeg`) - `image/jpeg`
-- **PNG** (`.png`) - `image/png`
-- **GIF** (`.gif`) - `image/gif`
-- **WebP** (`.webp`) - `image/webp`
-- **SVG** (`.svg`) - `image/svg+xml`
-- **AVIF** (`.avif`) - `image/avif` (modern browsers only)
-
-### Server-Converted Formats
-These formats are converted server-side for browser compatibility:
-- **TIFF** (`.tif`, `.tiff`) - `image/tiff` → JPEG
-- **HEIC/HEIF** (`.heic`, `.heif`) - `image/heic`, `image/heif` → JPEG (iPhone photos)
-- **BMP** (`.bmp`, `.dib`) - `image/bmp` → JPEG
-- **ICO** (`.ico`) - `image/x-icon` → PNG (preserves transparency)
-- **PCX** (`.pcx`) - `image/x-pcx` → JPEG
-- **TGA** (`.tga`) - `image/x-tga` → JPEG
-- **PNM/PBM/PGM/PPM** - Portable pixmap formats → JPEG
+For a complete list of supported image formats, see `/documentation/PREVIEW_SUPPORT.md`.
 
 ## Architecture
 
