@@ -27,7 +27,7 @@ if is_testing:
             "check_same_thread": False,
         },
         poolclass=StaticPool,
-        echo=settings.debug,
+        echo=False,  # Disable SQL logging (use application logs instead)
     )
 else:
     # Use connection pooling for production/development
@@ -41,7 +41,7 @@ else:
         max_overflow=40,  # Allow up to 60 total connections (20 + 40)
         pool_pre_ping=True,  # Verify connections are alive before using
         pool_recycle=3600,  # Recycle connections after 1 hour
-        echo=settings.debug,
+        echo=False,  # Disable SQL logging (use application logs instead)
     )
 
 

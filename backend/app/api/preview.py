@@ -34,23 +34,17 @@ async def preview_file(
 ) -> Response | StreamingResponse:
     """Stream file contents for preview"""
     set_user(current_user.username)
-    logger.info(
-        f"Preview file: connection_id={connection_id}, path='{path}', user={current_user.username}"
-    )
+    logger.info(f"Preview file: connection_id={connection_id}, path='{path}'")
 
     connection = session.get(Connection, connection_id)
     if not connection:
-        logger.warning(
-            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection not found: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
-        logger.warning(
-            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -103,14 +97,13 @@ async def preview_file(
         # Check if image needs conversion for browser compatibility
         if needs_conversion(filename):
             logger.info(
-                f"Image requires conversion for browser: connection_id={connection_id}, "
-                f"path='{path}', original_mime={mime_type}"
+                f"Image requires conversion: connection_id={connection_id}, path='{path}'"
             )
 
             try:
-                # Read entire file into memory for conversion
+                # Read file in 4MB chunks for optimal SMB2/SMB3 performance
                 chunks = []
-                async for chunk in backend.read_file(path):
+                async for chunk in backend.read_file(path, chunk_size=4 * 1024 * 1024):
                     chunks.append(chunk)
                 image_bytes = b"".join(chunks)
 
@@ -125,9 +118,8 @@ async def preview_file(
                 )
 
                 logger.info(
-                    f"Image converted successfully: connection_id={connection_id}, "
-                    f"path='{path}', original_size={len(image_bytes)}, "
-                    f"converted_size={len(converted_bytes)}, mime_type={converted_mime}"
+                    f"Image converted: {filename} → {converted_mime} "
+                    f"({len(image_bytes) / 1024:.0f} → {len(converted_bytes) / 1024:.0f} KB)"
                 )
 
                 return Response(
@@ -169,7 +161,8 @@ async def preview_file(
         # Stream the file (browser-native format or non-image)
         async def file_streamer() -> AsyncIterator[bytes]:
             try:
-                async for chunk in backend.read_file(path):
+                # Use 4MB chunks for optimal SMB2/SMB3 performance
+                async for chunk in backend.read_file(path, chunk_size=4 * 1024 * 1024):
                     yield chunk
             finally:
                 await backend.disconnect()
@@ -207,23 +200,17 @@ async def download_file(
 ) -> StreamingResponse:
     """Download a file"""
     set_user(current_user.username)
-    logger.info(
-        f"Download file: connection_id={connection_id}, path='{path}', user={current_user.username}"
-    )
+    logger.info(f"Download file: connection_id={connection_id}, path='{path}'")
 
     connection = session.get(Connection, connection_id)
     if not connection:
-        logger.warning(
-            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection not found: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
-        logger.warning(
-            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -254,7 +241,8 @@ async def download_file(
         # Stream the file
         async def file_streamer() -> AsyncIterator[bytes]:
             try:
-                async for chunk in backend.read_file(path):
+                # Use 4MB chunks for optimal SMB2/SMB3 performance
+                async for chunk in backend.read_file(path, chunk_size=4 * 1024 * 1024):
                     yield chunk
             finally:
                 await backend.disconnect()
