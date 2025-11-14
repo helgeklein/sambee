@@ -96,7 +96,7 @@ class TestCompleteUserJourney:
             )
 
             # Mock read_file as async generator
-            async def mock_read_file(path):
+            async def mock_read_file(path, **kwargs):
                 yield b"Hello World"
 
             mock_instance.read_file = mock_read_file
@@ -121,7 +121,7 @@ class TestCompleteUserJourney:
             )
 
             # Mock read_file as async generator
-            async def mock_read_file(path):
+            async def mock_read_file(path, **kwargs):
                 yield b"Hello World"
 
             mock_instance.read_file = mock_read_file
@@ -305,7 +305,7 @@ class TestMultiUserCollaboration:
             )
 
             # Mock read_file as async generator
-            async def mock_read_file(path):
+            async def mock_read_file(path, **kwargs):
                 yield b"data"
 
             mock_instance.read_file = mock_read_file

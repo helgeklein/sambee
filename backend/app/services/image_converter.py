@@ -161,10 +161,11 @@ def convert_image_to_jpeg(
             image = image.flatten(background=[255, 255, 255])  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Step 2: Handle color space conversions
-        # libvips handles most conversions automatically, but ensure sRGB for web
-        if image.interpretation != "srgb":  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-            # Convert to sRGB if not already
-            if image.interpretation in ["cmyk", "lab", "xyz"]:  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        # Only convert if necessary - sRGB and RGB are fine for web
+        interpretation = image.interpretation  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        if interpretation not in ["srgb", "rgb", "b-w", "grey16"]:
+            # Convert non-web-friendly color spaces to sRGB
+            if interpretation in ["cmyk", "lab", "xyz"]:
                 image = image.colourspace("srgb")  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Step 3: Resize if needed
@@ -178,9 +179,10 @@ def convert_image_to_jpeg(
         if output_format == "jpeg":
             output_bytes = image.jpegsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 Q=quality,  # JPEG quality
-                optimize_coding=True,  # Optimize Huffman tables
+                optimize_coding=False,  # Disable Huffman optimization for faster encoding
                 keep=0,  # Remove all metadata (smaller files) - VIPS_FOREIGN_KEEP_NONE
                 interlace=False,  # Standard (not progressive) JPEG
+                subsample_mode="on",  # Enable chroma subsampling for faster encoding
             )
         else:  # PNG
             output_bytes = image.pngsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]

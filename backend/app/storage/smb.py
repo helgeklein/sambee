@@ -196,7 +196,7 @@ class SMBBackend(StorageBackend):
             raise
 
     async def read_file(  # type: ignore[override, misc]
-        self, path: str, chunk_size: int = 8192
+        self, path: str, chunk_size: int = 1024 * 1024
     ) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""
         smb_path = self._build_smb_path(path)

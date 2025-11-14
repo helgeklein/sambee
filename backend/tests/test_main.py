@@ -79,8 +79,8 @@ class TestRequestLoggingMiddleware:
 
         # Check that request and response were logged
         log_messages = [record.message for record in caplog.records]
-        assert any("→ GET /api/health" in msg for msg in log_messages)
-        assert any("← GET /api/health - 200" in msg for msg in log_messages)
+        assert any("← GET /api/health" in msg for msg in log_messages)
+        assert any("→ GET /api/health - 200" in msg for msg in log_messages)
 
     def test_request_logging_includes_duration(self, client: TestClient, caplog):
         """Test that request logging includes duration."""
@@ -89,7 +89,7 @@ class TestRequestLoggingMiddleware:
 
         # Check that response log includes duration in ms
         log_messages = [record.message for record in caplog.records]
-        response_logs = [msg for msg in log_messages if "← GET /api/health" in msg]
+        response_logs = [msg for msg in log_messages if "→ GET /api/health" in msg]
         assert len(response_logs) > 0
         assert "ms)" in response_logs[0]
 
@@ -100,7 +100,7 @@ class TestRequestLoggingMiddleware:
             assert response.status_code == 404
 
         log_messages = [record.message for record in caplog.records]
-        assert any("→ GET /api/nonexistent" in msg for msg in log_messages)
+        assert any("← GET /api/nonexistent" in msg for msg in log_messages)
         assert any("404" in msg for msg in log_messages)
 
 

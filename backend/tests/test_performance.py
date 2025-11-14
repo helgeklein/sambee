@@ -419,7 +419,7 @@ class TestResponseTimes:
                 size=1024,
             )
 
-            async def mock_read_file(path):
+            async def mock_read_file(path, **kwargs):
                 yield b"data"
 
             mock_instance.read_file = mock_read_file
@@ -712,7 +712,7 @@ class TestDataTransfer:
                 size=1024,
             )
 
-            async def mock_read_file(path):
+            async def mock_read_file(path, **kwargs):
                 # Simulate file chunks
                 for i in range(10):
                     yield b"chunk of data " * 100

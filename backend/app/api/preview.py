@@ -101,20 +101,19 @@ async def preview_file(
             )
 
             try:
-                # Read file in 4MB chunks for optimal SMB2/SMB3 performance
+                # Read file in large chunks for optimal SMB performance
                 chunks = []
-                async for chunk in backend.read_file(path, chunk_size=4 * 1024 * 1024):
+                async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
                     chunks.append(chunk)
                 image_bytes = b"".join(chunks)
 
                 await backend.disconnect()
 
-                # Convert to JPEG
+                # Convert to JPEG (libvips handles large images efficiently via streaming)
                 converted_bytes, converted_mime = convert_image_to_jpeg(
                     image_bytes,
                     filename,
-                    quality=85,  # Good balance of quality and size
-                    max_dimension=4096,  # Prevent huge images from consuming too much memory
+                    quality=80,  # Optimized for fast encoding with good visual quality
                 )
 
                 logger.info(
@@ -161,8 +160,8 @@ async def preview_file(
         # Stream the file (browser-native format or non-image)
         async def file_streamer() -> AsyncIterator[bytes]:
             try:
-                # Use 4MB chunks for optimal SMB2/SMB3 performance
-                async for chunk in backend.read_file(path, chunk_size=4 * 1024 * 1024):
+                # Use large chunks for optimal SMB performance
+                async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
                     yield chunk
             finally:
                 await backend.disconnect()
@@ -241,8 +240,8 @@ async def download_file(
         # Stream the file
         async def file_streamer() -> AsyncIterator[bytes]:
             try:
-                # Use 4MB chunks for optimal SMB2/SMB3 performance
-                async for chunk in backend.read_file(path, chunk_size=4 * 1024 * 1024):
+                # Read file in large chunks for optimal SMB performance
+                async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
                     yield chunk
             finally:
                 await backend.disconnect()
