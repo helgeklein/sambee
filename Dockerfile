@@ -11,15 +11,20 @@ RUN npm run build
 FROM python:3.13-slim
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including libvips
 RUN apt-get update && apt-get install -y \
     gcc \
+    pkg-config \
     libmagic1 \
-    libheif-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libwebp-dev \
+    libvips42 \
+    libvips-dev \
+    libheif1 \
+    libjpeg62-turbo \
+    libpng16-16 \
+    libtiff6 \
+    libwebp7 \
+    libgif7 \
+    libexif12 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install backend dependencies
