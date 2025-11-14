@@ -62,18 +62,25 @@ def engine_fixture(test_db_path: str):
 def patch_db_engine(engine):
     """Patch the global database engine to use test engine.
 
-    This ensures that any code importing from app.db.database
+    This ensures that any code importing from app.db.database or app.main
     gets the test engine instead of the production one.
     """
     import app.db.database as db_module
+    import app.main as main_module
 
-    original_engine = db_module.engine
+    # Patch database module
+    original_db_engine = db_module.engine
     db_module.engine = engine
+
+    # Patch main module (used in lifespan startup)
+    original_main_engine = main_module.engine
+    main_module.engine = engine
 
     yield
 
-    # Restore original engine after tests
-    db_module.engine = original_engine
+    # Restore original engines after tests
+    db_module.engine = original_db_engine
+    main_module.engine = original_main_engine
 
 
 @pytest.fixture(name="session")
