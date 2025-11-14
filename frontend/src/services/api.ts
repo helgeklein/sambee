@@ -78,13 +78,11 @@ class ApiService {
           requestId,
         });
 
-        // Only redirect to login if we get a genuine auth error with credentials message
-        // Don't redirect on network errors or temporary backend issues
-        if (
-          error.response?.status === 401 &&
-          (error.response?.data as { detail?: string })?.detail?.includes("credentials")
-        ) {
-          logger.warn("Authentication failed, redirecting to login", {
+        // Redirect to login on any 401 Unauthorized response
+        // This includes expired tokens, invalid credentials, etc.
+        if (error.response?.status === 401) {
+          logger.warn("Authentication failed (401), redirecting to login", {
+            detail: (error.response?.data as { detail?: string })?.detail,
             requestId,
           });
           localStorage.removeItem("access_token");

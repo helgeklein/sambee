@@ -19,9 +19,14 @@ Uses libvips for:
 - Automatic multi-threading
 """
 
+import logging
+import os
+import time
 from typing import Any, Optional
 
 import pyvips
+
+logger = logging.getLogger(__name__)
 
 # Check libvips availability and configure
 try:
@@ -132,6 +137,7 @@ def convert_image_to_jpeg(
         raise ImportError("libvips is not available")
 
     extension = _get_extension(filename)
+    start_time = time.perf_counter()
 
     try:
         # Load image (lazy - only metadata read at this point)
@@ -173,17 +179,27 @@ def convert_image_to_jpeg(
             output_bytes = image.jpegsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 Q=quality,  # JPEG quality
                 optimize_coding=True,  # Optimize Huffman tables
-                strip=True,  # Remove metadata (smaller files)
+                keep=0,  # Remove all metadata (smaller files) - VIPS_FOREIGN_KEEP_NONE
                 interlace=False,  # Standard (not progressive) JPEG
             )
         else:  # PNG
             output_bytes = image.pngsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 compression=6,  # PNG compression level (0-9)
-                strip=True,  # Remove metadata
+                keep=0,  # Remove all metadata - VIPS_FOREIGN_KEEP_NONE
             )
 
         # Convert pyvips buffer to bytes
-        return bytes(output_bytes), mime_type
+        result_bytes = bytes(output_bytes)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        # Extract just the filename from the path
+        basename = os.path.basename(filename)
+
+        logger.info(
+            f"libvips: {basename} → {mime_type} "
+            f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB, {duration_ms:.0f} ms)"
+        )
+        return result_bytes, mime_type
 
     except pyvips.Error as e:
         error_msg = str(e)
