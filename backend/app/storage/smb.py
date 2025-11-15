@@ -66,9 +66,48 @@ class SMBBackend(StorageBackend):
         return self._base_path
 
     def _get_mime_type(self, filename: str) -> str:
-        """Guess MIME type from filename"""
+        """
+        Guess MIME type from filename.
+
+        Uses Python's mimetypes library with additional explicit mappings
+        for image formats and common file types that may not be in the
+        system's MIME type database.
+        """
+        # Try standard mimetypes first
         mime_type, _ = mimetypes.guess_type(filename)
-        return mime_type or "application/octet-stream"
+
+        if mime_type:
+            return mime_type
+
+        # Fallback to explicit mapping for formats that might not be in mimetypes
+        ext = filename.lower().split(".")[-1] if "." in filename else ""
+
+        # Explicit MIME type mappings for common formats
+        explicit_mappings = {
+            # Images
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg",
+            "png": "image/png",
+            "gif": "image/gif",
+            "webp": "image/webp",
+            "svg": "image/svg+xml",
+            "tif": "image/tiff",
+            "tiff": "image/tiff",
+            "heic": "image/heic",
+            "heif": "image/heif",
+            "bmp": "image/bmp",
+            "dib": "image/bmp",
+            "ico": "image/vnd.microsoft.icon",
+            "avif": "image/avif",
+            # Text
+            "md": "text/markdown",
+            "markdown": "text/markdown",
+            "txt": "text/plain",
+            # Documents
+            "pdf": "application/pdf",
+        }
+
+        return explicit_mappings.get(ext, "application/octet-stream")
 
     async def list_directory(self, path: str = "") -> DirectoryListing:
         """List contents of a directory"""

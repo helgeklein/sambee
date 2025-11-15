@@ -20,7 +20,7 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - **TIFF** (`.tif`, `.tiff`) - `image/tiff`
 - **HEIC/HEIF** (`.heic`, `.heif`) - `image/heic`, `image/heif` (iPhone photos)
 - **BMP** (`.bmp`, `.dib`) - `image/bmp`
-- **ICO** (`.ico`) - `image/x-icon` (converted to PNG to preserve transparency)
+- **ICO** (`.ico`) - `image/vnd.microsoft.icon` (converted to PNG to preserve transparency)
 - **CUR** (`.cur`) - Cursor files
 - **PCX** (`.pcx`) - `image/x-pcx`
 - **TGA** (`.tga`) - `image/x-tga`
