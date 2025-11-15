@@ -30,13 +30,7 @@ jobs:
 
     - name: Install system dependencies for image processing
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libheif-dev \
-          libjpeg-dev \
-          libpng-dev \
-          libtiff-dev \
-          libwebp-dev
+        sudo bash scripts/install-system-deps.sh
 
     - name: Install Python dependencies
       run: |
