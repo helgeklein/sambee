@@ -47,13 +47,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
-import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
-import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
+import type { PreviewComponent } from "../utils/FileTypeRegistry";
+import { getPreviewComponent, isImageFile } from "../utils/FileTypeRegistry";
 import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System

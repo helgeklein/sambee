@@ -3,8 +3,8 @@ import type { MouseEvent, TouchEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
+import type { PreviewComponentProps } from "../../utils/FileTypeRegistry";
 import { ImageControls } from "./ImageControls";
-import type { PreviewComponentProps } from "./PreviewRegistry";
 
 /**
  * Image Preview Component

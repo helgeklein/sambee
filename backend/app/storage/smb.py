@@ -69,42 +69,20 @@ class SMBBackend(StorageBackend):
         """
         Guess MIME type from filename.
 
-        Uses Python's mimetypes library with additional explicit mappings
-        for image formats and common file types that may not be in the
-        system's MIME type database.
+        Uses Python's mimetypes library with a minimal fallback for
+        rare extensions not in the system's MIME type database.
         """
-        # Try standard mimetypes first
         mime_type, _ = mimetypes.guess_type(filename)
 
         if mime_type:
             return mime_type
 
-        # Fallback to explicit mapping for formats that might not be in mimetypes
+        # Fallback for rare extensions not in mimetypes
         ext = filename.lower().split(".")[-1] if "." in filename else ""
 
-        # Explicit MIME type mappings for common formats
+        # Only include formats that mimetypes.guess_type() doesn't recognize
         explicit_mappings = {
-            # Images
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-            "png": "image/png",
-            "gif": "image/gif",
-            "webp": "image/webp",
-            "svg": "image/svg+xml",
-            "tif": "image/tiff",
-            "tiff": "image/tiff",
-            "heic": "image/heic",
-            "heif": "image/heif",
-            "bmp": "image/bmp",
-            "dib": "image/bmp",
-            "ico": "image/vnd.microsoft.icon",
-            "avif": "image/avif",
-            # Text
-            "md": "text/markdown",
-            "markdown": "text/markdown",
-            "txt": "text/plain",
-            # Documents
-            "pdf": "application/pdf",
+            "dib": "image/bmp",  # DIB (Device Independent Bitmap) - alternate BMP extension
         }
 
         return explicit_mappings.get(ext, "application/octet-stream")

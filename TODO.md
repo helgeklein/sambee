@@ -12,3 +12,7 @@
 ### Advanced
 
 - SMB read chunk size
+
+## Code formattign
+
+- Apply the formatting rules (incl. tab width) from Smart Cover Automation

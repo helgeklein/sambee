@@ -17,7 +17,7 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { apiService } from "../../services/api";
 import { error as logError } from "../../services/logger";
-import type { PreviewComponentProps } from "./PreviewRegistry";
+import type { PreviewComponentProps } from "../../utils/FileTypeRegistry";
 import "highlight.js/styles/github.css";
 
 export const MarkdownPreview: React.FC<PreviewComponentProps> = ({

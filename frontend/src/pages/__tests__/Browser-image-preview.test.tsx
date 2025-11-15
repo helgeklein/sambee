@@ -14,9 +14,9 @@ const mockedApi = apiService as MockedObject<typeof apiService>;
 vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react-virtual"));
 
 // Mock the preview components
-vi.mock("../../components/Preview/PreviewRegistry", async () => {
-  const actual = await vi.importActual<typeof import("../../components/Preview/PreviewRegistry")>(
-    "../../components/Preview/PreviewRegistry"
+vi.mock("../../utils/FileTypeRegistry", async () => {
+  const actual = await vi.importActual<typeof import("../../utils/FileTypeRegistry")>(
+    "../../utils/FileTypeRegistry"
   );
   return {
     ...actual,
