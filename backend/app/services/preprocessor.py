@@ -429,6 +429,142 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             raise
 
 
+class PreprocessorRegistry:
+    """
+    Central registry for preprocessor format mappings.
+
+    This registry provides a single source of truth for which file formats
+    require preprocessing and which preprocessor implementation to use.
+
+    Usage:
+        # Check if format needs preprocessing
+        if PreprocessorRegistry.requires_preprocessing("psd"):
+            preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
+
+        # Get all preprocessable formats
+        formats = PreprocessorRegistry.get_supported_formats()
+    """
+
+    # Format-to-preprocessor-type mapping
+    # This is the single source of truth for preprocessor registrations
+    _FORMAT_REGISTRY: dict[str, type[PreprocessorInterface]] = {
+        # Adobe Photoshop formats - handled by GraphicsMagick (preferred) or ImageMagick
+        "psd": GraphicsMagickPreprocessor,
+        "psb": GraphicsMagickPreprocessor,
+    }
+
+    @classmethod
+    def requires_preprocessing(cls, extension: str) -> bool:
+        """
+        Check if a file extension requires preprocessing.
+
+        Args:
+            extension: File extension (with or without dot, case-insensitive)
+
+        Returns:
+            True if the format requires preprocessing, False otherwise
+        """
+        # Normalize extension (remove dot, lowercase)
+        ext = extension.lower().lstrip(".")
+        return ext in cls._FORMAT_REGISTRY
+
+    @classmethod
+    def get_preprocessor_for_format(
+        cls, extension: str, preprocessor_type: Optional[str] = None
+    ) -> PreprocessorInterface:
+        """
+        Get a preprocessor instance for the given file format.
+
+        Args:
+            extension: File extension (with or without dot, case-insensitive)
+            preprocessor_type: Optional override for preprocessor type
+                              ("graphicsmagick", "imagemagick", "auto")
+                              If None, uses default for this format.
+
+        Returns:
+            PreprocessorInterface instance
+
+        Raises:
+            ValueError: If format is not registered for preprocessing
+            PreprocessorError: If preprocessor is not available
+        """
+        # Normalize extension
+        ext = extension.lower().lstrip(".")
+
+        if ext not in cls._FORMAT_REGISTRY:
+            raise ValueError(
+                f"Format '{ext}' is not registered for preprocessing. "
+                f"Supported formats: {', '.join(sorted(cls._FORMAT_REGISTRY.keys()))}"
+            )
+
+        # If specific preprocessor type requested, use PreprocessorFactory
+        if preprocessor_type is not None:
+            return PreprocessorFactory.create(preprocessor_type)
+
+        # Otherwise, use the registered default for this format
+        preprocessor_class = cls._FORMAT_REGISTRY[ext]
+
+        # Create instance and check availability
+        instance = preprocessor_class()
+        if not instance.check_availability():
+            # Try fallback options if the default isn't available
+            logger.warning(
+                f"{preprocessor_class.__name__} not available, trying fallbacks"
+            )
+            # For PSD/PSB, try alternate preprocessor
+            if isinstance(instance, GraphicsMagickPreprocessor):
+                fallback = ImageMagickPreprocessor()
+                if fallback.check_availability():
+                    logger.info("Falling back to ImageMagick")
+                    return fallback
+            elif isinstance(instance, ImageMagickPreprocessor):
+                fallback = GraphicsMagickPreprocessor()
+                if fallback.check_availability():
+                    logger.info("Falling back to GraphicsMagick")
+                    return fallback
+
+            # No fallback available
+            raise PreprocessorError(
+                f"No available preprocessor for format '{ext}'. "
+                f"Install GraphicsMagick or ImageMagick."
+            )
+
+        return instance
+
+    @classmethod
+    def get_supported_formats(cls) -> set[str]:
+        """
+        Get all file formats that have registered preprocessors.
+
+        Returns:
+            Set of file extensions (lowercase, without dot) that can be preprocessed
+        """
+        return set(cls._FORMAT_REGISTRY.keys())
+
+    @classmethod
+    def register_format(
+        cls, extension: str, preprocessor_class: type[PreprocessorInterface]
+    ) -> None:
+        """
+        Register a new format with a preprocessor.
+
+        This allows dynamic registration of new preprocessors at runtime.
+
+        Args:
+            extension: File extension (without dot, case-insensitive)
+            preprocessor_class: Preprocessor class to handle this format
+
+        Example:
+            # Register a custom preprocessor for CDR files
+            PreprocessorRegistry.register_format("cdr", CorelDrawPreprocessor)
+        """
+        ext = extension.lower().lstrip(".")
+        cls._FORMAT_REGISTRY[ext] = preprocessor_class
+        logger.info(
+            f"Registered preprocessor {preprocessor_class.__name__} for .{ext} files"
+        )
+
+
 class PreprocessorFactory:
     """
     Factory for creating preprocessor instances based on configuration.
@@ -438,8 +574,15 @@ class PreprocessorFactory:
     - "imagemagick": Use ImageMagick
     - "auto": Auto-detect available tool (prefers GraphicsMagick)
 
+    Note: For format-specific preprocessing, use PreprocessorRegistry instead.
+    This factory is primarily for manual preprocessor creation.
+
     Usage:
-        preprocessor = PreprocessorFactory.create()
+        # Recommended: Use registry for format-based lookup
+        preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
+
+        # Alternative: Manual creation with factory
+        preprocessor = PreprocessorFactory.create("graphicsmagick")
         intermediate_file = preprocessor.convert_to_intermediate(psd_file)
     """
 

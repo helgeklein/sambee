@@ -29,7 +29,7 @@ import pyvips
 
 from app.services.preprocessor import (
     PreprocessorError,
-    PreprocessorFactory,
+    PreprocessorRegistry,
 )
 
 logger = logging.getLogger(__name__)
@@ -81,8 +81,8 @@ def convert_image_to_jpeg(
     # Extract extension for format-specific handling
     extension = f".{filename.lower().rsplit('.', 1)[-1]}" if "." in filename else ""
 
-    # Check if this format needs preprocessing
-    needs_preprocessing = extension.lstrip(".") in {"psd", "psb"}
+    # Check if this format needs preprocessing (use registry)
+    needs_preprocessing = PreprocessorRegistry.requires_preprocessing(extension)
     preprocessed_file = None
 
     try:
@@ -97,9 +97,11 @@ def convert_image_to_jpeg(
                 os.close(fd)
                 temp_input_path = Path(temp_input)
 
-                # Run preprocessor
+                # Run preprocessor (registry provides appropriate implementation)
                 logger.info(f"Preprocessing {filename} with external tool")
-                preprocessor = PreprocessorFactory.create()
+                preprocessor = PreprocessorRegistry.get_preprocessor_for_format(
+                    extension
+                )
                 preprocessed_file = preprocessor.convert_to_intermediate(
                     temp_input_path, output_format="png"
                 )

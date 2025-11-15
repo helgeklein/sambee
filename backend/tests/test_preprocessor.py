@@ -7,6 +7,7 @@ These tests verify that the preprocessor can:
 3. Handle errors gracefully (missing tools, corrupt files, timeouts)
 4. Clean up temporary files properly
 5. Validate inputs (file size, format, existence)
+6. Registry-based format lookups and preprocessor selection
 """
 
 import os
@@ -19,7 +20,110 @@ from app.services.preprocessor import (
     ImageMagickPreprocessor,
     PreprocessorError,
     PreprocessorFactory,
+    PreprocessorRegistry,
 )
+
+
+class TestPreprocessorRegistry:
+    """Test the preprocessor registry functionality."""
+
+    def test_requires_preprocessing_psd(self):
+        """Test that PSD format is recognized as requiring preprocessing."""
+        assert PreprocessorRegistry.requires_preprocessing("psd") is True
+        assert PreprocessorRegistry.requires_preprocessing(".psd") is True
+        assert PreprocessorRegistry.requires_preprocessing("PSD") is True
+        assert PreprocessorRegistry.requires_preprocessing(".PSD") is True
+
+    def test_requires_preprocessing_psb(self):
+        """Test that PSB format is recognized as requiring preprocessing."""
+        assert PreprocessorRegistry.requires_preprocessing("psb") is True
+        assert PreprocessorRegistry.requires_preprocessing(".psb") is True
+
+    def test_requires_preprocessing_non_preprocessed_format(self):
+        """Test that non-preprocessed formats return False."""
+        assert PreprocessorRegistry.requires_preprocessing("jpg") is False
+        assert PreprocessorRegistry.requires_preprocessing("png") is False
+        assert PreprocessorRegistry.requires_preprocessing("gif") is False
+        assert PreprocessorRegistry.requires_preprocessing("unknown") is False
+
+    def test_get_supported_formats(self):
+        """Test that get_supported_formats returns all registered formats."""
+        formats = PreprocessorRegistry.get_supported_formats()
+        assert isinstance(formats, set)
+        assert "psd" in formats
+        assert "psb" in formats
+        # Should be at least these two
+        assert len(formats) >= 2
+
+    def test_get_preprocessor_for_format_psd(self):
+        """Test getting preprocessor for PSD format."""
+        # This will use GraphicsMagick if available
+        try:
+            preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
+            assert preprocessor is not None
+            assert hasattr(preprocessor, "convert_to_intermediate")
+        except PreprocessorError:
+            # It's okay if no preprocessor is available in test environment
+            pytest.skip("No preprocessor available in test environment")
+
+    def test_get_preprocessor_for_format_invalid(self):
+        """Test that invalid format raises ValueError."""
+        with pytest.raises(ValueError, match="not registered for preprocessing"):
+            PreprocessorRegistry.get_preprocessor_for_format("jpg")
+
+    def test_get_preprocessor_for_format_with_override(self):
+        """Test that preprocessor_type override works."""
+        try:
+            # Try to get ImageMagick explicitly
+            preprocessor = PreprocessorRegistry.get_preprocessor_for_format(
+                "psd", preprocessor_type="imagemagick"
+            )
+            assert isinstance(preprocessor, ImageMagickPreprocessor)
+        except PreprocessorError:
+            # ImageMagick not available
+            pytest.skip("ImageMagick not available in test environment")
+
+    def test_register_format_dynamic(self):
+        """Test dynamic format registration."""
+        # Create a mock preprocessor class
+        class MockPreprocessor(GraphicsMagickPreprocessor):
+            SUPPORTED_FORMATS = {"mock"}
+
+        # Register new format
+        PreprocessorRegistry.register_format("mock", MockPreprocessor)
+
+        # Verify it's registered
+        assert PreprocessorRegistry.requires_preprocessing("mock") is True
+        assert "mock" in PreprocessorRegistry.get_supported_formats()
+
+        # Clean up - remove the mock format
+        if "mock" in PreprocessorRegistry._FORMAT_REGISTRY:
+            del PreprocessorRegistry._FORMAT_REGISTRY["mock"]
+
+    def test_fallback_when_preferred_unavailable(self):
+        """Test that registry falls back to alternative preprocessor."""
+        with patch.object(
+            GraphicsMagickPreprocessor, "check_availability", return_value=False
+        ):
+            with patch.object(
+                ImageMagickPreprocessor, "check_availability", return_value=True
+            ):
+                # Should fall back to ImageMagick
+                preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
+                assert isinstance(preprocessor, ImageMagickPreprocessor)
+
+    def test_no_preprocessor_available_raises_error(self):
+        """Test that PreprocessorError is raised when no preprocessor is available."""
+        with patch.object(
+            GraphicsMagickPreprocessor, "check_availability", return_value=False
+        ):
+            with patch.object(
+                ImageMagickPreprocessor, "check_availability", return_value=False
+            ):
+                with pytest.raises(
+                    PreprocessorError, match="No available preprocessor"
+                ):
+                    PreprocessorRegistry.get_preprocessor_for_format("psd")
 
 
 class TestPreprocessorInterface:
