@@ -10,3 +10,8 @@
 ## Git Commits
 
 - Never commit your changes. That will be done manually.
+
+## Documentation
+
+- End-user docs reside in the directory `documentation`
+- Developer docs reside in the directory `documentation_developers`

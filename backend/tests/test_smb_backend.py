@@ -189,14 +189,9 @@ class TestMimeTypeDetection:
     )
     def test_mime_type_detection(self, filename: str, expected_mime_type: str):
         """Test MIME type detection for various file formats."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
+        from app.utils.file_type_registry import get_mime_type
 
-        mime_type = backend._get_mime_type(filename)
+        mime_type = get_mime_type(filename)
         assert mime_type == expected_mime_type
 
 

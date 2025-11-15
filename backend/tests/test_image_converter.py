@@ -5,6 +5,8 @@ import pyvips
 from app.services.image_converter import (
     convert_image_to_jpeg,
     get_image_info,
+)
+from app.utils.file_type_registry import (
     is_image_file,
     needs_conversion,
 )

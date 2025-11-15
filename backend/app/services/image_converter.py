@@ -36,93 +36,6 @@ except Exception as e:
     VIPS_AVAILABLE = False
 
 
-# Formats that need conversion (not natively supported by browsers)
-FORMATS_REQUIRING_CONVERSION = {
-    ".bif",  # Whole-slide imaging format (Ventana)
-    ".bmp",  # Windows Bitmap
-    ".cur",  # Windows Cursor
-    ".dib",  # Device Independent Bitmap
-    ".exr",  # OpenEXR - High dynamic range
-    ".fit",  # FITS - Flexible Image Transport System
-    ".fits",  # FITS - Astronomy/scientific imaging
-    ".fts",  # FITS - Alternative extension
-    ".hdr",  # Radiance HDR - High dynamic range
-    ".heic",  # High Efficiency Image Container (HEVC)
-    ".heif",  # High Efficiency Image Format
-    ".ico",  # Windows Icon
-    ".img",  # Analyze - Medical imaging format
-    ".j2c",  # JPEG 2000 codestream
-    ".j2k",  # JPEG 2000 codestream
-    ".jp2",  # JPEG 2000 - Next-gen compression
-    ".jpc",  # JPEG 2000 codestream
-    ".jpt",  # JPEG 2000 (JPEG Part 2)
-    ".jxl",  # JPEG XL - Next-gen compression
-    ".mat",  # MATLAB matrix data format
-    ".mrxs",  # Whole-slide imaging (3DHISTECH)
-    ".ndpi",  # Whole-slide imaging (Hamamatsu)
-    ".pbm",  # Portable Bitmap (Netpbm)
-    ".pcx",  # PC Paintbrush
-    ".pgm",  # Portable Graymap (Netpbm)
-    ".pnm",  # Portable Anymap (Netpbm)
-    ".ppm",  # Portable Pixmap (Netpbm)
-    ".scn",  # Whole-slide imaging (Leica)
-    ".svs",  # Whole-slide imaging (Aperio)
-    ".tga",  # Truevision TGA/TARGA
-    ".tif",  # Tagged Image File Format
-    ".tiff",  # Tagged Image File Format
-    ".vms",  # Whole-slide imaging (Hamamatsu)
-    ".vmu",  # Whole-slide imaging (Hamamatsu)
-    ".xbm",  # X11 Bitmap
-    ".xpm",  # X11 Pixmap
-}
-
-# Browser-native formats (no conversion needed)
-BROWSER_NATIVE_FORMATS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".svg",
-    ".avif",
-}
-
-
-def needs_conversion(filename: str) -> bool:
-    """
-    Check if an image file needs conversion for browser display.
-
-    Args:
-        filename: The name of the file
-
-    Returns:
-        True if the file needs conversion, False otherwise
-    """
-    extension = _get_extension(filename)
-    return extension in FORMATS_REQUIRING_CONVERSION
-
-
-def is_image_file(filename: str) -> bool:
-    """
-    Check if a file is an image that we can handle.
-
-    Args:
-        filename: The name of the file
-
-    Returns:
-        True if the file is a supported image format
-    """
-    extension = _get_extension(filename)
-    return (
-        extension in FORMATS_REQUIRING_CONVERSION or extension in BROWSER_NATIVE_FORMATS
-    )
-
-
-def _get_extension(filename: str) -> str:
-    """Extract lowercase file extension including the dot."""
-    return "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-
-
 def convert_image_to_jpeg(
     image_bytes: bytes,
     filename: str,
@@ -151,7 +64,8 @@ def convert_image_to_jpeg(
     if not VIPS_AVAILABLE:
         raise ImportError("libvips is not available")
 
-    extension = _get_extension(filename)
+    # Extract extension for format-specific handling
+    extension = f".{filename.lower().rsplit('.', 1)[-1]}" if "." in filename else ""
     start_time = time.perf_counter()
 
     try:
