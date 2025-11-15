@@ -38,22 +38,42 @@ except Exception as e:
 
 # Formats that need conversion (not natively supported by browsers)
 FORMATS_REQUIRING_CONVERSION = {
-    ".tif",
-    ".tiff",
-    ".heic",
-    ".heif",
-    ".bmp",
-    ".dib",
-    ".ico",
-    ".cur",
-    ".pcx",
-    ".tga",
-    ".ppm",
-    ".pgm",
-    ".pbm",
-    ".pnm",
-    ".xbm",
-    ".xpm",
+    ".bif",  # Whole-slide imaging format (Ventana)
+    ".bmp",  # Windows Bitmap
+    ".cur",  # Windows Cursor
+    ".dib",  # Device Independent Bitmap
+    ".exr",  # OpenEXR - High dynamic range
+    ".fit",  # FITS - Flexible Image Transport System
+    ".fits",  # FITS - Astronomy/scientific imaging
+    ".fts",  # FITS - Alternative extension
+    ".hdr",  # Radiance HDR - High dynamic range
+    ".heic",  # High Efficiency Image Container (HEVC)
+    ".heif",  # High Efficiency Image Format
+    ".ico",  # Windows Icon
+    ".img",  # Analyze - Medical imaging format
+    ".j2c",  # JPEG 2000 codestream
+    ".j2k",  # JPEG 2000 codestream
+    ".jp2",  # JPEG 2000 - Next-gen compression
+    ".jpc",  # JPEG 2000 codestream
+    ".jpt",  # JPEG 2000 (JPEG Part 2)
+    ".jxl",  # JPEG XL - Next-gen compression
+    ".mat",  # MATLAB matrix data format
+    ".mrxs",  # Whole-slide imaging (3DHISTECH)
+    ".ndpi",  # Whole-slide imaging (Hamamatsu)
+    ".pbm",  # Portable Bitmap (Netpbm)
+    ".pcx",  # PC Paintbrush
+    ".pgm",  # Portable Graymap (Netpbm)
+    ".pnm",  # Portable Anymap (Netpbm)
+    ".ppm",  # Portable Pixmap (Netpbm)
+    ".scn",  # Whole-slide imaging (Leica)
+    ".svs",  # Whole-slide imaging (Aperio)
+    ".tga",  # Truevision TGA/TARGA
+    ".tif",  # Tagged Image File Format
+    ".tiff",  # Tagged Image File Format
+    ".vms",  # Whole-slide imaging (Hamamatsu)
+    ".vmu",  # Whole-slide imaging (Hamamatsu)
+    ".xbm",  # X11 Bitmap
+    ".xpm",  # X11 Pixmap
 }
 
 # Browser-native formats (no conversion needed)

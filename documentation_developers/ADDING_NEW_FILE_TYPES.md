@@ -206,30 +206,6 @@ After making the changes:
 
 ---
 
-## Supported Formats by libvips
-
-libvips (our image processing library) supports many formats out of the box. Here are high-value formats that could be added:
-
-### High Priority
-- **JPEG 2000** (`.jp2`, `.j2k`, `.jpt`, `.j2c`, `.jpc`) - Medical imaging, digital cinema
-- **JPEG XL** (`.jxl`) - Next-generation format with excellent compression
-- **OpenEXR** (`.exr`) - HDR images, professional photography/VFX
-- **Radiance HDR** (`.hdr`) - HDR imaging
-
-### Medium Priority
-- **FITS** (`.fits`, `.fit`, `.fts`) - Scientific/astronomy images
-- **Whole-slide images** (`.svs`, `.ndpi`, `.scn`, `.mrxs`, `.vms`, `.vmu`, `.bif`) - Medical pathology
-- **Analyze** (`.img`, `.hdr`) - Medical imaging format
-- **MATLAB** (`.mat`) - MATLAB matrix data with image content
-
-### Already Supported
-- **PPM/PGM/PBM/PFM** (`.ppm`, `.pgm`, `.pbm`, `.pfm`, `.pnm`) - Portable pixmap formats
-- **VIPS native** (`.v`, `.vips`) - Native libvips format
-
-All of these formats are available in your current libvips installation with no additional dependencies needed!
-
----
-
 ## Adding Non-Image File Types
 
 For non-image file types (e.g., PDF, video, audio), the process is even simpler:

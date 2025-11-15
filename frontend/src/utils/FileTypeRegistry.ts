@@ -166,6 +166,82 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     description: "Icon File",
   },
 
+  // Images - Advanced Formats (High Priority)
+  {
+    extensions: [".jp2", ".j2k", ".jpt", ".j2c", ".jpc"],
+    mimeTypes: ["image/jp2", "image/jpx", "image/jpm"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#8b5cf6",
+    description: "JPEG 2000",
+  },
+  {
+    extensions: [".jxl"],
+    mimeTypes: ["image/jxl"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#a855f7",
+    description: "JPEG XL",
+  },
+  {
+    extensions: [".exr"],
+    mimeTypes: ["image/x-exr"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#ec4899",
+    description: "OpenEXR HDR",
+  },
+  {
+    extensions: [".hdr"],
+    mimeTypes: ["image/vnd.radiance"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#f97316",
+    description: "Radiance HDR",
+  },
+
+  // Images - Scientific/Medical (Medium Priority)
+  {
+    extensions: [".fits", ".fit", ".fts"],
+    mimeTypes: ["image/fits", "application/fits"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#06b6d4",
+    description: "FITS Astronomy",
+  },
+  {
+    extensions: [".svs", ".ndpi", ".scn", ".mrxs", ".vms", ".vmu", ".bif"],
+    mimeTypes: ["image/x-whole-slide"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#14b8a6",
+    description: "Whole-Slide Image",
+  },
+  {
+    extensions: [".img"],
+    mimeTypes: ["image/x-img", "application/x-analyze"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#0ea5e9",
+    description: "Medical Imaging",
+  },
+  {
+    extensions: [".mat"],
+    mimeTypes: ["application/x-matlab-data"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#f59e0b",
+    description: "MATLAB Image Data",
+  },
+
   // Text - Markdown
   {
     extensions: [".md", ".markdown"],
