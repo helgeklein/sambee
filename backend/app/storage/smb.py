@@ -83,6 +83,29 @@ class SMBBackend(StorageBackend):
         # Only include formats that mimetypes.guess_type() doesn't recognize
         explicit_mappings = {
             "dib": "image/bmp",  # DIB (Device Independent Bitmap) - alternate BMP extension
+            # Advanced & next-gen formats
+            "jp2": "image/jp2",  # JPEG 2000
+            "j2k": "image/jp2",
+            "jpt": "image/jp2",
+            "j2c": "image/jp2",
+            "jpc": "image/jp2",
+            "jxl": "image/jxl",  # JPEG XL
+            "exr": "image/x-exr",  # OpenEXR
+            "hdr": "image/vnd.radiance",  # Radiance HDR
+            # Scientific & medical
+            "fits": "image/fits",  # FITS astronomy
+            "fit": "image/fits",
+            "fts": "image/fits",
+            "img": "image/x-img",  # Analyze medical imaging
+            "mat": "application/x-matlab-data",  # MATLAB
+            # Whole-slide imaging (all use same MIME type)
+            "svs": "image/x-whole-slide",
+            "ndpi": "image/x-whole-slide",
+            "scn": "image/x-whole-slide",
+            "mrxs": "image/x-whole-slide",
+            "vms": "image/x-whole-slide",
+            "vmu": "image/x-whole-slide",
+            "bif": "image/x-whole-slide",
         }
 
         return explicit_mappings.get(ext, "application/octet-stream")
@@ -137,7 +160,9 @@ class SMBBackend(StorageBackend):
                                 path=item_path,
                                 type=FileType.DIRECTORY if is_dir else FileType.FILE,
                                 size=info.end_of_file if not is_dir else None,
-                                mime_type=None,  # Skip MIME type detection for directory listings (not used by frontend)
+                                mime_type=None
+                                if is_dir
+                                else self._get_mime_type(entry.name),
                                 modified_at=info.last_write_time,
                                 created_at=info.creation_time,
                                 is_hidden=entry.name.startswith("."),
