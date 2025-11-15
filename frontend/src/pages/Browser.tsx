@@ -47,13 +47,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
-import type { PreviewComponent } from "../components/Preview/PreviewRegistry";
-import { getPreviewComponent, isImageFile } from "../components/Preview/PreviewRegistry";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
+import type { PreviewComponent } from "../utils/FileTypeRegistry";
+import { getPreviewComponent, isImageFile } from "../utils/FileTypeRegistry";
 import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System
@@ -798,35 +798,8 @@ const Browser: React.FC = () => {
       } else {
         const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
 
-        // Get MIME type - fallback to guessing from filename if backend didn't provide it
-        let mimeType = file.mime_type;
-        if (!mimeType) {
-          // Guess MIME type from file extension
-          const ext = file.name.toLowerCase().split(".").pop();
-          const mimeTypeMap: Record<string, string> = {
-            jpg: "image/jpeg",
-            jpeg: "image/jpeg",
-            png: "image/png",
-            gif: "image/gif",
-            webp: "image/webp",
-            svg: "image/svg+xml",
-            tif: "image/tiff",
-            tiff: "image/tiff",
-            heic: "image/heic",
-            heif: "image/heif",
-            bmp: "image/bmp",
-            dib: "image/bmp",
-            ico: "image/x-icon",
-            avif: "image/avif",
-            md: "text/markdown",
-            markdown: "text/markdown",
-            txt: "text/plain",
-            pdf: "application/pdf",
-          };
-          mimeType = ext
-            ? mimeTypeMap[ext] || "application/octet-stream"
-            : "application/octet-stream";
-        }
+        // Get MIME type from backend (provided via get_file_info API call)
+        const mimeType = file.mime_type || "application/octet-stream";
 
         // Check if it's an image for gallery mode
         const isImage = isImageFile(file.name);
@@ -836,7 +809,6 @@ const Browser: React.FC = () => {
           fileName: file.name,
           size: file.size,
           mimeType,
-          mimeTypeSource: file.mime_type ? "backend" : "guessed",
           isImage,
           imageFilesCount: imageFiles.length,
         });

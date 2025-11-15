@@ -26,23 +26,15 @@ async def list_directory(
     # Set user context for logging
     set_user(current_user.username)
 
-    logger.info(
-        f"Listing directory: connection_id={connection_id}, path='{path}', user={current_user.username}"
-    )
-
     connection = session.get(Connection, connection_id)
     if not connection:
-        logger.warning(
-            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection not found: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
-        logger.warning(
-            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",
@@ -90,23 +82,17 @@ async def get_file_info(
     # Set user context for logging
     set_user(current_user.username)
 
-    logger.info(
-        f"Getting file info: connection_id={connection_id}, path='{path}', user={current_user.username}"
-    )
+    logger.info(f"Getting file info: connection_id={connection_id}, path='{path}'")
 
     connection = session.get(Connection, connection_id)
     if not connection:
-        logger.warning(
-            f"Connection not found: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection not found: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
         )
 
     if not connection.share_name:
-        logger.warning(
-            f"Connection has no share name: connection_id={connection_id}, user={current_user.username}"
-        )
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Connection has no share name configured",

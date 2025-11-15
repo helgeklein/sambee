@@ -1,20 +1,15 @@
 """
 Image conversion service using libvips for high-performance processing.
 
-Converts non-browser-native image formats to JPEG/PNG for preview:
+Converts non-browser-native image formats to JPEG/PNG for preview.
+Examples::
 - TIFF/TIF → JPEG
-- HEIC/HEIF → JPEG
-- BMP → JPEG
 - ICO → PNG (preserves transparency)
-- WebP → preserved (browser-native)
-- SVG → preserved (browser-native)
-- PNG → preserved (browser-native)
 - JPEG → preserved (browser-native)
-- GIF → preserved (browser-native)
 
 Uses libvips for:
-- 5-10x faster conversion
-- 60-70% lower memory usage
+- Fast conversion
+- Low memory usage
 - Streaming, tiled processing
 - Automatic multi-threading
 """
@@ -39,73 +34,6 @@ except Exception as e:
 
     print(f"ERROR: Failed to initialize libvips: {e}", file=sys.stderr)
     VIPS_AVAILABLE = False
-
-
-# Formats that need conversion (not natively supported by browsers)
-FORMATS_REQUIRING_CONVERSION = {
-    ".tif",
-    ".tiff",
-    ".heic",
-    ".heif",
-    ".bmp",
-    ".dib",
-    ".ico",
-    ".cur",
-    ".pcx",
-    ".tga",
-    ".ppm",
-    ".pgm",
-    ".pbm",
-    ".pnm",
-    ".xbm",
-    ".xpm",
-}
-
-# Browser-native formats (no conversion needed)
-BROWSER_NATIVE_FORMATS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".svg",
-    ".avif",  # Modern browsers
-}
-
-
-def needs_conversion(filename: str) -> bool:
-    """
-    Check if an image file needs conversion for browser display.
-
-    Args:
-        filename: The name of the file
-
-    Returns:
-        True if the file needs conversion, False otherwise
-    """
-    extension = _get_extension(filename)
-    return extension in FORMATS_REQUIRING_CONVERSION
-
-
-def is_image_file(filename: str) -> bool:
-    """
-    Check if a file is an image that we can handle.
-
-    Args:
-        filename: The name of the file
-
-    Returns:
-        True if the file is a supported image format
-    """
-    extension = _get_extension(filename)
-    return (
-        extension in FORMATS_REQUIRING_CONVERSION or extension in BROWSER_NATIVE_FORMATS
-    )
-
-
-def _get_extension(filename: str) -> str:
-    """Extract lowercase file extension including the dot."""
-    return "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
 
 
 def convert_image_to_jpeg(
@@ -136,7 +64,8 @@ def convert_image_to_jpeg(
     if not VIPS_AVAILABLE:
         raise ImportError("libvips is not available")
 
-    extension = _get_extension(filename)
+    # Extract extension for format-specific handling
+    extension = f".{filename.lower().rsplit('.', 1)[-1]}" if "." in filename else ""
     start_time = time.perf_counter()
 
     try:

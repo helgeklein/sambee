@@ -152,101 +152,47 @@ class TestPathConstruction:
 class TestMimeTypeDetection:
     """Test MIME type detection for various file types."""
 
-    def test_mime_type_text_file(self):
-        """Test MIME type for text file."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
+    @pytest.mark.parametrize(
+        "filename,expected_mime_type",
+        [
+            # Text files
+            ("document.txt", "text/plain"),
+            ("README.md", "text/markdown"),
+            ("notes.markdown", "text/markdown"),
+            ("script.py", "text/x-python"),
+            # Images - standard formats (from mimetypes library)
+            ("photo.jpg", "image/jpeg"),
+            ("photo.jpeg", "image/jpeg"),
+            ("logo.png", "image/png"),
+            ("animation.gif", "image/gif"),
+            ("scan.tiff", "image/tiff"),
+            ("scan.tif", "image/tiff"),
+            # Images - explicit mappings (may not be in all system MIME databases)
+            ("photo.heic", "image/heic"),
+            ("photo.heif", "image/heif"),
+            ("image.avif", "image/avif"),
+            ("image.webp", "image/webp"),
+            ("bitmap.bmp", "image/bmp"),
+            ("bitmap.dib", "image/bmp"),
+            (
+                "icon.ico",
+                "image/vnd.microsoft.icon",
+            ),  # mimetypes returns this, not image/x-icon
+            ("vector.svg", "image/svg+xml"),
+            # Documents
+            ("document.pdf", "application/pdf"),
+            # Unknown/no extension
+            ("file.xyz123", "application/octet-stream"),
+            ("README", "application/octet-stream"),
+            ("no-ext-file", "application/octet-stream"),
+        ],
+    )
+    def test_mime_type_detection(self, filename: str, expected_mime_type: str):
+        """Test MIME type detection for various file formats."""
+        from app.utils.file_type_registry import get_mime_type
 
-        mime_type = backend._get_mime_type("document.txt")
-        assert mime_type == "text/plain"
-
-    def test_mime_type_markdown(self):
-        """Test MIME type for markdown file."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("README.md")
-        assert mime_type == "text/markdown"
-
-    def test_mime_type_python(self):
-        """Test MIME type for Python file."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("script.py")
-        assert mime_type == "text/x-python"
-
-    def test_mime_type_image_jpeg(self):
-        """Test MIME type for JPEG image."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("photo.jpg")
-        assert mime_type == "image/jpeg"
-
-    def test_mime_type_image_png(self):
-        """Test MIME type for PNG image."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("logo.png")
-        assert mime_type == "image/png"
-
-    def test_mime_type_pdf(self):
-        """Test MIME type for PDF file."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("document.pdf")
-        assert mime_type == "application/pdf"
-
-    def test_mime_type_unknown_extension(self):
-        """Test MIME type for unknown file extension."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("file.xyz123")
-        assert mime_type == "application/octet-stream"
-
-    def test_mime_type_no_extension(self):
-        """Test MIME type for file without extension."""
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        mime_type = backend._get_mime_type("README")
-        assert mime_type == "application/octet-stream"
+        mime_type = get_mime_type(filename)
+        assert mime_type == expected_mime_type
 
 
 class TestConnectionManagement:

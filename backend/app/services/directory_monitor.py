@@ -230,10 +230,6 @@ class MonitoredDirectory:
             )
             self._monitor_thread.start()
 
-            logger.info(
-                f"Successfully started monitoring {self.connection_id}:{self.path}"
-            )
-
         except Exception:
             # Clean up on error
             self._cleanup()
@@ -284,7 +280,6 @@ class MonitoredDirectory:
 
     def _monitor_loop(self) -> None:
         """Background thread that monitors for changes."""
-        logger.info(f"Monitor loop started for {self.connection_id}:{self.path}")
         try:
             while not self._stop_event.is_set():
                 # Start watching for changes

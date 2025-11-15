@@ -6,8 +6,9 @@ from app.core.security import decrypt_password, get_current_user
 from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.user import User
-from app.services.image_converter import convert_image_to_jpeg, needs_conversion
+from app.services.image_converter import convert_image_to_jpeg
 from app.storage.smb import SMBBackend
+from app.utils.file_type_registry import needs_conversion
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from sqlmodel import Session
@@ -34,7 +35,6 @@ async def preview_file(
 ) -> Response | StreamingResponse:
     """Stream file contents for preview"""
     set_user(current_user.username)
-    logger.info(f"Preview file: connection_id={connection_id}, path='{path}'")
 
     connection = session.get(Connection, connection_id)
     if not connection:

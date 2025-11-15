@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import mimetypes
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import AsyncIterator
@@ -9,6 +8,7 @@ import smbclient
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.storage.base import StorageBackend
 from app.storage.smb_pool import get_connection_pool
+from app.utils.file_type_registry import get_mime_type
 from smbclient._os import FileAttributes
 
 logger = logging.getLogger(__name__)
@@ -65,11 +65,6 @@ class SMBBackend(StorageBackend):
             return f"{self._base_path}\\{path.replace('/', '\\')}"
         return self._base_path
 
-    def _get_mime_type(self, filename: str) -> str:
-        """Guess MIME type from filename"""
-        mime_type, _ = mimetypes.guess_type(filename)
-        return mime_type or "application/octet-stream"
-
     async def list_directory(self, path: str = "") -> DirectoryListing:
         """List contents of a directory"""
         smb_path = self._build_smb_path(path)
@@ -120,7 +115,7 @@ class SMBBackend(StorageBackend):
                                 path=item_path,
                                 type=FileType.DIRECTORY if is_dir else FileType.FILE,
                                 size=info.end_of_file if not is_dir else None,
-                                mime_type=None,  # Skip MIME type detection for directory listings (not used by frontend)
+                                mime_type=None if is_dir else get_mime_type(entry.name),
                                 modified_at=info.last_write_time,
                                 created_at=info.creation_time,
                                 is_hidden=entry.name.startswith("."),
@@ -185,7 +180,7 @@ class SMBBackend(StorageBackend):
                     path=path,
                     type=FileType.DIRECTORY if is_dir else FileType.FILE,
                     size=stat_info.st_size if not is_dir else None,
-                    mime_type=None if is_dir else self._get_mime_type(filename),
+                    mime_type=None if is_dir else get_mime_type(filename),
                     modified_at=datetime.fromtimestamp(stat_info.st_mtime),
                     created_at=datetime.fromtimestamp(stat_info.st_ctime),
                     is_hidden=filename.startswith("."),
