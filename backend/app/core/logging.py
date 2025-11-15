@@ -66,7 +66,7 @@ class ContextAdapter(logging.LoggerAdapter[logging.Logger]):
         request_id = get_request_id()
         user = get_user()
 
-        # Build context prefix
+        # Build context suffix
         context_parts = []
         if request_id:
             context_parts.append(f"request_id={request_id}")
@@ -75,7 +75,7 @@ class ContextAdapter(logging.LoggerAdapter[logging.Logger]):
 
         if context_parts:
             context_str = " - ".join(context_parts)
-            msg = f"{context_str} - {msg}"
+            msg = f"{msg} - {context_str}"
 
         return msg, kwargs
 

@@ -1,15 +1,25 @@
 FROM mcr.microsoft.com/devcontainers/python:3.13
 
-# Install additional OS packages
+# Install additional OS packages including libvips
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \
         build-essential \
+        pkg-config \
         libkrb5-dev \
         smbclient \
         cifs-utils \
         sqlite3 \
         zsh \
         tmux \
+        libvips-dev \
+        libvips-tools \
+        libheif-dev \
+        libjpeg-dev \
+        libpng-dev \
+        libtiff-dev \
+        libwebp-dev \
+        libgif-dev \
+        libexif-dev \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 # Install oh-my-zsh for better terminal experience

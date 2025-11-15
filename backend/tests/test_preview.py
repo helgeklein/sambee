@@ -100,7 +100,7 @@ def mock_smb_preview_backend(mock_text_file):
         content = b"Hello, this is test file content!\n" * 30
         chunks = [content[i : i + 8192] for i in range(0, len(content), 8192)]
 
-        def mock_read_file(path):
+        def mock_read_file(path, **kwargs):
             return AsyncIteratorMock(chunks)
 
         backend_instance.read_file = mock_read_file
@@ -146,7 +146,7 @@ class TestPreviewFile:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_markdown_file
-            backend_instance.read_file = lambda path: AsyncIteratorMock(
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
                 [b"# Markdown Content\n\nThis is **bold** text."]
             )
             backend_instance.connect.return_value = None
@@ -172,7 +172,9 @@ class TestPreviewFile:
             backend_instance.get_file_info.return_value = mock_binary_file
             # Simulate PNG header
             png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-            backend_instance.read_file = lambda path: AsyncIteratorMock([png_data])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [png_data]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -243,7 +245,7 @@ class TestPreviewFile:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_directory
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b""])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b""])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -273,7 +275,7 @@ class TestPreviewFile:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = unknown_file
-            backend_instance.read_file = lambda path: AsyncIteratorMock(
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
                 [b"unknown content"]
             )
             backend_instance.connect.return_value = None
@@ -306,7 +308,9 @@ class TestPreviewFile:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = special_file
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b"content"])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [b"content"]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -371,7 +375,9 @@ class TestDownloadFile:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
             content = b"Download content"
-            backend_instance.read_file = lambda path: AsyncIteratorMock([content])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [content]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -398,7 +404,9 @@ class TestDownloadFile:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_binary_file
             png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-            backend_instance.read_file = lambda path: AsyncIteratorMock([png_data])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [png_data]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -435,7 +443,9 @@ class TestDownloadFile:
             # Simulate large file in chunks
             chunk_size = 8192
             chunks = [b"X" * chunk_size for _ in range(10)]
-            backend_instance.read_file = lambda path: AsyncIteratorMock(chunks)
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                chunks
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -508,7 +518,9 @@ class TestDownloadFile:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = file_no_size
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b"content"])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [b"content"]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -534,7 +546,9 @@ class TestPreviewAuthentication:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b"content"])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [b"content"]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -564,7 +578,9 @@ class TestPreviewAuthentication:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b"content"])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [b"content"]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -584,7 +600,9 @@ class TestPreviewAuthentication:
         with patch("app.api.preview.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b"content"])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [b"content"]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -616,7 +634,9 @@ class TestValidateConnection:
                 modified_at=datetime(2024, 1, 1, 12, 0, 0),
                 mime_type="text/plain",
             )
-            backend_instance.read_file = lambda path: AsyncIteratorMock([b"content"])
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
+                [b"content"]
+            )
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance

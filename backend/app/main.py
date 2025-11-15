@@ -29,6 +29,13 @@ logging.basicConfig(
         logging.FileHandler("/tmp/backend.log", mode="a"),
     ],
 )
+
+# Reduce noise from third-party libraries (only show warnings/errors)
+logging.getLogger("smbprotocol").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
+logging.getLogger("pyvips").setLevel(logging.WARNING)
+logging.getLogger("app.storage.smb_pool").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Log startup time (skip during tests to reduce noise)
@@ -119,8 +126,20 @@ async def log_requests(
     # Set request ID for this request context
     request_id = set_request_id()
 
+    # Extract filename from query params for preview/download endpoints
+    path_suffix = ""
+    if request.url.path.startswith("/api/preview/") or request.url.path.startswith(
+        "/api/browse/"
+    ):
+        file_path = request.query_params.get("path")
+        if file_path:
+            from pathlib import PurePosixPath
+
+            filename = PurePosixPath(file_path).name
+            path_suffix = f" ({filename})"
+
     # Log request
-    logger.info(f"→ {request.method} {request.url.path}")
+    logger.info(f"← {request.method} {request.url.path}{path_suffix}")
 
     try:
         response = await call_next(request)
@@ -131,14 +150,14 @@ async def log_requests(
         # Log response
         duration = (datetime.now() - start_time).total_seconds() * 1000
         logger.info(
-            f"← {request.method} {request.url.path} - {response.status_code} ({duration:.2f}ms)"
+            f"→ {request.method} {request.url.path} - {response.status_code} ({duration:.0f} ms){path_suffix}"
         )
 
         return response
     except Exception as e:
         duration = (datetime.now() - start_time).total_seconds() * 1000
         logger.error(
-            f"❌ {request.method} {request.url.path} failed after {duration:.2f}ms: {e}",
+            f"❌ {request.method} {request.url.path} failed after {duration:.0f}ms: {e}{path_suffix}",
             exc_info=True,
         )
         raise

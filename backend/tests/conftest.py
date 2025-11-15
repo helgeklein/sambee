@@ -98,7 +98,8 @@ def session_fixture(engine) -> Generator[Session, None, None]:
 
     # Rollback the transaction to undo all changes made during the test
     session.close()
-    transaction.rollback()
+    if transaction.is_active:
+        transaction.rollback()
     connection.close()
 
 
