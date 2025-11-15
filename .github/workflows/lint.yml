@@ -28,10 +28,6 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Install system dependencies for image processing
-      run: |
-        sudo bash scripts/install-system-deps.sh
-
     - name: Install Python dependencies
       run: |
         cd backend

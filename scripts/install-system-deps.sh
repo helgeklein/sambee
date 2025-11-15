@@ -4,19 +4,15 @@
 
 set -e
 
-# Common packages required for Sambee
-# - gcc, pkg-config: Build tools for Python packages
-# - libmagic1: File type detection
-# - libvips42, libvips-dev: Image processing library
+# Common packages required for Sambee (runtime dependencies only)
+# - libmagic1: File type detection (python-magic)
+# - libvips42: Image processing library (pyvips runtime)
 # - libheif1: HEIC/HEIF image format support
 # - libjpeg62-turbo, libpng16-16, libtiff6, libwebp7, libgif7, libexif12: Image format libraries
 # - graphicsmagick: PSD/PSB preprocessing
 SAMBEE_SYSTEM_PACKAGES=(
-    gcc
-    pkg-config
     libmagic1
     libvips42
-    libvips-dev
     libheif1
     libjpeg62-turbo
     libpng16-16
