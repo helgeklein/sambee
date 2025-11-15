@@ -58,12 +58,7 @@ jobs:
     - name: Install system dependencies for image processing
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          libheif-dev \
-          libjpeg-dev \
-          libpng-dev \
-          libtiff-dev \
-          libwebp-dev
+        sudo apt-get install -y libvips-dev
 
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
