@@ -4,37 +4,45 @@ This guide explains how to fully integrate a new file type into Sambee, includin
 
 ## Overview
 
-As of the latest refactoring, Sambee uses a **centralized File Type Registry** that serves as a single source of truth for all file type information. This makes adding new file types significantly simpler and more maintainable.
+Sambee uses a **centralized File Type Registry** that serves as a single source of truth for all file type information. This makes adding new file types simple and maintainable.
 
 **Key files:**
-- `/workspace/frontend/src/utils/FileTypeRegistry.ts` - **Centralized registry** with all file type information
-- `/workspace/backend/app/services/image_converter.py` - Server-side image conversion
-- `/workspace/backend/app/storage/smb.py` - MIME type detection (rarely needs changes)
+- **Frontend:** `/workspace/frontend/src/utils/FileTypeRegistry.ts` - Centralized registry with all file type information
+- **Backend (images only):** `/workspace/backend/app/services/image_converter.py` - Server-side image conversion
 
-## Quick Start: Adding a New File Type
+## Quick Start
 
-### Simple Example: Adding PDF Preview
+### Adding a New Image Format (e.g., JPEG XL)
 
-To add PDF preview support, you only need to add **ONE entry** to the FileTypeRegistry:
-
-```typescript
-// In FileTypeRegistry.ts, add to FILE_TYPE_REGISTRY array:
-{
-  extensions: [".pdf"],
-  mimeTypes: ["application/pdf"],
-  category: "document",
-  previewComponent: () => import("../components/Preview/PdfPreview"),  // ← Create this component
-  icon: "pdf",
-  color: "#ff0000",
-  description: "PDF Document",
+**Step 1:** Add to backend conversion list (if needed):
+```python
+# In /workspace/backend/app/services/image_converter.py (line ~40 or ~60)
+FORMATS_REQUIRING_CONVERSION = {
+    # ... existing ...
+    ".jxl",
 }
 ```
 
-That's it! The system will automatically:
-- Display the correct icon with the right color
-- Know which preview component to use
-- Detect files by extension or MIME type
-- Categorize the file correctly
+**Step 2:** Add ONE entry to frontend registry:
+```typescript
+// In /workspace/frontend/src/utils/FileTypeRegistry.ts (around line ~70)
+{
+  extensions: [".jxl"],
+  mimeTypes: ["image/jxl"],
+  category: "image",
+  previewComponent: () => import("../components/Preview/ImagePreview"),
+  icon: "image",
+  color: "#a855f7",
+  description: "JPEG XL Image",
+}
+```
+
+**That's it!** The system automatically handles:
+- ✅ Icon display with correct color
+- ✅ Preview component mapping
+- ✅ MIME type detection
+- ✅ File extension matching
+- ✅ Gallery mode support
 
 ## Complete Integration Checklist
 
@@ -129,17 +137,11 @@ FORMATS_REQUIRING_CONVERSION = {
 - Consider the format's common use case when choosing colors
 
 #### 3. Documentation: Preview Support
-**File:** `/workspace/frontend/src/utils/fileIcons.tsx`
-
-Add the extension with a distinctive color (around line ~107):
-
-```typescript
-#### 3. Documentation: Preview Support
 **File:** `/workspace/documentation/PREVIEW_SUPPORT.md`
 
 Add to the appropriate section based on browser support:
 
-**If browser-native** (add to line ~9 section):
+**If browser-native** (add to the Browser-Native Formats section):
 ```markdown
 #### Browser-Native Formats
 These formats are displayed directly by the browser:
@@ -152,49 +154,7 @@ These formats are displayed directly by the browser:
 - **JPEG XL** (`.jxl`) - `image/jxl` (modern browsers)  ← Add here
 ```
 
-**If server-converted** (add to line ~18 section):
-```markdown
-#### Server-Converted Formats
-These formats are automatically converted to JPEG/PNG on the server for browser compatibility:
-- **TIFF** (`.tif`, `.tiff`) - `image/tiff`
-- **HEIC/HEIF** (`.heic`, `.heif`) - `image/heic`, `image/heif` (iPhone photos)
-- **BMP** (`.bmp`, `.dib`) - `image/bmp`
-- **ICO** (`.ico`) - `image/x-icon` (converted to PNG to preserve transparency)
-````
-```
-
-**Color scheme reference** (choose a distinctive color):
-- TIFF: `#0077b6` (dark cyan)
-- HEIC: `#0096c7` (blue)
-- ICO: `#48cae4` (light cyan)
-- AVIF: `#90e0ef` (light blue)
-- SVG: `#ffb13b` (orange)
-- BMP/generic: `#00b4d8` (cyan)
-
-**Tips:**
-- Use colors that distinguish the format from others
-- Stick to the established color palette for consistency
-- Consider the format's common use case when choosing colors
-
-#### 4. Documentation: Preview Support
-**File:** `/workspace/documentation/PREVIEW_SUPPORT.md`
-
-Add to the appropriate section based on browser support:
-
-**If browser-native** (add to line ~9 section):
-```markdown
-#### Browser-Native Formats
-These formats are displayed directly by the browser:
-- **PNG** (`.png`) - `image/png`
-- **JPEG** (`.jpg`, `.jpeg`) - `image/jpeg`
-- **GIF** (`.gif`) - `image/gif`
-- **WebP** (`.webp`) - `image/webp`
-- **SVG** (`.svg`) - `image/svg+xml`
-- **AVIF** (`.avif`) - `image/avif` (modern browsers)
-- **JPEG XL** (`.jxl`) - `image/jxl` (modern browsers)  ← Add here
-```
-
-**If server-converted** (add to line ~18 section):
+**If server-converted** (add to the Server-Converted Formats section):
 ```markdown
 #### Server-Converted Formats
 These formats are automatically converted to JPEG/PNG on the server for browser compatibility:
@@ -207,36 +167,7 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 
 Include a brief description of the format's purpose or common use case.
 
-#### 5. Backend: MIME Type Mapping (Rarely Needed)
-**File:** `/workspace/backend/app/storage/smb.py`
-
-The backend's `_get_mime_type()` method uses Python's `mimetypes` library, which already recognizes all common file formats. You typically **don't need to modify this**.
-
-Only add explicit mappings if:
-- The format is extremely rare or new
-- Python's `mimetypes.guess_type()` returns `None` for the extension
-
-To check if a mapping is needed:
-```python
-import mimetypes
-print(mimetypes.guess_type("test.jxl"))  # Returns (None, None) if not recognized
-```
-
-If needed, add to the explicit mappings (around line ~85):
-```python
-# Only include formats that mimetypes.guess_type() doesn't recognize
-explicit_mappings = {
-    "dib": "image/bmp",  # Example: DIB not in standard mimetypes
-    "jxl": "image/jxl",  # Add new format here if mimetypes doesn't recognize it
-}
-```
-
-**Currently supported formats** (via Python's mimetypes library):
-- All common images: JPEG, PNG, GIF, WebP, SVG, TIFF, BMP, ICO, HEIC, HEIF, AVIF
-- All common documents: PDF, TXT, Markdown
-- Hundreds of other formats from system MIME type database
-
-#### 6. Documentation: Developer Docs (Optional)
+#### 4. Documentation: Developer Docs (Optional)
 **File:** `/workspace/documentation_developers/SERVER_SIDE_IMAGE_CONVERSION.md`
 
 Update if the format requires special conversion considerations:
@@ -251,15 +182,12 @@ Update if the format requires special conversion considerations:
 
 For adding a new image format (e.g., JPEG XL `.jxl`):
 
-- [ ] **Backend**: Add extension to `FORMATS_REQUIRING_CONVERSION` or `BROWSER_NATIVE_FORMATS` in `app/services/image_converter.py`
-- [ ] **Frontend Preview Registry**: Add format to MIME type regex in `src/components/Preview/PreviewRegistry.ts`
-- [ ] **Frontend Preview Registry**: Add extension to `isImageFile()` function in `PreviewRegistry.ts`
-- [ ] **Frontend Icons**: Add extension with color in `src/utils/fileIcons.tsx`
+- [ ] **Backend**: Add extension to `FORMATS_REQUIRING_CONVERSION` or `BROWSER_NATIVE_FORMATS` in `app/services/image_converter.py` (line ~40 or ~60)
+- [ ] **Frontend Registry**: Add one entry to `FILE_TYPE_REGISTRY` array in `src/utils/FileTypeRegistry.ts` (around line ~70 for images)
 - [ ] **Documentation**: Add to appropriate section in `documentation/PREVIEW_SUPPORT.md`
-- [ ] **Backend MIME Mapping** (optional): Add to explicit mappings in `app/storage/smb.py` if format not in system MIME database
 - [ ] **Developer Docs** (optional): Update `documentation_developers/SERVER_SIDE_IMAGE_CONVERSION.md` if needed
 
-**Total files to modify:** 4-6 files (2-3 optional)
+**Total files to modify:** 2-4 files (1-2 optional)
 
 ---
 
@@ -285,7 +213,6 @@ libvips (our image processing library) supports many formats out of the box. Her
 ### High Priority
 - **JPEG 2000** (`.jp2`, `.j2k`, `.jpt`, `.j2c`, `.jpc`) - Medical imaging, digital cinema
 - **JPEG XL** (`.jxl`) - Next-generation format with excellent compression
-- **PDF** (`.pdf`) - Document previews (first page as image)
 - **OpenEXR** (`.exr`) - HDR images, professional photography/VFX
 - **Radiance HDR** (`.hdr`) - HDR imaging
 
@@ -305,18 +232,34 @@ All of these formats are available in your current libvips installation with no 
 
 ## Adding Non-Image File Types
 
-For non-image file types (e.g., PDF, video, audio), you'll need to:
+For non-image file types (e.g., PDF, video, audio), the process is even simpler:
 
-1. Create a new preview component in `/workspace/frontend/src/components/Preview/`
-2. Register it in `PreviewRegistry.ts`
-3. Add appropriate MIME type handling
-4. Follow the same icon and documentation steps as above
-
-Examples of future preview components:
+### 1. Create Preview Component (if needed)
+Create a new preview component in `/workspace/frontend/src/components/Preview/`
 - `PdfPreview.tsx` - For PDF documents
 - `VideoPreview.tsx` - For video files
 - `AudioPreview.tsx` - For audio files
 - `TextPreview.tsx` - For text files with syntax highlighting
+
+### 2. Add to FileTypeRegistry
+Add one entry to `FILE_TYPE_REGISTRY` array in `src/utils/FileTypeRegistry.ts`:
+
+```typescript
+{
+  extensions: [".pdf"],
+  mimeTypes: ["application/pdf"],
+  category: "document",
+  previewComponent: () => import("../components/Preview/PdfPreview"),  // Your new component
+  icon: "pdf",
+  color: "#ff0000",
+  description: "PDF Document",
+}
+```
+
+### 3. Update Documentation
+Add to `documentation/PREVIEW_SUPPORT.md` in the appropriate category.
+
+That's it! No need to modify multiple files or keep regexes in sync.
 
 ---
 
@@ -324,7 +267,6 @@ Examples of future preview components:
 
 - **MIME types**: Always use standard MIME types (e.g., `image/jpeg`, not custom ones)
 - **Backend MIME detection**: The backend provides MIME types via `get_file_info()` when files are opened for preview. It uses Python's `mimetypes.guess_type()` with explicit fallback mappings for formats not in system databases
-- **Adding new formats**: If `mimetypes.guess_type()` doesn't recognize your format, add it to the explicit mappings in `app/storage/smb.py`
 - **Directory listings**: MIME types are intentionally omitted from `list_directory()` responses for performance
 - **No frontend MIME detection**: The frontend relies entirely on backend-provided MIME types
 - **Browser support**: Check [caniuse.com](https://caniuse.com) for browser support before marking as browser-native
@@ -340,43 +282,38 @@ Here's a complete example showing all required changes:
 
 ### 1. Backend (`image_converter.py`)
 ```python
+# Add to FORMATS_REQUIRING_CONVERSION (around line ~40)
 FORMATS_REQUIRING_CONVERSION = {
     # ... existing formats ...
     ".jxl",  # JPEG XL - limited browser support as of 2025
 }
 ```
 
-### 2. Frontend Preview Registry (`PreviewRegistry.ts`)
+### 2. Frontend Registry (`FileTypeRegistry.ts`)
 ```typescript
-// MIME type regex:
-/^image\/(png|jpeg|jpg|gif|webp|svg\+xml|tiff|heic|heif|bmp|x-ms-bmp|x-icon|vnd\.microsoft\.icon|x-tiff|jxl)$/i
-
-// isImageFile function:
-/\.(png|jpe?g|gif|webp|svg|tiff?|heic|heif|bmp|dib|ico|avif|jxl)$/i
-```
-
-### 3. Frontend Icons (`fileIcons.tsx`)
-```typescript
-if (["jxl"].includes(ext)) {
-  return <ImageIcon sx={{ ...iconSize, color: "#a855f7" }} />; // Purple for JPEG XL
+// Add to FILE_TYPE_REGISTRY array (around line ~70):
+{
+  extensions: [".jxl"],
+  mimeTypes: ["image/jxl"],
+  category: "image",
+  previewComponent: () => import("../components/Preview/ImagePreview"),
+  icon: "image",
+  color: "#a855f7",  // Purple for JPEG XL
+  description: "JPEG XL Image",
 }
 ```
 
-### 4. Frontend Browser (`Browser.tsx`) - Removed
-**No longer needed!** MIME type detection is now handled entirely by the backend.
-
-### 5. Documentation (`PREVIEW_SUPPORT.md`)
+### 3. Documentation (`PREVIEW_SUPPORT.md`)
 ```markdown
 #### Server-Converted Formats
 - **JPEG XL** (`.jxl`) - `image/jxl` - Next-generation image format with superior compression
 ```
 
-### 6. Backend MIME Mapping (`smb.py`) - Optional
-```python
-explicit_mappings = {
-    # ... existing mappings ...
-    "jxl": "image/jxl",  # Only needed if mimetypes.guess_type() doesn't recognize it
-}
-```
-
 Done! The format is now fully integrated.
+
+**What happens automatically:**
+- ✅ File icon displays with purple color
+- ✅ Preview opens when file is clicked
+- ✅ Gallery mode includes JPEG XL files
+- ✅ MIME type is detected correctly
+- ✅ Server converts to JPEG/PNG for browser display

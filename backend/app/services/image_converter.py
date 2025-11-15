@@ -1,20 +1,15 @@
 """
 Image conversion service using libvips for high-performance processing.
 
-Converts non-browser-native image formats to JPEG/PNG for preview:
+Converts non-browser-native image formats to JPEG/PNG for preview.
+Examples::
 - TIFF/TIF → JPEG
-- HEIC/HEIF → JPEG
-- BMP → JPEG
 - ICO → PNG (preserves transparency)
-- WebP → preserved (browser-native)
-- SVG → preserved (browser-native)
-- PNG → preserved (browser-native)
 - JPEG → preserved (browser-native)
-- GIF → preserved (browser-native)
 
 Uses libvips for:
-- 5-10x faster conversion
-- 60-70% lower memory usage
+- Fast conversion
+- Low memory usage
 - Streaming, tiled processing
 - Automatic multi-threading
 """
@@ -69,7 +64,7 @@ BROWSER_NATIVE_FORMATS = {
     ".gif",
     ".webp",
     ".svg",
-    ".avif",  # Modern browsers
+    ".avif",
 }
 
 
