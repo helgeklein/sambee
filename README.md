@@ -1,6 +1,6 @@
 # Sambee
 
-A friendly modern SMB share file browser with excellent preview capabilities.
+Fast, modern SMB share file browser with rich instant previews for images, documents, and code. Responsive UI built for speed and ease of use.
 
 ## Features
 
