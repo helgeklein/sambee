@@ -168,6 +168,15 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
 
   // Images - Advanced Formats (High Priority)
   {
+    extensions: [".psd", ".psb"],
+    mimeTypes: ["image/vnd.adobe.photoshop", "image/x-photoshop"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#31A8FF", // Adobe Photoshop blue
+    description: "Adobe Photoshop Document",
+  },
+  {
     extensions: [".jp2", ".j2k", ".jpt", ".j2c", ".jpc"],
     mimeTypes: ["image/jp2", "image/jpx", "image/jpm"],
     category: "image",

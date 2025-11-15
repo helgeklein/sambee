@@ -6,20 +6,31 @@ Examples::
 - TIFF/TIF → JPEG
 - ICO → PNG (preserves transparency)
 - JPEG → preserved (browser-native)
+- PSD/PSB → PNG (via GraphicsMagick preprocessor)
 
 Uses libvips for:
 - Fast conversion
 - Low memory usage
 - Streaming, tiled processing
 - Automatic multi-threading
+
+For formats libvips doesn't natively support (PSD, PSB), we use preprocessors
+(GraphicsMagick or ImageMagick) to convert to an intermediate format first.
 """
 
 import logging
 import os
+import tempfile
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import pyvips
+
+from app.services.preprocessor import (
+    PreprocessorError,
+    PreprocessorFactory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +59,9 @@ def convert_image_to_jpeg(
     Uses streaming, tiled processing for memory efficiency.
     Automatically multi-threaded.
 
+    For formats not natively supported by libvips (PSD, PSB), uses
+    preprocessor to convert to intermediate format first.
+
     Args:
         image_bytes: Raw image file bytes
         filename: Original filename (used to determine format)
@@ -66,9 +80,57 @@ def convert_image_to_jpeg(
 
     # Extract extension for format-specific handling
     extension = f".{filename.lower().rsplit('.', 1)[-1]}" if "." in filename else ""
-    start_time = time.perf_counter()
+
+    # Check if this format needs preprocessing
+    needs_preprocessing = extension.lstrip(".") in {"psd", "psb"}
+    preprocessed_file = None
 
     try:
+        # Preprocess if needed
+        if needs_preprocessing:
+            try:
+                # Save bytes to temp file for preprocessor
+                fd, temp_input = tempfile.mkstemp(
+                    suffix=extension, prefix="sambee_input_"
+                )
+                os.write(fd, image_bytes)
+                os.close(fd)
+                temp_input_path = Path(temp_input)
+
+                # Run preprocessor
+                logger.info(f"Preprocessing {filename} with external tool")
+                preprocessor = PreprocessorFactory.create()
+                preprocessed_file = preprocessor.convert_to_intermediate(
+                    temp_input_path, output_format="png"
+                )
+
+                # Read preprocessed image
+                with open(preprocessed_file, "rb") as f:
+                    image_bytes = f.read()
+
+                # Clean up input temp file
+                temp_input_path.unlink()
+
+                logger.debug(
+                    f"Preprocessed {filename} → {preprocessed_file.name} "
+                    f"({len(image_bytes) / 1024:.0f} KB)"
+                )
+
+            except PreprocessorError as e:
+                # Preprocessing failed - provide helpful error
+                raise ValueError(
+                    f"Failed to preprocess {extension.upper()} file: {str(e)}"
+                ) from e
+            except Exception as e:
+                # Cleanup on error
+                if preprocessed_file and preprocessed_file.exists():
+                    preprocessed_file.unlink()
+                raise ValueError(
+                    f"Failed to preprocess {extension.upper()} file: {str(e)}"
+                ) from e
+
+        start_time = time.perf_counter()
+
         # Load image (lazy - only metadata read at this point)
         # The empty string tells vips to auto-detect format from buffer
         image = pyvips.Image.new_from_buffer(image_bytes, "")
@@ -158,6 +220,14 @@ def convert_image_to_jpeg(
 
     except Exception as e:
         raise ValueError(f"Failed to convert image: {str(e)}") from e
+
+    finally:
+        # Clean up preprocessed temp file
+        if preprocessed_file and preprocessed_file.exists():
+            try:
+                preprocessed_file.unlink()
+            except Exception:
+                pass  # Best effort cleanup
 
 
 def get_image_info(image_bytes: bytes) -> dict[str, Any]:
