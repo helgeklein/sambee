@@ -110,14 +110,17 @@ async def preview_file(
                 await backend.disconnect()
 
                 # Convert to browser-ready format (uses centralized IMAGE_SETTINGS)
-                converted_bytes, converted_mime = convert_image_to_jpeg(
-                    image_bytes,
-                    filename,
+                converted_bytes, converted_mime, converter_name, duration_ms = (
+                    convert_image_to_jpeg(
+                        image_bytes,
+                        filename,
+                    )
                 )
 
                 logger.info(
                     f"Image converted: {filename} → {converted_mime} "
-                    f"({len(image_bytes) / 1024:.0f} → {len(converted_bytes) / 1024:.0f} KB)"
+                    f"({len(image_bytes) / 1024:.0f} → {len(converted_bytes) / 1024:.0f} KB) "
+                    f"via {converter_name} in {duration_ms:.0f} ms"
                 )
 
                 return Response(

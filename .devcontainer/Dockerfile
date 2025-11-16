@@ -4,6 +4,9 @@ FROM mcr.microsoft.com/devcontainers/python:3.13
 COPY scripts/install-system-deps.sh /tmp/
 RUN bash /tmp/install-system-deps.sh && rm /tmp/install-system-deps.sh
 
+# Copy ImageMagick policy configuration
+COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+
 # Install additional devcontainer-specific packages
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \

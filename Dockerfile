@@ -15,6 +15,9 @@ WORKDIR /app
 COPY scripts/install-system-deps.sh /tmp/
 RUN bash /tmp/install-system-deps.sh && rm /tmp/install-system-deps.sh
 
+# Copy ImageMagick policy configuration
+COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+
 # Copy and install backend dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

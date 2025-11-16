@@ -50,7 +50,7 @@ def convert_image_to_jpeg(
     image_bytes: bytes,
     filename: str,
     max_dimension: Optional[int] = None,
-) -> tuple[bytes, str]:
+) -> tuple[bytes, str, str, float]:
     """
     Convert an image to JPEG/PNG format.
 
@@ -64,7 +64,11 @@ def convert_image_to_jpeg(
         max_dimension: Optional max width/height for downscaling large images
 
     Returns:
-        Tuple of (converted_bytes, mime_type)
+        Tuple of (converted_bytes, mime_type, converter_name, duration_ms)
+        - converted_bytes: The converted image bytes
+        - mime_type: MIME type of the output (e.g., "image/jpeg")
+        - converter_name: Name of converter used ("ImageMagick", "GraphicsMagick", or "libvips")
+        - duration_ms: Conversion duration in milliseconds
 
     Raises:
         ValueError: If the image cannot be converted
@@ -82,8 +86,15 @@ def convert_image_to_jpeg(
     # Path 1: Direct conversion for preprocessed formats (PSD, PSB)
     if needs_preprocessing:
         try:
+            start_time = time.perf_counter()
+
             # Get preprocessor
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format(extension)
+
+            # Get converter name from preprocessor class
+            converter_name = preprocessor.__class__.__name__.replace(
+                "Preprocessor", ""
+            )  # "ImageMagick" or "GraphicsMagick"
 
             # Convert DIRECTLY to final browser-ready format (in-memory)
             # PSD/PSB files don't have alpha channel, so always use JPEG
@@ -97,14 +108,16 @@ def convert_image_to_jpeg(
                 image_bytes, filename, output_format=output_format
             )
 
+            duration_ms = (time.perf_counter() - start_time) * 1000
             mime_type = f"image/{output_format}"
 
             logger.debug(
                 f"Direct conversion (in-memory): {filename} → {mime_type} "
-                f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB)"
+                f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB) "
+                f"via {converter_name} in {duration_ms:.0f} ms"
             )
 
-            return result_bytes, mime_type
+            return result_bytes, mime_type, converter_name, duration_ms
 
         except PreprocessorError as e:
             # Preprocessing failed - provide helpful error
@@ -175,7 +188,7 @@ def convert_image_to_jpeg(
             f"libvips: {basename} → {mime_type} "
             f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB, {duration_ms:.0f} ms)"
         )
-        return result_bytes, mime_type
+        return result_bytes, mime_type, "libvips", duration_ms
 
     except pyvips.Error as e:
         error_msg = str(e)
