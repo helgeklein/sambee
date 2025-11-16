@@ -3,9 +3,6 @@
 ## Image preview
 
 - TIF: support multi-page files
-- Show an error message with details when the conversion fails or some other error occurs while loading an image
-- Conversion speed:
-  - If ImageMagick is faster for TIFF, use it instead of libvips
 
 ## Configuration system
 

@@ -139,14 +139,23 @@ async def preview_file(
                     detail="Image format not supported: HEIC/HEIF requires additional system libraries",
                 )
             except ValueError as e:
+                # Clean error message: replace newlines with ". " and normalize spaces
+                import re
+
+                # Replace Windows (\r\n) and Unix (\n) newlines with ". "
+                error_msg = re.sub(r"\r?\n", ". ", str(e))
+                # Collapse multiple spaces/tabs into single space
+                error_msg = re.sub(r"[ \t]+", " ", error_msg)
+                # Clean up multiple periods (e.g., ".. " -> ". ")
+                error_msg = re.sub(r"\.(\s*\.)+", ".", error_msg).strip()
+
                 logger.error(
                     f"Image conversion failed: connection_id={connection_id}, "
-                    f"path='{path}', error={e}",
-                    exc_info=True,
+                    f"path='{path}', error={error_msg}",
                 )
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Failed to convert image: {str(e)}",
+                    detail=error_msg,
                 )
             except Exception as e:
                 logger.error(

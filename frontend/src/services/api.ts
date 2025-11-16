@@ -209,15 +209,63 @@ class ApiService {
     path: string,
     options: { signal?: AbortSignal } = {}
   ): Promise<Blob> {
-    const response = await this.api.get<ArrayBuffer>(`/preview/${connectionId}/file`, {
-      params: { path },
-      responseType: "arraybuffer",
-      signal: options.signal,
-    });
+    try {
+      const response = await this.api.get<ArrayBuffer>(`/preview/${connectionId}/file`, {
+        params: { path },
+        responseType: "arraybuffer",
+        signal: options.signal,
+      });
 
-    const contentType = response.headers["content-type"] ?? "application/octet-stream";
-    const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
-    return new Blob([data], { type: contentType });
+      const contentType = response.headers["content-type"] ?? "application/octet-stream";
+      const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
+      return new Blob([data], { type: contentType });
+    } catch (error) {
+      // When responseType is 'arraybuffer', error responses come as ArrayBuffer
+      // We need to convert them to JSON to access the detail field
+      if (axios.isAxiosError(error)) {
+        // Check if data is a string (common when responseType is arraybuffer but error is JSON)
+        if (typeof error.response?.data === "string") {
+          try {
+            const json = JSON.parse(error.response.data);
+            // Re-throw with parsed data
+            throw {
+              ...error,
+              response: {
+                ...error.response,
+                data: json,
+              },
+            };
+          } catch {
+            // If parsing fails, continue to next check
+          }
+        }
+      }
+
+      if (axios.isAxiosError(error) && error.response?.data instanceof ArrayBuffer) {
+        const decoder = new TextDecoder();
+        const text = decoder.decode(error.response.data);
+        try {
+          const json = JSON.parse(text);
+          // Create error with parsed JSON data
+          const newError = {
+            ...error,
+            response: {
+              ...error.response,
+              data: json,
+            },
+          };
+          throw newError;
+        } catch (parseError) {
+          // If JSON.parse fails, throw original error
+          if (parseError instanceof SyntaxError) {
+            throw error;
+          }
+          // If it's not a SyntaxError, it's our thrown newError - re-throw it
+          throw parseError;
+        }
+      }
+      throw error;
+    }
   }
 }
 

@@ -184,7 +184,7 @@ def convert_image_to_jpeg(
         # Extract just the filename from the path
         basename = os.path.basename(filename)
 
-        logger.info(
+        logger.debug(
             f"libvips: {basename} → {mime_type} "
             f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB, {duration_ms:.0f} ms)"
         )

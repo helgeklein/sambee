@@ -3,8 +3,37 @@ import type { MouseEvent, TouchEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
+import { isApiError } from "../../types";
 import type { PreviewComponentProps } from "../../utils/FileTypeRegistry";
 import { ImageControls } from "./ImageControls";
+
+/**
+ * Extract error message from API error or exception
+ */
+const getErrorMessage = (err: unknown): string => {
+  // Check if it's an Axios API error with backend response
+  if (isApiError(err) && err.response?.data?.detail) {
+    // Return backend error directly - it already has context
+    return err.response.data.detail;
+  }
+
+  // Check for Axios error message (e.g., "Request failed with status code 422")
+  // This happens when the detail field is not properly extracted
+  if (isApiError(err) && err.message) {
+    // If it's a generic axios message but we have response data, extract detail
+    if (err.response?.data) {
+      const data = err.response.data as Record<string, unknown>;
+      if (typeof data.detail === "string") {
+        // Return backend error directly - it already has context
+        return data.detail;
+      }
+    }
+    return `Failed to load image: ${err.message}`;
+  }
+
+  // Generic fallback
+  return "Failed to load image";
+};
 
 /**
  * Image Preview Component
@@ -101,11 +130,16 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           loadingTimeoutId = null;
         }
 
+        // Extract detailed error message from backend or network error
+        const errorMessage = getErrorMessage(err);
+
         logError("Failed to fetch image", {
           path: currentPath,
           error: err,
+          detail: isApiError(err) ? err.response?.data?.detail : undefined,
+          status: isApiError(err) ? err.response?.status : undefined,
         });
-        setError("Failed to load image");
+        setError(errorMessage);
         setLoading(false);
       }
     };
