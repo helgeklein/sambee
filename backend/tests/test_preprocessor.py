@@ -14,7 +14,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from app.services.preprocessor import (
     GraphicsMagickPreprocessor,
     ImageMagickPreprocessor,
@@ -85,6 +84,7 @@ class TestPreprocessorRegistry:
 
     def test_register_format_dynamic(self):
         """Test dynamic format registration."""
+
         # Create a mock preprocessor class
         class MockPreprocessor(GraphicsMagickPreprocessor):
             SUPPORTED_FORMATS = {"mock"}
@@ -130,45 +130,42 @@ class TestPreprocessorInterface:
     """Test the abstract base class functionality."""
 
     def test_validate_input_file_not_found(self, tmp_path):
-        """Test that validate_input raises FileNotFoundError for missing files."""
+        """Test that validate_input raises ValueError for empty bytes."""
         preprocessor = GraphicsMagickPreprocessor()
-        non_existent = tmp_path / "does_not_exist.psd"
+        empty_bytes = b""
 
-        with pytest.raises(FileNotFoundError, match="Input file not found"):
-            preprocessor.validate_input(non_existent)
+        with pytest.raises(ValueError, match="Empty input data"):
+            preprocessor.validate_input(empty_bytes, "test.psd")
 
     def test_validate_input_file_too_large(self, tmp_path):
-        """Test that validate_input raises ValueError for files exceeding MAX_FILE_SIZE."""
+        """Test that validate_input raises ValueError for data exceeding MAX_FILE_SIZE."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        # Create a file that exceeds max size
-        large_file = tmp_path / "large.psd"
-        large_file.write_bytes(b"x" * (preprocessor.MAX_FILE_SIZE + 1))
+        # Create data that exceeds max size
+        large_data = b"x" * (preprocessor.MAX_FILE_SIZE + 1)
 
         with pytest.raises(ValueError, match="File too large"):
-            preprocessor.validate_input(large_file)
+            preprocessor.validate_input(large_data, "large.psd")
 
     def test_validate_input_unsupported_format(self, tmp_path):
         """Test that validate_input raises ValueError for unsupported formats."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        # Create a file with unsupported extension
-        unsupported = tmp_path / "test.txt"
-        unsupported.write_bytes(b"test content")
+        # Test with unsupported extension
+        test_data = b"test content"
 
         with pytest.raises(ValueError, match="Unsupported format"):
-            preprocessor.validate_input(unsupported)
+            preprocessor.validate_input(test_data, "test.txt")
 
     def test_validate_input_success(self, tmp_path):
         """Test that validate_input passes for valid files."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        # Create a valid PSD file
-        valid_file = tmp_path / "test.psd"
-        valid_file.write_bytes(b"8BPS" + b"x" * 100)  # PSD signature + data
+        # Create valid PSD data
+        valid_data = b"8BPS" + b"x" * 100  # PSD signature + data
 
         # Should not raise
-        preprocessor.validate_input(valid_file)
+        preprocessor.validate_input(valid_data, "test.psd")
 
     def test_create_temp_file(self):
         """Test that _create_temp_file creates a temporary file with correct suffix."""
@@ -215,62 +212,55 @@ class TestGraphicsMagickPreprocessor:
         """Test conversion fails gracefully when GraphicsMagick is not available."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        # Create a dummy PSD file
-        psd_file = tmp_path / "test.psd"
-        psd_file.write_bytes(b"8BPS" + b"x" * 100)
+        # Create dummy PSD data
+        psd_data = b"8BPS" + b"x" * 100
 
         with patch.object(preprocessor, "check_availability", return_value=False):
             with pytest.raises(
                 PreprocessorError, match="GraphicsMagick is not installed"
             ):
-                preprocessor.convert_to_final_format(psd_file)
+                preprocessor.convert_to_final_format(psd_data, "test.psd")
 
     def test_convert_invalid_output_format(self, tmp_path):
         """Test conversion fails for invalid output format."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        psd_file = tmp_path / "test.psd"
-        psd_file.write_bytes(b"8BPS" + b"x" * 100)
+        psd_data = b"8BPS" + b"x" * 100
 
         with patch.object(preprocessor, "check_availability", return_value=True):
             with pytest.raises(ValueError, match="Invalid output format"):
-                preprocessor.convert_to_final_format(psd_file, output_format="invalid")
+                preprocessor.convert_to_final_format(
+                    psd_data, "test.psd", output_format="invalid"
+                )
 
     def test_convert_successful(self, tmp_path):
-        """Test successful PSD to PNG conversion."""
+        """Test successful PSD to JPEG conversion returning bytes."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        # Create a dummy PSD file
-        psd_file = tmp_path / "test.psd"
-        psd_file.write_bytes(b"8BPS" + b"x" * 100)
+        # Create dummy PSD data
+        psd_data = b"8BPS" + b"x" * 100
 
-        # Mock successful conversion
+        # Mock successful conversion with stdout output
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stderr = b""
+        mock_result.stdout = b"\xff\xd8\xff" + b"x" * 100  # Fake JPEG bytes
 
         with patch.object(preprocessor, "check_availability", return_value=True):
             with patch("subprocess.run", return_value=mock_result):
-                with patch.object(
-                    preprocessor, "_create_temp_file"
-                ) as mock_create_temp:
-                    # Create a real temp file for the output
-                    temp_output = tmp_path / "output.png"
-                    temp_output.write_bytes(b"PNG\x0d\x0a\x1a\x0a" + b"x" * 100)
-                    mock_create_temp.return_value = temp_output
+                result = preprocessor.convert_to_final_format(psd_data, "test.psd")
 
-                    result = preprocessor.convert_to_final_format(psd_file)
-
-                    assert result == temp_output
-                    assert result.exists()
-                    assert result.suffix == ".png"
+                # Should return bytes, not a Path
+                assert isinstance(result, bytes)
+                assert len(result) > 0
+                # Should start with JPEG magic bytes
+                assert result[:3] == b"\xff\xd8\xff"
 
     def test_convert_command_fails(self, tmp_path):
         """Test conversion fails when GraphicsMagick command fails."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        psd_file = tmp_path / "test.psd"
-        psd_file.write_bytes(b"8BPS" + b"x" * 100)
+        psd_data = b"8BPS" + b"x" * 100
 
         # Mock failed conversion
         mock_result = MagicMock()
@@ -279,35 +269,25 @@ class TestGraphicsMagickPreprocessor:
 
         with patch.object(preprocessor, "check_availability", return_value=True):
             with patch("subprocess.run", return_value=mock_result):
-                with patch.object(preprocessor, "_create_temp_file") as mock_create:
-                    temp_output = tmp_path / "output.png"
-                    mock_create.return_value = temp_output
-
-                    with pytest.raises(
-                        PreprocessorError, match="GraphicsMagick conversion failed"
-                    ):
-                        preprocessor.convert_to_final_format(psd_file)
+                with pytest.raises(
+                    PreprocessorError, match="GraphicsMagick conversion failed"
+                ):
+                    preprocessor.convert_to_final_format(psd_data, "test.psd")
 
     def test_convert_timeout(self, tmp_path):
         """Test conversion handles timeout gracefully."""
         preprocessor = GraphicsMagickPreprocessor()
 
-        psd_file = tmp_path / "test.psd"
-        psd_file.write_bytes(b"8BPS" + b"x" * 100)
+        psd_data = b"8BPS" + b"x" * 100
 
         import subprocess
 
         with patch.object(preprocessor, "check_availability", return_value=True):
-            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("gm", 30)):
-                with patch.object(preprocessor, "_create_temp_file") as mock_create:
-                    temp_output = tmp_path / "output.png"
-                    mock_create.return_value = temp_output
-
-                    with pytest.raises(PreprocessorError, match="timed out"):
-                        preprocessor.convert_to_final_format(psd_file)
-
-                    # Verify temp file was cleaned up
-                    assert not temp_output.exists()
+            with patch(
+                "subprocess.run", side_effect=subprocess.TimeoutExpired("gm", 30)
+            ):
+                with pytest.raises(PreprocessorError, match="timed out"):
+                    preprocessor.convert_to_final_format(psd_data, "test.psd")
 
 
 class TestImageMagickPreprocessor:
@@ -409,7 +389,9 @@ class TestPreprocessorFactory:
             with patch.object(
                 ImageMagickPreprocessor, "check_availability", return_value=False
             ):
-                with pytest.raises(PreprocessorError, match="No preprocessor available"):
+                with pytest.raises(
+                    PreprocessorError, match="No preprocessor available"
+                ):
                     PreprocessorFactory.create("auto")
 
     def test_create_graphicsmagick_explicit(self):
@@ -425,9 +407,7 @@ class TestPreprocessorFactory:
         with patch.object(
             GraphicsMagickPreprocessor, "check_availability", return_value=False
         ):
-            with pytest.raises(
-                PreprocessorError, match="GraphicsMagick not available"
-            ):
+            with pytest.raises(PreprocessorError, match="GraphicsMagick not available"):
                 PreprocessorFactory.create("graphicsmagick")
 
     def test_create_imagemagick_explicit(self):

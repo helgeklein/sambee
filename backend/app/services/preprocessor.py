@@ -73,24 +73,25 @@ class PreprocessorInterface(ABC):
 
     @abstractmethod
     def convert_to_final_format(
-        self, input_path: Path, output_format: str = "jpeg"
-    ) -> Path:
+        self, input_data: bytes, filename: str, output_format: str = "jpeg"
+    ) -> bytes:
         """
         Convert an exotic format file directly to browser-ready format.
 
         Always applies browser-optimized settings from IMAGE_SETTINGS.
         This is a direct conversion with no intermediate steps.
+        Operates entirely in memory - no disk I/O.
 
         Args:
-            input_path: Path to the input file (e.g., PSD file)
+            input_data: Raw image file bytes (e.g., PSD file contents)
+            filename: Original filename (for logging and validation)
             output_format: Target browser format (jpeg, png). Default: jpeg
 
         Returns:
-            Path to the browser-ready output file (in temp directory)
+            Converted image bytes (in-memory, not written to disk)
 
         Raises:
             PreprocessorError: If conversion fails
-            FileNotFoundError: If input file doesn't exist
             ValueError: If file too large or format unsupported
         """
         pass
@@ -105,29 +106,30 @@ class PreprocessorInterface(ABC):
         """
         pass
 
-    def validate_input(self, input_path: Path) -> None:
+    def validate_input(self, input_data: bytes, filename: str) -> None:
         """
-        Validate input file before processing.
+        Validate input data before processing.
 
         Args:
-            input_path: Path to validate
+            input_data: Raw image file bytes
+            filename: Original filename (for extension validation)
 
         Raises:
-            FileNotFoundError: If file doesn't exist
-            ValueError: If file is too large or has invalid extension
+            ValueError: If data is empty, file is too large, or has invalid extension
         """
-        if not input_path.exists():
-            raise FileNotFoundError(f"Input file not found: {input_path}")
+        # Check for empty data
+        if not input_data or len(input_data) == 0:
+            raise ValueError("Empty input data")
 
         # Check file size
-        file_size = input_path.stat().st_size
+        file_size = len(input_data)
         if file_size > self.MAX_FILE_SIZE:
             raise ValueError(
                 f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})"
             )
 
-        # Check extension
-        extension = input_path.suffix.lower().lstrip(".")
+        # Check extension from filename
+        extension = Path(filename).suffix.lower().lstrip(".")
         if extension not in self.SUPPORTED_FORMATS:
             raise ValueError(
                 f"Unsupported format: {extension}. "
@@ -182,25 +184,28 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             return False
 
     def convert_to_final_format(
-        self, input_path: Path, output_format: str = "jpeg"
-    ) -> Path:
+        self, input_data: bytes, filename: str, output_format: str = "jpeg"
+    ) -> bytes:
         """
         Convert PSD/PSB directly to browser-ready format using GraphicsMagick.
 
         Applies browser-optimized settings from IMAGE_SETTINGS.
+        Returns image bytes in memory without writing to disk.
+        Operates entirely in memory - no disk I/O.
 
         Args:
-            input_path: Path to PSD/PSB file
+            input_data: Raw PSD/PSB file bytes
+            filename: Original filename (for logging and validation)
             output_format: Browser format (jpeg, png). Default: jpeg
 
         Returns:
-            Path to browser-ready file in temp directory
+            Converted image bytes (in-memory)
 
         Raises:
             PreprocessorError: If conversion fails
         """
         # Validate input
-        self.validate_input(input_path)
+        self.validate_input(input_data, filename)
 
         # Check tool availability
         if not self.check_availability():
@@ -221,17 +226,18 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
         if output_format.lower() == "jpg":
             output_format = "jpeg"
 
-        # Create temporary output file
-        output_path = self._create_temp_file(f".{output_format}")
-
         try:
+            # Get file extension for format hint
+            extension = Path(filename).suffix.lower().lstrip(".")
+
             # Build GraphicsMagick command
-            # gm convert [options] input.psd output.jpg
+            # gm convert {format}:- [options] {format}:-
+            # First "-" reads from stdin, second "-" writes to stdout
             command = [
                 self.gm_command,
                 "convert",
-                # Input file (first layer/composite if multi-layer PSD)
-                f"{input_path}[0]",  # [0] selects the flattened composite
+                # Input from stdin with format hint
+                f"{extension}:-[0]",  # [0] selects the flattened composite
                 # Flatten layers into single image (merge all layers)
                 "-flatten",
             ]
@@ -242,18 +248,22 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             elif output_format == "png":
                 command.extend(get_graphicsmagick_png_args())
 
-            # Output file
-            command.append(str(output_path))
+            # Output to stdout in specified format
+            command.append(f"{output_format}:-")
 
             logger.debug(
-                f"Converting {input_path.name} to {output_format.upper()} with GraphicsMagick"
+                f"Converting {filename} to {output_format.upper()} with GraphicsMagick (in-memory)"
             )
             logger.debug(f"Command: {' '.join(command)}")
 
-            # Execute conversion
+            # Execute conversion - pipe input via stdin, capture stdout
             start_time = time.perf_counter()
             result = subprocess.run(
-                command, capture_output=True, timeout=self.TIMEOUT_SECONDS, check=False
+                command,
+                input=input_data,  # Send data via stdin
+                capture_output=True,
+                timeout=self.TIMEOUT_SECONDS,
+                check=False,
             )
             duration_ms = (time.perf_counter() - start_time) * 1000
 
@@ -263,31 +273,25 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
                     f"GraphicsMagick conversion failed: {error_msg}"
                 )
 
-            # Verify output file was created
-            if not output_path.exists() or output_path.stat().st_size == 0:
+            # Verify output was produced
+            if not result.stdout or len(result.stdout) == 0:
                 raise PreprocessorError("Conversion produced no output")
 
-            logger.info(
-                f"Converted: {input_path.name} ({input_path.stat().st_size / 1024:.0f} KB) → "
-                f"{output_format.upper()} ({output_path.stat().st_size / 1024:.0f} KB) "
+            output_bytes = result.stdout
+
+            logger.debug(
+                f"Converted (ImageMagick): {filename} ({len(input_data) / 1024:.0f} KB) → "
+                f"{output_format.upper()} ({len(output_bytes) / 1024:.0f} KB) "
                 f"in {duration_ms:.0f} ms"
             )
 
-            return output_path
+            return output_bytes
 
         except subprocess.TimeoutExpired:
-            # Clean up temp file
-            if output_path.exists():
-                output_path.unlink()
             raise PreprocessorError(
                 f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. "
                 "File may be too complex or corrupted."
             )
-        except Exception:
-            # Clean up temp file on any error
-            if output_path.exists():
-                output_path.unlink()
-            raise
 
 
 class ImageMagickPreprocessor(PreprocessorInterface):
@@ -363,25 +367,28 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         return self.convert_command
 
     def convert_to_final_format(
-        self, input_path: Path, output_format: str = "jpeg"
-    ) -> Path:
+        self, input_data: bytes, filename: str, output_format: str = "jpeg"
+    ) -> bytes:
         """
         Convert PSD/PSB directly to browser-ready format using ImageMagick.
 
         Applies browser-optimized settings from IMAGE_SETTINGS.
+        Returns image bytes in memory without writing to disk.
+        Operates entirely in memory - no disk I/O.
 
         Args:
-            input_path: Path to PSD/PSB file
+            input_data: Raw PSD/PSB file bytes
+            filename: Original filename (for logging and validation)
             output_format: Browser format (jpeg, png). Default: jpeg
 
         Returns:
-            Path to browser-ready file in temp directory
+            Converted image bytes (in-memory)
 
         Raises:
             PreprocessorError: If conversion fails
         """
         # Validate input
-        self.validate_input(input_path)
+        self.validate_input(input_data, filename)
 
         # Check tool availability
         if not self.check_availability():
@@ -402,19 +409,20 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         if output_format.lower() == "jpg":
             output_format = "jpeg"
 
-        # Create temporary output file
-        output_path = self._create_temp_file(f".{output_format}")
-
         try:
             # Determine which command to use (IM6 vs IM7)
             command_name = self._get_command()
 
+            # Get file extension for format hint
+            extension = Path(filename).suffix.lower().lstrip(".")
+
             # Build ImageMagick command
             # Note: ImageMagick 7 requires input file BEFORE operations
+            # {format}:- reads from stdin, {format}:- writes to stdout
             command = [
                 command_name,
-                # Input file (first layer/composite)
-                f"{input_path}[0]",  # [0] selects the flattened composite
+                # Input from stdin with format hint
+                f"{extension}:-[0]",  # [0] selects the flattened composite
                 # Flatten layers into single image
                 "-flatten",
             ]
@@ -425,18 +433,22 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             elif output_format == "png":
                 command.extend(get_imagemagick_png_args())
 
-            # Output file
-            command.append(str(output_path))
+            # Output to stdout in specified format
+            command.append(f"{output_format}:-")
 
             logger.debug(
-                f"Converting {input_path.name} to {output_format.upper()} with ImageMagick"
+                f"Converting {filename} to {output_format.upper()} with ImageMagick (in-memory)"
             )
             logger.debug(f"Command: {' '.join(command)}")
 
-            # Execute conversion
+            # Execute conversion - pipe input via stdin, capture stdout
             start_time = time.perf_counter()
             result = subprocess.run(
-                command, capture_output=True, timeout=self.TIMEOUT_SECONDS, check=False
+                command,
+                input=input_data,  # Send data via stdin
+                capture_output=True,
+                timeout=self.TIMEOUT_SECONDS,
+                check=False,
             )
             duration_ms = (time.perf_counter() - start_time) * 1000
 
@@ -444,31 +456,25 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 error_msg = result.stderr.decode("utf-8", errors="replace")
                 raise PreprocessorError(f"ImageMagick conversion failed: {error_msg}")
 
-            # Verify output file was created
-            if not output_path.exists() or output_path.stat().st_size == 0:
+            # Verify output was produced
+            if not result.stdout or len(result.stdout) == 0:
                 raise PreprocessorError("Conversion produced no output")
 
-            logger.info(
-                f"Converted: {input_path.name} ({input_path.stat().st_size / 1024:.0f} KB) → "
-                f"{output_format.upper()} ({output_path.stat().st_size / 1024:.0f} KB) "
+            output_bytes = result.stdout
+
+            logger.debug(
+                f"Converted (ImageMagick): {filename} ({len(input_data) / 1024:.0f} KB) → "
+                f"{output_format.upper()} ({len(output_bytes) / 1024:.0f} KB) "
                 f"in {duration_ms:.0f} ms"
             )
 
-            return output_path
+            return output_bytes
 
         except subprocess.TimeoutExpired:
-            # Clean up temp file
-            if output_path.exists():
-                output_path.unlink()
             raise PreprocessorError(
                 f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. "
                 "File may be too complex or corrupted."
             )
-        except Exception:
-            # Clean up temp file on any error
-            if output_path.exists():
-                output_path.unlink()
-            raise
 
 
 class PreprocessorRegistry:

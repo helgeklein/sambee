@@ -283,7 +283,7 @@ def convert_image_to_jpeg(
             
             mime_type = f"image/{target_format}"
             
-            logger.info(
+            logger.debug(
                 f"Direct conversion: {filename} → {mime_type} "
                 f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB)"
             )

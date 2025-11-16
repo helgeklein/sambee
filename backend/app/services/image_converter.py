@@ -20,9 +20,7 @@ For formats libvips doesn't natively support (PSD, PSB), we use preprocessors
 
 import logging
 import os
-import tempfile
 import time
-from pathlib import Path
 from typing import Any, Optional
 
 import pyvips
@@ -84,61 +82,40 @@ def convert_image_to_jpeg(
     # Path 1: Direct conversion for preprocessed formats (PSD, PSB)
     if needs_preprocessing:
         try:
-            # Save bytes to temp file for preprocessor
-            fd, temp_input = tempfile.mkstemp(suffix=extension, prefix="sambee_input_")
-            os.write(fd, image_bytes)
-            os.close(fd)
-            temp_input_path = Path(temp_input)
+            # Get preprocessor
+            preprocessor = PreprocessorRegistry.get_preprocessor_for_format(extension)
 
-            try:
-                # Get preprocessor
-                preprocessor = PreprocessorRegistry.get_preprocessor_for_format(
-                    extension
-                )
+            # Convert DIRECTLY to final browser-ready format (in-memory)
+            # PSD/PSB files don't have alpha channel, so always use JPEG
+            output_format = "jpeg"
+            logger.debug(
+                f"Direct conversion (in-memory): {filename} → {output_format.upper()}"
+            )
 
-                # Convert DIRECTLY to final browser-ready format
-                # PSD/PSB files don't have alpha channel, so always use JPEG
-                output_format = "jpeg"
-                logger.debug(f"Direct conversion: {filename} → {output_format.upper()}")
+            # Convert bytes directly - no temp files!
+            result_bytes = preprocessor.convert_to_final_format(
+                image_bytes, filename, output_format=output_format
+            )
 
-                output_file = preprocessor.convert_to_final_format(
-                    temp_input_path, output_format=output_format
-                )
+            mime_type = f"image/{output_format}"
 
-                # Read final bytes
-                with open(output_file, "rb") as f:
-                    result_bytes = f.read()
+            logger.debug(
+                f"Direct conversion (in-memory): {filename} → {mime_type} "
+                f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB)"
+            )
 
-                # Cleanup
-                temp_input_path.unlink()
-                output_file.unlink()
+            return result_bytes, mime_type
 
-                mime_type = f"image/{output_format}"
-
-                logger.info(
-                    f"Direct conversion: {filename} → {mime_type} "
-                    f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB)"
-                )
-
-                return result_bytes, mime_type
-
-            except PreprocessorError as e:
-                # Preprocessing failed - provide helpful error
-                if temp_input_path.exists():
-                    temp_input_path.unlink()
-                raise ValueError(
-                    f"Failed to convert {extension.upper()} file: {str(e)}"
-                ) from e
-            except Exception as e:
-                # Cleanup on error
-                if temp_input_path.exists():
-                    temp_input_path.unlink()
-                raise ValueError(
-                    f"Failed to convert {extension.upper()} file: {str(e)}"
-                ) from e
-
+        except PreprocessorError as e:
+            # Preprocessing failed - provide helpful error
+            raise ValueError(
+                f"Failed to convert {extension.upper()} file: {str(e)}"
+            ) from e
         except Exception as e:
-            raise ValueError(f"Failed to convert image: {str(e)}") from e
+            # Conversion error
+            raise ValueError(
+                f"Failed to convert {extension.upper()} file: {str(e)}"
+            ) from e
 
     # Path 2: libvips conversion for all other formats
     try:
