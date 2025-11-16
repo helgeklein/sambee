@@ -213,6 +213,20 @@ FILE_TYPE_REGISTRY: list[FileTypeDefinition] = [
         description="Adobe Photoshop Document",
     ),
     FileTypeDefinition(
+        extensions=(".eps",),
+        mime_types=("application/postscript", "image/x-eps"),
+        category=FileCategory.IMAGE,
+        requires_conversion=True,
+        description="Encapsulated PostScript",
+    ),
+    FileTypeDefinition(
+        extensions=(".ai",),
+        mime_types=("application/postscript", "application/illustrator"),
+        category=FileCategory.IMAGE,
+        requires_conversion=True,
+        description="Adobe Illustrator",
+    ),
+    FileTypeDefinition(
         extensions=(".jp2", ".j2k", ".jpt", ".j2c", ".jpc"),
         mime_types=("image/jp2", "image/jpx", "image/jpm"),
         category=FileCategory.IMAGE,

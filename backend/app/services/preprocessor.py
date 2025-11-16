@@ -153,7 +153,7 @@ class PreprocessorInterface(ABC):
 
 class GraphicsMagickPreprocessor(PreprocessorInterface):
     """
-    GraphicsMagick-based preprocessor for PSD and PSB files.
+    GraphicsMagick-based preprocessor for exotic image formats.
 
     GraphicsMagick is preferred over ImageMagick for:
     - Better performance (2-3x faster for typical PSD files)
@@ -161,10 +161,13 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
     - Simpler, more focused tool with smaller attack surface
     - More stable command-line interface
 
-    Supported formats: PSD, PSB (Photoshop Document, Photoshop Big)
+    Supported formats:
+    - PSD, PSB (Photoshop Document, Photoshop Big)
+    - EPS (Encapsulated PostScript)
+    - AI (Adobe Illustrator)
     """
 
-    SUPPORTED_FORMATS = {"psd", "psb"}
+    SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
 
     def __init__(self) -> None:
         """Initialize the GraphicsMagick preprocessor."""
@@ -236,11 +239,23 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             command = [
                 self.gm_command,
                 "convert",
-                # Input from stdin with format hint
-                f"{extension}:-[0]",  # [0] selects the flattened composite
-                # Flatten layers into single image (merge all layers)
-                "-flatten",
             ]
+
+            # For vector formats (EPS, AI), set density for quality rendering
+            # 300 DPI is standard for print quality and looks good on screen
+            if extension in {"eps", "ai"}:
+                command.extend(["-density", "300"])
+
+            # Input from stdin with format hint
+            command.append(f"{extension}:-[0]")  # [0] selects the flattened composite
+
+            # Flatten layers for PSD/PSB (merge all layers)
+            # Don't flatten EPS/AI to preserve transparency
+            if extension in {"psd", "psb"}:
+                command.append("-flatten")
+                # Convert CMYK to sRGB for PSD/PSB files
+                # sRGB ensures proper color profile conversion (not just metadata change)
+                command.extend(["-colorspace", "sRGB"])
 
             # Add browser-optimized settings from centralized config
             if output_format == "jpeg":
@@ -311,10 +326,13 @@ class ImageMagickPreprocessor(PreprocessorInterface):
     - Higher memory usage
     - Larger attack surface (more CVEs historically)
 
-    Supported formats: PSD, PSB
+    Supported formats:
+    - PSD, PSB (Photoshop Document, Photoshop Big)
+    - EPS (Encapsulated PostScript)
+    - AI (Adobe Illustrator)
     """
 
-    SUPPORTED_FORMATS = {"psd", "psb"}
+    SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
 
     def __init__(self) -> None:
         """Initialize the ImageMagick preprocessor."""
@@ -365,6 +383,58 @@ class ImageMagickPreprocessor(PreprocessorInterface):
 
         # Fall back to ImageMagick 6
         return self.convert_command
+
+    def _detect_colorspace(self, input_data: bytes, filename: str) -> str:
+        """
+        Detect the colorspace of an image file.
+
+        Args:
+            input_data: Raw image file bytes
+            filename: Original filename (for format hint)
+
+        Returns:
+            Colorspace name (e.g., 'CMYK', 'sRGB', 'RGB', 'Gray')
+
+        Raises:
+            PreprocessorError: If colorspace detection fails
+        """
+        try:
+            command_name = self._get_command()
+            extension = Path(filename).suffix.lower().lstrip(".")
+
+            # Use ImageMagick to identify colorspace
+            command = [
+                command_name,
+                "identify",
+                "-format",
+                "%[colorspace]",
+                f"{extension}:-[0]",
+            ]
+
+            result = subprocess.run(
+                command,
+                input=input_data,
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                logger.warning(
+                    f"Failed to detect colorspace for {filename}: {result.stderr.decode()}"
+                )
+                return "Unknown"
+
+            colorspace = result.stdout.decode().strip()
+            logger.debug(f"Detected colorspace for {filename}: {colorspace}")
+            return colorspace
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Colorspace detection timed out for {filename}")
+            return "Unknown"
+        except Exception as e:
+            logger.warning(f"Error detecting colorspace for {filename}: {e}")
+            return "Unknown"
 
     def convert_to_final_format(
         self, input_data: bytes, filename: str, output_format: str = "jpeg"
@@ -419,13 +489,43 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             # Build ImageMagick command
             # Note: ImageMagick 7 requires input file BEFORE operations
             # {format}:- reads from stdin, {format}:- writes to stdout
-            command = [
-                command_name,
-                # Input from stdin with format hint
-                f"{extension}:-[0]",  # [0] selects the flattened composite
-                # Flatten layers into single image
-                "-flatten",
-            ]
+            command = [command_name]
+
+            # For vector formats (EPS, AI), set density for quality rendering
+            # 300 DPI is standard for print quality and looks good on screen
+            if extension in {"eps", "ai"}:
+                command.extend(["-density", "300"])
+
+            # Input from stdin with format hint
+            command.append(f"{extension}:-[0]")  # [0] selects the flattened composite
+
+            # Auto-orient first (before any transformations)
+            command.append("-auto-orient")
+
+            # Flatten layers for PSD/PSB (merge all layers)
+            # Don't flatten EPS/AI to preserve transparency
+            if extension in {"psd", "psb"}:
+                command.append("-flatten")
+
+                # Detect colorspace to apply correct conversion
+                colorspace = self._detect_colorspace(input_data, filename)
+
+                if colorspace == "CMYK":
+                    # CMYK → sRGB with ICC profile conversion
+                    # Apply CMYK profile, then convert to sRGB profile
+                    # Note: Requires libgs-common package for ICC profiles
+                    command.extend(
+                        [
+                            "-profile",
+                            "/usr/share/color/icc/ghostscript/default_cmyk.icc",
+                            "-profile",
+                            "/usr/share/color/icc/ghostscript/srgb.icc",
+                        ]
+                    )
+                else:
+                    # RGB/sRGB/Other → sRGB with simple colorspace conversion
+                    # This handles RGB, sRGB, Gray, etc. without color inversion
+                    command.extend(["-colorspace", "sRGB"])
 
             # Add browser-optimized settings from centralized config
             if output_format == "jpeg":
@@ -500,6 +600,10 @@ class PreprocessorRegistry:
         # ImageMagick is preferred as it has better PSD delegate support across distributions
         "psd": ImageMagickPreprocessor,
         "psb": ImageMagickPreprocessor,
+        # PostScript-based vector formats - handled by ImageMagick (preferred) or GraphicsMagick
+        # Both use Ghostscript as delegate for PS/EPS/AI rendering
+        "eps": ImageMagickPreprocessor,  # Encapsulated PostScript
+        "ai": ImageMagickPreprocessor,  # Adobe Illustrator
     }
 
     @classmethod

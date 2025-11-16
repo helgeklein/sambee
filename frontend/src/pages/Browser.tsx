@@ -53,7 +53,7 @@ import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
 import type { PreviewComponent } from "../utils/FileTypeRegistry";
-import { getPreviewComponent, isImageFile } from "../utils/FileTypeRegistry";
+import { getPreviewComponent, hasPreviewSupport, isImageFile } from "../utils/FileTypeRegistry";
 import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System
@@ -832,15 +832,27 @@ const Browser: React.FC = () => {
         } else {
           currentPreviewIndexRef.current = null;
           currentPreviewImagesRef.current = undefined;
-          // Single file preview
+          
+          // Check if preview component is available for this MIME type
+          const canPreview = hasPreviewSupport(mimeType);
+          
           logger.info("Opening file in single preview mode", {
             isImage,
-            hasPreviewSupport: mimeType !== "application/octet-stream",
-          });
-          setPreviewInfo({
-            path: filePath,
             mimeType,
+            hasPreviewSupport: canPreview,
           });
+          
+          // Only open preview if we have a component for it
+          if (canPreview) {
+            setPreviewInfo({
+              path: filePath,
+              mimeType,
+            });
+          } else {
+            logger.info("No preview component available, file will not open", {
+              mimeType,
+            });
+          }
         }
 
         // Keep old behavior for markdown (backward compatibility)

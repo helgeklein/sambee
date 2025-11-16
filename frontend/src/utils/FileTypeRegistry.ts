@@ -177,6 +177,24 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     description: "Adobe Photoshop Document",
   },
   {
+    extensions: [".eps"],
+    mimeTypes: ["application/postscript", "image/x-eps"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#FF9A00", // PostScript orange
+    description: "Encapsulated PostScript",
+  },
+  {
+    extensions: [".ai"],
+    mimeTypes: ["application/postscript", "application/illustrator"],
+    category: "image",
+    previewComponent: () => import("../components/Preview/ImagePreview"),
+    icon: "image",
+    color: "#FF7C00", // Adobe Illustrator orange
+    description: "Adobe Illustrator",
+  },
+  {
     extensions: [".jp2", ".j2k", ".jpt", ".j2c", ".jpc"],
     mimeTypes: ["image/jp2", "image/jpx", "image/jpm"],
     category: "image",

@@ -30,7 +30,10 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - **XBM** (`.xbm`) - X11 Bitmap
 - **XPM** (`.xpm`) - X11 Pixmap
 
-**Advanced & Next-Generation Formats:**
+**Advanced & Professional Formats:**
+- **PSD/PSB** (`.psd`, `.psb`) - `image/vnd.adobe.photoshop` - Adobe Photoshop documents (converted to PNG)
+- **EPS** (`.eps`) - `application/postscript`, `image/x-eps` - Encapsulated PostScript (converted to PNG at 300 DPI)
+- **AI** (`.ai`) - `application/postscript`, `application/illustrator` - Adobe Illustrator (converted to PNG at 300 DPI)
 - **JPEG 2000** (`.jp2`, `.j2k`, `.jpt`, `.j2c`, `.jpc`) - `image/jp2` - Next-gen compression with better quality
 - **JPEG XL** (`.jxl`) - `image/jxl` - Modern compression, royalty-free
 - **OpenEXR** (`.exr`) - `image/x-exr` - High dynamic range, used in VFX/CGI
@@ -62,7 +65,8 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - Server-side conversion uses libvips for high-performance image processing
 - Supports many different image format extensions requiring conversion
 - Conversion quality: 85% JPEG quality (good balance of size and quality)
-- Transparency preserved where possible (ICO → PNG)
+- Transparency preserved where possible (ICO → PNG, EPS → PNG, AI → PNG)
+- Vector formats (EPS, AI) rendered at 300 DPI for high quality
 - Multi-page TIFF: First page is displayed
 - HDR formats (OpenEXR, Radiance) are tone-mapped for web display
 - Whole-slide images: Automatically extracts overview or first pyramid level

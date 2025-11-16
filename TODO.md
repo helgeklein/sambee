@@ -2,7 +2,9 @@
 
 ## Image preview
 
-- TIF: support multi-page files
+- Support multi-page image files:
+  - TIFF
+  - ICO (test with uberAgent icon)
 
 ## Configuration system
 

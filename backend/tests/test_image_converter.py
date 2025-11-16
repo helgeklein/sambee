@@ -36,6 +36,16 @@ class TestImageFormatDetection:
         """ICO files need conversion."""
         assert needs_conversion("icon.ico") is True
 
+    def test_needs_conversion_eps(self):
+        """EPS files need conversion."""
+        assert needs_conversion("vector.eps") is True
+        assert needs_conversion("VECTOR.EPS") is True
+
+    def test_needs_conversion_ai(self):
+        """AI files need conversion."""
+        assert needs_conversion("illustration.ai") is True
+        assert needs_conversion("ILLUSTRATION.AI") is True
+
     def test_no_conversion_needed_jpeg(self):
         """JPEG files don't need conversion."""
         assert needs_conversion("photo.jpg") is False
@@ -127,7 +137,9 @@ class TestImageConversion:
         """Test converting RGB image to JPEG."""
         test_image = self.create_test_image("RGB", (200, 150))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            test_image, "test.png"
+        )
 
         assert mime_type == "image/jpeg"
         assert len(result_bytes) > 0
@@ -142,7 +154,9 @@ class TestImageConversion:
         """Test converting RGBA image to JPEG (removes alpha)."""
         test_image = self.create_test_image("RGBA", (100, 100))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            test_image, "test.png"
+        )
 
         assert mime_type == "image/jpeg"
 
@@ -155,7 +169,9 @@ class TestImageConversion:
         """Test converting BMP to JPEG."""
         test_bmp = self.create_test_bmp((150, 200))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_bmp, "test.bmp")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            test_bmp, "test.bmp"
+        )
 
         assert mime_type == "image/jpeg"
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
@@ -181,7 +197,9 @@ class TestImageConversion:
         test_image = self.create_test_image("RGB", (500, 500))
 
         # Convert image - should use IMAGE_SETTINGS (quality=85)
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            test_image, "test.png"
+        )
 
         # Verify it's a valid JPEG
         assert mime_type == "image/jpeg"
@@ -227,7 +245,9 @@ class TestEdgeCases:
         image = image + 128  # Mid-gray
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "gray.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            image_bytes, "gray.png"
+        )
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Grayscale can be stored as 1 or 3 bands in JPEG
@@ -240,10 +260,84 @@ class TestEdgeCases:
         image = image + [100, 100, 100]
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "palette.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            image_bytes, "palette.png"
+        )
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB
+
+    def test_convert_eps_to_jpeg(self):
+        """Test converting EPS file to PNG."""
+        from app.services.preprocessor import PreprocessorError, PreprocessorRegistry
+
+        # Skip if no preprocessor available
+        try:
+            PreprocessorRegistry.get_preprocessor_for_format("eps")
+        except PreprocessorError:
+            pytest.skip("No preprocessor available for EPS")
+
+        # Minimal valid EPS file (draws a filled circle)
+        eps_data = b"""%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 100 100
+newpath
+50 50 40 0 360 arc
+0 setgray
+fill
+showpage
+"""
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            eps_data, "test.eps"
+        )
+
+        assert mime_type == "image/png"
+        assert len(result_bytes) > 0
+        assert result_bytes.startswith(b"\x89PNG")  # PNG magic number
+        assert converter_name in {"GraphicsMagick", "ImageMagick"}
+        assert duration_ms > 0
+
+    def test_convert_ai_to_jpeg(self):
+        """Test converting AI file to PNG."""
+        from app.services.preprocessor import PreprocessorError, PreprocessorRegistry
+
+        # Skip if no preprocessor available
+        try:
+            PreprocessorRegistry.get_preprocessor_for_format("ai")
+        except PreprocessorError:
+            pytest.skip("No preprocessor available for AI")
+
+        # Modern AI files are PDF-based - use minimal PDF
+        ai_data = b"""%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> >>
+endobj
+xref
+0 4
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+trailer
+<< /Size 4 /Root 1 0 R >>
+startxref
+219
+%%EOF
+"""
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
+            ai_data, "test.ai"
+        )
+
+        assert mime_type == "image/png"
+        assert len(result_bytes) > 0
+        assert result_bytes.startswith(b"\x89PNG")  # PNG magic number
+        assert converter_name in {"GraphicsMagick", "ImageMagick"}
+        assert duration_ms > 0
 
     def test_small_image_no_downscaling(self):
         """Test that small images are not upscaled."""

@@ -100,6 +100,36 @@ class TestPreprocessorRegistry:
         if "mock" in PreprocessorRegistry._FORMAT_REGISTRY:
             del PreprocessorRegistry._FORMAT_REGISTRY["mock"]
 
+    def test_requires_preprocessing_eps(self):
+        """Test that EPS format is recognized as requiring preprocessing."""
+        assert PreprocessorRegistry.requires_preprocessing("eps") is True
+        assert PreprocessorRegistry.requires_preprocessing(".eps") is True
+        assert PreprocessorRegistry.requires_preprocessing("EPS") is True
+
+    def test_requires_preprocessing_ai(self):
+        """Test that AI format is recognized as requiring preprocessing."""
+        assert PreprocessorRegistry.requires_preprocessing("ai") is True
+        assert PreprocessorRegistry.requires_preprocessing(".ai") is True
+        assert PreprocessorRegistry.requires_preprocessing("AI") is True
+
+    def test_get_preprocessor_for_eps(self):
+        """Test getting preprocessor for EPS format."""
+        try:
+            preprocessor = PreprocessorRegistry.get_preprocessor_for_format("eps")
+            assert preprocessor is not None
+            assert "eps" in preprocessor.SUPPORTED_FORMATS
+        except PreprocessorError:
+            pytest.skip("No preprocessor available for EPS")
+
+    def test_get_preprocessor_for_ai(self):
+        """Test getting preprocessor for AI format."""
+        try:
+            preprocessor = PreprocessorRegistry.get_preprocessor_for_format("ai")
+            assert preprocessor is not None
+            assert "ai" in preprocessor.SUPPORTED_FORMATS
+        except PreprocessorError:
+            pytest.skip("No preprocessor available for AI")
+
     def test_fallback_when_preferred_unavailable(self):
         """Test that registry falls back to alternative preprocessor."""
         with patch.object(
@@ -187,9 +217,9 @@ class TestGraphicsMagickPreprocessor:
     """Test GraphicsMagick preprocessor implementation."""
 
     def test_supported_formats(self):
-        """Test that GraphicsMagick supports PSD and PSB formats."""
+        """Test that GraphicsMagick supports PSD, PSB, EPS, and AI formats."""
         preprocessor = GraphicsMagickPreprocessor()
-        assert preprocessor.SUPPORTED_FORMATS == {"psd", "psb"}
+        assert preprocessor.SUPPORTED_FORMATS == {"psd", "psb", "eps", "ai"}
 
     def test_check_availability_not_installed(self):
         """Test availability check when GraphicsMagick is not installed."""
@@ -294,9 +324,9 @@ class TestImageMagickPreprocessor:
     """Test ImageMagick preprocessor implementation."""
 
     def test_supported_formats(self):
-        """Test that ImageMagick supports PSD and PSB formats."""
+        """Test that ImageMagick supports PSD, PSB, EPS, and AI formats."""
         preprocessor = ImageMagickPreprocessor()
-        assert preprocessor.SUPPORTED_FORMATS == {"psd", "psb"}
+        assert preprocessor.SUPPORTED_FORMATS == {"psd", "psb", "eps", "ai"}
 
     def test_check_availability_v7_installed(self):
         """Test availability check with ImageMagick 7 (magick command)."""
@@ -449,7 +479,7 @@ class TestPreprocessorFactory:
                 ImageMagickPreprocessor, "check_availability", return_value=True
             ):
                 formats = PreprocessorFactory.get_supported_formats()
-                assert formats == {"psd", "psb"}
+                assert formats == {"psd", "psb", "eps", "ai"}
 
     def test_get_supported_formats_none_available(self):
         """Test getting supported formats when no tools are available."""

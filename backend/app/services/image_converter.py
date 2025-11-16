@@ -97,8 +97,12 @@ def convert_image_to_jpeg(
             )  # "ImageMagick" or "GraphicsMagick"
 
             # Convert DIRECTLY to final browser-ready format (in-memory)
-            # PSD/PSB files don't have alpha channel, so always use JPEG
-            output_format = "jpeg"
+            # PSD/PSB files don't have alpha channel, so use JPEG
+            # Vector formats (EPS/AI) may have transparency, so use PNG
+            if extension in {".eps", ".ai"}:
+                output_format = "png"
+            else:
+                output_format = "jpeg"
             logger.debug(
                 f"Direct conversion (in-memory): {filename} → {output_format.upper()}"
             )

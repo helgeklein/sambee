@@ -18,6 +18,7 @@ fi
 # - libjpeg-turbo8/libjpeg62-turbo: JPEG library (Ubuntu/Debian naming difference)
 # - libpng16-16, libtiff6, libwebp7, libgif7, libexif12: Image format libraries
 # - imagemagick: PSD/PSB preprocessing (provides 'imagemagick' on Ubuntu, 'imagemagick-7.q16' on Debian)
+# - libgs-common: Ghostscript ICC color profiles for proper CMYK→RGB conversion
 SAMBEE_SYSTEM_PACKAGES=(
     libmagic1
     libvips42
@@ -29,6 +30,7 @@ SAMBEE_SYSTEM_PACKAGES=(
     libgif7
     libexif12
     imagemagick
+    libgs-common
 )
 
 # Function to install packages
