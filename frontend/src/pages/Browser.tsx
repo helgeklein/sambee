@@ -832,16 +832,16 @@ const Browser: React.FC = () => {
         } else {
           currentPreviewIndexRef.current = null;
           currentPreviewImagesRef.current = undefined;
-          
+
           // Check if preview component is available for this MIME type
           const canPreview = hasPreviewSupport(mimeType);
-          
+
           logger.info("Opening file in single preview mode", {
             isImage,
             mimeType,
             hasPreviewSupport: canPreview,
           });
-          
+
           // Only open preview if we have a component for it
           if (canPreview) {
             setPreviewInfo({
