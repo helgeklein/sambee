@@ -176,15 +176,22 @@ class TestImageConversion:
         # Aspect ratio should be preserved (approximately)
         assert abs(result_img.width / result_img.height - 2000 / 1500) < 0.01  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
-    def test_convert_quality_setting(self):
-        """Test JPEG quality setting affects output size."""
+    def test_convert_uses_image_settings(self):
+        """Test that conversion uses centralized IMAGE_SETTINGS."""
         test_image = self.create_test_image("RGB", (500, 500))
 
-        low_quality, _ = convert_image_to_jpeg(test_image, "test.png", quality=50)
-        high_quality, _ = convert_image_to_jpeg(test_image, "test.png", quality=95)
+        # Convert image - should use IMAGE_SETTINGS (quality=85)
+        result_bytes, mime_type = convert_image_to_jpeg(test_image, "test.png")
 
-        # Higher quality should result in larger file
-        assert len(high_quality) > len(low_quality)
+        # Verify it's a valid JPEG
+        assert mime_type == "image/jpeg"
+        result_img = pyvips.Image.new_from_buffer(result_bytes, "")
+        assert result_img.width == 500  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height == 500  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+
+        # File size should be reasonable (solid color image compresses well)
+        # Expect roughly 1-10 KB for a 500x500 solid color image
+        assert 1_000 < len(result_bytes) < 20_000
 
     def test_invalid_image_raises_error(self):
         """Test that invalid image data raises ValueError."""

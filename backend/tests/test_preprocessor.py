@@ -61,7 +61,7 @@ class TestPreprocessorRegistry:
         try:
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
             assert preprocessor is not None
-            assert hasattr(preprocessor, "convert_to_intermediate")
+            assert hasattr(preprocessor, "convert_to_final_format")
         except PreprocessorError:
             # It's okay if no preprocessor is available in test environment
             pytest.skip("No preprocessor available in test environment")
@@ -223,7 +223,7 @@ class TestGraphicsMagickPreprocessor:
             with pytest.raises(
                 PreprocessorError, match="GraphicsMagick is not installed"
             ):
-                preprocessor.convert_to_intermediate(psd_file)
+                preprocessor.convert_to_final_format(psd_file)
 
     def test_convert_invalid_output_format(self, tmp_path):
         """Test conversion fails for invalid output format."""
@@ -234,7 +234,7 @@ class TestGraphicsMagickPreprocessor:
 
         with patch.object(preprocessor, "check_availability", return_value=True):
             with pytest.raises(ValueError, match="Invalid output format"):
-                preprocessor.convert_to_intermediate(psd_file, output_format="invalid")
+                preprocessor.convert_to_final_format(psd_file, output_format="invalid")
 
     def test_convert_successful(self, tmp_path):
         """Test successful PSD to PNG conversion."""
@@ -259,7 +259,7 @@ class TestGraphicsMagickPreprocessor:
                     temp_output.write_bytes(b"PNG\x0d\x0a\x1a\x0a" + b"x" * 100)
                     mock_create_temp.return_value = temp_output
 
-                    result = preprocessor.convert_to_intermediate(psd_file)
+                    result = preprocessor.convert_to_final_format(psd_file)
 
                     assert result == temp_output
                     assert result.exists()
@@ -286,7 +286,7 @@ class TestGraphicsMagickPreprocessor:
                     with pytest.raises(
                         PreprocessorError, match="GraphicsMagick conversion failed"
                     ):
-                        preprocessor.convert_to_intermediate(psd_file)
+                        preprocessor.convert_to_final_format(psd_file)
 
     def test_convert_timeout(self, tmp_path):
         """Test conversion handles timeout gracefully."""
@@ -304,7 +304,7 @@ class TestGraphicsMagickPreprocessor:
                     mock_create.return_value = temp_output
 
                     with pytest.raises(PreprocessorError, match="timed out"):
-                        preprocessor.convert_to_intermediate(psd_file)
+                        preprocessor.convert_to_final_format(psd_file)
 
                     # Verify temp file was cleaned up
                     assert not temp_output.exists()

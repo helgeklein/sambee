@@ -109,11 +109,10 @@ async def preview_file(
 
                 await backend.disconnect()
 
-                # Convert to JPEG (libvips handles large images efficiently via streaming)
+                # Convert to browser-ready format (uses centralized IMAGE_SETTINGS)
                 converted_bytes, converted_mime = convert_image_to_jpeg(
                     image_bytes,
                     filename,
-                    quality=85,  # Good balance of quality and size
                 )
 
                 logger.info(

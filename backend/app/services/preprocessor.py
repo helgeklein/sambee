@@ -2,20 +2,22 @@
 Image preprocessing service for formats not natively supported by libvips.
 
 This module provides a preprocessing pipeline that converts exotic image formats
-(like PSD, PSB) into formats that libvips can handle. The preprocessor acts as
-a bridge between external tools (GraphicsMagick) and our libvips-based conversion.
+(like PSD, PSB) directly into browser-ready formats (JPEG, PNG). The preprocessor
+uses external tools (ImageMagick, GraphicsMagick) to handle formats that libvips
+doesn't natively support.
 
 Architecture:
 - PreprocessorInterface: Abstract base class for all preprocessors
-- GraphicsMagickPreprocessor: Main implementation using GraphicsMagick
-- ImageMagickPreprocessor: Fallback implementation using ImageMagick
-- PreprocessorFactory: Creates appropriate preprocessor based on configuration
+- ImageMagickPreprocessor: Primary implementation using ImageMagick
+- GraphicsMagickPreprocessor: Fallback implementation using GraphicsMagick
+- PreprocessorRegistry: Maps file formats to appropriate preprocessors
+- PreprocessorFactory: Creates preprocessor instances based on configuration
 
 Design Principles:
-1. Use libvips natively whenever possible - only preprocess when necessary
-2. Keep it simple - don't over-engineer for hypothetical future needs
+1. Direct conversion - preprocess straight to browser-ready format (no intermediate)
+2. Centralized settings - all conversion settings from IMAGE_SETTINGS
 3. Security first - validate inputs, sanitize paths, timeout operations
-4. Performance matters - cache converted files, use efficient temp file handling
+4. Performance matters - single conversion step, efficient temp file handling
 5. Fail gracefully - return clear errors, don't crash the service
 """
 
@@ -28,6 +30,13 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+from app.core.image_settings import (
+    get_graphicsmagick_jpeg_args,
+    get_graphicsmagick_png_args,
+    get_imagemagick_jpeg_args,
+    get_imagemagick_png_args,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +58,8 @@ class PreprocessorInterface(ABC):
     """
     Abstract base class for image preprocessors.
 
-    Preprocessors convert exotic formats into formats that libvips can handle.
-    All preprocessors must implement the convert_to_intermediate() method.
+    Preprocessors convert exotic formats directly into browser-ready formats
+    (JPEG, PNG). All conversion settings come from centralized IMAGE_SETTINGS.
     """
 
     # Formats this preprocessor can handle
@@ -63,18 +72,21 @@ class PreprocessorInterface(ABC):
     TIMEOUT_SECONDS = 30
 
     @abstractmethod
-    def convert_to_intermediate(
-        self, input_path: Path, output_format: str = "png"
+    def convert_to_final_format(
+        self, input_path: Path, output_format: str = "jpeg"
     ) -> Path:
         """
-        Convert an exotic format file to an intermediate format libvips can handle.
+        Convert an exotic format file directly to browser-ready format.
+
+        Always applies browser-optimized settings from IMAGE_SETTINGS.
+        This is a direct conversion with no intermediate steps.
 
         Args:
             input_path: Path to the input file (e.g., PSD file)
-            output_format: Target format (png, tiff, jpeg). Default: png
+            output_format: Target browser format (jpeg, png). Default: jpeg
 
         Returns:
-            Path to the converted intermediate file (in temp directory)
+            Path to the browser-ready output file (in temp directory)
 
         Raises:
             PreprocessorError: If conversion fails
@@ -169,18 +181,20 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
 
-    def convert_to_intermediate(
-        self, input_path: Path, output_format: str = "png"
+    def convert_to_final_format(
+        self, input_path: Path, output_format: str = "jpeg"
     ) -> Path:
         """
-        Convert PSD/PSB to PNG using GraphicsMagick.
+        Convert PSD/PSB directly to browser-ready format using GraphicsMagick.
+
+        Applies browser-optimized settings from IMAGE_SETTINGS.
 
         Args:
             input_path: Path to PSD/PSB file
-            output_format: Output format (png, tiff, jpeg). Default: png
+            output_format: Browser format (jpeg, png). Default: jpeg
 
         Returns:
-            Path to converted PNG file in temp directory
+            Path to browser-ready file in temp directory
 
         Raises:
             PreprocessorError: If conversion fails
@@ -196,40 +210,52 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             )
 
         # Validate output format
-        valid_formats = {"png", "tiff", "jpeg", "jpg"}
+        valid_formats = {"png", "jpeg", "jpg"}
         if output_format.lower() not in valid_formats:
             raise ValueError(
                 f"Invalid output format: {output_format}. "
                 f"Valid formats: {', '.join(sorted(valid_formats))}"
             )
 
+        # Normalize format
+        if output_format.lower() == "jpg":
+            output_format = "jpeg"
+
         # Create temporary output file
         output_path = self._create_temp_file(f".{output_format}")
 
         try:
             # Build GraphicsMagick command
-            # gm convert [options] input.psd output.png
+            # gm convert [options] input.psd output.jpg
             command = [
                 self.gm_command,
                 "convert",
-                # Flatten layers into single image (merge all layers)
-                "-flatten",
-                # Set quality for JPEG output (ignored for PNG/TIFF)
-                "-quality",
-                "85",
                 # Input file (first layer/composite if multi-layer PSD)
                 f"{input_path}[0]",  # [0] selects the flattened composite
-                # Output file
-                str(output_path),
+                # Flatten layers into single image (merge all layers)
+                "-flatten",
             ]
 
-            logger.info(f"Preprocessing {input_path.name} with GraphicsMagick")
+            # Add browser-optimized settings from centralized config
+            if output_format == "jpeg":
+                command.extend(get_graphicsmagick_jpeg_args())
+            elif output_format == "png":
+                command.extend(get_graphicsmagick_png_args())
+
+            # Output file
+            command.append(str(output_path))
+
+            logger.debug(
+                f"Converting {input_path.name} to {output_format.upper()} with GraphicsMagick"
+            )
             logger.debug(f"Command: {' '.join(command)}")
 
             # Execute conversion
+            start_time = time.perf_counter()
             result = subprocess.run(
                 command, capture_output=True, timeout=self.TIMEOUT_SECONDS, check=False
             )
+            duration_ms = (time.perf_counter() - start_time) * 1000
 
             if result.returncode != 0:
                 error_msg = result.stderr.decode("utf-8", errors="replace")
@@ -242,9 +268,9 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
                 raise PreprocessorError("Conversion produced no output")
 
             logger.info(
-                f"Successfully preprocessed {input_path.name} "
-                f"({input_path.stat().st_size} bytes) -> "
-                f"{output_path.name} ({output_path.stat().st_size} bytes)"
+                f"Converted: {input_path.name} ({input_path.stat().st_size / 1024:.0f} KB) → "
+                f"{output_format.upper()} ({output_path.stat().st_size / 1024:.0f} KB) "
+                f"in {duration_ms:.0f} ms"
             )
 
             return output_path
@@ -336,18 +362,20 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         # Fall back to ImageMagick 6
         return self.convert_command
 
-    def convert_to_intermediate(
-        self, input_path: Path, output_format: str = "png"
+    def convert_to_final_format(
+        self, input_path: Path, output_format: str = "jpeg"
     ) -> Path:
         """
-        Convert PSD/PSB to PNG using ImageMagick.
+        Convert PSD/PSB directly to browser-ready format using ImageMagick.
+
+        Applies browser-optimized settings from IMAGE_SETTINGS.
 
         Args:
             input_path: Path to PSD/PSB file
-            output_format: Output format (png, tiff, jpeg). Default: png
+            output_format: Browser format (jpeg, png). Default: jpeg
 
         Returns:
-            Path to converted PNG file in temp directory
+            Path to browser-ready file in temp directory
 
         Raises:
             PreprocessorError: If conversion fails
@@ -363,18 +391,22 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             )
 
         # Validate output format
-        valid_formats = {"png", "tiff", "jpeg", "jpg"}
+        valid_formats = {"png", "jpeg", "jpg"}
         if output_format.lower() not in valid_formats:
             raise ValueError(
                 f"Invalid output format: {output_format}. "
                 f"Valid formats: {', '.join(sorted(valid_formats))}"
             )
 
+        # Normalize format
+        if output_format.lower() == "jpg":
+            output_format = "jpeg"
+
         # Create temporary output file
         output_path = self._create_temp_file(f".{output_format}")
 
         try:
-            # Determine which command to use
+            # Determine which command to use (IM6 vs IM7)
             command_name = self._get_command()
 
             # Build ImageMagick command
@@ -385,14 +417,20 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 f"{input_path}[0]",  # [0] selects the flattened composite
                 # Flatten layers into single image
                 "-flatten",
-                # Set quality for JPEG output
-                "-quality",
-                "85",
-                # Output file
-                str(output_path),
             ]
 
-            logger.debug(f"Preprocessing {input_path.name} with ImageMagick")
+            # Add browser-optimized settings from centralized config
+            if output_format == "jpeg":
+                command.extend(get_imagemagick_jpeg_args())
+            elif output_format == "png":
+                command.extend(get_imagemagick_png_args())
+
+            # Output file
+            command.append(str(output_path))
+
+            logger.debug(
+                f"Converting {input_path.name} to {output_format.upper()} with ImageMagick"
+            )
             logger.debug(f"Command: {' '.join(command)}")
 
             # Execute conversion
@@ -411,8 +449,8 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 raise PreprocessorError("Conversion produced no output")
 
             logger.info(
-                f"Preprocessed: {input_path.name} ({input_path.stat().st_size / 1024:.0f} KB) → "
-                f"{output_path.name} ({output_path.stat().st_size / 1024:.0f} KB) "
+                f"Converted: {input_path.name} ({input_path.stat().st_size / 1024:.0f} KB) → "
+                f"{output_format.upper()} ({output_path.stat().st_size / 1024:.0f} KB) "
                 f"in {duration_ms:.0f} ms"
             )
 

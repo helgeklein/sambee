@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 import pyvips
 
+from app.core.image_settings import get_libvips_jpeg_kwargs, get_libvips_png_kwargs
 from app.services.preprocessor import (
     PreprocessorError,
     PreprocessorRegistry,
@@ -50,22 +51,18 @@ except Exception as e:
 def convert_image_to_jpeg(
     image_bytes: bytes,
     filename: str,
-    quality: int = 85,
     max_dimension: Optional[int] = None,
 ) -> tuple[bytes, str]:
     """
-    Convert an image to JPEG/PNG format using libvips.
+    Convert an image to JPEG/PNG format.
 
-    Uses streaming, tiled processing for memory efficiency.
-    Automatically multi-threaded.
-
-    For formats not natively supported by libvips (PSD, PSB), uses
-    preprocessor to convert to intermediate format first.
+    For formats not natively supported by libvips (PSD, PSB), converts
+    directly to final browser-ready format using external preprocessors.
+    For other formats, uses libvips for conversion.
 
     Args:
         image_bytes: Raw image file bytes
         filename: Original filename (used to determine format)
-        quality: JPEG quality (1-100, default 85)
         max_dimension: Optional max width/height for downscaling large images
 
     Returns:
@@ -83,54 +80,68 @@ def convert_image_to_jpeg(
 
     # Check if this format needs preprocessing (use registry)
     needs_preprocessing = PreprocessorRegistry.requires_preprocessing(extension)
-    preprocessed_file = None
 
-    try:
-        # Preprocess if needed
-        if needs_preprocessing:
+    # Path 1: Direct conversion for preprocessed formats (PSD, PSB)
+    if needs_preprocessing:
+        try:
+            # Save bytes to temp file for preprocessor
+            fd, temp_input = tempfile.mkstemp(suffix=extension, prefix="sambee_input_")
+            os.write(fd, image_bytes)
+            os.close(fd)
+            temp_input_path = Path(temp_input)
+
             try:
-                # Save bytes to temp file for preprocessor
-                fd, temp_input = tempfile.mkstemp(
-                    suffix=extension, prefix="sambee_input_"
-                )
-                os.write(fd, image_bytes)
-                os.close(fd)
-                temp_input_path = Path(temp_input)
-
-                # Run preprocessor (registry provides appropriate implementation)
-                logger.debug(f"Preprocessing {filename} with external tool")
+                # Get preprocessor
                 preprocessor = PreprocessorRegistry.get_preprocessor_for_format(
                     extension
                 )
-                preprocessed_file = preprocessor.convert_to_intermediate(
-                    temp_input_path, output_format="png"
+
+                # Convert DIRECTLY to final browser-ready format
+                # PSD/PSB files don't have alpha channel, so always use JPEG
+                output_format = "jpeg"
+                logger.debug(f"Direct conversion: {filename} → {output_format.upper()}")
+
+                output_file = preprocessor.convert_to_final_format(
+                    temp_input_path, output_format=output_format
                 )
 
-                # Read preprocessed image
-                with open(preprocessed_file, "rb") as f:
-                    image_bytes = f.read()
+                # Read final bytes
+                with open(output_file, "rb") as f:
+                    result_bytes = f.read()
 
-                # Clean up input temp file
+                # Cleanup
                 temp_input_path.unlink()
+                output_file.unlink()
 
-                logger.debug(
-                    f"Preprocessed {filename} → {preprocessed_file.name} "
-                    f"({len(image_bytes) / 1024:.0f} KB)"
+                mime_type = f"image/{output_format}"
+
+                logger.info(
+                    f"Direct conversion: {filename} → {mime_type} "
+                    f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB)"
                 )
+
+                return result_bytes, mime_type
 
             except PreprocessorError as e:
                 # Preprocessing failed - provide helpful error
+                if temp_input_path.exists():
+                    temp_input_path.unlink()
                 raise ValueError(
-                    f"Failed to preprocess {extension.upper()} file: {str(e)}"
+                    f"Failed to convert {extension.upper()} file: {str(e)}"
                 ) from e
             except Exception as e:
                 # Cleanup on error
-                if preprocessed_file and preprocessed_file.exists():
-                    preprocessed_file.unlink()
+                if temp_input_path.exists():
+                    temp_input_path.unlink()
                 raise ValueError(
-                    f"Failed to preprocess {extension.upper()} file: {str(e)}"
+                    f"Failed to convert {extension.upper()} file: {str(e)}"
                 ) from e
 
+        except Exception as e:
+            raise ValueError(f"Failed to convert image: {str(e)}") from e
+
+    # Path 2: libvips conversion for all other formats
+    try:
         start_time = time.perf_counter()
 
         # Load image (lazy - only metadata read at this point)
@@ -168,18 +179,13 @@ def convert_image_to_jpeg(
 
         # Step 4: Convert to output format
         # Pipeline executes NOW when we call save
+        # Use centralized settings from IMAGE_SETTINGS
         if output_format == "jpeg":
-            output_bytes = image.jpegsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-                Q=quality,  # JPEG quality
-                optimize_coding=True,  # Optimize Huffman tables
-                keep=0,  # Remove all metadata (smaller files) - VIPS_FOREIGN_KEEP_NONE
-                interlace=False,  # Standard (not progressive) JPEG
-            )
+            jpeg_kwargs = get_libvips_jpeg_kwargs()
+            output_bytes = image.jpegsave_buffer(**jpeg_kwargs)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         else:  # PNG
-            output_bytes = image.pngsave_buffer(  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-                compression=6,  # PNG compression level (0-9)
-                keep=0,  # Remove all metadata - VIPS_FOREIGN_KEEP_NONE
-            )
+            png_kwargs = get_libvips_png_kwargs()
+            output_bytes = image.pngsave_buffer(**png_kwargs)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Convert pyvips buffer to bytes
         result_bytes = bytes(output_bytes)
@@ -222,14 +228,6 @@ def convert_image_to_jpeg(
 
     except Exception as e:
         raise ValueError(f"Failed to convert image: {str(e)}") from e
-
-    finally:
-        # Clean up preprocessed temp file
-        if preprocessed_file and preprocessed_file.exists():
-            try:
-                preprocessed_file.unlink()
-            except Exception:
-                pass  # Best effort cleanup
 
 
 def get_image_info(image_bytes: bytes) -> dict[str, Any]:
