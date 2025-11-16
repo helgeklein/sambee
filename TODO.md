@@ -1,5 +1,12 @@
 # TODO
 
+## Image preview
+
+- TIF: support multi-page files
+- Show an error message with details when the conversion fails or some other error occurs while loading an image
+- Conversion speed:
+  - If ImageMagick is faster for TIFF, use it instead of libvips
+
 ## Configuration system
 
 - Configuration system that reads settings from the following locations (decreasing priority):
@@ -11,8 +18,18 @@
 
 ### Advanced
 
+#### SMB backends
+
 - SMB read chunk size
 
-## Code formattign
+#### Preprocessors
 
-- Apply the formatting rules (incl. tab width) from Smart Cover Automation
+- Which preprocessors to enable (e.g., GraphicsMagick)
+- Per preprocessors:
+  - Maximum file size to process
+  - Conversion timeout
+
+## Code & infrastructure
+
+- Apply the Python formatting rules (incl. tab width) from Smart Cover Automation
+- Dependabot as GitHub Action to ensure our packages are kept on the latest versions

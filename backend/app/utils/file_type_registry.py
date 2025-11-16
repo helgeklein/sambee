@@ -206,6 +206,13 @@ FILE_TYPE_REGISTRY: list[FileTypeDefinition] = [
     # Images - Advanced Formats (High Priority)
     # ========================================================================
     FileTypeDefinition(
+        extensions=(".psd", ".psb"),
+        mime_types=("image/vnd.adobe.photoshop", "image/x-photoshop"),
+        category=FileCategory.IMAGE,
+        requires_conversion=True,
+        description="Adobe Photoshop Document",
+    ),
+    FileTypeDefinition(
         extensions=(".jp2", ".j2k", ".jpt", ".j2c", ".jpc"),
         mime_types=("image/jp2", "image/jpx", "image/jpm"),
         category=FileCategory.IMAGE,

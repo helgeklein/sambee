@@ -11,21 +11,12 @@ RUN npm run build
 FROM python:3.13-slim
 WORKDIR /app
 
-# Install system dependencies including libvips
-RUN apt-get update && apt-get install -y \
-    gcc \
-    pkg-config \
-    libmagic1 \
-    libvips42 \
-    libvips-dev \
-    libheif1 \
-    libjpeg62-turbo \
-    libpng16-16 \
-    libtiff6 \
-    libwebp7 \
-    libgif7 \
-    libexif12 \
-    && rm -rf /var/lib/apt/lists/*
+# Install system dependencies from centralized script
+COPY scripts/install-system-deps.sh /tmp/
+RUN bash /tmp/install-system-deps.sh && rm /tmp/install-system-deps.sh
+
+# Copy ImageMagick policy configuration
+COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
 # Copy and install backend dependencies
 COPY backend/requirements.txt .
