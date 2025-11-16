@@ -98,7 +98,7 @@ def convert_image_to_jpeg(
                 temp_input_path = Path(temp_input)
 
                 # Run preprocessor (registry provides appropriate implementation)
-                logger.info(f"Preprocessing {filename} with external tool")
+                logger.debug(f"Preprocessing {filename} with external tool")
                 preprocessor = PreprocessorRegistry.get_preprocessor_for_format(
                     extension
                 )

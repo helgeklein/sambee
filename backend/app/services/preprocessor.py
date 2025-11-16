@@ -23,6 +23,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from abc import ABC, abstractmethod
 from enum import Enum
 from pathlib import Path
@@ -391,13 +392,15 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 str(output_path),
             ]
 
-            logger.info(f"Preprocessing {input_path.name} with ImageMagick")
+            logger.debug(f"Preprocessing {input_path.name} with ImageMagick")
             logger.debug(f"Command: {' '.join(command)}")
 
             # Execute conversion
+            start_time = time.perf_counter()
             result = subprocess.run(
                 command, capture_output=True, timeout=self.TIMEOUT_SECONDS, check=False
             )
+            duration_ms = (time.perf_counter() - start_time) * 1000
 
             if result.returncode != 0:
                 error_msg = result.stderr.decode("utf-8", errors="replace")
@@ -408,9 +411,9 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 raise PreprocessorError("Conversion produced no output")
 
             logger.info(
-                f"Successfully preprocessed {input_path.name} "
-                f"({input_path.stat().st_size} bytes) -> "
-                f"{output_path.name} ({output_path.stat().st_size} bytes)"
+                f"Preprocessed: {input_path.name} ({input_path.stat().st_size / 1024:.0f} KB) → "
+                f"{output_path.name} ({output_path.stat().st_size / 1024:.0f} KB) "
+                f"in {duration_ms:.0f} ms"
             )
 
             return output_path
