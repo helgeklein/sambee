@@ -20,7 +20,10 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 
 **Standard Formats:**
 - **TIFF** (`.tif`, `.tiff`) - `image/tiff`
+  - Automatic CMYK→RGB color conversion (libvips built-in)
+  - Multi-page TIFF: First page is displayed
 - **HEIC/HEIF** (`.heic`, `.heif`) - `image/heic`, `image/heif` (iPhone photos)
+  - Automatic CMYK→RGB color conversion if needed (libvips built-in)
 - **BMP** (`.bmp`, `.dib`) - `image/bmp` - Windows Bitmap
 - **ICO** (`.ico`) - `image/vnd.microsoft.icon` (converted to PNG to preserve transparency)
 - **CUR** (`.cur`) - Windows Cursor files
@@ -31,9 +34,18 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - **XPM** (`.xpm`) - X11 Pixmap
 
 **Advanced & Professional Formats:**
-- **PSD/PSB** (`.psd`, `.psb`) - `image/vnd.adobe.photoshop` - Adobe Photoshop documents (converted to PNG)
-- **EPS** (`.eps`) - `application/postscript`, `image/x-eps` - Encapsulated PostScript (converted to PNG at 300 DPI)
-- **AI** (`.ai`) - `application/postscript`, `application/illustrator` - Adobe Illustrator (converted to PNG at 300 DPI)
+- **PSD/PSB** (`.psd`, `.psb`) - `image/vnd.adobe.photoshop` - Adobe Photoshop documents
+  - Converted to PNG to preserve transparency
+  - Automatic CMYK→RGB color conversion with ICC profiles for accurate colors
+  - Merges all layers into flattened composite
+- **EPS** (`.eps`) - `application/postscript`, `image/x-eps` - Encapsulated PostScript
+  - Converted to PNG at 300 DPI
+  - Preserves transparency
+  - Automatic CMYK→RGB color conversion with ICC profiles
+- **AI** (`.ai`) - `application/postscript`, `application/illustrator` - Adobe Illustrator
+  - Converted to PNG at 300 DPI
+  - Preserves transparency
+  - Automatic CMYK→RGB color conversion with ICC profiles for print-ready files
 - **JPEG 2000** (`.jp2`, `.j2k`, `.jpt`, `.j2c`, `.jpc`) - `image/jp2` - Next-gen compression with better quality
 - **JPEG XL** (`.jxl`) - `image/jxl` - Modern compression, royalty-free
 - **OpenEXR** (`.exr`) - `image/x-exr` - High dynamic range, used in VFX/CGI
@@ -65,8 +77,15 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - Server-side conversion uses libvips for high-performance image processing
 - Supports many different image format extensions requiring conversion
 - Conversion quality: 85% JPEG quality (good balance of size and quality)
-- Transparency preserved where possible (ICO → PNG, EPS → PNG, AI → PNG)
+- Transparency preserved where possible (ICO → PNG, EPS → PNG, AI → PNG, PSD → PNG)
 - Vector formats (EPS, AI) rendered at 300 DPI for high quality
+- **CMYK colorspace handling:**
+  - **PSD/PSB/EPS/AI files:** Explicit ICC profile-based conversion using ImageMagick
+    - Detects colorspace first (CMYK vs RGB)
+    - CMYK files: Applies Ghostscript ICC profiles (`default_cmyk.icc` → `srgb.icc`) for accurate color conversion
+    - RGB files: Simple sRGB normalization without color inversion
+  - **TIFF/HEIC and other formats:** Automatic CMYK→RGB conversion using libvips built-in colorspace handling
+  - All conversions ensure accurate web display without color inversion
 - Multi-page TIFF: First page is displayed
 - HDR formats (OpenEXR, Radiance) are tone-mapped for web display
 - Whole-slide images: Automatically extracts overview or first pyramid level

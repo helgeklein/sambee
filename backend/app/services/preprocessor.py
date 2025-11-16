@@ -502,10 +502,13 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             # Auto-orient first (before any transformations)
             command.append("-auto-orient")
 
-            # Flatten layers for PSD/PSB (merge all layers)
-            # Don't flatten EPS/AI to preserve transparency
-            if extension in {"psd", "psb"}:
-                command.append("-flatten")
+            # Detect colorspace for proper CMYK→RGB conversion
+            # Apply to PSD/PSB/EPS/AI files (all can be in CMYK for print workflows)
+            if extension in {"psd", "psb", "eps", "ai"}:
+                # Flatten layers for PSD/PSB (merge all layers)
+                # Don't flatten EPS/AI to preserve transparency
+                if extension in {"psd", "psb"}:
+                    command.append("-flatten")
 
                 # Detect colorspace to apply correct conversion
                 colorspace = self._detect_colorspace(input_data, filename)
