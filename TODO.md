@@ -1,5 +1,10 @@
 # TODO
 
+## Image preview
+
+- TIF: support multi-page files
+- Show an error message with details when the conversion fails or some other error occurs while loading an image
+
 ## Configuration system
 
 - Configuration system that reads settings from the following locations (decreasing priority):
@@ -22,6 +27,7 @@
   - Maximum file size to process
   - Conversion timeout
 
-## Code formatting
+## Code & infrastructure
 
-- Apply the formatting rules (incl. tab width) from Smart Cover Automation
+- Apply the Python formatting rules (incl. tab width) from Smart Cover Automation
+- Dependabot as GitHub Action to ensure our packages are kept on the latest versions

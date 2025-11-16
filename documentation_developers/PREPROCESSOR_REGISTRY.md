@@ -51,10 +51,10 @@ Before libvips can process certain exotic image formats (like Adobe Photoshop PS
 
 Currently registered formats:
 
-| Extension | Preprocessor             | Fallback             | Description           |
-|-----------|--------------------------|---------------------|-----------------------|
-| `.psd`    | GraphicsMagick (primary) | ImageMagick         | Photoshop Document    |
-| `.psb`    | GraphicsMagick (primary) | ImageMagick         | Photoshop Big         |
+| Extension | Preprocessor           | Fallback               | Description           |
+|-----------|------------------------|------------------------|-----------------------|
+| `.psd`    | ImageMagick (primary)  | GraphicsMagick         | Photoshop Document    |
+| `.psb`    | ImageMagick (primary)  | GraphicsMagick         | Photoshop Big         |
 
 ## API Reference
 

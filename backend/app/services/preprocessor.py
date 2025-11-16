@@ -377,15 +377,16 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             command_name = self._get_command()
 
             # Build ImageMagick command
+            # Note: ImageMagick 7 requires input file BEFORE operations
             command = [
                 command_name,
+                # Input file (first layer/composite)
+                f"{input_path}[0]",  # [0] selects the flattened composite
                 # Flatten layers into single image
                 "-flatten",
                 # Set quality for JPEG output
                 "-quality",
                 "85",
-                # Input file (first layer/composite)
-                f"{input_path}[0]",
                 # Output file
                 str(output_path),
             ]
@@ -448,9 +449,10 @@ class PreprocessorRegistry:
     # Format-to-preprocessor-type mapping
     # This is the single source of truth for preprocessor registrations
     _FORMAT_REGISTRY: dict[str, type[PreprocessorInterface]] = {
-        # Adobe Photoshop formats - handled by GraphicsMagick (preferred) or ImageMagick
-        "psd": GraphicsMagickPreprocessor,
-        "psb": GraphicsMagickPreprocessor,
+        # Adobe Photoshop formats - handled by ImageMagick (preferred) or GraphicsMagick
+        # ImageMagick is preferred as it has better PSD delegate support across distributions
+        "psd": ImageMagickPreprocessor,
+        "psb": ImageMagickPreprocessor,
     }
 
     @classmethod
@@ -512,15 +514,16 @@ class PreprocessorRegistry:
                 f"{preprocessor_class.__name__} not available, trying fallbacks"
             )
             # For PSD/PSB, try alternate preprocessor
-            if isinstance(instance, GraphicsMagickPreprocessor):
-                fallback = ImageMagickPreprocessor()
-                if fallback.check_availability():
-                    logger.info("Falling back to ImageMagick")
-                    return fallback
-            elif isinstance(instance, ImageMagickPreprocessor):
+            fallback: PreprocessorInterface | None = None
+            if isinstance(instance, ImageMagickPreprocessor):
                 fallback = GraphicsMagickPreprocessor()
                 if fallback.check_availability():
                     logger.info("Falling back to GraphicsMagick")
+                    return fallback
+            elif isinstance(instance, GraphicsMagickPreprocessor):
+                fallback = ImageMagickPreprocessor()
+                if fallback.check_availability():
+                    logger.info("Falling back to ImageMagick")
                     return fallback
 
             # No fallback available

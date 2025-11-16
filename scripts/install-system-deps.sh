@@ -17,7 +17,7 @@ fi
 # - libheif1: HEIC/HEIF image format support
 # - libjpeg-turbo8/libjpeg62-turbo: JPEG library (Ubuntu/Debian naming difference)
 # - libpng16-16, libtiff6, libwebp7, libgif7, libexif12: Image format libraries
-# - graphicsmagick: PSD/PSB preprocessing
+# - imagemagick: PSD/PSB preprocessing (provides 'imagemagick' on Ubuntu, 'imagemagick-7.q16' on Debian)
 SAMBEE_SYSTEM_PACKAGES=(
     libmagic1
     libvips42
@@ -28,7 +28,7 @@ SAMBEE_SYSTEM_PACKAGES=(
     libwebp7
     libgif7
     libexif12
-    graphicsmagick
+    imagemagick
 )
 
 # Function to install packages
