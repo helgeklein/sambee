@@ -21,6 +21,17 @@ echo -e "${BLUE}======================================${NC}\n"
 OVERALL_STATUS=0
 
 # ============================================
+# SETUP: Generate Test Images
+# ============================================
+echo -e "${YELLOW}=== Setup: Generating Test Images ===${NC}"
+if QUIET=1 "$SCRIPT_DIR/setup-test-images.sh"; then
+    echo -e "${GREEN}✓ Test images generated${NC}\n"
+else
+    echo -e "${RED}✗ Failed to generate test images${NC}\n"
+    OVERALL_STATUS=1
+fi
+
+# ============================================
 # BACKEND TESTS
 # ============================================
 echo -e "${YELLOW}=== Backend: Static Analysis ===${NC}"

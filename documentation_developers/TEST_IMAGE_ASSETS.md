@@ -343,7 +343,7 @@ pytest tests/test_image_conversion_real.py --cov=app/services/image_converter
 
 ## Test Coverage
 
-Current test coverage (11 tests, 1 skipped):
+Current test coverage (12 tests passing):
 
 | Category | Tests | Status |
 |----------|-------|--------|
@@ -353,7 +353,7 @@ Current test coverage (11 tests, 1 skipped):
 | CMYK→RGB AI | ✅ | Passing |
 | RGB PSD preservation | ✅ | Passing |
 | RGB TIFF preservation | ✅ | Passing |
-| RGB EPS preservation | ⏭️ | Skipped (rendering inconsistency) |
+| RGB EPS preservation | ✅ | Passing |
 | RGB AI preservation | ✅ | Passing |
 | Grayscale handling | ✅ | Passing |
 | Lab colorspace | ✅ | Passing |

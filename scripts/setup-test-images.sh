@@ -11,7 +11,12 @@ IMAGES_DIR="$TEST_DATA_DIR/images"
 EXPECTED_DIR="$TEST_DATA_DIR/expected"
 METADATA_DIR="$TEST_DATA_DIR/metadata"
 
-echo "Setting up test image directories..."
+# Quiet mode - only show summary
+QUIET="${QUIET:-0}"
+
+if [ "$QUIET" = "0" ]; then
+    echo "Setting up test image directories..."
+fi
 
 # Create directory structure
 mkdir -p "$IMAGES_DIR"/{cmyk,rgb,special}
@@ -25,7 +30,9 @@ if ! command -v magick &> /dev/null; then
     exit 1
 fi
 
-echo "✓ ImageMagick found"
+if [ "$QUIET" = "0" ]; then
+    echo "✓ ImageMagick found"
+fi
 
 # Function to create minimal test images for raster formats
 create_test_image() {
@@ -34,25 +41,29 @@ create_test_image() {
     local color="$3"
     local format="$4"
     
-    echo "Creating $filename..."
+    if [ "$QUIET" = "0" ]; then
+        echo "Creating $filename..."
+    fi
     
     case "$colorspace" in
         "CMYK")
-            magick -size 100x100 xc:"$color" -colorspace CMYK "$format:$filename"
+            magick -size 100x100 xc:"$color" -colorspace CMYK "$format:$filename" 2>/dev/null
             ;;
         "RGB"|"sRGB")
-            magick -size 100x100 xc:"$color" -colorspace sRGB "$format:$filename"
+            magick -size 100x100 xc:"$color" -colorspace sRGB "$format:$filename" 2>/dev/null
             ;;
         "Gray")
-            magick -size 100x100 xc:"$color" -colorspace Gray "$format:$filename"
+            magick -size 100x100 xc:"$color" -colorspace Gray "$format:$filename" 2>/dev/null
             ;;
         "Lab")
-            magick -size 100x100 xc:"$color" -colorspace Lab "$format:$filename"
+            magick -size 100x100 xc:"$color" -colorspace Lab "$format:$filename" 2>/dev/null
             ;;
     esac
     
     if [ -f "$filename" ]; then
-        echo "  ✓ Created $(du -h "$filename" | cut -f1) file"
+        if [ "$QUIET" = "0" ]; then
+            echo "  ✓ Created $(du -h "$filename" | cut -f1) file"
+        fi
     else
         echo "  ❌ Failed to create $filename"
         return 1
@@ -68,7 +79,9 @@ create_vector_cmyk() {
     local k="$5"  # Black 0-1
     local format="$6"  # "eps" or "ai"
     
-    echo "Creating $filename with CMYK($c,$m,$y,$k)..."
+    if [ "$QUIET" = "0" ]; then
+        echo "Creating $filename with CMYK($c,$m,$y,$k)..."
+    fi
     
     # Determine if this is AI or EPS format
     if [[ "$filename" == *.ai ]]; then
@@ -161,7 +174,9 @@ EPSEOF
     fi
     
     if [ -f "$filename" ]; then
-        echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded CMYK"
+        if [ "$QUIET" = "0" ]; then
+            echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded CMYK"
+        fi
     else
         echo "  ❌ Failed to create $filename"
         return 1
@@ -175,7 +190,9 @@ create_vector_rgb() {
     local g="$3"  # Green 0-1
     local b="$4"  # Blue 0-1
     
-    echo "Creating $filename with RGB($r,$g,$b)..."
+    if [ "$QUIET" = "0" ]; then
+        echo "Creating $filename with RGB($r,$g,$b)..."
+    fi
     
     # Determine if this is AI or EPS format
     if [[ "$filename" == *.ai ]]; then
@@ -266,7 +283,9 @@ EPSEOF
     fi
     
     if [ -f "$filename" ]; then
-        echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded RGB"
+        if [ "$QUIET" = "0" ]; then
+            echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded RGB"
+        fi
     else
         echo "  ❌ Failed to create $filename"
         return 1
@@ -274,8 +293,10 @@ EPSEOF
 }
 
 # Create CMYK test images
-echo ""
-echo "Creating CMYK test images..."
+if [ "$QUIET" = "0" ]; then
+    echo ""
+    echo "Creating CMYK test images..."
+fi
 
 # CMYK PSD - Cyan color (C=100%, M=0%, Y=0%, K=0%)
 create_test_image "$IMAGES_DIR/cmyk/photoshop_cmyk.psd" "CMYK" "cmyk(100,0,0,0)" "psd"
@@ -292,8 +313,10 @@ create_vector_cmyk "$IMAGES_DIR/cmyk/postscript_cmyk.eps" "0" "0" "1" "0" "eps"
 create_vector_cmyk "$IMAGES_DIR/cmyk/illustrator_cmyk.ai" "0" "0" "0" "1" "ai"
 
 # Create RGB test images
-echo ""
-echo "Creating RGB test images..."
+if [ "$QUIET" = "0" ]; then
+    echo ""
+    echo "Creating RGB test images..."
+fi
 
 # RGB PSD - Cyan color (R=0, G=255, B=255)
 create_test_image "$IMAGES_DIR/rgb/photoshop_rgb.psd" "sRGB" "rgb(0,255,255)" "psd"
@@ -310,8 +333,10 @@ create_vector_rgb "$IMAGES_DIR/rgb/postscript_rgb.eps" "1" "1" "0"
 create_vector_rgb "$IMAGES_DIR/rgb/illustrator_rgb.ai" "1" "0" "0"
 
 # Create special colorspace images
-echo ""
-echo "Creating special colorspace test images..."
+if [ "$QUIET" = "0" ]; then
+    echo ""
+    echo "Creating special colorspace test images..."
+fi
 
 # Grayscale PSD
 create_test_image "$IMAGES_DIR/special/grayscale.psd" "Gray" "gray(128)" "psd"
@@ -320,8 +345,10 @@ create_test_image "$IMAGES_DIR/special/grayscale.psd" "Gray" "gray(128)" "psd"
 create_test_image "$IMAGES_DIR/special/lab_color.tif" "Lab" "rgb(100,150,200)" "tiff"
 
 # Create manifest.json
-echo ""
-echo "Creating manifest.json..."
+if [ "$QUIET" = "0" ]; then
+    echo ""
+    echo "Creating manifest.json..."
+fi
 
 cat > "$METADATA_DIR/manifest.json" << 'EOF'
 {
@@ -422,40 +449,46 @@ cat > "$METADATA_DIR/manifest.json" << 'EOF'
 }
 EOF
 
-echo "✓ Created manifest.json"
+if [ "$QUIET" = "0" ]; then
+    echo "✓ Created manifest.json"
+fi
 
 # Generate .gitignore for test images
 cat > "$TEST_DATA_DIR/.gitignore" << 'EOF'
-# Test images are tracked with Git LFS
+# Auto-generated test images (regenerated via scripts/setup-test-images.sh)
+images/
+
+# Metadata manifest is auto-generated
+metadata/manifest.json
+
 # Ignore temporary files
 *.tmp
 *.cache
 diff/
 EOF
 
-echo "✓ Created .gitignore"
-
-# Summary
-echo ""
-echo "=========================================="
-echo "Test Image Setup Complete!"
-echo "=========================================="
-echo ""
-echo "Created directories:"
-echo "  - $IMAGES_DIR/cmyk (4 files)"
-echo "  - $IMAGES_DIR/rgb (4 files)"
-echo "  - $IMAGES_DIR/special (2 files)"
-echo ""
-echo "Total test images: 10"
-echo "Total size: $(du -sh "$IMAGES_DIR" | cut -f1)"
-echo ""
-echo "Next steps:"
-echo "  1. Review test images in $IMAGES_DIR"
-echo "  2. Run image conversion tests: pytest tests/test_image_conversion_real.py"
-echo "  3. Consider setting up Git LFS for efficient storage"
-echo ""
-echo "Git LFS setup (optional):"
-echo "  git lfs track 'backend/tests/test_data/images/**'"
-echo "  git lfs track 'backend/tests/test_data/expected/**'"
-echo "  git add .gitattributes"
-echo ""
+if [ "$QUIET" = "0" ]; then
+    echo "✓ Created .gitignore"
+    
+    # Summary
+    echo ""
+    echo "=========================================="
+    echo "Test Image Setup Complete!"
+    echo "=========================================="
+    echo ""
+    echo "Created directories:"
+    echo "  - $IMAGES_DIR/cmyk (4 files)"
+    echo "  - $IMAGES_DIR/rgb (4 files)"
+    echo "  - $IMAGES_DIR/special (2 files)"
+    echo ""
+    echo "Total test images: 10"
+    echo "Total size: $(du -sh "$IMAGES_DIR" | cut -f1)"
+    echo ""
+    echo "Next steps:"
+    echo "  1. Review test images in $IMAGES_DIR"
+    echo "  2. Run image conversion tests: pytest tests/test_image_conversion_real.py"
+    echo ""
+else
+    # Quiet mode - just show summary
+    echo "Generated 10 test images ($(du -sh "$IMAGES_DIR" | cut -f1))"
+fi

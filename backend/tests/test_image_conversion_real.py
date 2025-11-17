@@ -8,9 +8,6 @@ Important Notes:
     - Vector files (EPS, AI) are created using hand-crafted PostScript code
       with proper colorspace declarations. This ensures reliable CMYK testing.
 
-    - RGB EPS test is skipped as ImageMagick's EPS rendering can be inconsistent.
-      The CMYK EPS test is enabled as it validates the critical CMYK conversion.
-
     - CMYK color expectations are based on ICC profile conversion, which does
       NOT produce pure RGB colors. For example:
       * CMYK cyan (100,0,0,0) → RGB(148,217,248), not RGB(0,255,255)
@@ -284,10 +281,6 @@ class TestRGBPreservation:
         distance = color_distance(avg_color, expected_color)
         assert distance < 20, f"Color changed: {avg_color} vs {expected_color}"
 
-    @pytest.mark.skip(
-        reason="EPS files created with ImageMagick don't render reliably - "
-        "vector formats need real design files for testing"
-    )
     def test_rgb_eps_no_inversion(self):
         """Test RGB EPS preserves colors without inversion."""
         input_data = load_test_image("rgb/postscript_rgb.eps")
