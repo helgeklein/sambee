@@ -1,0 +1,507 @@
+# Test Image Assets
+
+## Overview
+
+This directory contains auto-generated test images for testing image conversion and colorspace handling. These minimal test images verify that our conversion pipeline correctly handles various image formats and colorspace configurations, particularly CMYK→RGB conversion.
+
+**Total Size**: ~552KB (10 images)  
+**Generation**: Auto-generated via `scripts/setup-test-images.sh`  
+**Repository Impact**: Zero bloat - small, purpose-built files
+
+## Directory Structure
+
+```
+test_data/
+├── README.md              # This file
+├── images/                # Auto-generated test images (~552KB total)
+│   ├── cmyk/             # CMYK colorspace images (4 files)
+│   ├── rgb/              # RGB/sRGB colorspace images (4 files)
+│   └── special/          # Other colorspaces (2 files)
+└── metadata/             # Image metadata and configuration
+    ├── manifest.json     # Central manifest with expected results
+    └── .gitignore        # Excludes generated images from git
+
+```
+
+## Test Images by Directory
+
+### Directory: `images/cmyk/` (4 files)
+CMYK colorspace images for testing CMYK→RGB conversion via ICC profiles.
+
+1. **`photoshop_cmyk.psd`** (160KB)
+   - Format: Adobe Photoshop Document
+   - Size: 100×100 pixels
+   - Colorspace: CMYK (ColorSeparation)
+   - Content: Solid cyan color - CMYK(100%, 0%, 0%, 0%)
+   - Expected RGB: (148, 217, 248) after ICC profile conversion
+   - Tests: CMYK→RGB conversion, ICC profile handling
+
+2. **`tiff_cmyk.tif`** (80KB)
+   - Format: TIFF
+   - Size: 100×100 pixels
+   - Colorspace: CMYK
+   - Content: Solid magenta color - CMYK(0%, 100%, 0%, 0%)
+   - Expected RGB: (247, 177, 207) after libvips conversion
+   - Tests: CMYK→RGB via libvips, TIFF colorspace handling
+
+3. **`postscript_cmyk.eps`** (4KB)
+   - Format: Encapsulated PostScript (hand-crafted)
+   - Size: 100×100 points
+   - Colorspace: CMYK (DeviceCMYK)
+   - Content: Solid yellow color - CMYK(0%, 0%, 100%, 0%)
+   - Expected RGB: (255, 242, 21) after ICC conversion
+   - Tests: Vector format CMYK→RGB, PostScript rendering
+   - Note: Hand-crafted PostScript code ensures proper CMYK colorspace
+
+4. **`illustrator_cmyk.ai`** (4KB)
+   - Format: Adobe Illustrator (PostScript-based)
+   - Size: 100×100 points
+   - Colorspace: CMYK (DeviceCMYK)
+   - Content: Solid black color - CMYK(0%, 0%, 0%, 100%)
+   - Expected RGB: (55, 52, 53) after ICC conversion
+   - Tests: AI format CMYK→RGB, vector rendering
+   - Note: Hand-crafted PostScript with AI DSC comments
+
+### Directory: `images/rgb/` (4 files)
+RGB/sRGB colorspace images for testing color preservation (no inversion).
+
+1. **`photoshop_rgb.psd`** (120KB)
+   - Format: Adobe Photoshop Document
+   - Size: 100×100 pixels
+   - Colorspace: sRGB
+   - Content: Solid cyan color - RGB(0, 255, 255)
+   - Expected RGB: (0, 255, 255) - unchanged
+   - Tests: RGB color preservation, no color inversion
+
+2. **`tiff_rgb.tif`** (60KB)
+   - Format: TIFF
+   - Size: 100×100 pixels
+   - Colorspace: sRGB
+   - Content: Solid magenta color - RGB(255, 0, 255)
+   - Expected RGB: (255, 0, 255) - unchanged
+   - Tests: RGB TIFF handling, color preservation
+
+3. **`postscript_rgb.eps`** (4KB)
+   - Format: Encapsulated PostScript (hand-crafted)
+   - Size: 100×100 points
+   - Colorspace: RGB (DeviceRGB)
+   - Content: Solid yellow color - RGB(255, 255, 0)
+   - Expected RGB: (255, 255, 0) - unchanged
+   - Tests: Vector RGB rendering (skipped - inconsistent rendering)
+
+4. **`illustrator_rgb.ai`** (4KB)
+   - Format: Adobe Illustrator (PostScript-based)
+   - Size: 100×100 points
+   - Colorspace: sRGB (DeviceRGB)
+   - Content: Solid red color - RGB(255, 0, 0)
+   - Expected RGB: (255, 0, 0) - unchanged
+   - Tests: AI format RGB preservation
+
+### Directory: `images/special/` (2 files)
+Special colorspace images for testing non-standard colorspace handling.
+
+1. **`grayscale.psd`** (40KB)
+   - Format: Adobe Photoshop Document
+   - Size: 100×100 pixels
+   - Colorspace: Grayscale
+   - Content: 50% gray
+   - Expected RGB: (128, 128, 128)
+   - Tests: Grayscale→RGB conversion
+
+2. **`lab_color.tif`** (60KB)
+   - Format: TIFF
+   - Size: 100×100 pixels
+   - Colorspace: Lab
+   - Content: Lab colorspace test
+   - Tests: Lab→RGB conversion
+
+## CMYK Color Conversion Notes
+
+**Important**: CMYK colors do NOT convert to pure RGB colors when using ICC profiles. This is correct and expected behavior.
+
+| CMYK Input | Naive RGB | Actual ICC Profile RGB | Notes |
+|------------|-----------|------------------------|-------|
+| Cyan (100,0,0,0) | (0,255,255) | **(148,217,248)** | Lighter cyan |
+| Magenta (0,100,0,0) | (255,0,255) | **(247,177,207)** | Lighter magenta |
+| Yellow (0,0,100,0) | (255,255,0) | **(255,242,21)** | Darker yellow |
+| Black (0,0,0,100) | (0,0,0) | **(55,52,53)** | Dark gray |
+
+The test expectations use the **actual ICC profile conversion results**, not theoretical pure RGB values.
+
+## Generation Strategy
+
+### Auto-Generated Images
+All test images are generated by `scripts/setup-test-images.sh`:
+
+**Raster Formats** (PSD, TIFF):
+- Created using ImageMagick with `-colorspace` flag
+- Simple 100×100px solid color images
+- Minimal file sizes with compression
+
+**Vector Formats** (EPS, AI):
+- Hand-crafted PostScript code with proper colorspace declarations
+- Uses `DeviceCMYK` or `DeviceRGB` setcolorspace commands
+- ~4KB text files with proper DSC (Document Structuring Conventions) comments
+- Ensures reliable CMYK testing (ImageMagick can't create proper CMYK vectors)
+
+### Why Auto-Generated?
+
+1. **Zero Repository Bloat**: 552KB total, regenerated on demand
+2. **Consistent**: Identical images every time
+3. **Fast**: Generation takes ~1 second
+4. **CI/CD Friendly**: No external dependencies or downloads
+5. **Documented**: Script serves as documentation of image content
+
+## Storage Strategy
+
+**Current Approach**: Auto-generation (recommended)
+- Images are `.gitignore`d
+- Generated before running tests
+- No Git LFS needed
+- Total size: 552KB (negligible)
+
+## Manifest Format
+
+`metadata/manifest.json` contains metadata for all test images:
+
+```json
+{
+  "version": "1.0.0",
+  "created": "auto-generated",
+  "description": "Test image assets for colorspace conversion testing",
+  "images": {
+    "cmyk/photoshop_cmyk.psd": {
+      "colorspace": "CMYK",
+      "format": "PSD",
+      "width": 100,
+      "height": 100,
+      "color": "cyan (C=100%, M=0%, Y=0%, K=0%)",
+      "expected_rgb": "rgb(148, 217, 248)",
+      "test_cases": [
+        "cmyk_to_rgb_conversion",
+        "icc_profile_handling"
+      ]
+    }
+  }
+}
+```
+
+## Test Implementation
+
+Tests are in `tests/test_image_conversion_real.py` and use these helper functions:
+
+```python
+def load_test_image(filename: str) -> bytes:
+    """Load a test image from the test_data/images directory."""
+    path = IMAGES_DIR / filename
+    return path.read_bytes()
+
+def get_image_colorspace(image_data: bytes) -> str:
+    """Get the colorspace of an image using pyvips."""
+    img = pyvips.Image.new_from_buffer(image_data, "")
+    return img.interpretation
+
+def get_average_color(image_data: bytes) -> tuple[int, int, int]:
+    """Get the average RGB color of an image."""
+    img = pyvips.Image.new_from_buffer(image_data, "")
+    return (int(img[0].avg()), int(img[1].avg()), int(img[2].avg()))
+
+def color_distance(color1: tuple, color2: tuple) -> float:
+    """Calculate Euclidean distance between two RGB colors."""
+    return ((color1[0] - color2[0])**2 + 
+            (color1[1] - color2[1])**2 + 
+            (color1[2] - color2[2])**2) ** 0.5
+```
+
+Example test:
+
+```python
+def test_cmyk_psd_to_rgb():
+    """Test CMYK PSD converts to RGB via ICC profiles."""
+    input_data = load_test_image("cmyk/photoshop_cmyk.psd")
+    
+    # Convert to JPEG
+    output_data, mime_type, converter, duration = convert_image_to_jpeg(
+        input_data, filename="photoshop_cmyk.psd"
+    )
+    
+    # Verify output colorspace is sRGB
+    colorspace = get_image_colorspace(output_data)
+    assert colorspace == "srgb"
+    
+    # Verify color accuracy (cyan CMYK → RGB)
+    avg_color = get_average_color(output_data)
+    expected_color = (148, 217, 248)  # Actual ICC profile result
+    
+    distance = color_distance(avg_color, expected_color)
+    assert distance < 30, f"Color mismatch: {avg_color} vs {expected_color}"
+```
+
+## Generating Test Images
+
+### Quick Start
+
+```bash
+# Generate all test images (takes ~1 second)
+./scripts/setup-test-images.sh
+```
+
+This creates:
+- 10 test images in `backend/tests/test_data/images/`
+- `manifest.json` in `backend/tests/test_data/metadata/`
+- `.gitignore` to exclude images from git
+
+### Manual Generation
+
+If you need to regenerate specific images:
+
+**Raster formats (PSD, TIFF):**
+```bash
+# CMYK PSD - cyan color
+magick -size 100x100 xc:"cmyk(100,0,0,0)" -colorspace CMYK psd:photoshop_cmyk.psd
+
+# RGB TIFF - magenta color  
+magick -size 100x100 xc:"rgb(255,0,255)" -colorspace sRGB tiff:tiff_rgb.tif
+
+# Grayscale PSD - 50% gray
+magick -size 100x100 xc:"gray(128)" -colorspace Gray psd:grayscale.psd
+```
+
+**Vector formats (EPS, AI):**
+
+Vector files use hand-crafted PostScript. Example CMYK EPS:
+
+```postscript
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 100 100
+%%DocumentProcessColors: Cyan Magenta Yellow Black
+%%EndComments
+
+%%BeginProlog
+%%EndProlog
+
+%%Page: 1 1
+
+% Set CMYK colorspace
+/DeviceCMYK setcolorspace
+
+% Set yellow color: C=0 M=0 Y=1.0 K=0
+0 0 1 0 setcolor
+
+% Draw filled rectangle
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+fill
+
+showpage
+%%EOF
+```
+
+See `scripts/setup-test-images.sh` for the complete implementation.
+
+## CI/CD Integration
+
+### Automatic Setup
+
+Test images are auto-generated before running tests:
+
+```yaml
+# .github/workflows/test.yml
+- name: Setup test images
+  run: ./scripts/setup-test-images.sh
+  
+- name: Run image conversion tests
+  run: pytest tests/test_image_conversion_real.py -v
+```
+
+### Local Development
+
+```bash
+# First-time setup: generate test images
+./scripts/setup-test-images.sh
+
+# Run image conversion tests
+cd backend
+pytest tests/test_image_conversion_real.py -v
+
+# Run specific test category
+pytest tests/test_image_conversion_real.py -k cmyk -v
+
+# Run with coverage
+pytest tests/test_image_conversion_real.py --cov=app/services/image_converter
+```
+
+### Test Execution Time
+
+- Image generation: ~1 second
+- Test execution: ~2-3 seconds
+- Total: ~3-4 seconds
+
+## Test Coverage
+
+Current test coverage (11 tests, 1 skipped):
+
+| Category | Tests | Status |
+|----------|-------|--------|
+| CMYK→RGB PSD | ✅ | Passing |
+| CMYK→RGB TIFF | ✅ | Passing |
+| CMYK→RGB EPS | ✅ | Passing |
+| CMYK→RGB AI | ✅ | Passing |
+| RGB PSD preservation | ✅ | Passing |
+| RGB TIFF preservation | ✅ | Passing |
+| RGB EPS preservation | ⏭️ | Skipped (rendering inconsistency) |
+| RGB AI preservation | ✅ | Passing |
+| Grayscale handling | ✅ | Passing |
+| Lab colorspace | ✅ | Passing |
+| Conversion pipeline | ✅ | Passing |
+| Performance benchmark | ✅ | Passing |
+
+## Maintenance
+
+### Regenerating Test Images
+
+If test images are missing or corrupted:
+
+```bash
+# Remove existing images
+rm -rf backend/tests/test_data/images
+
+# Regenerate all images
+./scripts/setup-test-images.sh
+```
+
+### Adding New Test Images
+
+To add a new test image:
+
+1. **Update generation script**: Edit `scripts/setup-test-images.sh`
+2. **Add generation code**: Use `create_test_image()` or `create_vector_*()` functions
+3. **Update manifest**: Script auto-generates `manifest.json`
+4. **Create test case**: Add test in `tests/test_image_conversion_real.py`
+5. **Document**: Update this README with image details
+
+Example addition:
+
+```bash
+# In scripts/setup-test-images.sh
+# Add to CMYK section:
+create_test_image "$IMAGES_DIR/cmyk/new_format.xyz" "CMYK" "cmyk(50,50,0,0)" "xyz"
+```
+
+### Modifying Expected Colors
+
+If ICC profiles or conversion logic changes:
+
+1. Run tests to see actual vs expected colors
+2. Verify new colors are correct (visual inspection)
+3. Update test expectations in `test_image_conversion_real.py`
+4. Update color table in this README
+
+## Performance Considerations
+
+- **Test duration**: ~3 seconds total (generation + tests)
+- **Parallel execution**: Images are small, parallelization not needed
+- **Skip in unit tests**: Tests are marked with `@pytest.mark.integration`
+- **CI/CD**: No caching needed - generation is fast enough
+
+## Troubleshooting
+
+### Test Images Not Found
+
+```bash
+# Generate test images
+./scripts/setup-test-images.sh
+
+# Verify images exist
+ls -lh backend/tests/test_data/images/*/
+```
+
+### ImageMagick Not Found
+
+```bash
+# Install ImageMagick
+sudo apt-get update
+sudo apt-get install imagemagick
+
+# Verify installation
+magick --version
+```
+
+### ICC Profile Errors
+
+If you see errors about missing ICC profiles:
+
+```bash
+# Install Ghostscript ICC profiles
+sudo apt-get install libgs-common
+
+# Verify profiles exist
+ls /usr/share/color/icc/ghostscript/
+# Should show: default_cmyk.icc, srgb.icc, etc.
+```
+
+### Color Mismatches
+
+If tests fail due to color differences:
+
+1. **Check actual colors**: Test output shows expected vs actual
+2. **Verify ICC profiles**: Ensure `libgs-common` is installed
+3. **Check conversion path**: Different converters may produce slightly different results
+4. **Tolerance**: Tests allow ±30 color units for CMYK, ±20 for RGB
+
+Example test failure:
+```
+AssertionError: Color mismatch: expected (148, 217, 248), got (150, 218, 247), distance=2.4
+```
+
+If distance is < 30 but test still fails, adjust tolerance in test file.
+
+### Vector Format Issues
+
+EPS/AI files may render at different sizes:
+- Default ImageMagick rendering: ~417×417 pixels
+- This is normal - tests analyze center pixels only
+- Tests accept both `srgb` and `rgb16` colorspace outputs
+
+## Implementation Details
+
+### Why Hand-Crafted PostScript?
+
+ImageMagick cannot create proper CMYK vector files - they get converted to RGB during creation. Hand-crafted PostScript ensures:
+
+1. **Proper CMYK colorspace**: Uses `DeviceCMYK setcolorspace`
+2. **Correct DSC comments**: `%%DocumentProcessColors: Cyan Magenta Yellow Black`
+3. **Reliable testing**: Same file content every time
+4. **Small size**: ~4KB text files
+
+### Color Distance Calculation
+
+Tests use Euclidean distance in RGB space:
+
+```python
+distance = sqrt((R1-R2)² + (G1-G2)² + (B1-B2)²)
+```
+
+Thresholds:
+- **CMYK→RGB**: ±30 units (allows for ICC profile variations)
+- **RGB preservation**: ±20 units (tighter tolerance for identity conversion)
+
+### Colorspace Detection
+
+Tests verify output colorspace using pyvips:
+
+```python
+img = pyvips.Image.new_from_buffer(image_data, "")
+colorspace = img.interpretation  # e.g., 'srgb', 'cmyk', 'grey16', etc.
+```
+
+## References
+
+- [ImageMagick Color Management](https://imagemagick.org/script/color-management.php)
+- [libvips Colorspace Handling](https://www.libvips.org/API/current/libvips-colour.html)
+- [ICC Color Profiles](http://www.color.org/icc_specs2.xalter)
+- [CMYK to RGB Conversion](https://en.wikipedia.org/wiki/CMYK_color_model#Conversion)

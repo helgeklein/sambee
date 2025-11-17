@@ -27,7 +27,7 @@ fi
 
 echo "✓ ImageMagick found"
 
-# Function to create minimal test images
+# Function to create minimal test images for raster formats
 create_test_image() {
     local filename="$1"
     local colorspace="$2"
@@ -59,6 +59,220 @@ create_test_image() {
     fi
 }
 
+# Function to create vector files with proper CMYK PostScript code
+create_vector_cmyk() {
+    local filename="$1"
+    local c="$2"  # Cyan 0-1
+    local m="$3"  # Magenta 0-1
+    local y="$4"  # Yellow 0-1
+    local k="$5"  # Black 0-1
+    local format="$6"  # "eps" or "ai"
+    
+    echo "Creating $filename with CMYK($c,$m,$y,$k)..."
+    
+    # Determine if this is AI or EPS format
+    if [[ "$filename" == *.ai ]]; then
+        # Adobe Illustrator format (simplified - using standard PostScript)
+        # Note: AI files specify artboard size which affects rendering
+        cat > "$filename" << 'AIEOF'
+%!PS-Adobe-3.0
+%%Creator: Adobe Illustrator(R) 24.0
+%%AI8_CreatorVersion: 24.0.0
+%%For: (Test) ()
+%%Title: (CMYK Test Image)
+%%CreationDate: 2025-11-17
+%%BoundingBox: 0 0 100 100
+%%HiResBoundingBox: 0.0000 0.0000 100.0000 100.0000
+%%DocumentProcessColors: Cyan Magenta Yellow Black
+%%ColorUsage: Color
+%%PageSize: 100 100
+%%EndComments
+
+%%BeginProlog
+<< /PageSize [100 100] >> setpagedevice
+%%EndProlog
+
+%%BeginSetup
+%%EndSetup
+
+%%Page: 1 1
+
+% Set CMYK colorspace
+/DeviceCMYK setcolorspace
+
+% Set fill color
+AIEOF
+        echo "$c $m $y $k setcolor" >> "$filename"
+        cat >> "$filename" << 'AIEOF'
+
+% Draw filled rectangle
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+fill
+
+showpage
+%%Trailer
+%%EOF
+AIEOF
+    else
+        # Standard EPS format
+        cat > "$filename" << 'EPSEOF'
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 100 100
+%%Creator: SamBee Test Generator
+%%Title: CMYK Test Image
+%%CreationDate: 2025-11-17
+%%LanguageLevel: 2
+%%DocumentData: Clean7Bit
+%%ColorUsage: Color
+%%DocumentProcessColors: Cyan Magenta Yellow Black
+%%EndComments
+
+%%BeginProlog
+%%EndProlog
+
+%%BeginSetup
+%%EndSetup
+
+%%Page: 1 1
+
+% Set CMYK colorspace and fill color
+/DeviceCMYK setcolorspace
+EPSEOF
+        echo "$c $m $y $k setcolor" >> "$filename"
+        cat >> "$filename" << 'EPSEOF'
+
+% Draw filled rectangle covering entire bounding box
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+fill
+
+showpage
+%%EOF
+EPSEOF
+    fi
+    
+    if [ -f "$filename" ]; then
+        echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded CMYK"
+    else
+        echo "  ❌ Failed to create $filename"
+        return 1
+    fi
+}
+
+# Function to create vector files with RGB PostScript code
+create_vector_rgb() {
+    local filename="$1"
+    local r="$2"  # Red 0-1
+    local g="$3"  # Green 0-1
+    local b="$4"  # Blue 0-1
+    
+    echo "Creating $filename with RGB($r,$g,$b)..."
+    
+    # Determine if this is AI or EPS format
+    if [[ "$filename" == *.ai ]]; then
+        # Adobe Illustrator format (simplified - using standard PostScript)
+        # Note: AI files specify artboard size which affects rendering
+        cat > "$filename" << 'AIEOF'
+%!PS-Adobe-3.0
+%%Creator: Adobe Illustrator(R) 24.0
+%%AI8_CreatorVersion: 24.0.0
+%%For: (Test) ()
+%%Title: (RGB Test Image)
+%%CreationDate: 2025-11-17
+%%BoundingBox: 0 0 100 100
+%%HiResBoundingBox: 0.0000 0.0000 100.0000 100.0000
+%%ColorUsage: Color
+%%PageSize: 100 100
+%%EndComments
+
+%%BeginProlog
+<< /PageSize [100 100] >> setpagedevice
+%%EndProlog
+
+%%BeginSetup
+%%EndSetup
+
+%%Page: 1 1
+
+% Set RGB colorspace
+/DeviceRGB setcolorspace
+
+% Set fill color
+AIEOF
+        echo "$r $g $b setcolor" >> "$filename"
+        cat >> "$filename" << 'AIEOF'
+
+% Draw filled rectangle
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+fill
+
+showpage
+%%Trailer
+%%EOF
+AIEOF
+    else
+        # Standard EPS format
+        cat > "$filename" << 'EPSEOF'
+%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 100 100
+%%Creator: SamBee Test Generator
+%%Title: RGB Test Image
+%%CreationDate: 2025-11-17
+%%LanguageLevel: 2
+%%DocumentData: Clean7Bit
+%%ColorUsage: Color
+%%EndComments
+
+%%BeginProlog
+%%EndProlog
+
+%%BeginSetup
+%%EndSetup
+
+%%Page: 1 1
+
+% Set RGB colorspace and fill color
+/DeviceRGB setcolorspace
+EPSEOF
+        echo "$r $g $b setcolor" >> "$filename"
+        cat >> "$filename" << 'EPSEOF'
+
+% Draw filled rectangle covering entire bounding box
+newpath
+0 0 moveto
+100 0 lineto
+100 100 lineto
+0 100 lineto
+closepath
+fill
+
+showpage
+%%EOF
+EPSEOF
+    fi
+    
+    if [ -f "$filename" ]; then
+        echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded RGB"
+    else
+        echo "  ❌ Failed to create $filename"
+        return 1
+    fi
+}
+
 # Create CMYK test images
 echo ""
 echo "Creating CMYK test images..."
@@ -69,11 +283,13 @@ create_test_image "$IMAGES_DIR/cmyk/photoshop_cmyk.psd" "CMYK" "cmyk(100,0,0,0)"
 # CMYK TIFF - Magenta color
 create_test_image "$IMAGES_DIR/cmyk/tiff_cmyk.tif" "CMYK" "cmyk(0,100,0,0)" "tiff"
 
-# CMYK EPS - Yellow color
-create_test_image "$IMAGES_DIR/cmyk/postscript_cmyk.eps" "CMYK" "cmyk(0,0,100,0)" "eps"
+# CMYK EPS - Yellow color (using PostScript source code)
+# C=0, M=0, Y=100%, K=0 in PostScript (values are 0-1 scale)
+create_vector_cmyk "$IMAGES_DIR/cmyk/postscript_cmyk.eps" "0" "0" "1" "0" "eps"
 
-# CMYK AI (saved as EPS format) - Black color
-create_test_image "$IMAGES_DIR/cmyk/illustrator_cmyk.ai" "CMYK" "cmyk(0,0,0,100)" "eps"
+# CMYK AI (Adobe Illustrator format, which is EPS-based) - Black color
+# C=0, M=0, Y=0, K=100% in PostScript
+create_vector_cmyk "$IMAGES_DIR/cmyk/illustrator_cmyk.ai" "0" "0" "0" "1" "ai"
 
 # Create RGB test images
 echo ""
@@ -85,11 +301,13 @@ create_test_image "$IMAGES_DIR/rgb/photoshop_rgb.psd" "sRGB" "rgb(0,255,255)" "p
 # RGB TIFF - Magenta color
 create_test_image "$IMAGES_DIR/rgb/tiff_rgb.tif" "sRGB" "rgb(255,0,255)" "tiff"
 
-# RGB EPS - Yellow color
-create_test_image "$IMAGES_DIR/rgb/postscript_rgb.eps" "sRGB" "rgb(255,255,0)" "eps"
+# RGB EPS - Yellow color (using PostScript source code)
+# R=1.0, G=1.0, B=0 in PostScript (values are 0-1 scale)
+create_vector_rgb "$IMAGES_DIR/rgb/postscript_rgb.eps" "1" "1" "0"
 
 # RGB AI - Red color
-create_test_image "$IMAGES_DIR/rgb/illustrator_rgb.ai" "sRGB" "rgb(255,0,0)" "eps"
+# R=1.0, G=0, B=0 in PostScript
+create_vector_rgb "$IMAGES_DIR/rgb/illustrator_rgb.ai" "1" "0" "0"
 
 # Create special colorspace images
 echo ""

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document outlines a comprehensive testing system for verifying image conversion accuracy, particularly for CMYK→RGB colorspace conversion. The design accounts for GitHub repository size constraints, CI/CD pipeline performance, and developer experience.
+This document outlines a comprehensive testing system for verifying image conversion accuracy, including CMYK→RGB colorspace conversion. The design accounts for GitHub repository size constraints, CI/CD pipeline performance, and developer experience.
 
 ## Requirements
 
@@ -11,7 +11,6 @@ This document outlines a comprehensive testing system for verifying image conver
 2. **Format Coverage**: Test all supported exotic formats (PSD, PSB, EPS, AI, TIFF, HEIC, etc.)
 3. **RGB Preservation**: Ensure RGB images don't get color-inverted
 4. **Regression Detection**: Catch unintended changes in conversion logic
-5. **Performance Baseline**: Track conversion speed over time
 
 ### Non-Functional Requirements
 1. **CI/CD Performance**: Tests must complete within 2-3 minutes
@@ -281,51 +280,13 @@ pytest tests/test_image_conversion_real.py -v
 3. Verify ICC profiles are installed (`dpkg -L libgs-common`)
 4. Test with actual ImageMagick/libvips commands
 
-## Alternative: Snapshot Testing
-
-### Concept
-Store "golden" reference images and compare new conversions against them
-
-**Tools**:
-- `pytest-snapshot` or `pytest-regtest`
-- Custom image comparison with tolerance
-
-**Workflow**:
-1. First run: Generate and store reference images
-2. Subsequent runs: Compare against references
-3. On mismatch: Generate diff image showing changes
-4. Developer approves or rejects changes
-
-**Implementation**:
-```python
-def test_cmyk_psd_snapshot(snapshot):
-    """Test CMYK PSD conversion matches snapshot."""
-    input_data = load_test_image("cmyk_cyan.psd")
-    output_data = convert_image_to_jpeg(input_data, "cmyk_cyan.psd")
-    
-    # Compare with stored snapshot (with tolerance)
-    snapshot.assert_match(output_data, "cmyk_cyan_output.jpg")
-```
-
 ## Recommendations
 
-### Phase 1: Basic Implementation (Current Sprint)
+### Phase 1: Basic Implementation
 1. ✅ Implement auto-generated test images script
 2. ✅ Create minimal test set (10 images)
 3. ✅ Write basic color verification tests
 4. ✅ Integrate with CI/CD
-
-### Phase 2: Enhanced Testing (Future)
-1. Add real-world image files (via external storage)
-2. Implement visual regression testing
-3. Add performance benchmarking
-4. Create test coverage report for all formats
-
-### Phase 3: Advanced Features (Optional)
-1. Automated screenshot comparison for UI
-2. Perceptual image quality metrics
-3. Cross-platform consistency testing
-4. Load testing with large images
 
 ## Conclusion
 
