@@ -43,7 +43,7 @@ describe("HamburgerMenu", () => {
 
   test("renders menu when open", () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -66,7 +66,7 @@ describe("HamburgerMenu", () => {
 
   test("does not render when closed", () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={false}
           onClose={mockOnClose}
@@ -86,7 +86,7 @@ describe("HamburgerMenu", () => {
 
   test("shows connection selector with connections", () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -107,7 +107,7 @@ describe("HamburgerMenu", () => {
 
   test("calls onNavigateToRoot when Root is clicked", async () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -133,7 +133,7 @@ describe("HamburgerMenu", () => {
 
   test("calls onOpenSettings when Settings is clicked", async () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -159,7 +159,7 @@ describe("HamburgerMenu", () => {
 
   test("calls onLogout when Logout is clicked", async () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -184,7 +184,7 @@ describe("HamburgerMenu", () => {
 
   test("hides Settings when user is not admin", () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -206,7 +206,7 @@ describe("HamburgerMenu", () => {
 
   test("connection selector is present with connections", () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
@@ -230,7 +230,7 @@ describe("HamburgerMenu", () => {
 
   test("handles empty connections list", () => {
     render(
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <HamburgerMenu
           open={true}
           onClose={mockOnClose}
