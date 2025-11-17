@@ -23,15 +23,20 @@ mkdir -p "$IMAGES_DIR"/{cmyk,rgb,special}
 mkdir -p "$EXPECTED_DIR"/{cmyk,rgb,special}
 mkdir -p "$METADATA_DIR"
 
-# Check if ImageMagick is available
-if ! command -v magick &> /dev/null; then
+# Check if ImageMagick is available (try both 'magick' and 'convert' commands)
+MAGICK_CMD=""
+if command -v magick &> /dev/null; then
+    MAGICK_CMD="magick"
+elif command -v convert &> /dev/null; then
+    MAGICK_CMD="convert"
+else
     echo "❌ ImageMagick not found. Please install ImageMagick to generate test images."
     echo "   sudo apt-get install imagemagick"
     exit 1
 fi
 
 if [ "$QUIET" = "0" ]; then
-    echo "✓ ImageMagick found"
+    echo "✓ ImageMagick found ($MAGICK_CMD)"
 fi
 
 # Function to create minimal test images for raster formats
@@ -47,16 +52,16 @@ create_test_image() {
     
     case "$colorspace" in
         "CMYK")
-            magick -size 100x100 xc:"$color" -colorspace CMYK "$format:$filename" 2>/dev/null
+            $MAGICK_CMD -size 100x100 xc:"$color" -colorspace CMYK "$format:$filename" 2>/dev/null
             ;;
         "RGB"|"sRGB")
-            magick -size 100x100 xc:"$color" -colorspace sRGB "$format:$filename" 2>/dev/null
+            $MAGICK_CMD -size 100x100 xc:"$color" -colorspace sRGB "$format:$filename" 2>/dev/null
             ;;
         "Gray")
-            magick -size 100x100 xc:"$color" -colorspace Gray "$format:$filename" 2>/dev/null
+            $MAGICK_CMD -size 100x100 xc:"$color" -colorspace Gray "$format:$filename" 2>/dev/null
             ;;
         "Lab")
-            magick -size 100x100 xc:"$color" -colorspace Lab "$format:$filename" 2>/dev/null
+            $MAGICK_CMD -size 100x100 xc:"$color" -colorspace Lab "$format:$filename" 2>/dev/null
             ;;
     esac
     
