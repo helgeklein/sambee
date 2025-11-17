@@ -18,11 +18,6 @@ fi
 # - libjpeg-turbo8/libjpeg62-turbo: JPEG library (Ubuntu/Debian naming difference)
 # - libpng16-16, libtiff6, libwebp7, libgif7, libexif12: Image format libraries
 # - libgs-common: Ghostscript ICC color profiles for proper CMYK→RGB conversion
-#
-# NOTE: ImageMagick 7 installation varies by distro:
-# - Debian: 'imagemagick' package provides v7 (uses 'magick' command)
-# - Ubuntu: 'imagemagick' package provides v6 (uses 'convert' command)
-# We explicitly install v7 packages to ensure consistency across environments
 SAMBEE_SYSTEM_PACKAGES=(
     libmagic1
     libvips42
@@ -34,37 +29,65 @@ SAMBEE_SYSTEM_PACKAGES=(
     libgif7
     libexif12
     libgs-common
+    wget
 )
 
-# ImageMagick 7 packages (distro-specific)
-if grep -q "Ubuntu" /etc/os-release 2>/dev/null; then
-    # Ubuntu doesn't have ImageMagick 7 in default repos, use v6
-    IMAGEMAGICK_PACKAGES=(imagemagick)
-else
-    # Debian has ImageMagick 7
-    IMAGEMAGICK_PACKAGES=(imagemagick)
-fi
+# Install ImageMagick 7 from official binaries
+install_imagemagick7() {
+    echo "Installing ImageMagick 7..."
+    
+    # Download and extract ImageMagick 7 binary for Linux
+    MAGICK_TARBALL="ImageMagick-x86_64-pc-linux-gnu.tar.gz"
+    MAGICK_URL="https://imagemagick.org/archive/binaries/${MAGICK_TARBALL}"
+    INSTALL_DIR="/opt/imagemagick"
+    
+    # Download to temp location
+    cd /tmp
+    if ! wget -q "$MAGICK_URL" -O imagemagick.tar.gz; then
+        echo "Failed to download ImageMagick, falling back to package manager"
+        apt-get install -y imagemagick
+        return
+    fi
+    
+    # Extract to /opt
+    mkdir -p "$INSTALL_DIR"
+    tar -xzf imagemagick.tar.gz -C "$INSTALL_DIR" --strip-components=1
+    rm imagemagick.tar.gz
+    
+    # Create symlinks in /usr/local/bin
+    ln -sf "$INSTALL_DIR/bin/magick" /usr/local/bin/magick
+    ln -sf /usr/local/bin/magick /usr/local/bin/convert
+    ln -sf /usr/local/bin/magick /usr/local/bin/identify
+    ln -sf /usr/local/bin/magick /usr/local/bin/mogrify
+    ln -sf /usr/local/bin/magick /usr/local/bin/composite
+    ln -sf /usr/local/bin/magick /usr/local/bin/montage
+    
+    # Set up library path
+    echo "$INSTALL_DIR/lib" > /etc/ld.so.conf.d/imagemagick.conf
+    ldconfig
+    
+    # Verify installation
+    if /usr/local/bin/magick --version 2>/dev/null | head -1; then
+        echo "✓ ImageMagick 7 installed successfully"
+    else
+        echo "❌ ImageMagick 7 installation failed, falling back to package manager"
+        rm -rf "$INSTALL_DIR"
+        apt-get install -y imagemagick
+    fi
+}
 
 # Function to install packages
 install_packages() {
     echo "Installing Sambee system dependencies..."
     echo "Using ${LIBJPEG_PKG} for libjpeg-turbo"
     apt-get update
-    apt-get install -y "${SAMBEE_SYSTEM_PACKAGES[@]}" "${IMAGEMAGICK_PACKAGES[@]}"
+    apt-get install -y "${SAMBEE_SYSTEM_PACKAGES[@]}"
+    
+    # Install ImageMagick 7
+    install_imagemagick7
+    
     rm -rf /var/lib/apt/lists/*
-    
-    # Verify ImageMagick installation and report version
-    if command -v magick &> /dev/null; then
-        echo "✓ ImageMagick 7 installed (magick command available)"
-        magick --version | head -1
-    elif command -v convert &> /dev/null; then
-        echo "✓ ImageMagick 6 installed (convert command available)"
-        convert --version | head -1
-    else
-        echo "⚠ WARNING: ImageMagick installation could not be verified"
-    fi
-    
-    echo "✓ System dependencies installed successfully"
+    echo "✓ All system dependencies installed successfully"
 }
 
 # If script is executed (not sourced), run installation
