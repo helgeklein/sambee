@@ -24,18 +24,21 @@ mkdir -p "$EXPECTED_DIR"/{cmyk,rgb,special}
 mkdir -p "$METADATA_DIR"
 
 # Check if ImageMagick is available
-# Note: install-system-deps.sh ensures ImageMagick 7 is installed with 'magick' command
-if ! command -v magick &> /dev/null; then
+# Note: install-system-deps.sh installs to /usr/local/bin which may not be in PATH
+MAGICK_CMD=""
+if command -v magick &> /dev/null; then
+    MAGICK_CMD="magick"
+elif [ -x "/usr/local/bin/magick" ]; then
+    MAGICK_CMD="/usr/local/bin/magick"
+else
     echo "❌ ImageMagick 7 not found. Please run scripts/install-system-deps.sh first."
     echo "   Or install manually: sudo apt-get install imagemagick"
     exit 1
 fi
 
-MAGICK_CMD="magick"
-
 if [ "$QUIET" = "0" ]; then
     echo "✓ ImageMagick found ($MAGICK_CMD)"
-    magick --version | head -1
+    $MAGICK_CMD --version | head -1
 fi
 
 # Function to create minimal test images for raster formats
