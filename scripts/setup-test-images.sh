@@ -27,13 +27,22 @@ mkdir -p "$METADATA_DIR"
 # Note: install-system-deps.sh installs to /usr/local/bin which may not be in PATH
 # and requires LD_LIBRARY_PATH to include /opt/imagemagick/lib
 MAGICK_CMD=""
+
+# First try command in PATH
 if command -v magick &> /dev/null; then
     MAGICK_CMD="magick"
+# Then try absolute path with library path set
 elif [ -x "/usr/local/bin/magick" ]; then
-    MAGICK_CMD="/usr/local/bin/magick"
-    # Ensure LD_LIBRARY_PATH includes ImageMagick libraries
+    # Ensure LD_LIBRARY_PATH includes ImageMagick libraries before testing
     export LD_LIBRARY_PATH="/opt/imagemagick/lib:${LD_LIBRARY_PATH:-}"
-else
+    # Verify the binary actually works with the library path
+    if /usr/local/bin/magick --version &> /dev/null; then
+        MAGICK_CMD="/usr/local/bin/magick"
+    fi
+fi
+
+# If still not found, exit with error
+if [ -z "$MAGICK_CMD" ]; then
     echo "❌ ImageMagick 7 not found. Please run scripts/install-system-deps.sh first."
     echo "   Or install manually: sudo apt-get install imagemagick"
     exit 1
