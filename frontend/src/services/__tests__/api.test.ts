@@ -336,7 +336,7 @@ describe("API Service", () => {
     });
   });
 
-  describe("Preview Operations", () => {
+  describe("Viewer Operations", () => {
     it("getViewUrl() constructs correct URL with token", () => {
       localStorage.setItem("access_token", "viewer-token");
 

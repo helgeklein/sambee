@@ -10,7 +10,7 @@ import api from "../../services/api";
 import {
   type ApiMock,
   createForbiddenError,
-  createMarkdownPreviewMock,
+  createMarkdownViewerMock,
   createNetworkError,
   createNotFoundError,
   createSettingsDialogMock,
@@ -24,7 +24,7 @@ import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
 vi.mock("../../services/api");
 
 // Mock components using lazy mock factories
-vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
+vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
 vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
 // @tanstack/react-virtual mock - explicitly import the mock
 vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react-virtual"));

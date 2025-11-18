@@ -240,7 +240,7 @@ export const handlers = [
     });
   }),
 
-  // Preview - Start stream
+  // Viewer - Start stream
   // Viewer - Start file viewing
   http.get(`${API_BASE}/viewer/:connectionId/start`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");

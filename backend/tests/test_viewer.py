@@ -88,7 +88,7 @@ def mock_directory():
 
 @pytest.fixture
 def mock_smb_viewer_backend(mock_text_file):
-    """Create a mock SMB backend for preview tests."""
+    """Create a mock SMB backend for viewer tests."""
     with patch("app.api.viewer.SMBBackend") as mock:
         backend_instance = AsyncMock()
 
@@ -113,12 +113,12 @@ def mock_smb_viewer_backend(mock_text_file):
 
 
 class TestViewerFile:
-    """Test cases for the file preview endpoint."""
+    """Test cases for the file viewer endpoint."""
 
     def test_view_text_file_success(
         self, client, auth_headers_user, test_connection, mock_smb_viewer_backend
     ):
-        """Test successful text file preview."""
+        """Test successful text file viewer."""
         mock, mock_instance = mock_smb_viewer_backend
 
         response = client.get(
@@ -537,7 +537,7 @@ class TestDownloadFile:
 
 
 class TestViewerAuthentication:
-    """Test authentication and authorization for preview endpoints."""
+    """Test authentication and authorization for viewer endpoints."""
 
     def test_view_with_valid_token(
         self, client, auth_headers_user, test_connection, mock_text_file

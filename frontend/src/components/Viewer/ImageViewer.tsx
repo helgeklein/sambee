@@ -36,7 +36,7 @@ const getErrorMessage = (err: unknown): string => {
 };
 
 /**
- * Image Preview Component
+ * Image Viewer Component
  * Displays images with zoom, pan, rotate, and gallery navigation features.
  * Uses react-photo-view for advanced image viewing capabilities.
  * Fetches images via Axios to include authentication headers, then creates blob URLs.
@@ -306,7 +306,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     };
   }, [handleClose, handleNext, handlePrevious, images.length, toggleFullscreen]);
 
-  // Log when image preview opens
+  // Log when image viewer opens
   useEffect(() => {
     logInfo("Image viewer opened", {
       filename,

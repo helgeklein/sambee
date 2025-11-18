@@ -2,10 +2,10 @@
  * Unified File Type Registry
  *
  * Single source of truth for all file type information including:
- * - File extensions and MIME types
- * - Preview component mappings
+ * - Comprehensive MIME type mappings
+ * - File extension mappings
+ * - Viewer component mappings
  * - Icon and color assignments
- * - Category classifications
  */
 
 import type React from "react";
