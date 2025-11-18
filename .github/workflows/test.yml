@@ -55,6 +55,17 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-mypy-
 
+    - name: Cache ImageMagick installation
+      uses: actions/cache@v4
+      id: imagemagick-cache
+      with:
+        path: |
+          /tmp/imagemagick-appimage
+          /opt/imagemagick
+        key: ${{ runner.os }}-imagemagick-7.1.2-7
+        restore-keys: |
+          ${{ runner.os }}-imagemagick-
+
     - name: Install system dependencies for image processing
       run: |
         sudo bash scripts/install-system-deps.sh

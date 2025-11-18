@@ -1,0 +1,10 @@
+# Auto-generated test images (regenerated via scripts/setup-test-images.sh)
+images/
+
+# Metadata manifest is auto-generated
+metadata/manifest.json
+
+# Ignore temporary files
+*.tmp
+*.cache
+diff/

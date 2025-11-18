@@ -87,3 +87,6 @@ logs/
 # Caddy
 caddy_data/
 caddy_config/
+
+# ImageMagick AppImage extraction
+squashfs-root/
