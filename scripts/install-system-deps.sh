@@ -17,6 +17,7 @@ fi
 # - libheif1: HEIC/HEIF image format support
 # - libjpeg-turbo8/libjpeg62-turbo: JPEG library (Ubuntu/Debian naming difference)
 # - libpng16-16, libtiff6, libwebp7, libgif7, libexif12: Image format libraries
+# - ghostscript: PostScript/PDF interpreter (required for EPS, AI, PS, PDF processing via ImageMagick)
 # - libgs-common: Ghostscript ICC color profiles for proper CMYK→RGB conversion
 SAMBEE_SYSTEM_PACKAGES=(
     libmagic1
@@ -28,50 +29,61 @@ SAMBEE_SYSTEM_PACKAGES=(
     libwebp7
     libgif7
     libexif12
+    ghostscript
     libgs-common
     wget
 )
 
-# Install ImageMagick 7 from official binaries
+# Install ImageMagick 7 from official AppImage
 install_imagemagick7() {
-    echo "Installing ImageMagick 7..."
+    echo "Installing ImageMagick 7 from AppImage..."
     
-    # Download and extract ImageMagick 7 binary for Linux
-    MAGICK_TARBALL="ImageMagick-x86_64-pc-linux-gnu.tar.gz"
-    MAGICK_URL="https://imagemagick.org/archive/binaries/${MAGICK_TARBALL}"
+    # Download and extract ImageMagick AppImage
+    # Note: AppImages require FUSE which isn't available in containers,
+    # so we extract the contents and use the binaries directly
+    MAGICK_URL="https://imagemagick.org/archive/binaries/magick"
     INSTALL_DIR="/opt/imagemagick"
     
-    # Download to temp location
+    # Download AppImage to temp location
     cd /tmp
-    if ! wget -q "$MAGICK_URL" -O imagemagick.tar.gz; then
-        echo "Failed to download ImageMagick, falling back to package manager"
+    if ! wget -q "$MAGICK_URL" -O magick.appimage; then
+        echo "Failed to download ImageMagick AppImage, falling back to package manager"
         apt-get install -y imagemagick
         return
     fi
     
-    # Extract to /opt
-    mkdir -p "$INSTALL_DIR"
-    tar -xzf imagemagick.tar.gz -C "$INSTALL_DIR" --strip-components=1
-    rm imagemagick.tar.gz
+    # Extract AppImage contents
+    chmod +x magick.appimage
+    ./magick.appimage --appimage-extract >/dev/null 2>&1
     
-    # Create symlinks in /usr/local/bin
-    ln -sf "$INSTALL_DIR/bin/magick" /usr/local/bin/magick
+    # Move extracted contents to install directory
+    rm -rf "$INSTALL_DIR"
+    mv squashfs-root "$INSTALL_DIR"
+    rm magick.appimage
+    
+    # Create wrapper script that sets up ImageMagick environment
+    cat > /usr/local/bin/magick << 'EOF'
+#!/bin/bash
+MAGICK_HOME="/opt/imagemagick/usr"
+export MAGICK_CONFIGURE_PATH="$MAGICK_HOME/lib/ImageMagick-7.1.2/config-Q16:$MAGICK_HOME/lib/ImageMagick-7.1.2/config-Q16HDRI:$MAGICK_HOME/share/ImageMagick-7:$MAGICK_HOME/etc/ImageMagick-7"
+export LD_LIBRARY_PATH="$MAGICK_HOME/lib:$MAGICK_HOME/lib/ImageMagick-7.1.2/modules-Q16HDRI/coders${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$MAGICK_HOME/bin/magick" "$@"
+EOF
+    chmod +x /usr/local/bin/magick
+    
+    # Create symlinks for legacy command names
     ln -sf /usr/local/bin/magick /usr/local/bin/convert
     ln -sf /usr/local/bin/magick /usr/local/bin/identify
     ln -sf /usr/local/bin/magick /usr/local/bin/mogrify
     ln -sf /usr/local/bin/magick /usr/local/bin/composite
     ln -sf /usr/local/bin/magick /usr/local/bin/montage
     
-    # Set up library path
-    echo "$INSTALL_DIR/lib" > /etc/ld.so.conf.d/imagemagick.conf
-    ldconfig
-    
     # Verify installation
     if /usr/local/bin/magick --version 2>/dev/null | head -1; then
-        echo "✓ ImageMagick 7 installed successfully"
+        echo "✓ ImageMagick 7 installed successfully from AppImage"
     else
         echo "❌ ImageMagick 7 installation failed, falling back to package manager"
-        rm -rf "$INSTALL_DIR"
+        rm -rf "$INSTALL_DIR" /usr/local/bin/magick
         apt-get install -y imagemagick
     fi
 }

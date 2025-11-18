@@ -24,18 +24,16 @@ mkdir -p "$EXPECTED_DIR"/{cmyk,rgb,special}
 mkdir -p "$METADATA_DIR"
 
 # Check if ImageMagick is available
-# Note: install-system-deps.sh installs to /usr/local/bin which may not be in PATH
-# and requires LD_LIBRARY_PATH to include /opt/imagemagick/lib
+# Note: install-system-deps.sh installs ImageMagick 7 from extracted AppImage
+# with a wrapper script at /usr/local/bin/magick that sets up the environment.
 MAGICK_CMD=""
 
 # First try command in PATH
 if command -v magick &> /dev/null; then
     MAGICK_CMD="magick"
-# Then try absolute path with library path set
+# Then try absolute path at /usr/local/bin
 elif [ -x "/usr/local/bin/magick" ]; then
-    # Ensure LD_LIBRARY_PATH includes ImageMagick libraries before testing
-    export LD_LIBRARY_PATH="/opt/imagemagick/lib:${LD_LIBRARY_PATH:-}"
-    # Verify the binary actually works with the library path
+    # Verify the binary actually runs
     if /usr/local/bin/magick --version &> /dev/null; then
         MAGICK_CMD="/usr/local/bin/magick"
     fi
