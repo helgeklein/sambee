@@ -36,23 +36,42 @@ SAMBEE_SYSTEM_PACKAGES=(
 
 # Install ImageMagick 7 from official AppImage
 install_imagemagick7() {
+    INSTALL_DIR="/opt/imagemagick"
+    
+    # Check if ImageMagick is already installed (from cache)
+    if [ -x "$INSTALL_DIR/usr/bin/magick" ] && [ -x /usr/local/bin/magick ]; then
+        echo "ImageMagick 7 already installed (restored from cache)"
+        return
+    fi
+    
     echo "Installing ImageMagick 7 from AppImage..."
     
     # Download and extract ImageMagick AppImage
     # Note: AppImages require FUSE which isn't available in containers,
     # so we extract the contents and use the binaries directly
     MAGICK_URL="https://imagemagick.org/archive/binaries/magick"
-    INSTALL_DIR="/opt/imagemagick"
+    CACHE_DIR="/tmp/imagemagick-appimage"
     
-    # Download AppImage to temp location
-    cd /tmp
-    if ! wget -q "$MAGICK_URL" -O magick.appimage; then
-        echo "Failed to download ImageMagick AppImage, falling back to package manager"
-        apt-get install -y imagemagick
-        return
+    # Check if cached AppImage exists
+    if [ -f "$CACHE_DIR/magick.appimage" ]; then
+        echo "Using cached ImageMagick AppImage..."
+        cp "$CACHE_DIR/magick.appimage" /tmp/magick.appimage
+    else
+        # Download AppImage to temp location
+        cd /tmp
+        if ! wget -q "$MAGICK_URL" -O magick.appimage; then
+            echo "Failed to download ImageMagick AppImage, falling back to package manager"
+            apt-get install -y imagemagick
+            return
+        fi
+        
+        # Cache the downloaded AppImage for future runs
+        mkdir -p "$CACHE_DIR"
+        cp magick.appimage "$CACHE_DIR/magick.appimage"
     fi
     
     # Extract AppImage contents
+    cd /tmp
     chmod +x magick.appimage
     ./magick.appimage --appimage-extract >/dev/null 2>&1
     
