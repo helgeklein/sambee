@@ -1,8 +1,8 @@
-# Preview Support
+# Viewer Support
 
 ## Supported File Types
 
-Sambee supports in-browser preview for the following file types:
+Sambee supports in-browser viewing for the following file types:
 
 ### Images
 
@@ -102,11 +102,11 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 
 ## Unsupported File Types
 
-Files with unsupported MIME types will show a download prompt instead of an in-browser preview.
+Files with unsupported MIME types will show a download prompt instead of an in-browser viewing.
 
 ## Future Enhancements
 
-The preview system is extensible. Planned additions include:
+The viewer system is extensible. Planned additions include:
 - PDF documents (`application/pdf`)
 - Plain text files (`text/plain`)
 - Video files (`video/*`)

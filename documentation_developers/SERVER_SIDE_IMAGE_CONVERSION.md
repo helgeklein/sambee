@@ -4,7 +4,7 @@
 
 Sambee supports previewing a broad range of image formats through server-side conversion. Non-browser-native formats (TIFF, HEIC, BMP, ICO, etc.) are automatically converted to JPEG or PNG on the server before streaming to the client.
 
-For a complete list of supported image formats, see `/documentation/PREVIEW_SUPPORT.md`.
+For a complete list of supported image formats, see `/documentation/VIEWER_SUPPORT.md`.
 
 ## Architecture
 
@@ -43,13 +43,13 @@ get_image_info(image_bytes: bytes) -> dict
 - Optional downscaling to prevent memory issues (default max: 4096px)
 - Grayscale preservation
 
-#### 2. Preview API Updates (`app/api/preview.py`)
+#### 2. Viewer API Updates (`app/api/viewer.py`)
 
-Enhanced preview endpoint with automatic conversion:
+Enhanced viewer endpoint with automatic conversion:
 
 ```python
 @router.get("/{connection_id}/file", response_model=None)
-async def preview_file(...)
+async def view_file(...)
     # 1. Check if image needs conversion
     # 2. If yes: read entire file, convert, return Response
     # 3. If no: stream file as-is via StreamingResponse
@@ -62,7 +62,7 @@ async def preview_file(...)
 
 ### Frontend Components
 
-#### 1. Preview Registry (`frontend/src/components/Preview/PreviewRegistry.ts`)
+#### 1. Viewer Registry (`frontend/src/components/Preview/ViewerRegistry.ts`)
 
 Updated to recognize server-converted image MIME types:
 
@@ -124,7 +124,7 @@ Default settings in `image_converter.py`:
 
 ### Customization
 
-To adjust conversion parameters, modify the call in `preview.py`:
+To adjust conversion parameters, modify the call in `viewer.py`:
 
 ```python
 converted_bytes, converted_mime = convert_image_to_jpeg(
@@ -221,7 +221,7 @@ pytest tests/test_image_converter.py -v
 
 Existing tests automatically cover new formats:
 - MIME type recognition
-- Preview component loading
+- Viewer component loading
 - Gallery mode with mixed formats
 
 **Run tests:**
@@ -236,7 +236,7 @@ npm run test
 
 Add Redis or file-based caching for converted images:
 ```python
-cache_key = f"preview:{connection_id}:{path}:{mtime}"
+cache_key = f"view:{connection_id}:{path}:{mtime}"
 if cached := await cache.get(cache_key):
     return Response(content=cached, media_type="image/jpeg")
 ```
@@ -252,7 +252,7 @@ if file_size > 10_000_000:
 
 ### 3. Thumbnail Generation
 
-Generate smaller previews for gallery view:
+Generate smaller thumbnails for gallery view:
 ```python
 thumbnail = convert_image_to_jpeg(
     image_bytes,
@@ -295,7 +295,7 @@ logger.info(
 
 ### HEIC Images Not Working
 
-**Symptom**: 501 error when previewing HEIC files
+**Symptom**: 501 error when viewing HEIC files
 
 **Solution**: Ensure libheif is installed in Docker container:
 ```dockerfile
@@ -304,7 +304,7 @@ RUN apt-get update && apt-get install -y libheif-dev
 
 ### Slow Conversion
 
-**Symptom**: Preview takes >5 seconds
+**Symptom**: Viewing takes >5 seconds
 
 **Possible Causes**:
 1. Very large images (>50MB)
@@ -325,7 +325,7 @@ RUN apt-get update && apt-get install -y libheif-dev
 
 **Solutions**:
 - Reduce `max_dimension`
-- Add rate limiting on preview endpoint
+- Add rate limiting on viewer endpoint
 - Increase server memory
 - Implement conversion queue with concurrency limit
 

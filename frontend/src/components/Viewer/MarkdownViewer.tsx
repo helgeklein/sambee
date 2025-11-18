@@ -17,14 +17,10 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { apiService } from "../../services/api";
 import { error as logError } from "../../services/logger";
-import type { PreviewComponentProps } from "../../utils/FileTypeRegistry";
+import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import "highlight.js/styles/github.css";
 
-export const MarkdownPreview: React.FC<PreviewComponentProps> = ({
-  connectionId,
-  path,
-  onClose,
-}) => {
+export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose }) => {
   const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -250,4 +246,4 @@ export const MarkdownPreview: React.FC<PreviewComponentProps> = ({
   );
 };
 
-export default MarkdownPreview;
+export default MarkdownViewer;

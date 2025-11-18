@@ -1,6 +1,6 @@
 /**
- * Browser Component - Preview and Advanced Tests
- * Tests for file preview, connection switching, and edge cases
+ * Browser Component - View and Advanced Tests
+ * Tests for file view, connection switching, and edge cases
  */
 
 import { screen, waitFor } from "@testing-library/react";
@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import {
   type ApiMock,
-  createMarkdownPreviewMock,
+  createMarkdownViewMock,
   createSettingsDialogMock,
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
@@ -20,12 +20,12 @@ import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
 vi.mock("../../services/api");
 
 // Mock components using lazy mock factories
-vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
+vi.mock("../../components/View/MarkdownView", () => createMarkdownViewMock());
 vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
 // @tanstack/react-virtual mock - explicitly import the mock
 vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react-virtual"));
 
-describe("Browser Component - Preview and Advanced", () => {
+describe("Browser Component - View and Advanced", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.setItem("access_token", "fake-token");
@@ -35,12 +35,12 @@ describe("Browser Component - Preview and Advanced", () => {
     setupSuccessfulApiMocks(api as unknown as ApiMock);
   });
 
-  describe("File Preview", () => {
-    it("opens preview when clicking file", async () => {
+  describe("File View", () => {
+    it("opens view when clicking file", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");
 
-      // Wait for the browser to load - find an image file which has preview support
+      // Wait for the browser to load - find an image file which has view support
       // Add a mock image file to the directory listing
       vi.mocked(api.listDirectory).mockResolvedValue({
         path: "",
@@ -67,7 +67,7 @@ describe("Browser Component - Preview and Advanced", () => {
       const fileButton = screen.getByRole("button", { name: /image\.png/i });
       await user.click(fileButton);
 
-      // Preview dialog should open
+      // View dialog should open
       expect(await screen.findByRole("dialog")).toBeInTheDocument();
     });
 
@@ -97,11 +97,11 @@ describe("Browser Component - Preview and Advanced", () => {
       // Wait for file to appear
       expect(await screen.findByText("test-image.jpg")).toBeInTheDocument();
 
-      // Click on a file to open preview
+      // Click on a file to open view
       const fileButton = screen.getByRole("button", { name: /test-image\.jpg/i });
       await user.click(fileButton);
 
-      // Preview dialog should open
+      // View dialog should open
       expect(await screen.findByRole("dialog")).toBeInTheDocument();
 
       // Press Escape - dialog closing behavior may vary

@@ -1,7 +1,7 @@
 /**
  * Shared test utilities for Browser component tests
  * Used by: Browser-rendering.test.tsx, Browser-navigation.test.tsx,
- *          Browser-interactions.test.tsx, Browser-preview.test.tsx
+ *          Browser-interactions.test.tsx, Browser-viewer.test.tsx
  */
 
 import { render } from "@testing-library/react";

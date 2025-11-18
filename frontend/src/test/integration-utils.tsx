@@ -273,11 +273,11 @@ export function mockBrowseFiles(
 }
 
 /**
- * Mock file preview content
+ * Mock file viewer content
  */
 export function mockFilePreview(content: string, mimeType = "text/plain") {
   server.use(
-    http.get("http://localhost:8000/api/preview/:connectionId/file", () => {
+    http.get("http://localhost:8000/api/viewer/:connectionId/file", () => {
       return HttpResponse.text(content, {
         headers: {
           "Content-Type": mimeType,

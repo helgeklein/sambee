@@ -13,22 +13,22 @@ const mockedApi = apiService as MockedObject<typeof apiService>;
 // Mock @tanstack/react-virtual for virtualized list rendering
 vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react-virtual"));
 
-// Mock the preview components
+// Mock the view components
 vi.mock("../../utils/FileTypeRegistry", async () => {
   const actual = await vi.importActual<typeof import("../../utils/FileTypeRegistry")>(
     "../../utils/FileTypeRegistry"
   );
   return {
     ...actual,
-    getPreviewComponent: vi.fn((mimeType: string) => {
+    getViewerComponent: vi.fn((mimeType: string) => {
       if (mimeType?.startsWith("image/")) {
-        return Promise.resolve(function ImagePreview() {
-          return <div data-testid="image-preview">Image Preview</div>;
+        return Promise.resolve(function ImageView() {
+          return <div data-testid="image-view">Image View</div>;
         });
       }
       if (mimeType === "text/markdown") {
-        return Promise.resolve(function MarkdownPreview() {
-          return <div data-testid="markdown-preview">Markdown Preview</div>;
+        return Promise.resolve(function MarkdownView() {
+          return <div data-testid="markdown-view">Markdown View</div>;
         });
       }
       return Promise.resolve(null);
@@ -36,7 +36,7 @@ vi.mock("../../utils/FileTypeRegistry", async () => {
   };
 });
 
-describe("Browser - Image Preview Integration", () => {
+describe("Browser - Image View Integration", () => {
   const renderBrowser = (initialPath = "/browse/test-server") => {
     return render(
       <MemoryRouter
@@ -74,7 +74,7 @@ describe("Browser - Image Preview Integration", () => {
     ]);
   });
 
-  it("renders image preview when clicking on image file", async () => {
+  it("renders image view when clicking on image file", async () => {
     // Mock browse response with single image file
     mockedApi.listDirectory.mockResolvedValue({
       path: "/",
@@ -101,9 +101,9 @@ describe("Browser - Image Preview Integration", () => {
     // Click on the image file
     fireEvent.click(imageFile);
 
-    // Image preview should open
-    const preview = await screen.findByTestId("image-preview");
-    expect(preview).toBeInTheDocument();
+    // Image view should open
+    const view = await screen.findByTestId("image-view");
+    expect(view).toBeInTheDocument();
   });
 
   it("enables gallery mode when directory has multiple images", async () => {
@@ -161,9 +161,9 @@ describe("Browser - Image Preview Integration", () => {
     const imageFile = await screen.findByText("image2.png");
     fireEvent.click(imageFile);
 
-    // Image preview should open
-    const preview = await screen.findByTestId("image-preview");
-    expect(preview).toBeInTheDocument();
+    // Image view should open
+    const view = await screen.findByTestId("image-view");
+    expect(view).toBeInTheDocument();
   });
 
   it("does not show gallery mode for single image", async () => {
@@ -193,12 +193,12 @@ describe("Browser - Image Preview Integration", () => {
     // Click on the image file
     fireEvent.click(imageFile);
 
-    // Image preview should open
-    const preview = await screen.findByTestId("image-preview");
-    expect(preview).toBeInTheDocument();
+    // Image view should open
+    const view = await screen.findByTestId("image-view");
+    expect(view).toBeInTheDocument();
   });
 
-  it("opens image preview in dialog when image is clicked", async () => {
+  it("opens image view in dialog when image is clicked", async () => {
     mockedApi.listDirectory.mockResolvedValue({
       items: [
         {
@@ -222,12 +222,12 @@ describe("Browser - Image Preview Integration", () => {
     const imageFile = await screen.findByText("photo.jpg");
     fireEvent.click(imageFile);
 
-    // Wait for preview to open
-    const preview = await screen.findByTestId("image-preview");
-    expect(preview).toBeInTheDocument();
+    // Wait for view to open
+    const view = await screen.findByTestId("image-view");
+    expect(view).toBeInTheDocument();
   });
 
-  it("still supports markdown preview for backward compatibility", async () => {
+  it("still supports markdown view for backward compatibility", async () => {
     mockedApi.listDirectory.mockResolvedValue({
       items: [
         {
@@ -253,8 +253,8 @@ describe("Browser - Image Preview Integration", () => {
     // Click on the markdown file
     fireEvent.click(markdownFile);
 
-    // Markdown preview should open
-    const preview = await screen.findByTestId("markdown-preview");
-    expect(preview).toBeInTheDocument();
+    // Markdown view should open
+    const view = await screen.findByTestId("markdown-view");
+    expect(view).toBeInTheDocument();
   });
 });

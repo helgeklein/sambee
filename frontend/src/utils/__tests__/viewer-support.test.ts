@@ -1,37 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { hasPreviewSupport, isImageFile } from "../FileTypeRegistry";
+import { hasViewerSupport, isImageFile } from "../FileTypeRegistry";
 
-describe("hasPreviewSupport", () => {
+describe("hasViewerSupport", () => {
   it("returns true for image formats", () => {
-    expect(hasPreviewSupport("image/png")).toBe(true);
-    expect(hasPreviewSupport("image/jpeg")).toBe(true);
-    expect(hasPreviewSupport("image/gif")).toBe(true);
-    expect(hasPreviewSupport("image/webp")).toBe(true);
+    expect(hasViewerSupport("image/png")).toBe(true);
+    expect(hasViewerSupport("image/jpeg")).toBe(true);
+    expect(hasViewerSupport("image/gif")).toBe(true);
+    expect(hasViewerSupport("image/webp")).toBe(true);
+    expect(hasViewerSupport("image/svg+xml")).toBe(true);
   });
 
   it("returns true for advanced image formats", () => {
-    expect(hasPreviewSupport("image/vnd.adobe.photoshop")).toBe(true); // PSD
-    expect(hasPreviewSupport("application/postscript")).toBe(true); // EPS/AI
-    expect(hasPreviewSupport("image/x-eps")).toBe(true); // EPS
-    expect(hasPreviewSupport("application/illustrator")).toBe(true); // AI
+    expect(hasViewerSupport("image/vnd.adobe.photoshop")).toBe(true); // PSD
+    expect(hasViewerSupport("application/postscript")).toBe(true); // EPS/AI
+    expect(hasViewerSupport("image/x-eps")).toBe(true); // EPS
+    expect(hasViewerSupport("image/tiff")).toBe(true); // TIFF
   });
 
   it("returns true for markdown", () => {
-    expect(hasPreviewSupport("text/markdown")).toBe(true);
+    expect(hasViewerSupport("text/markdown")).toBe(true);
   });
 
   it("returns false for PDF (not implemented yet)", () => {
-    expect(hasPreviewSupport("application/pdf")).toBe(false);
+    expect(hasViewerSupport("application/pdf")).toBe(false);
   });
 
   it("returns false for unknown MIME types", () => {
-    expect(hasPreviewSupport("application/octet-stream")).toBe(false);
-    expect(hasPreviewSupport("application/x-unknown")).toBe(false);
+    expect(hasViewerSupport("application/octet-stream")).toBe(false);
+    expect(hasViewerSupport("application/x-unknown")).toBe(false);
   });
 
-  it("returns false for document formats without preview", () => {
-    expect(hasPreviewSupport("application/msword")).toBe(false);
-    expect(hasPreviewSupport("application/vnd.ms-excel")).toBe(false);
+  it("returns false for document formats without view", () => {
+    expect(hasViewerSupport("application/msword")).toBe(false);
+    expect(hasViewerSupport("application/vnd.ms-excel")).toBe(false);
   });
 });
 

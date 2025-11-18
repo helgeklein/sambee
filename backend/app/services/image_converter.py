@@ -1,7 +1,7 @@
 """
 Image conversion service using libvips for high-performance processing.
 
-Converts non-browser-native image formats to JPEG/PNG for preview.
+Converts non-browser-native image formats to JPEG/PNG for viewing.
 Examples::
 - TIFF/TIF → JPEG
 - ICO → PNG (preserves transparency)

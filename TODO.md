@@ -1,6 +1,6 @@
 # TODO
 
-## Image preview
+## Image viewer
 
 - Support multi-page image files:
   - TIFF

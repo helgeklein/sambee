@@ -337,14 +337,14 @@ describe("API Service", () => {
   });
 
   describe("Preview Operations", () => {
-    it("getPreviewUrl() constructs correct URL with token", () => {
-      localStorage.setItem("access_token", "preview-token");
+    it("getViewUrl() constructs correct URL with token", () => {
+      localStorage.setItem("access_token", "viewer-token");
 
-      const url = apiService.getPreviewUrl("conn1", "/test.pdf");
+      const url = apiService.getViewUrl("conn1", "/test.pdf");
 
-      expect(url).toContain("/preview/conn1/file");
+      expect(url).toContain("/viewer/conn1/file");
       expect(url).toContain("path=%2Ftest.pdf");
-      expect(url).toContain("token=preview-token");
+      expect(url).toContain("token=viewer-token");
     });
 
     it("getDownloadUrl() constructs correct URL with token", () => {
@@ -352,7 +352,7 @@ describe("API Service", () => {
 
       const url = apiService.getDownloadUrl("conn1", "/data.zip");
 
-      expect(url).toContain("/preview/conn1/download");
+      expect(url).toContain("/viewer/conn1/download");
       expect(url).toContain("path=%2Fdata.zip");
       expect(url).toContain("token=download-token");
     });
@@ -367,7 +367,7 @@ describe("API Service", () => {
       const result = await apiService.getFileContent("conn1", "/readme.txt");
 
       expect(result).toBe("File content here");
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/preview/conn1/file", {
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/viewer/conn1/file", {
         params: { path: "/readme.txt" },
         headers: {
           Authorization: "Bearer content-token",

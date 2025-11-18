@@ -241,8 +241,8 @@ export const handlers = [
   }),
 
   // Preview - Start stream
-  // Preview - Start file preview
-  http.get(`${API_BASE}/preview/:connectionId/start`, ({ request }) => {
+  // Viewer - Start file viewing
+  http.get(`${API_BASE}/viewer/:connectionId/start`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {

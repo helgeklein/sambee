@@ -53,14 +53,14 @@ export function createReactWindowMock() {
 
 /**
  * Lazy mock for MarkdownPreview component
- * Simple placeholder for preview tests
+ * Simple placeholder for viewer tests
  */
 export function createMarkdownPreviewMock() {
   return {
     default: () =>
       React.createElement(
         "div",
-        { role: "dialog", "data-testid": "markdown-preview" },
+        { role: "dialog", "data-testid": "markdown-viewer" },
         "Markdown Preview"
       ),
   };
@@ -152,7 +152,7 @@ export function createLightReactWindowMock() {
 
 /**
  * Create light MarkdownPreview mock
- * Returns null to skip preview rendering
+ * Returns null to skip viewer rendering
  */
 export function createLightMarkdownPreviewMock() {
   return {

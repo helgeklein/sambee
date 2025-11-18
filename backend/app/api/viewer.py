@@ -27,13 +27,13 @@ def validate_connection(connection: Connection) -> None:
 
 
 @router.get("/{connection_id}/file", response_model=None)
-async def preview_file(
+async def view_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> Response | StreamingResponse:
-    """Stream file contents for preview"""
+    """Stream file contents for viewing"""
     set_user(current_user.username)
 
     connection = session.get(Connection, connection_id)
@@ -68,7 +68,7 @@ async def preview_file(
                 await backend.disconnect()
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot preview a directory",
+                    detail="Cannot view a directory",
                 )
         except HTTPException:
             raise
@@ -178,7 +178,7 @@ async def preview_file(
                 await backend.disconnect()
 
         logger.info(
-            f"Streaming file for preview: connection_id={connection_id}, path='{path}', mime_type={mime_type}"
+            f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={mime_type}"
         )
         return StreamingResponse(
             file_streamer(),
@@ -190,7 +190,7 @@ async def preview_file(
         raise
     except Exception as e:
         logger.error(
-            f"Failed to preview file: connection_id={connection_id}, path='{path}', "
+            f"Failed to view file: connection_id={connection_id}, path='{path}', "
             f"host={connection.host}, share={connection.share_name}, "
             f"error={type(e).__name__}: {e}",
             exc_info=True,

@@ -171,26 +171,24 @@ class ApiService {
     return response.data;
   }
 
-  // Preview endpoints
-  getPreviewUrl(connectionId: string, path: string): string {
+  // Viewer endpoints
+  getViewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
     const baseUrl = import.meta.env.VITE_API_URL || "/api";
-    return `${baseUrl}/preview/${connectionId}/file?path=${encodeURIComponent(
-      path
-    )}&token=${token}`;
+    return `${baseUrl}/viewer/${connectionId}/file?path=${encodeURIComponent(path)}&token=${token}`;
   }
 
   getDownloadUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
     const baseUrl = import.meta.env.VITE_API_URL || "/api";
-    return `${baseUrl}/preview/${connectionId}/download?path=${encodeURIComponent(
+    return `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(
       path
     )}&token=${token}`;
   }
 
   async getFileContent(connectionId: string, path: string): Promise<string> {
     const token = localStorage.getItem("access_token");
-    const response = await this.api.get(`/preview/${connectionId}/file`, {
+    const response = await this.api.get(`/viewer/${connectionId}/file`, {
       params: { path },
       headers: {
         Authorization: `Bearer ${token}`,
@@ -210,7 +208,7 @@ class ApiService {
     options: { signal?: AbortSignal } = {}
   ): Promise<Blob> {
     try {
-      const response = await this.api.get<ArrayBuffer>(`/preview/${connectionId}/file`, {
+      const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
         params: { path },
         responseType: "arraybuffer",
         signal: options.signal,

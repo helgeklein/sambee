@@ -394,12 +394,12 @@ class TestResponseTimes:
         # Should be fast even with 50 connections
         assert elapsed < 0.1, f"List 50 connections took {elapsed:.2f}s"
 
-    def test_file_preview_start_time(
+    def test_file_view_start_time(
         self, client: TestClient, auth_headers_user: dict[str, str], session: Session
     ):
-        """Test file preview starts streaming quickly."""
+        """Test file view starts streaming quickly."""
         connection = Connection(
-            name="Preview Test",
+            name="View Test",
             type="smb",
             host="server.local",
             share_name="share",
@@ -410,7 +410,7 @@ class TestResponseTimes:
         session.commit()
         session.refresh(connection)
 
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_instance.get_file_info.return_value = FileInfo(
                 name="test.txt",
@@ -427,14 +427,14 @@ class TestResponseTimes:
 
             start_time = time.time()
             response = client.get(
-                f"/api/preview/{connection.id}/file?path=test.txt",
+                f"/api/viewer/{connection.id}/file?path=test.txt",
                 headers=auth_headers_user,
             )
             elapsed = time.time() - start_time
 
             assert response.status_code == 200
-            # Preview should start quickly (< 500ms)
-            assert elapsed < 0.5, f"Preview start took {elapsed:.2f}s"
+            # View should start quickly (< 500ms)
+            assert elapsed < 0.5, f"View start took {elapsed:.2f}s"
 
 
 @pytest.mark.performance
@@ -690,7 +690,7 @@ class TestDataTransfer:
     def test_concurrent_file_streams(
         self, client: TestClient, auth_headers_user: dict[str, str], session: Session
     ):
-        """Test multiple sequential file preview streams (SQLite limitation)."""
+        """Test multiple sequential file view streams (SQLite limitation)."""
         connection = Connection(
             name="Stream Test",
             type="smb",
@@ -703,7 +703,7 @@ class TestDataTransfer:
         session.commit()
         session.refresh(connection)
 
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_instance.get_file_info.return_value = FileInfo(
                 name="test.txt",
@@ -725,7 +725,7 @@ class TestDataTransfer:
             responses = []
             for i in range(10):
                 response = client.get(
-                    f"/api/preview/{connection.id}/file?path=test{i}.txt",
+                    f"/api/viewer/{connection.id}/file?path=test{i}.txt",
                     headers=auth_headers_user,
                 )
                 responses.append(response)

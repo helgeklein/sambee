@@ -52,8 +52,8 @@ import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
-import type { PreviewComponent } from "../utils/FileTypeRegistry";
-import { getPreviewComponent, hasPreviewSupport, isImageFile } from "../utils/FileTypeRegistry";
+import type { ViewerComponent } from "../utils/FileTypeRegistry";
+import { getViewerComponent, hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
 import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System
@@ -171,7 +171,7 @@ const Browser: React.FC = () => {
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [currentPath, setCurrentPath] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);
-  const [previewInfo, setPreviewInfo] = useState<{
+  const [viewInfo, setPreviewInfo] = useState<{
     path: string;
     mimeType: string;
     images?: string[];
@@ -804,7 +804,7 @@ const Browser: React.FC = () => {
         // Check if it's an image for gallery mode
         const isImage = isImageFile(file.name);
 
-        logger.info("File selected for preview", {
+        logger.info("File selected for viewing", {
           path: filePath,
           fileName: file.name,
           size: file.size,
@@ -833,30 +833,30 @@ const Browser: React.FC = () => {
           currentPreviewIndexRef.current = null;
           currentPreviewImagesRef.current = undefined;
 
-          // Check if preview component is available for this MIME type
-          const canPreview = hasPreviewSupport(mimeType);
+          // Check if viewer component is available for this MIME type
+          const canPreview = hasViewerSupport(mimeType);
 
-          logger.info("Opening file in single preview mode", {
+          logger.info("Opening file in single viewer mode", {
             isImage,
             mimeType,
-            hasPreviewSupport: canPreview,
+            hasViewerSupport: canPreview,
           });
 
-          // Only open preview if we have a component for it
+          // Only open viewer if we have a component for it
           if (canPreview) {
             setPreviewInfo({
               path: filePath,
               mimeType,
             });
           } else {
-            logger.info("No preview component available, file will not open", {
+            logger.info("No viewer component available, file will not open", {
               mimeType,
             });
           }
         }
 
         // Keep old behavior for markdown (backward compatibility)
-        // Preview component is managed exclusively through previewInfo state
+        // Viewer component is managed exclusively through viewInfo state
       }
     },
     [currentPath, updateFocus, imageFiles, focusedIndex]
@@ -883,16 +883,16 @@ const Browser: React.FC = () => {
   }, []);
 
   const handlePreviewClose = useCallback(() => {
-    const images = currentPreviewImagesRef.current ?? previewInfo?.images;
-    const indexFromRef = currentPreviewIndexRef.current ?? previewInfo?.currentIndex ?? null;
+    const images = currentPreviewImagesRef.current ?? viewInfo?.images;
+    const indexFromRef = currentPreviewIndexRef.current ?? viewInfo?.currentIndex ?? null;
 
     let finalPath: string | undefined;
     if (images && images.length > 0) {
       const clampedIndex =
         indexFromRef !== null ? Math.min(Math.max(indexFromRef, 0), images.length - 1) : 0;
       finalPath = images[clampedIndex];
-    } else if (previewInfo?.path) {
-      finalPath = previewInfo.path;
+    } else if (viewInfo?.path) {
+      finalPath = viewInfo.path;
     }
 
     setPreviewInfo(null);
@@ -914,7 +914,7 @@ const Browser: React.FC = () => {
     if (targetIndex >= 0) {
       updateFocus(targetIndex, { immediate: true });
     }
-  }, [currentPath, previewInfo, sortedAndFilteredFiles, updateFocus]);
+  }, [currentPath, viewInfo, sortedAndFilteredFiles, updateFocus]);
 
   // Memoize measureElement to prevent rowVirtualizer from changing on every render
   const measureElement = React.useMemo(
@@ -1031,7 +1031,7 @@ const Browser: React.FC = () => {
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      if (isInInput || settingsOpen || showHelp || previewInfo) {
+      if (isInInput || settingsOpen || showHelp || viewInfo) {
         // Exception: Allow / to focus search from anywhere
         if (e.key === "/" && !settingsOpen && !showHelp) {
           e.preventDefault();
@@ -1245,7 +1245,7 @@ const Browser: React.FC = () => {
     settingsOpen,
     showHelp,
     searchQuery,
-    previewInfo,
+    viewInfo,
     visibleRowCount,
     focusedIndex,
     updateFocus,
@@ -1935,10 +1935,10 @@ const Browser: React.FC = () => {
           </Box>
         </DialogContent>
       </Dialog>
-      {previewInfo && (
-        <DynamicPreview
+      {viewInfo && (
+        <DynamicViewer
           connectionId={selectedConnectionId}
-          previewInfo={previewInfo}
+          viewInfo={viewInfo}
           onClose={handlePreviewClose}
           onIndexChange={handlePreviewIndexChange}
         />
@@ -1948,10 +1948,10 @@ const Browser: React.FC = () => {
 };
 
 // Dynamic Preview Component
-// Loads the appropriate preview component based on MIME type
-const DynamicPreview: React.FC<{
+// Loads the appropriate viewer component based on MIME type
+const DynamicViewer: React.FC<{
   connectionId: string;
-  previewInfo: {
+  viewInfo: {
     path: string;
     mimeType: string;
     images?: string[];
@@ -1959,24 +1959,24 @@ const DynamicPreview: React.FC<{
   };
   onClose: () => void;
   onIndexChange?: (index: number) => void;
-}> = ({ connectionId, previewInfo, onClose, onIndexChange }) => {
-  const [PreviewComponent, setPreviewComponent] = useState<PreviewComponent | null>(null);
+}> = ({ connectionId, viewInfo, onClose, onIndexChange }) => {
+  const [ViewerComponent, setViewerComponent] = useState<ViewerComponent | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
-    logger.info("DynamicPreview: Loading preview component", {
-      mimeType: previewInfo.mimeType,
+    logger.info("DynamicViewer: Loading viewer component", {
+      mimeType: viewInfo.mimeType,
     });
 
-    getPreviewComponent(previewInfo.mimeType).then((component) => {
+    getViewerComponent(viewInfo.mimeType).then((component) => {
       if (mounted) {
-        logger.info("DynamicPreview: Preview component loaded", {
-          mimeType: previewInfo.mimeType,
+        logger.info("DynamicViewer: Viewer component loaded", {
+          mimeType: viewInfo.mimeType,
           componentFound: !!component,
         });
         if (component) {
-          setPreviewComponent(() => component);
+          setViewerComponent(() => component);
         }
       }
     });
@@ -1984,26 +1984,26 @@ const DynamicPreview: React.FC<{
     return () => {
       mounted = false;
     };
-  }, [previewInfo.mimeType]); // Only reload component when MIME type changes, not path
+  }, [viewInfo.mimeType]); // Only reload component when MIME type changes, not path
 
-  if (!PreviewComponent) {
-    logger.debug("DynamicPreview: No preview component yet", {
-      mimeType: previewInfo.mimeType,
+  if (!ViewerComponent) {
+    logger.debug("DynamicViewer: No viewer component yet", {
+      mimeType: viewInfo.mimeType,
     });
     return null;
   }
 
-  logger.debug("DynamicPreview: Rendering preview component", {
-    mimeType: previewInfo.mimeType,
+  logger.debug("DynamicViewer: Rendering viewer component", {
+    mimeType: viewInfo.mimeType,
   });
 
   return (
-    <PreviewComponent
+    <ViewerComponent
       connectionId={connectionId}
-      path={previewInfo.path}
+      path={viewInfo.path}
       onClose={onClose}
-      images={previewInfo.images}
-      currentIndex={previewInfo.currentIndex}
+      images={viewInfo.images}
+      currentIndex={viewInfo.currentIndex}
       onCurrentIndexChange={onIndexChange}
     />
   );
