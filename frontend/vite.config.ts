@@ -27,7 +27,7 @@ export default defineConfig({
 						"@emotion/react",
 						"@emotion/styled",
 					],
-					// Split markdown rendering into its own chunk (only loaded when previewing markdown)
+					// Split markdown rendering into its own chunk (only loaded when viewing markdown)
 					markdown: ["react-markdown", "remark-gfm", "rehype-highlight"],
 				},
 			},

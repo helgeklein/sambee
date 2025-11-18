@@ -52,16 +52,16 @@ export function createReactWindowMock() {
 }
 
 /**
- * Lazy mock for MarkdownPreview component
- * Simple placeholder for preview tests
+ * Lazy mock for MarkdownViewer component
+ * Simple placeholder for viewer tests
  */
-export function createMarkdownPreviewMock() {
+export function createMarkdownViewerMock() {
   return {
     default: () =>
       React.createElement(
         "div",
-        { role: "dialog", "data-testid": "markdown-preview" },
-        "Markdown Preview"
+        { role: "dialog", "data-testid": "markdown-viewer" },
+        "Markdown Viewer"
       ),
   };
 }
@@ -89,7 +89,7 @@ export function createSettingsDialogMock() {
  */
 export function setupLazyMocks() {
   vi.mock("react-window", () => createReactWindowMock());
-  vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
+  vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
   vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
 }
 
@@ -101,10 +101,10 @@ export function setupReactWindowMock() {
 }
 
 /**
- * Setup only MarkdownPreview mock
+ * Setup only MarkdownViewer mock
  */
-export function setupMarkdownPreviewMock() {
-  vi.mock("../../components/Preview/MarkdownPreview", () => createMarkdownPreviewMock());
+export function setupMarkdownViewerMock() {
+  vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
 }
 
 /**
@@ -131,7 +131,7 @@ export function createGenericComponentMock(testId: string, displayName = "MockCo
  */
 export function createLightMocks() {
   return {
-    MarkdownPreview: () => null,
+    MarkdownViewer: () => null,
     SettingsDialog: () => null,
     List: ({ children }: { children: React.ReactNode }) =>
       React.createElement("div", { "data-testid": "light-list" }, children),
@@ -151,10 +151,10 @@ export function createLightReactWindowMock() {
 }
 
 /**
- * Create light MarkdownPreview mock
- * Returns null to skip preview rendering
+ * Create light MarkdownViewer mock
+ * Returns null to skip viewer rendering
  */
-export function createLightMarkdownPreviewMock() {
+export function createLightMarkdownViewerMock() {
   return {
     default: () => null,
   };

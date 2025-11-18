@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { isApiError } from "../../types";
-import type { PreviewComponentProps } from "../../utils/FileTypeRegistry";
+import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { ImageControls } from "./ImageControls";
 
 /**
@@ -36,12 +36,12 @@ const getErrorMessage = (err: unknown): string => {
 };
 
 /**
- * Image Preview Component
+ * Image Viewer Component
  * Displays images with zoom, pan, rotate, and gallery navigation features.
  * Uses react-photo-view for advanced image viewing capabilities.
  * Fetches images via Axios to include authentication headers, then creates blob URLs.
  */
-const ImagePreview: React.FC<PreviewComponentProps> = ({
+const ImageViewer: React.FC<ViewerComponentProps> = ({
   connectionId,
   path,
   onClose,
@@ -249,7 +249,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
           break;
         case "ArrowUp":
         case "ArrowDown":
-          // Prevent default scrolling behavior on mobile when image preview is open
+          // Prevent default scrolling behavior on mobile when image viewer is open
           event.preventDefault();
           break;
         case "Home":
@@ -306,9 +306,9 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
     };
   }, [handleClose, handleNext, handlePrevious, images.length, toggleFullscreen]);
 
-  // Log when image preview opens
+  // Log when image viewer opens
   useEffect(() => {
-    logInfo("Image preview opened", {
+    logInfo("Image viewer opened", {
       filename,
       gallerySize: images.length,
       isGallery: images.length > 1,
@@ -318,7 +318,7 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   // Cleanup when component unmounts
   useEffect(() => {
     return () => {
-      logInfo("Image preview closed");
+      logInfo("Image viewer closed");
       // Exit fullscreen if still active when component unmounts
       if (document.fullscreenElement) {
         document.exitFullscreen();
@@ -460,4 +460,4 @@ const ImagePreview: React.FC<PreviewComponentProps> = ({
   );
 };
 
-export default ImagePreview;
+export default ImageViewer;

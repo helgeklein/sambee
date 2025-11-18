@@ -269,8 +269,8 @@ cd backend
 python -c "from app.db.database import init_db; init_db()"
 ```
 
-## Adding New File Preview Types
+## Adding New File Viewer Types
 
-1. Create preview component in `frontend/src/components/Preview/`
-2. Register in `PreviewContainer.tsx`
-3. Add MIME type mapping in `preview.service.ts`
+1. Create preview component in `frontend/src/components/Viewer/`
+2. Register in `ViewerContainer.tsx`
+3. Add MIME type mapping in `viewer.service.ts`

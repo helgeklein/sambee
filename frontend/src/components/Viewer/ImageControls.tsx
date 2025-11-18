@@ -24,7 +24,7 @@ interface ImageControlsProps {
 }
 
 /**
- * Custom toolbar for image preview with zoom, rotate, and navigation controls
+ * Custom toolbar for image viewer with zoom, rotate, and navigation controls
  */
 export const ImageControls: React.FC<ImageControlsProps> = ({
   filename,

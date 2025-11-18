@@ -2,10 +2,10 @@
  * Unified File Type Registry
  *
  * Single source of truth for all file type information including:
- * - File extensions and MIME types
- * - Preview component mappings
+ * - Comprehensive MIME type mappings
+ * - File extension mappings
+ * - Viewer component mappings
  * - Icon and color assignments
- * - Category classifications
  */
 
 import type React from "react";
@@ -14,7 +14,7 @@ import type React from "react";
 // Types
 // ============================================================================
 
-export interface PreviewComponentProps {
+export interface ViewerComponentProps {
   connectionId: string;
   path: string;
   onClose: () => void;
@@ -24,7 +24,7 @@ export interface PreviewComponentProps {
   onCurrentIndexChange?: (index: number) => void;
 }
 
-export type PreviewComponent = React.ComponentType<PreviewComponentProps>;
+export type ViewerComponent = React.ComponentType<ViewerComponentProps>;
 
 export type FileCategory =
   | "image"
@@ -61,7 +61,7 @@ interface FileTypeDefinition {
   extensions: string[]; // e.g., ['.jpg', '.jpeg']
   mimeTypes: string[]; // e.g., ['image/jpeg']
   category: FileCategory;
-  previewComponent?: () => Promise<{ default: PreviewComponent }>;
+  viewerComponent?: () => Promise<{ default: ViewerComponent }>;
   icon: IconIdentifier;
   color: string;
   description?: string;
@@ -77,7 +77,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jpg", ".jpeg", ".jpe", ".jfif"],
     mimeTypes: ["image/jpeg"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#00b4d8",
     description: "JPEG Image",
@@ -86,7 +86,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".png"],
     mimeTypes: ["image/png"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#00b4d8",
     description: "PNG Image",
@@ -95,7 +95,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".gif"],
     mimeTypes: ["image/gif"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#00b4d8",
     description: "GIF Animation",
@@ -104,7 +104,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".webp"],
     mimeTypes: ["image/webp"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#00b4d8",
     description: "WebP Image",
@@ -113,7 +113,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".svg"],
     mimeTypes: ["image/svg+xml"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#ffb13b",
     description: "SVG Vector",
@@ -122,7 +122,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".avif"],
     mimeTypes: ["image/avif"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#90e0ef",
     description: "AVIF Image",
@@ -133,7 +133,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".tif", ".tiff"],
     mimeTypes: ["image/tiff", "image/x-tiff"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#0077b6",
     description: "TIFF Image",
@@ -142,7 +142,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".heic", ".heif"],
     mimeTypes: ["image/heic", "image/heif"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#0096c7",
     description: "HEIC/HEIF Image",
@@ -151,7 +151,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".bmp", ".dib"],
     mimeTypes: ["image/bmp", "image/x-ms-bmp"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#00b4d8",
     description: "Bitmap Image",
@@ -160,7 +160,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".ico"],
     mimeTypes: ["image/x-icon", "image/vnd.microsoft.icon"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#48cae4",
     description: "Icon File",
@@ -171,7 +171,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".psd", ".psb"],
     mimeTypes: ["image/vnd.adobe.photoshop", "image/x-photoshop"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#31A8FF", // Adobe Photoshop blue
     description: "Adobe Photoshop Document",
@@ -180,7 +180,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".eps"],
     mimeTypes: ["application/postscript", "image/x-eps"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#FF9A00", // PostScript orange
     description: "Encapsulated PostScript",
@@ -189,7 +189,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".ai"],
     mimeTypes: ["application/postscript", "application/illustrator"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#FF7C00", // Adobe Illustrator orange
     description: "Adobe Illustrator",
@@ -198,7 +198,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jp2", ".j2k", ".jpt", ".j2c", ".jpc"],
     mimeTypes: ["image/jp2", "image/jpx", "image/jpm"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#8b5cf6",
     description: "JPEG 2000",
@@ -207,7 +207,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jxl"],
     mimeTypes: ["image/jxl"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#a855f7",
     description: "JPEG XL",
@@ -216,7 +216,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".exr"],
     mimeTypes: ["image/x-exr"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#ec4899",
     description: "OpenEXR HDR",
@@ -225,7 +225,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".hdr"],
     mimeTypes: ["image/vnd.radiance"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#f97316",
     description: "Radiance HDR",
@@ -236,7 +236,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".fits", ".fit", ".fts"],
     mimeTypes: ["image/fits", "application/fits"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#06b6d4",
     description: "FITS Astronomy",
@@ -245,7 +245,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".svs", ".ndpi", ".scn", ".mrxs", ".vms", ".vmu", ".bif"],
     mimeTypes: ["image/x-whole-slide"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#14b8a6",
     description: "Whole-Slide Image",
@@ -254,7 +254,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".img"],
     mimeTypes: ["image/x-img", "application/x-analyze"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#0ea5e9",
     description: "Medical Imaging",
@@ -263,7 +263,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".mat"],
     mimeTypes: ["application/x-matlab-data"],
     category: "image",
-    previewComponent: () => import("../components/Preview/ImagePreview"),
+    viewerComponent: () => import("../components/Viewer/ImageViewer"),
     icon: "image",
     color: "#f59e0b",
     description: "MATLAB Image Data",
@@ -274,7 +274,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".md", ".markdown"],
     mimeTypes: ["text/markdown"],
     category: "text",
-    previewComponent: () => import("../components/Preview/MarkdownPreview"),
+    viewerComponent: () => import("../components/Viewer/MarkdownViewer"),
     icon: "text",
     color: "#083fa1",
     description: "Markdown",
@@ -707,29 +707,29 @@ export const isMarkdownFile = (filename: string): boolean => {
 };
 
 /**
- * Get preview component for a MIME type
+ * Get viewer component for a MIME type
  */
-export const getPreviewComponent = async (mimeType: string): Promise<PreviewComponent | null> => {
+export const getViewerComponent = async (mimeType: string): Promise<ViewerComponent | null> => {
   const fileType = getFileTypeByMime(mimeType);
-  if (!fileType?.previewComponent) {
+  if (!fileType?.viewerComponent) {
     return null;
   }
 
   try {
-    const module = await fileType.previewComponent();
+    const module = await fileType.viewerComponent();
     return module.default;
   } catch (error) {
-    console.error(`Failed to load preview component for ${mimeType}:`, error);
+    console.error(`Failed to load viewer component for ${mimeType}:`, error);
     return null;
   }
 };
 
 /**
- * Check if a MIME type has preview support
+ * Check if a MIME type has viewer support
  */
-export const hasPreviewSupport = (mimeType: string): boolean => {
+export const hasViewerSupport = (mimeType: string): boolean => {
   const fileType = getFileTypeByMime(mimeType);
-  return fileType?.previewComponent !== undefined;
+  return fileType?.viewerComponent !== undefined;
 };
 
 /**

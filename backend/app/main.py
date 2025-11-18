@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
-from app.api import admin, auth, browser, preview, websocket
+from app.api import admin, auth, browser, viewer, websocket
 from app.core.config import settings
 from app.core.logging import set_request_id
 from app.core.security import get_password_hash
@@ -126,9 +126,9 @@ async def log_requests(
     # Set request ID for this request context
     request_id = set_request_id()
 
-    # Extract filename from query params for preview/download endpoints
+    # Extract filename from query params for viewer/download endpoints
     path_suffix = ""
-    if request.url.path.startswith("/api/preview/") or request.url.path.startswith(
+    if request.url.path.startswith("/api/viewer/") or request.url.path.startswith(
         "/api/browse/"
     ):
         file_path = request.query_params.get("path")
@@ -176,7 +176,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
-app.include_router(preview.router, prefix="/api/preview", tags=["preview"])
+app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 
 

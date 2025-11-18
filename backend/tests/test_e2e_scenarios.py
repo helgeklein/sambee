@@ -4,7 +4,7 @@ End-to-end scenario tests for Sambee.
 Tests cover complete user journeys and workflows:
 - User registration and authentication
 - Connection management
-- File browsing and preview
+- File browsing and viewing
 - Real-time notifications
 - Multi-user collaboration
 - Error recovery scenarios
@@ -28,7 +28,7 @@ class TestCompleteUserJourney:
     def test_complete_authenticated_workflow(
         self, client: TestClient, session: Session, auth_headers_admin: dict[str, str]
     ):
-        """Test full workflow: admin operations on connections, browse, preview, download."""
+        """Test full workflow: admin operations on connections, browse, view, download."""
         # Step 1: Admin creates SMB connection (mock the connection test)
         with patch("app.api.admin.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
@@ -84,8 +84,8 @@ class TestCompleteUserJourney:
             assert len(data["items"]) == 1
             assert data["items"][0]["name"] == "file.txt"
 
-        # Step 6: Preview file
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        # Step 6: View file
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_instance.file_exists.return_value = True
             mock_instance.get_file_info.return_value = FileInfo(
@@ -103,14 +103,14 @@ class TestCompleteUserJourney:
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
-                f"/api/preview/{connection_id}/file?path=file.txt",
+                f"/api/viewer/{connection_id}/file?path=file.txt",
                 headers=auth_headers_admin,
             )
             assert response.status_code == 200
             assert response.content == b"Hello World"
 
         # Step 7: Download file
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_instance.file_exists.return_value = True
             mock_instance.get_file_info.return_value = FileInfo(
@@ -128,7 +128,7 @@ class TestCompleteUserJourney:
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
-                f"/api/preview/{connection_id}/download?path=file.txt",
+                f"/api/viewer/{connection_id}/download?path=file.txt",
                 headers=auth_headers_admin,
             )
             assert response.status_code == 200
@@ -294,7 +294,7 @@ class TestMultiUserCollaboration:
         session.refresh(connection)
 
         # Both users access different files
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_instance.file_exists.return_value = True
             mock_instance.get_file_info.return_value = FileInfo(
@@ -312,11 +312,11 @@ class TestMultiUserCollaboration:
             mock_backend_class.return_value = mock_instance
 
             response1 = client.get(
-                f"/api/preview/{connection.id}/file?path=file1.txt",
+                f"/api/viewer/{connection.id}/file?path=file1.txt",
                 headers=auth_headers_user,
             )
             response2 = client.get(
-                f"/api/preview/{connection.id}/file?path=file2.txt",
+                f"/api/viewer/{connection.id}/file?path=file2.txt",
                 headers=auth_headers_admin,
             )
 
@@ -356,10 +356,10 @@ class TestErrorRecoveryScenarios:
             assert response.status_code == 500
             assert "detail" in response.json()
 
-    def test_file_not_found_during_preview(
+    def test_file_not_found_during_view(
         self, client: TestClient, auth_headers_user: dict[str, str], session: Session
     ):
-        """Test file not found error during preview."""
+        """Test file not found error during viewing."""
         connection = Connection(
             name="Not Found Test",
             type="smb",
@@ -372,7 +372,7 @@ class TestErrorRecoveryScenarios:
         session.commit()
         session.refresh(connection)
 
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             # Make get_file_info raise an exception for missing file
             mock_instance.get_file_info.side_effect = FileNotFoundError(
@@ -382,7 +382,7 @@ class TestErrorRecoveryScenarios:
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
-                f"/api/preview/{connection.id}/file?path=missing.txt",
+                f"/api/viewer/{connection.id}/file?path=missing.txt",
                 headers=auth_headers_user,
             )
             # Returns 404 when file is not found
@@ -407,10 +407,10 @@ class TestErrorRecoveryScenarios:
         )
         assert response.status_code in [404, 422]  # Not found or validation error
 
-    def test_directory_preview_error(
+    def test_directory_view_error(
         self, client: TestClient, auth_headers_user: dict[str, str], session: Session
     ):
-        """Test attempting to preview a directory."""
+        """Test attempting to view a directory."""
         connection = Connection(
             name="Dir Test",
             type="smb",
@@ -423,7 +423,7 @@ class TestErrorRecoveryScenarios:
         session.commit()
         session.refresh(connection)
 
-        with patch("app.api.preview.SMBBackend") as mock_backend_class:
+        with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_instance.file_exists.return_value = True
             mock_instance.get_file_info.return_value = FileInfo(
@@ -435,7 +435,7 @@ class TestErrorRecoveryScenarios:
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
-                f"/api/preview/{connection.id}/file?path=folder",
+                f"/api/viewer/{connection.id}/file?path=folder",
                 headers=auth_headers_user,
             )
             # Returns 400 Bad Request when path is a directory, not a file

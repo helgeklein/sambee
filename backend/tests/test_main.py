@@ -336,9 +336,9 @@ class TestRouterInclusion:
         # Should get 401 or other error, not 404
         assert response.status_code != 404
 
-    def test_preview_router_included(self, client: TestClient):
-        """Test that preview router is accessible."""
-        response = client.get("/api/preview/1/file")
+    def test_viewer_router_included(self, client: TestClient):
+        """Test that viewer router is accessible."""
+        response = client.get("/api/viewer/1/file")
         # Should get 401 or other error, not 404
         assert response.status_code != 404
 

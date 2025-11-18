@@ -4,7 +4,7 @@
 
 **Current State:**
 - ✅ Core functionality: SMB browsing, authentication, connection management
-- ✅ Basic file preview (Markdown)
+- ✅ Basic file viewer (Markdown)
 - ✅ WebSocket-based directory change notifications
 - ✅ Excellent keyboard navigation
 - ✅ Strong test coverage (Backend: 89%, Frontend: meets thresholds)
@@ -17,16 +17,16 @@
 
 ---
 
-## Enhanced File Preview & Viewing
+## Enhanced File Viewing & Management
 
-### Rich Preview Support
+### Rich Viewer Support
 
-- [ ] **Image Preview Component**
+- [ ] **Image Viewer Component**
   - Support: PNG, JPEG, GIF, WebP, SVG
   - Features: zoom, pan, rotation, metadata display
   - Lazy loading for large images
   
-- [ ] **Code/Text Preview Component**
+- [ ] **Code/Text Viewer Component**
   - Syntax highlighting (via Prism.js or Monaco Editor)
   - Line numbers, search within file
   - Support: Python, JS/TS, JSON, XML, YAML, Shell, SQL, etc.
@@ -35,20 +35,20 @@
   - Use react-pdf or PDF.js
   - Page navigation, zoom, search
   
-- [ ] **Media Preview**
+- [ ] **Media Viewer**
   - Audio: MP3, WAV, FLAC (use HTML5 audio)
   - Video: MP4, WebM, MKV (use HTML5 video with HLS.js for streaming)
   
-- [ ] **Office Document Preview**
+- [ ] **Office Document Viewer**
   - Research: Microsoft Office Online viewer or LibreOffice conversion
   - Priority: DOCX, XLSX, PPTX
   - Alternative: Download-only for complex formats
 
 **Technical Considerations:**
-- Create abstract `PreviewComponent` interface
-- Implement preview component registry based on MIME type
+- Create abstract `ViewerComponent` interface
+- Implement viewer component registry based on MIME type
 - Add size limits to prevent loading huge files
-- Stream large files in chunks for preview
+- Stream large files in chunks for viewing
 - Add "Download" button for unsupported formats
 
 ---
@@ -118,7 +118,7 @@
 
 - [ ] **File Icons**
   - Better file type icons (use icon library like react-icons)
-  - Thumbnail previews for images in list view
+  - Thumbnail views for images in list view
   
 - [ ] **Dark Mode**
   - Implement theme toggle
@@ -142,7 +142,7 @@
 ### Frontend Optimizations
 
 - [ ] **Code Splitting**
-  - Lazy load preview components
+  - Lazy load viewer components
   - Route-based splitting
   - Reduce initial bundle size
   
@@ -307,7 +307,7 @@
 3. **Error Handling**
    - Standardize error responses (use Problem Details RFC 7807)
    - Better error messages for users
-   - Graceful degradation (e.g., preview fallback)
+   - Graceful degradation (e.g., viewer fallback)
 
 ### Best Practices to Maintain
 
@@ -332,13 +332,13 @@
 
 ### **Separation of Concerns**
 
-   - Keep preview components independent and composable
+   - Keep viewer components independent and composable
    - Protocol implementations strictly adhere to `StorageBackend` interface
    - Clear boundaries: API → Service → Storage
 
 ### **Progressive Enhancement**
    - Basic functionality works without JS (server-rendered fallback)
-   - Preview degrades gracefully for unsupported types
+   - Viewer degrades gracefully for unsupported types
    - Mobile-first, responsive design
 
 ### **Performance by Default**

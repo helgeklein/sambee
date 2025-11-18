@@ -1,5 +1,5 @@
 /**
- * Test utilities for Preview components
+ * Test utilities for View components
  */
 
 // Mock for react-photo-view
@@ -14,11 +14,11 @@ export const createPhotoViewMock = () => ({
   ),
 });
 
-// Mock for MarkdownPreview component
-export const createMarkdownPreviewMock = () => ({
+// Mock for MarkdownView component
+export const createMarkdownViewMock = () => ({
   default: ({ path, onClose }: { connectionId: string; path: string; onClose: () => void }) => (
-    <div data-testid="markdown-preview" data-path={path}>
-      Markdown Preview
+    <div data-testid="markdown-view" data-path={path}>
+      Markdown View
       <button onClick={onClose} type="button">
         Close
       </button>
@@ -26,8 +26,8 @@ export const createMarkdownPreviewMock = () => ({
   ),
 });
 
-// Mock for ImagePreview component
-export const createImagePreviewMock = () => ({
+// Mock for ImageView component
+export const createImageViewMock = () => ({
   default: ({
     path,
     onClose,
@@ -40,8 +40,8 @@ export const createImagePreviewMock = () => ({
     images?: string[];
     currentIndex?: number;
   }) => (
-    <div data-testid="image-preview" data-path={path}>
-      Image Preview: {path}
+    <div data-testid="image-view" data-path={path}>
+      Image View: {path}
       {images && images.length > 1 && (
         <span data-testid="gallery-info">
           {(currentIndex ?? 0) + 1} / {images.length}

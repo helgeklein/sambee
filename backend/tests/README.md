@@ -89,7 +89,7 @@ Shared fixtures in `conftest.py`:
 **Areas for future testing**:
 - WebSocket endpoints (16% coverage)
 - Directory monitoring service (12% coverage)
-- Preview endpoints (27% coverage)
+- Viewer endpoints (27% coverage)
 - SMB storage backend (34% coverage)
 
 ## Writing New Tests

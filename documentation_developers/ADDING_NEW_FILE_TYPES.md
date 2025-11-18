@@ -34,7 +34,7 @@ FileTypeDefinition(
   extensions: [".jxl"],
   mimeTypes: ["image/jxl"],
   category: "image",
-  previewComponent: () => import("../components/Preview/ImagePreview"),
+  viewerComponent: () => import("../components/Viewer/ImageViewer"),
   icon: "image",
   color: "#a855f7",
   description: "JPEG XL Image",
@@ -44,7 +44,7 @@ FileTypeDefinition(
 **That's it!** The system automatically handles:
 - ✅ MIME type detection (backend)
 - ✅ Icon display with correct color (frontend)
-- ✅ Preview component mapping (frontend)
+- ✅ Viewer component mapping (frontend)
 - ✅ Image conversion routing (backend)
 - ✅ File extension matching (both)
 - ✅ Gallery mode support (frontend)
@@ -102,7 +102,7 @@ FileTypeDefinition(
   extensions: [".jxl"],
   mimeTypes: ["image/jxl"],
   category: "image",
-  previewComponent: () => import("../components/Preview/ImagePreview"),
+  viewerComponent: () => import("../components/Viewer/ImageViewer"),
   icon: "image",
   color: "#a855f7",  // Choose a distinctive color
   description: "JPEG XL Image",
@@ -111,7 +111,7 @@ FileTypeDefinition(
 
 **That's all you need!** The centralized registry automatically handles:
 - Icon selection and color
-- Preview component mapping
+- Viewer component mapping
 - MIME type detection
 - File extension matching
 - Gallery mode support (for images)
@@ -132,7 +132,7 @@ FileTypeDefinition(
 **Important:** Make sure the MIME types match between backend and frontend registries!
 
 #### 3. Documentation: Preview Support
-**File:** `/workspace/documentation/PREVIEW_SUPPORT.md`
+**File:** `/workspace/documentation/VIEWER_SUPPORT.md`
 
 Add to the appropriate section based on browser support:
 
@@ -179,7 +179,7 @@ For adding a new image format (e.g., JPEG XL `.jxl`):
 
 - [ ] **Backend Registry**: Add `FileTypeDefinition` to `FILE_TYPE_REGISTRY` in `app/utils/file_type_registry.py` (around line ~60)
 - [ ] **Frontend Registry**: Add entry to `FILE_TYPE_REGISTRY` in `src/utils/FileTypeRegistry.ts` (around line ~70)
-- [ ] **Documentation**: Add to appropriate section in `documentation/PREVIEW_SUPPORT.md`
+- [ ] **Documentation**: Add to appropriate section in `documentation/VIEWER_SUPPORT.md`
 - [ ] **Developer Docs** (optional): Update `documentation_developers/SERVER_SIDE_IMAGE_CONVERSION.md` if needed
 
 **Total files to modify:** 2-4 files (1-2 optional)
@@ -188,7 +188,7 @@ For adding a new image format (e.g., JPEG XL `.jxl`):
 - ✅ Both registries must have matching MIME types
 - ✅ Both registries must have matching extensions
 - ✅ Backend `requires_conversion` determines if image needs server processing
-- ✅ Frontend `previewComponent` determines how file is displayed
+- ✅ Frontend `viewerComponent` determines how file is displayed
 
 
 ---
@@ -198,7 +198,7 @@ For adding a new image format (e.g., JPEG XL `.jxl`):
 After making the changes:
 
 - [ ] **Icon Display**: Verify icon shows correctly in file browser with the right color
-- [ ] **Preview Opens**: Verify file opens in preview mode when clicked
+- [ ] **File Opens in Viewer**: Verify file opens in viewer mode when clicked
 - [ ] **Conversion Works**: If server-converted, verify conversion produces valid output
 - [ ] **Gallery Mode**: Verify file appears in gallery navigation for images
 - [ ] **MIME Type Detection**: Verify correct MIME type is detected (check browser console)
@@ -231,11 +231,11 @@ FileTypeDefinition(
 **Note:** `requires_conversion` only affects images. For non-image types, it's typically `False`.
 
 ### 2. Frontend: Create Preview Component (if needed)
-Create a new preview component in `/workspace/frontend/src/components/Preview/`
-- `PdfPreview.tsx` - For PDF documents
-- `VideoPreview.tsx` - For video files
-- `AudioPreview.tsx` - For audio files
-- `TextPreview.tsx` - For text files with syntax highlighting
+Create a new preview component in `/workspace/frontend/src/components/Viewer/`
+- `PdfViewer.tsx` - For PDF documents
+- `VideoViewer.tsx` - For video files
+- `AudioViewer.tsx` - For audio files
+- `TextViewer.tsx` - For text files with syntax highlighting
 
 ### 3. Frontend: Add to FileTypeRegistry
 Add one entry to `FILE_TYPE_REGISTRY` array in `src/utils/FileTypeRegistry.ts`:
@@ -245,7 +245,7 @@ Add one entry to `FILE_TYPE_REGISTRY` array in `src/utils/FileTypeRegistry.ts`:
   extensions: [".pdf"],
   mimeTypes: ["application/pdf"],
   category: "document",
-  previewComponent: () => import("../components/Preview/PdfPreview"),  // Your new component
+  viewerComponent: () => import("../components/Viewer/PdfViewer"),  // Your new component
   icon: "pdf",
   color: "#ff0000",
   description: "PDF Document",
@@ -253,7 +253,7 @@ Add one entry to `FILE_TYPE_REGISTRY` array in `src/utils/FileTypeRegistry.ts`:
 ```
 
 ### 4. Update Documentation
-Add to `documentation/PREVIEW_SUPPORT.md` in the appropriate category.
+Add to `documentation/VIEWER_SUPPORT.md` in the appropriate category.
 
 That's it! Both registries work together to provide complete file type support.
 
@@ -296,14 +296,14 @@ FileTypeDefinition(
   extensions: [".jxl"],
   mimeTypes: ["image/jxl"],
   category: "image",
-  previewComponent: () => import("../components/Preview/ImagePreview"),
+  viewerComponent: () => import("../components/Viewer/ImageViewer"),
   icon: "image",
   color: "#a855f7",  // Purple for JPEG XL
   description: "JPEG XL Image",
 }
 ```
 
-### 3. Documentation (`PREVIEW_SUPPORT.md`)
+### 3. Documentation (`VIEWER_SUPPORT.md`)
 ```markdown
 #### Server-Converted Formats
 - **JPEG XL** (`.jxl`) - `image/jxl` - Next-generation image format with superior compression
@@ -334,9 +334,9 @@ Done! The format is now fully integrated.
 
 ### Frontend Registry
 - **Location**: `/workspace/frontend/src/utils/FileTypeRegistry.ts`
-- **Purpose**: Preview component mapping, icon/color selection, file type classification
+- **Purpose**: Viewer component mapping, icon/color selection, file type classification
 - **Functions**:
-  - `getPreviewComponent(mimeType)` - Get preview component for MIME type
+  - `getViewerComponent(mimeType)` - Get preview component for MIME type
   - `isImageFile(filename)` - Check if file is an image
   - `getFileIcon({filename, isDirectory})` - Get icon and color
   - `getFileTypeByExtension(filename)` - Get full definition
@@ -346,5 +346,5 @@ Done! The format is now fully integrated.
 1. **File listing**: Backend `SMBBackend.list_directory()` uses `get_mime_type()` to populate `FileInfo.mime_type`
 2. **Frontend receives**: File list with MIME types included
 3. **Icon display**: Frontend uses `getFileIcon()` based on filename
-4. **Preview**: Frontend uses `getPreviewComponent()` based on `mime_type` from backend
+4. **Preview**: Frontend uses `getViewerComponent()` based on `mime_type` from backend
 5. **Image conversion**: Backend uses `needs_conversion()` to route through `image_converter.py`
