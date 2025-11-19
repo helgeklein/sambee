@@ -49,9 +49,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [searchText, setSearchText] = useState<string>("");
   const [searchMatches, _setSearchMatches] = useState<number>(0);
   const [currentMatch, setCurrentMatch] = useState<number>(0);
-  const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -122,23 +122,31 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, [connectionId, path]);
 
   // Measure container dimensions with ResizeObserver
+  // Trigger after PDF loads to ensure container is in DOM
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) {
+      logInfo("Container ref not ready yet", { path, pdfUrl: !!pdfUrl });
+      return;
+    }
+
+    logInfo("Setting up ResizeObserver", { path });
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
+        logInfo("Container dimensions updated", { width, height, path });
         setContainerWidth(width);
         setContainerHeight(height);
       }
     });
 
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(container);
 
     return () => {
       resizeObserver.disconnect();
     };
-  }, []);
+  }, [path, pdfUrl]); // Re-run when path changes OR when pdfUrl becomes available
 
   // Auto-focus content area after load for keyboard navigation
   useEffect(() => {
@@ -152,12 +160,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Calculate page scale based on zoom mode
   const { pageScale, pageWidth } = useMemo(() => {
     // Standard PDF page dimensions (US Letter at 72 DPI)
-    const PAGE_WIDTH = 612;  // 8.5 inches × 72 DPI
+    const PAGE_WIDTH = 612; // 8.5 inches × 72 DPI
     const PAGE_HEIGHT = 792; // 11 inches × 72 DPI
 
     if (scale === "fit-page") {
       // Wait for container dimensions to be measured
       if (containerWidth === 0 || containerHeight === 0) {
+        logInfo("PDF scale calculation skipped - waiting for container dimensions", {
+          containerWidth,
+          containerHeight,
+        });
         return {
           pageScale: 1.0,
           pageWidth: undefined,
@@ -173,6 +185,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       const widthRatio = availableWidth / PAGE_WIDTH;
       const heightRatio = availableHeight / PAGE_HEIGHT;
       const calculatedScale = Math.min(widthRatio, heightRatio);
+
+      logInfo("PDF scale calculation", {
+        containerWidth,
+        containerHeight,
+        availableWidth,
+        availableHeight,
+        widthRatio,
+        heightRatio,
+        calculatedScale,
+        finalScale: Math.max(0.5, Math.min(3.0, calculatedScale)),
+      });
 
       return {
         pageScale: Math.max(0.5, Math.min(3.0, calculatedScale)),

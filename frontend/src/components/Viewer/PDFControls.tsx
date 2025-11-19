@@ -143,10 +143,7 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
   return (
     <Box
       sx={{
-        position: isMobile ? "relative" : "absolute",
-        top: isMobile ? undefined : 0,
-        left: isMobile ? undefined : 0,
-        right: isMobile ? undefined : 0,
+        position: "relative",
         width: "100%",
         bgcolor: "rgba(0,0,0,0.8)",
         color: "white",
