@@ -460,10 +460,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   padding: 0,
                   margin: 0,
                 },
-                "& .react-pdf__Page__canvas": {
-                  maxWidth: "100%",
-                  maxHeight: "100%",
-                },
+                // Only constrain canvas size in fit-page/fit-width modes
+                ...(typeof scale !== "number" && {
+                  "& .react-pdf__Page__canvas": {
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                  },
+                }),
               }}
             >
               <Document
