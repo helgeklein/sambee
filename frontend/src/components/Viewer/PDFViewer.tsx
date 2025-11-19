@@ -4,7 +4,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import apiService from "../../services/api";
-import { error as logError, info as logInfo } from "../../services/logger";
+import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import PDFControls from "./PDFControls";
@@ -51,6 +51,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [currentMatch, setCurrentMatch] = useState<number>(0);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
+  const [pdfPageWidth, setPdfPageWidth] = useState<number>(612); // Default to US Letter
+  const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Extract filename from path
@@ -67,11 +69,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setLoading(true);
         setError(null);
 
-        logInfo("Fetching PDF via API with auth header", {
-          path,
-          connectionId,
-        });
-
         const blob = await apiService.getPdfBlob(connectionId, path, {
           signal: abortController.signal,
         });
@@ -83,12 +80,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         if (!isMounted) return;
 
         blobUrl = URL.createObjectURL(blob);
-        logInfo("Created blob URL for PDF", {
-          path,
-          blobUrl,
-          size: blob.size,
-        });
-
         setPdfUrl(blobUrl);
       } catch (err) {
         if (!isMounted) return;
@@ -115,7 +106,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       abortController.abort();
 
       if (blobUrl) {
-        logInfo("Revoking blob URL", { blobUrl });
         URL.revokeObjectURL(blobUrl);
       }
     };
@@ -125,17 +115,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Trigger after PDF loads to ensure container is in DOM
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
-      logInfo("Container ref not ready yet", { path, pdfUrl: !!pdfUrl });
+    if (!container || !pdfUrl) {
       return;
     }
-
-    logInfo("Setting up ResizeObserver", { path });
 
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
-        logInfo("Container dimensions updated", { width, height, path });
         setContainerWidth(width);
         setContainerHeight(height);
       }
@@ -146,7 +132,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     return () => {
       resizeObserver.disconnect();
     };
-  }, [path, pdfUrl]); // Re-run when path changes OR when pdfUrl becomes available
+  }, [pdfUrl]);
 
   // Auto-focus content area after load for keyboard navigation
   useEffect(() => {
@@ -159,57 +145,33 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Calculate page scale based on zoom mode
   const { pageScale, pageWidth } = useMemo(() => {
-    // Standard PDF page dimensions (US Letter at 72 DPI)
-    const PAGE_WIDTH = 612; // 8.5 inches × 72 DPI
-    const PAGE_HEIGHT = 792; // 11 inches × 72 DPI
-
     if (scale === "fit-page") {
       // Wait for container dimensions to be measured
       if (containerWidth === 0 || containerHeight === 0) {
-        logInfo("PDF scale calculation skipped - waiting for container dimensions", {
-          containerWidth,
-          containerHeight,
-        });
         return {
           pageScale: 1.0,
           pageWidth: undefined,
         };
       }
 
-      // Add padding to prevent PDF from touching edges
-      const PADDING = 32;
-      const availableWidth = containerWidth - PADDING * 2;
-      const availableHeight = containerHeight - PADDING * 2;
-
       // Fit entire page in viewport (like object-fit: contain)
-      const widthRatio = availableWidth / PAGE_WIDTH;
-      const heightRatio = availableHeight / PAGE_HEIGHT;
+      const widthRatio = containerWidth / pdfPageWidth;
+      const heightRatio = containerHeight / pdfPageHeight;
       const calculatedScale = Math.min(widthRatio, heightRatio);
 
-      logInfo("PDF scale calculation", {
-        containerWidth,
-        containerHeight,
-        availableWidth,
-        availableHeight,
-        widthRatio,
-        heightRatio,
-        calculatedScale,
-        finalScale: Math.max(0.5, Math.min(3.0, calculatedScale)),
-      });
+      const finalScale = Math.max(0.5, Math.min(3.0, calculatedScale));
 
       return {
-        pageScale: Math.max(0.5, Math.min(3.0, calculatedScale)),
+        pageScale: finalScale,
         pageWidth: undefined,
       };
     }
 
     if (scale === "fit-width") {
-      // Fit width, allow vertical scrolling
-      const PADDING = 32;
-      const availableWidth = containerWidth > 0 ? containerWidth - PADDING * 2 : containerWidth;
+      // Fit width, allow vertical scrolling - use full container width
       return {
         pageScale: undefined,
-        pageWidth: Math.max(100, availableWidth),
+        pageWidth: Math.max(100, containerWidth),
       };
     }
 
@@ -218,33 +180,43 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       pageScale: scale,
       pageWidth: undefined,
     };
-  }, [scale, containerWidth, containerHeight]);
+  }, [scale, containerWidth, containerHeight, pdfPageWidth, pdfPageHeight]);
 
   // Handle document load success
   const handleDocumentLoadSuccess = useCallback(
-    ({ numPages: pages }: { numPages: number }) => {
-      setNumPages(pages);
+    // biome-ignore lint/suspicious/noExplicitAny: PDF.js document type not fully typed
+    (pdf: any) => {
+      setNumPages(pdf.numPages);
       setCurrentPage(1);
-      logInfo("PDF loaded successfully", { pages, path });
+
+      // Get actual page dimensions from the PDF
+      pdf
+        .getPage(1)
+        // biome-ignore lint/suspicious/noExplicitAny: PDF.js page type not fully typed
+        .then((page: any) => {
+          const viewport = page.getViewport({ scale: 1.0 });
+          setPdfPageWidth(viewport.width);
+          setPdfPageHeight(viewport.height);
+        })
+        // biome-ignore lint/suspicious/noExplicitAny: Error type is unknown
+        .catch((err: any) => {
+          logError("Failed to get page dimensions", err);
+        });
     },
-    [path]
+    []
   );
 
   // Handle document load error
-  const handleDocumentLoadError = useCallback(
-    (err: Error) => {
-      logError("PDF load error", { error: err, path });
-      setError(getErrorMessage(err));
-    },
-    [path]
-  );
+  const handleDocumentLoadError = useCallback((err: Error) => {
+    logError("PDF load error", { error: err.message });
+    setError(getErrorMessage(err));
+  }, []);
 
   // Page navigation
   const handlePageChange = useCallback(
     (page: number) => {
       if (page >= 1 && page <= numPages) {
         setCurrentPage(page);
-        logInfo("Navigated to page", { page, totalPages: numPages });
       }
     },
     [numPages]
@@ -253,7 +225,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Zoom controls
   const handleScaleChange = useCallback((newScale: ZoomMode) => {
     setScale(newScale);
-    logInfo("Zoom changed", { scale: newScale });
   }, []);
 
   // Download handler
@@ -263,29 +234,23 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     link.href = downloadUrl;
     link.download = filename;
     link.click();
-    logInfo("Download initiated", { path, filename });
   }, [connectionId, path, filename]);
 
   // Search handlers (basic implementation - will be enhanced in Phase 2)
   const handleSearchChange = useCallback((text: string) => {
     setSearchText(text);
     // TODO: Implement actual search logic in Phase 2
-    if (text) {
-      logInfo("Search query changed", { query: text });
-    }
   }, []);
 
   const handleSearchNext = useCallback(() => {
     if (searchMatches > 0) {
       setCurrentMatch((prev) => (prev >= searchMatches ? 1 : prev + 1));
-      logInfo("Navigate to next search match");
     }
   }, [searchMatches]);
 
   const handleSearchPrevious = useCallback(() => {
     if (searchMatches > 0) {
       setCurrentMatch((prev) => (prev <= 1 ? searchMatches : prev - 1));
-      logInfo("Navigate to previous search match");
     }
   }, [searchMatches]);
 
@@ -470,14 +435,30 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
 
           {/* PDF Document */}
-          {!error && pdfUrl && (
+          {!error && pdfUrl && containerWidth > 0 && containerHeight > 0 && (
             <Box
               sx={{
-                maxWidth: "100%",
-                maxHeight: "100%",
-                width: "auto",
-                height: "auto",
-                minWidth: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "100%",
+                height: "100%",
+                // Override any padding/margin from react-pdf
+                "& .react-pdf__Document": {
+                  padding: 0,
+                  margin: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                },
+                "& .react-pdf__Page": {
+                  padding: 0,
+                  margin: 0,
+                },
+                "& .react-pdf__Page__canvas": {
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                },
               }}
             >
               <Document
@@ -493,8 +474,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               >
                 <Page
                   pageNumber={currentPage}
-                  scale={pageScale}
-                  width={pageWidth}
+                  scale={pageScale || undefined}
+                  width={pageWidth || undefined}
                   renderTextLayer={true}
                   renderAnnotationLayer={true}
                   loading={<CircularProgress />}
