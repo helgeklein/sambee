@@ -21,8 +21,8 @@ describe("hasViewerSupport", () => {
     expect(hasViewerSupport("text/markdown")).toBe(true);
   });
 
-  it("returns false for PDF (not implemented yet)", () => {
-    expect(hasViewerSupport("application/pdf")).toBe(false);
+  it("returns true for PDF", () => {
+    expect(hasViewerSupport("application/pdf")).toBe(true);
   });
 
   it("returns false for unknown MIME types", () => {
