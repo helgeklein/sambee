@@ -152,14 +152,28 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Calculate page scale based on zoom mode
   const { pageScale, pageWidth } = useMemo(() => {
     // Standard PDF page dimensions (US Letter at 72 DPI)
-    const PAGE_WIDTH = 816;
-    const PAGE_HEIGHT = 1056;
+    const PAGE_WIDTH = 612;  // 8.5 inches × 72 DPI
+    const PAGE_HEIGHT = 792; // 11 inches × 72 DPI
 
     if (scale === "fit-page") {
+      // Wait for container dimensions to be measured
+      if (containerWidth === 0 || containerHeight === 0) {
+        return {
+          pageScale: 1.0,
+          pageWidth: undefined,
+        };
+      }
+
+      // Add padding to prevent PDF from touching edges
+      const PADDING = 32;
+      const availableWidth = containerWidth - PADDING * 2;
+      const availableHeight = containerHeight - PADDING * 2;
+
       // Fit entire page in viewport (like object-fit: contain)
-      const widthRatio = containerWidth / PAGE_WIDTH;
-      const heightRatio = containerHeight / PAGE_HEIGHT;
+      const widthRatio = availableWidth / PAGE_WIDTH;
+      const heightRatio = availableHeight / PAGE_HEIGHT;
       const calculatedScale = Math.min(widthRatio, heightRatio);
+
       return {
         pageScale: Math.max(0.5, Math.min(3.0, calculatedScale)),
         pageWidth: undefined,
@@ -168,9 +182,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
     if (scale === "fit-width") {
       // Fit width, allow vertical scrolling
+      const PADDING = 32;
+      const availableWidth = containerWidth > 0 ? containerWidth - PADDING * 2 : containerWidth;
       return {
         pageScale: undefined,
-        pageWidth: Math.max(100, containerWidth),
+        pageWidth: Math.max(100, availableWidth),
       };
     }
 
