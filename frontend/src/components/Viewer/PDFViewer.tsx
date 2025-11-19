@@ -7,7 +7,7 @@ import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
-import PDFControls from "./PDFControls";
+import { ViewerControls } from "./ViewerControls";
 
 // Configure PDF.js worker - use CDN to avoid version mismatch
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -374,22 +374,45 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             zIndex: 1,
           }}
         >
-          <PDFControls
+          <ViewerControls
             filename={filename}
-            currentPage={currentPage}
-            totalPages={numPages}
-            scale={scale}
-            currentScale={pageScale || 1.0}
-            onPageChange={handlePageChange}
-            onScaleChange={handleScaleChange}
+            config={{
+              pageNavigation: true,
+              zoom: true,
+              search: true,
+              download: true,
+            }}
             onClose={onClose}
+            pageNavigation={{
+              currentPage,
+              totalPages: numPages,
+              onPageChange: handlePageChange,
+            }}
+            zoom={{
+              onZoomIn: () => {
+                if (typeof scale === "number") {
+                  handleScaleChange(scale + 0.25);
+                } else {
+                  handleScaleChange((pageScale || 1.0) + 0.25);
+                }
+              },
+              onZoomOut: () => {
+                if (typeof scale === "number") {
+                  handleScaleChange(Math.max(scale - 0.25, 0.1));
+                } else {
+                  handleScaleChange(Math.max((pageScale || 1.0) - 0.25, 0.1));
+                }
+              },
+            }}
+            search={{
+              searchText,
+              onSearchChange: handleSearchChange,
+              searchMatches,
+              currentMatch,
+              onSearchNext: handleSearchNext,
+              onSearchPrevious: handleSearchPrevious,
+            }}
             onDownload={handleDownload}
-            searchText={searchText}
-            onSearchChange={handleSearchChange}
-            searchMatches={searchMatches}
-            currentMatch={currentMatch}
-            onSearchNext={handleSearchNext}
-            onSearchPrevious={handleSearchPrevious}
           />
         </Box>
 
