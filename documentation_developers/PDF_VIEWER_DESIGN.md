@@ -878,12 +878,10 @@ async getPdfBlob(
 ### Phase 3 - Polish
 - [ ] Download button
 - [ ] Fullscreen support
-- [ ] Rotation (if needed)
+- [ ] Rotation
 - [ ] Mobile optimizations
 - [ ] Touch gestures
-- [ ] Print support (optional)
-- [ ] Thumbnail navigation (optional)
-- [ ] Bookmark support (optional)
+- [ ] Print support
 
 ### Phase 4 - Advanced Features (Future)
 - [ ] Advanced search options
@@ -893,6 +891,8 @@ async getPdfBlob(
 - [ ] Annotation support
 - [ ] Form filling support
 - [ ] Multi-page view (side-by-side)
+- [ ] Thumbnail navigation (optional)
+- [ ] Bookmark support (optional)
 
 ## Performance Considerations
 

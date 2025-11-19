@@ -7,15 +7,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "@mui/icons-material";
-import {
-  Box,
-  IconButton,
-  TextField,
-  Tooltip,
-  Typography,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useState } from "react";
 
 type ZoomMode = "fit-page" | "fit-width" | number;
@@ -173,18 +165,16 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               gap: isMobile ? 0.5 : 1,
             }}
           >
-            <Tooltip title="Previous page">
-              <span>
-                <IconButton
-                  color="inherit"
-                  onClick={handlePreviousPage}
-                  disabled={currentPage <= 1}
-                  size={isMobile ? "small" : "medium"}
-                >
-                  <ArrowBack fontSize={isMobile ? "small" : "medium"} />
-                </IconButton>
-              </span>
-            </Tooltip>
+            <IconButton
+              color="inherit"
+              onClick={handlePreviousPage}
+              disabled={currentPage <= 1}
+              title="Previous page (Left arrow, Page Up)"
+              aria-label="Previous page"
+              size={isMobile ? "small" : "medium"}
+            >
+              <ArrowBack fontSize={isMobile ? "small" : "medium"} />
+            </IconButton>
 
             <TextField
               value={pageInput}
@@ -219,64 +209,78 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               / {totalPages}
             </Typography>
 
-            <Tooltip title="Next page">
-              <span>
-                <IconButton
-                  color="inherit"
-                  onClick={handleNextPage}
-                  disabled={currentPage >= totalPages}
-                  size={isMobile ? "small" : "medium"}
-                >
-                  <ArrowForward fontSize={isMobile ? "small" : "medium"} />
-                </IconButton>
-              </span>
-            </Tooltip>
+            <IconButton
+              color="inherit"
+              onClick={handleNextPage}
+              disabled={currentPage >= totalPages}
+              title="Next page (Right arrow, Page Down)"
+              aria-label="Next page"
+              size={isMobile ? "small" : "medium"}
+            >
+              <ArrowForward fontSize={isMobile ? "small" : "medium"} />
+            </IconButton>
           </Box>
         )}
 
         {/* Zoom controls */}
         {!isMobile && (
-          <>
-            <Tooltip title="Zoom out">
-              <IconButton color="inherit" onClick={handleZoomOut} size="medium">
-                <ZoomOut />
-              </IconButton>
-            </Tooltip>
+          <Box sx={{ display: "flex", gap: 0 }}>
+            <IconButton
+              color="inherit"
+              onClick={handleZoomOut}
+              title="Zoom out (-)"
+              aria-label="Zoom out"
+              size="medium"
+            >
+              <ZoomOut />
+            </IconButton>
 
-            <Tooltip title="Zoom in">
-              <IconButton color="inherit" onClick={handleZoomIn} size="medium">
-                <ZoomIn />
-              </IconButton>
-            </Tooltip>
-          </>
+            <IconButton
+              color="inherit"
+              onClick={handleZoomIn}
+              title="Zoom in (+)"
+              aria-label="Zoom in"
+              size="medium"
+            >
+              <ZoomIn />
+            </IconButton>
+          </Box>
         )}
 
         {/* Search toggle */}
-        <Tooltip title="Search">
-          <IconButton
-            color="inherit"
-            onClick={() => setShowSearch(!showSearch)}
-            size={isMobile ? "small" : "medium"}
-          >
-            <Search fontSize={isMobile ? "small" : "medium"} />
-          </IconButton>
-        </Tooltip>
+        <IconButton
+          color="inherit"
+          onClick={() => setShowSearch(!showSearch)}
+          title="Search"
+          aria-label="Search"
+          size={isMobile ? "small" : "medium"}
+        >
+          <Search fontSize={isMobile ? "small" : "medium"} />
+        </IconButton>
 
         {/* Download button */}
         {!isMobile && (
-          <Tooltip title="Download">
-            <IconButton color="inherit" onClick={onDownload} size="medium">
-              <Download />
-            </IconButton>
-          </Tooltip>
+          <IconButton
+            color="inherit"
+            onClick={onDownload}
+            title="Download"
+            aria-label="Download"
+            size="medium"
+          >
+            <Download />
+          </IconButton>
         )}
 
         {/* Close button */}
-        <Tooltip title="Close">
-          <IconButton color="inherit" onClick={onClose} size={isMobile ? "small" : "medium"}>
-            <Close fontSize={isMobile ? "small" : "medium"} />
-          </IconButton>
-        </Tooltip>
+        <IconButton
+          color="inherit"
+          onClick={onClose}
+          title="Close (Esc)"
+          aria-label="Close"
+          size={isMobile ? "small" : "medium"}
+        >
+          <Close fontSize={isMobile ? "small" : "medium"} />
+        </IconButton>
       </Box>
 
       {/* Second row: Search (when expanded) */}
@@ -322,31 +326,27 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
             </Typography>
           )}
 
-          <Tooltip title="Previous match">
-            <span>
-              <IconButton
-                color="inherit"
-                onClick={onSearchPrevious}
-                disabled={searchMatches === 0}
-                size="small"
-              >
-                <ArrowBack fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <IconButton
+            color="inherit"
+            onClick={onSearchPrevious}
+            disabled={searchMatches === 0}
+            title="Previous match"
+            aria-label="Previous match"
+            size="small"
+          >
+            <ArrowBack fontSize="small" />
+          </IconButton>
 
-          <Tooltip title="Next match">
-            <span>
-              <IconButton
-                color="inherit"
-                onClick={onSearchNext}
-                disabled={searchMatches === 0}
-                size="small"
-              >
-                <ArrowForward fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <IconButton
+            color="inherit"
+            onClick={onSearchNext}
+            disabled={searchMatches === 0}
+            title="Next match"
+            aria-label="Next match"
+            size="small"
+          >
+            <ArrowForward fontSize="small" />
+          </IconButton>
         </Box>
       )}
     </Box>

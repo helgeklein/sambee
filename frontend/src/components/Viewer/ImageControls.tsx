@@ -121,26 +121,40 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
 
       {/* Zoom controls - hide zoom out on mobile to save space */}
       {!isMobile && (
-        <IconButton
-          color="inherit"
-          onClick={() => onScale(scale * 0.8)}
-          title="Zoom out (-)"
-          aria-label="Zoom out"
-          size={isMobile ? "small" : "medium"}
-        >
-          <ZoomOut fontSize={isMobile ? "small" : "medium"} />
-        </IconButton>
+        <Box sx={{ display: "flex", gap: 0 }}>
+          <IconButton
+            color="inherit"
+            onClick={() => onScale(scale * 0.8)}
+            title="Zoom out (-)"
+            aria-label="Zoom out"
+            size="medium"
+          >
+            <ZoomOut />
+          </IconButton>
+
+          <IconButton
+            color="inherit"
+            onClick={() => onScale(scale * 1.2)}
+            title="Zoom in (+)"
+            aria-label="Zoom in"
+            size="medium"
+          >
+            <ZoomIn />
+          </IconButton>
+        </Box>
       )}
 
-      <IconButton
-        color="inherit"
-        onClick={() => onScale(scale * 1.2)}
-        title="Zoom in (+)"
-        aria-label="Zoom in"
-        size={isMobile ? "small" : "medium"}
-      >
-        <ZoomIn fontSize={isMobile ? "small" : "medium"} />
-      </IconButton>
+      {isMobile && (
+        <IconButton
+          color="inherit"
+          onClick={() => onScale(scale * 1.2)}
+          title="Zoom in (+)"
+          aria-label="Zoom in"
+          size="small"
+        >
+          <ZoomIn fontSize="small" />
+        </IconButton>
+      )}
 
       {/* Rotation controls - hide rotate left on mobile to save space */}
       {!isMobile && (
