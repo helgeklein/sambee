@@ -157,9 +157,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       // Fit entire page in viewport (like object-fit: contain)
       const widthRatio = containerWidth / pdfPageWidth;
       const heightRatio = containerHeight / pdfPageHeight;
-      const calculatedScale = Math.min(widthRatio, heightRatio);
-
-      const finalScale = Math.max(0.5, Math.min(3.0, calculatedScale));
+      const finalScale = Math.min(widthRatio, heightRatio);
 
       return {
         pageScale: finalScale,
@@ -300,22 +298,22 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         case "=":
           event.preventDefault();
           if (typeof scale === "number") {
-            handleScaleChange(Math.min(scale + 0.25, 3.0));
+            handleScaleChange(scale + 0.25);
           } else {
             // When zooming from fit-page/fit-width, use current pageScale as base
             const currentScale = pageScale || 1.0;
-            handleScaleChange(Math.min(currentScale + 0.25, 3.0));
+            handleScaleChange(currentScale + 0.25);
           }
           break;
         case "-":
         case "_":
           event.preventDefault();
           if (typeof scale === "number") {
-            handleScaleChange(Math.max(scale - 0.25, 0.5));
+            handleScaleChange(Math.max(scale - 0.25, 0.1));
           } else {
             // When zooming from fit-page/fit-width, use current pageScale as base
             const currentScale = pageScale || 1.0;
-            handleScaleChange(Math.max(currentScale - 0.25, 0.5));
+            handleScaleChange(Math.max(currentScale - 0.25, 0.1));
           }
           break;
         case "Escape":

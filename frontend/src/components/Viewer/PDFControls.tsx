@@ -10,9 +10,6 @@ import {
 import {
   Box,
   IconButton,
-  MenuItem,
-  Select,
-  type SelectChangeEvent,
   TextField,
   Tooltip,
   Typography,
@@ -106,42 +103,20 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
 
   const handleZoomIn = () => {
     if (typeof scale === "number") {
-      onScaleChange(Math.min(scale + 0.25, 3.0));
+      onScaleChange(scale + 0.25);
     } else {
       // When zooming from fit-page/fit-width, use current effective scale as base
-      onScaleChange(Math.min(currentScale + 0.25, 3.0));
+      onScaleChange(currentScale + 0.25);
     }
   };
 
   const handleZoomOut = () => {
     if (typeof scale === "number") {
-      onScaleChange(Math.max(scale - 0.25, 0.5));
+      onScaleChange(Math.max(scale - 0.25, 0.1));
     } else {
       // When zooming from fit-page/fit-width, use current effective scale as base
-      onScaleChange(Math.max(currentScale - 0.25, 0.5));
+      onScaleChange(Math.max(currentScale - 0.25, 0.1));
     }
-  };
-
-  const handleScaleChange = (event: SelectChangeEvent<string>) => {
-    const value = event.target.value;
-    if (value === "fit-page" || value === "fit-width") {
-      onScaleChange(value);
-    } else {
-      onScaleChange(Number.parseFloat(value));
-    }
-  };
-
-  const getScaleDisplayValue = (): string => {
-    if (scale === "fit-page") return "fit-page";
-    if (scale === "fit-width") return "fit-width";
-    return scale.toString();
-  };
-
-  const getScalePercentage = (): string => {
-    if (typeof scale === "number") {
-      return `${Math.round(scale * 100)}%`;
-    }
-    return scale === "fit-page" ? "Fit Page" : "Fit Width";
   };
 
   return (
@@ -268,48 +243,12 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               </IconButton>
             </Tooltip>
 
-            <Select
-              value={getScaleDisplayValue()}
-              onChange={handleScaleChange}
-              size="small"
-              sx={{
-                color: "white",
-                minWidth: "120px",
-                "& .MuiOutlinedInput-notchedOutline": {
-                  borderColor: "rgba(255,255,255,0.3)",
-                },
-                "&:hover .MuiOutlinedInput-notchedOutline": {
-                  borderColor: "rgba(255,255,255,0.5)",
-                },
-                "& .MuiSvgIcon-root": {
-                  color: "white",
-                },
-              }}
-            >
-              <MenuItem value="fit-page">Fit Page</MenuItem>
-              <MenuItem value="fit-width">Fit Width</MenuItem>
-              <MenuItem value="0.5">50%</MenuItem>
-              <MenuItem value="0.75">75%</MenuItem>
-              <MenuItem value="1">100%</MenuItem>
-              <MenuItem value="1.25">125%</MenuItem>
-              <MenuItem value="1.5">150%</MenuItem>
-              <MenuItem value="2">200%</MenuItem>
-              <MenuItem value="3">300%</MenuItem>
-            </Select>
-
             <Tooltip title="Zoom in">
               <IconButton color="inherit" onClick={handleZoomIn} size="medium">
                 <ZoomIn />
               </IconButton>
             </Tooltip>
           </>
-        )}
-
-        {/* Mobile zoom display */}
-        {isMobile && (
-          <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
-            {getScalePercentage()}
-          </Typography>
         )}
 
         {/* Search toggle */}
