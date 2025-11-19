@@ -14,10 +14,6 @@ export default defineConfig({
       },
     },
   },
-  optimizeDeps: {
-    include: ["pdfjs-dist"],
-    exclude: ["pdfjs-dist/build/pdf.worker.min.mjs"],
-  },
   worker: {
     format: "es",
   },
@@ -32,7 +28,7 @@ export default defineConfig({
           // Split markdown rendering into its own chunk (only loaded when viewing markdown)
           markdown: ["react-markdown", "remark-gfm", "rehype-highlight"],
           // Split PDF rendering into its own chunk (only loaded when viewing PDFs)
-          pdf: ["react-pdf", "pdfjs-dist"],
+          pdf: ["react-pdf"],
         },
       },
     },
