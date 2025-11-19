@@ -302,7 +302,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           if (typeof scale === "number") {
             handleScaleChange(Math.min(scale + 0.25, 3.0));
           } else {
-            handleScaleChange(1.25);
+            // When zooming from fit-page/fit-width, use current pageScale as base
+            const currentScale = pageScale || 1.0;
+            handleScaleChange(Math.min(currentScale + 0.25, 3.0));
           }
           break;
         case "-":
@@ -311,7 +313,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           if (typeof scale === "number") {
             handleScaleChange(Math.max(scale - 0.25, 0.5));
           } else {
-            handleScaleChange(0.75);
+            // When zooming from fit-page/fit-width, use current pageScale as base
+            const currentScale = pageScale || 1.0;
+            handleScaleChange(Math.max(currentScale - 0.25, 0.5));
           }
           break;
         case "Escape":
@@ -327,7 +331,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentPage, numPages, scale, onClose, handlePageChange, handleScaleChange]);
+  }, [currentPage, numPages, scale, pageScale, onClose, handlePageChange, handleScaleChange]);
 
   return (
     <Dialog
@@ -377,6 +381,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             currentPage={currentPage}
             totalPages={numPages}
             scale={scale}
+            currentScale={pageScale || 1.0}
             onPageChange={handlePageChange}
             onScaleChange={handleScaleChange}
             onClose={onClose}

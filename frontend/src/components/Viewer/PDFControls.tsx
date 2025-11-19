@@ -28,6 +28,7 @@ interface PDFControlsProps {
   currentPage: number;
   totalPages: number;
   scale: ZoomMode;
+  currentScale: number; // Current effective scale (e.g., from fit-page calculation)
   onPageChange: (page: number) => void;
   onScaleChange: (scale: ZoomMode) => void;
   onClose: () => void;
@@ -48,6 +49,7 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
   filename,
   currentPage,
   totalPages,
+  currentScale,
   scale,
   onPageChange,
   onScaleChange,
@@ -106,7 +108,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
     if (typeof scale === "number") {
       onScaleChange(Math.min(scale + 0.25, 3.0));
     } else {
-      onScaleChange(1.25);
+      // When zooming from fit-page/fit-width, use current effective scale as base
+      onScaleChange(Math.min(currentScale + 0.25, 3.0));
     }
   };
 
@@ -114,7 +117,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
     if (typeof scale === "number") {
       onScaleChange(Math.max(scale - 0.25, 0.5));
     } else {
-      onScaleChange(0.75);
+      // When zooming from fit-page/fit-width, use current effective scale as base
+      onScaleChange(Math.max(currentScale - 0.25, 0.5));
     }
   };
 
