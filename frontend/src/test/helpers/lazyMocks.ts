@@ -67,6 +67,17 @@ export function createMarkdownViewerMock() {
 }
 
 /**
+ * Lazy mock for PDFViewer component
+ * Simple placeholder for viewer tests
+ */
+export function createPDFViewerMock() {
+  return {
+    default: () =>
+      React.createElement("div", { role: "dialog", "data-testid": "pdf-viewer" }, "PDF Viewer"),
+  };
+}
+
+/**
  * Lazy mock for SettingsDialog component
  * Interactive mock for testing dialog behaviors
  */
@@ -90,6 +101,7 @@ export function createSettingsDialogMock() {
 export function setupLazyMocks() {
   vi.mock("react-window", () => createReactWindowMock());
   vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
+  vi.mock("../../components/Viewer/PDFViewer", () => createPDFViewerMock());
   vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
 }
 
@@ -105,6 +117,13 @@ export function setupReactWindowMock() {
  */
 export function setupMarkdownViewerMock() {
   vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
+}
+
+/**
+ * Setup only PDFViewer mock
+ */
+export function setupPDFViewerMock() {
+  vi.mock("../../components/Viewer/PDFViewer", () => createPDFViewerMock());
 }
 
 /**
@@ -132,6 +151,7 @@ export function createGenericComponentMock(testId: string, displayName = "MockCo
 export function createLightMocks() {
   return {
     MarkdownViewer: () => null,
+    PDFViewer: () => null,
     SettingsDialog: () => null,
     List: ({ children }: { children: React.ReactNode }) =>
       React.createElement("div", { "data-testid": "light-list" }, children),
@@ -155,6 +175,16 @@ export function createLightReactWindowMock() {
  * Returns null to skip viewer rendering
  */
 export function createLightMarkdownViewerMock() {
+  return {
+    default: () => null,
+  };
+}
+
+/**
+ * Create light PDFViewer mock
+ * Returns null to skip viewer rendering
+ */
+export function createLightPDFViewerMock() {
   return {
     default: () => null,
   };

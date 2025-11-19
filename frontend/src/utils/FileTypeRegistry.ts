@@ -280,6 +280,17 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     description: "Markdown",
   },
 
+  // Documents - PDF
+  {
+    extensions: [".pdf"],
+    mimeTypes: ["application/pdf"],
+    category: "document",
+    viewerComponent: () => import("../components/Viewer/PDFViewer"),
+    icon: "pdf",
+    color: "#d32f2f",
+    description: "PDF Document",
+  },
+
   // Text - Plain
   {
     extensions: [".txt"],
@@ -291,14 +302,6 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
   },
 
   // Documents
-  {
-    extensions: [".pdf"],
-    mimeTypes: ["application/pdf"],
-    category: "document",
-    icon: "pdf",
-    color: "#ff0000",
-    description: "PDF Document",
-  },
   {
     extensions: [".doc", ".docx"],
     mimeTypes: [
