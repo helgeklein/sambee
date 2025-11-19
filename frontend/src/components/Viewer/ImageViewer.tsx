@@ -5,7 +5,7 @@ import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
-import { ImageControls } from "./ImageControls";
+import { ViewerControls } from "./ViewerControls";
 
 /**
  * Extract error message from API error or exception
@@ -380,17 +380,32 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             zIndex: 1,
           }}
         >
-          <ImageControls
+          <ViewerControls
             filename={filename}
-            onRotate={setRotate}
-            onScale={setScale}
-            rotate={rotate}
-            scale={scale}
+            config={{
+              navigation: images.length > 1,
+              zoom: true,
+              rotation: true,
+            }}
             onClose={handleClose}
-            onNext={handleNext}
-            onPrevious={handlePrevious}
-            currentIndex={currentIndex}
-            totalImages={images.length}
+            navigation={
+              images.length > 1
+                ? {
+                    currentIndex,
+                    totalItems: images.length,
+                    onNext: handleNext,
+                    onPrevious: handlePrevious,
+                  }
+                : undefined
+            }
+            zoom={{
+              onZoomIn: () => setScale(scale * 1.2),
+              onZoomOut: () => setScale(scale * 0.8),
+            }}
+            rotation={{
+              onRotateLeft: () => setRotate(rotate - 90),
+              onRotateRight: () => setRotate(rotate + 90),
+            }}
           />
         </Box>
 
