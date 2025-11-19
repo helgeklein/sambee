@@ -19,8 +19,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import type React from "react";
-import { useState } from "react";
+import React, { useState } from "react";
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 
