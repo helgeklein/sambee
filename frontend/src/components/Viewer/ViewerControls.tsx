@@ -416,6 +416,15 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           <TextField
             value={search.searchText}
             onChange={(e) => search.onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && search.onSearchNext) {
+                e.preventDefault();
+                search.onSearchNext();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setShowSearch(false);
+              }
+            }}
             placeholder="Search..."
             size="small"
             autoFocus

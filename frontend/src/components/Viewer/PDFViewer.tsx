@@ -47,13 +47,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
-  const [searchMatches, _setSearchMatches] = useState<number>(0);
+  const [searchMatches, setSearchMatches] = useState<number>(0);
   const [currentMatch, setCurrentMatch] = useState<number>(0);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const [pdfPageWidth, setPdfPageWidth] = useState<number>(612); // Default to US Letter
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Search state
+  const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
+  const [matchLocations, setMatchLocations] = useState<Array<{ page: number; index: number }>>([]);
+  const [_extractingText, setExtractingText] = useState(false);
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -200,6 +205,30 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         .catch((err: any) => {
           logError("Failed to get page dimensions", err);
         });
+
+      // Extract text from all pages for search functionality
+      const extractAllText = async () => {
+        setExtractingText(true);
+        const texts = new Map<number, string>();
+
+        try {
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
+            const pageText = textContent.items.map((item: any) => item.str).join(" ");
+            texts.set(i, pageText);
+          }
+
+          setPageTexts(texts);
+        } catch (err) {
+          logError("Failed to extract text from PDF", { error: err });
+        } finally {
+          setExtractingText(false);
+        }
+      };
+
+      extractAllText();
     },
     []
   );
@@ -234,28 +263,179 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     link.click();
   }, [connectionId, path, filename]);
 
-  // Search handlers (basic implementation - will be enhanced in Phase 2)
-  const handleSearchChange = useCallback((text: string) => {
-    setSearchText(text);
-    // TODO: Implement actual search logic in Phase 2
-  }, []);
+  // Perform search across all extracted page texts
+  const performSearch = useCallback(
+    (query: string) => {
+      if (!query.trim() || pageTexts.size === 0) {
+        setMatchLocations([]);
+        setSearchMatches(0);
+        setCurrentMatch(0);
+        return;
+      }
+
+      const lowerQuery = query.toLowerCase();
+      const matches: Array<{ page: number; index: number }> = [];
+
+      // Search through all pages
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const pageText = pageTexts.get(pageNum);
+        if (!pageText) continue;
+
+        const lowerPageText = pageText.toLowerCase();
+        let startIndex = 0;
+
+        // Find all occurrences in this page
+        while (true) {
+          const index = lowerPageText.indexOf(lowerQuery, startIndex);
+          if (index === -1) break;
+
+          matches.push({ page: pageNum, index });
+          startIndex = index + 1;
+        }
+      }
+
+      setMatchLocations(matches);
+      setSearchMatches(matches.length);
+
+      // Navigate to first match if any found
+      if (matches.length > 0) {
+        setCurrentMatch(1);
+        setCurrentPage(matches[0].page);
+      } else {
+        setCurrentMatch(0);
+      }
+    },
+    [pageTexts, numPages]
+  );
+
+  // Debounced search handler
+  const searchTimeoutRef = useRef<number | null>(null);
+
+  const handleSearchChange = useCallback(
+    (text: string) => {
+      setSearchText(text);
+
+      // Clear existing timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      // Debounce search by 300ms
+      searchTimeoutRef.current = window.setTimeout(() => {
+        performSearch(text);
+      }, 300);
+    },
+    [performSearch]
+  );
 
   const handleSearchNext = useCallback(() => {
-    if (searchMatches > 0) {
-      setCurrentMatch((prev) => (prev >= searchMatches ? 1 : prev + 1));
-    }
-  }, [searchMatches]);
+    if (matchLocations.length === 0) return;
+
+    const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
+    setCurrentMatch(nextMatch);
+    setCurrentPage(matchLocations[nextMatch - 1].page);
+  }, [matchLocations, currentMatch]);
 
   const handleSearchPrevious = useCallback(() => {
-    if (searchMatches > 0) {
-      setCurrentMatch((prev) => (prev <= 1 ? searchMatches : prev - 1));
+    if (matchLocations.length === 0) return;
+
+    const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
+    setCurrentMatch(prevMatch);
+    setCurrentPage(matchLocations[prevMatch - 1].page);
+  }, [matchLocations, currentMatch]);
+
+  // Effect to highlight matches in the text layer
+  useEffect(() => {
+    if (!searchText.trim() || matchLocations.length === 0) {
+      // Clear all highlights
+      const textLayer = document.querySelector(".react-pdf__Page__textContent");
+      if (textLayer) {
+        const spans = textLayer.querySelectorAll("span");
+        for (const span of spans) {
+          span.style.backgroundColor = "";
+        }
+      }
+      return;
     }
-  }, [searchMatches]);
+
+    // Highlight matches on current page
+    const textLayer = document.querySelector(".react-pdf__Page__textContent");
+    if (!textLayer) return;
+
+    const pageText = pageTexts.get(currentPage);
+    if (!pageText) return;
+
+    const spans = textLayer.querySelectorAll("span");
+    const lowerQuery = searchText.toLowerCase();
+    const lowerPageText = pageText.toLowerCase();
+
+    // Find all match positions in the page text
+    const matchPositions: number[] = [];
+    let pos = 0;
+    while (true) {
+      pos = lowerPageText.indexOf(lowerQuery, pos);
+      if (pos === -1) break;
+      matchPositions.push(pos);
+      pos += 1;
+    }
+
+    // Map character positions to spans
+    let charIndex = 0;
+    for (const span of spans) {
+      const spanText = span.textContent || "";
+      const spanStart = charIndex;
+      const spanEnd = charIndex + spanText.length;
+
+      // Clear previous highlighting
+      span.style.backgroundColor = "";
+
+      // Check if this span contains any matches
+      for (let i = 0; i < matchPositions.length; i++) {
+        const matchStart = matchPositions[i];
+        const matchEnd = matchStart + lowerQuery.length;
+
+        // Check if match overlaps with this span
+        if (matchStart < spanEnd && matchEnd > spanStart) {
+          // Determine if this is the current match
+          const isCurrentMatch =
+            currentMatch > 0 && matchLocations[currentMatch - 1]?.page === currentPage && i === 0;
+
+          span.style.backgroundColor = isCurrentMatch ? "#ff9800" : "#ffeb3b";
+          span.style.color = "inherit";
+          break;
+        }
+      }
+
+      charIndex = spanEnd + 1; // +1 for space between spans
+    }
+  }, [searchText, matchLocations, currentPage, currentMatch, pageTexts]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+
+      // Search shortcuts
+      if ((event.ctrlKey || event.metaKey) && event.key === "f") {
+        event.preventDefault();
+        // Focus search input
+        const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement;
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.select();
+        }
+        return;
+      }
+
+      if (event.key === "F3") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleSearchPrevious();
+        } else {
+          handleSearchNext();
+        }
+        return;
+      }
 
       switch (event.key) {
         case "ArrowRight":
@@ -329,7 +509,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentPage, numPages, scale, pageScale, onClose, handlePageChange, handleScaleChange]);
+  }, [
+    currentPage,
+    numPages,
+    scale,
+    pageScale,
+    onClose,
+    handlePageChange,
+    handleScaleChange,
+    handleSearchNext,
+    handleSearchPrevious,
+  ]);
 
   return (
     <Dialog
