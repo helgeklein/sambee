@@ -60,6 +60,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [matchLocations, setMatchLocations] = useState<Array<{ page: number; index: number }>>([]);
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -211,6 +212,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       const extractAllText = async () => {
         setExtractingText(true);
         const texts = new Map<number, string>();
+        let hasText = false;
 
         try {
           for (let i = 1; i <= pdf.numPages; i++) {
@@ -219,11 +221,24 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
             const pageText = textContent.items.map((item: any) => item.str).join(" ");
             texts.set(i, pageText);
+
+            // Check if this page has any non-whitespace text
+            if (pageText.trim().length > 0) {
+              hasText = true;
+            }
           }
 
           setPageTexts(texts);
+          setIsSearchable(hasText);
+
+          if (!hasText) {
+            logError("PDF contains no extractable text - search disabled", {
+              message: "This PDF may be a scanned image without OCR text layer",
+            });
+          }
         } catch (err) {
           logError("Failed to extract text from PDF", { error: err });
+          setIsSearchable(false);
         } finally {
           setExtractingText(false);
         }
@@ -617,6 +632,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               onSearchPrevious: handleSearchPrevious,
               searchPanelOpen,
               onSearchPanelToggle: setSearchPanelOpen,
+              isSearchable,
             }}
             onDownload={handleDownload}
           />
@@ -694,6 +710,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     maxHeight: "100%",
                   },
                 }),
+                // Hide text layer text but keep it functional for search highlighting
+                "& .react-pdf__Page__textContent": {
+                  "& span": {
+                    color: "transparent !important",
+                    // Make sure text itself is invisible
+                    "-webkit-text-fill-color": "transparent !important",
+                  },
+                },
               }}
             >
               <Document

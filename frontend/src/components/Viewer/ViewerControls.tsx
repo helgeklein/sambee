@@ -77,6 +77,7 @@ export interface SearchState {
   onSearchPrevious?: () => void;
   searchPanelOpen?: boolean;
   onSearchPanelToggle?: (open: boolean) => void;
+  isSearchable?: boolean;
 }
 
 export interface ViewerControlsProps {
@@ -382,9 +383,20 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           <IconButton
             color="inherit"
             onClick={() => setShowSearch(!showSearch)}
-            title="Search"
+            title={
+              search.isSearchable === false
+                ? "Search unavailable - PDF contains no text layer (may be a scanned image)"
+                : "Search"
+            }
             aria-label="Search"
             size={isMobile ? "small" : "medium"}
+            disabled={search.isSearchable === false}
+            sx={{
+              ...(search.isSearchable === false && {
+                opacity: 0.5,
+                cursor: "not-allowed",
+              }),
+            }}
           >
             <Search fontSize={isMobile ? "small" : "medium"} />
           </IconButton>
