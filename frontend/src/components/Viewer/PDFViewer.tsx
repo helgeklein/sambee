@@ -47,7 +47,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
-  const [searchMatches, setSearchMatches] = useState<number>(0);
   const [currentMatch, setCurrentMatch] = useState<number>(0);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
@@ -282,14 +281,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Perform search across all extracted page texts
   const performSearch = useCallback(
     (query: string) => {
+      // Normalize text to match how the text layer renders it
+      const normalizeText = (text: string): string => {
+        // The text layer joins spans with spaces, and collapses multiple spaces
+        return text.replace(/\s+/g, " ").trim();
+      };
       if (!query.trim() || pageTexts.size === 0) {
         setMatchLocations([]);
-        setSearchMatches(0);
         setCurrentMatch(0);
         return;
       }
 
-      const lowerQuery = query.toLowerCase();
+      const lowerQuery = normalizeText(query.toLowerCase());
       const matches: Array<{ page: number; index: number }> = [];
 
       // Search through all pages
@@ -297,7 +300,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         const pageText = pageTexts.get(pageNum);
         if (!pageText) continue;
 
-        const lowerPageText = pageText.toLowerCase();
+        const normalizedPageText = normalizeText(pageText);
+        const lowerPageText = normalizedPageText.toLowerCase();
         let startIndex = 0;
 
         // Find all occurrences in this page
@@ -311,8 +315,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
 
       setMatchLocations(matches);
-      setSearchMatches(matches.length);
-      setInvisibleMatches(new Set()); // Reset invisible matches for new search
 
       // Navigate to first match if any found
       if (matches.length > 0) {
@@ -345,8 +347,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     [performSearch]
   );
 
-  // State to track invisible matches (global indices from original search)
-  const [_invisibleMatches, setInvisibleMatches] = useState<Set<number>>(new Set());
+  // Search matches count is simply the total from extracted text
+  const searchMatches = matchLocations.length;
 
   const handleSearchNext = useCallback(() => {
     if (matchLocations.length === 0) return;
@@ -402,14 +404,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         pos += 1;
       }
 
-      // Map character positions to spans
       // Get matches on current page for proper indexing
       const pageMatches = matchLocations
         .map((loc, idx) => ({ ...loc, globalIndex: idx }))
         .filter((loc) => loc.page === currentPage);
 
       let charIndex = 0;
-      const invisibleGlobalIndices = new Set<number>();
 
       for (const span of spans) {
         const spanText = span.textContent || "";
@@ -442,6 +442,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
             const pageMatch = pageMatches[i];
 
+            // Only highlight if span is visible
             if (isVisible && pageMatch) {
               // Determine if this is the current match by checking global index
               const isCurrentMatch = currentMatch > 0 && pageMatch.globalIndex === currentMatch - 1;
@@ -450,62 +451,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                 ? "rgba(255, 152, 0, 0.4)"
                 : "rgba(255, 235, 59, 0.4)";
               span.style.color = "inherit";
-            } else if (pageMatch) {
-              // Mark this match as invisible
-              invisibleGlobalIndices.add(pageMatch.globalIndex);
             }
             break;
           }
         }
 
         charIndex = spanEnd + 1; // +1 for space between spans
-      }
-
-      // Update invisible matches set and remove them from match locations
-      if (invisibleGlobalIndices.size > 0) {
-        // Update the invisible matches set (cumulative across all pages)
-        setInvisibleMatches((prev) => {
-          const updated = new Set(prev);
-          for (const idx of invisibleGlobalIndices) {
-            updated.add(idx);
-          }
-
-          // Remove invisible matches from the match locations array
-          // Need to do this inside the state update to have access to both states
-          setMatchLocations((prevLocations) => {
-            // Filter out matches whose global index is in the invisibleMatches set
-            const filtered = prevLocations.filter((_, arrayIdx) => {
-              // Find the global index for this array position
-              const globalIdx = arrayIdx;
-              return !updated.has(globalIdx);
-            });
-
-            // Update search matches count
-            setSearchMatches(filtered.length);
-
-            // Adjust current match if it was invisible
-            if (currentMatch > 0 && filtered.length > 0) {
-              const currentGlobalIdx = currentMatch - 1;
-              if (updated.has(currentGlobalIdx)) {
-                // Current match was invisible, need to recalculate position
-                setTimeout(() => {
-                  // Find the next visible match
-                  const nextMatch = currentMatch > filtered.length ? 1 : currentMatch;
-                  setCurrentMatch(nextMatch);
-                  if (filtered[nextMatch - 1]) {
-                    setCurrentPage(filtered[nextMatch - 1].page);
-                  }
-                }, 0);
-              }
-            } else if (filtered.length === 0) {
-              setCurrentMatch(0);
-            }
-
-            return filtered;
-          });
-
-          return updated;
-        });
       }
 
       return true;
