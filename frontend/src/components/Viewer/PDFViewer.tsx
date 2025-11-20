@@ -312,6 +312,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       setMatchLocations(matches);
       setSearchMatches(matches.length);
+      setInvisibleMatches(new Set()); // Reset invisible matches for new search
 
       // Navigate to first match if any found
       if (matches.length > 0) {
@@ -343,6 +344,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     },
     [performSearch]
   );
+
+  // State to track invisible matches (global indices from original search)
+  const [_invisibleMatches, setInvisibleMatches] = useState<Set<number>>(new Set());
 
   const handleSearchNext = useCallback(() => {
     if (matchLocations.length === 0) return;
@@ -405,6 +409,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         .filter((loc) => loc.page === currentPage);
 
       let charIndex = 0;
+      const invisibleGlobalIndices = new Set<number>();
+
       for (const span of spans) {
         const spanText = span.textContent || "";
         const spanStart = charIndex;
@@ -420,21 +426,88 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
           // Check if match overlaps with this span
           if (matchStart < spanEnd && matchEnd > spanStart) {
-            // Determine if this is the current match by checking global index
-            const pageMatch = pageMatches[i];
-            const isCurrentMatch =
-              currentMatch > 0 && pageMatch && pageMatch.globalIndex === currentMatch - 1;
+            // Check if span is truly visible with multiple checks
+            const rect = span.getBoundingClientRect();
+            const computedStyle = window.getComputedStyle(span);
 
-            span.style.backgroundColor = isCurrentMatch
-              ? "rgba(255, 152, 0, 0.4)"
-              : "rgba(255, 235, 59, 0.4)";
-            span.style.color = "inherit";
+            const isVisible =
+              rect.width > 0 &&
+              rect.height > 0 &&
+              computedStyle.opacity !== "0" &&
+              computedStyle.visibility !== "hidden" &&
+              computedStyle.display !== "none" &&
+              // Check if it's not completely transparent or off-screen
+              rect.bottom > 0 &&
+              rect.right > 0;
+
+            const pageMatch = pageMatches[i];
+
+            if (isVisible && pageMatch) {
+              // Determine if this is the current match by checking global index
+              const isCurrentMatch = currentMatch > 0 && pageMatch.globalIndex === currentMatch - 1;
+
+              span.style.backgroundColor = isCurrentMatch
+                ? "rgba(255, 152, 0, 0.4)"
+                : "rgba(255, 235, 59, 0.4)";
+              span.style.color = "inherit";
+            } else if (pageMatch) {
+              // Mark this match as invisible
+              invisibleGlobalIndices.add(pageMatch.globalIndex);
+            }
             break;
           }
         }
 
         charIndex = spanEnd + 1; // +1 for space between spans
       }
+
+      // Update invisible matches set and remove them from match locations
+      if (invisibleGlobalIndices.size > 0) {
+        // Update the invisible matches set (cumulative across all pages)
+        setInvisibleMatches((prev) => {
+          const updated = new Set(prev);
+          for (const idx of invisibleGlobalIndices) {
+            updated.add(idx);
+          }
+
+          // Remove invisible matches from the match locations array
+          // Need to do this inside the state update to have access to both states
+          setMatchLocations((prevLocations) => {
+            // Filter out matches whose global index is in the invisibleMatches set
+            const filtered = prevLocations.filter((_, arrayIdx) => {
+              // Find the global index for this array position
+              const globalIdx = arrayIdx;
+              return !updated.has(globalIdx);
+            });
+
+            // Update search matches count
+            setSearchMatches(filtered.length);
+
+            // Adjust current match if it was invisible
+            if (currentMatch > 0 && filtered.length > 0) {
+              const currentGlobalIdx = currentMatch - 1;
+              if (updated.has(currentGlobalIdx)) {
+                // Current match was invisible, need to recalculate position
+                setTimeout(() => {
+                  // Find the next visible match
+                  const nextMatch = currentMatch > filtered.length ? 1 : currentMatch;
+                  setCurrentMatch(nextMatch);
+                  if (filtered[nextMatch - 1]) {
+                    setCurrentPage(filtered[nextMatch - 1].page);
+                  }
+                }, 0);
+              }
+            } else if (filtered.length === 0) {
+              setCurrentMatch(0);
+            }
+
+            return filtered;
+          });
+
+          return updated;
+        });
+      }
+
       return true;
     };
 
