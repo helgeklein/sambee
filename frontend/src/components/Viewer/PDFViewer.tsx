@@ -416,43 +416,70 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         const spanStart = charIndex;
         const spanEnd = charIndex + spanText.length;
 
-        // Clear previous highlighting
-        span.style.backgroundColor = "";
+        // Find all matches that overlap with this span
+        const spanMatches: Array<{
+          matchIdx: number;
+          startInSpan: number;
+          endInSpan: number;
+          isCurrentMatch: boolean;
+        }> = [];
 
-        // Check if this span contains any matches
         for (let i = 0; i < matchPositions.length; i++) {
           const matchStart = matchPositions[i];
           const matchEnd = matchStart + lowerQuery.length;
 
           // Check if match overlaps with this span
           if (matchStart < spanEnd && matchEnd > spanStart) {
-            // Check if span is truly visible with multiple checks
-            const rect = span.getBoundingClientRect();
-            const computedStyle = window.getComputedStyle(span);
-
-            const isVisible =
-              rect.width > 0 &&
-              rect.height > 0 &&
-              computedStyle.opacity !== "0" &&
-              computedStyle.visibility !== "hidden" &&
-              computedStyle.display !== "none" &&
-              // Check if it's not completely transparent or off-screen
-              rect.bottom > 0 &&
-              rect.right > 0;
-
             const pageMatch = pageMatches[i];
+            if (!pageMatch) continue;
 
-            // Only highlight if span is visible
-            if (isVisible && pageMatch) {
-              // Determine if this is the current match by checking global index
-              const isCurrentMatch = currentMatch > 0 && pageMatch.globalIndex === currentMatch - 1;
+            // Calculate where in the span text the match starts and ends
+            const startInSpan = Math.max(0, matchStart - spanStart);
+            const endInSpan = Math.min(spanText.length, matchEnd - spanStart);
 
-              span.style.backgroundColor = isCurrentMatch
-                ? "rgba(255, 152, 0, 0.4)"
-                : "rgba(255, 235, 59, 0.4)";
-              span.style.color = "inherit";
+            const isCurrentMatch = currentMatch > 0 && pageMatch.globalIndex === currentMatch - 1;
+
+            spanMatches.push({
+              matchIdx: i,
+              startInSpan,
+              endInSpan,
+              isCurrentMatch,
+            });
+          }
+        }
+
+        // If this span has matches, rebuild it with highlighted sections
+        if (spanMatches.length > 0) {
+          // Sort matches by position
+          spanMatches.sort((a, b) => a.startInSpan - b.startInSpan);
+
+          // Clear the span and rebuild with highlights
+          span.textContent = "";
+          let lastPos = 0;
+
+          for (const match of spanMatches) {
+            // Add text before the match
+            if (match.startInSpan > lastPos) {
+              span.appendChild(
+                document.createTextNode(spanText.substring(lastPos, match.startInSpan))
+              );
             }
-            break;
+
+            // Add the highlighted match
+            const highlightSpan = document.createElement("span");
+            highlightSpan.style.backgroundColor = match.isCurrentMatch
+              ? "rgba(255, 152, 0, 0.4)"
+              : "rgba(255, 235, 59, 0.4)";
+            highlightSpan.style.color = "inherit";
+            highlightSpan.textContent = spanText.substring(match.startInSpan, match.endInSpan);
+            span.appendChild(highlightSpan);
+
+            lastPos = match.endInSpan;
+          }
+
+          // Add any remaining text after the last match
+          if (lastPos < spanText.length) {
+            span.appendChild(document.createTextNode(spanText.substring(lastPos)));
           }
         }
 
