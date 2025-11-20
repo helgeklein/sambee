@@ -416,7 +416,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           const isCurrentMatch =
             currentMatch > 0 && matchLocations[currentMatch - 1]?.page === currentPage && i === 0;
 
-          span.style.backgroundColor = isCurrentMatch ? "#ff9800" : "#ffeb3b";
+          span.style.backgroundColor = isCurrentMatch
+            ? "rgba(255, 152, 0, 0.4)"
+            : "rgba(255, 235, 59, 0.4)";
           span.style.color = "inherit";
           break;
         }
@@ -431,7 +433,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
 
-      // Search shortcuts
+      // Check if the search input has focus - if so, skip most shortcuts
+      const searchInput = document.querySelector(
+        'input[placeholder="Search..."]'
+      ) as HTMLInputElement;
+      const searchInputHasFocus = searchInput && document.activeElement === searchInput;
+
+      // Always allow Ctrl+F to open search
       if ((event.ctrlKey || event.metaKey) && event.key === "f") {
         event.preventDefault();
         // Open search panel if not already open
@@ -449,6 +457,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         return;
       }
 
+      // Allow F3 for search navigation even when search has focus
       if (event.key === "F3") {
         event.preventDefault();
         if (event.shiftKey) {
@@ -456,6 +465,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         } else {
           handleSearchNext();
         }
+        return;
+      }
+
+      // If search input has focus, skip all other shortcuts (they're handled by the input)
+      if (searchInputHasFocus) {
         return;
       }
 
