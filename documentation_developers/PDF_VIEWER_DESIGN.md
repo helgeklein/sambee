@@ -589,19 +589,15 @@ const pageScale = useMemo(() => {
 
 ### 4. Search Functionality
 
-**Phase 1 - Basic Search (MVP):**
+**Phase 1 - Basic Search:**
 - Search input field in toolbar
 - Find next/previous match buttons
 - Highlight current match
 - Show match count (e.g., "3 of 12")
 - Navigate between matches
-
-**Phase 2 - Advanced Search (Future):**
-- Case-sensitive toggle
-- Whole word toggle
-- Regular expression support
-- Search results panel with context
-- Highlight all matches simultaneously
+- Keyboard navigation
+  - Ctrl+f to focus search input box
+  - F3/Shift+F3 to navigate to next/previous match
 
 **Implementation Strategy:**
 ```tsx
@@ -807,6 +803,346 @@ async getPdfBlob(
 
 ## Testing Strategy
 
+### Current Status
+- ✅ **File Type Registry**: PDF support tested in `viewer-support.test.ts`
+- ✅ **ViewerControls**: Generic page navigation tested
+- ❌ **PDFViewer Component**: No tests (0% coverage)
+- ❌ **PDFControls Component**: No tests (0% coverage)
+- ❌ **Integration Tests**: No PDF-specific tests
+
+### Test Implementation Plan
+
+#### Phase 1A: PDFViewer Unit Tests
+**File**: `frontend/src/components/Viewer/__tests__/PDFViewer.test.tsx`
+
+**Priority: HIGH** - Core component with complex lifecycle management
+
+**Test Cases:**
+1. **Rendering States**
+   - ✓ Renders loading state initially
+   - ✓ Renders error state when fetch fails
+   - ✓ Renders PDF document when loaded successfully
+   - ✓ Shows CircularProgress while loading
+
+2. **API Integration**
+   - ✓ Calls getPdfBlob with correct connectionId and path
+   - ✓ Creates blob URL from received blob
+   - ✓ Passes blob URL to react-pdf Document component
+   - ✓ Handles API errors gracefully
+
+3. **Blob URL Lifecycle Management** (CRITICAL)
+   - ✓ Creates blob URL after successful fetch
+   - ✓ Revokes blob URL on component unmount
+   - ✓ Revokes old blob URL when path changes
+   - ✓ Handles AbortController cancellation on unmount
+   - ✓ Works correctly in React StrictMode (double mount)
+
+4. **Document Loading**
+   - ✓ Calls onLoadSuccess when PDF loads
+   - ✓ Updates numPages state
+   - ✓ Resets to page 1 on new document
+   - ✓ Handles onLoadError callback
+
+5. **Page Navigation**
+   - ✓ Increments page on next button
+   - ✓ Decrements page on previous button
+   - ✓ Respects page boundaries (1 to numPages)
+   - ✓ Updates page input field
+   - ✓ Handles direct page number input
+
+6. **Keyboard Shortcuts**
+   - ✓ ArrowRight navigates to next page
+   - ✓ ArrowLeft navigates to previous page
+   - ✓ Home goes to first page
+   - ✓ End goes to last page
+   - ✓ Escape closes viewer
+   - ✓ Plus/Equals zooms in
+   - ✓ Minus/Underscore zooms out
+   - ✓ Prevents default on handled keys
+
+7. **Zoom Functionality**
+   - ✓ Defaults to 'fit-page' mode
+   - ✓ Calculates scale based on container dimensions
+   - ✓ Handles 'fit-width' mode
+   - ✓ Handles numeric zoom values
+   - ✓ Updates scale when zoom buttons clicked
+
+8. **Container Dimensions**
+   - ✓ Measures container with ResizeObserver
+   - ✓ Updates dimensions on container resize
+   - ✓ Cleans up ResizeObserver on unmount
+
+9. **Auto-focus Behavior**
+   - ✓ Focuses container after successful load
+   - ✓ Enables immediate keyboard navigation
+   - ✓ Does not focus on error state
+
+10. **Error Handling**
+    - ✓ Displays error message from API
+    - ✓ Extracts detail field from API errors
+    - ✓ Shows generic error for unknown errors
+    - ✓ Logs errors appropriately
+
+**Mocking Strategy:**
+```tsx
+// Mock react-pdf components
+vi.mock('react-pdf', () => ({
+  Document: ({ children, onLoadSuccess, file }: any) => (
+    <div data-testid="pdf-document" data-file={file}>
+      {children}
+    </div>
+  ),
+  Page: ({ pageNumber, scale }: any) => (
+    <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale}>
+      Page {pageNumber}
+    </div>
+  ),
+  pdfjs: { version: '3.11.174' }
+}));
+
+// Mock API service
+vi.mock('../../services/api');
+
+// Mock logger
+vi.mock('../../services/logger');
+
+// Mock URL.createObjectURL and revokeObjectURL
+global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+global.URL.revokeObjectURL = vi.fn();
+
+// Mock ResizeObserver
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+```
+
+**Estimated Effort:** 4-6 hours
+
+---
+
+#### Phase 1B: PDFControls Unit Tests
+**File**: `frontend/src/components/Viewer/__tests__/PDFControls.test.tsx`
+
+**Priority: MEDIUM** - UI component with event handlers
+
+**Test Cases:**
+1. **Rendering**
+   - ✓ Renders filename
+   - ✓ Renders page navigation controls
+   - ✓ Renders zoom controls
+   - ✓ Renders search toggle button
+   - ✓ Renders download button
+   - ✓ Renders close button
+
+2. **Page Navigation Controls**
+   - ✓ Shows current page and total pages
+   - ✓ Previous button disabled on first page
+   - ✓ Next button disabled on last page
+   - ✓ Calls onPageChange with correct page number
+   - ✓ Handles page input field changes
+   - ✓ Validates page input (1 to totalPages)
+   - ✓ Resets invalid input to current page
+   - ✓ Handles Enter key in page input
+
+3. **Zoom Controls**
+   - ✓ Calls onZoomIn when zoom in clicked
+   - ✓ Calls onZoomOut when zoom out clicked
+   - ✓ Displays current zoom percentage
+   - ✓ Handles fit-page button
+   - ✓ Handles fit-width button
+   - ✓ Increments/decrements from current scale
+
+4. **Search Controls**
+   - ✓ Toggles search panel visibility
+   - ✓ Shows/hides search input field
+   - ✓ Calls onSearchChange with input text
+   - ✓ Shows match counter when matches found
+   - ✓ Shows "No matches" when searchMatches is 0
+   - ✓ Calls onSearchNext/Previous
+   - ✓ Disables next/prev when no matches
+
+5. **Download Button**
+   - ✓ Calls onDownload when clicked
+   - ✓ Renders with correct icon
+
+6. **Close Button**
+   - ✓ Calls onClose when clicked
+
+7. **Mobile Responsive**
+   - ✓ Hides labels on mobile
+   - ✓ Shows icon-only buttons
+   - ✓ Collapses to compact layout
+
+**Estimated Effort:** 3-4 hours
+
+---
+
+#### Phase 1C: Integration Tests
+**File**: `frontend/src/pages/__tests__/Browser-pdf-viewer.test.tsx`
+
+**Priority: HIGH** - End-to-end user workflows
+
+**Test Cases:**
+1. **Opening PDF**
+   - ✓ Opens PDF viewer when clicking PDF file
+   - ✓ Displays PDF filename in viewer
+   - ✓ Loads and renders PDF document
+   - ✓ Shows loading state during fetch
+
+2. **Page Navigation Workflow**
+   - ✓ Navigates to next page using button
+   - ✓ Navigates to previous page using button
+   - ✓ Navigates using keyboard (ArrowLeft/Right)
+   - ✓ Jumps to specific page via input
+   - ✓ Goes to first page (Home key)
+   - ✓ Goes to last page (End key)
+
+3. **Zoom Workflow**
+   - ✓ Zooms in using button
+   - ✓ Zooms out using button
+   - ✓ Switches to fit-width mode
+   - ✓ Switches back to fit-page mode
+   - ✓ Zooms using keyboard (+/-)
+
+4. **Search Workflow** (Phase 2)
+   - ✓ Opens search panel
+   - ✓ Enters search text
+   - ✓ Finds matches in document
+   - ✓ Navigates between matches
+   - ✓ Shows match counter
+   - ✓ Closes search panel
+
+5. **Download**
+   - ✓ Triggers download when button clicked
+   - ✓ Uses correct download URL
+   - ✓ Preserves original filename
+
+6. **Closing Viewer**
+   - ✓ Closes on close button click
+   - ✓ Closes on Escape key
+   - ✓ Returns to file browser
+
+7. **Error Scenarios**
+   - ✓ Displays error when PDF fetch fails
+   - ✓ Shows error when PDF is invalid
+   - ✓ Handles network timeout
+   - ✓ Shows error for access denied
+
+8. **Multiple PDFs**
+   - ✓ Cleans up previous PDF when opening new one
+   - ✓ No memory leaks after opening/closing 5 PDFs
+
+**Mocking Strategy:**
+```tsx
+// Mock API to return PDF blob
+mockedApi.getPdfBlob.mockResolvedValue(
+  new Blob(['mock pdf content'], { type: 'application/pdf' })
+);
+
+// Mock file listing with PDF files
+mockedApi.listDirectory.mockResolvedValue({
+  path: '/',
+  items: [
+    {
+      name: 'document.pdf',
+      type: FileType.FILE,
+      mime_type: 'application/pdf',
+      ...
+    }
+  ]
+});
+```
+
+**Estimated Effort:** 5-7 hours
+
+---
+
+#### Phase 1D: Performance Tests (Optional - Manual)
+**File**: Manual testing checklist in `tests/manual/pdf-viewer-performance.md`
+
+**Test Cases:**
+1. **Memory Leak Detection**
+   - Open/close 10 PDFs in sequence
+   - Monitor memory usage in Chrome DevTools
+   - Verify blob URLs are revoked (check Network tab)
+   - Verify no detached DOM nodes
+
+2. **Large PDF Performance**
+   - Test with 100+ page PDF
+   - Verify page navigation < 500ms
+   - Verify initial load < 3 seconds
+   - Check memory usage stays reasonable
+
+3. **High-Resolution PDFs**
+   - Test with high-DPI images embedded
+   - Verify rendering quality
+   - Check load time acceptable
+
+**Estimated Effort:** 2-3 hours manual testing
+
+---
+
+### Test Execution Plan
+
+#### Step 1: Setup Test Infrastructure (30 min)
+- Install any missing test dependencies
+- Create test helper utilities for PDF mocking
+- Set up MSW handlers for PDF endpoints if needed
+
+#### Step 2: PDFViewer Unit Tests (4-6 hours)
+- Create test file with comprehensive coverage
+- Focus on blob URL lifecycle (most critical)
+- Test keyboard shortcuts thoroughly
+- Verify error handling
+
+#### Step 3: PDFControls Unit Tests (3-4 hours)
+- Test all control interactions
+- Verify handler callbacks
+- Test mobile responsive behavior
+
+#### Step 4: Integration Tests (5-7 hours)
+- Create full workflow tests
+- Test error scenarios
+- Verify cleanup between tests
+
+#### Step 5: Run and Fix (2-3 hours)
+- Run all tests and fix failures
+- Achieve >90% code coverage for new components
+- Update snapshots if needed
+
+#### Step 6: Documentation (1 hour)
+- Update this document with test results
+- Document any testing gotchas
+- Add to CI/CD pipeline if not already included
+
+**Total Estimated Effort:** 15-21 hours
+
+---
+
+### Success Criteria
+
+**Unit Tests:**
+- ✓ PDFViewer: >90% code coverage
+- ✓ PDFControls: >90% code coverage
+- ✓ All critical paths tested (blob lifecycle, keyboard, zoom)
+- ✓ No skipped or incomplete tests
+
+**Integration Tests:**
+- ✓ Full user workflow tested end-to-end
+- ✓ Error scenarios handled
+- ✓ Cleanup verified (no memory leaks)
+
+**Performance Tests:**
+- ✓ No memory leaks after 10 open/close cycles
+- ✓ Large PDFs perform acceptably
+- ✓ Page navigation < 500ms
+
+---
+
+### Original Testing Strategy (Reference)
+
 ### Unit Tests
 
 1. **PDFViewer Component**
@@ -854,18 +1190,18 @@ async getPdfBlob(
 
 ### Phase 1 - MVP (Core Functionality)
 - [x] Design plan (this document)
-- [ ] Install dependencies (react-pdf, pdfjs-dist)
-- [ ] Configure Vite for PDF.js worker
-- [ ] Create basic PDFViewer component
-- [ ] Create PDFControls component
-- [ ] Implement page navigation
-- [ ] Implement zoom (fit-page, fit-width, numeric)
-- [ ] Add to FileTypeRegistry
-- [ ] Backend API endpoint for PDF blob
-- [ ] Basic error handling
-- [ ] Loading states
-- [ ] Unit tests
-- [ ] Integration tests
+- [x] Install dependencies (react-pdf, pdfjs-dist)
+- [x] Configure Vite for PDF.js worker
+- [x] Create basic PDFViewer component
+- [x] Create PDFControls component
+- [x] Implement page navigation
+- [x] Implement zoom (fit-page, fit-width, numeric)
+- [x] Add to FileTypeRegistry
+- [x] Backend API endpoint for PDF blob (reuses /viewer/{connection_id}/file)
+- [x] Basic error handling
+- [x] Loading states
+- [x] Unit tests (complete - 81 passing)
+- [x] Integration tests (complete)
 
 ### Phase 2 - Search (High Priority)
 - [ ] Basic text search UI
