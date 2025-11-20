@@ -361,6 +361,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, [matchLocations, currentMatch]);
 
   // Effect to highlight matches in the text layer
+  // Apply highlights to the text layer
   useEffect(() => {
     if (!searchText.trim() || matchLocations.length === 0) {
       // Clear all highlights
@@ -374,63 +375,87 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       return;
     }
 
-    // Highlight matches on current page
-    const textLayer = document.querySelector(".react-pdf__Page__textContent");
-    if (!textLayer) return;
+    const applyHighlights = () => {
+      const textLayer = document.querySelector(".react-pdf__Page__textContent");
+      if (!textLayer) return false;
 
-    const pageText = pageTexts.get(currentPage);
-    if (!pageText) return;
+      const pageText = pageTexts.get(currentPage);
+      if (!pageText) return false;
 
-    const spans = textLayer.querySelectorAll("span");
-    const lowerQuery = searchText.toLowerCase();
-    const lowerPageText = pageText.toLowerCase();
+      const spans = textLayer.querySelectorAll("span");
+      if (spans.length === 0) return false;
 
-    // Find all match positions in the page text
-    const matchPositions: number[] = [];
-    let pos = 0;
-    while (true) {
-      pos = lowerPageText.indexOf(lowerQuery, pos);
-      if (pos === -1) break;
-      matchPositions.push(pos);
-      pos += 1;
-    }
+      const lowerQuery = searchText.toLowerCase();
+      const lowerPageText = pageText.toLowerCase();
 
-    // Map character positions to spans
-    // Get matches on current page for proper indexing
-    const pageMatches = matchLocations
-      .map((loc, idx) => ({ ...loc, globalIndex: idx }))
-      .filter((loc) => loc.page === currentPage);
-
-    let charIndex = 0;
-    for (const span of spans) {
-      const spanText = span.textContent || "";
-      const spanStart = charIndex;
-      const spanEnd = charIndex + spanText.length;
-
-      // Clear previous highlighting
-      span.style.backgroundColor = "";
-
-      // Check if this span contains any matches
-      for (let i = 0; i < matchPositions.length; i++) {
-        const matchStart = matchPositions[i];
-        const matchEnd = matchStart + lowerQuery.length;
-
-        // Check if match overlaps with this span
-        if (matchStart < spanEnd && matchEnd > spanStart) {
-          // Determine if this is the current match by checking global index
-          const pageMatch = pageMatches[i];
-          const isCurrentMatch =
-            currentMatch > 0 && pageMatch && pageMatch.globalIndex === currentMatch - 1;
-
-          span.style.backgroundColor = isCurrentMatch
-            ? "rgba(255, 152, 0, 0.4)"
-            : "rgba(255, 235, 59, 0.4)";
-          span.style.color = "inherit";
-          break;
-        }
+      // Find all match positions in the page text
+      const matchPositions: number[] = [];
+      let pos = 0;
+      while (true) {
+        pos = lowerPageText.indexOf(lowerQuery, pos);
+        if (pos === -1) break;
+        matchPositions.push(pos);
+        pos += 1;
       }
 
-      charIndex = spanEnd + 1; // +1 for space between spans
+      // Map character positions to spans
+      // Get matches on current page for proper indexing
+      const pageMatches = matchLocations
+        .map((loc, idx) => ({ ...loc, globalIndex: idx }))
+        .filter((loc) => loc.page === currentPage);
+
+      let charIndex = 0;
+      for (const span of spans) {
+        const spanText = span.textContent || "";
+        const spanStart = charIndex;
+        const spanEnd = charIndex + spanText.length;
+
+        // Clear previous highlighting
+        span.style.backgroundColor = "";
+
+        // Check if this span contains any matches
+        for (let i = 0; i < matchPositions.length; i++) {
+          const matchStart = matchPositions[i];
+          const matchEnd = matchStart + lowerQuery.length;
+
+          // Check if match overlaps with this span
+          if (matchStart < spanEnd && matchEnd > spanStart) {
+            // Determine if this is the current match by checking global index
+            const pageMatch = pageMatches[i];
+            const isCurrentMatch =
+              currentMatch > 0 && pageMatch && pageMatch.globalIndex === currentMatch - 1;
+
+            span.style.backgroundColor = isCurrentMatch
+              ? "rgba(255, 152, 0, 0.4)"
+              : "rgba(255, 235, 59, 0.4)";
+            span.style.color = "inherit";
+            break;
+          }
+        }
+
+        charIndex = spanEnd + 1; // +1 for space between spans
+      }
+      return true;
+    };
+
+    // Try to apply highlights immediately if text layer exists
+    // Otherwise use MutationObserver to wait for it
+    if (!applyHighlights()) {
+      // Watch the document container which persists across page changes
+      const pdfDocument = document.querySelector(".react-pdf__Document");
+      if (pdfDocument) {
+        let attemptCount = 0;
+        const maxAttempts = 50; // Stop after 5 seconds (50 * 100ms)
+
+        const observer = new MutationObserver(() => {
+          attemptCount++;
+          if (applyHighlights() || attemptCount >= maxAttempts) {
+            observer.disconnect();
+          }
+        });
+        observer.observe(pdfDocument, { childList: true, subtree: true });
+        return () => observer.disconnect();
+      }
     }
   }, [searchText, matchLocations, currentPage, currentMatch, pageTexts]);
 
