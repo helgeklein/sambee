@@ -59,6 +59,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
   const [matchLocations, setMatchLocations] = useState<Array<{ page: number; index: number }>>([]);
   const [_extractingText, setExtractingText] = useState(false);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -418,12 +419,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       // Search shortcuts
       if ((event.ctrlKey || event.metaKey) && event.key === "f") {
         event.preventDefault();
-        // Focus search input
-        const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement;
-        if (searchInput) {
-          searchInput.focus();
-          searchInput.select();
-        }
+        // Open search panel if not already open
+        setSearchPanelOpen(true);
+        // Focus search input after a brief delay to allow panel to render
+        setTimeout(() => {
+          const searchInput = document.querySelector(
+            'input[placeholder="Search..."]'
+          ) as HTMLInputElement;
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+          }
+        }, 100);
         return;
       }
 
@@ -498,7 +505,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           break;
         case "Escape":
           event.preventDefault();
-          onClose();
+          // If search panel is open, close it first
+          if (searchPanelOpen) {
+            setSearchPanelOpen(false);
+          } else {
+            // Otherwise close the entire viewer
+            onClose();
+          }
           break;
         default:
           break;
@@ -519,6 +532,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     handleScaleChange,
     handleSearchNext,
     handleSearchPrevious,
+    searchPanelOpen,
   ]);
 
   return (
@@ -601,6 +615,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               currentMatch,
               onSearchNext: handleSearchNext,
               onSearchPrevious: handleSearchPrevious,
+              searchPanelOpen,
+              onSearchPanelToggle: setSearchPanelOpen,
             }}
             onDownload={handleDownload}
           />

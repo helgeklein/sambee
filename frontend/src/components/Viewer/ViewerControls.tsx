@@ -75,6 +75,8 @@ export interface SearchState {
   currentMatch?: number;
   onSearchNext?: () => void;
   onSearchPrevious?: () => void;
+  searchPanelOpen?: boolean;
+  onSearchPanelToggle?: (open: boolean) => void;
 }
 
 export interface ViewerControlsProps {
@@ -118,7 +120,18 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const [pageInput, setPageInput] = useState(
     pageNavigation ? pageNavigation.currentPage.toString() : ""
   );
-  const [showSearch, setShowSearch] = useState(false);
+  const [localShowSearch, setLocalShowSearch] = useState(false);
+
+  // Use controlled search panel state if provided, otherwise use local state
+  const showSearch =
+    search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
+  const setShowSearch = (open: boolean) => {
+    if (search?.onSearchPanelToggle) {
+      search.onSearchPanelToggle(open);
+    } else {
+      setLocalShowSearch(open);
+    }
+  };
 
   // Update page input when page changes externally
   React.useEffect(() => {
@@ -422,6 +435,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 search.onSearchNext();
               } else if (e.key === "Escape") {
                 e.preventDefault();
+                e.stopPropagation();
                 setShowSearch(false);
               }
             }}
