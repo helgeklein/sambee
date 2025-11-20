@@ -396,6 +396,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
 
     // Map character positions to spans
+    // Get matches on current page for proper indexing
+    const pageMatches = matchLocations
+      .map((loc, idx) => ({ ...loc, globalIndex: idx }))
+      .filter((loc) => loc.page === currentPage);
+
     let charIndex = 0;
     for (const span of spans) {
       const spanText = span.textContent || "";
@@ -412,9 +417,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
         // Check if match overlaps with this span
         if (matchStart < spanEnd && matchEnd > spanStart) {
-          // Determine if this is the current match
+          // Determine if this is the current match by checking global index
+          const pageMatch = pageMatches[i];
           const isCurrentMatch =
-            currentMatch > 0 && matchLocations[currentMatch - 1]?.page === currentPage && i === 0;
+            currentMatch > 0 && pageMatch && pageMatch.globalIndex === currentMatch - 1;
 
           span.style.backgroundColor = isCurrentMatch
             ? "rgba(255, 152, 0, 0.4)"
