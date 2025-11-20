@@ -56,7 +56,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
-  const [matchLocations, setMatchLocations] = useState<Array<{ page: number; index: number }>>([]);
+  const [normalizedPageTexts, setNormalizedPageTexts] = useState<Map<number, string>>(new Map());
+  const [pageDiffs, setPageDiffs] = useState<Map<number, number[]>>(new Map());
+  // Store original text content strings per page (like Firefox's textContentItemsStr)
+  const originalTextContentRef = useRef<Map<number, string[]>>(new Map());
+  const [matchLocations, setMatchLocations] = useState<
+    Array<{ page: number; index: number; length: number }>
+  >([]);
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
@@ -186,6 +192,62 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     };
   }, [scale, containerWidth, containerHeight, pdfPageWidth, pdfPageHeight]);
 
+  // Normalize function with position mapping (simplified Firefox approach)
+  const normalize = useCallback((text: string): [string, number[]] => {
+    const result: string[] = [];
+    const diffs: number[] = [];
+    let origIdx = 0;
+
+    while (origIdx < text.length) {
+      const char = text[origIdx];
+
+      // Store mapping from result position to original position
+      diffs[result.length] = origIdx;
+
+      if (/\s/.test(char)) {
+        // Collapse consecutive whitespace into a single space
+        result.push(" ");
+        origIdx++;
+        // Skip remaining consecutive whitespace
+        while (origIdx < text.length && /\s/.test(text[origIdx])) {
+          origIdx++;
+        }
+      } else {
+        // Regular character
+        result.push(char);
+        origIdx++;
+      }
+    }
+
+    // Final position mapping
+    diffs[result.length] = origIdx;
+
+    return [result.join(""), diffs];
+  }, []);
+
+  // Firefox's getOriginalIndex function: maps position in normalized text back to original text
+  const getOriginalIndex = useCallback(
+    (diffs: number[], pos: number, len: number): [number, number] => {
+      if (!diffs || diffs.length === 0) {
+        return [pos, len];
+      }
+
+      // Find where pos falls in the diffs array
+      // diffs[i] tells us: normalized position i came from original position diffs[i]
+      const start = pos;
+      const end = pos + len - 1;
+
+      // Map start position
+      const originalStart = diffs[start] !== undefined ? diffs[start] : start;
+      // Map end position
+      const originalEnd = diffs[end] !== undefined ? diffs[end] : end;
+      const originalLen = originalEnd - originalStart + 1;
+
+      return [originalStart, originalLen];
+    },
+    []
+  );
+
   // Handle document load success
   const handleDocumentLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js document type not fully typed
@@ -207,19 +269,38 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           logError("Failed to get page dimensions", err);
         });
 
+      // Clear stored text content for previous document
+      originalTextContentRef.current.clear();
+
       // Extract text from all pages for search functionality
       const extractAllText = async () => {
         setExtractingText(true);
         const texts = new Map<number, string>();
+        const normalizedTexts = new Map<number, string>();
+        const diffs = new Map<number, number[]>();
         let hasText = false;
 
         try {
           for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
-            const pageText = textContent.items.map((item: any) => item.str).join(" ");
+            // Extract text like Firefox: include \n for EOL markers
+            const strBuf: string[] = [];
+            for (const textItem of textContent.items) {
+              // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
+              strBuf.push((textItem as any).str);
+              // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
+              if ((textItem as any).hasEOL) {
+                strBuf.push("\n");
+              }
+            }
+            const pageText = strBuf.join("");
             texts.set(i, pageText);
+
+            // Normalize and store diffs like Firefox
+            const [normalizedText, diffsArray] = normalize(pageText);
+            normalizedTexts.set(i, normalizedText);
+            diffs.set(i, diffsArray);
 
             // Check if this page has any non-whitespace text
             if (pageText.trim().length > 0) {
@@ -228,6 +309,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           }
 
           setPageTexts(texts);
+          setNormalizedPageTexts(normalizedTexts);
+          setPageDiffs(diffs);
           setIsSearchable(hasText);
 
           if (!hasText) {
@@ -245,7 +328,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       extractAllText();
     },
-    []
+    [normalize]
   );
 
   // Handle document load error
@@ -281,39 +364,40 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Perform search across all extracted page texts
   const performSearch = useCallback(
     (query: string) => {
-      // Normalize text to match how the text layer renders it
-      const normalizeText = (text: string): string => {
-        // The text layer joins spans with spaces, and collapses multiple spaces
-        return text.replace(/\s+/g, " ").trim();
-      };
-      if (!query.trim() || pageTexts.size === 0) {
+      if (!query.trim() || normalizedPageTexts.size === 0) {
         setMatchLocations([]);
         setCurrentMatch(0);
         return;
       }
 
-      const lowerQuery = normalizeText(query.toLowerCase());
-      const matches: Array<{ page: number; index: number }> = [];
+      const [normalizedQuery] = normalize(query.toLowerCase());
+      const matches: Array<{ page: number; index: number; length: number }> = [];
 
-      // Search through all pages
+      // Search through all pages in normalized text
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-        const pageText = pageTexts.get(pageNum);
-        if (!pageText) continue;
+        const normalizedPageText = normalizedPageTexts.get(pageNum);
+        const diffs = pageDiffs.get(pageNum);
+        if (!normalizedPageText) continue;
 
-        const normalizedPageText = normalizeText(pageText);
         const lowerPageText = normalizedPageText.toLowerCase();
+
+        // Find all occurrences in normalized text
         let startIndex = 0;
-
-        // Find all occurrences in this page
         while (true) {
-          const index = lowerPageText.indexOf(lowerQuery, startIndex);
-          if (index === -1) break;
+          const normIndex = lowerPageText.indexOf(normalizedQuery, startIndex);
+          if (normIndex === -1) break;
 
-          matches.push({ page: pageNum, index });
-          startIndex = index + 1;
+          // Map normalized position back to original using Firefox's getOriginalIndex
+          const [originalIndex, originalLength] = getOriginalIndex(
+            diffs || [],
+            normIndex,
+            normalizedQuery.length
+          );
+
+          matches.push({ page: pageNum, index: originalIndex, length: originalLength });
+          startIndex = normIndex + 1;
         }
       }
-
       setMatchLocations(matches);
 
       // Navigate to first match if any found
@@ -324,7 +408,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setCurrentMatch(0);
       }
     },
-    [pageTexts, numPages]
+    [normalizedPageTexts, pageDiffs, numPages, normalize, getOriginalIndex]
   );
 
   // Debounced search handler
@@ -369,13 +453,29 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Effect to highlight matches in the text layer
   // Apply highlights to the text layer
   useEffect(() => {
+    console.log("*** Highlight effect running ***", {
+      searchText,
+      matchCount: matchLocations.length,
+      currentPage,
+    });
     if (!searchText.trim() || matchLocations.length === 0) {
-      // Clear all highlights
+      // Clear all highlights - restore original text content
       const textLayer = document.querySelector(".react-pdf__Page__textContent");
       if (textLayer) {
         const spans = textLayer.querySelectorAll("span");
-        for (const span of spans) {
-          span.style.backgroundColor = "";
+        const storedTextContent = originalTextContentRef.current.get(currentPage);
+
+        if (storedTextContent && storedTextContent.length === spans.length) {
+          // Restore from stored original text
+          for (let i = 0; i < spans.length; i++) {
+            spans[i].textContent = storedTextContent[i];
+            spans[i].className = "";
+          }
+        } else {
+          // Fallback: just clear styling
+          for (const span of spans) {
+            span.style.backgroundColor = "";
+          }
         }
       }
       return;
@@ -391,99 +491,199 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       const spans = textLayer.querySelectorAll("span");
       if (spans.length === 0) return false;
 
-      const lowerQuery = searchText.toLowerCase();
-      const lowerPageText = pageText.toLowerCase();
-
-      // Find all match positions in the page text
-      const matchPositions: number[] = [];
-      let pos = 0;
-      while (true) {
-        pos = lowerPageText.indexOf(lowerQuery, pos);
-        if (pos === -1) break;
-        matchPositions.push(pos);
-        pos += 1;
+      // Get or store original text content (like Firefox's textContentItemsStr)
+      let textContentItems = originalTextContentRef.current.get(currentPage);
+      if (!textContentItems) {
+        // First time seeing this page's text layer - store the original strings
+        textContentItems = [];
+        for (const span of spans) {
+          textContentItems.push(span.textContent || "");
+        }
+        originalTextContentRef.current.set(currentPage, textContentItems);
+      } else {
+        // Restore all spans to their original text (clear previous highlights)
+        for (let i = 0; i < spans.length; i++) {
+          spans[i].textContent = textContentItems[i];
+          spans[i].className = "";
+        }
       }
 
-      // Get matches on current page for proper indexing
+      // DEBUG: Compare DOM concatenated text with extracted text
+      const domConcat = textContentItems.join("");
+      const extractedText = pageText;
+      const extractedWithoutNewlines = pageText.replace(/\n/g, "");
+      console.log("=== TEXT COMPARISON ===");
+      console.log("DOM length:", domConcat.length);
+      console.log("Extracted length (with \\n):", extractedText.length);
+      console.log("Extracted length (without \\n):", extractedWithoutNewlines.length);
+      console.log("DOM === Extracted (no \\n):", domConcat === extractedWithoutNewlines);
+      if (domConcat !== extractedWithoutNewlines) {
+        console.log(
+          "First diff at:",
+          [...domConcat].findIndex((c, i) => c !== extractedWithoutNewlines[i])
+        );
+        const diffPos = [...domConcat].findIndex((c, i) => c !== extractedWithoutNewlines[i]);
+        console.log(
+          `DOM [${diffPos - 10}:${diffPos + 10}]:`,
+          domConcat.substring(diffPos - 10, diffPos + 10)
+        );
+        console.log(
+          `Extracted [${diffPos - 10}:${diffPos + 10}]:`,
+          extractedWithoutNewlines.substring(diffPos - 10, diffPos + 10)
+        );
+      }
+
+      // Get matches on current page
       const pageMatches = matchLocations
         .map((loc, idx) => ({ ...loc, globalIndex: idx }))
         .filter((loc) => loc.page === currentPage);
 
-      let charIndex = 0;
+      if (pageMatches.length === 0) return true;
 
-      for (const span of spans) {
-        const spanText = span.textContent || "";
-        const spanStart = charIndex;
-        const spanEnd = charIndex + spanText.length;
+      // Firefox's _convertMatches approach: match positions are in original concatenated text
+      // Simply walk through text items and find which div each position falls into
+      const convertedMatches: Array<{
+        begin: { divIdx: number; offset: number };
+        end: { divIdx: number; offset: number };
+        globalIndex: number;
+      }> = [];
 
-        // Find all matches that overlap with this span
-        const spanMatches: Array<{
-          matchIdx: number;
-          startInSpan: number;
-          endInSpan: number;
-          isCurrentMatch: boolean;
-        }> = [];
+      for (const pageMatch of pageMatches) {
+        // pageMatch.index is already in ORIGINAL text (we mapped it during search)
+        const matchStart = pageMatch.index;
+        const matchEnd = matchStart + pageMatch.length;
 
-        for (let i = 0; i < matchPositions.length; i++) {
-          const matchStart = matchPositions[i];
-          const matchEnd = matchStart + lowerQuery.length;
+        console.log("=== Match Debug ===");
+        console.log("matchStart:", matchStart, "matchEnd:", matchEnd, "length:", pageMatch.length);
+        console.log("textContentItems:", textContentItems);
 
-          // Check if match overlaps with this span
-          if (matchStart < spanEnd && matchEnd > spanStart) {
-            const pageMatch = pageMatches[i];
-            if (!pageMatch) continue;
+        // Find div indices like Firefox's _convertMatches does
+        // Start fresh for each match
+        let iIndex = 0;
+        let i = 0;
+        const end = textContentItems.length - 1;
 
-            // Calculate where in the span text the match starts and ends
-            const startInSpan = Math.max(0, matchStart - spanStart);
-            const endInSpan = Math.min(spanText.length, matchEnd - spanStart);
-
-            const isCurrentMatch = currentMatch > 0 && pageMatch.globalIndex === currentMatch - 1;
-
-            spanMatches.push({
-              matchIdx: i,
-              startInSpan,
-              endInSpan,
-              isCurrentMatch,
-            });
-          }
+        // Find start position
+        while (i !== end && matchStart >= iIndex + textContentItems[i].length) {
+          iIndex += textContentItems[i].length;
+          i++;
         }
 
-        // If this span has matches, rebuild it with highlighted sections
-        if (spanMatches.length > 0) {
-          // Sort matches by position
-          spanMatches.sort((a, b) => a.startInSpan - b.startInSpan);
+        const beginDiv = i;
+        const beginOffset = matchStart - iIndex;
 
-          // Clear the span and rebuild with highlights
-          span.textContent = "";
-          let lastPos = 0;
+        console.log(
+          "beginDiv:",
+          beginDiv,
+          "beginOffset:",
+          beginOffset,
+          "text:",
+          textContentItems[beginDiv]
+        );
 
-          for (const match of spanMatches) {
-            // Add text before the match
-            if (match.startInSpan > lastPos) {
-              span.appendChild(
-                document.createTextNode(spanText.substring(lastPos, match.startInSpan))
-              );
-            }
+        // Reset for end position search - start from the beginning again
+        iIndex = 0;
+        i = 0;
 
-            // Add the highlighted match
-            const highlightSpan = document.createElement("span");
-            highlightSpan.style.backgroundColor = match.isCurrentMatch
+        // Find end position
+        while (i !== end && matchEnd > iIndex + textContentItems[i].length) {
+          iIndex += textContentItems[i].length;
+          i++;
+        }
+
+        const endDiv = i;
+        const endOffset = matchEnd - iIndex;
+
+        console.log("endDiv:", endDiv, "endOffset:", endOffset, "text:", textContentItems[endDiv]);
+
+        convertedMatches.push({
+          begin: { divIdx: beginDiv, offset: beginOffset },
+          end: { divIdx: endDiv, offset: endOffset },
+          globalIndex: pageMatch.globalIndex,
+        });
+      } // Render highlights following Firefox's approach
+      // Process matches sequentially and track what's been cleared
+      const infinity = { divIdx: -1, offset: undefined };
+      let prevEnd: { divIdx: number; offset: number } | null = null;
+
+      const appendTextToDiv = (
+        divIdx: number,
+        fromOffset: number,
+        toOffset: number | undefined,
+        className?: string
+      ) => {
+        const div = spans[divIdx];
+        const content = textContentItems[divIdx].substring(
+          fromOffset,
+          toOffset ?? textContentItems[divIdx].length
+        );
+        const node = document.createTextNode(content);
+
+        if (className) {
+          const span = document.createElement("span");
+          span.className = className;
+          span.style.backgroundColor = className.includes("selected")
+            ? "rgba(255, 152, 0, 0.4)"
+            : "rgba(255, 235, 59, 0.4)";
+          span.style.color = "inherit";
+          span.append(node);
+          div.append(span);
+        } else {
+          div.append(node);
+        }
+      };
+
+      const beginText = (begin: { divIdx: number; offset: number }) => {
+        const divIdx = begin.divIdx;
+        spans[divIdx].textContent = "";
+        appendTextToDiv(divIdx, 0, begin.offset);
+      };
+
+      for (const match of convertedMatches) {
+        const begin = match.begin;
+        const end = match.end;
+        const isCurrentMatch = currentMatch > 0 && match.globalIndex === currentMatch - 1;
+        const highlightClass = isCurrentMatch ? "highlight selected" : "highlight";
+
+        // Check if we need to start a new div
+        if (!prevEnd || begin.divIdx !== prevEnd.divIdx) {
+          // If there was a previous div, add the remaining text
+          if (prevEnd !== null) {
+            appendTextToDiv(prevEnd.divIdx, prevEnd.offset, infinity.offset);
+          }
+          // Clear the div and add text before the match
+          beginText(begin);
+        } else {
+          // Add text between previous match and this match in same div
+          appendTextToDiv(prevEnd.divIdx, prevEnd.offset, begin.offset);
+        }
+
+        // Add the highlighted match
+        if (begin.divIdx === end.divIdx) {
+          // Match within single div
+          appendTextToDiv(begin.divIdx, begin.offset, end.offset, highlightClass);
+        } else {
+          // Match spans multiple divs
+          appendTextToDiv(begin.divIdx, begin.offset, infinity.offset, highlightClass);
+
+          // Highlight middle divs
+          for (let n = begin.divIdx + 1; n < end.divIdx; n++) {
+            spans[n].className = highlightClass;
+            spans[n].style.backgroundColor = highlightClass.includes("selected")
               ? "rgba(255, 152, 0, 0.4)"
               : "rgba(255, 235, 59, 0.4)";
-            highlightSpan.style.color = "inherit";
-            highlightSpan.textContent = spanText.substring(match.startInSpan, match.endInSpan);
-            span.appendChild(highlightSpan);
-
-            lastPos = match.endInSpan;
           }
 
-          // Add any remaining text after the last match
-          if (lastPos < spanText.length) {
-            span.appendChild(document.createTextNode(spanText.substring(lastPos)));
-          }
+          beginText(end);
+          appendTextToDiv(end.divIdx, 0, end.offset, highlightClass);
         }
 
-        charIndex = spanEnd + 1; // +1 for space between spans
+        prevEnd = end;
+      }
+
+      // Add remaining text in the last div
+      if (prevEnd) {
+        appendTextToDiv(prevEnd.divIdx, prevEnd.offset, infinity.offset);
       }
 
       return true;
