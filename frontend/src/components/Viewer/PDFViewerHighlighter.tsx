@@ -1,14 +1,19 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
+import * as pdfjs from "pdfjs-dist";
+// Configure PDF.js worker for react-pdf-highlighter-extended (uses pdfjs-dist 4.10.38)
+// Import worker from node_modules to ensure version match
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type * as PDFJS from "pdfjs-dist/types/src/pdf";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Highlight, PdfHighlighter, PdfLoader } from "react-pdf-highlighter-extended";
-import "react-pdf-highlighter-extended/dist/style.css";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { SearchHighlightContainer } from "./SearchHighlightContainer";
 import { ViewerControls } from "./ViewerControls";
+
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 
@@ -58,6 +63,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
   const highlighterUtilsRef = useRef<{ scrollToHighlight: (highlight: Highlight) => void }>();
 
   const searchTimeoutRef = useRef<number | null>(null);
+  const loadedDocRef = useRef<PDFJS.PDFDocumentProxy | null>(null);
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -463,29 +469,69 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [currentPage, numPages, handlePageChange, handleSearchNext, handleSearchPrevious]);
 
-  // Fetch PDF data and create blob URL
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  // Fetch PDF data as Uint8Array
+  const [pdfData, setPdfData] = useState<Uint8Array | null>(null);
 
   useEffect(() => {
+    const abortController = new AbortController();
     let isMounted = true;
-    let blobUrl: string | null = null;
 
     const fetchPdf = async () => {
       try {
+        console.log("PDFViewerHighlighter: Starting PDF fetch for:", path);
         setLoading(true);
         setError(null);
 
-        const blob = await apiService.getPdfBlob(connectionId, path);
+        const blob = await apiService.getPdfBlob(connectionId, path, {
+          signal: abortController.signal,
+        });
+        console.log(
+          "PDFViewerHighlighter: Blob received, size:",
+          blob.size,
+          "isMounted:",
+          isMounted
+        );
 
-        if (!blob || blob.size === 0) {
-          throw new Error("Received empty PDF blob");
+        if (!isMounted) {
+          console.log("PDFViewerHighlighter: Component unmounted, aborting");
+          return;
         }
 
-        if (!isMounted) return;
+        // Skip if blob is empty (can happen in StrictMode double-render)
+        if (blob.size === 0) {
+          console.log("PDFViewerHighlighter: Skipping empty blob");
+          return;
+        }
 
-        blobUrl = URL.createObjectURL(blob);
-        setPdfBlobUrl(blobUrl);
+        console.log("PDFViewerHighlighter: Converting blob to ArrayBuffer...");
+        // Convert blob to Uint8Array for PdfLoader
+        const arrayBuffer = await blob.arrayBuffer();
+        console.log("PDFViewerHighlighter: ArrayBuffer created, size:", arrayBuffer.byteLength);
+
+        if (!isMounted) {
+          console.log("PDFViewerHighlighter: Component unmounted after arrayBuffer, aborting");
+          return;
+        }
+
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        console.log("PDF data prepared:", {
+          blobSize: blob.size,
+          arrayBufferByteLength: arrayBuffer.byteLength,
+          uint8ArrayLength: uint8Array.length,
+          uint8ArrayByteLength: uint8Array.byteLength,
+        });
+
+        setPdfData(uint8Array);
+        setLoading(false);
+        console.log("PDFViewerHighlighter: pdfData state set");
       } catch (err) {
+        // Ignore errors from aborted requests
+        if (err instanceof Error && err.name === "AbortError") {
+          console.log("PDFViewerHighlighter: Fetch aborted");
+          return;
+        }
+
         if (!isMounted) return;
 
         const errorMessage = getErrorMessage(err);
@@ -504,11 +550,18 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
 
     return () => {
       isMounted = false;
-      if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
-      }
+      abortController.abort();
     };
   }, [connectionId, path]);
+
+  // Debug logging
+  console.log("PDFViewerHighlighter render:", {
+    error: error || "none",
+    pdfDataLength: pdfData?.length || 0,
+    loading,
+    hasError: !!error,
+    hasPdfData: !!pdfData,
+  });
 
   return (
     <Dialog
@@ -628,26 +681,37 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             </Box>
           )}
 
-          {!error && pdfBlobUrl && (
-            <PdfLoader document={pdfBlobUrl}>
-              {(pdfDoc) => {
-                if (!pdfDocument) {
-                  handleDocumentLoad(pdfDoc);
-                }
-                return (
-                  <PdfHighlighter
-                    pdfDocument={pdfDoc}
-                    highlights={searchHighlights}
-                    enableAreaSelection={() => false}
-                    utilsRef={(utils) => {
-                      highlighterUtilsRef.current = utils;
-                    }}
-                  >
-                    <SearchHighlightContainer currentMatchIndex={currentMatch - 1} />
-                  </PdfHighlighter>
-                );
-              }}
-            </PdfLoader>
+          {!error && pdfData && (
+            <>
+              {console.log("Passing to PdfLoader:", {
+                pdfDataLength: pdfData.length,
+                pdfDataByteLength: pdfData.byteLength,
+                pdfDataConstructor: pdfData.constructor.name,
+              })}
+              <PdfLoader document={pdfData} workerSrc={pdfjsWorker}>
+                {(pdfDoc) => {
+                  // Check if we need to load this document (avoid setState during render)
+                  if (pdfDoc && loadedDocRef.current !== pdfDoc) {
+                    loadedDocRef.current = pdfDoc;
+                    // Schedule document load for next tick
+                    Promise.resolve().then(() => handleDocumentLoad(pdfDoc));
+                  }
+
+                  return (
+                    <PdfHighlighter
+                      pdfDocument={pdfDoc}
+                      highlights={searchHighlights}
+                      enableAreaSelection={() => false}
+                      utilsRef={(utils) => {
+                        highlighterUtilsRef.current = utils;
+                      }}
+                    >
+                      <SearchHighlightContainer currentMatchIndex={currentMatch - 1} />
+                    </PdfHighlighter>
+                  );
+                }}
+              </PdfLoader>
+            </>
           )}
         </Box>
       </Box>
