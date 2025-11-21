@@ -285,7 +285,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".pdf"],
     mimeTypes: ["application/pdf"],
     category: "document",
-    viewerComponent: () => import("../components/Viewer/PDFViewer"),
+    viewerComponent: () => import("../components/Viewer/PDFViewerHighlighter"),
     icon: "pdf",
     color: "#d32f2f",
     description: "PDF Document",
