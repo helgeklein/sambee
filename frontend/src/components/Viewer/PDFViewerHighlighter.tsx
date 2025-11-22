@@ -5,7 +5,12 @@ import * as pdfjs from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type * as PDFJS from "pdfjs-dist/types/src/pdf";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type Highlight, PdfHighlighter, PdfLoader } from "react-pdf-highlighter-extended";
+import {
+  type Highlight,
+  PdfHighlighter,
+  PdfLoader,
+  type PdfScaleValue,
+} from "react-pdf-highlighter-extended";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
@@ -15,7 +20,15 @@ import { ViewerControls } from "./ViewerControls";
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
+// Map our simple zoom modes to PdfScaleValue
+// fit-page -> page-fit, fit-width -> page-width, number -> number
 type ZoomMode = "fit-page" | "fit-width" | number;
+
+const toPdfScaleValue = (zoom: ZoomMode): PdfScaleValue => {
+  if (zoom === "fit-page") return "page-fit";
+  if (zoom === "fit-width") return "page-width";
+  return zoom;
+};
 
 /**
  * Extract error message from API error or exception
@@ -64,6 +77,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
 
   const searchTimeoutRef = useRef<number | null>(null);
   const loadedDocRef = useRef<PDFJS.PDFDocumentProxy | null>(null);
+  const pendingScrollHighlightRef = useRef<Highlight | null>(null);
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -179,7 +193,10 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
       try {
         const page = await pdfDocument.getPage(pageNum);
         const textContent = await page.getTextContent();
-        const viewport = page.getViewport({ scale: 1 });
+
+        // Get page dimensions in PDF coordinate space
+        const pageWidth = page.view[2] - page.view[0];
+        const pageHeight = page.view[3] - page.view[1];
 
         // Build character position map
         let charIndex = 0;
@@ -211,13 +228,19 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             // Calculate character width (approximation)
             const charWidth = width / str.length;
 
-            // Calculate rectangle for the matched portion
-            const x1 = tx + overlapStart * charWidth;
-            const y1 = viewport.height - ty;
-            const x2 = tx + overlapEnd * charWidth;
-            const y2 = viewport.height - (ty - height);
+            // Calculate rectangle in PDF coordinate system (bottom-left origin)
+            const pdfX1 = tx + overlapStart * charWidth;
+            const pdfY1 = ty - height; // Bottom edge
+            const pdfX2 = tx + overlapEnd * charWidth;
+            const pdfY2 = ty; // Top edge
 
-            rects.push({ x1, y1: Math.min(y1, y2), x2, y2: Math.max(y1, y2) });
+            // Normalize to 0-1 range (ScaledPosition requirement)
+            const x1 = pdfX1 / pageWidth;
+            const y1 = pdfY1 / pageHeight;
+            const x2 = pdfX2 / pageWidth;
+            const y2 = pdfY2 / pageHeight;
+
+            rects.push({ x1, y1, x2, y2 });
           }
 
           charIndex += str.length;
@@ -234,6 +257,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         const x2 = Math.max(...rects.map((r) => r.x2));
         const y2 = Math.max(...rects.map((r) => r.y2));
 
+        // Return ScaledPosition with normalized 0-1 coordinates
         return {
           boundingRect: {
             x1,
@@ -322,6 +346,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
       setSearchHighlightPages(highlightPages);
 
       if (newHighlights.length > 0) {
+        pendingScrollHighlightRef.current = newHighlights[0];
         setCurrentMatch(1);
         setCurrentPage(highlightPages[0]);
       } else {
@@ -360,6 +385,12 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
     if (searchHighlights.length === 0) return;
 
     const nextMatch = currentMatch >= searchHighlights.length ? 1 : currentMatch + 1;
+
+    const highlight = searchHighlights[nextMatch - 1];
+    if (highlight) {
+      pendingScrollHighlightRef.current = highlight;
+    }
+
     setCurrentMatch(nextMatch);
     setCurrentPage(searchHighlightPages[nextMatch - 1]);
   }, [searchHighlights, searchHighlightPages, currentMatch]);
@@ -368,6 +399,12 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
     if (searchHighlights.length === 0) return;
 
     const prevMatch = currentMatch <= 1 ? searchHighlights.length : currentMatch - 1;
+
+    const highlight = searchHighlights[prevMatch - 1];
+    if (highlight) {
+      pendingScrollHighlightRef.current = highlight;
+    }
+
     setCurrentMatch(prevMatch);
     setCurrentPage(searchHighlightPages[prevMatch - 1]);
   }, [searchHighlights, searchHighlightPages, currentMatch]);
@@ -478,57 +515,36 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
 
     const fetchPdf = async () => {
       try {
-        console.log("PDFViewerHighlighter: Starting PDF fetch for:", path);
         setLoading(true);
         setError(null);
 
         const blob = await apiService.getPdfBlob(connectionId, path, {
           signal: abortController.signal,
         });
-        console.log(
-          "PDFViewerHighlighter: Blob received, size:",
-          blob.size,
-          "isMounted:",
-          isMounted
-        );
 
         if (!isMounted) {
-          console.log("PDFViewerHighlighter: Component unmounted, aborting");
           return;
         }
 
         // Skip if blob is empty (can happen in StrictMode double-render)
         if (blob.size === 0) {
-          console.log("PDFViewerHighlighter: Skipping empty blob");
           return;
         }
 
-        console.log("PDFViewerHighlighter: Converting blob to ArrayBuffer...");
         // Convert blob to Uint8Array for PdfLoader
         const arrayBuffer = await blob.arrayBuffer();
-        console.log("PDFViewerHighlighter: ArrayBuffer created, size:", arrayBuffer.byteLength);
 
         if (!isMounted) {
-          console.log("PDFViewerHighlighter: Component unmounted after arrayBuffer, aborting");
           return;
         }
 
         const uint8Array = new Uint8Array(arrayBuffer);
 
-        console.log("PDF data prepared:", {
-          blobSize: blob.size,
-          arrayBufferByteLength: arrayBuffer.byteLength,
-          uint8ArrayLength: uint8Array.length,
-          uint8ArrayByteLength: uint8Array.byteLength,
-        });
-
         setPdfData(uint8Array);
         setLoading(false);
-        console.log("PDFViewerHighlighter: pdfData state set");
       } catch (err) {
         // Ignore errors from aborted requests
         if (err instanceof Error && err.name === "AbortError") {
-          console.log("PDFViewerHighlighter: Fetch aborted");
           return;
         }
 
@@ -554,13 +570,13 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
     };
   }, [connectionId, path]);
 
-  // Debug logging
-  console.log("PDFViewerHighlighter render:", {
-    error: error || "none",
-    pdfDataLength: pdfData?.length || 0,
-    loading,
-    hasError: !!error,
-    hasPdfData: !!pdfData,
+  // Handle scrolling when we have a pending scroll after state updates
+  useEffect(() => {
+    if (pendingScrollHighlightRef.current && highlighterUtilsRef.current) {
+      const highlight = pendingScrollHighlightRef.current;
+      highlighterUtilsRef.current.scrollToHighlight(highlight);
+      pendingScrollHighlightRef.current = null;
+    }
   });
 
   return (
@@ -682,36 +698,39 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
           )}
 
           {!error && pdfData && (
-            <>
-              {console.log("Passing to PdfLoader:", {
-                pdfDataLength: pdfData.length,
-                pdfDataByteLength: pdfData.byteLength,
-                pdfDataConstructor: pdfData.constructor.name,
-              })}
-              <PdfLoader document={pdfData} workerSrc={pdfjsWorker}>
-                {(pdfDoc) => {
-                  // Check if we need to load this document (avoid setState during render)
-                  if (pdfDoc && loadedDocRef.current !== pdfDoc) {
-                    loadedDocRef.current = pdfDoc;
-                    // Schedule document load for next tick
-                    Promise.resolve().then(() => handleDocumentLoad(pdfDoc));
-                  }
+            <PdfLoader document={pdfData} workerSrc={pdfjsWorker}>
+              {(pdfDoc) => {
+                // Check if we need to load this document (avoid setState during render)
+                if (pdfDoc && loadedDocRef.current !== pdfDoc) {
+                  loadedDocRef.current = pdfDoc;
+                  // Schedule document load for next tick
+                  Promise.resolve().then(() => handleDocumentLoad(pdfDoc));
+                }
 
-                  return (
-                    <PdfHighlighter
-                      pdfDocument={pdfDoc}
-                      highlights={searchHighlights}
-                      enableAreaSelection={() => false}
-                      utilsRef={(utils) => {
-                        highlighterUtilsRef.current = utils;
-                      }}
-                    >
-                      <SearchHighlightContainer currentMatchIndex={currentMatch - 1} />
-                    </PdfHighlighter>
-                  );
-                }}
-              </PdfLoader>
-            </>
+                return (
+                  <PdfHighlighter
+                    pdfDocument={pdfDoc}
+                    highlights={searchHighlights}
+                    pdfScaleValue={toPdfScaleValue(scale)}
+                    enableAreaSelection={() => false}
+                    utilsRef={(utils) => {
+                      highlighterUtilsRef.current = utils;
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      width: "100%",
+                      height: "100%",
+                    }}
+                  >
+                    <SearchHighlightContainer currentMatchIndex={currentMatch - 1} />
+                  </PdfHighlighter>
+                );
+              }}
+            </PdfLoader>
           )}
         </Box>
       </Box>

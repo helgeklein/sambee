@@ -1,3 +1,4 @@
+import React from "react";
 import type { Highlight } from "react-pdf-highlighter-extended";
 import {
   AreaHighlight,
@@ -13,37 +14,43 @@ interface SearchHighlightContainerProps {
  * Custom highlight container for rendering search results
  * Highlights current match differently from other matches
  */
-export const SearchHighlightContainer: React.FC<SearchHighlightContainerProps> = ({
-  currentMatchIndex,
-}) => {
-  const { highlight, isScrolledTo } = useHighlightContainerContext<Highlight>();
+export const SearchHighlightContainer: React.FC<SearchHighlightContainerProps> = React.memo(
+  ({ currentMatchIndex }) => {
+    const { highlight, isScrolledTo } = useHighlightContainerContext<Highlight>();
 
-  // Extract match index from highlight ID (format: "search-{page}-{index}")
-  const highlightIndex = highlight.id.startsWith("search-")
-    ? Number.parseInt(highlight.id.split("-").slice(2).join("-"), 10)
-    : -1;
+    // Extract match index from highlight ID (format: "search-{index}")
+    const highlightIndex = highlight.id.startsWith("search-")
+      ? Number.parseInt(highlight.id.substring(7), 10)
+      : -1;
 
-  const isCurrentMatch = highlightIndex === currentMatchIndex;
-  const isTextHighlight = !highlight.content?.image;
+    const isCurrentMatch = highlightIndex === currentMatchIndex;
+    const isTextHighlight = !highlight.content?.image;
 
-  // Yellow for regular matches, orange for current match
-  const highlightColor = isCurrentMatch ? "rgba(255, 152, 0, 0.4)" : "rgba(255, 235, 59, 0.4)";
+    // Use very bright colors with explicit positioning for debugging visibility
+    const highlightStyle: React.CSSProperties = isCurrentMatch
+      ? {
+          background: "rgba(255, 152, 0, 0.8)",
+          opacity: 1,
+          zIndex: 10,
+          pointerEvents: "auto",
+        }
+      : {
+          background: "rgba(255, 235, 59, 0.6)",
+          opacity: 1,
+          zIndex: 9,
+          pointerEvents: "auto",
+        };
 
-  if (isTextHighlight) {
+    if (isTextHighlight) {
+      return (
+        <TextHighlight isScrolledTo={isScrolledTo} highlight={highlight} style={highlightStyle} />
+      );
+    }
+
     return (
-      <TextHighlight
-        isScrolledTo={isScrolledTo}
-        highlight={highlight}
-        style={{ background: highlightColor }}
-      />
+      <AreaHighlight isScrolledTo={isScrolledTo} highlight={highlight} style={highlightStyle} />
     );
   }
+);
 
-  return (
-    <AreaHighlight
-      isScrolledTo={isScrolledTo}
-      highlight={highlight}
-      style={{ background: highlightColor }}
-    />
-  );
-};
+SearchHighlightContainer.displayName = "SearchHighlightContainer";
