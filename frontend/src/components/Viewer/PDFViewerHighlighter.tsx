@@ -11,6 +11,9 @@ import {
   PdfLoader,
   type PdfScaleValue,
 } from "react-pdf-highlighter-extended";
+import "pdfjs-dist/web/pdf_viewer.css";
+import "react-pdf-highlighter-extended/dist/esm/style/PdfHighlighter.css";
+import "react-pdf-highlighter-extended/dist/esm/style/pdf_viewer.css";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
@@ -225,20 +228,33 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             const width = item.width;
             const height = item.height || fontSize;
 
+            console.log("Text item:", {
+              fullString: str,
+              matchSubstring: str.substring(overlapStart, overlapEnd),
+              overlapStart,
+              overlapEnd,
+              strLength: str.length,
+              width,
+              charWidth: width / str.length,
+              tx: item.transform[4],
+              ty: item.transform[5],
+            });
+
             // Calculate character width (approximation)
             const charWidth = width / str.length;
 
             // Calculate rectangle in PDF coordinate system (bottom-left origin)
             const pdfX1 = tx + overlapStart * charWidth;
-            const pdfY1 = ty - height; // Bottom edge
+            const pdfY1 = ty; // Baseline (bottom of text)
             const pdfX2 = tx + overlapEnd * charWidth;
-            const pdfY2 = ty; // Top edge
+            const pdfY2 = ty + height; // Top edge (baseline + height)
 
-            // Normalize to 0-1 range (ScaledPosition requirement)
-            const x1 = pdfX1 / pageWidth;
-            const y1 = pdfY1 / pageHeight;
-            const x2 = pdfX2 / pageWidth;
-            const y2 = pdfY2 / pageHeight;
+            // Keep PDF coordinates as-is (bottom-left origin, in points)
+            // usePdfCoordinates: true tells library these are PDF coordinate space
+            const x1 = pdfX1;
+            const y1 = pdfY1;
+            const x2 = pdfX2;
+            const y2 = pdfY2;
 
             rects.push({ x1, y1, x2, y2 });
           }
@@ -257,7 +273,10 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         const x2 = Math.max(...rects.map((r) => r.x2));
         const y2 = Math.max(...rects.map((r) => r.y2));
 
-        // Return ScaledPosition with normalized 0-1 coordinates
+        // Return ScaledPosition with PDF coordinates (will be converted by library)
+        // Store page dimensions for reference
+        console.log("Page dimensions:", { pageWidth, pageHeight, pageNum });
+
         return {
           boundingRect: {
             x1,
@@ -277,6 +296,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             height: r.y2 - r.y1,
             pageNumber: pageNum,
           })),
+          usePdfCoordinates: true, // Tell library these are PDF coordinates
         };
       } catch (err) {
         logError("Failed to get text bounding rects", { error: err, pageNum });
