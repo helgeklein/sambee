@@ -251,8 +251,10 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             const matchWidth = (overlapEnd - overlapStart) * avgCharWidth;
 
             const pdfX1 = tx + startOffset;
-            const pdfY1 = ty;
             const pdfX2 = tx + startOffset + matchWidth;
+
+            // Keep PDF coordinates with bottom-origin (PDF standard)
+            const pdfY1 = ty;
             const pdfY2 = ty + height;
 
             rects.push({ x1: pdfX1, y1: pdfY1, x2: pdfX2, y2: pdfY2 });
@@ -369,23 +371,40 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
           return null;
         }
 
-        // Get the page div to convert client rects to page-relative coordinates
+        // Get the page div and PDF page for coordinate conversion
         const pageDiv = textLayer.closest("[data-page-number]") as HTMLElement;
         if (!pageDiv) {
           return null;
         }
 
         const pageRect = pageDiv.getBoundingClientRect();
+        const page = await pdfDocument.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.0 });
 
-        // Convert client rects to page-relative viewport coordinates
+        // The rendered page height in pixels
+        const renderedHeight = pageRect.height;
+        // The PDF page height at scale 1.0
+        const pdfHeight = viewport.height;
+        // Current scale factor
+        const currentScale = renderedHeight / pdfHeight;
+
+        // Convert client rects to PDF coordinates
         const rects = clientRects.map((rect) => {
-          // Convert to page-relative coordinates
-          const x1 = rect.left - pageRect.left;
-          const y1 = rect.top - pageRect.top;
-          const x2 = rect.right - pageRect.left;
-          const y2 = rect.bottom - pageRect.top;
+          // First: page-relative viewport coordinates (pixels from top-left)
+          const viewportX1 = rect.left - pageRect.left;
+          const viewportY1 = rect.top - pageRect.top;
+          const viewportX2 = rect.right - pageRect.left;
+          const viewportY2 = rect.bottom - pageRect.top;
 
-          return { x1, y1, x2, y2 };
+          // Convert to PDF coordinate space (scale and flip Y)
+          const pdfX1 = viewportX1 / currentScale;
+          const pdfX2 = viewportX2 / currentScale;
+
+          // PDF Y coordinates are from bottom, viewport Y is from top - need to flip
+          const pdfY1 = pdfHeight - viewportY2 / currentScale;
+          const pdfY2 = pdfHeight - viewportY1 / currentScale;
+
+          return { x1: pdfX1, y1: pdfY1, x2: pdfX2, y2: pdfY2 };
         });
 
         // Calculate bounding rect
@@ -394,8 +413,8 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         const x2 = Math.max(...rects.map((r) => r.x2));
         const y2 = Math.max(...rects.map((r) => r.y2));
 
-        // Return ScaledPosition with viewport coordinates
-        // The library expects these to be in the current scale's viewport coordinates
+        // Return ScaledPosition with PDF coordinates (same as fallback)
+        // usePdfCoordinates: true tells library these are normalized PDF coords
         return {
           boundingRect: {
             x1,
@@ -415,6 +434,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             height: r.y2 - r.y1,
             pageNumber: pageNum,
           })),
+          usePdfCoordinates: true,
         };
       } catch (err) {
         logError("Failed to get text bounding rects", { error: err, pageNum });
@@ -484,6 +504,18 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
       setSearchHighlightPages(highlightPages);
 
       if (newHighlights.length > 0) {
+        console.log("Search results:", {
+          totalMatches: newHighlights.length,
+          firstMatchPage: highlightPages[0],
+          firstMatchId: newHighlights[0].id,
+          pageDistribution: highlightPages.reduce(
+            (acc, page) => {
+              acc[page] = (acc[page] || 0) + 1;
+              return acc;
+            },
+            {} as Record<number, number>
+          ),
+        });
         pendingScrollHighlightRef.current = newHighlights[0];
         setCurrentMatch(1);
         setCurrentPage(highlightPages[0]);
