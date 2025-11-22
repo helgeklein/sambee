@@ -236,6 +236,7 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
           const matchStart = startIndex;
           const matchEnd = startIndex + length;
 
+          // Check if match overlaps with this item's text (not the newline after it)
           if (matchStart < itemEndIndex && matchEnd > itemStartIndex) {
             const overlapStart = Math.max(0, matchStart - itemStartIndex);
             const overlapEnd = Math.min(str.length, matchEnd - itemStartIndex);
@@ -260,9 +261,10 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             rects.push({ x1: pdfX1, y1: pdfY1, x2: pdfX2, y2: pdfY2 });
           }
 
+          // Increment charIndex to match how text is extracted
           charIndex += str.length;
           if ("hasEOL" in item && item.hasEOL) {
-            charIndex++;
+            charIndex++; // Account for the "\n" added in text extraction
           }
         }
 
@@ -312,9 +314,11 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         // Try to get text layer (only available for rendered pages)
         const textLayer = getTextLayer(pageNum);
         if (!textLayer) {
+          console.log(`Page ${pageNum}: No text layer, using PDF.js fallback`);
           // Fallback: Use PDF.js coordinates for non-rendered pages
           return getTextBoundingRectsFromPdfJs(pageNum, startIndex, length);
         }
+        console.log(`Page ${pageNum}: Text layer found, using Range API`);
 
         // Find all text nodes in the text layer
         const textNodes: Text[] = [];
@@ -353,6 +357,16 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
           }
 
           charIndex += text.length;
+
+          // Check if this text node's parent has a line break after it
+          const parent = textNode.parentElement;
+          if (parent?.hasAttribute("role")) {
+            // PDF.js text layer: each span is a text item, check for br after
+            const nextSibling = parent.nextSibling;
+            if (nextSibling?.nodeName === "BR") {
+              charIndex++; // Account for newline in extracted text
+            }
+          }
         }
 
         if (!startNode || !endNode) {
