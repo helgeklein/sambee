@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type Highlight,
   PdfHighlighter,
+  type PdfHighlighterUtils,
   PdfLoader,
   type PdfScaleValue,
 } from "react-pdf-highlighter-extended";
@@ -76,11 +77,11 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
   const [pageDiffs, setPageDiffs] = useState<Map<number, number[]>>(new Map());
 
   // Ref for PdfHighlighter utilities
-  const highlighterUtilsRef = useRef<{ scrollToHighlight: (highlight: Highlight) => void }>();
+  const highlighterUtilsRef = useRef<PdfHighlighterUtils>();
 
-  const searchTimeoutRef = useRef<number | null>(null);
   const loadedDocRef = useRef<PDFJS.PDFDocumentProxy | null>(null);
   const pendingScrollHighlightRef = useRef<Highlight | null>(null);
+  const searchTimeoutRef = useRef<number | null>(null);
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -188,8 +189,33 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
     [normalize]
   );
 
-  // Get bounding rectangles for text matches using PDF.js text layer
-  const getTextBoundingRects = useCallback(
+  // Get text layer for a page (should already be rendered when user searches)
+  const getTextLayer = useCallback((pageNum: number): HTMLElement | null => {
+    const viewer = highlighterUtilsRef.current?.getViewer?.();
+    if (!viewer) {
+      return null;
+    }
+
+    const viewerContainer = viewer.viewer;
+    if (!viewerContainer) {
+      return null;
+    }
+
+    const pageDiv = viewerContainer.querySelector(`[data-page-number="${pageNum}"]`) as HTMLElement;
+    if (!pageDiv) {
+      return null;
+    }
+
+    const textLayer = pageDiv.querySelector(".textLayer") as HTMLElement;
+    if (!textLayer || textLayer.children.length === 0) {
+      return null;
+    }
+
+    return textLayer;
+  }, []);
+
+  // Fallback: Get bounding rectangles using PDF.js coordinates (for non-rendered pages)
+  const getTextBoundingRectsFromPdfJs = useCallback(
     async (pageNum: number, startIndex: number, length: number) => {
       if (!pdfDocument) return null;
 
@@ -197,7 +223,6 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         const page = await pdfDocument.getPage(pageNum);
         const textContent = await page.getTextContent();
 
-        // Build character position map
         let charIndex = 0;
         const rects: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
 
@@ -208,66 +233,44 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
           const itemStartIndex = charIndex;
           const itemEndIndex = charIndex + str.length;
 
-          // Check if match overlaps with this text item
           const matchStart = startIndex;
           const matchEnd = startIndex + length;
 
           if (matchStart < itemEndIndex && matchEnd > itemStartIndex) {
-            // Calculate the overlap
             const overlapStart = Math.max(0, matchStart - itemStartIndex);
             const overlapEnd = Math.min(str.length, matchEnd - itemStartIndex);
 
-            // Get text dimensions
             const tx = item.transform[4];
             const ty = item.transform[5];
             const fontSize = Math.sqrt(item.transform[2] ** 2 + item.transform[3] ** 2);
             const width = item.width;
             const height = item.height || fontSize;
 
-            // Calculate position more accurately
-            // For proportional fonts, measure the text before the match
-            const textBefore = str.substring(0, overlapStart);
-            const matchText = str.substring(overlapStart, overlapEnd);
-
-            // Estimate width ratios (not perfect for proportional fonts, but better than per-char average)
             const avgCharWidth = width / str.length;
+            const startOffset = overlapStart * avgCharWidth;
+            const matchWidth = (overlapEnd - overlapStart) * avgCharWidth;
 
-            // Use average character width as best approximation
-            // TODO: For better accuracy, would need font metrics from PDF
-            const startOffset = textBefore.length * avgCharWidth;
-            const matchWidth = matchText.length * avgCharWidth;
-
-            // Calculate rectangle in PDF coordinate system (bottom-left origin)
             const pdfX1 = tx + startOffset;
-            const pdfY1 = ty; // Baseline (bottom of text)
+            const pdfY1 = ty;
             const pdfX2 = tx + startOffset + matchWidth;
-            const pdfY2 = ty + height; // Top edge (baseline + height)
+            const pdfY2 = ty + height;
 
-            // Keep PDF coordinates as-is (bottom-left origin, in points)
-            // usePdfCoordinates: true tells library these are PDF coordinate space
-            const x1 = pdfX1;
-            const y1 = pdfY1;
-            const x2 = pdfX2;
-            const y2 = pdfY2;
-
-            rects.push({ x1, y1, x2, y2 });
+            rects.push({ x1: pdfX1, y1: pdfY1, x2: pdfX2, y2: pdfY2 });
           }
 
           charIndex += str.length;
           if ("hasEOL" in item && item.hasEOL) {
-            charIndex++; // Account for newline
+            charIndex++;
           }
         }
 
         if (rects.length === 0) return null;
 
-        // Calculate bounding rect that encompasses all rects
         const x1 = Math.min(...rects.map((r) => r.x1));
         const y1 = Math.min(...rects.map((r) => r.y1));
         const x2 = Math.max(...rects.map((r) => r.x2));
         const y2 = Math.max(...rects.map((r) => r.y2));
 
-        // Return ScaledPosition with PDF coordinates (will be converted by library)
         return {
           boundingRect: {
             x1,
@@ -287,14 +290,138 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             height: r.y2 - r.y1,
             pageNumber: pageNum,
           })),
-          usePdfCoordinates: true, // Tell library these are PDF coordinates
+          usePdfCoordinates: true,
+        };
+      } catch (err) {
+        logError("Failed to get PDF.js text bounding rects", { error: err, pageNum });
+        return null;
+      }
+    },
+    [pdfDocument]
+  );
+
+  // Get bounding rectangles using text layer DOM and Range API (accurate for proportional fonts!)
+  // Falls back to PDF.js coordinates when text layer isn't rendered yet
+  const getTextBoundingRects = useCallback(
+    async (pageNum: number, startIndex: number, length: number) => {
+      if (!pdfDocument) return null;
+
+      try {
+        // Try to get text layer (only available for rendered pages)
+        const textLayer = getTextLayer(pageNum);
+        if (!textLayer) {
+          // Fallback: Use PDF.js coordinates for non-rendered pages
+          return getTextBoundingRectsFromPdfJs(pageNum, startIndex, length);
+        }
+
+        // Find all text nodes in the text layer
+        const textNodes: Text[] = [];
+        const walk = document.createTreeWalker(textLayer, NodeFilter.SHOW_TEXT);
+
+        let node: Node | null = walk.nextNode();
+        while (node) {
+          if (node.textContent) {
+            textNodes.push(node as Text);
+          }
+          node = walk.nextNode();
+        }
+
+        // Build character index map
+        let charIndex = 0;
+        let startNode: Text | null = null;
+        let endNode: Text | null = null;
+        let startOffset = 0;
+        let endOffset = 0;
+
+        for (const textNode of textNodes) {
+          const text = textNode.textContent || "";
+          const nodeStart = charIndex;
+          const nodeEnd = charIndex + text.length;
+
+          // Check if match starts in this node
+          if (startIndex >= nodeStart && startIndex < nodeEnd) {
+            startNode = textNode;
+            startOffset = startIndex - nodeStart;
+          }
+
+          // Check if match ends in this node
+          if (startIndex + length > nodeStart && startIndex + length <= nodeEnd) {
+            endNode = textNode;
+            endOffset = startIndex + length - nodeStart;
+          }
+
+          charIndex += text.length;
+        }
+
+        if (!startNode || !endNode) {
+          logError("Could not find text nodes for match", { pageNum, startIndex, length });
+          return null;
+        }
+
+        // Create a Range and get client rects (accurate for proportional fonts!)
+        const range = document.createRange();
+        range.setStart(startNode, startOffset);
+        range.setEnd(endNode, endOffset);
+
+        const clientRects = Array.from(range.getClientRects());
+
+        if (clientRects.length === 0) {
+          return null;
+        }
+
+        // Get the page div to convert client rects to page-relative coordinates
+        const pageDiv = textLayer.closest("[data-page-number]") as HTMLElement;
+        if (!pageDiv) {
+          return null;
+        }
+
+        const pageRect = pageDiv.getBoundingClientRect();
+
+        // Convert client rects to page-relative viewport coordinates
+        const rects = clientRects.map((rect) => {
+          // Convert to page-relative coordinates
+          const x1 = rect.left - pageRect.left;
+          const y1 = rect.top - pageRect.top;
+          const x2 = rect.right - pageRect.left;
+          const y2 = rect.bottom - pageRect.top;
+
+          return { x1, y1, x2, y2 };
+        });
+
+        // Calculate bounding rect
+        const x1 = Math.min(...rects.map((r) => r.x1));
+        const y1 = Math.min(...rects.map((r) => r.y1));
+        const x2 = Math.max(...rects.map((r) => r.x2));
+        const y2 = Math.max(...rects.map((r) => r.y2));
+
+        // Return ScaledPosition with viewport coordinates
+        // The library expects these to be in the current scale's viewport coordinates
+        return {
+          boundingRect: {
+            x1,
+            y1,
+            x2,
+            y2,
+            width: x2 - x1,
+            height: y2 - y1,
+            pageNumber: pageNum,
+          },
+          rects: rects.map((r) => ({
+            x1: r.x1,
+            y1: r.y1,
+            x2: r.x2,
+            y2: r.y2,
+            width: r.x2 - r.x1,
+            height: r.y2 - r.y1,
+            pageNumber: pageNum,
+          })),
         };
       } catch (err) {
         logError("Failed to get text bounding rects", { error: err, pageNum });
         return null;
       }
     },
-    [pdfDocument]
+    [pdfDocument, getTextLayer, getTextBoundingRectsFromPdfJs]
   );
 
   // Perform search and create highlights
@@ -376,18 +503,28 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
     ]
   );
 
-  // Debounced search handler
+  // Search handler with debouncing
   const handleSearchChange = useCallback(
     (text: string) => {
       setSearchText(text);
 
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
+      // Clear existing timeout
+      if (searchTimeoutRef.current !== null) {
+        window.clearTimeout(searchTimeoutRef.current);
       }
 
-      searchTimeoutRef.current = window.setTimeout(() => {
-        performSearch(text);
-      }, 300);
+      // Only perform search if there's actual text
+      if (text.trim()) {
+        // Debounce: wait 300ms after user stops typing
+        searchTimeoutRef.current = window.setTimeout(() => {
+          performSearch(text);
+          searchTimeoutRef.current = null;
+        }, 300);
+      } else {
+        // Clear highlights immediately when search is empty
+        setSearchHighlights([]);
+        setCurrentMatch(0);
+      }
     },
     [performSearch]
   );
