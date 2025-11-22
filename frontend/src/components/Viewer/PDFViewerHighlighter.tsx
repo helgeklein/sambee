@@ -197,10 +197,6 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         const page = await pdfDocument.getPage(pageNum);
         const textContent = await page.getTextContent();
 
-        // Get page dimensions in PDF coordinate space
-        const pageWidth = page.view[2] - page.view[0];
-        const pageHeight = page.view[3] - page.view[1];
-
         // Build character position map
         let charIndex = 0;
         const rects: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
@@ -228,25 +224,23 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
             const width = item.width;
             const height = item.height || fontSize;
 
-            console.log("Text item:", {
-              fullString: str,
-              matchSubstring: str.substring(overlapStart, overlapEnd),
-              overlapStart,
-              overlapEnd,
-              strLength: str.length,
-              width,
-              charWidth: width / str.length,
-              tx: item.transform[4],
-              ty: item.transform[5],
-            });
+            // Calculate position more accurately
+            // For proportional fonts, measure the text before the match
+            const textBefore = str.substring(0, overlapStart);
+            const matchText = str.substring(overlapStart, overlapEnd);
 
-            // Calculate character width (approximation)
-            const charWidth = width / str.length;
+            // Estimate width ratios (not perfect for proportional fonts, but better than per-char average)
+            const avgCharWidth = width / str.length;
+
+            // Use average character width as best approximation
+            // TODO: For better accuracy, would need font metrics from PDF
+            const startOffset = textBefore.length * avgCharWidth;
+            const matchWidth = matchText.length * avgCharWidth;
 
             // Calculate rectangle in PDF coordinate system (bottom-left origin)
-            const pdfX1 = tx + overlapStart * charWidth;
+            const pdfX1 = tx + startOffset;
             const pdfY1 = ty; // Baseline (bottom of text)
-            const pdfX2 = tx + overlapEnd * charWidth;
+            const pdfX2 = tx + startOffset + matchWidth;
             const pdfY2 = ty + height; // Top edge (baseline + height)
 
             // Keep PDF coordinates as-is (bottom-left origin, in points)
@@ -274,9 +268,6 @@ const PDFViewerHighlighter: React.FC<ViewerComponentProps> = ({ connectionId, pa
         const y2 = Math.max(...rects.map((r) => r.y2));
 
         // Return ScaledPosition with PDF coordinates (will be converted by library)
-        // Store page dimensions for reference
-        console.log("Page dimensions:", { pageWidth, pageHeight, pageNum });
-
         return {
           boundingRect: {
             x1,
