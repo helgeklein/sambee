@@ -99,6 +99,16 @@ export const COMMON_SHORTCUTS = {
     description: "Previous",
     label: "Left",
   },
+
+  //
+  // Open/Select
+  //
+  OPEN: {
+    id: "open",
+    keys: "Enter",
+    description: "Open",
+    label: "Enter",
+  },
 } as const satisfies Record<string, ShortcutDefinition>;
 
 /**
@@ -152,5 +162,61 @@ export const VIEWER_SHORTCUTS = {
     keys: ["f", "F"],
     description: "Toggle fullscreen",
     label: "F",
+  },
+} as const satisfies Record<string, ShortcutDefinition>;
+
+/**
+ * File browser specific shortcuts
+ */
+export const BROWSER_SHORTCUTS = {
+  //
+  // Navigation
+  //
+  NAVIGATE_UP: {
+    id: "navigate-up",
+    keys: "Backspace",
+    description: "Go up one directory",
+    label: "Backspace",
+  },
+  ARROW_DOWN: {
+    id: "arrow-down",
+    keys: "ArrowDown",
+    description: "Navigate down",
+    label: "Down",
+  },
+  ARROW_UP: {
+    id: "arrow-up",
+    keys: "ArrowUp",
+    description: "Navigate up",
+    label: "Up",
+  },
+
+  //
+  // Actions
+  //
+  FOCUS_SEARCH: {
+    id: "focus-search",
+    keys: "/",
+    description: "Focus search box",
+    label: "/",
+    allowInInput: true,
+  },
+  SHOW_HELP: {
+    id: "show-help",
+    keys: "?",
+    description: "Show keyboard shortcuts",
+    label: "?",
+  },
+  REFRESH: {
+    id: "refresh",
+    keys: "F5",
+    description: "Refresh file list",
+    label: "F5",
+  },
+  CLEAR_SELECTION: {
+    id: "clear-selection",
+    keys: "Escape",
+    description: "Clear selection and search",
+    label: "Esc",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
