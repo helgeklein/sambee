@@ -1,12 +1,13 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
 import type { MouseEvent, TouchEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
 /**
@@ -58,6 +59,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [_isFullscreen, setIsFullscreen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const lastTapRef = useRef<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -292,9 +294,13 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     };
   }, []);
 
+  const handleShowHelp = useCallback(() => {
+    setShowHelp(true);
+  }, []);
+
   // Keyboard shortcuts using centralized system
-  useKeyboardShortcuts({
-    shortcuts: [
+  const imageShortcuts = useMemo(
+    () => [
       // Download
       {
         ...COMMON_SHORTCUTS.DOWNLOAD,
@@ -356,7 +362,35 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         ...COMMON_SHORTCUTS.CLOSE,
         handler: handleEscape,
       },
+      // Show help
+      {
+        id: "show-help",
+        keys: ["?"],
+        label: "?",
+        description: "Show keyboard shortcuts",
+        handler: handleShowHelp,
+      },
     ],
+    [
+      handleDownload,
+      handleNext,
+      handlePrevious,
+      handleFirst,
+      handleLast,
+      images.length,
+      handleZoomIn,
+      handleZoomOut,
+      handleZoomReset,
+      handleRotateRight,
+      handleRotateLeft,
+      toggleFullscreen,
+      handleEscape,
+      handleShowHelp,
+    ]
+  );
+
+  useKeyboardShortcuts({
+    shortcuts: imageShortcuts,
   });
 
   // Log when image viewer opens
@@ -525,6 +559,12 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           )}
         </Box>
       </Box>
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={imageShortcuts}
+        title="Image Viewer Shortcuts"
+      />
     </Dialog>
   );
 };

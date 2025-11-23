@@ -9,6 +9,7 @@ import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
 // Configure PDF.js worker - use CDN to avoid version mismatch
@@ -98,6 +99,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
+  const [showHelp, setShowHelp] = useState(false);
   const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
 
   // Extract filename from path
@@ -707,8 +709,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     [searchPanelOpen, onClose]
   );
 
-  useKeyboardShortcuts({
-    shortcuts: [
+  const handleShowHelp = useCallback(() => {
+    setShowHelp(true);
+  }, []);
+
+  const pdfShortcuts = useMemo(
+    () => [
       // Download
       {
         ...COMMON_SHORTCUTS.DOWNLOAD,
@@ -792,7 +798,36 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         ...COMMON_SHORTCUTS.CLOSE,
         handler: handleEscape,
       },
+      // Show help
+      {
+        id: "show-help",
+        keys: ["?"],
+        label: "?",
+        description: "Show keyboard shortcuts",
+        handler: handleShowHelp,
+      },
     ],
+    [
+      handleDownload,
+      handleOpenSearch,
+      handleSearchNext,
+      handleSearchPrevious,
+      handlePageChange,
+      currentPage,
+      numPages,
+      handleZoomIn,
+      handleZoomOut,
+      handleZoomReset,
+      handleRotateRight,
+      handleRotateLeft,
+      handleToggleFullscreen,
+      handleEscape,
+      handleShowHelp,
+    ]
+  );
+
+  useKeyboardShortcuts({
+    shortcuts: pdfShortcuts,
     inputSelector: 'input[placeholder="Search..."]',
   });
 
@@ -1018,6 +1053,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
         </Box>
       </Box>
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={pdfShortcuts}
+        title="PDF Viewer Shortcuts"
+      />
     </Dialog>
   );
 };

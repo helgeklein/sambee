@@ -21,9 +21,6 @@ import {
   Chip,
   CircularProgress,
   Container,
-  Dialog,
-  DialogContent,
-  DialogTitle,
   FormControl,
   IconButton,
   InputAdornment,
@@ -31,10 +28,6 @@ import {
   MenuItem,
   Paper,
   Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -46,6 +39,7 @@ import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
@@ -1143,8 +1137,8 @@ const Browser: React.FC = () => {
   }, []);
 
   // Use centralized keyboard shortcuts system
-  useKeyboardShortcuts({
-    shortcuts: [
+  const browserShortcuts = useMemo(
+    () => [
       // Navigation - Arrow keys
       {
         ...BROWSER_SHORTCUTS.ARROW_DOWN,
@@ -1207,19 +1201,43 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.FOCUS_SEARCH,
         handler: handleFocusSearch,
-        enabled: !settingsOpen && !showHelp,
+        enabled: !settingsOpen && !showHelp && !viewInfo,
       },
       // Show help
       {
         ...BROWSER_SHORTCUTS.SHOW_HELP,
         handler: handleShowHelp,
+        enabled: !viewInfo,
       },
       // Refresh
       {
         ...BROWSER_SHORTCUTS.REFRESH,
         handler: handleRefresh,
+        enabled: !viewInfo,
       },
     ],
+    [
+      handleNavigateDown,
+      settingsOpen,
+      showHelp,
+      viewInfo,
+      handleArrowUp,
+      handleHome,
+      handleEnd,
+      handlePageDown,
+      handlePageUp,
+      handleOpenFile,
+      focusedIndex,
+      handleNavigateUpDirectory,
+      handleClose,
+      handleFocusSearch,
+      handleShowHelp,
+      handleRefresh,
+    ]
+  );
+
+  useKeyboardShortcuts({
+    shortcuts: browserShortcuts,
   });
 
   // Manual keyboard handling for special cases (input focus exceptions and incremental search)
@@ -1939,86 +1957,11 @@ const Browser: React.FC = () => {
       <SettingsDialog open={settingsOpen} onClose={handleSettingsClose} />
 
       {/* Keyboard Shortcuts Help Dialog */}
-      <Dialog open={showHelp} onClose={() => setShowHelp(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Keyboard Shortcuts</DialogTitle>
-        <DialogContent>
-          <Table size="small">
-            <TableBody>
-              <TableRow>
-                <TableCell>
-                  <strong>
-                    {BROWSER_SHORTCUTS.ARROW_UP.label} / {BROWSER_SHORTCUTS.ARROW_DOWN.label}
-                  </strong>
-                </TableCell>
-                <TableCell>{BROWSER_SHORTCUTS.ARROW_UP.description}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>{COMMON_SHORTCUTS.OPEN.label}</strong>
-                </TableCell>
-                <TableCell>{COMMON_SHORTCUTS.OPEN.description}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>{BROWSER_SHORTCUTS.NAVIGATE_UP.label}</strong>
-                </TableCell>
-                <TableCell>{BROWSER_SHORTCUTS.NAVIGATE_UP.description}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>{COMMON_SHORTCUTS.CLOSE.label}</strong>
-                </TableCell>
-                <TableCell>Clear selection and search</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>
-                    {COMMON_SHORTCUTS.FIRST_PAGE.label} / {COMMON_SHORTCUTS.LAST_PAGE.label}
-                  </strong>
-                </TableCell>
-                <TableCell>Jump to first / last file</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>
-                    {COMMON_SHORTCUTS.PAGE_UP.label} / {COMMON_SHORTCUTS.PAGE_DOWN.label}
-                  </strong>
-                </TableCell>
-                <TableCell>Scroll through file list</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>{BROWSER_SHORTCUTS.FOCUS_SEARCH.label}</strong>
-                </TableCell>
-                <TableCell>{BROWSER_SHORTCUTS.FOCUS_SEARCH.description}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>A-Z / 0-9</strong>
-                </TableCell>
-                <TableCell>Jump to file starting with typed letters</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>{BROWSER_SHORTCUTS.SHOW_HELP.label}</strong>
-                </TableCell>
-                <TableCell>{BROWSER_SHORTCUTS.SHOW_HELP.description}</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>{BROWSER_SHORTCUTS.REFRESH.label}</strong>
-                </TableCell>
-                <TableCell>{BROWSER_SHORTCUTS.REFRESH.description}</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-          <Box sx={{ mt: 2, textAlign: "center" }}>
-            <Button variant="contained" onClick={() => setShowHelp(false)}>
-              Close
-            </Button>
-          </Box>
-        </DialogContent>
-      </Dialog>
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={browserShortcuts}
+      />
       {viewInfo && (
         <DynamicViewer
           connectionId={selectedConnectionId}
