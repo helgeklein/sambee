@@ -15,6 +15,37 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 type ZoomMode = "fit-page" | "fit-width" | number;
 
 /**
+ * Text item data from PDF.js with positioning metadata
+ */
+interface TextItemData {
+  text: string;
+  startIndex: number;
+  endIndex: number;
+  transform: number[];
+  width: number;
+  height: number;
+}
+
+/**
+ * Match location with reference to containing text item
+ */
+interface MatchLocation {
+  page: number;
+  index: number;
+  length: number;
+  item: TextItemData;
+}
+
+/**
+ * PDF.js viewport for coordinate calculations
+ */
+interface PDFViewport {
+  width: number;
+  height: number;
+  scale: number;
+}
+
+/**
  * Extract error message from API error or exception
  */
 const getErrorMessage = (err: unknown): string => {
@@ -56,13 +87,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
-  const [normalizedPageTexts, setNormalizedPageTexts] = useState<Map<number, string>>(new Map());
-  const [pageDiffs, setPageDiffs] = useState<Map<number, number[]>>(new Map());
-  // Store original text content strings per page (like Firefox's textContentItemsStr)
-  const originalTextContentRef = useRef<Map<number, string[]>>(new Map());
-  const [matchLocations, setMatchLocations] = useState<
-    Array<{ page: number; index: number; length: number }>
-  >([]);
+  const [pageTextItems, setPageTextItems] = useState<Map<number, TextItemData[]>>(new Map());
+  const [pageViewports, setPageViewports] = useState<Map<number, PDFViewport>>(new Map());
+  const [matchLocations, setMatchLocations] = useState<MatchLocation[]>([]);
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
@@ -192,62 +219,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     };
   }, [scale, containerWidth, containerHeight, pdfPageWidth, pdfPageHeight]);
 
-  // Normalize function with position mapping (simplified Firefox approach)
-  const normalize = useCallback((text: string): [string, number[]] => {
-    const result: string[] = [];
-    const diffs: number[] = [];
-    let origIdx = 0;
-
-    while (origIdx < text.length) {
-      const char = text[origIdx];
-
-      // Store mapping from result position to original position
-      diffs[result.length] = origIdx;
-
-      if (/\s/.test(char)) {
-        // Collapse consecutive whitespace into a single space
-        result.push(" ");
-        origIdx++;
-        // Skip remaining consecutive whitespace
-        while (origIdx < text.length && /\s/.test(text[origIdx])) {
-          origIdx++;
-        }
-      } else {
-        // Regular character
-        result.push(char);
-        origIdx++;
-      }
-    }
-
-    // Final position mapping
-    diffs[result.length] = origIdx;
-
-    return [result.join(""), diffs];
-  }, []);
-
-  // Firefox's getOriginalIndex function: maps position in normalized text back to original text
-  const getOriginalIndex = useCallback(
-    (diffs: number[], pos: number, len: number): [number, number] => {
-      if (!diffs || diffs.length === 0) {
-        return [pos, len];
-      }
-
-      // Find where pos falls in the diffs array
-      // diffs[i] tells us: normalized position i came from original position diffs[i]
-      const start = pos;
-      const end = pos + len - 1;
-
-      // Map start position
-      const originalStart = diffs[start] !== undefined ? diffs[start] : start;
-      // Map end position
-      const originalEnd = diffs[end] !== undefined ? diffs[end] : end;
-      const originalLen = originalEnd - originalStart + 1;
-
-      return [originalStart, originalLen];
-    },
-    []
-  );
-
   // Handle document load success
   const handleDocumentLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js document type not fully typed
@@ -269,48 +240,57 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           logError("Failed to get page dimensions", err);
         });
 
-      // Clear stored text content for previous document
-      originalTextContentRef.current.clear();
-
       // Extract text from all pages for search functionality
       const extractAllText = async () => {
         setExtractingText(true);
         const texts = new Map<number, string>();
-        const normalizedTexts = new Map<number, string>();
-        const diffs = new Map<number, number[]>();
+        const textItemsMap = new Map<number, TextItemData[]>();
+        const viewportsMap = new Map<number, PDFViewport>();
         let hasText = false;
 
         try {
           for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            // Extract text like Firefox: include \n for EOL markers
-            const strBuf: string[] = [];
+            const viewport = page.getViewport({ scale: 1.0 });
+
+            // Store viewport for coordinate calculations
+            viewportsMap.set(i, viewport);
+
+            // Simple text extraction with item metadata (pdf-helper approach)
+            let fullText = "";
+            const items: TextItemData[] = [];
+
             for (const textItem of textContent.items) {
               // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
-              strBuf.push((textItem as any).str);
-              // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
-              if ((textItem as any).hasEOL) {
-                strBuf.push("\n");
-              }
-            }
-            const pageText = strBuf.join("");
-            texts.set(i, pageText);
+              const item = textItem as any;
+              const itemLength = item.str.length;
+              const startIndex = fullText.length;
 
-            // Normalize and store diffs like Firefox
-            const [normalizedText, diffsArray] = normalize(pageText);
-            normalizedTexts.set(i, normalizedText);
-            diffs.set(i, diffsArray);
+              items.push({
+                text: item.str,
+                startIndex,
+                endIndex: startIndex + itemLength,
+                transform: item.transform,
+                width: item.width,
+                height: item.height,
+              });
+
+              fullText += `${item.str} `; // Add space separator
+            }
+
+            texts.set(i, fullText);
+            textItemsMap.set(i, items);
 
             // Check if this page has any non-whitespace text
-            if (pageText.trim().length > 0) {
+            if (fullText.trim().length > 0) {
               hasText = true;
             }
           }
 
           setPageTexts(texts);
-          setNormalizedPageTexts(normalizedTexts);
-          setPageDiffs(diffs);
+          setPageTextItems(textItemsMap);
+          setPageViewports(viewportsMap);
           setIsSearchable(hasText);
 
           if (!hasText) {
@@ -328,7 +308,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       extractAllText();
     },
-    [normalize]
+    []
   );
 
   // Handle document load error
@@ -361,43 +341,51 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     link.click();
   }, [connectionId, path, filename]);
 
-  // Perform search across all extracted page texts
+  /**
+   * Perform search across all extracted page texts using simple regex approach.
+   * Finds matches and stores reference to containing text item for positioning.
+   */
   const performSearch = useCallback(
     (query: string) => {
-      if (!query.trim() || normalizedPageTexts.size === 0) {
+      if (!query.trim() || pageTexts.size === 0) {
         setMatchLocations([]);
         setCurrentMatch(0);
         return;
       }
 
-      const [normalizedQuery] = normalize(query.toLowerCase());
-      const matches: Array<{ page: number; index: number; length: number }> = [];
+      // Escape regex special characters
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escapedQuery, "gi");
+      const matches: MatchLocation[] = [];
 
-      // Search through all pages in normalized text
+      // Search through all pages
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-        const normalizedPageText = normalizedPageTexts.get(pageNum);
-        const diffs = pageDiffs.get(pageNum);
-        if (!normalizedPageText) continue;
+        const fullText = pageTexts.get(pageNum);
+        const items = pageTextItems.get(pageNum);
+        if (!fullText || !items) continue;
 
-        const lowerPageText = normalizedPageText.toLowerCase();
+        let match: RegExpExecArray | null;
+        // biome-ignore lint/suspicious/noAssignInExpressions: Standard regex iteration pattern
+        while ((match = regex.exec(fullText)) !== null) {
+          const matchPosition = match.index;
+          const matchText = match[0];
 
-        // Find all occurrences in normalized text
-        let startIndex = 0;
-        while (true) {
-          const normIndex = lowerPageText.indexOf(normalizedQuery, startIndex);
-          if (normIndex === -1) break;
-
-          // Map normalized position back to original using Firefox's getOriginalIndex
-          const [originalIndex, originalLength] = getOriginalIndex(
-            diffs || [],
-            normIndex,
-            normalizedQuery.length
+          // Find which text item contains this match
+          const containingItem = items.find(
+            (item) => matchPosition >= item.startIndex && matchPosition < item.endIndex
           );
 
-          matches.push({ page: pageNum, index: originalIndex, length: originalLength });
-          startIndex = normIndex + 1;
+          if (containingItem) {
+            matches.push({
+              page: pageNum,
+              index: matchPosition,
+              length: matchText.length,
+              item: containingItem,
+            });
+          }
         }
       }
+
       setMatchLocations(matches);
 
       // Navigate to first match if any found
@@ -408,7 +396,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setCurrentMatch(0);
       }
     },
-    [normalizedPageTexts, pageDiffs, numPages, normalize, getOriginalIndex]
+    [pageTexts, pageTextItems, numPages]
   );
 
   // Debounced search handler
@@ -450,265 +438,75 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     setCurrentPage(matchLocations[prevMatch - 1].page);
   }, [matchLocations, currentMatch]);
 
-  // Effect to highlight matches in the text layer
-  // Apply highlights to the text layer
+  /**
+   * Render search highlights using div overlays positioned with PDF.js coordinates.
+   * This is simpler and more accurate than text layer manipulation.
+   */
   useEffect(() => {
-    console.log("*** Highlight effect running ***", {
-      searchText,
-      matchCount: matchLocations.length,
-      currentPage,
-    });
-    if (!searchText.trim() || matchLocations.length === 0) {
-      // Clear all highlights - restore original text content
-      const textLayer = document.querySelector(".react-pdf__Page__textContent");
-      if (textLayer) {
-        const spans = textLayer.querySelectorAll("span");
-        const storedTextContent = originalTextContentRef.current.get(currentPage);
+    // Clear all existing highlights
+    const highlightContainers = document.querySelectorAll(".pdf-highlight-container");
+    for (const container of highlightContainers) {
+      container.innerHTML = "";
+    }
 
-        if (storedTextContent && storedTextContent.length === spans.length) {
-          // Restore from stored original text
-          for (let i = 0; i < spans.length; i++) {
-            spans[i].textContent = storedTextContent[i];
-            spans[i].className = "";
-          }
-        } else {
-          // Fallback: just clear styling
-          for (const span of spans) {
-            span.style.backgroundColor = "";
-          }
-        }
-      }
+    if (!searchText.trim() || matchLocations.length === 0) {
       return;
     }
 
-    const applyHighlights = () => {
-      const textLayer = document.querySelector(".react-pdf__Page__textContent");
-      if (!textLayer) return false;
+    // Get page container for current page
+    const pageContainer = document.querySelector(`[data-page-number="${currentPage}"]`);
+    if (!pageContainer) return;
 
-      const pageText = pageTexts.get(currentPage);
-      if (!pageText) return false;
+    const canvas = pageContainer.querySelector("canvas");
+    if (!canvas) return;
 
-      const spans = textLayer.querySelectorAll("span");
-      if (spans.length === 0) return false;
+    const viewport = pageViewports.get(currentPage);
+    if (!viewport) return;
 
-      // Get or store original text content (like Firefox's textContentItemsStr)
-      let textContentItems = originalTextContentRef.current.get(currentPage);
-      if (!textContentItems) {
-        // First time seeing this page's text layer - store the original strings
-        textContentItems = [];
-        for (const span of spans) {
-          textContentItems.push(span.textContent || "");
-        }
-        originalTextContentRef.current.set(currentPage, textContentItems);
-      } else {
-        // Restore all spans to their original text (clear previous highlights)
-        for (let i = 0; i < spans.length; i++) {
-          spans[i].textContent = textContentItems[i];
-          spans[i].className = "";
-        }
-      }
+    // Calculate scale factor
+    const canvasRect = canvas.getBoundingClientRect();
+    const scaleX = canvasRect.width / canvas.width;
 
-      // DEBUG: Compare DOM concatenated text with extracted text
-      const domConcat = textContentItems.join("");
-      const extractedText = pageText;
-      const extractedWithoutNewlines = pageText.replace(/\n/g, "");
-      console.log("=== TEXT COMPARISON ===");
-      console.log("DOM length:", domConcat.length);
-      console.log("Extracted length (with \\n):", extractedText.length);
-      console.log("Extracted length (without \\n):", extractedWithoutNewlines.length);
-      console.log("DOM === Extracted (no \\n):", domConcat === extractedWithoutNewlines);
-      if (domConcat !== extractedWithoutNewlines) {
-        console.log(
-          "First diff at:",
-          [...domConcat].findIndex((c, i) => c !== extractedWithoutNewlines[i])
-        );
-        const diffPos = [...domConcat].findIndex((c, i) => c !== extractedWithoutNewlines[i]);
-        console.log(
-          `DOM [${diffPos - 10}:${diffPos + 10}]:`,
-          domConcat.substring(diffPos - 10, diffPos + 10)
-        );
-        console.log(
-          `Extracted [${diffPos - 10}:${diffPos + 10}]:`,
-          extractedWithoutNewlines.substring(diffPos - 10, diffPos + 10)
-        );
-      }
+    // Get matches on current page
+    const pageMatches = matchLocations.filter((match) => match.page === currentPage);
 
-      // Get matches on current page
-      const pageMatches = matchLocations
-        .map((loc, idx) => ({ ...loc, globalIndex: idx }))
-        .filter((loc) => loc.page === currentPage);
+    // Get highlight container
+    const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
+    if (!highlightContainer) return;
 
-      if (pageMatches.length === 0) return true;
+    // Render each match as a positioned div
+    for (let i = 0; i < pageMatches.length; i++) {
+      const match = pageMatches[i];
+      const item = match.item;
+      const isCurrentMatch = currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
 
-      // Firefox's _convertMatches approach: match positions are in original concatenated text
-      // Simply walk through text items and find which div each position falls into
-      const convertedMatches: Array<{
-        begin: { divIdx: number; offset: number };
-        end: { divIdx: number; offset: number };
-        globalIndex: number;
-      }> = [];
+      // Create highlight div
+      const highlight = document.createElement("div");
+      highlight.className = isCurrentMatch ? "search-highlight current" : "search-highlight";
 
-      for (const pageMatch of pageMatches) {
-        // pageMatch.index is already in ORIGINAL text (we mapped it during search)
-        const matchStart = pageMatch.index;
-        const matchEnd = matchStart + pageMatch.length;
+      // Position using PDF.js transform coordinates
+      // transform = [scaleX, skewY, skewX, scaleY, x, y]
+      const x = item.transform[4];
+      const y = viewport.height - item.transform[5]; // Flip Y coordinate
 
-        console.log("=== Match Debug ===");
-        console.log("matchStart:", matchStart, "matchEnd:", matchEnd, "length:", pageMatch.length);
-        console.log("textContentItems:", textContentItems);
+      // Apply styles
+      Object.assign(highlight.style, {
+        position: "absolute",
+        left: `${x * scaleX}px`,
+        top: `${y * scaleX}px`,
+        width: `${item.width * scaleX}px`,
+        height: `${item.height * scaleX}px`,
+        backgroundColor: isCurrentMatch
+          ? "rgba(255, 152, 0, 0.4)" // Orange for current match
+          : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
+        pointerEvents: "none",
+        zIndex: "10",
+        borderRadius: "2px",
+      });
 
-        // Find div indices like Firefox's _convertMatches does
-        // Start fresh for each match
-        let iIndex = 0;
-        let i = 0;
-        const end = textContentItems.length - 1;
-
-        // Find start position
-        while (i !== end && matchStart >= iIndex + textContentItems[i].length) {
-          iIndex += textContentItems[i].length;
-          i++;
-        }
-
-        const beginDiv = i;
-        const beginOffset = matchStart - iIndex;
-
-        console.log(
-          "beginDiv:",
-          beginDiv,
-          "beginOffset:",
-          beginOffset,
-          "text:",
-          textContentItems[beginDiv]
-        );
-
-        // Reset for end position search - start from the beginning again
-        iIndex = 0;
-        i = 0;
-
-        // Find end position
-        while (i !== end && matchEnd > iIndex + textContentItems[i].length) {
-          iIndex += textContentItems[i].length;
-          i++;
-        }
-
-        const endDiv = i;
-        const endOffset = matchEnd - iIndex;
-
-        console.log("endDiv:", endDiv, "endOffset:", endOffset, "text:", textContentItems[endDiv]);
-
-        convertedMatches.push({
-          begin: { divIdx: beginDiv, offset: beginOffset },
-          end: { divIdx: endDiv, offset: endOffset },
-          globalIndex: pageMatch.globalIndex,
-        });
-      } // Render highlights following Firefox's approach
-      // Process matches sequentially and track what's been cleared
-      const infinity = { divIdx: -1, offset: undefined };
-      let prevEnd: { divIdx: number; offset: number } | null = null;
-
-      const appendTextToDiv = (
-        divIdx: number,
-        fromOffset: number,
-        toOffset: number | undefined,
-        className?: string
-      ) => {
-        const div = spans[divIdx];
-        const content = textContentItems[divIdx].substring(
-          fromOffset,
-          toOffset ?? textContentItems[divIdx].length
-        );
-        const node = document.createTextNode(content);
-
-        if (className) {
-          const span = document.createElement("span");
-          span.className = className;
-          span.style.backgroundColor = className.includes("selected")
-            ? "rgba(255, 152, 0, 0.4)"
-            : "rgba(255, 235, 59, 0.4)";
-          span.style.color = "inherit";
-          span.append(node);
-          div.append(span);
-        } else {
-          div.append(node);
-        }
-      };
-
-      const beginText = (begin: { divIdx: number; offset: number }) => {
-        const divIdx = begin.divIdx;
-        spans[divIdx].textContent = "";
-        appendTextToDiv(divIdx, 0, begin.offset);
-      };
-
-      for (const match of convertedMatches) {
-        const begin = match.begin;
-        const end = match.end;
-        const isCurrentMatch = currentMatch > 0 && match.globalIndex === currentMatch - 1;
-        const highlightClass = isCurrentMatch ? "highlight selected" : "highlight";
-
-        // Check if we need to start a new div
-        if (!prevEnd || begin.divIdx !== prevEnd.divIdx) {
-          // If there was a previous div, add the remaining text
-          if (prevEnd !== null) {
-            appendTextToDiv(prevEnd.divIdx, prevEnd.offset, infinity.offset);
-          }
-          // Clear the div and add text before the match
-          beginText(begin);
-        } else {
-          // Add text between previous match and this match in same div
-          appendTextToDiv(prevEnd.divIdx, prevEnd.offset, begin.offset);
-        }
-
-        // Add the highlighted match
-        if (begin.divIdx === end.divIdx) {
-          // Match within single div
-          appendTextToDiv(begin.divIdx, begin.offset, end.offset, highlightClass);
-        } else {
-          // Match spans multiple divs
-          appendTextToDiv(begin.divIdx, begin.offset, infinity.offset, highlightClass);
-
-          // Highlight middle divs
-          for (let n = begin.divIdx + 1; n < end.divIdx; n++) {
-            spans[n].className = highlightClass;
-            spans[n].style.backgroundColor = highlightClass.includes("selected")
-              ? "rgba(255, 152, 0, 0.4)"
-              : "rgba(255, 235, 59, 0.4)";
-          }
-
-          beginText(end);
-          appendTextToDiv(end.divIdx, 0, end.offset, highlightClass);
-        }
-
-        prevEnd = end;
-      }
-
-      // Add remaining text in the last div
-      if (prevEnd) {
-        appendTextToDiv(prevEnd.divIdx, prevEnd.offset, infinity.offset);
-      }
-
-      return true;
-    };
-
-    // Try to apply highlights immediately if text layer exists
-    // Otherwise use MutationObserver to wait for it
-    if (!applyHighlights()) {
-      // Watch the document container which persists across page changes
-      const pdfDocument = document.querySelector(".react-pdf__Document");
-      if (pdfDocument) {
-        let attemptCount = 0;
-        const maxAttempts = 50; // Stop after 5 seconds (50 * 100ms)
-
-        const observer = new MutationObserver(() => {
-          attemptCount++;
-          if (applyHighlights() || attemptCount >= maxAttempts) {
-            observer.disconnect();
-          }
-        });
-        observer.observe(pdfDocument, { childList: true, subtree: true });
-        return () => observer.disconnect();
-      }
+      highlightContainer.appendChild(highlight);
     }
-  }, [searchText, matchLocations, currentPage, currentMatch, pageTexts]);
+  }, [searchText, matchLocations, currentPage, currentMatch, pageViewports]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1027,14 +825,31 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   </Box>
                 }
               >
-                <Page
-                  pageNumber={currentPage}
-                  scale={pageScale || undefined}
-                  width={pageWidth || undefined}
-                  renderTextLayer={true}
-                  renderAnnotationLayer={true}
-                  loading={<CircularProgress />}
-                />
+                <div
+                  style={{ position: "relative", display: "inline-block" }}
+                  data-page-number={currentPage}
+                >
+                  <Page
+                    pageNumber={currentPage}
+                    scale={pageScale || undefined}
+                    width={pageWidth || undefined}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={true}
+                    loading={<CircularProgress />}
+                  />
+                  {/* Overlay container for search highlights */}
+                  <div
+                    className="pdf-highlight-container"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: "none",
+                    }}
+                  />
+                </div>
               </Document>
             </Box>
           )}
