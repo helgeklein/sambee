@@ -261,7 +261,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             let fullText = "";
             const items: TextItemData[] = [];
 
-            for (const textItem of textContent.items) {
+            for (let itemIndex = 0; itemIndex < textContent.items.length; itemIndex++) {
+              const textItem = textContent.items[itemIndex];
               // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
               const item = textItem as any;
               const startIndex = fullText.length;
@@ -500,52 +501,87 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       canvasRect: canvas.getBoundingClientRect(),
     });
 
+    // Get the text layer - we'll find spans by matching text content
+    const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
+    if (!textLayer) {
+      console.warn("Text layer not found");
+      return;
+    }
+
+    // Get all text layer spans
+    const textLayerSpans = Array.from(textLayer.querySelectorAll("span"));
+
+    // Build a map from text content to spans (handling multiple spans with same text)
+    const spansByText = new Map<string, HTMLElement[]>();
+    for (const span of textLayerSpans) {
+      const text = span.textContent || "";
+      if (!spansByText.has(text)) {
+        spansByText.set(text, []);
+      }
+      spansByText.get(text)?.push(span);
+    }
+
+    console.log("Text layer debug:", {
+      totalSpans: textLayerSpans.length,
+      uniqueTexts: spansByText.size,
+      spanTexts: textLayerSpans.map((s) => s.textContent).slice(0, 10),
+    });
+
     // Render each match as a positioned div
     for (let i = 0; i < pageMatches.length; i++) {
       const match = pageMatches[i];
       const item = match.item;
       const isCurrentMatch = currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
 
+      // Find the corresponding span by text content
+      const candidates = spansByText.get(item.text);
+      if (!candidates || candidates.length === 0) {
+        console.warn("Could not find span for text:", item.text);
+        continue;
+      }
+
+      // Use the first unused candidate (for duplicate text items)
+      const textSpan = candidates[0];
+
+      // Get the span's actual position and size
+      const spanRect = textSpan.getBoundingClientRect();
+      const containerRect = pageContainer.getBoundingClientRect();
+
       // Calculate the offset of the match within the text item
       const matchStartInItem = match.index - item.startIndex;
 
-      // Debug logging
-      console.log("Match debug:", {
-        searchText: match,
-        itemText: item.text,
-        matchIndex: match.index,
-        itemStartIndex: item.startIndex,
-        matchStartInItem,
-        itemTransform: item.transform,
-        itemWidth: item.width,
-      });
+      // Create canvas for text measurement with the actual font from the span
+      const measureCanvas = document.createElement("canvas");
+      const ctx = measureCanvas.getContext("2d");
+      if (!ctx) continue;
 
-      // Calculate character width (approximate, assuming monospace-like distribution)
-      const charWidth = item.width / item.text.length;
+      const computedStyle = window.getComputedStyle(textSpan);
+      ctx.font = computedStyle.font;
 
-      // Calculate the x offset for the match start within the text item
-      const xOffset = charWidth * matchStartInItem;
+      // Measure text before match
+      const textBefore = item.text.substring(0, matchStartInItem);
+      const offsetWidth = ctx.measureText(textBefore).width;
 
-      // Calculate the width of just the matched text
-      const matchWidth = charWidth * match.length;
+      // Measure matched text
+      const matchedText = item.text.substring(matchStartInItem, matchStartInItem + match.length);
+      const matchWidth = ctx.measureText(matchedText).width;
+
+      // Calculate final position relative to the container
+      const x = spanRect.left - containerRect.left + offsetWidth;
+      const y = spanRect.top - containerRect.top;
+      const height = spanRect.height;
 
       // Create highlight div
       const highlight = document.createElement("div");
       highlight.className = isCurrentMatch ? "search-highlight current" : "search-highlight";
 
-      // Position using PDF.js transform coordinates
-      // transform = [scaleX, skewY, skewX, scaleY, x, y]
-      // Note: These coordinates are in PDF space (scale 1.0)
-      const x = item.transform[4] + xOffset;
-      const y = viewport.height - item.transform[5] - item.height; // Flip Y and account for height
-
-      // Apply styles - scale coordinates from PDF space to rendered space
+      // Apply styles
       Object.assign(highlight.style, {
         position: "absolute",
-        left: `${x * actualScale}px`,
-        top: `${y * actualScale}px`,
-        width: `${matchWidth * actualScale}px`,
-        height: `${item.height * actualScale}px`,
+        left: `${x}px`,
+        top: `${y}px`,
+        width: `${matchWidth}px`,
+        height: `${height}px`,
         backgroundColor: isCurrentMatch
           ? "rgba(255, 152, 0, 0.4)" // Orange for current match
           : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
