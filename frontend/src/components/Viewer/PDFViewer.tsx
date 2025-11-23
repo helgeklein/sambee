@@ -264,19 +264,23 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             for (const textItem of textContent.items) {
               // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
               const item = textItem as any;
-              const itemLength = item.str.length;
               const startIndex = fullText.length;
+
+              // Add the text item's content
+              fullText += item.str;
+              const endIndex = fullText.length;
 
               items.push({
                 text: item.str,
                 startIndex,
-                endIndex: startIndex + itemLength,
+                endIndex,
                 transform: item.transform,
                 width: item.width,
                 height: item.height,
               });
 
-              fullText += `${item.str} `; // Add space separator
+              // Add space separator AFTER recording the item
+              fullText += " ";
             }
 
             texts.set(i, fullText);
@@ -440,7 +444,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   /**
    * Render search highlights using div overlays positioned with PDF.js coordinates.
-   * This is simpler and more accurate than text layer manipulation.
+   * Calculates precise position and width for matched text within text items.
    */
   useEffect(() => {
     // Clear all existing highlights
@@ -463,9 +467,21 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     const viewport = pageViewports.get(currentPage);
     if (!viewport) return;
 
-    // Calculate scale factor
-    const canvasRect = canvas.getBoundingClientRect();
-    const scaleX = canvasRect.width / canvas.width;
+    // Calculate actual render scale
+    // The Page component is rendered with pageScale or pageWidth
+    // We need to determine the actual scale being used
+    let actualScale: number;
+
+    if (pageScale) {
+      // Direct scale mode (fit-page or numeric zoom)
+      actualScale = pageScale;
+    } else if (pageWidth) {
+      // Fit-width mode - calculate scale from width
+      actualScale = pageWidth / viewport.width;
+    } else {
+      // Fallback - should not happen
+      actualScale = 1.0;
+    }
 
     // Get matches on current page
     const pageMatches = matchLocations.filter((match) => match.page === currentPage);
@@ -474,11 +490,44 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
     if (!highlightContainer) return;
 
+    // Debug logging
+    console.log("Highlight scale debug:", {
+      pageScale,
+      pageWidth,
+      actualScale,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      canvasRect: canvas.getBoundingClientRect(),
+    });
+
     // Render each match as a positioned div
     for (let i = 0; i < pageMatches.length; i++) {
       const match = pageMatches[i];
       const item = match.item;
       const isCurrentMatch = currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
+
+      // Calculate the offset of the match within the text item
+      const matchStartInItem = match.index - item.startIndex;
+
+      // Debug logging
+      console.log("Match debug:", {
+        searchText: match,
+        itemText: item.text,
+        matchIndex: match.index,
+        itemStartIndex: item.startIndex,
+        matchStartInItem,
+        itemTransform: item.transform,
+        itemWidth: item.width,
+      });
+
+      // Calculate character width (approximate, assuming monospace-like distribution)
+      const charWidth = item.width / item.text.length;
+
+      // Calculate the x offset for the match start within the text item
+      const xOffset = charWidth * matchStartInItem;
+
+      // Calculate the width of just the matched text
+      const matchWidth = charWidth * match.length;
 
       // Create highlight div
       const highlight = document.createElement("div");
@@ -486,16 +535,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       // Position using PDF.js transform coordinates
       // transform = [scaleX, skewY, skewX, scaleY, x, y]
-      const x = item.transform[4];
-      const y = viewport.height - item.transform[5]; // Flip Y coordinate
+      // Note: These coordinates are in PDF space (scale 1.0)
+      const x = item.transform[4] + xOffset;
+      const y = viewport.height - item.transform[5] - item.height; // Flip Y and account for height
 
-      // Apply styles
+      // Apply styles - scale coordinates from PDF space to rendered space
       Object.assign(highlight.style, {
         position: "absolute",
-        left: `${x * scaleX}px`,
-        top: `${y * scaleX}px`,
-        width: `${item.width * scaleX}px`,
-        height: `${item.height * scaleX}px`,
+        left: `${x * actualScale}px`,
+        top: `${y * actualScale}px`,
+        width: `${matchWidth * actualScale}px`,
+        height: `${item.height * actualScale}px`,
         backgroundColor: isCurrentMatch
           ? "rgba(255, 152, 0, 0.4)" // Orange for current match
           : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
@@ -506,7 +556,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       highlightContainer.appendChild(highlight);
     }
-  }, [searchText, matchLocations, currentPage, currentMatch, pageViewports]);
+  }, [searchText, matchLocations, currentPage, currentMatch, pageViewports, pageScale, pageWidth]);
 
   // Keyboard shortcuts
   useEffect(() => {
