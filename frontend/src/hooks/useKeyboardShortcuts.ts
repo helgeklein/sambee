@@ -157,20 +157,25 @@ export const useKeyboardShortcuts = ({
         if (shortcut.shift && !event.shiftKey) continue;
         if (shortcut.alt && !event.altKey) continue;
 
-        // Check if no modifiers should be pressed
-        if (!shortcut.ctrl && (event.ctrlKey || event.metaKey)) continue;
-        if (!shortcut.shift && event.shiftKey) continue;
-        if (!shortcut.alt && event.altKey) continue;
-
-        // Check if key matches
+        // Check if key matches first
         const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
         const keyMatches = keys.some((key) => event.key === key);
 
-        if (keyMatches) {
-          event.preventDefault();
-          shortcut.handler(event);
-          return;
-        }
+        if (!keyMatches) continue;
+
+        // Check if no modifiers should be pressed
+        // For printable characters (length 1), ignore shift key differences due to keyboard layouts
+        // E.g., "/" requires Shift on German keyboard but not on US keyboard
+        const isPrintableChar = keys.some((key) => key.length === 1);
+
+        if (!shortcut.ctrl && (event.ctrlKey || event.metaKey)) continue;
+        if (!shortcut.shift && event.shiftKey && !isPrintableChar) continue;
+        if (!shortcut.alt && event.altKey) continue;
+
+        // Key matched and modifiers are correct
+        event.preventDefault();
+        shortcut.handler(event);
+        return;
       }
     };
 
