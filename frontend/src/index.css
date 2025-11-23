@@ -10,3 +10,22 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New", monospace;
 }
+
+/* PDF Highlighter: Ensure highlights render above text layer (z-index 2) and annotations (z-index 3) */
+.PdfHighlighter .PdfHighlighter__highlight-layer {
+  position: relative;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.PdfHighlighter .TextHighlight {
+  position: absolute;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.PdfHighlighter .TextHighlight__part {
+  position: absolute;
+  z-index: 4;
+  pointer-events: auto;
+}

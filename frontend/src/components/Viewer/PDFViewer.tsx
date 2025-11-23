@@ -15,6 +15,37 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 type ZoomMode = "fit-page" | "fit-width" | number;
 
 /**
+ * Text item data from PDF.js with positioning metadata
+ */
+interface TextItemData {
+  text: string;
+  startIndex: number;
+  endIndex: number;
+  transform: number[];
+  width: number;
+  height: number;
+}
+
+/**
+ * Match location with reference to containing text item
+ */
+interface MatchLocation {
+  page: number;
+  index: number;
+  length: number;
+  item: TextItemData;
+}
+
+/**
+ * PDF.js viewport for coordinate calculations
+ */
+interface PDFViewport {
+  width: number;
+  height: number;
+  scale: number;
+}
+
+/**
  * Extract error message from API error or exception
  */
 const getErrorMessage = (err: unknown): string => {
@@ -47,13 +78,23 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
-  const [searchMatches, _setSearchMatches] = useState<number>(0);
   const [currentMatch, setCurrentMatch] = useState<number>(0);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const [pdfPageWidth, setPdfPageWidth] = useState<number>(612); // Default to US Letter
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Search state
+  const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
+  const [pageTextItems, setPageTextItems] = useState<Map<number, TextItemData[]>>(new Map());
+  // biome-ignore lint/correctness/noUnusedVariables: May be needed for future features
+  const [pageViewports, setPageViewports] = useState<Map<number, PDFViewport>>(new Map());
+  const [matchLocations, setMatchLocations] = useState<MatchLocation[]>([]);
+  const [_extractingText, setExtractingText] = useState(false);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
+  const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -200,6 +241,79 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         .catch((err: any) => {
           logError("Failed to get page dimensions", err);
         });
+
+      // Extract text from all pages for search functionality
+      const extractAllText = async () => {
+        setExtractingText(true);
+        const texts = new Map<number, string>();
+        const textItemsMap = new Map<number, TextItemData[]>();
+        const viewportsMap = new Map<number, PDFViewport>();
+        let hasText = false;
+
+        try {
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const viewport = page.getViewport({ scale: 1.0 });
+
+            // Store viewport for coordinate calculations
+            viewportsMap.set(i, viewport);
+
+            // Simple text extraction with item metadata (pdf-helper approach)
+            let fullText = "";
+            const items: TextItemData[] = [];
+
+            for (let itemIndex = 0; itemIndex < textContent.items.length; itemIndex++) {
+              const textItem = textContent.items[itemIndex];
+              // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
+              const item = textItem as any;
+              const startIndex = fullText.length;
+
+              // Add the text item's content
+              fullText += item.str;
+              const endIndex = fullText.length;
+
+              items.push({
+                text: item.str,
+                startIndex,
+                endIndex,
+                transform: item.transform,
+                width: item.width,
+                height: item.height,
+              });
+
+              // Add space separator AFTER recording the item
+              fullText += " ";
+            }
+
+            texts.set(i, fullText);
+            textItemsMap.set(i, items);
+
+            // Check if this page has any non-whitespace text
+            if (fullText.trim().length > 0) {
+              hasText = true;
+            }
+          }
+
+          setPageTexts(texts);
+          setPageTextItems(textItemsMap);
+          setPageViewports(viewportsMap);
+          setIsSearchable(hasText);
+
+          if (!hasText) {
+            logError("PDF contains no extractable text - search disabled", {
+              message: "This PDF may be a scanned image without OCR text layer",
+            });
+          }
+        } catch (err) {
+          logError("Failed to extract text from PDF", { error: err });
+          setIsSearchable(false);
+        } finally {
+          setExtractingText(false);
+        }
+      };
+
+      extractAllText();
     },
     []
   );
@@ -234,28 +348,310 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     link.click();
   }, [connectionId, path, filename]);
 
-  // Search handlers (basic implementation - will be enhanced in Phase 2)
-  const handleSearchChange = useCallback((text: string) => {
-    setSearchText(text);
-    // TODO: Implement actual search logic in Phase 2
-  }, []);
+  /**
+   * Perform search across all extracted page texts using simple regex approach.
+   * Finds matches and stores reference to containing text item for positioning.
+   */
+  const performSearch = useCallback(
+    (query: string) => {
+      if (!query.trim() || pageTexts.size === 0) {
+        setMatchLocations([]);
+        setCurrentMatch(0);
+        return;
+      }
+
+      // Escape regex special characters
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(escapedQuery, "gi");
+      const matches: MatchLocation[] = [];
+
+      // Search through all pages
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const fullText = pageTexts.get(pageNum);
+        const items = pageTextItems.get(pageNum);
+        if (!fullText || !items) continue;
+
+        let match: RegExpExecArray | null;
+        // biome-ignore lint/suspicious/noAssignInExpressions: Standard regex iteration pattern
+        while ((match = regex.exec(fullText)) !== null) {
+          const matchPosition = match.index;
+          const matchText = match[0];
+
+          // Find which text item contains this match
+          const containingItem = items.find(
+            (item) => matchPosition >= item.startIndex && matchPosition < item.endIndex
+          );
+
+          if (containingItem) {
+            matches.push({
+              page: pageNum,
+              index: matchPosition,
+              length: matchText.length,
+              item: containingItem,
+            });
+          }
+        }
+      }
+
+      setMatchLocations(matches);
+
+      // Navigate to first match if any found
+      if (matches.length > 0) {
+        setCurrentMatch(1);
+        setCurrentPage(matches[0].page);
+      } else {
+        setCurrentMatch(0);
+      }
+    },
+    [pageTexts, pageTextItems, numPages]
+  );
+
+  // Debounced search handler
+  const searchTimeoutRef = useRef<number | null>(null);
+
+  const handleSearchChange = useCallback(
+    (text: string) => {
+      setSearchText(text);
+
+      // Clear existing timeout
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+
+      // Debounce search by 300ms
+      searchTimeoutRef.current = window.setTimeout(() => {
+        performSearch(text);
+      }, 300);
+    },
+    [performSearch]
+  );
+
+  // Search matches count is simply the total from extracted text
+  const searchMatches = matchLocations.length;
 
   const handleSearchNext = useCallback(() => {
-    if (searchMatches > 0) {
-      setCurrentMatch((prev) => (prev >= searchMatches ? 1 : prev + 1));
-    }
-  }, [searchMatches]);
+    if (matchLocations.length === 0) return;
+
+    const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
+    setCurrentMatch(nextMatch);
+    setCurrentPage(matchLocations[nextMatch - 1].page);
+  }, [matchLocations, currentMatch]);
 
   const handleSearchPrevious = useCallback(() => {
-    if (searchMatches > 0) {
-      setCurrentMatch((prev) => (prev <= 1 ? searchMatches : prev - 1));
+    if (matchLocations.length === 0) return;
+
+    const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
+    setCurrentMatch(prevMatch);
+    setCurrentPage(matchLocations[prevMatch - 1].page);
+  }, [matchLocations, currentMatch]);
+
+  /**
+   * Render search highlights using div overlays positioned with PDF.js coordinates.
+   * Calculates precise position and width for matched text within text items.
+   * pageRenderTrigger is intentionally included to re-run when pages finish rendering.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger triggers re-runs for async text layer rendering
+  useEffect(() => {
+    // Clear all existing highlights
+    const highlightContainers = document.querySelectorAll(".pdf-highlight-container");
+    for (const container of highlightContainers) {
+      container.innerHTML = "";
     }
-  }, [searchMatches]);
+
+    if (!searchText.trim() || matchLocations.length === 0) {
+      return;
+    }
+
+    // Group matches by page
+    const matchesByPage = new Map<number, typeof matchLocations>();
+    for (const match of matchLocations) {
+      if (!matchesByPage.has(match.page)) {
+        matchesByPage.set(match.page, []);
+      }
+      matchesByPage.get(match.page)?.push(match);
+    }
+
+    // Track pages that need text layer spans but don't have them yet
+    let hasIncompletePages = false;
+
+    // Render highlights for all visible pages
+    for (const [pageNum, pageMatches] of matchesByPage.entries()) {
+      // Get page container
+      const pageContainer = document.querySelector(`[data-page-number="${pageNum}"]`);
+      if (!pageContainer) continue;
+
+      const canvas = pageContainer.querySelector("canvas");
+      if (!canvas) continue;
+
+      // Get highlight container
+      const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
+      if (!highlightContainer) continue;
+
+      // Get the text layer
+      const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
+      if (!textLayer) continue;
+
+      // Get all text layer spans
+      const textLayerSpans = Array.from(textLayer.querySelectorAll("span"));
+      if (textLayerSpans.length === 0) {
+        hasIncompletePages = true;
+        continue;
+      }
+
+      // Build a map from text content to spans and track usage
+      const spansByText = new Map<string, HTMLElement[]>();
+      const usedSpans = new Set<HTMLElement>();
+
+      for (const span of textLayerSpans) {
+        const text = span.textContent || "";
+        if (!spansByText.has(text)) {
+          spansByText.set(text, []);
+        }
+        spansByText.get(text)?.push(span);
+      }
+
+      // Render each match on this page
+      for (const match of pageMatches) {
+        const item = match.item;
+        const isCurrentMatch =
+          currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
+
+        // Find the corresponding span by text content
+        const candidates = spansByText.get(item.text);
+        if (!candidates || candidates.length === 0) {
+          console.warn(`Page ${pageNum}: Could not find span for text:`, item.text);
+          continue;
+        }
+
+        // Find the first unused candidate
+        let textSpan: HTMLElement | null = null;
+        for (const candidate of candidates) {
+          if (!usedSpans.has(candidate)) {
+            textSpan = candidate;
+            usedSpans.add(candidate);
+            break;
+          }
+        }
+
+        // If all candidates used, reuse the first one
+        if (!textSpan) {
+          textSpan = candidates[0];
+        }
+
+        // Get the span's actual position and size
+        const spanRect = textSpan.getBoundingClientRect();
+        const containerRect = pageContainer.getBoundingClientRect();
+
+        // Calculate the offset of the match within the text item
+        const matchStartInItem = match.index - item.startIndex;
+
+        // Create canvas for text measurement
+        const measureCanvas = document.createElement("canvas");
+        const ctx = measureCanvas.getContext("2d");
+        if (!ctx) continue;
+
+        const computedStyle = window.getComputedStyle(textSpan);
+        ctx.font = computedStyle.font;
+
+        // Measure text before match
+        const textBefore = item.text.substring(0, matchStartInItem);
+        const measuredOffsetWidth = ctx.measureText(textBefore).width;
+
+        // Measure matched text
+        const matchedText = item.text.substring(matchStartInItem, matchStartInItem + match.length);
+        const measuredMatchWidth = ctx.measureText(matchedText).width;
+
+        // Scale measurements to match actual rendered span width
+        // This compensates for font rendering differences between canvas and browser
+        const spanWidth = spanRect.width;
+        const measuredFullWidth = ctx.measureText(item.text).width;
+        const scaleFactor = measuredFullWidth > 0 ? spanWidth / measuredFullWidth : 1.0;
+
+        const offsetWidth = measuredOffsetWidth * scaleFactor;
+        const matchWidth = measuredMatchWidth * scaleFactor;
+
+        // Calculate final position relative to the container
+        const x = spanRect.left - containerRect.left + offsetWidth;
+        const y = spanRect.top - containerRect.top;
+        const height = spanRect.height;
+
+        // Create highlight div
+        const highlight = document.createElement("div");
+        highlight.className = isCurrentMatch ? "search-highlight current" : "search-highlight";
+
+        // Apply styles
+        Object.assign(highlight.style, {
+          position: "absolute",
+          left: `${x}px`,
+          top: `${y}px`,
+          width: `${matchWidth}px`,
+          height: `${height}px`,
+          backgroundColor: isCurrentMatch
+            ? "rgba(255, 152, 0, 0.4)" // Orange for current match
+            : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
+          pointerEvents: "none",
+          zIndex: "10",
+          borderRadius: "2px",
+        });
+
+        highlightContainer.appendChild(highlight);
+      }
+    }
+
+    // If some pages had containers and text layers but no spans yet,
+    // retry after a short delay to catch the async text layer rendering
+    if (hasIncompletePages) {
+      const retryTimer = setTimeout(() => {
+        setPageRenderTrigger((prev) => prev + 1);
+      }, 50);
+      return () => clearTimeout(retryTimer);
+    }
+  }, [searchText, matchLocations, currentMatch, pageRenderTrigger]);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+
+      // Check if the search input has focus - if so, skip most shortcuts
+      const searchInput = document.querySelector(
+        'input[placeholder="Search..."]'
+      ) as HTMLInputElement;
+      const searchInputHasFocus = searchInput && document.activeElement === searchInput;
+
+      // Always allow Ctrl+F to open search
+      if ((event.ctrlKey || event.metaKey) && event.key === "f") {
+        event.preventDefault();
+        // Open search panel if not already open
+        setSearchPanelOpen(true);
+        // Focus search input after a brief delay to allow panel to render
+        setTimeout(() => {
+          const searchInput = document.querySelector(
+            'input[placeholder="Search..."]'
+          ) as HTMLInputElement;
+          if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+          }
+        }, 100);
+        return;
+      }
+
+      // Allow F3 for search navigation even when search has focus
+      if (event.key === "F3") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          handleSearchPrevious();
+        } else {
+          handleSearchNext();
+        }
+        return;
+      }
+
+      // If search input has focus, skip all other shortcuts (they're handled by the input)
+      if (searchInputHasFocus) {
+        return;
+      }
 
       switch (event.key) {
         case "ArrowRight":
@@ -318,7 +714,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           break;
         case "Escape":
           event.preventDefault();
-          onClose();
+          // If search panel is open, close it first
+          if (searchPanelOpen) {
+            setSearchPanelOpen(false);
+          } else {
+            // Otherwise close the entire viewer
+            onClose();
+          }
           break;
         default:
           break;
@@ -329,7 +731,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [currentPage, numPages, scale, pageScale, onClose, handlePageChange, handleScaleChange]);
+  }, [
+    currentPage,
+    numPages,
+    scale,
+    pageScale,
+    onClose,
+    handlePageChange,
+    handleScaleChange,
+    handleSearchNext,
+    handleSearchPrevious,
+    searchPanelOpen,
+  ]);
 
   return (
     <Dialog
@@ -411,6 +824,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               currentMatch,
               onSearchNext: handleSearchNext,
               onSearchPrevious: handleSearchPrevious,
+              searchPanelOpen,
+              onSearchPanelToggle: setSearchPanelOpen,
+              isSearchable,
             }}
             onDownload={handleDownload}
           />
@@ -488,6 +904,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     maxHeight: "100%",
                   },
                 }),
+                // Hide text layer text but keep it functional for search highlighting
+                "& .react-pdf__Page__textContent": {
+                  "& span": {
+                    color: "transparent !important",
+                    // Make sure text itself is invisible
+                    WebkitTextFillColor: "transparent !important",
+                  },
+                },
               }}
             >
               <Document
@@ -501,14 +925,35 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   </Box>
                 }
               >
-                <Page
-                  pageNumber={currentPage}
-                  scale={pageScale || undefined}
-                  width={pageWidth || undefined}
-                  renderTextLayer={true}
-                  renderAnnotationLayer={true}
-                  loading={<CircularProgress />}
-                />
+                <div
+                  style={{ position: "relative", display: "inline-block" }}
+                  data-page-number={currentPage}
+                >
+                  <Page
+                    pageNumber={currentPage}
+                    scale={pageScale || undefined}
+                    width={pageWidth || undefined}
+                    renderTextLayer={true}
+                    renderAnnotationLayer={true}
+                    loading={<CircularProgress />}
+                    onRenderSuccess={() => {
+                      // Trigger highlighting effect when page finishes rendering
+                      setPageRenderTrigger((prev) => prev + 1);
+                    }}
+                  />
+                  {/* Overlay container for search highlights */}
+                  <div
+                    className="pdf-highlight-container"
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      pointerEvents: "none",
+                    }}
+                  />
+                </div>
               </Document>
             </Box>
           )}

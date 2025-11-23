@@ -283,8 +283,8 @@ class ApiService {
       });
 
       const contentType = response.headers["content-type"] ?? "application/pdf";
-      const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
-      return new Blob([data], { type: contentType });
+      // response.data is an ArrayBuffer when responseType is 'arraybuffer'
+      return new Blob([response.data], { type: contentType });
     } catch (error) {
       // When responseType is 'arraybuffer', error responses come as ArrayBuffer
       // We need to convert them to JSON to access the detail field

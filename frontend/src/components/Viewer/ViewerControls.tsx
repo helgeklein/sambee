@@ -75,6 +75,9 @@ export interface SearchState {
   currentMatch?: number;
   onSearchNext?: () => void;
   onSearchPrevious?: () => void;
+  searchPanelOpen?: boolean;
+  onSearchPanelToggle?: (open: boolean) => void;
+  isSearchable?: boolean;
 }
 
 export interface ViewerControlsProps {
@@ -118,7 +121,18 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const [pageInput, setPageInput] = useState(
     pageNavigation ? pageNavigation.currentPage.toString() : ""
   );
-  const [showSearch, setShowSearch] = useState(false);
+  const [localShowSearch, setLocalShowSearch] = useState(false);
+
+  // Use controlled search panel state if provided, otherwise use local state
+  const showSearch =
+    search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
+  const setShowSearch = (open: boolean) => {
+    if (search?.onSearchPanelToggle) {
+      search.onSearchPanelToggle(open);
+    } else {
+      setLocalShowSearch(open);
+    }
+  };
 
   // Update page input when page changes externally
   React.useEffect(() => {
@@ -369,9 +383,20 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           <IconButton
             color="inherit"
             onClick={() => setShowSearch(!showSearch)}
-            title="Search"
+            title={
+              search.isSearchable === false
+                ? "Search unavailable - PDF contains no text layer (may be a scanned image)"
+                : "Search"
+            }
             aria-label="Search"
             size={isMobile ? "small" : "medium"}
+            disabled={search.isSearchable === false}
+            sx={{
+              ...(search.isSearchable === false && {
+                opacity: 0.5,
+                cursor: "not-allowed",
+              }),
+            }}
           >
             <Search fontSize={isMobile ? "small" : "medium"} />
           </IconButton>
@@ -416,6 +441,16 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           <TextField
             value={search.searchText}
             onChange={(e) => search.onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && search.onSearchNext) {
+                e.preventDefault();
+                search.onSearchNext();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowSearch(false);
+              }
+            }}
             placeholder="Search..."
             size="small"
             autoFocus
