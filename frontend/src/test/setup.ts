@@ -3,14 +3,29 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./mocks/server";
 
-// Suppress jsdom CSS parsing errors
+// Suppress jsdom CSS parsing errors and React act warnings
 const originalStderrWrite = process.stderr.write.bind(process.stderr);
+const originalConsoleError = console.error.bind(console);
+
 // biome-ignore lint/suspicious/noExplicitAny: Overriding process.stderr.write
 process.stderr.write = (chunk: any, encoding?: any, callback?: any): boolean => {
   if (typeof chunk === "string" && chunk.includes("Could not parse CSS stylesheet")) {
     return true;
   }
   return originalStderrWrite(chunk, encoding, callback);
+};
+
+// Suppress React act warnings that are unavoidable due to async library behavior
+// biome-ignore lint/suspicious/noExplicitAny: Overriding console.error
+console.error = (...args: any[]) => {
+  const message = args[0];
+  if (
+    typeof message === "string" &&
+    (message.includes("Warning: An update to") || message.includes("not wrapped in act(...)"))
+  ) {
+    return;
+  }
+  originalConsoleError(...args);
 };
 
 // Set up fake location for jsdom/MSW - must be before MSW setup

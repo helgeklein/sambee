@@ -519,7 +519,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         // Find the corresponding span by text content
         const candidates = spansByText.get(item.text);
         if (!candidates || candidates.length === 0) {
-          console.warn(`Page ${pageNum}: Could not find span for text:`, item.text);
+          // Text item may be split or combined differently by react-pdf - skip highlighting for this item
           continue;
         }
 
