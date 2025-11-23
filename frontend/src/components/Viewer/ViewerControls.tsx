@@ -453,6 +453,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 e.preventDefault();
                 e.stopPropagation();
                 setShowSearch(false);
+                // Clear search text to remove highlights
+                search.onSearchChange("");
               }
             }}
             placeholder="Search..."
