@@ -354,28 +354,30 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         )}
 
         {/* Rotation controls */}
-        {config.rotation && rotation && !isMobile && (
-          <IconButton
-            color="inherit"
-            onClick={rotation.onRotateLeft}
-            title="Rotate left (Shift+R)"
-            aria-label="Rotate left"
-            size="medium"
-          >
-            <RotateLeft />
-          </IconButton>
-        )}
-
         {config.rotation && rotation && (
-          <IconButton
-            color="inherit"
-            onClick={rotation.onRotateRight}
-            title="Rotate right (R)"
-            aria-label="Rotate right"
-            size={isMobile ? "small" : "medium"}
-          >
-            <RotateRight fontSize={isMobile ? "small" : "medium"} />
-          </IconButton>
+          <Box sx={{ display: "flex", gap: 0 }}>
+            {!isMobile && (
+              <IconButton
+                color="inherit"
+                onClick={rotation.onRotateLeft}
+                title="Rotate left (Shift+R)"
+                aria-label="Rotate left"
+                size="medium"
+              >
+                <RotateLeft />
+              </IconButton>
+            )}
+
+            <IconButton
+              color="inherit"
+              onClick={rotation.onRotateRight}
+              title="Rotate right (R)"
+              aria-label="Rotate right"
+              size={isMobile ? "small" : "medium"}
+            >
+              <RotateRight fontSize={isMobile ? "small" : "medium"} />
+            </IconButton>
+          </Box>
         )}
 
         {/* Search toggle */}
@@ -386,7 +388,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             title={
               search.isSearchable === false
                 ? "Search unavailable - PDF contains no text layer (may be a scanned image)"
-                : "Search"
+                : "Search (Ctrl+F)"
             }
             aria-label="Search"
             size={isMobile ? "small" : "medium"}

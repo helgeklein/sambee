@@ -1,7 +1,20 @@
 # TODO
 
+## PDF viewer
+
+- Fullscreen view (similar to image viewer).
+- Download
+- Tests on mobile
+- Test coverage
+
+## Markdown viewer
+
+- Migrate to the same view using the full browser window as the image and PDF viewers.
+- Fullscreen view (similar to the other viewers).
+
 ## Image viewer
 
+- When browsing between images, there's a fading effect in between images (image > black > image). This causes flickering.
 - Support multi-page image files:
   - TIFF
   - ICO (test with uberAgent icon)

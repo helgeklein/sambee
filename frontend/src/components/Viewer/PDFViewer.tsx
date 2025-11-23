@@ -83,6 +83,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [containerHeight, setContainerHeight] = useState<number>(0);
   const [pdfPageWidth, setPdfPageWidth] = useState<number>(612); // Default to US Letter
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
+  const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Search state
@@ -98,6 +99,15 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
+
+  // Rotation handlers
+  const handleRotateLeft = useCallback(() => {
+    setRotation((prev) => (prev - 90 + 360) % 360);
+  }, []);
+
+  const handleRotateRight = useCallback(() => {
+    setRotation((prev) => (prev + 90) % 360);
+  }, []);
 
   // Fetch PDF via API with auth header, then create blob URL
   useEffect(() => {
@@ -450,7 +460,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
    * Calculates precise position and width for matched text within text items.
    * pageRenderTrigger is intentionally included to re-run when pages finish rendering.
    */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger triggers re-runs for async text layer rendering
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger and rotation trigger re-runs for async text layer rendering
   useEffect(() => {
     // Clear all existing highlights
     const highlightContainers = document.querySelectorAll(".pdf-highlight-container");
@@ -619,6 +629,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       ) as HTMLInputElement;
       const searchInputHasFocus = searchInput && document.activeElement === searchInput;
 
+      // Always allow Ctrl+S to download
+      if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+        event.preventDefault();
+        handleDownload();
+        return;
+      }
+
       // Always allow Ctrl+F to open search
       if ((event.ctrlKey || event.metaKey) && event.key === "f") {
         event.preventDefault();
@@ -712,6 +729,15 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             handleScaleChange(Math.max(currentScale - 0.25, 0.1));
           }
           break;
+        case "r":
+        case "R":
+          event.preventDefault();
+          if (event.shiftKey) {
+            handleRotateLeft();
+          } else {
+            handleRotateRight();
+          }
+          break;
         case "Escape":
           event.preventDefault();
           // If search panel is open, close it first
@@ -742,6 +768,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     handleSearchNext,
     handleSearchPrevious,
     searchPanelOpen,
+    handleRotateLeft,
+    handleRotateRight,
+    handleDownload,
   ]);
 
   return (
@@ -792,6 +821,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             config={{
               pageNavigation: true,
               zoom: true,
+              rotation: true,
               search: true,
               download: true,
             }}
@@ -816,6 +846,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   handleScaleChange(Math.max((pageScale || 1.0) - 0.25, 0.1));
                 }
               },
+            }}
+            rotation={{
+              onRotateLeft: handleRotateLeft,
+              onRotateRight: handleRotateRight,
             }}
             search={{
               searchText,
@@ -933,6 +967,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     pageNumber={currentPage}
                     scale={pageScale || undefined}
                     width={pageWidth || undefined}
+                    rotate={rotation}
                     renderTextLayer={true}
                     renderAnnotationLayer={true}
                     loading={<CircularProgress />}
