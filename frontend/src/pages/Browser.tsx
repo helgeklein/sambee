@@ -1027,14 +1027,14 @@ const Browser: React.FC = () => {
 
   // Keyboard shortcut handlers using centralized system
   const handleNavigateDown = useCallback(
-    (e: KeyboardEvent) => {
+    (e?: KeyboardEvent) => {
       if (focusedIndex < 0) return;
       const fileCount = filesRef.current.length;
       const next = Math.min(focusedIndex + 1, fileCount - 1);
       if (next === focusedIndex) return;
 
       // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
-      if (e.repeat) {
+      if (e?.repeat) {
         updateFocus(next, { immediate: false });
       } else {
         updateFocus(next);
@@ -1044,7 +1044,7 @@ const Browser: React.FC = () => {
   );
 
   const handleArrowUp = useCallback(
-    (e: KeyboardEvent) => {
+    (e?: KeyboardEvent) => {
       if (focusedIndex < 0) return;
 
       // If at first item (index 0), move focus to search box
@@ -1057,7 +1057,7 @@ const Browser: React.FC = () => {
       if (next === focusedIndex) return;
 
       // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
-      if (e.repeat) {
+      if (e?.repeat) {
         updateFocus(next, { immediate: false });
       } else {
         updateFocus(next);
@@ -1076,12 +1076,12 @@ const Browser: React.FC = () => {
   }, [updateFocus]);
 
   const handlePageDown = useCallback(
-    (e: KeyboardEvent) => {
+    (e?: KeyboardEvent) => {
       const fileCount = filesRef.current.length;
       const pageSize = visibleRowCount;
       const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
 
-      if (e.repeat) {
+      if (e?.repeat) {
         updateFocus(newIndex, { immediate: false });
       } else {
         rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
@@ -1093,11 +1093,11 @@ const Browser: React.FC = () => {
   );
 
   const handlePageUp = useCallback(
-    (e: KeyboardEvent) => {
+    (e?: KeyboardEvent) => {
       const pageSize = visibleRowCount;
       const newIndex = Math.max(focusedIndex - pageSize, 0);
 
-      if (e.repeat) {
+      if (e?.repeat) {
         updateFocus(newIndex, { immediate: false });
       } else {
         rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
@@ -1125,7 +1125,7 @@ const Browser: React.FC = () => {
     }
   }, []);
 
-  const handleClearSelection = useCallback(() => {
+  const handleClose = useCallback(() => {
     setViewInfo(null);
     setSearchQuery("");
   }, []);
@@ -1197,10 +1197,10 @@ const Browser: React.FC = () => {
         handler: handleNavigateUpDirectory,
         enabled: !settingsOpen && !showHelp && !viewInfo && currentPathRef.current !== "",
       },
-      // Clear selection and search
+      // Clear selection and search (close action in browser context)
       {
-        ...BROWSER_SHORTCUTS.CLEAR_SELECTION,
-        handler: handleClearSelection,
+        ...COMMON_SHORTCUTS.CLOSE,
+        handler: handleClose,
         enabled: !settingsOpen && !showHelp,
       },
       // Focus search
@@ -1223,9 +1223,12 @@ const Browser: React.FC = () => {
   });
 
   // Manual keyboard handling for special cases (input focus exceptions and incremental search)
+  // This handler runs BEFORE useKeyboardShortcuts to handle special cases
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't handle if typing in an input or if a dialog is open
+    const handleKeyDown = (e?: KeyboardEvent) => {
+      // Don't handle if event already handled
+      if (e.defaultPrevented) return;
+
       const target = e.target as HTMLElement;
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
@@ -1298,11 +1301,10 @@ const Browser: React.FC = () => {
       }
     };
 
-    listContainerEl?.addEventListener("keydown", handleKeyDown);
+    // Attach to window with capture phase to run BEFORE useKeyboardShortcuts
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => {
-      if (listContainerEl) {
-        listContainerEl.removeEventListener("keydown", handleKeyDown);
-      }
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
     };
   }, [settingsOpen, showHelp, searchQuery, viewInfo, updateFocus, listContainerEl]);
 
@@ -1940,9 +1942,9 @@ const Browser: React.FC = () => {
               </TableRow>
               <TableRow>
                 <TableCell>
-                  <strong>{BROWSER_SHORTCUTS.CLEAR_SELECTION.label}</strong>
+                  <strong>{COMMON_SHORTCUTS.CLOSE.label}</strong>
                 </TableCell>
-                <TableCell>{BROWSER_SHORTCUTS.CLEAR_SELECTION.description}</TableCell>
+                <TableCell>Clear selection and search</TableCell>
               </TableRow>
               <TableRow>
                 <TableCell>

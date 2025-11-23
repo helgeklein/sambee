@@ -104,12 +104,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const filename = path.split("/").pop() || path;
 
   // Rotation handlers
-  const handleRotateLeft = useCallback(() => {
-    setRotation((prev) => (prev - 90 + 360) % 360);
+  const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
+    setRotation((r) => (r - 90 + 360) % 360);
   }, []);
 
-  const handleRotateRight = useCallback(() => {
-    setRotation((prev) => (prev + 90) % 360);
+  const handleRotateRight = useCallback((_event?: KeyboardEvent) => {
+    setRotation((r) => (r + 90) % 360);
   }, []);
 
   // Fetch PDF via API with auth header, then create blob URL
@@ -353,13 +353,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, []);
 
   // Download handler
-  const handleDownload = useCallback(() => {
-    const downloadUrl = apiService.getDownloadUrl(connectionId, path);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = filename;
-    link.click();
-  }, [connectionId, path, filename]);
+  const handleDownload = useCallback(
+    (_event?: KeyboardEvent) => {
+      const downloadUrl = apiService.getDownloadUrl(connectionId, path);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      link.click();
+    },
+    [connectionId, path, filename]
+  );
 
   /**
    * Perform search across all extracted page texts using simple regex approach.
@@ -442,21 +445,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Search matches count is simply the total from extracted text
   const searchMatches = matchLocations.length;
 
-  const handleSearchNext = useCallback(() => {
-    if (matchLocations.length === 0) return;
+  const handleSearchNext = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (matchLocations.length === 0) return;
 
-    const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
-    setCurrentMatch(nextMatch);
-    setCurrentPage(matchLocations[nextMatch - 1].page);
-  }, [matchLocations, currentMatch]);
+      const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
+      setCurrentMatch(nextMatch);
+      setCurrentPage(matchLocations[nextMatch - 1].page);
+    },
+    [matchLocations, currentMatch]
+  );
 
-  const handleSearchPrevious = useCallback(() => {
-    if (matchLocations.length === 0) return;
+  const handleSearchPrevious = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (matchLocations.length === 0) return;
 
-    const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
-    setCurrentMatch(prevMatch);
-    setCurrentPage(matchLocations[prevMatch - 1].page);
-  }, [matchLocations, currentMatch]);
+      const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
+      setCurrentMatch(prevMatch);
+      setCurrentPage(matchLocations[prevMatch - 1].page);
+    },
+    [matchLocations, currentMatch]
+  );
 
   /**
    * Render search highlights using div overlays positioned with PDF.js coordinates.
@@ -622,7 +631,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, [searchText, matchLocations, currentMatch, pageRenderTrigger]);
 
   // Keyboard shortcuts - centralized configuration
-  const handleOpenSearch = useCallback(() => {
+  const handleOpenSearch = useCallback((_event?: KeyboardEvent) => {
     setSearchPanelOpen(true);
     // Focus search input after a brief delay to allow panel to render
     setTimeout(() => {
@@ -636,29 +645,35 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }, 100);
   }, []);
 
-  const handleZoomIn = useCallback(() => {
-    if (typeof scale === "number") {
-      handleScaleChange(scale + 0.25);
-    } else {
-      const currentScale = pageScale || 1.0;
-      handleScaleChange(currentScale + 0.25);
-    }
-  }, [scale, pageScale, handleScaleChange]);
+  const handleZoomIn = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (typeof scale === "number") {
+        handleScaleChange(scale + 0.25);
+      } else {
+        const currentScale = pageScale || 1.0;
+        handleScaleChange(currentScale + 0.25);
+      }
+    },
+    [scale, pageScale, handleScaleChange]
+  );
 
-  const handleZoomOut = useCallback(() => {
-    if (typeof scale === "number") {
-      handleScaleChange(Math.max(scale - 0.25, 0.1));
-    } else {
-      const currentScale = pageScale || 1.0;
-      handleScaleChange(Math.max(currentScale - 0.25, 0.1));
-    }
-  }, [scale, pageScale, handleScaleChange]);
+  const handleZoomOut = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (typeof scale === "number") {
+        handleScaleChange(Math.max(scale - 0.25, 0.1));
+      } else {
+        const currentScale = pageScale || 1.0;
+        handleScaleChange(Math.max(currentScale - 0.25, 0.1));
+      }
+    },
+    [scale, pageScale, handleScaleChange]
+  );
 
-  const handleZoomReset = useCallback(() => {
-    handleScaleChange("fit-page");
-  }, [handleScaleChange]);
+  const handleZoomReset = useCallback((_event?: KeyboardEvent) => {
+    setScale("fit-page");
+  }, []);
 
-  const handleToggleFullscreen = useCallback(() => {
+  const handleToggleFullscreen = useCallback((_event?: KeyboardEvent) => {
     if (!dialogRef.current) return;
 
     if (!document.fullscreenElement) {
@@ -677,17 +692,20 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
    * - Otherwise: close the entire viewer
    * This eliminates the need for multiple overlapping shortcuts
    */
-  const handleEscape = useCallback(() => {
-    if (searchPanelOpen) {
-      setSearchPanelOpen(false);
-      // Clear search results and highlights when closing search panel
-      setSearchText("");
-      setMatchLocations([]);
-      setCurrentMatch(0);
-    } else {
-      onClose();
-    }
-  }, [searchPanelOpen, onClose]);
+  const handleEscape = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (searchPanelOpen) {
+        setSearchPanelOpen(false);
+        // Clear search results and highlights when closing search panel
+        setSearchText("");
+        setMatchLocations([]);
+        setCurrentMatch(0);
+      } else {
+        onClose();
+      }
+    },
+    [searchPanelOpen, onClose]
+  );
 
   useKeyboardShortcuts({
     shortcuts: [

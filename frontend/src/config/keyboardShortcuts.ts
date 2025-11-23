@@ -15,6 +15,15 @@ type ShortcutDefinition = Omit<KeyboardShortcut, "handler" | "enabled">;
  * Common shortcuts used across all viewers
  */
 export const COMMON_SHORTCUTS = {
+  //
+  // Open, close, download
+  //
+  OPEN: {
+    id: "open",
+    keys: "Enter",
+    description: "Open",
+    label: "Enter",
+  },
   CLOSE: {
     id: "close",
     keys: "Escape",
@@ -98,16 +107,6 @@ export const COMMON_SHORTCUTS = {
     keys: "ArrowLeft",
     description: "Previous",
     label: "Left",
-  },
-
-  //
-  // Open/Select
-  //
-  OPEN: {
-    id: "open",
-    keys: "Enter",
-    description: "Open",
-    label: "Enter",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
@@ -212,11 +211,5 @@ export const BROWSER_SHORTCUTS = {
     keys: "F5",
     description: "Refresh file list",
     label: "F5",
-  },
-  CLEAR_SELECTION: {
-    id: "clear-selection",
-    keys: "Escape",
-    description: "Clear selection and search",
-    label: "Esc",
   },
 } as const satisfies Record<string, ShortcutDefinition>;

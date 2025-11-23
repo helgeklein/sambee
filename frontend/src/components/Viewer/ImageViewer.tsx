@@ -142,79 +142,100 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   }, [connectionId, currentPath]);
 
   // Navigation handlers
-  const handleNext = useCallback(() => {
-    if (currentIndex < images.length - 1) {
-      const nextIndex = currentIndex + 1;
-      setCurrentIndex(nextIndex);
-      logInfo("Navigated to next image", { index: nextIndex });
-    }
-  }, [currentIndex, images.length]);
+  const handleNext = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (currentIndex < images.length - 1) {
+        const nextIndex = currentIndex + 1;
+        setCurrentIndex(nextIndex);
+        logInfo("Navigated to next image", { index: nextIndex });
+      }
+    },
+    [currentIndex, images.length]
+  );
 
-  const handlePrevious = useCallback(() => {
-    if (currentIndex > 0) {
-      const prevIndex = currentIndex - 1;
-      setCurrentIndex(prevIndex);
-      logInfo("Navigated to previous image", { index: prevIndex });
-    }
-  }, [currentIndex]);
+  const handlePrevious = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (currentIndex > 0) {
+        const prevIndex = currentIndex - 1;
+        setCurrentIndex(prevIndex);
+        logInfo("Navigated to previous image", { index: prevIndex });
+      }
+    },
+    [currentIndex]
+  );
 
   // Handle close
-  const handleClose = useCallback(() => {
-    onClose();
-  }, [onClose]);
+  const handleClose = useCallback(
+    (_event?: KeyboardEvent) => {
+      onClose();
+    },
+    [onClose]
+  );
 
   // Zoom handlers
-  const handleZoomIn = useCallback(() => {
+  const handleZoomIn = useCallback((_event?: KeyboardEvent) => {
     setScale((value) => Math.min(value * 1.2, 3));
   }, []);
 
-  const handleZoomOut = useCallback(() => {
+  const handleZoomOut = useCallback((_event?: KeyboardEvent) => {
     setScale((value) => Math.max(value * 0.8, 0.3));
   }, []);
 
-  const handleZoomReset = useCallback(() => {
+  const handleZoomReset = useCallback((_event?: KeyboardEvent) => {
     setScale(1);
   }, []);
 
   // Rotation handlers
-  const handleRotateRight = useCallback(() => {
+  const handleRotateRight = useCallback((_event?: KeyboardEvent) => {
     setRotate((value) => value + 90);
   }, []);
 
-  const handleRotateLeft = useCallback(() => {
+  const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
     setRotate((value) => value - 90);
   }, []);
 
   // Navigation handlers for gallery
-  const handleFirst = useCallback(() => {
-    if (images.length > 1) {
-      setCurrentIndex(0);
-    }
-  }, [images.length]);
+  const handleFirst = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (images.length > 1) {
+        setCurrentIndex(0);
+      }
+    },
+    [images.length]
+  );
 
-  const handleLast = useCallback(() => {
-    if (images.length > 1) {
-      setCurrentIndex(images.length - 1);
-    }
-  }, [images.length]);
+  const handleLast = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (images.length > 1) {
+        setCurrentIndex(images.length - 1);
+      }
+    },
+    [images.length]
+  );
 
   // Download handler
-  const handleDownload = useCallback(() => {
-    const downloadUrl = apiService.getDownloadUrl(connectionId, currentPath);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = filename;
-    link.click();
-  }, [connectionId, currentPath, filename]);
+  const handleDownload = useCallback(
+    (_event?: KeyboardEvent) => {
+      const downloadUrl = apiService.getDownloadUrl(connectionId, currentPath);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      link.click();
+    },
+    [connectionId, currentPath, filename]
+  );
 
   // Context-aware Escape handler
-  const handleEscape = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      handleClose();
-    }
-  }, [handleClose]);
+  const handleEscape = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        handleClose();
+      }
+    },
+    [handleClose]
+  );
 
   const handleDoubleZoom = useCallback(() => {
     setScale((value) => (value > 1 ? 1 : Math.min(value * 2, 3)));

@@ -13,7 +13,7 @@ export interface KeyboardShortcut {
   /** Display label for tooltip (e.g., "Ctrl+S") - auto-generated if not provided */
   label?: string;
   /** Handler function to execute */
-  handler: () => void;
+  handler: (event?: KeyboardEvent) => void;
   /** Requires Ctrl/Cmd modifier key */
   ctrl?: boolean;
   /** Requires Shift modifier key */
@@ -168,7 +168,7 @@ export const useKeyboardShortcuts = ({
 
         if (keyMatches) {
           event.preventDefault();
-          shortcut.handler();
+          shortcut.handler(event);
           return;
         }
       }
