@@ -88,11 +88,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
   const [pageTextItems, setPageTextItems] = useState<Map<number, TextItemData[]>>(new Map());
+  // biome-ignore lint/correctness/noUnusedVariables: May be needed for future features
   const [pageViewports, setPageViewports] = useState<Map<number, PDFViewport>>(new Map());
   const [matchLocations, setMatchLocations] = useState<MatchLocation[]>([]);
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
+  const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -446,8 +448,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   /**
    * Render search highlights using div overlays positioned with PDF.js coordinates.
    * Calculates precise position and width for matched text within text items.
+   * pageRenderTrigger is intentionally included to re-run when pages finish rendering.
    */
   useEffect(() => {
+    console.log("=== Highlighting effect running ===", {
+      searchText,
+      matchCount: matchLocations.length,
+      currentMatch,
+      pageRenderTrigger,
+    });
+
     // Clear all existing highlights
     const highlightContainers = document.querySelectorAll(".pdf-highlight-container");
     for (const container of highlightContainers) {
@@ -458,141 +468,148 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       return;
     }
 
-    // Get page container for current page
-    const pageContainer = document.querySelector(`[data-page-number="${currentPage}"]`);
-    if (!pageContainer) return;
-
-    const canvas = pageContainer.querySelector("canvas");
-    if (!canvas) return;
-
-    const viewport = pageViewports.get(currentPage);
-    if (!viewport) return;
-
-    // Calculate actual render scale
-    // The Page component is rendered with pageScale or pageWidth
-    // We need to determine the actual scale being used
-    let actualScale: number;
-
-    if (pageScale) {
-      // Direct scale mode (fit-page or numeric zoom)
-      actualScale = pageScale;
-    } else if (pageWidth) {
-      // Fit-width mode - calculate scale from width
-      actualScale = pageWidth / viewport.width;
-    } else {
-      // Fallback - should not happen
-      actualScale = 1.0;
-    }
-
-    // Get matches on current page
-    const pageMatches = matchLocations.filter((match) => match.page === currentPage);
-
-    // Get highlight container
-    const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
-    if (!highlightContainer) return;
-
-    // Debug logging
-    console.log("Highlight scale debug:", {
-      pageScale,
-      pageWidth,
-      actualScale,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height,
-      canvasRect: canvas.getBoundingClientRect(),
-    });
-
-    // Get the text layer - we'll find spans by matching text content
-    const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
-    if (!textLayer) {
-      console.warn("Text layer not found");
-      return;
-    }
-
-    // Get all text layer spans
-    const textLayerSpans = Array.from(textLayer.querySelectorAll("span"));
-
-    // Build a map from text content to spans (handling multiple spans with same text)
-    const spansByText = new Map<string, HTMLElement[]>();
-    for (const span of textLayerSpans) {
-      const text = span.textContent || "";
-      if (!spansByText.has(text)) {
-        spansByText.set(text, []);
+    // Group matches by page
+    const matchesByPage = new Map<number, typeof matchLocations>();
+    for (const match of matchLocations) {
+      if (!matchesByPage.has(match.page)) {
+        matchesByPage.set(match.page, []);
       }
-      spansByText.get(text)?.push(span);
+      matchesByPage.get(match.page)?.push(match);
     }
 
-    console.log("Text layer debug:", {
-      totalSpans: textLayerSpans.length,
-      uniqueTexts: spansByText.size,
-      spanTexts: textLayerSpans.map((s) => s.textContent).slice(0, 10),
-    });
+    console.log("Pages with matches:", Array.from(matchesByPage.keys()));
 
-    // Render each match as a positioned div
-    for (let i = 0; i < pageMatches.length; i++) {
-      const match = pageMatches[i];
-      const item = match.item;
-      const isCurrentMatch = currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
+    // Track pages that need text layer spans but don't have them yet
+    let hasIncompletePages = false;
 
-      // Find the corresponding span by text content
-      const candidates = spansByText.get(item.text);
-      if (!candidates || candidates.length === 0) {
-        console.warn("Could not find span for text:", item.text);
+    // Render highlights for all visible pages
+    for (const [pageNum, pageMatches] of matchesByPage.entries()) {
+      console.log(`Processing page ${pageNum} with ${pageMatches.length} matches`);
+
+      // Get page container
+      const pageContainer = document.querySelector(`[data-page-number="${pageNum}"]`);
+      if (!pageContainer) {
+        console.log(`  → Page ${pageNum} container not found`);
         continue;
       }
 
-      // Use the first unused candidate (for duplicate text items)
-      const textSpan = candidates[0];
+      const canvas = pageContainer.querySelector("canvas");
+      if (!canvas) {
+        console.log(`  → Page ${pageNum} canvas not found`);
+        continue;
+      }
 
-      // Get the span's actual position and size
-      const spanRect = textSpan.getBoundingClientRect();
-      const containerRect = pageContainer.getBoundingClientRect();
+      // Get highlight container
+      const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
+      if (!highlightContainer) {
+        console.log(`  → Page ${pageNum} highlight container not found`);
+        continue;
+      }
 
-      // Calculate the offset of the match within the text item
-      const matchStartInItem = match.index - item.startIndex;
+      // Get the text layer
+      const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
+      if (!textLayer) {
+        console.log(`  → Page ${pageNum} text layer not found`);
+        continue;
+      }
 
-      // Create canvas for text measurement with the actual font from the span
-      const measureCanvas = document.createElement("canvas");
-      const ctx = measureCanvas.getContext("2d");
-      if (!ctx) continue;
+      // Get all text layer spans
+      const textLayerSpans = Array.from(textLayer.querySelectorAll("span"));
+      if (textLayerSpans.length === 0) {
+        console.log(`  → Page ${pageNum} text layer has no spans yet`);
+        hasIncompletePages = true;
+        continue;
+      }
 
-      const computedStyle = window.getComputedStyle(textSpan);
-      ctx.font = computedStyle.font;
+      console.log(`  ✓ Page ${pageNum} ready, rendering ${pageMatches.length} highlights`);
 
-      // Measure text before match
-      const textBefore = item.text.substring(0, matchStartInItem);
-      const offsetWidth = ctx.measureText(textBefore).width;
+      // Build a map from text content to spans
+      const spansByText = new Map<string, HTMLElement[]>();
+      for (const span of textLayerSpans) {
+        const text = span.textContent || "";
+        if (!spansByText.has(text)) {
+          spansByText.set(text, []);
+        }
+        spansByText.get(text)?.push(span);
+      }
 
-      // Measure matched text
-      const matchedText = item.text.substring(matchStartInItem, matchStartInItem + match.length);
-      const matchWidth = ctx.measureText(matchedText).width;
+      // Render each match on this page
+      for (const match of pageMatches) {
+        const item = match.item;
+        const isCurrentMatch =
+          currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
 
-      // Calculate final position relative to the container
-      const x = spanRect.left - containerRect.left + offsetWidth;
-      const y = spanRect.top - containerRect.top;
-      const height = spanRect.height;
+        // Find the corresponding span by text content
+        const candidates = spansByText.get(item.text);
+        if (!candidates || candidates.length === 0) {
+          console.warn(`Page ${pageNum}: Could not find span for text:`, item.text);
+          continue;
+        }
 
-      // Create highlight div
-      const highlight = document.createElement("div");
-      highlight.className = isCurrentMatch ? "search-highlight current" : "search-highlight";
+        // Use the first candidate
+        const textSpan = candidates[0];
 
-      // Apply styles
-      Object.assign(highlight.style, {
-        position: "absolute",
-        left: `${x}px`,
-        top: `${y}px`,
-        width: `${matchWidth}px`,
-        height: `${height}px`,
-        backgroundColor: isCurrentMatch
-          ? "rgba(255, 152, 0, 0.4)" // Orange for current match
-          : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
-        pointerEvents: "none",
-        zIndex: "10",
-        borderRadius: "2px",
-      });
+        // Get the span's actual position and size
+        const spanRect = textSpan.getBoundingClientRect();
+        const containerRect = pageContainer.getBoundingClientRect();
 
-      highlightContainer.appendChild(highlight);
+        // Calculate the offset of the match within the text item
+        const matchStartInItem = match.index - item.startIndex;
+
+        // Create canvas for text measurement
+        const measureCanvas = document.createElement("canvas");
+        const ctx = measureCanvas.getContext("2d");
+        if (!ctx) continue;
+
+        const computedStyle = window.getComputedStyle(textSpan);
+        ctx.font = computedStyle.font;
+
+        // Measure text before match
+        const textBefore = item.text.substring(0, matchStartInItem);
+        const offsetWidth = ctx.measureText(textBefore).width;
+
+        // Measure matched text
+        const matchedText = item.text.substring(matchStartInItem, matchStartInItem + match.length);
+        const matchWidth = ctx.measureText(matchedText).width;
+
+        // Calculate final position relative to the container
+        const x = spanRect.left - containerRect.left + offsetWidth;
+        const y = spanRect.top - containerRect.top;
+        const height = spanRect.height;
+
+        // Create highlight div
+        const highlight = document.createElement("div");
+        highlight.className = isCurrentMatch ? "search-highlight current" : "search-highlight";
+
+        // Apply styles
+        Object.assign(highlight.style, {
+          position: "absolute",
+          left: `${x}px`,
+          top: `${y}px`,
+          width: `${matchWidth}px`,
+          height: `${height}px`,
+          backgroundColor: isCurrentMatch
+            ? "rgba(255, 152, 0, 0.4)" // Orange for current match
+            : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
+          pointerEvents: "none",
+          zIndex: "10",
+          borderRadius: "2px",
+        });
+
+        highlightContainer.appendChild(highlight);
+      }
     }
-  }, [searchText, matchLocations, currentPage, currentMatch, pageViewports, pageScale, pageWidth]);
+
+    // If some pages had containers and text layers but no spans yet,
+    // retry after a short delay to catch the async text layer rendering
+    if (hasIncompletePages) {
+      console.log("Some pages incomplete, scheduling retry in 50ms");
+      const retryTimer = setTimeout(() => {
+        setPageRenderTrigger((prev) => prev + 1);
+      }, 50);
+      return () => clearTimeout(retryTimer);
+    }
+  }, [searchText, matchLocations, currentMatch, pageRenderTrigger]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -922,6 +939,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     renderTextLayer={true}
                     renderAnnotationLayer={true}
                     loading={<CircularProgress />}
+                    onRenderSuccess={() => {
+                      // Trigger highlighting effect when page finishes rendering
+                      setPageRenderTrigger((prev) => prev + 1);
+                    }}
                   />
                   {/* Overlay container for search highlights */}
                   <div
