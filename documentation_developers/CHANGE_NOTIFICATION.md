@@ -38,6 +38,8 @@ SMB Server
   - Runs background thread with `FileSystemWatcher`
   - Calls callback function when changes detected
   - **Proper cleanup**: Closes handles in reverse order to prevent leaks
+  - **Connection recovery**: Exponential backoff with jitter for reconnection attempts
+  - **Timeout handling**: Detects and recovers from connection timeouts and network issues
 
 #### `/backend/app/api/websocket.py`
 - **ConnectionManager**: Manages WebSocket connections
@@ -151,6 +153,40 @@ Started SMB monitoring for <connection-id>:<path>
 Change detected in <connection-id>:<path> - ADDED: filename.txt
 Notified WebSocket <id> about change in <connection-id>:<path>
 ```
+
+## Connection Recovery
+
+The directory monitor includes robust connection recovery:
+
+### Exponential Backoff Strategy
+- **Initial delay**: 1 second
+- **Max delay**: 60 seconds
+- **Backoff multiplier**: 2.0x per attempt
+- **Max retry attempts**: 5
+- **Jitter**: ±10% randomization to prevent thundering herd
+
+### Retry Sequence Example
+1. **Attempt 1**: 1.0s delay (±0.1s jitter)
+2. **Attempt 2**: 2.0s delay (±0.2s jitter)
+3. **Attempt 3**: 4.0s delay (±0.4s jitter)
+4. **Attempt 4**: 8.0s delay (±0.8s jitter)
+5. **Attempt 5**: 16.0s delay (±1.6s jitter)
+6. **After 5 failures**: Monitor stops, requires resubscription
+
+### Timeout Configuration
+- **Connection timeout**: 30 seconds for initial SMB connection
+- **Operation timeout**: 60 seconds for SMB operations
+
+### Error Detection
+The monitor automatically detects and recovers from:
+- Socket timeouts and connection errors
+- Network interruptions
+- SMB server restarts
+- Transient network issues
+
+### Success Reset
+- Consecutive failure counter resets to 0 on successful operation
+- Next error starts fresh backoff sequence
 
 ## Clean Shutdown
 

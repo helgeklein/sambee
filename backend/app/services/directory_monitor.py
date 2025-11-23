@@ -5,6 +5,7 @@ Monitors directories for changes and notifies WebSocket clients.
 
 import asyncio
 import logging
+import random
 import threading
 from collections.abc import Awaitable, Callable
 from typing import Dict, Optional
@@ -29,6 +30,17 @@ from smbprotocol.session import Session  # type: ignore[import-untyped]
 from smbprotocol.tree import TreeConnect  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
+
+# Connection retry configuration
+MAX_RETRY_ATTEMPTS = 5
+INITIAL_RETRY_DELAY = 1.0  # seconds
+MAX_RETRY_DELAY = 60.0  # seconds
+RETRY_BACKOFF_MULTIPLIER = 2.0
+RETRY_JITTER_FACTOR = 0.1  # 10% jitter
+
+# Timeout configuration
+SMB_CONNECT_TIMEOUT = 30.0  # seconds for initial connection
+SMB_OPERATION_TIMEOUT = 60.0  # seconds for SMB operations
 
 
 class DirectoryMonitor:
@@ -183,6 +195,10 @@ class MonitoredDirectory:
         self._monitor_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
 
+        # Retry state
+        self._retry_count = 0
+        self._consecutive_failures = 0
+
     def start(self) -> None:
         """Start monitoring this directory."""
         try:
@@ -236,12 +252,43 @@ class MonitoredDirectory:
             raise
 
     def _reconnect(self) -> None:
-        """Reconnect to SMB server after connection loss."""
-        logger.info(f"Reconnecting monitor for {self.connection_id}:{self.path}")
+        """Reconnect to SMB server after connection loss with exponential backoff."""
+        self._consecutive_failures += 1
 
-        # Establish new SMB connection
-        self._connection = Connection(guid=None, server_name=self.host, port=self.port)
-        self._connection.connect()
+        if self._consecutive_failures > MAX_RETRY_ATTEMPTS:
+            logger.error(
+                f"Max retry attempts ({MAX_RETRY_ATTEMPTS}) reached for {self.connection_id}:{self.path}, giving up"
+            )
+            self._stop_event.set()
+            return
+
+        # Calculate delay with exponential backoff and jitter
+        base_delay = min(
+            INITIAL_RETRY_DELAY
+            * (RETRY_BACKOFF_MULTIPLIER ** (self._consecutive_failures - 1)),
+            MAX_RETRY_DELAY,
+        )
+        jitter = base_delay * RETRY_JITTER_FACTOR * (random.random() * 2 - 1)  # +/- 10%
+        delay = max(0, base_delay + jitter)
+
+        logger.info(
+            f"Reconnecting monitor for {self.connection_id}:{self.path} "
+            f"(attempt {self._consecutive_failures}/{MAX_RETRY_ATTEMPTS}, delay: {delay:.1f}s)"
+        )
+
+        # Wait before reconnecting
+        if self._stop_event.wait(delay):
+            return  # Stop event was set during wait
+
+        # Establish new SMB connection with timeout handling
+        try:
+            self._connection = Connection(
+                guid=None, server_name=self.host, port=self.port
+            )
+            self._connection.connect(timeout=SMB_CONNECT_TIMEOUT)
+        except Exception as e:
+            logger.error(f"Connection failed during reconnect: {e}", exc_info=True)
+            raise
 
         # Create new session
         self._session = Session(
@@ -316,6 +363,9 @@ class MonitoredDirectory:
                         break
 
                     if result is not None:
+                        # Success - reset failure counter
+                        self._consecutive_failures = 0
+
                         # Log the changes
                         for action_info in result:
                             action = action_info["action"].get_value()
@@ -349,35 +399,53 @@ class MonitoredDirectory:
 
                 except Exception as e:
                     if not self._stop_event.is_set():
+                        error_type = type(e).__name__
+                        error_msg = str(e).lower()
+
                         logger.error(
-                            f"Error waiting for changes in {self.connection_id}:{self.path}: {e}",
+                            f"Error waiting for changes in {self.connection_id}:{self.path}: {error_type}: {e}",
                             exc_info=True,
                         )
 
-                        # Check if the error is due to connection issues
-                        error_msg = str(e).lower()
-                        if (
+                        # Check if the error is due to connection/timeout issues
+                        is_connection_error = (
                             "socket" in error_msg
                             or "connection" in error_msg
                             or "closed" in error_msg
-                        ):
+                            or "timeout" in error_msg
+                            or "timed out" in error_msg
+                            or error_type
+                            in ("TimeoutError", "ConnectionError", "OSError")
+                        )
+
+                        if is_connection_error:
                             logger.warning(
-                                f"Connection issue detected, attempting to recreate connection for {self.connection_id}:{self.path}"
+                                f"Connection/timeout issue detected for {self.connection_id}:{self.path}, "
+                                f"attempting recovery (consecutive failures: {self._consecutive_failures})"
                             )
                             # Clean up old resources
                             self._cleanup()
-                            # Try to reconnect
+                            # Try to reconnect with exponential backoff
                             try:
                                 self._reconnect()
+                                # Success - reset failure counter
+                                self._consecutive_failures = 0
+                                logger.info(
+                                    f"Successfully reconnected {self.connection_id}:{self.path}"
+                                )
                             except Exception as reconnect_error:
                                 logger.error(
-                                    f"Failed to reconnect: {reconnect_error}",
+                                    f"Failed to reconnect (attempt {self._consecutive_failures}/{MAX_RETRY_ATTEMPTS}): {reconnect_error}",
                                     exc_info=True,
                                 )
-                                # Wait before giving up
-                                self._stop_event.wait(10)
+                                # _reconnect handles retry logic and stop event
+                                if self._stop_event.is_set():
+                                    break
                         else:
-                            # Other errors - wait and retry with same connection
+                            # Other errors - wait briefly and retry with same connection
+                            logger.info(
+                                "Non-connection error, recreating watcher after 5s delay"
+                            )
                             self._stop_event.wait(5)
                             if not self._stop_event.is_set() and self._open:
                                 self._watcher = FileSystemWatcher(self._open)
