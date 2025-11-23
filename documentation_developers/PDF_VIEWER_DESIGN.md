@@ -1492,15 +1492,8 @@ The text layer is a separate div overlay on the canvas. Each text item has posit
 - [ ] Print support
 
 ### Phase 4 - Advanced Features (Future)
-- [ ] Advanced search options
-- [ ] Search results panel
 - [ ] Highlight all matches
-- [ ] Page thumbnails sidebar
-- [ ] Annotation support
-- [ ] Form filling support
 - [ ] Multi-page view (side-by-side)
-- [ ] Thumbnail navigation (optional)
-- [ ] Bookmark support (optional)
 
 ## Performance Considerations
 
