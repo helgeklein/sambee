@@ -105,7 +105,7 @@ export const VIEWER_SHORTCUTS = {
     label: "Left",
   },
 
-  //
+  //I
   // Zoom
   //
   ZOOM_IN: {
@@ -142,5 +142,15 @@ export const VIEWER_SHORTCUTS = {
     description: "Rotate left",
     label: "Shift+R",
     shift: true,
+  },
+
+  //
+  // Fullscreen
+  //
+  FULLSCREEN: {
+    id: "fullscreen",
+    keys: ["f", "F"],
+    description: "Toggle fullscreen",
+    label: "F",
   },
 } as const satisfies Record<string, ShortcutDefinition>;

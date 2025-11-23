@@ -2,8 +2,7 @@
 
 ## PDF viewer
 
-- Fullscreen view (similar to image viewer).
-- Download
+- Download: currently error
 - Tests on mobile
 - Test coverage
 

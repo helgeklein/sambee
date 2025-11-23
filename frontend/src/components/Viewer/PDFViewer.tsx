@@ -87,6 +87,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
@@ -657,6 +658,18 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     handleScaleChange("fit-page");
   }, [handleScaleChange]);
 
+  const handleToggleFullscreen = useCallback(() => {
+    if (!dialogRef.current) return;
+
+    if (!document.fullscreenElement) {
+      dialogRef.current.requestFullscreen().catch((err) => {
+        logError(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  }, []);
+
   /**
    * Context-aware Escape handler
    * Pattern: Single handler checks state to determine appropriate action
@@ -751,6 +764,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         ...VIEWER_SHORTCUTS.ROTATE_LEFT,
         handler: handleRotateLeft,
       },
+      // Fullscreen
+      {
+        ...VIEWER_SHORTCUTS.FULLSCREEN,
+        handler: handleToggleFullscreen,
+      },
       // Close viewer or search panel on Escape
       {
         ...COMMON_SHORTCUTS.CLOSE,
@@ -766,6 +784,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       onClose={onClose}
       maxWidth={false}
       fullScreen
+      ref={dialogRef}
       sx={{
         "& .MuiDialog-container": {
           alignItems: "stretch",
