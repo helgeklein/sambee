@@ -653,9 +653,20 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
   }, [scale, pageScale, handleScaleChange]);
 
+  /**
+   * Context-aware Escape handler
+   * Pattern: Single handler checks state to determine appropriate action
+   * - If search panel is open: close search and clear results
+   * - Otherwise: close the entire viewer
+   * This eliminates the need for multiple overlapping shortcuts
+   */
   const handleEscape = useCallback(() => {
     if (searchPanelOpen) {
       setSearchPanelOpen(false);
+      // Clear search results and highlights when closing search panel
+      setSearchText("");
+      setMatchLocations([]);
+      setCurrentMatch(0);
     } else {
       onClose();
     }
@@ -663,11 +674,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   useKeyboardShortcuts({
     shortcuts: [
-      // Close viewer
-      {
-        ...COMMON_SHORTCUTS.CLOSE,
-        handler: onClose,
-      },
       // Download
       {
         ...COMMON_SHORTCUTS.DOWNLOAD,
@@ -745,10 +751,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         ...PDF_SHORTCUTS.ROTATE_LEFT,
         handler: handleRotateLeft,
       },
-      // General - close on Escape when not in search
+      // Close viewer or search panel on Escape
       {
         ...COMMON_SHORTCUTS.CLOSE,
-        id: "close-when-not-searching",
         handler: handleEscape,
       },
     ],

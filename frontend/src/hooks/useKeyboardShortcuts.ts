@@ -24,6 +24,8 @@ export interface KeyboardShortcut {
   allowInInput?: boolean;
   /** Custom condition to enable/disable shortcut */
   enabled?: boolean;
+  /** Priority for overlapping shortcuts (higher = checked first, default: 0) */
+  priority?: number;
 }
 
 /**
@@ -90,6 +92,13 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
 /**
  * Custom hook for managing keyboard shortcuts
  *
+ * Features:
+ * - Automatic modifier key handling (Ctrl/Cmd, Shift, Alt)
+ * - Input field awareness (shortcuts disabled in inputs by default)
+ * - Conditional enabling/disabling of shortcuts
+ * - Priority system for overlapping shortcuts (higher priority checked first)
+ * - Multiple key alternatives (e.g., ArrowRight or 'd' for same action)
+ *
  * @example
  * ```tsx
  * useKeyboardShortcuts({
@@ -108,6 +117,14 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
  *       handler: handleNextPage,
  *       enabled: currentPage < totalPages,
  *     },
+ *     {
+ *       id: 'escape',
+ *       keys: 'Escape',
+ *       description: 'Close',
+ *       handler: handleContextualClose,
+ *       priority: 10, // Higher priority for context-aware behavior
+ *       allowInInput: true,
+ *     },
  *   ],
  * });
  * ```
@@ -117,6 +134,9 @@ export const useKeyboardShortcuts = ({
   inputSelector = "input, textarea",
 }: UseKeyboardShortcutsConfig): void => {
   useEffect(() => {
+    // Sort shortcuts by priority (higher first) for correct processing order
+    const sortedShortcuts = [...shortcuts].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
 
@@ -124,8 +144,8 @@ export const useKeyboardShortcuts = ({
       const activeElement = document.activeElement;
       const inputHasFocus = activeElement?.matches(inputSelector) ?? false;
 
-      // Find matching shortcut
-      for (const shortcut of shortcuts) {
+      // Find matching shortcut (sorted by priority)
+      for (const shortcut of sortedShortcuts) {
         // Skip if shortcut is disabled
         if (shortcut.enabled === false) continue;
 

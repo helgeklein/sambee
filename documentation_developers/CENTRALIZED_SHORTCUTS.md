@@ -95,6 +95,7 @@ export const IMAGE_SHORTCUTS = {
 - **`shift`**: Requires Shift modifier (boolean, optional)
 - **`alt`**: Requires Alt modifier (boolean, optional)
 - **`allowInInput`**: Works when text inputs are focused (boolean, optional)
+- **`priority`**: Priority for overlapping shortcuts (number, optional - higher values checked first, default: 0)
 
 ## Usage
 
@@ -247,6 +248,82 @@ useKeyboardShortcuts({
 // ViewerControls.tsx
 title={withShortcut(COMMON_SHORTCUTS.DOWNLOAD)}
 ```
+
+## Context-Aware Shortcuts
+
+### The Pattern
+
+For shortcuts that need different behavior depending on application state (like ESC closing a search panel vs. closing the viewer), use a **single context-aware handler** rather than multiple overlapping shortcuts.
+
+**Example: Contextual ESC behavior**
+
+```typescript
+/**
+ * Context-aware Escape handler
+ * Checks state to determine appropriate action
+ */
+const handleEscape = useCallback(() => {
+  if (searchPanelOpen) {
+    // Close search panel and clear results
+    setSearchPanelOpen(false);
+    setSearchText("");
+    setMatchLocations([]);
+    setCurrentMatch(0);
+  } else {
+    // Close the entire viewer
+    onClose();
+  }
+}, [searchPanelOpen, onClose]);
+
+// Register single Escape shortcut with context-aware handler
+useKeyboardShortcuts({
+  shortcuts: [
+    {
+      ...COMMON_SHORTCUTS.CLOSE,
+      handler: handleEscape, // One handler, multiple behaviors
+    },
+  ],
+});
+```
+
+**Why This Pattern?**
+
+✅ **Single responsibility**: One shortcut registration, one handler  
+✅ **Clear logic**: Behavior determined by component state  
+✅ **No conflicts**: Avoids overlapping shortcut registrations  
+✅ **Easy to extend**: Add more conditions as needed  
+✅ **Maintainable**: All context logic in one place  
+
+**Anti-pattern to avoid:**
+```typescript
+// ❌ DON'T: Multiple overlapping shortcuts
+shortcuts: [
+  { keys: 'Escape', handler: onClose },           // Which runs first?
+  { keys: 'Escape', handler: closeSearchPanel },  // Conflict!
+]
+```
+
+### Priority System (Advanced)
+
+For rare cases where you need multiple handlers for the same key, use the `priority` field:
+
+```typescript
+shortcuts: [
+  {
+    keys: 'Escape',
+    handler: handleSpecialCase,
+    priority: 10, // Checked first
+    enabled: isSpecialMode,
+  },
+  {
+    keys: 'Escape',
+    handler: handleNormalCase,
+    priority: 0, // Default priority, checked second
+  },
+]
+```
+
+Higher priority shortcuts are evaluated first. However, **context-aware handlers are preferred** over the priority system for better maintainability.
 
 ## Adding New Shortcuts
 
