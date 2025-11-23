@@ -523,8 +523,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       console.log(`  ✓ Page ${pageNum} ready, rendering ${pageMatches.length} highlights`);
 
-      // Build a map from text content to spans
+      // Build a map from text content to spans and track usage
       const spansByText = new Map<string, HTMLElement[]>();
+      const usedSpans = new Set<HTMLElement>();
+
       for (const span of textLayerSpans) {
         const text = span.textContent || "";
         if (!spansByText.has(text)) {
@@ -546,8 +548,20 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           continue;
         }
 
-        // Use the first candidate
-        const textSpan = candidates[0];
+        // Find the first unused candidate
+        let textSpan: HTMLElement | null = null;
+        for (const candidate of candidates) {
+          if (!usedSpans.has(candidate)) {
+            textSpan = candidate;
+            usedSpans.add(candidate);
+            break;
+          }
+        }
+
+        // If all candidates used, reuse the first one
+        if (!textSpan) {
+          textSpan = candidates[0];
+        }
 
         // Get the span's actual position and size
         const spanRect = textSpan.getBoundingClientRect();
@@ -555,6 +569,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
         // Calculate the offset of the match within the text item
         const matchStartInItem = match.index - item.startIndex;
+
+        // Debug: Check if span text matches item text
+        const spanText = textSpan.textContent || "";
+        if (spanText !== item.text) {
+          console.warn(`Text mismatch: item="${item.text}" span="${spanText}"`);
+        }
 
         // Create canvas for text measurement
         const measureCanvas = document.createElement("canvas");
@@ -566,11 +586,34 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
         // Measure text before match
         const textBefore = item.text.substring(0, matchStartInItem);
-        const offsetWidth = ctx.measureText(textBefore).width;
+        const measuredOffsetWidth = ctx.measureText(textBefore).width;
 
         // Measure matched text
         const matchedText = item.text.substring(matchStartInItem, matchStartInItem + match.length);
-        const matchWidth = ctx.measureText(matchedText).width;
+        const measuredMatchWidth = ctx.measureText(matchedText).width;
+
+        // Scale measurements to match actual rendered span width
+        // This compensates for font rendering differences between canvas and browser
+        const spanWidth = spanRect.width;
+        const measuredFullWidth = ctx.measureText(item.text).width;
+        const scaleFactor = measuredFullWidth > 0 ? spanWidth / measuredFullWidth : 1.0;
+
+        const offsetWidth = measuredOffsetWidth * scaleFactor;
+        const matchWidth = measuredMatchWidth * scaleFactor;
+
+        console.log(`Match "${matchedText}" in "${item.text}":`, {
+          matchStartInItem,
+          textBefore: `"${textBefore}"`,
+          measuredOffsetWidth,
+          scaleFactor,
+          scaledOffsetWidth: offsetWidth,
+          scaledMatchWidth: matchWidth,
+          spanLeft: spanRect.left - containerRect.left,
+          finalX: spanRect.left - containerRect.left + offsetWidth,
+          font: ctx.font,
+          spanActualWidth: spanWidth,
+          measuredFullTextWidth: measuredFullWidth,
+        });
 
         // Calculate final position relative to the container
         const x = spanRect.left - containerRect.left + offsetWidth;
