@@ -450,14 +450,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
    * Calculates precise position and width for matched text within text items.
    * pageRenderTrigger is intentionally included to re-run when pages finish rendering.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger triggers re-runs for async text layer rendering
   useEffect(() => {
-    console.log("=== Highlighting effect running ===", {
-      searchText,
-      matchCount: matchLocations.length,
-      currentMatch,
-      pageRenderTrigger,
-    });
-
     // Clear all existing highlights
     const highlightContainers = document.querySelectorAll(".pdf-highlight-container");
     for (const container of highlightContainers) {
@@ -477,51 +471,32 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       matchesByPage.get(match.page)?.push(match);
     }
 
-    console.log("Pages with matches:", Array.from(matchesByPage.keys()));
-
     // Track pages that need text layer spans but don't have them yet
     let hasIncompletePages = false;
 
     // Render highlights for all visible pages
     for (const [pageNum, pageMatches] of matchesByPage.entries()) {
-      console.log(`Processing page ${pageNum} with ${pageMatches.length} matches`);
-
       // Get page container
       const pageContainer = document.querySelector(`[data-page-number="${pageNum}"]`);
-      if (!pageContainer) {
-        console.log(`  → Page ${pageNum} container not found`);
-        continue;
-      }
+      if (!pageContainer) continue;
 
       const canvas = pageContainer.querySelector("canvas");
-      if (!canvas) {
-        console.log(`  → Page ${pageNum} canvas not found`);
-        continue;
-      }
+      if (!canvas) continue;
 
       // Get highlight container
       const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
-      if (!highlightContainer) {
-        console.log(`  → Page ${pageNum} highlight container not found`);
-        continue;
-      }
+      if (!highlightContainer) continue;
 
       // Get the text layer
       const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
-      if (!textLayer) {
-        console.log(`  → Page ${pageNum} text layer not found`);
-        continue;
-      }
+      if (!textLayer) continue;
 
       // Get all text layer spans
       const textLayerSpans = Array.from(textLayer.querySelectorAll("span"));
       if (textLayerSpans.length === 0) {
-        console.log(`  → Page ${pageNum} text layer has no spans yet`);
         hasIncompletePages = true;
         continue;
       }
-
-      console.log(`  ✓ Page ${pageNum} ready, rendering ${pageMatches.length} highlights`);
 
       // Build a map from text content to spans and track usage
       const spansByText = new Map<string, HTMLElement[]>();
@@ -570,12 +545,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         // Calculate the offset of the match within the text item
         const matchStartInItem = match.index - item.startIndex;
 
-        // Debug: Check if span text matches item text
-        const spanText = textSpan.textContent || "";
-        if (spanText !== item.text) {
-          console.warn(`Text mismatch: item="${item.text}" span="${spanText}"`);
-        }
-
         // Create canvas for text measurement
         const measureCanvas = document.createElement("canvas");
         const ctx = measureCanvas.getContext("2d");
@@ -600,20 +569,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
         const offsetWidth = measuredOffsetWidth * scaleFactor;
         const matchWidth = measuredMatchWidth * scaleFactor;
-
-        console.log(`Match "${matchedText}" in "${item.text}":`, {
-          matchStartInItem,
-          textBefore: `"${textBefore}"`,
-          measuredOffsetWidth,
-          scaleFactor,
-          scaledOffsetWidth: offsetWidth,
-          scaledMatchWidth: matchWidth,
-          spanLeft: spanRect.left - containerRect.left,
-          finalX: spanRect.left - containerRect.left + offsetWidth,
-          font: ctx.font,
-          spanActualWidth: spanWidth,
-          measuredFullTextWidth: measuredFullWidth,
-        });
 
         // Calculate final position relative to the container
         const x = spanRect.left - containerRect.left + offsetWidth;
@@ -646,7 +601,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     // If some pages had containers and text layers but no spans yet,
     // retry after a short delay to catch the async text layer rendering
     if (hasIncompletePages) {
-      console.log("Some pages incomplete, scheduling retry in 50ms");
       const retryTimer = setTimeout(() => {
         setPageRenderTrigger((prev) => prev + 1);
       }, 50);
@@ -955,7 +909,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   "& span": {
                     color: "transparent !important",
                     // Make sure text itself is invisible
-                    "-webkit-text-fill-color": "transparent !important",
+                    WebkitTextFillColor: "transparent !important",
                   },
                 },
               }}
