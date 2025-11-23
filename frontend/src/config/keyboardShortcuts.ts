@@ -24,18 +24,14 @@ export const COMMON_SHORTCUTS = {
   },
   DOWNLOAD: {
     id: "download",
-    keys: "s",
+    keys: "d",
     description: "Download",
-    label: "Ctrl+S",
-    ctrl: true,
+    label: "D",
   },
-} as const satisfies Record<string, ShortcutDefinition>;
 
-/**
- * PDF Viewer specific shortcuts
- */
-export const PDF_SHORTCUTS = {
+  //
   // Search
+  //
   SEARCH: {
     id: "search",
     keys: "f",
@@ -60,31 +56,9 @@ export const PDF_SHORTCUTS = {
     allowInInput: true,
   },
 
-  // Navigation
-  NEXT_PAGE_ARROW: {
-    id: "next-page-arrow",
-    keys: "ArrowRight",
-    description: "Next page",
-    label: "Right / D",
-  },
-  NEXT_PAGE_KEYS: {
-    id: "next-page-keys",
-    keys: ["d", "D"],
-    description: "Next page",
-    label: "Right / D",
-  },
-  PREVIOUS_PAGE_ARROW: {
-    id: "previous-page-arrow",
-    keys: "ArrowLeft",
-    description: "Previous page",
-    label: "Left / A",
-  },
-  PREVIOUS_PAGE_KEYS: {
-    id: "previous-page-keys",
-    keys: ["a", "A"],
-    description: "Previous page",
-    label: "Left / A",
-  },
+  //
+  // Page navigation
+  //
   FIRST_PAGE: {
     id: "first-page",
     keys: "Home",
@@ -109,79 +83,42 @@ export const PDF_SHORTCUTS = {
     description: "Previous page",
     label: "Page Up",
   },
-
-  // Zoom
-  ZOOM_IN: {
-    id: "zoom-in",
-    keys: ["+", "="],
-    description: "Zoom in",
-    label: "+ / =",
-  },
-  ZOOM_OUT: {
-    id: "zoom-out",
-    keys: ["-", "_"],
-    description: "Zoom out",
-    label: "- / _",
-  },
-
-  // Rotation
-  ROTATE_RIGHT: {
-    id: "rotate-right",
-    keys: ["r", "R"],
-    description: "Rotate right",
-    label: "R",
-  },
-  ROTATE_LEFT: {
-    id: "rotate-left",
-    keys: ["r", "R"],
-    description: "Rotate left",
-    label: "Shift+R",
-    shift: true,
-  },
 } as const satisfies Record<string, ShortcutDefinition>;
 
 /**
- * Image Viewer specific shortcuts
+ * Common viewer shortcuts shared across viewers
  */
-export const IMAGE_SHORTCUTS = {
-  // Navigation
-  NEXT_IMAGE_ARROW: {
-    id: "next-image-arrow",
+export const VIEWER_SHORTCUTS = {
+  //
+  // Navigation - Arrow keys
+  //
+  NEXT_ARROW: {
+    id: "next-arrow",
     keys: "ArrowRight",
-    description: "Next image",
-    label: "Right / D",
+    description: "Next",
+    label: "Right",
   },
-  NEXT_IMAGE_KEYS: {
-    id: "next-image-keys",
-    keys: ["d", "D"],
-    description: "Next image",
-    label: "Right / D",
-  },
-  PREVIOUS_IMAGE_ARROW: {
-    id: "previous-image-arrow",
+  PREVIOUS_ARROW: {
+    id: "previous-arrow",
     keys: "ArrowLeft",
-    description: "Previous image",
-    label: "Left / A",
-  },
-  PREVIOUS_IMAGE_KEYS: {
-    id: "previous-image-keys",
-    keys: ["a", "A"],
-    description: "Previous image",
-    label: "Left / A",
+    description: "Previous",
+    label: "Left",
   },
 
+  //
   // Zoom
+  //
   ZOOM_IN: {
     id: "zoom-in",
-    keys: ["+", "="],
+    keys: ["+"],
     description: "Zoom in",
-    label: "+ / =",
+    label: "+",
   },
   ZOOM_OUT: {
     id: "zoom-out",
-    keys: ["-", "_"],
+    keys: ["-"],
     description: "Zoom out",
-    label: "- / _",
+    label: "-",
   },
   ZOOM_RESET: {
     id: "zoom-reset",
@@ -190,7 +127,9 @@ export const IMAGE_SHORTCUTS = {
     label: "0",
   },
 
+  //
   // Rotation
+  //
   ROTATE_RIGHT: {
     id: "rotate-right",
     keys: ["r", "R"],

@@ -11,7 +11,7 @@ import {
 } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useState } from "react";
-import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 
 /**
@@ -336,7 +336,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={zoom.onZoomOut}
-              title={withShortcut(PDF_SHORTCUTS.ZOOM_OUT)}
+              title={withShortcut(VIEWER_SHORTCUTS.ZOOM_OUT)}
               aria-label="Zoom out"
               size="medium"
             >
@@ -346,7 +346,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={zoom.onZoomIn}
-              title={withShortcut(PDF_SHORTCUTS.ZOOM_IN)}
+              title={withShortcut(VIEWER_SHORTCUTS.ZOOM_IN)}
               aria-label="Zoom in"
               size="medium"
             >
@@ -362,7 +362,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               <IconButton
                 color="inherit"
                 onClick={rotation.onRotateLeft}
-                title={withShortcut(PDF_SHORTCUTS.ROTATE_LEFT)}
+                title={withShortcut(VIEWER_SHORTCUTS.ROTATE_LEFT)}
                 aria-label="Rotate left"
                 size="medium"
               >
@@ -373,7 +373,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <IconButton
               color="inherit"
               onClick={rotation.onRotateRight}
-              title={withShortcut(PDF_SHORTCUTS.ROTATE_RIGHT)}
+              title={withShortcut(VIEWER_SHORTCUTS.ROTATE_RIGHT)}
               aria-label="Rotate right"
               size={isMobile ? "small" : "medium"}
             >
@@ -390,7 +390,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             title={
               search.isSearchable === false
                 ? "Search unavailable - PDF contains no text layer (may be a scanned image)"
-                : withShortcut(PDF_SHORTCUTS.SEARCH)
+                : withShortcut(COMMON_SHORTCUTS.SEARCH)
             }
             aria-label="Search"
             size={isMobile ? "small" : "medium"}

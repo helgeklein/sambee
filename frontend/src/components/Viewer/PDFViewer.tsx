@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
@@ -653,6 +653,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
   }, [scale, pageScale, handleScaleChange]);
 
+  const handleZoomReset = useCallback(() => {
+    handleScaleChange("fit-page");
+  }, [handleScaleChange]);
+
   /**
    * Context-aware Escape handler
    * Pattern: Single handler checks state to determine appropriate action
@@ -681,74 +685,70 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       },
       // Search
       {
-        ...PDF_SHORTCUTS.SEARCH,
+        ...COMMON_SHORTCUTS.SEARCH,
         handler: handleOpenSearch,
       },
       {
-        ...PDF_SHORTCUTS.NEXT_MATCH,
+        ...COMMON_SHORTCUTS.NEXT_MATCH,
         handler: handleSearchNext,
       },
       {
-        ...PDF_SHORTCUTS.PREVIOUS_MATCH,
+        ...COMMON_SHORTCUTS.PREVIOUS_MATCH,
         handler: handleSearchPrevious,
       },
       // Navigation
       {
-        ...PDF_SHORTCUTS.NEXT_PAGE_ARROW,
+        ...VIEWER_SHORTCUTS.NEXT_ARROW,
+        description: "Next page",
         handler: () => handlePageChange(currentPage + 1),
         enabled: numPages > 1 && currentPage < numPages,
       },
       {
-        ...PDF_SHORTCUTS.NEXT_PAGE_KEYS,
-        handler: () => handlePageChange(currentPage + 1),
-        enabled: numPages > 1 && currentPage < numPages,
-      },
-      {
-        ...PDF_SHORTCUTS.PREVIOUS_PAGE_ARROW,
+        ...VIEWER_SHORTCUTS.PREVIOUS_ARROW,
+        description: "Previous page",
         handler: () => handlePageChange(currentPage - 1),
         enabled: numPages > 1 && currentPage > 1,
       },
       {
-        ...PDF_SHORTCUTS.PREVIOUS_PAGE_KEYS,
-        handler: () => handlePageChange(currentPage - 1),
-        enabled: numPages > 1 && currentPage > 1,
-      },
-      {
-        ...PDF_SHORTCUTS.FIRST_PAGE,
+        ...COMMON_SHORTCUTS.FIRST_PAGE,
         handler: () => handlePageChange(1),
         enabled: numPages > 1,
       },
       {
-        ...PDF_SHORTCUTS.LAST_PAGE,
+        ...COMMON_SHORTCUTS.LAST_PAGE,
         handler: () => handlePageChange(numPages),
         enabled: numPages > 1,
       },
       {
-        ...PDF_SHORTCUTS.PAGE_DOWN,
+        ...COMMON_SHORTCUTS.PAGE_DOWN,
         handler: () => handlePageChange(currentPage + 1),
         enabled: currentPage < numPages,
       },
       {
-        ...PDF_SHORTCUTS.PAGE_UP,
+        ...COMMON_SHORTCUTS.PAGE_UP,
         handler: () => handlePageChange(currentPage - 1),
         enabled: currentPage > 1,
       },
       // Zoom
       {
-        ...PDF_SHORTCUTS.ZOOM_IN,
+        ...VIEWER_SHORTCUTS.ZOOM_IN,
         handler: handleZoomIn,
       },
       {
-        ...PDF_SHORTCUTS.ZOOM_OUT,
+        ...VIEWER_SHORTCUTS.ZOOM_OUT,
         handler: handleZoomOut,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_RESET,
+        handler: handleZoomReset,
       },
       // Rotation
       {
-        ...PDF_SHORTCUTS.ROTATE_RIGHT,
+        ...VIEWER_SHORTCUTS.ROTATE_RIGHT,
         handler: handleRotateRight,
       },
       {
-        ...PDF_SHORTCUTS.ROTATE_LEFT,
+        ...VIEWER_SHORTCUTS.ROTATE_LEFT,
         handler: handleRotateLeft,
       },
       // Close viewer or search panel on Escape
