@@ -8,7 +8,7 @@ The keyboard shortcuts system provides a centralized, declarative way to manage 
 
 ### Components
 
-1. **`/frontend/src/config/shortcuts.ts`**: Central registry of all keyboard shortcut definitions
+1. **`/frontend/src/config/keyboardShortcuts.ts`**: Central registry of all keyboard shortcut definitions
 2. **`/frontend/src/hooks/useKeyboardShortcuts.ts`**: React hook for handling keyboard shortcuts
 3. **Viewer Components**: Use shortcuts from the registry and inject handlers
 
@@ -25,7 +25,7 @@ The keyboard shortcuts system provides a centralized, declarative way to manage 
 ```
 frontend/src/
 ├── config/
-│   └── shortcuts.ts              # Centralized shortcut definitions
+│   └── keyboardShortcuts.ts      # Centralized shortcut definitions
 ├── hooks/
 │   └── useKeyboardShortcuts.ts   # Hook for handling shortcuts
 └── components/
@@ -103,7 +103,7 @@ export const IMAGE_SHORTCUTS = {
 
 ```typescript
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/shortcuts";
+import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
 
 const PDFViewer = () => {
   // ... component state and handlers
@@ -141,7 +141,7 @@ const PDFViewer = () => {
 
 ```typescript
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
-import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/shortcuts";
+import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
 
 const ViewerControls = () => {
   return (
@@ -229,7 +229,7 @@ title={`Download (${PDF_SHORTCUTS.DOWNLOAD})`}
 - Type-safe and consistent
 
 ```typescript
-// config/shortcuts.ts
+// config/keyboardShortcuts.ts
 export const COMMON_SHORTCUTS = {
   DOWNLOAD: {
     id: "download",
@@ -327,7 +327,7 @@ Higher priority shortcuts are evaluated first. However, **context-aware handlers
 
 ## Adding New Shortcuts
 
-1. **Define in `config/shortcuts.ts`:**
+1. **Define in `config/keyboardShortcuts.ts`:**
    ```typescript
    export const PDF_SHORTCUTS = {
      // ... existing shortcuts
@@ -395,7 +395,7 @@ Possible improvements:
 
 ## Related Files
 
-- `frontend/src/config/shortcuts.ts` - Shortcut definitions
+- `frontend/src/config/keyboardShortcuts.ts` - Shortcut definitions
 - `frontend/src/hooks/useKeyboardShortcuts.ts` - Hook implementation
 - `frontend/src/components/Viewer/PDFViewer.tsx` - PDF viewer usage
 - `frontend/src/components/Viewer/ImageViewer.tsx` - Image viewer usage
@@ -408,7 +408,7 @@ For components using old keyboard shortcut patterns:
 
 1. Import centralized shortcuts:
    ```typescript
-   import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/shortcuts";
+   import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
    import { useKeyboardShortcuts, withShortcut } from "../../hooks/useKeyboardShortcuts";
    ```
 

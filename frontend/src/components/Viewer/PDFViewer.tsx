@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/shortcuts";
+import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";

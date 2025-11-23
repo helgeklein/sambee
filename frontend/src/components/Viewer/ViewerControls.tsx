@@ -11,7 +11,7 @@ import {
 } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useState } from "react";
-import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/shortcuts";
+import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 
 /**
