@@ -711,13 +711,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       },
       // Navigation
       {
-        ...VIEWER_SHORTCUTS.NEXT_ARROW,
+        ...COMMON_SHORTCUTS.NEXT_ARROW,
         description: "Next page",
         handler: () => handlePageChange(currentPage + 1),
         enabled: numPages > 1 && currentPage < numPages,
       },
       {
-        ...VIEWER_SHORTCUTS.PREVIOUS_ARROW,
+        ...COMMON_SHORTCUTS.PREVIOUS_ARROW,
         description: "Previous page",
         handler: () => handlePageChange(currentPage - 1),
         enabled: numPages > 1 && currentPage > 1,

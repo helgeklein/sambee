@@ -83,12 +83,7 @@ export const COMMON_SHORTCUTS = {
     description: "Previous page",
     label: "Page Up",
   },
-} as const satisfies Record<string, ShortcutDefinition>;
 
-/**
- * Common viewer shortcuts shared across viewers
- */
-export const VIEWER_SHORTCUTS = {
   //
   // Navigation - Arrow keys
   //
@@ -104,8 +99,13 @@ export const VIEWER_SHORTCUTS = {
     description: "Previous",
     label: "Left",
   },
+} as const satisfies Record<string, ShortcutDefinition>;
 
-  //I
+/**
+ * Common viewer shortcuts shared across viewers
+ */
+export const VIEWER_SHORTCUTS = {
+  //
   // Zoom
   //
   ZOOM_IN: {
