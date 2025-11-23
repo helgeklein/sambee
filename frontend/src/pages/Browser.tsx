@@ -1226,6 +1226,8 @@ const Browser: React.FC = () => {
   // This handler runs BEFORE useKeyboardShortcuts to handle special cases
   useEffect(() => {
     const handleKeyDown = (e?: KeyboardEvent) => {
+      if (!e) return;
+
       // Don't handle if event already handled
       if (e.defaultPrevented) return;
 
@@ -1233,7 +1235,7 @@ const Browser: React.FC = () => {
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      // Special handling when in input fields
+      // Handle special transitions when in input fields
       if (isInInput) {
         // Exception: Allow ArrowDown in search box to move to first file in list
         if (e.key === "ArrowDown" && target === searchInputRef.current) {
@@ -1263,6 +1265,16 @@ const Browser: React.FC = () => {
             return;
           }
         }
+
+        // Allow certain special keys to pass through to useKeyboardShortcuts
+        // These keys have allowInInput: true and will be handled there
+        const allowedKeysInInput = ["/", "?", "Escape"];
+        if (allowedKeysInInput.includes(e.key)) {
+          // Don't interfere - let these pass through to useKeyboardShortcuts
+          return;
+        }
+
+        // For all other keys when in input, don't interfere (let normal input behavior happen)
         return;
       }
 
@@ -1274,8 +1286,18 @@ const Browser: React.FC = () => {
       const files = filesRef.current;
       const fileCount = files.length;
 
-      // Incremental search - accumulate keystrokes to match file names
-      if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key) && fileCount > 0) {
+      // Incremental search - accumulate keystrokes to match file names (only when NOT in input)
+      // Match any printable character, excluding special shortcut keys
+      const shortcutKeys = ["/", "?", "Escape"];
+      if (
+        e.key.length === 1 &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key !== " " &&
+        !shortcutKeys.includes(e.key) &&
+        fileCount > 0
+      ) {
         e.preventDefault();
 
         // Clear any existing timeout
@@ -1301,10 +1323,12 @@ const Browser: React.FC = () => {
       }
     };
 
-    // Attach to window with capture phase to run BEFORE useKeyboardShortcuts
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    // Attach to window in bubble phase (runs AFTER useKeyboardShortcuts)
+    // This allows useKeyboardShortcuts to handle special keys (/, ?, Esc) first
+    // Only if they don't match a shortcut, this handler will process incremental search
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, [settingsOpen, showHelp, searchQuery, viewInfo, updateFocus, listContainerEl]);
 
