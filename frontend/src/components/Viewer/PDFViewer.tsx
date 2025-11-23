@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/shortcuts";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
@@ -618,160 +620,140 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
   }, [searchText, matchLocations, currentMatch, pageRenderTrigger]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-
-      // Check if the search input has focus - if so, skip most shortcuts
+  // Keyboard shortcuts - centralized configuration
+  const handleOpenSearch = useCallback(() => {
+    setSearchPanelOpen(true);
+    // Focus search input after a brief delay to allow panel to render
+    setTimeout(() => {
       const searchInput = document.querySelector(
         'input[placeholder="Search..."]'
       ) as HTMLInputElement;
-      const searchInputHasFocus = searchInput && document.activeElement === searchInput;
-
-      // Always allow Ctrl+S to download
-      if ((event.ctrlKey || event.metaKey) && event.key === "s") {
-        event.preventDefault();
-        handleDownload();
-        return;
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
       }
+    }, 100);
+  }, []);
 
-      // Always allow Ctrl+F to open search
-      if ((event.ctrlKey || event.metaKey) && event.key === "f") {
-        event.preventDefault();
-        // Open search panel if not already open
-        setSearchPanelOpen(true);
-        // Focus search input after a brief delay to allow panel to render
-        setTimeout(() => {
-          const searchInput = document.querySelector(
-            'input[placeholder="Search..."]'
-          ) as HTMLInputElement;
-          if (searchInput) {
-            searchInput.focus();
-            searchInput.select();
-          }
-        }, 100);
-        return;
-      }
+  const handleZoomIn = useCallback(() => {
+    if (typeof scale === "number") {
+      handleScaleChange(scale + 0.25);
+    } else {
+      const currentScale = pageScale || 1.0;
+      handleScaleChange(currentScale + 0.25);
+    }
+  }, [scale, pageScale, handleScaleChange]);
 
-      // Allow F3 for search navigation even when search has focus
-      if (event.key === "F3") {
-        event.preventDefault();
-        if (event.shiftKey) {
-          handleSearchPrevious();
-        } else {
-          handleSearchNext();
-        }
-        return;
-      }
+  const handleZoomOut = useCallback(() => {
+    if (typeof scale === "number") {
+      handleScaleChange(Math.max(scale - 0.25, 0.1));
+    } else {
+      const currentScale = pageScale || 1.0;
+      handleScaleChange(Math.max(currentScale - 0.25, 0.1));
+    }
+  }, [scale, pageScale, handleScaleChange]);
 
-      // If search input has focus, skip all other shortcuts (they're handled by the input)
-      if (searchInputHasFocus) {
-        return;
-      }
+  const handleEscape = useCallback(() => {
+    if (searchPanelOpen) {
+      setSearchPanelOpen(false);
+    } else {
+      onClose();
+    }
+  }, [searchPanelOpen, onClose]);
 
-      switch (event.key) {
-        case "ArrowRight":
-        case "d":
-        case "D":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(currentPage + 1);
-          }
-          break;
-        case "ArrowLeft":
-        case "a":
-        case "A":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(currentPage - 1);
-          }
-          break;
-        case "Home":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(1);
-          }
-          break;
-        case "End":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(numPages);
-          }
-          break;
-        case "PageDown":
-          event.preventDefault();
-          handlePageChange(currentPage + 1);
-          break;
-        case "PageUp":
-          event.preventDefault();
-          handlePageChange(currentPage - 1);
-          break;
-        case "+":
-        case "=":
-          event.preventDefault();
-          if (typeof scale === "number") {
-            handleScaleChange(scale + 0.25);
-          } else {
-            // When zooming from fit-page/fit-width, use current pageScale as base
-            const currentScale = pageScale || 1.0;
-            handleScaleChange(currentScale + 0.25);
-          }
-          break;
-        case "-":
-        case "_":
-          event.preventDefault();
-          if (typeof scale === "number") {
-            handleScaleChange(Math.max(scale - 0.25, 0.1));
-          } else {
-            // When zooming from fit-page/fit-width, use current pageScale as base
-            const currentScale = pageScale || 1.0;
-            handleScaleChange(Math.max(currentScale - 0.25, 0.1));
-          }
-          break;
-        case "r":
-        case "R":
-          event.preventDefault();
-          if (event.shiftKey) {
-            handleRotateLeft();
-          } else {
-            handleRotateRight();
-          }
-          break;
-        case "Escape":
-          event.preventDefault();
-          // If search panel is open, close it first
-          if (searchPanelOpen) {
-            setSearchPanelOpen(false);
-          } else {
-            // Otherwise close the entire viewer
-            onClose();
-          }
-          break;
-        default:
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [
-    currentPage,
-    numPages,
-    scale,
-    pageScale,
-    onClose,
-    handlePageChange,
-    handleScaleChange,
-    handleSearchNext,
-    handleSearchPrevious,
-    searchPanelOpen,
-    handleRotateLeft,
-    handleRotateRight,
-    handleDownload,
-  ]);
+  useKeyboardShortcuts({
+    shortcuts: [
+      // Close viewer
+      {
+        ...COMMON_SHORTCUTS.CLOSE,
+        handler: onClose,
+      },
+      // Download
+      {
+        ...COMMON_SHORTCUTS.DOWNLOAD,
+        handler: handleDownload,
+      },
+      // Search
+      {
+        ...PDF_SHORTCUTS.SEARCH,
+        handler: handleOpenSearch,
+      },
+      {
+        ...PDF_SHORTCUTS.NEXT_MATCH,
+        handler: handleSearchNext,
+      },
+      {
+        ...PDF_SHORTCUTS.PREVIOUS_MATCH,
+        handler: handleSearchPrevious,
+      },
+      // Navigation
+      {
+        ...PDF_SHORTCUTS.NEXT_PAGE_ARROW,
+        handler: () => handlePageChange(currentPage + 1),
+        enabled: numPages > 1 && currentPage < numPages,
+      },
+      {
+        ...PDF_SHORTCUTS.NEXT_PAGE_KEYS,
+        handler: () => handlePageChange(currentPage + 1),
+        enabled: numPages > 1 && currentPage < numPages,
+      },
+      {
+        ...PDF_SHORTCUTS.PREVIOUS_PAGE_ARROW,
+        handler: () => handlePageChange(currentPage - 1),
+        enabled: numPages > 1 && currentPage > 1,
+      },
+      {
+        ...PDF_SHORTCUTS.PREVIOUS_PAGE_KEYS,
+        handler: () => handlePageChange(currentPage - 1),
+        enabled: numPages > 1 && currentPage > 1,
+      },
+      {
+        ...PDF_SHORTCUTS.FIRST_PAGE,
+        handler: () => handlePageChange(1),
+        enabled: numPages > 1,
+      },
+      {
+        ...PDF_SHORTCUTS.LAST_PAGE,
+        handler: () => handlePageChange(numPages),
+        enabled: numPages > 1,
+      },
+      {
+        ...PDF_SHORTCUTS.PAGE_DOWN,
+        handler: () => handlePageChange(currentPage + 1),
+        enabled: currentPage < numPages,
+      },
+      {
+        ...PDF_SHORTCUTS.PAGE_UP,
+        handler: () => handlePageChange(currentPage - 1),
+        enabled: currentPage > 1,
+      },
+      // Zoom
+      {
+        ...PDF_SHORTCUTS.ZOOM_IN,
+        handler: handleZoomIn,
+      },
+      {
+        ...PDF_SHORTCUTS.ZOOM_OUT,
+        handler: handleZoomOut,
+      },
+      // Rotation
+      {
+        ...PDF_SHORTCUTS.ROTATE_RIGHT,
+        handler: handleRotateRight,
+      },
+      {
+        ...PDF_SHORTCUTS.ROTATE_LEFT,
+        handler: handleRotateLeft,
+      },
+      // General - close on Escape when not in search
+      {
+        ...COMMON_SHORTCUTS.CLOSE,
+        id: "close-when-not-searching",
+        handler: handleEscape,
+      },
+    ],
+    inputSelector: 'input[placeholder="Search..."]',
+  });
 
   return (
     <Dialog
