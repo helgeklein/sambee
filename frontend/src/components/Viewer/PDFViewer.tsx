@@ -3,10 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
+import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
 // Configure PDF.js worker - use CDN to avoid version mismatch
@@ -85,6 +88,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [pdfPageHeight, setPdfPageHeight] = useState<number>(792);
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
@@ -95,18 +99,19 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
+  const [showHelp, setShowHelp] = useState(false);
   const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
 
   // Rotation handlers
-  const handleRotateLeft = useCallback(() => {
-    setRotation((prev) => (prev - 90 + 360) % 360);
+  const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
+    setRotation((r) => (r - 90 + 360) % 360);
   }, []);
 
-  const handleRotateRight = useCallback(() => {
-    setRotation((prev) => (prev + 90) % 360);
+  const handleRotateRight = useCallback((_event?: KeyboardEvent) => {
+    setRotation((r) => (r + 90) % 360);
   }, []);
 
   // Fetch PDF via API with auth header, then create blob URL
@@ -350,13 +355,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, []);
 
   // Download handler
-  const handleDownload = useCallback(() => {
-    const downloadUrl = apiService.getDownloadUrl(connectionId, path);
-    const link = document.createElement("a");
-    link.href = downloadUrl;
-    link.download = filename;
-    link.click();
-  }, [connectionId, path, filename]);
+  const handleDownload = useCallback(
+    (_event?: KeyboardEvent) => {
+      const downloadUrl = apiService.getDownloadUrl(connectionId, path);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      link.click();
+    },
+    [connectionId, path, filename]
+  );
 
   /**
    * Perform search across all extracted page texts using simple regex approach.
@@ -439,21 +447,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Search matches count is simply the total from extracted text
   const searchMatches = matchLocations.length;
 
-  const handleSearchNext = useCallback(() => {
-    if (matchLocations.length === 0) return;
+  const handleSearchNext = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (matchLocations.length === 0) return;
 
-    const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
-    setCurrentMatch(nextMatch);
-    setCurrentPage(matchLocations[nextMatch - 1].page);
-  }, [matchLocations, currentMatch]);
+      const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
+      setCurrentMatch(nextMatch);
+      setCurrentPage(matchLocations[nextMatch - 1].page);
+    },
+    [matchLocations, currentMatch]
+  );
 
-  const handleSearchPrevious = useCallback(() => {
-    if (matchLocations.length === 0) return;
+  const handleSearchPrevious = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (matchLocations.length === 0) return;
 
-    const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
-    setCurrentMatch(prevMatch);
-    setCurrentPage(matchLocations[prevMatch - 1].page);
-  }, [matchLocations, currentMatch]);
+      const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
+      setCurrentMatch(prevMatch);
+      setCurrentPage(matchLocations[prevMatch - 1].page);
+    },
+    [matchLocations, currentMatch]
+  );
 
   /**
    * Render search highlights using div overlays positioned with PDF.js coordinates.
@@ -618,160 +632,204 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     }
   }, [searchText, matchLocations, currentMatch, pageRenderTrigger]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-
-      // Check if the search input has focus - if so, skip most shortcuts
+  // Keyboard shortcuts - centralized configuration
+  const handleOpenSearch = useCallback((_event?: KeyboardEvent) => {
+    setSearchPanelOpen(true);
+    // Focus search input after a brief delay to allow panel to render
+    setTimeout(() => {
       const searchInput = document.querySelector(
         'input[placeholder="Search..."]'
       ) as HTMLInputElement;
-      const searchInputHasFocus = searchInput && document.activeElement === searchInput;
-
-      // Always allow Ctrl+S to download
-      if ((event.ctrlKey || event.metaKey) && event.key === "s") {
-        event.preventDefault();
-        handleDownload();
-        return;
+      if (searchInput) {
+        searchInput.focus();
+        searchInput.select();
       }
+    }, 100);
+  }, []);
 
-      // Always allow Ctrl+F to open search
-      if ((event.ctrlKey || event.metaKey) && event.key === "f") {
-        event.preventDefault();
-        // Open search panel if not already open
-        setSearchPanelOpen(true);
-        // Focus search input after a brief delay to allow panel to render
-        setTimeout(() => {
-          const searchInput = document.querySelector(
-            'input[placeholder="Search..."]'
-          ) as HTMLInputElement;
-          if (searchInput) {
-            searchInput.focus();
-            searchInput.select();
-          }
-        }, 100);
-        return;
+  const handleZoomIn = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (typeof scale === "number") {
+        handleScaleChange(scale + 0.25);
+      } else {
+        const currentScale = pageScale || 1.0;
+        handleScaleChange(currentScale + 0.25);
       }
+    },
+    [scale, pageScale, handleScaleChange]
+  );
 
-      // Allow F3 for search navigation even when search has focus
-      if (event.key === "F3") {
-        event.preventDefault();
-        if (event.shiftKey) {
-          handleSearchPrevious();
-        } else {
-          handleSearchNext();
-        }
-        return;
+  const handleZoomOut = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (typeof scale === "number") {
+        handleScaleChange(Math.max(scale - 0.25, 0.1));
+      } else {
+        const currentScale = pageScale || 1.0;
+        handleScaleChange(Math.max(currentScale - 0.25, 0.1));
       }
+    },
+    [scale, pageScale, handleScaleChange]
+  );
 
-      // If search input has focus, skip all other shortcuts (they're handled by the input)
-      if (searchInputHasFocus) {
-        return;
+  const handleZoomReset = useCallback((_event?: KeyboardEvent) => {
+    setScale("fit-page");
+  }, []);
+
+  const handleToggleFullscreen = useCallback((_event?: KeyboardEvent) => {
+    if (!dialogRef.current) return;
+
+    if (!document.fullscreenElement) {
+      dialogRef.current.requestFullscreen().catch((err) => {
+        logError(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  }, []);
+
+  /**
+   * Context-aware Escape handler
+   * Pattern: Single handler checks state to determine appropriate action
+   * - If search panel is open: close search and clear results
+   * - Otherwise: close the entire viewer
+   * This eliminates the need for multiple overlapping shortcuts
+   */
+  const handleEscape = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (searchPanelOpen) {
+        setSearchPanelOpen(false);
+        // Clear search results and highlights when closing search panel
+        setSearchText("");
+        setMatchLocations([]);
+        setCurrentMatch(0);
+      } else {
+        onClose();
       }
+    },
+    [searchPanelOpen, onClose]
+  );
 
-      switch (event.key) {
-        case "ArrowRight":
-        case "d":
-        case "D":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(currentPage + 1);
-          }
-          break;
-        case "ArrowLeft":
-        case "a":
-        case "A":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(currentPage - 1);
-          }
-          break;
-        case "Home":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(1);
-          }
-          break;
-        case "End":
-          if (numPages > 1) {
-            event.preventDefault();
-            handlePageChange(numPages);
-          }
-          break;
-        case "PageDown":
-          event.preventDefault();
-          handlePageChange(currentPage + 1);
-          break;
-        case "PageUp":
-          event.preventDefault();
-          handlePageChange(currentPage - 1);
-          break;
-        case "+":
-        case "=":
-          event.preventDefault();
-          if (typeof scale === "number") {
-            handleScaleChange(scale + 0.25);
-          } else {
-            // When zooming from fit-page/fit-width, use current pageScale as base
-            const currentScale = pageScale || 1.0;
-            handleScaleChange(currentScale + 0.25);
-          }
-          break;
-        case "-":
-        case "_":
-          event.preventDefault();
-          if (typeof scale === "number") {
-            handleScaleChange(Math.max(scale - 0.25, 0.1));
-          } else {
-            // When zooming from fit-page/fit-width, use current pageScale as base
-            const currentScale = pageScale || 1.0;
-            handleScaleChange(Math.max(currentScale - 0.25, 0.1));
-          }
-          break;
-        case "r":
-        case "R":
-          event.preventDefault();
-          if (event.shiftKey) {
-            handleRotateLeft();
-          } else {
-            handleRotateRight();
-          }
-          break;
-        case "Escape":
-          event.preventDefault();
-          // If search panel is open, close it first
-          if (searchPanelOpen) {
-            setSearchPanelOpen(false);
-          } else {
-            // Otherwise close the entire viewer
-            onClose();
-          }
-          break;
-        default:
-          break;
-      }
-    };
+  const handleShowHelp = useCallback(() => {
+    setShowHelp(true);
+  }, []);
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [
-    currentPage,
-    numPages,
-    scale,
-    pageScale,
-    onClose,
-    handlePageChange,
-    handleScaleChange,
-    handleSearchNext,
-    handleSearchPrevious,
-    searchPanelOpen,
-    handleRotateLeft,
-    handleRotateRight,
-    handleDownload,
-  ]);
+  const pdfShortcuts = useMemo(
+    () => [
+      // Download
+      {
+        ...COMMON_SHORTCUTS.DOWNLOAD,
+        handler: handleDownload,
+      },
+      // Search
+      {
+        ...COMMON_SHORTCUTS.SEARCH,
+        handler: handleOpenSearch,
+      },
+      {
+        ...COMMON_SHORTCUTS.NEXT_MATCH,
+        handler: handleSearchNext,
+      },
+      {
+        ...COMMON_SHORTCUTS.PREVIOUS_MATCH,
+        handler: handleSearchPrevious,
+      },
+      // Navigation
+      {
+        ...COMMON_SHORTCUTS.NEXT_ARROW,
+        description: "Next page",
+        handler: () => handlePageChange(currentPage + 1),
+        enabled: numPages > 1 && currentPage < numPages,
+      },
+      {
+        ...COMMON_SHORTCUTS.PREVIOUS_ARROW,
+        description: "Previous page",
+        handler: () => handlePageChange(currentPage - 1),
+        enabled: numPages > 1 && currentPage > 1,
+      },
+      {
+        ...COMMON_SHORTCUTS.FIRST_PAGE,
+        handler: () => handlePageChange(1),
+        enabled: numPages > 1,
+      },
+      {
+        ...COMMON_SHORTCUTS.LAST_PAGE,
+        handler: () => handlePageChange(numPages),
+        enabled: numPages > 1,
+      },
+      {
+        ...COMMON_SHORTCUTS.PAGE_DOWN,
+        handler: () => handlePageChange(currentPage + 1),
+        enabled: currentPage < numPages,
+      },
+      {
+        ...COMMON_SHORTCUTS.PAGE_UP,
+        handler: () => handlePageChange(currentPage - 1),
+        enabled: currentPage > 1,
+      },
+      // Zoom
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_IN,
+        handler: handleZoomIn,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_OUT,
+        handler: handleZoomOut,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_RESET,
+        handler: handleZoomReset,
+      },
+      // Rotation
+      {
+        ...VIEWER_SHORTCUTS.ROTATE_RIGHT,
+        handler: handleRotateRight,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ROTATE_LEFT,
+        handler: handleRotateLeft,
+      },
+      // Fullscreen
+      {
+        ...VIEWER_SHORTCUTS.FULLSCREEN,
+        handler: handleToggleFullscreen,
+      },
+      // Close viewer or search panel on Escape
+      {
+        ...COMMON_SHORTCUTS.CLOSE,
+        handler: handleEscape,
+      },
+      // Show help
+      {
+        id: "show-help",
+        keys: ["?"],
+        label: "?",
+        description: "Show keyboard shortcuts",
+        handler: handleShowHelp,
+      },
+    ],
+    [
+      handleDownload,
+      handleOpenSearch,
+      handleSearchNext,
+      handleSearchPrevious,
+      handlePageChange,
+      currentPage,
+      numPages,
+      handleZoomIn,
+      handleZoomOut,
+      handleZoomReset,
+      handleRotateRight,
+      handleRotateLeft,
+      handleToggleFullscreen,
+      handleEscape,
+      handleShowHelp,
+    ]
+  );
+
+  useKeyboardShortcuts({
+    shortcuts: pdfShortcuts,
+    inputSelector: 'input[placeholder="Search..."]',
+  });
 
   return (
     <Dialog
@@ -779,6 +837,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       onClose={onClose}
       maxWidth={false}
       fullScreen
+      ref={dialogRef}
       sx={{
         "& .MuiDialog-container": {
           alignItems: "stretch",
@@ -994,6 +1053,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
         </Box>
       </Box>
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={pdfShortcuts}
+        title="PDF Viewer Shortcuts"
+      />
     </Dialog>
   );
 };

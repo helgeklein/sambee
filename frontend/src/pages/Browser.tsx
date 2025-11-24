@@ -21,9 +21,6 @@ import {
   Chip,
   CircularProgress,
   Container,
-  Dialog,
-  DialogContent,
-  DialogTitle,
   FormControl,
   IconButton,
   InputAdornment,
@@ -31,10 +28,6 @@ import {
   MenuItem,
   Paper,
   Select,
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -46,8 +39,11 @@ import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import SettingsDialog from "../components/Settings/SettingsDialog";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
+import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
@@ -1023,22 +1019,244 @@ const Browser: React.FC = () => {
     }
   }, [focusedIndex, visibleRowCount, rowVirtualizer]);
 
-  // Keyboard navigation (optimized to avoid recreation on file list changes)
+  // Keyboard shortcut handlers using centralized system
+  const handleNavigateDown = useCallback(
+    (e?: KeyboardEvent) => {
+      if (focusedIndex < 0) return;
+      const fileCount = filesRef.current.length;
+      const next = Math.min(focusedIndex + 1, fileCount - 1);
+      if (next === focusedIndex) return;
+
+      // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
+      if (e?.repeat) {
+        updateFocus(next, { immediate: false });
+      } else {
+        updateFocus(next);
+      }
+    },
+    [focusedIndex, updateFocus]
+  );
+
+  const handleArrowUp = useCallback(
+    (e?: KeyboardEvent) => {
+      if (focusedIndex < 0) return;
+
+      // If at first item (index 0), move focus to search box
+      if (focusedIndex === 0 && searchInputRef.current) {
+        searchInputRef.current.focus();
+        return;
+      }
+
+      const next = Math.max(focusedIndex - 1, 0);
+      if (next === focusedIndex) return;
+
+      // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
+      if (e?.repeat) {
+        updateFocus(next, { immediate: false });
+      } else {
+        updateFocus(next);
+      }
+    },
+    [focusedIndex, updateFocus]
+  );
+
+  const handleHome = useCallback(() => {
+    updateFocus(0);
+  }, [updateFocus]);
+
+  const handleEnd = useCallback(() => {
+    const fileCount = filesRef.current.length;
+    updateFocus(fileCount - 1);
+  }, [updateFocus]);
+
+  const handlePageDown = useCallback(
+    (e?: KeyboardEvent) => {
+      const fileCount = filesRef.current.length;
+      const pageSize = visibleRowCount;
+      const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
+
+      if (e?.repeat) {
+        updateFocus(newIndex, { immediate: false });
+      } else {
+        rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
+        skipNextLayoutScrollRef.current = true;
+        updateFocus(newIndex, { immediate: true });
+      }
+    },
+    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer]
+  );
+
+  const handlePageUp = useCallback(
+    (e?: KeyboardEvent) => {
+      const pageSize = visibleRowCount;
+      const newIndex = Math.max(focusedIndex - pageSize, 0);
+
+      if (e?.repeat) {
+        updateFocus(newIndex, { immediate: false });
+      } else {
+        rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
+        skipNextLayoutScrollRef.current = true;
+        updateFocus(newIndex, { immediate: true });
+      }
+    },
+    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer]
+  );
+
+  const handleOpenFile = useCallback(() => {
+    const files = filesRef.current;
+    const file = files[focusedIndex];
+    if (file) {
+      handleFileClick(file, focusedIndex);
+    }
+  }, [focusedIndex, handleFileClick]);
+
+  const handleNavigateUpDirectory = useCallback(() => {
+    if (currentPathRef.current) {
+      const pathParts = currentPathRef.current.split("/");
+      const newPath = pathParts.slice(0, -1).join("/");
+      setCurrentPath(newPath);
+      setViewInfo(null);
+    }
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setViewInfo(null);
+    setSearchQuery("");
+  }, []);
+
+  const handleFocusSearch = useCallback(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  const handleShowHelp = useCallback(() => {
+    setShowHelp(true);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    loadFilesRef.current?.(currentPathRef.current, true);
+  }, []);
+
+  // Use centralized keyboard shortcuts system
+  const browserShortcuts = useMemo(
+    () => [
+      // Navigation - Arrow keys
+      {
+        ...BROWSER_SHORTCUTS.ARROW_DOWN,
+        handler: handleNavigateDown,
+        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+      },
+      {
+        ...BROWSER_SHORTCUTS.ARROW_UP,
+        handler: handleArrowUp,
+        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+      },
+      // Navigation - Home/End
+      {
+        ...COMMON_SHORTCUTS.FIRST_PAGE,
+        description: "First file",
+        handler: handleHome,
+        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+      },
+      {
+        ...COMMON_SHORTCUTS.LAST_PAGE,
+        description: "Last file",
+        handler: handleEnd,
+        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+      },
+      // Navigation - Page Up/Down
+      {
+        ...COMMON_SHORTCUTS.PAGE_DOWN,
+        handler: handlePageDown,
+        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+      },
+      {
+        ...COMMON_SHORTCUTS.PAGE_UP,
+        handler: handlePageUp,
+        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+      },
+      // Open file/folder
+      {
+        ...COMMON_SHORTCUTS.OPEN,
+        handler: handleOpenFile,
+        enabled:
+          !settingsOpen &&
+          !showHelp &&
+          !viewInfo &&
+          focusedIndex >= 0 &&
+          filesRef.current[focusedIndex] !== undefined,
+      },
+      // Navigate up directory
+      {
+        ...BROWSER_SHORTCUTS.NAVIGATE_UP,
+        handler: handleNavigateUpDirectory,
+        enabled: !settingsOpen && !showHelp && !viewInfo && currentPathRef.current !== "",
+      },
+      // Clear selection and search (close action in browser context)
+      {
+        ...COMMON_SHORTCUTS.CLOSE,
+        handler: handleClose,
+        enabled: !settingsOpen && !showHelp,
+      },
+      // Focus search
+      {
+        ...BROWSER_SHORTCUTS.FOCUS_SEARCH,
+        handler: handleFocusSearch,
+        enabled: !settingsOpen && !showHelp && !viewInfo,
+      },
+      // Show help
+      {
+        ...BROWSER_SHORTCUTS.SHOW_HELP,
+        handler: handleShowHelp,
+        enabled: !viewInfo,
+      },
+      // Refresh
+      {
+        ...BROWSER_SHORTCUTS.REFRESH,
+        handler: handleRefresh,
+        enabled: !viewInfo,
+      },
+    ],
+    [
+      handleNavigateDown,
+      settingsOpen,
+      showHelp,
+      viewInfo,
+      handleArrowUp,
+      handleHome,
+      handleEnd,
+      handlePageDown,
+      handlePageUp,
+      handleOpenFile,
+      focusedIndex,
+      handleNavigateUpDirectory,
+      handleClose,
+      handleFocusSearch,
+      handleShowHelp,
+      handleRefresh,
+    ]
+  );
+
+  useKeyboardShortcuts({
+    shortcuts: browserShortcuts,
+  });
+
+  // Manual keyboard handling for special cases (input focus exceptions and incremental search)
+  // This handler runs BEFORE useKeyboardShortcuts to handle special cases
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't handle if typing in an input or if a dialog is open
+    const handleKeyDown = (e?: KeyboardEvent) => {
+      if (!e) return;
+
+      // Don't handle if event already handled
+      if (e.defaultPrevented) return;
+
       const target = e.target as HTMLElement;
       const isInInput =
         target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      if (isInInput || settingsOpen || showHelp || viewInfo) {
-        // Exception: Allow / to focus search from anywhere
-        if (e.key === "/" && !settingsOpen && !showHelp) {
-          e.preventDefault();
-          searchInputRef.current?.focus();
-        }
+      // Handle special transitions when in input fields
+      if (isInInput) {
         // Exception: Allow ArrowDown in search box to move to first file in list
-        if (e.key === "ArrowDown" && isInInput && target === searchInputRef.current) {
+        if (e.key === "ArrowDown" && target === searchInputRef.current) {
           e.preventDefault();
           // Blur the search input
           searchInputRef.current?.blur();
@@ -1051,7 +1269,6 @@ const Browser: React.FC = () => {
         // Exception: Allow Backspace for navigation when search is empty and in search input
         if (
           e.key === "Backspace" &&
-          isInInput &&
           (searchQuery === "" || (target as HTMLInputElement).value === "") &&
           currentPathRef.current
         ) {
@@ -1066,193 +1283,72 @@ const Browser: React.FC = () => {
             return;
           }
         }
+
+        // Allow certain special keys to pass through to useKeyboardShortcuts
+        // These keys have allowInInput: true and will be handled there
+        const allowedKeysInInput = ["/", "?", "Escape"];
+        if (allowedKeysInInput.includes(e.key)) {
+          // Don't interfere - let these pass through to useKeyboardShortcuts
+          return;
+        }
+
+        // For all other keys when in input, don't interfere (let normal input behavior happen)
+        return;
+      }
+
+      // Don't handle if dialogs are open or viewer is showing
+      if (settingsOpen || showHelp || viewInfo) {
         return;
       }
 
       const files = filesRef.current;
       const fileCount = files.length;
 
-      // Allow certain keys even when no files
-      const alwaysAllowKeys = ["Backspace", "Escape", "/", "?", "F5"];
-      if (fileCount === 0 && !alwaysAllowKeys.includes(e.key)) {
-        return;
-      }
+      // Incremental search - accumulate keystrokes to match file names (only when NOT in input)
+      // Match any printable character, excluding special shortcut keys
+      const shortcutKeys = ["/", "?", "Escape"];
+      if (
+        e.key.length === 1 &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key !== " " &&
+        !shortcutKeys.includes(e.key) &&
+        fileCount > 0
+      ) {
+        e.preventDefault();
 
-      switch (e.key) {
-        case "ArrowDown": {
-          e.preventDefault();
-          if (focusedIndex < 0) return;
-          const next = Math.min(focusedIndex + 1, fileCount - 1);
-          if (next === focusedIndex) break;
-
-          // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
-          if (e.repeat) {
-            // Let TanStack Virtual handle scrolling smoothly without forced reflows
-            updateFocus(next, { immediate: false });
-          } else {
-            // Single press - let layout effect handle scrolling
-            updateFocus(next);
-          }
-          break;
+        // Clear any existing timeout
+        if (searchTimeoutRef.current) {
+          clearTimeout(searchTimeoutRef.current);
         }
 
-        case "ArrowUp": {
-          e.preventDefault();
-          if (focusedIndex < 0) return;
+        // Add this character to the search buffer
+        searchBufferRef.current += e.key.toLowerCase();
 
-          // If at first item (index 0), move focus to search box
-          if (focusedIndex === 0 && searchInputRef.current) {
-            searchInputRef.current.focus();
-            return;
-          }
-
-          const next = Math.max(focusedIndex - 1, 0);
-          if (next === focusedIndex) break;
-
-          // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
-          if (e.repeat) {
-            // Let TanStack Virtual handle scrolling smoothly without forced reflows
-            updateFocus(next, { immediate: false });
-          } else {
-            // Single press - let layout effect handle scrolling
-            updateFocus(next);
-          }
-          break;
+        // Find first file matching the accumulated prefix
+        const index = files.findIndex((f) =>
+          f.name.toLowerCase().startsWith(searchBufferRef.current)
+        );
+        if (index !== -1) {
+          updateFocus(index);
         }
 
-        case "Home":
-          e.preventDefault();
-          updateFocus(0);
-          break;
-
-        case "End":
-          e.preventDefault();
-          updateFocus(fileCount - 1);
-          break;
-
-        case "PageDown":
-          e.preventDefault();
-          {
-            // Use estimated page size to avoid forced reflows during key repeat
-            // TanStack Virtual will handle the actual scrolling smoothly
-            const pageSize = visibleRowCount;
-            const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
-
-            if (e.repeat) {
-              // During key repeat, use async scrolling to avoid layout thrashing
-              updateFocus(newIndex, { immediate: false });
-            } else {
-              // Single press - use synchronous scroll for instant feedback
-              rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
-              skipNextLayoutScrollRef.current = true;
-              updateFocus(newIndex, { immediate: true });
-            }
-          }
-          break;
-
-        case "PageUp":
-          e.preventDefault();
-          {
-            // Use estimated page size to avoid forced reflows during key repeat
-            // TanStack Virtual will handle the actual scrolling smoothly
-            const pageSize = visibleRowCount;
-            const newIndex = Math.max(focusedIndex - pageSize, 0);
-
-            if (e.repeat) {
-              // During key repeat, use async scrolling to avoid layout thrashing
-              updateFocus(newIndex, { immediate: false });
-            } else {
-              // Single press - use synchronous scroll for instant feedback
-              rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
-              skipNextLayoutScrollRef.current = true;
-              updateFocus(newIndex, { immediate: true });
-            }
-          }
-          break;
-        case "Enter":
-          e.preventDefault();
-          {
-            const current = focusedIndex;
-            const file = files[current];
-            if (file) {
-              handleFileClick(file, current);
-            }
-          }
-          break;
-
-        case "Backspace":
-          e.preventDefault();
-          if (currentPathRef.current) {
-            const pathParts = currentPathRef.current.split("/");
-            const newPath = pathParts.slice(0, -1).join("/");
-            setCurrentPath(newPath);
-            setViewInfo(null);
-          }
-          break;
-
-        case "Escape":
-          e.preventDefault();
-          setViewInfo(null);
-          setSearchQuery("");
-          break;
-
-        case "/":
-          e.preventDefault();
-          searchInputRef.current?.focus();
-          break;
-
-        case "?":
-          e.preventDefault();
-          setShowHelp(true);
-          break;
-
-        case "F5":
-          e.preventDefault();
-          loadFilesRef.current?.(currentPathRef.current, true);
-          break;
-
-        default:
-          // Incremental search - accumulate keystrokes to match file names
-          if (e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key)) {
-            // Clear any existing timeout
-            if (searchTimeoutRef.current) {
-              clearTimeout(searchTimeoutRef.current);
-            }
-
-            // Add this character to the search buffer
-            searchBufferRef.current += e.key.toLowerCase();
-
-            // Find first file matching the accumulated prefix
-            const index = files.findIndex((f) =>
-              f.name.toLowerCase().startsWith(searchBufferRef.current)
-            );
-            if (index !== -1) {
-              updateFocus(index);
-            }
-
-            // Reset search buffer after 1 second of no typing
-            searchTimeoutRef.current = window.setTimeout(() => {
-              searchBufferRef.current = "";
-            }, 1000);
-          }
-          break;
+        // Reset search buffer after 1 second of no typing
+        searchTimeoutRef.current = window.setTimeout(() => {
+          searchBufferRef.current = "";
+        }, 1000);
       }
     };
 
+    // Attach to window in bubble phase (runs AFTER useKeyboardShortcuts)
+    // This allows useKeyboardShortcuts to handle special keys (/, ?, Esc) first
+    // Only if they don't match a shortcut, this handler will process incremental search
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    settingsOpen,
-    showHelp,
-    searchQuery,
-    viewInfo,
-    visibleRowCount,
-    focusedIndex,
-    updateFocus,
-    rowVirtualizer,
-    listContainerEl,
-    handleFileClick,
-  ]);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [settingsOpen, showHelp, searchQuery, viewInfo, updateFocus, listContainerEl]);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
@@ -1861,80 +1957,11 @@ const Browser: React.FC = () => {
       <SettingsDialog open={settingsOpen} onClose={handleSettingsClose} />
 
       {/* Keyboard Shortcuts Help Dialog */}
-      <Dialog open={showHelp} onClose={() => setShowHelp(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Keyboard Shortcuts</DialogTitle>
-        <DialogContent>
-          <Table size="small">
-            <TableBody>
-              <TableRow>
-                <TableCell>
-                  <strong>↑ / ↓</strong>
-                </TableCell>
-                <TableCell>Navigate through files</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>Enter</strong>
-                </TableCell>
-                <TableCell>Open folder or select file</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>Backspace</strong>
-                </TableCell>
-                <TableCell>Go up one directory level</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>Escape</strong>
-                </TableCell>
-                <TableCell>Clear file selection and search</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>Home / End</strong>
-                </TableCell>
-                <TableCell>Jump to first / last file</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>Page Up / Down</strong>
-                </TableCell>
-                <TableCell>Scroll through file list (10 items)</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>/</strong>
-                </TableCell>
-                <TableCell>Focus search box</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>A-Z / 0-9</strong>
-                </TableCell>
-                <TableCell>Jump to file starting with letter</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>?</strong>
-                </TableCell>
-                <TableCell>Show this help dialog</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell>
-                  <strong>F5</strong>
-                </TableCell>
-                <TableCell>Refresh current directory</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-          <Box sx={{ mt: 2, textAlign: "center" }}>
-            <Button variant="contained" onClick={() => setShowHelp(false)}>
-              Close
-            </Button>
-          </Box>
-        </DialogContent>
-      </Dialog>
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={browserShortcuts}
+      />
       {viewInfo && (
         <DynamicViewer
           connectionId={selectedConnectionId}

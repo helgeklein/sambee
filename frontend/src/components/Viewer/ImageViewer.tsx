@@ -1,10 +1,13 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
 import type { MouseEvent, TouchEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
 /**
@@ -56,7 +59,9 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [_isFullscreen, setIsFullscreen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const lastTapRef = useRef<number>(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Get current image path
   const currentPath = images[currentIndex];
@@ -139,26 +144,100 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   }, [connectionId, currentPath]);
 
   // Navigation handlers
-  const handleNext = useCallback(() => {
-    if (currentIndex < images.length - 1) {
-      const nextIndex = currentIndex + 1;
-      setCurrentIndex(nextIndex);
-      logInfo("Navigated to next image", { index: nextIndex });
-    }
-  }, [currentIndex, images.length]);
+  const handleNext = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (currentIndex < images.length - 1) {
+        const nextIndex = currentIndex + 1;
+        setCurrentIndex(nextIndex);
+        logInfo("Navigated to next image", { index: nextIndex });
+      }
+    },
+    [currentIndex, images.length]
+  );
 
-  const handlePrevious = useCallback(() => {
-    if (currentIndex > 0) {
-      const prevIndex = currentIndex - 1;
-      setCurrentIndex(prevIndex);
-      logInfo("Navigated to previous image", { index: prevIndex });
-    }
-  }, [currentIndex]);
+  const handlePrevious = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (currentIndex > 0) {
+        const prevIndex = currentIndex - 1;
+        setCurrentIndex(prevIndex);
+        logInfo("Navigated to previous image", { index: prevIndex });
+      }
+    },
+    [currentIndex]
+  );
 
   // Handle close
-  const handleClose = useCallback(() => {
-    onClose();
-  }, [onClose]);
+  const handleClose = useCallback(
+    (_event?: KeyboardEvent) => {
+      onClose();
+    },
+    [onClose]
+  );
+
+  // Zoom handlers
+  const handleZoomIn = useCallback((_event?: KeyboardEvent) => {
+    setScale((value) => Math.min(value * 1.2, 3));
+  }, []);
+
+  const handleZoomOut = useCallback((_event?: KeyboardEvent) => {
+    setScale((value) => Math.max(value * 0.8, 0.3));
+  }, []);
+
+  const handleZoomReset = useCallback((_event?: KeyboardEvent) => {
+    setScale(1);
+  }, []);
+
+  // Rotation handlers
+  const handleRotateRight = useCallback((_event?: KeyboardEvent) => {
+    setRotate((value) => value + 90);
+  }, []);
+
+  const handleRotateLeft = useCallback((_event?: KeyboardEvent) => {
+    setRotate((value) => value - 90);
+  }, []);
+
+  // Navigation handlers for gallery
+  const handleFirst = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (images.length > 1) {
+        setCurrentIndex(0);
+      }
+    },
+    [images.length]
+  );
+
+  const handleLast = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (images.length > 1) {
+        setCurrentIndex(images.length - 1);
+      }
+    },
+    [images.length]
+  );
+
+  // Download handler
+  const handleDownload = useCallback(
+    (_event?: KeyboardEvent) => {
+      const downloadUrl = apiService.getDownloadUrl(connectionId, currentPath);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      link.click();
+    },
+    [connectionId, currentPath, filename]
+  );
+
+  // Context-aware Escape handler
+  const handleEscape = useCallback(
+    (_event?: KeyboardEvent) => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        handleClose();
+      }
+    },
+    [handleClose]
+  );
 
   const handleDoubleZoom = useCallback(() => {
     setScale((value) => (value > 1 ? 1 : Math.min(value * 2, 3)));
@@ -183,21 +262,15 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   );
 
   // Toggle fullscreen mode
-  const toggleFullscreen = useCallback(async () => {
-    try {
-      if (!document.fullscreenElement) {
-        // Enter fullscreen
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-        logInfo("Entered fullscreen mode");
-      } else {
-        // Exit fullscreen
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-        logInfo("Exited fullscreen mode");
-      }
-    } catch (err) {
-      logError("Failed to toggle fullscreen", { error: err });
+  const toggleFullscreen = useCallback(() => {
+    if (!dialogRef.current) return;
+
+    if (!document.fullscreenElement) {
+      dialogRef.current.requestFullscreen().catch((err) => {
+        logError("Failed to enable fullscreen", { error: err });
+      });
+    } else {
+      document.exitFullscreen();
     }
   }, []);
 
@@ -221,90 +294,104 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     };
   }, []);
 
-  // Keyboard shortcuts for gallery navigation while dialog is open
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+  const handleShowHelp = useCallback(() => {
+    setShowHelp(true);
+  }, []);
 
-      switch (event.key) {
-        case "Enter":
-          event.preventDefault();
-          toggleFullscreen();
-          break;
-        case "ArrowRight":
-        case "d":
-        case "D":
-          if (images.length > 1) {
-            event.preventDefault();
-            handleNext();
-          }
-          break;
-        case "ArrowLeft":
-        case "a":
-        case "A":
-          if (images.length > 1) {
-            event.preventDefault();
-            handlePrevious();
-          }
-          break;
-        case "ArrowUp":
-        case "ArrowDown":
-          // Prevent default scrolling behavior on mobile when image viewer is open
-          event.preventDefault();
-          break;
-        case "Home":
-          if (images.length > 1) {
-            event.preventDefault();
-            setCurrentIndex(0);
-          }
-          break;
-        case "End":
-          if (images.length > 1) {
-            event.preventDefault();
-            setCurrentIndex(images.length - 1);
-          }
-          break;
-        case "+":
-        case "=":
-          event.preventDefault();
-          setScale((value) => Math.min(value * 1.2, 3));
-          break;
-        case "-":
-        case "_":
-          event.preventDefault();
-          setScale((value) => Math.max(value * 0.8, 0.3));
-          break;
-        case "r":
-          event.preventDefault();
-          setRotate((value) => value + 90);
-          break;
-        case "R":
-          event.preventDefault();
-          if (event.shiftKey) {
-            setRotate((value) => value - 90);
-          } else {
-            setRotate((value) => value + 90);
-          }
-          break;
-        case "Escape":
-          event.preventDefault();
-          // If in fullscreen, exit fullscreen first, otherwise close dialog
-          if (document.fullscreenElement) {
-            document.exitFullscreen();
-          } else {
-            handleClose();
-          }
-          break;
-        default:
-          break;
-      }
-    };
+  // Keyboard shortcuts using centralized system
+  const imageShortcuts = useMemo(
+    () => [
+      // Download
+      {
+        ...COMMON_SHORTCUTS.DOWNLOAD,
+        handler: handleDownload,
+      },
+      // Navigation - Arrow keys
+      {
+        ...COMMON_SHORTCUTS.NEXT_ARROW,
+        handler: handleNext,
+        enabled: images.length > 1,
+      },
+      {
+        ...COMMON_SHORTCUTS.PREVIOUS_ARROW,
+        handler: handlePrevious,
+        enabled: images.length > 1,
+      },
+      // Navigation - Home/End
+      {
+        ...COMMON_SHORTCUTS.FIRST_PAGE,
+        description: "First image",
+        handler: handleFirst,
+        enabled: images.length > 1,
+      },
+      {
+        ...COMMON_SHORTCUTS.LAST_PAGE,
+        description: "Last image",
+        handler: handleLast,
+        enabled: images.length > 1,
+      },
+      // Zoom
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_IN,
+        handler: handleZoomIn,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_OUT,
+        handler: handleZoomOut,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ZOOM_RESET,
+        handler: handleZoomReset,
+      },
+      // Rotation
+      {
+        ...VIEWER_SHORTCUTS.ROTATE_RIGHT,
+        handler: handleRotateRight,
+      },
+      {
+        ...VIEWER_SHORTCUTS.ROTATE_LEFT,
+        handler: handleRotateLeft,
+      },
+      // Fullscreen
+      {
+        ...VIEWER_SHORTCUTS.FULLSCREEN,
+        handler: toggleFullscreen,
+      },
+      // Close viewer or exit fullscreen on Escape
+      {
+        ...COMMON_SHORTCUTS.CLOSE,
+        handler: handleEscape,
+      },
+      // Show help
+      {
+        id: "show-help",
+        keys: ["?"],
+        label: "?",
+        description: "Show keyboard shortcuts",
+        handler: handleShowHelp,
+      },
+    ],
+    [
+      handleDownload,
+      handleNext,
+      handlePrevious,
+      handleFirst,
+      handleLast,
+      images.length,
+      handleZoomIn,
+      handleZoomOut,
+      handleZoomReset,
+      handleRotateRight,
+      handleRotateLeft,
+      toggleFullscreen,
+      handleEscape,
+      handleShowHelp,
+    ]
+  );
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [handleClose, handleNext, handlePrevious, images.length, toggleFullscreen]);
+  useKeyboardShortcuts({
+    shortcuts: imageShortcuts,
+  });
 
   // Log when image viewer opens
   useEffect(() => {
@@ -340,6 +427,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       onClose={handleClose}
       maxWidth={false}
       fullScreen
+      ref={dialogRef}
       sx={{
         "& .MuiDialog-container": {
           alignItems: "stretch",
@@ -399,12 +487,12 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                 : undefined
             }
             zoom={{
-              onZoomIn: () => setScale(scale * 1.2),
-              onZoomOut: () => setScale(scale * 0.8),
+              onZoomIn: handleZoomIn,
+              onZoomOut: handleZoomOut,
             }}
             rotation={{
-              onRotateLeft: () => setRotate(rotate - 90),
-              onRotateRight: () => setRotate(rotate + 90),
+              onRotateLeft: handleRotateLeft,
+              onRotateRight: handleRotateRight,
             }}
           />
         </Box>
@@ -471,6 +559,12 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           )}
         </Box>
       </Box>
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={imageShortcuts}
+        title="Image Viewer Shortcuts"
+      />
     </Dialog>
   );
 };
