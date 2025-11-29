@@ -559,12 +559,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           )}
         </Box>
       </Box>
-      <KeyboardShortcutsHelp
-        open={showHelp}
-        onClose={() => setShowHelp(false)}
-        shortcuts={imageShortcuts}
-        title="Image Viewer Shortcuts"
-      />
+      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={imageShortcuts} title="Image Viewer Shortcuts" />
     </Dialog>
   );
 };

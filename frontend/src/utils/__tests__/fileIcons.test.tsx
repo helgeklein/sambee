@@ -31,9 +31,7 @@ describe("getFileIcon", () => {
   });
 
   it("should respect custom size prop", () => {
-    const { container } = render(
-      getFileIcon({ filename: "test.txt", isDirectory: false, size: 32 })
-    );
+    const { container } = render(getFileIcon({ filename: "test.txt", isDirectory: false, size: 32 }));
     const svg = container.querySelector("svg");
     expect(svg).toHaveAttribute("class");
     // MUI icons use fontSize in sx prop which gets applied as class

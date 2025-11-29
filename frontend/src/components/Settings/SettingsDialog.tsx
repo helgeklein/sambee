@@ -1,14 +1,5 @@
 import { Add as AddIcon, Close as CloseIcon } from "@mui/icons-material";
-import {
-  Alert,
-  Box,
-  Button,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Snackbar,
-} from "@mui/material";
+import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, IconButton, Snackbar } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import api from "../../services/api";
@@ -40,12 +31,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   });
   const [testing, setTesting] = useState(false);
 
-  const showNotification = useCallback(
-    (message: string, severity: "success" | "error" | "info") => {
-      setNotification({ open: true, message, severity });
-    },
-    []
-  );
+  const showNotification = useCallback((message: string, severity: "success" | "error" | "info") => {
+    setNotification({ open: true, message, severity });
+  }, []);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -53,9 +41,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
       const data = await api.getConnections();
       setConnections(data);
     } catch (error: unknown) {
-      const message = isApiError(error)
-        ? error.response?.data?.detail || "Failed to load connections"
-        : "Failed to load connections";
+      const message = isApiError(error) ? error.response?.data?.detail || "Failed to load connections" : "Failed to load connections";
       showNotification(message, "error");
     } finally {
       setLoading(false);
@@ -89,9 +75,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
     } catch (error: unknown) {
-      const message = isApiError(error)
-        ? error.response?.data?.detail || "Failed to test connection"
-        : "Failed to test connection";
+      const message = isApiError(error) ? error.response?.data?.detail || "Failed to test connection" : "Failed to test connection";
       showNotification(message, "error");
     } finally {
       setTesting(false);
@@ -100,10 +84,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
 
   const handleDialogSave = () => {
     loadConnections();
-    showNotification(
-      `Connection ${selectedConnection ? "updated" : "created"} successfully`,
-      "success"
-    );
+    showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
   };
 
   const handleDeleteConfirm = async () => {
@@ -116,9 +97,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
       loadConnections();
       showNotification("Connection deleted successfully", "success");
     } catch (error: unknown) {
-      const message = isApiError(error)
-        ? error.response?.data?.detail || "Failed to delete connection"
-        : "Failed to delete connection";
+      const message = isApiError(error) ? error.response?.data?.detail || "Failed to delete connection" : "Failed to delete connection";
       showNotification(message, "error");
     }
   };
@@ -134,12 +113,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
           <Box display="flex" justifyContent="space-between" alignItems="center">
             <Box display="flex" alignItems="center" gap={2}>
               SMB Connection Settings
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={handleAddClick}
-              >
+              <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={handleAddClick}>
                 Add Connection
               </Button>
             </Box>
@@ -179,11 +153,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
         onClose={handleCloseNotification}
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       >
-        <Alert
-          onClose={handleCloseNotification}
-          severity={notification.severity}
-          sx={{ width: "100%" }}
-        >
+        <Alert onClose={handleCloseNotification} severity={notification.severity} sx={{ width: "100%" }}>
           {notification.message}
         </Alert>
       </Snackbar>

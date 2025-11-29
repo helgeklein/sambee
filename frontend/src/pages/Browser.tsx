@@ -273,9 +273,7 @@ const Browser: React.FC = () => {
   >(new Map());
 
   // Directory listing cache for instant backward navigation
-  const directoryCache = React.useRef<Map<string, { items: FileEntry[]; timestamp: number }>>(
-    new Map()
-  );
+  const directoryCache = React.useRef<Map<string, { items: FileEntry[]; timestamp: number }>>(new Map());
 
   // WebSocket for real-time directory updates
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -324,9 +322,7 @@ const Browser: React.FC = () => {
 
       // Priority: URL param (name slug) > localStorage > first connection
       if (params.connectionId) {
-        const urlConnection = data.find(
-          (c: Connection) => slugifyConnectionName(c.name) === params.connectionId
-        );
+        const urlConnection = data.find((c: Connection) => slugifyConnectionName(c.name) === params.connectionId);
         if (urlConnection) {
           // URL has valid connection, will be set in initialization useEffect
           // Don't override it here
@@ -416,11 +412,7 @@ const Browser: React.FC = () => {
         if (err && typeof err === "object" && "message" in err && !isApiError(err)) {
           const error = err as Error & { code?: string };
           const message = error.message;
-          if (
-            message.includes("Network Error") ||
-            message.includes("ECONNREFUSED") ||
-            error.code === "ECONNREFUSED"
-          ) {
+          if (message.includes("Network Error") || message.includes("ECONNREFUSED") || error.code === "ECONNREFUSED") {
             errorMessage = "Failed to load files. Please check your connection settings.";
           }
         } else if (isApiError(err)) {
@@ -550,9 +542,7 @@ const Browser: React.FC = () => {
       // In development, use port 8000; in production, use same port as current page
       const isDev = window.location.port === "3000" || window.location.hostname === "localhost";
       const port = isDev ? "8000" : window.location.port;
-      const wsUrl = port
-        ? `${protocol}//${window.location.hostname}:${port}/api/ws`
-        : `${protocol}//${window.location.hostname}/api/ws`;
+      const wsUrl = port ? `${protocol}//${window.location.hostname}:${port}/api/ws` : `${protocol}//${window.location.hostname}/api/ws`;
 
       logger.info("Connecting to WebSocket", { wsUrl });
       const ws = new WebSocket(wsUrl);
@@ -884,8 +874,7 @@ const Browser: React.FC = () => {
 
     let finalPath: string | undefined;
     if (images && images.length > 0) {
-      const clampedIndex =
-        indexFromRef !== null ? Math.min(Math.max(indexFromRef, 0), images.length - 1) : 0;
+      const clampedIndex = indexFromRef !== null ? Math.min(Math.max(indexFromRef, 0), images.length - 1) : 0;
       finalPath = images[clampedIndex];
     } else if (viewInfo?.path) {
       finalPath = viewInfo.path;
@@ -947,9 +936,7 @@ const Browser: React.FC = () => {
     const savedState = navigationHistory.current.get(currentPath);
     if (savedState?.selectedFileName) {
       // Find the index of the previously selected item
-      const restoredIndex = sortedAndFilteredFiles.findIndex(
-        (f) => f.name === savedState.selectedFileName
-      );
+      const restoredIndex = sortedAndFilteredFiles.findIndex((f) => f.name === savedState.selectedFileName);
       if (restoredIndex >= 0) {
         updateFocus(restoredIndex, { immediate: true });
         // Restore scroll position in next frame to ensure list is rendered
@@ -1178,12 +1165,7 @@ const Browser: React.FC = () => {
       {
         ...COMMON_SHORTCUTS.OPEN,
         handler: handleOpenFile,
-        enabled:
-          !settingsOpen &&
-          !showHelp &&
-          !viewInfo &&
-          focusedIndex >= 0 &&
-          filesRef.current[focusedIndex] !== undefined,
+        enabled: !settingsOpen && !showHelp && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex] !== undefined,
       },
       // Navigate up directory
       {
@@ -1250,8 +1232,7 @@ const Browser: React.FC = () => {
       if (e.defaultPrevented) return;
 
       const target = e.target as HTMLElement;
-      const isInInput =
-        target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+      const isInInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
       // Handle special transitions when in input fields
       if (isInInput) {
@@ -1267,11 +1248,7 @@ const Browser: React.FC = () => {
           return;
         }
         // Exception: Allow Backspace for navigation when search is empty and in search input
-        if (
-          e.key === "Backspace" &&
-          (searchQuery === "" || (target as HTMLInputElement).value === "") &&
-          currentPathRef.current
-        ) {
+        if (e.key === "Backspace" && (searchQuery === "" || (target as HTMLInputElement).value === "") && currentPathRef.current) {
           // Check if cursor is at the beginning of input (no text to delete)
           const input = target as HTMLInputElement;
           if (input.selectionStart === 0 && input.selectionEnd === 0) {
@@ -1307,15 +1284,7 @@ const Browser: React.FC = () => {
       // Incremental search - accumulate keystrokes to match file names (only when NOT in input)
       // Match any printable character, excluding special shortcut keys
       const shortcutKeys = ["/", "?", "Escape"];
-      if (
-        e.key.length === 1 &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        e.key !== " " &&
-        !shortcutKeys.includes(e.key) &&
-        fileCount > 0
-      ) {
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && e.key !== " " && !shortcutKeys.includes(e.key) && fileCount > 0) {
         e.preventDefault();
 
         // Clear any existing timeout
@@ -1327,9 +1296,7 @@ const Browser: React.FC = () => {
         searchBufferRef.current += e.key.toLowerCase();
 
         // Find first file matching the accumulated prefix
-        const index = files.findIndex((f) =>
-          f.name.toLowerCase().startsWith(searchBufferRef.current)
-        );
+        const index = files.findIndex((f) => f.name.toLowerCase().startsWith(searchBufferRef.current));
         if (index !== -1) {
           updateFocus(index);
         }
@@ -1655,22 +1622,12 @@ const Browser: React.FC = () => {
 
               <Box sx={{ flexGrow: 1 }} />
 
-              <IconButton
-                color="inherit"
-                onClick={() => setShowHelp(true)}
-                sx={{ mr: 1 }}
-                title="Keyboard Shortcuts (?)"
-              >
+              <IconButton color="inherit" onClick={() => setShowHelp(true)} sx={{ mr: 1 }} title="Keyboard Shortcuts (?)">
                 <KeyboardIcon />
               </IconButton>
 
               {isAdmin && (
-                <IconButton
-                  color="inherit"
-                  onClick={() => setSettingsOpen(true)}
-                  sx={{ mr: 1 }}
-                  title="Settings"
-                >
+                <IconButton color="inherit" onClick={() => setSettingsOpen(true)} sx={{ mr: 1 }} title="Settings">
                   <SettingsIcon />
                 </IconButton>
               )}
@@ -1753,11 +1710,7 @@ const Browser: React.FC = () => {
                       if (isLast) {
                         // Last segment is non-clickable
                         return (
-                          <Typography
-                            key={pathParts.slice(0, index + 1).join("/")}
-                            variant="body1"
-                            color="text.primary"
-                          >
+                          <Typography key={pathParts.slice(0, index + 1).join("/")} variant="body1" color="text.primary">
                             {part}
                           </Typography>
                         );
@@ -1810,9 +1763,7 @@ const Browser: React.FC = () => {
                       </ToggleButtonGroup>
 
                       <Chip
-                        label={`${sortedAndFilteredFiles.length}/${
-                          files.length
-                        } item${files.length !== 1 ? "s" : ""}`}
+                        label={`${sortedAndFilteredFiles.length}/${files.length} item${files.length !== 1 ? "s" : ""}`}
                         size="small"
                         variant="outlined"
                       />
@@ -1837,9 +1788,7 @@ const Browser: React.FC = () => {
                 <TextField
                   fullWidth
                   size="small"
-                  placeholder={
-                    isMobile ? "Search..." : "Search files and folders... (press / to focus)"
-                  }
+                  placeholder={isMobile ? "Search..." : "Search files and folders... (press / to focus)"}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   inputRef={searchInputRef}
@@ -1905,9 +1854,7 @@ const Browser: React.FC = () => {
                   {sortedAndFilteredFiles.length === 0 ? (
                     <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
                       <Typography color="text.secondary">
-                        {searchQuery
-                          ? `No files matching "${searchQuery}"`
-                          : "This directory is empty"}
+                        {searchQuery ? `No files matching "${searchQuery}"` : "This directory is empty"}
                       </Typography>
                       {searchQuery && (
                         <Button size="small" onClick={() => setSearchQuery("")} sx={{ mt: 1 }}>
@@ -1957,11 +1904,7 @@ const Browser: React.FC = () => {
       <SettingsDialog open={settingsOpen} onClose={handleSettingsClose} />
 
       {/* Keyboard Shortcuts Help Dialog */}
-      <KeyboardShortcutsHelp
-        open={showHelp}
-        onClose={() => setShowHelp(false)}
-        shortcuts={browserShortcuts}
-      />
+      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={browserShortcuts} />
       {viewInfo && (
         <DynamicViewer
           connectionId={selectedConnectionId}

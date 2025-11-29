@@ -452,11 +452,9 @@ describe("API Service", () => {
         total: 1,
       };
 
-      mockAxiosInstance.get
-        .mockResolvedValueOnce({ data: connections } as AxiosResponse<Connection[]>)
-        .mockResolvedValueOnce({
-          data: listing,
-        } as AxiosResponse<DirectoryListing>);
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: connections } as AxiosResponse<Connection[]>).mockResolvedValueOnce({
+        data: listing,
+      } as AxiosResponse<DirectoryListing>);
 
       const { browseFiles } = await import("../api");
       const result = await browseFiles("/test", "token");

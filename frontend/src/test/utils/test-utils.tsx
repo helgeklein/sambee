@@ -24,9 +24,7 @@ function AllProviders({ children }: AllProvidersProps) {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        {children}
-      </BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{children}</BrowserRouter>
     </ThemeProvider>
   );
 }

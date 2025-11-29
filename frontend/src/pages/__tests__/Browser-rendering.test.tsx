@@ -6,12 +6,7 @@
 import { screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
-import {
-  type ApiMock,
-  createMarkdownViewerMock,
-  createSettingsDialogMock,
-  setupSuccessfulApiMocks,
-} from "../../test/helpers";
+import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
 
 // Mock the API module
@@ -69,9 +64,7 @@ describe("Browser Component - Rendering", () => {
 
   it("displays loading state while fetching files", async () => {
     // Mock a delayed response
-    vi.mocked(api.listDirectory).mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(mockDirectoryListing), 100))
-    );
+    vi.mocked(api.listDirectory).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(mockDirectoryListing), 100)));
 
     renderBrowser("/browse/test-server-1");
 

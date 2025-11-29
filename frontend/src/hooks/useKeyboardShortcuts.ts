@@ -129,10 +129,7 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
  * });
  * ```
  */
-export const useKeyboardShortcuts = ({
-  shortcuts,
-  inputSelector = "input, textarea",
-}: UseKeyboardShortcutsConfig): void => {
+export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textarea" }: UseKeyboardShortcutsConfig): void => {
   useEffect(() => {
     // Sort shortcuts by priority (higher first) for correct processing order
     const sortedShortcuts = [...shortcuts].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));

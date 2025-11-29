@@ -15,9 +15,7 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 
 // Mock the view components
 vi.mock("../../utils/FileTypeRegistry", async () => {
-  const actual = await vi.importActual<typeof import("../../utils/FileTypeRegistry")>(
-    "../../utils/FileTypeRegistry"
-  );
+  const actual = await vi.importActual<typeof import("../../utils/FileTypeRegistry")>("../../utils/FileTypeRegistry");
   return {
     ...actual,
     getViewerComponent: vi.fn((mimeType: string) => {
@@ -39,10 +37,7 @@ vi.mock("../../utils/FileTypeRegistry", async () => {
 describe("Browser - Image View Integration", () => {
   const renderBrowser = (initialPath = "/browse/test-server") => {
     return render(
-      <MemoryRouter
-        initialEntries={[initialPath]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
+      <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/browse/:connectionId/*" element={<Browser />} />
           <Route path="/browse" element={<Browser />} />

@@ -4,9 +4,7 @@
 
 // Mock for react-photo-view
 export const createPhotoViewMock = () => ({
-  PhotoProvider: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="photo-provider">{children}</div>
-  ),
+  PhotoProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="photo-provider">{children}</div>,
   PhotoView: ({ children, src }: { children: React.ReactNode; src: string }) => (
     <div data-testid="photo-view" data-src={src}>
       {children}

@@ -26,31 +26,10 @@ export interface ViewerComponentProps {
 
 export type ViewerComponent = React.ComponentType<ViewerComponentProps>;
 
-export type FileCategory =
-  | "image"
-  | "document"
-  | "text"
-  | "video"
-  | "audio"
-  | "archive"
-  | "code"
-  | "spreadsheet"
-  | "directory"
-  | "other";
+export type FileCategory = "image" | "document" | "text" | "video" | "audio" | "archive" | "code" | "spreadsheet" | "directory" | "other";
 
 // Icon identifier - matches icon names from fileIcons.tsx
-export type IconIdentifier =
-  | "image"
-  | "text"
-  | "pdf"
-  | "doc"
-  | "spreadsheet"
-  | "code"
-  | "video"
-  | "audio"
-  | "archive"
-  | "folder"
-  | "file";
+export type IconIdentifier = "image" | "text" | "pdf" | "doc" | "spreadsheet" | "code" | "video" | "audio" | "archive" | "folder" | "file";
 
 export interface FileIconInfo {
   icon: IconIdentifier;
@@ -304,10 +283,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
   // Documents
   {
     extensions: [".doc", ".docx"],
-    mimeTypes: [
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ],
+    mimeTypes: ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
     category: "document",
     icon: "doc",
     color: "#2b579a",
@@ -315,10 +291,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
   },
   {
     extensions: [".ppt", ".pptx"],
-    mimeTypes: [
-      "application/vnd.ms-powerpoint",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ],
+    mimeTypes: ["application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
     category: "document",
     icon: "doc",
     color: "#d24726",
@@ -328,10 +301,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
   // Spreadsheets
   {
     extensions: [".xls", ".xlsx"],
-    mimeTypes: [
-      "application/vnd.ms-excel",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ],
+    mimeTypes: ["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
     category: "spreadsheet",
     icon: "spreadsheet",
     color: "#1d6f42",

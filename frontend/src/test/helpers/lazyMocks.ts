@@ -57,12 +57,7 @@ export function createReactWindowMock() {
  */
 export function createMarkdownViewerMock() {
   return {
-    default: () =>
-      React.createElement(
-        "div",
-        { role: "dialog", "data-testid": "markdown-viewer" },
-        "Markdown Viewer"
-      ),
+    default: () => React.createElement("div", { role: "dialog", "data-testid": "markdown-viewer" }, "Markdown Viewer"),
   };
 }
 
@@ -72,8 +67,7 @@ export function createMarkdownViewerMock() {
  */
 export function createPDFViewerMock() {
   return {
-    default: () =>
-      React.createElement("div", { role: "dialog", "data-testid": "pdf-viewer" }, "PDF Viewer"),
+    default: () => React.createElement("div", { role: "dialog", "data-testid": "pdf-viewer" }, "PDF Viewer"),
   };
 }
 
@@ -153,8 +147,7 @@ export function createLightMocks() {
     MarkdownViewer: () => null,
     PDFViewer: () => null,
     SettingsDialog: () => null,
-    List: ({ children }: { children: React.ReactNode }) =>
-      React.createElement("div", { "data-testid": "light-list" }, children),
+    List: ({ children }: { children: React.ReactNode }) => React.createElement("div", { "data-testid": "light-list" }, children),
   };
 }
 

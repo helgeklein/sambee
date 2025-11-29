@@ -46,24 +46,8 @@ vi.mock("react-pdf", () => ({
       </div>
     );
   },
-  Page: ({
-    pageNumber,
-    scale,
-    width,
-    rotate,
-  }: {
-    pageNumber: number;
-    scale?: number;
-    width?: number;
-    rotate?: number;
-  }) => (
-    <div
-      data-testid="pdf-page"
-      data-page={pageNumber}
-      data-scale={scale}
-      data-width={width}
-      data-rotate={rotate}
-    >
+  Page: ({ pageNumber, scale, width, rotate }: { pageNumber: number; scale?: number; width?: number; rotate?: number }) => (
+    <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale} data-width={width} data-rotate={rotate}>
       Page {pageNumber}
     </div>
   ),
@@ -136,9 +120,7 @@ describe("PDFViewer", () => {
     mockCreateObjectURL.mockReturnValue("blob:mock-url");
 
     // Mock successful API response by default
-    (apiService.getPdfBlob as Mock).mockResolvedValue(
-      new Blob(["mock pdf content"], { type: "application/pdf" })
-    );
+    (apiService.getPdfBlob as Mock).mockResolvedValue(new Blob(["mock pdf content"], { type: "application/pdf" }));
 
     // Reset AbortController to default
     global.AbortController = class MockAbortController {
@@ -320,10 +302,7 @@ describe("PDFViewer", () => {
       render(<PDFViewer {...defaultProps} />);
 
       await waitFor(() => {
-        expect(logger.error).toHaveBeenCalledWith(
-          "PDF load error",
-          expect.objectContaining({ error: expect.any(String) })
-        );
+        expect(logger.error).toHaveBeenCalledWith("PDF load error", expect.objectContaining({ error: expect.any(String) }));
       });
     });
   });

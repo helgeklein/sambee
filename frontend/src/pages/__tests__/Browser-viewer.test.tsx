@@ -7,12 +7,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
-import {
-  type ApiMock,
-  createMarkdownViewMock,
-  createSettingsDialogMock,
-  setupSuccessfulApiMocks,
-} from "../../test/helpers";
+import { type ApiMock, createMarkdownViewMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
 import { FileType } from "../../types";
 import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
 

@@ -102,10 +102,7 @@ global.URL.revokeObjectURL = vi.fn();
 describe("Browser - PDF Viewer Integration", () => {
   const renderBrowser = (initialPath = "/browse/test-server") => {
     return render(
-      <MemoryRouter
-        initialEntries={[initialPath]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
+      <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/browse/:connectionId/*" element={<Browser />} />
           <Route path="/browse" element={<Browser />} />
@@ -137,9 +134,7 @@ describe("Browser - PDF Viewer Integration", () => {
     ]);
 
     // Mock PDF blob response
-    mockedApi.getPdfBlob.mockResolvedValue(
-      new Blob(["mock pdf content"], { type: "application/pdf" })
-    );
+    mockedApi.getPdfBlob.mockResolvedValue(new Blob(["mock pdf content"], { type: "application/pdf" }));
 
     // Mock download URL
     mockedApi.getDownloadUrl.mockReturnValue("/api/viewer/test-server/download?path=/document.pdf");

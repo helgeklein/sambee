@@ -113,9 +113,7 @@ describe("AdminPanel Component", () => {
 
   it("shows loading state while fetching connections", async () => {
     vi.mocked(api.getCurrentUser).mockResolvedValueOnce(mockAdminUser);
-    vi.mocked(api.getConnections).mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve(mockConnections), 100))
-    );
+    vi.mocked(api.getConnections).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(mockConnections), 100)));
 
     render(<AdminPanel />);
 
@@ -178,9 +176,7 @@ describe("AdminPanel Component", () => {
 
   it("handles connection deletion", async () => {
     vi.mocked(api.getCurrentUser).mockResolvedValueOnce(mockAdminUser);
-    vi.mocked(api.getConnections)
-      .mockResolvedValueOnce(mockConnections)
-      .mockResolvedValueOnce([mockConnections[1]]); // After deletion
+    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections).mockResolvedValueOnce([mockConnections[1]]); // After deletion
     vi.mocked(api.deleteConnection).mockResolvedValueOnce(undefined);
 
     const user = userEvent.setup();

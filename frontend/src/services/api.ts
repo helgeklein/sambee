@@ -1,12 +1,5 @@
 import axios, { type AxiosError, type AxiosInstance } from "axios";
-import type {
-  AuthToken,
-  Connection,
-  ConnectionCreate,
-  DirectoryListing,
-  FileInfo,
-  User,
-} from "../types";
+import type { AuthToken, Connection, ConnectionCreate, DirectoryListing, FileInfo, User } from "../types";
 import { logger } from "./logger";
 
 class ApiService {
@@ -47,15 +40,12 @@ class ApiService {
         // Extract request ID from response headers
         const requestId = logger.extractRequestId(response.headers as Record<string, string>);
 
-        logger.debug(
-          `API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`,
-          {
-            status: response.status,
-            requestId,
-            method: response.config.method,
-            url: response.config.url,
-          }
-        );
+        logger.debug(`API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, {
+          status: response.status,
+          requestId,
+          method: response.config.method,
+          url: response.config.url,
+        });
 
         return response;
       },
@@ -64,9 +54,7 @@ class ApiService {
           return Promise.reject(error);
         }
 
-        const requestId = logger.extractRequestId(
-          error.response?.headers as Record<string, string>
-        );
+        const requestId = logger.extractRequestId(error.response?.headers as Record<string, string>);
 
         // Log the error with context
         logger.error("API request failed", {
@@ -136,14 +124,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateConnection(
-    connectionId: string,
-    connection: Partial<ConnectionCreate>
-  ): Promise<Connection> {
-    const response = await this.api.put<Connection>(
-      `/admin/connections/${connectionId}`,
-      connection
-    );
+  async updateConnection(connectionId: string, connection: Partial<ConnectionCreate>): Promise<Connection> {
+    const response = await this.api.put<Connection>(`/admin/connections/${connectionId}`, connection);
     return response.data;
   }
 
@@ -181,9 +163,7 @@ class ApiService {
   getDownloadUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");
     const baseUrl = import.meta.env.VITE_API_URL || "/api";
-    return `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(
-      path
-    )}&token=${token}`;
+    return `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(path)}&token=${token}`;
   }
 
   async getFileContent(connectionId: string, path: string): Promise<string> {
@@ -202,11 +182,7 @@ class ApiService {
    * Fetch image as blob with authentication headers.
    * Returns blob data that can be used to create object URLs.
    */
-  async getImageBlob(
-    connectionId: string,
-    path: string,
-    options: { signal?: AbortSignal } = {}
-  ): Promise<Blob> {
+  async getImageBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
     try {
       const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
         params: { path },
@@ -270,11 +246,7 @@ class ApiService {
    * Fetch PDF as blob with authentication headers.
    * Returns blob data that can be used to create object URLs for react-pdf.
    */
-  async getPdfBlob(
-    connectionId: string,
-    path: string,
-    options: { signal?: AbortSignal } = {}
-  ): Promise<Blob> {
+  async getPdfBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
     try {
       const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
         params: { path },

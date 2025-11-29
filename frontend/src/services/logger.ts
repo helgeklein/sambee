@@ -40,8 +40,7 @@ class Logger {
       import.meta.env.VITEST === true ||
       (typeof process !== "undefined" && process.env?.VITEST === "true") ||
       // Alternative: check if vitest globals are available
-      (typeof globalThis !== "undefined" &&
-        ("describe" in globalThis || "it" in globalThis || "test" in globalThis));
+      (typeof globalThis !== "undefined" && ("describe" in globalThis || "it" in globalThis || "test" in globalThis));
     this.minLevel = this.isDevelopment ? LogLevel.DEBUG : LogLevel.INFO;
   }
 
@@ -130,23 +129,13 @@ class Logger {
 
     switch (level) {
       case LogLevel.DEBUG:
-        console.debug(
-          `%c${entry.timestamp} DEBUG`,
-          "color: gray",
-          fullMessage,
-          entry.context || ""
-        );
+        console.debug(`%c${entry.timestamp} DEBUG`, "color: gray", fullMessage, entry.context || "");
         break;
       case LogLevel.INFO:
         console.info(`%c${entry.timestamp} INFO`, "color: blue", fullMessage, entry.context || "");
         break;
       case LogLevel.WARN:
-        console.warn(
-          `%c${entry.timestamp} WARN`,
-          "color: orange",
-          fullMessage,
-          entry.context || ""
-        );
+        console.warn(`%c${entry.timestamp} WARN`, "color: orange", fullMessage, entry.context || "");
         break;
       case LogLevel.ERROR:
         console.error(`%c${entry.timestamp} ERROR`, "color: red", fullMessage, entry.context || "");
@@ -209,7 +198,6 @@ export const logger = new Logger();
 export const debug = (message: string, context?: LogContext) => logger.debug(message, context);
 export const info = (message: string, context?: LogContext) => logger.info(message, context);
 export const warn = (message: string, context?: LogContext) => logger.warn(message, context);
-export const error = (message: string, context?: LogContext, err?: Error) =>
-  logger.error(message, context, err);
+export const error = (message: string, context?: LogContext, err?: Error) => logger.error(message, context, err);
 
 export default logger;

@@ -71,10 +71,7 @@ class ErrorBoundary extends Component<Props, State> {
               An unexpected error occurred. The error has been logged.
             </Typography>
             {this.state.error && (
-              <Typography
-                variant="body2"
-                sx={{ mt: 2, fontFamily: "monospace", fontSize: "0.875rem" }}
-              >
+              <Typography variant="body2" sx={{ mt: 2, fontFamily: "monospace", fontSize: "0.875rem" }}>
                 {this.state.error.message}
               </Typography>
             )}

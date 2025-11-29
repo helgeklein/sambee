@@ -25,12 +25,7 @@ interface ConnectionDialogProps {
   connection?: Connection | null;
 }
 
-const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
-  open,
-  onClose,
-  onSave,
-  connection,
-}) => {
+const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSave, connection }) => {
   const [formData, setFormData] = useState<ConnectionCreate>({
     name: "",
     type: "smb",
@@ -141,9 +136,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
         setTestResult(result as { status: "success" | "error"; message: string });
       }
     } catch (error: unknown) {
-      const message = isApiError(error)
-        ? error.response?.data?.detail || "Failed to test connection"
-        : "Failed to test connection";
+      const message = isApiError(error) ? error.response?.data?.detail || "Failed to test connection" : "Failed to test connection";
       setTestResult({
         status: "error",
         message,
@@ -165,12 +158,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
         const updateData: Partial<ConnectionCreate> = {};
         if (formData.name !== connection.name) updateData.name = formData.name;
         if (formData.host !== connection.host) updateData.host = formData.host;
-        if (formData.share_name !== connection.share_name)
-          updateData.share_name = formData.share_name;
+        if (formData.share_name !== connection.share_name) updateData.share_name = formData.share_name;
         if (formData.username !== connection.username) updateData.username = formData.username;
         if (formData.password.trim()) updateData.password = formData.password;
-        if (formData.path_prefix !== connection.path_prefix)
-          updateData.path_prefix = formData.path_prefix;
+        if (formData.path_prefix !== connection.path_prefix) updateData.path_prefix = formData.path_prefix;
 
         await api.updateConnection(connection.id, updateData);
       } else {
@@ -180,9 +171,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
       onSave();
       onClose();
     } catch (error: unknown) {
-      const message = isApiError(error)
-        ? error.response?.data?.detail || "Failed to save connection"
-        : "Failed to save connection";
+      const message = isApiError(error) ? error.response?.data?.detail || "Failed to save connection" : "Failed to save connection";
       setTestResult({
         status: "error",
         message,
@@ -245,9 +234,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
             value={formData.password}
             onChange={(e) => handleChange("password", e.target.value)}
             error={!!errors.password}
-            helperText={
-              errors.password || (connection ? "Leave blank to keep existing password" : "")
-            }
+            helperText={errors.password || (connection ? "Leave blank to keep existing password" : "")}
             fullWidth
             required={!connection}
             InputProps={{

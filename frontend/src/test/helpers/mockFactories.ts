@@ -6,12 +6,7 @@
 import type { Mock } from "vitest";
 import { vi } from "vitest";
 import type { Connection, DirectoryListing, User } from "../../types";
-import {
-  mockConnections,
-  mockDirectoryListing,
-  mockEmptyDirectory,
-  mockNestedDirectory,
-} from "../fixtures";
+import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDirectory } from "../fixtures";
 
 /**
  * API Mock Factory Interface
@@ -42,9 +37,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
     success: true,
     message: "Connection successful",
   });
-  api.createConnection.mockImplementation((data: Partial<Connection>) =>
-    Promise.resolve({ id: "new-conn", ...data } as Connection)
-  );
+  api.createConnection.mockImplementation((data: Partial<Connection>) => Promise.resolve({ id: "new-conn", ...data } as Connection));
   api.updateConnection.mockImplementation((_id: string, data: Partial<Connection>) =>
     Promise.resolve({ id: "conn-1", ...data } as Connection)
   );
@@ -169,10 +162,7 @@ export function createMockApi(): ApiMock {
  * Setup connection test mocks
  * Scenario: Testing connection functionality
  */
-export function setupConnectionTestMocks(
-  api: ApiMock,
-  options: { success?: boolean; message?: string } = {}
-): void {
+export function setupConnectionTestMocks(api: ApiMock, options: { success?: boolean; message?: string } = {}): void {
   const { success = true, message = "Connection successful" } = options;
 
   api.testConnection.mockResolvedValue({
@@ -185,10 +175,7 @@ export function setupConnectionTestMocks(
  * Setup directory listing by path
  * Helper for creating custom navigation scenarios
  */
-export function setupDirectoryListingByPath(
-  api: ApiMock,
-  pathMap: Record<string, DirectoryListing>
-): void {
+export function setupDirectoryListingByPath(api: ApiMock, pathMap: Record<string, DirectoryListing>): void {
   api.listDirectory.mockImplementation((_connectionId: string, path: string) => {
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
     return Promise.resolve(pathMap[normalizedPath] || mockEmptyDirectory);

@@ -215,9 +215,7 @@ describe("PDFControls", () => {
     });
 
     it("shows match counter when matches found", () => {
-      render(
-        <PDFControls {...defaultProps} searchText="test" searchMatches={5} currentMatch={2} />
-      );
+      render(<PDFControls {...defaultProps} searchText="test" searchMatches={5} currentMatch={2} />);
 
       const searchButton = screen.getByLabelText("Search");
       fireEvent.click(searchButton);
@@ -236,9 +234,7 @@ describe("PDFControls", () => {
     });
 
     it("calls onSearchNext when next match button clicked", () => {
-      render(
-        <PDFControls {...defaultProps} searchText="test" searchMatches={5} currentMatch={2} />
-      );
+      render(<PDFControls {...defaultProps} searchText="test" searchMatches={5} currentMatch={2} />);
 
       const searchButton = screen.getByLabelText("Search");
       fireEvent.click(searchButton);
@@ -250,9 +246,7 @@ describe("PDFControls", () => {
     });
 
     it("calls onSearchPrevious when previous match button clicked", () => {
-      render(
-        <PDFControls {...defaultProps} searchText="test" searchMatches={5} currentMatch={2} />
-      );
+      render(<PDFControls {...defaultProps} searchText="test" searchMatches={5} currentMatch={2} />);
 
       const searchButton = screen.getByLabelText("Search");
       fireEvent.click(searchButton);
