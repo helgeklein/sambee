@@ -16,7 +16,7 @@ Important Notes:
       * CMYK black (0,0,0,100) → RGB(55,52,53), not RGB(0,0,0)
 
 Prerequisites:
-    - Test images must be generated first: ./scripts/setup-test-images.sh
+    - Test images must be generated first: ./scripts/setup-test-images
     - ImageMagick with ICC profile support (libgs-common)
     - libvips with colorspace conversion support
 
@@ -53,7 +53,7 @@ def setup_test_images():
     """Generate test images before running tests."""
     if not IMAGES_DIR.exists() or not any(IMAGES_DIR.rglob("*.psd")):
         result = subprocess.run(
-            ["./scripts/setup-test-images.sh"],
+            ["./scripts/setup-test-images"],
             cwd=Path(__file__).parent.parent.parent,
             capture_output=True,
             text=True,
@@ -66,9 +66,7 @@ def setup_test_images():
 def manifest() -> dict[str, Any]:
     """Load test image manifest."""
     if not MANIFEST_FILE.exists():
-        pytest.skip(
-            "Test manifest not found. Run ./scripts/setup-test-images.sh first."
-        )
+        pytest.skip("Test manifest not found. Run ./scripts/setup-test-images first.")
 
     with open(MANIFEST_FILE) as f:
         return json.load(f)
@@ -80,7 +78,7 @@ def load_test_image(relative_path: str) -> bytes:
     if not image_path.exists():
         pytest.skip(
             f"Test image not found: {relative_path}. "
-            "Run ./scripts/setup-test-images.sh first."
+            "Run ./scripts/setup-test-images first."
         )
     return image_path.read_bytes()
 

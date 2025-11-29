@@ -396,9 +396,7 @@ describe("Browser Component - Interactions", () => {
 
       renderBrowser();
 
-      expect(
-        await screen.findByText(/Access denied. Please contact an administrator/i)
-      ).toBeInTheDocument();
+      expect(await screen.findByText(/Access denied. Please contact an administrator/i)).toBeInTheDocument();
     });
 
     it("handles connection not found (404)", async () => {
@@ -424,9 +422,7 @@ describe("Browser Component - Interactions", () => {
 
       renderBrowser("/browse/test-server-1");
 
-      expect(
-        await screen.findByText(/Failed to load directory contents. Please try again/i)
-      ).toBeInTheDocument();
+      expect(await screen.findByText(/Failed to load directory contents. Please try again/i)).toBeInTheDocument();
     });
   });
 });

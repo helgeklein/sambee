@@ -28,9 +28,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def read_file(
-        self, path: str, chunk_size: int = 8192
-    ) -> AsyncIterator[bytes]:
+    async def read_file(self, path: str, chunk_size: int = 8192) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""
         pass
 

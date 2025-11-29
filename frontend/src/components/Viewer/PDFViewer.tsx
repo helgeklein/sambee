@@ -396,9 +396,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           const matchText = match[0];
 
           // Find which text item contains this match
-          const containingItem = items.find(
-            (item) => matchPosition >= item.startIndex && matchPosition < item.endIndex
-          );
+          const containingItem = items.find((item) => matchPosition >= item.startIndex && matchPosition < item.endIndex);
 
           if (containingItem) {
             matches.push({
@@ -537,8 +535,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       // Render each match on this page
       for (const match of pageMatches) {
         const item = match.item;
-        const isCurrentMatch =
-          currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
+        const isCurrentMatch = currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
 
         // Find the corresponding span by text content
         const candidates = spansByText.get(item.text);
@@ -637,9 +634,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     setSearchPanelOpen(true);
     // Focus search input after a brief delay to allow panel to render
     setTimeout(() => {
-      const searchInput = document.querySelector(
-        'input[placeholder="Search..."]'
-      ) as HTMLInputElement;
+      const searchInput = document.querySelector('input[placeholder="Search..."]') as HTMLInputElement;
       if (searchInput) {
         searchInput.focus();
         searchInput.select();
@@ -1018,10 +1013,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   </Box>
                 }
               >
-                <div
-                  style={{ position: "relative", display: "inline-block" }}
-                  data-page-number={currentPage}
-                >
+                <div style={{ position: "relative", display: "inline-block" }} data-page-number={currentPage}>
                   <Page
                     pageNumber={currentPage}
                     scale={pageScale || undefined}
@@ -1053,12 +1045,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
         </Box>
       </Box>
-      <KeyboardShortcutsHelp
-        open={showHelp}
-        onClose={() => setShowHelp(false)}
-        shortcuts={pdfShortcuts}
-        title="PDF Viewer Shortcuts"
-      />
+      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={pdfShortcuts} title="PDF Viewer Shortcuts" />
     </Dialog>
   );
 };

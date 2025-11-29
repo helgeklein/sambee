@@ -59,9 +59,7 @@ class ContextAdapter(logging.LoggerAdapter[logging.Logger]):
     Adds request_id and user to all log messages when available.
     """
 
-    def process(
-        self, msg: str, kwargs: MutableMapping[str, Any]
-    ) -> tuple[str, MutableMapping[str, Any]]:
+    def process(self, msg: str, kwargs: MutableMapping[str, Any]) -> tuple[str, MutableMapping[str, Any]]:
         """Add context information to log message."""
         request_id = get_request_id()
         user = get_user()

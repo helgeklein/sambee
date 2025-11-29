@@ -1,21 +1,19 @@
 import os
 from typing import Any, Generator
 
-from app.core.config import settings
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
+
+from app.core.config import settings
 
 # Database URL
 DATABASE_URL = f"sqlite:///{settings.data_dir}/sambee.db"
 
 # Detect if we're in a testing/CI environment
 # In these environments, use StaticPool or NullPool to avoid threading issues
-is_testing = (
-    os.getenv("PYTEST_CURRENT_TEST") is not None
-    or os.getenv("GITHUB_ACTIONS") is not None
-)
+is_testing = os.getenv("PYTEST_CURRENT_TEST") is not None or os.getenv("GITHUB_ACTIONS") is not None
 
 # Create engine with appropriate pooling strategy
 if is_testing:

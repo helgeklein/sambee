@@ -4,13 +4,13 @@
 
 ```bash
 # All logs with status
-/workspace/scripts/logs.sh
+/workspace/scripts/logs
 
 # Follow in real-time
-/workspace/scripts/logs.sh -f
+/workspace/scripts/logs -f
 
 # More lines
-/workspace/scripts/logs.sh -n 200
+/workspace/scripts/logs -n 200
 
 # Individual logs
 tail -f /tmp/backend.log
@@ -37,13 +37,13 @@ ps aux | grep -E "uvicorn|vite" | grep -v grep
 
 ```bash
 # Start both
-/workspace/scripts/dev-start.sh
+/workspace/scripts/dev-start
 
 # Stop both
-/workspace/scripts/dev-stop.sh
+/workspace/scripts/dev-stop
 
 # Restart
-/workspace/scripts/dev-stop.sh && /workspace/scripts/dev-start.sh
+/workspace/scripts/dev-stop && /workspace/scripts/dev-start
 
 # Individual control
 pkill -f uvicorn    # Stop backend
@@ -73,7 +73,9 @@ grep -r "search term" /tmp/*.log
 
 ```bash
 # Rotate logs (when >1MB)
-/workspace/scripts/rotate-logs.sh
+```bash
+/workspace/scripts/rotate-logs
+```
 
 # Clear logs
 > /tmp/backend.log
@@ -93,7 +95,7 @@ ls -lh /tmp/logs-archive/
 
 ## 🆘 Emergency Checklist
 
-1. ✅ Check logs: `/workspace/scripts/logs.sh`
+1. ✅ Check logs: `/workspace/scripts/logs`
 2. ✅ Verify processes: `pgrep -f "uvicorn|vite"`
 3. ✅ Check ports: `lsof -i :3000,8000`
 4. ✅ Look for errors: `grep -i error /tmp/*.log`

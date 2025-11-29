@@ -1,8 +1,4 @@
-import {
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  CheckCircle as TestIcon,
-} from "@mui/icons-material";
+import { Delete as DeleteIcon, Edit as EditIcon, CheckCircle as TestIcon } from "@mui/icons-material";
 import {
   Box,
   Chip,
@@ -28,13 +24,7 @@ interface ConnectionListProps {
   loading?: boolean;
 }
 
-const ConnectionList: React.FC<ConnectionListProps> = ({
-  connections,
-  onEdit,
-  onDelete,
-  onTest,
-  loading = false,
-}) => {
+const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, onDelete, onTest, loading = false }) => {
   if (loading) {
     return (
       <Box sx={{ p: 4, textAlign: "center" }}>

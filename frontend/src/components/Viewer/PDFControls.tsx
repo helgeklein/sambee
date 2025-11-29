@@ -1,12 +1,4 @@
-import {
-  ArrowBack,
-  ArrowForward,
-  Close,
-  Download,
-  Search,
-  ZoomIn,
-  ZoomOut,
-} from "@mui/icons-material";
+import { ArrowBack, ArrowForward, Close, Download, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useState } from "react";
 
@@ -122,9 +114,7 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
         flexDirection: isMobile && showSearch ? "column" : "row",
         alignItems: isMobile && showSearch ? "stretch" : "center",
         gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
-        paddingTop: isMobile
-          ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))`
-          : theme.spacing(2),
+        paddingTop: isMobile ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))` : theme.spacing(2),
         paddingBottom: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingLeft: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingRight: isMobile ? theme.spacing(1) : theme.spacing(2),
@@ -225,23 +215,11 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
         {/* Zoom controls */}
         {!isMobile && (
           <Box sx={{ display: "flex", gap: 0 }}>
-            <IconButton
-              color="inherit"
-              onClick={handleZoomOut}
-              title="Zoom out (-)"
-              aria-label="Zoom out"
-              size="medium"
-            >
+            <IconButton color="inherit" onClick={handleZoomOut} title="Zoom out (-)" aria-label="Zoom out" size="medium">
               <ZoomOut />
             </IconButton>
 
-            <IconButton
-              color="inherit"
-              onClick={handleZoomIn}
-              title="Zoom in (+)"
-              aria-label="Zoom in"
-              size="medium"
-            >
+            <IconButton color="inherit" onClick={handleZoomIn} title="Zoom in (+)" aria-label="Zoom in" size="medium">
               <ZoomIn />
             </IconButton>
           </Box>
@@ -260,25 +238,13 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
 
         {/* Download button */}
         {!isMobile && (
-          <IconButton
-            color="inherit"
-            onClick={onDownload}
-            title="Download"
-            aria-label="Download"
-            size="medium"
-          >
+          <IconButton color="inherit" onClick={onDownload} title="Download" aria-label="Download" size="medium">
             <Download />
           </IconButton>
         )}
 
         {/* Close button */}
-        <IconButton
-          color="inherit"
-          onClick={onClose}
-          title="Close (Esc)"
-          aria-label="Close"
-          size={isMobile ? "small" : "medium"}
-        >
+        <IconButton color="inherit" onClick={onClose} title="Close (Esc)" aria-label="Close" size={isMobile ? "small" : "medium"}>
           <Close fontSize={isMobile ? "small" : "medium"} />
         </IconButton>
       </Box>

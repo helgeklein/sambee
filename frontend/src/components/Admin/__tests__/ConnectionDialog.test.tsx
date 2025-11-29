@@ -53,14 +53,7 @@ describe("ConnectionDialog Component", () => {
   });
 
   it("renders form with existing connection data in edit mode", () => {
-    render(
-      <ConnectionDialog
-        open={true}
-        onClose={mockOnClose}
-        onSave={mockOnSave}
-        connection={mockConnection}
-      />
-    );
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
 
     expect(screen.getByRole("heading", { name: /edit connection/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/connection name/i)).toHaveValue("Test Server");
@@ -145,14 +138,7 @@ describe("ConnectionDialog Component", () => {
     vi.mocked(api.updateConnection).mockResolvedValueOnce(mockConnection);
 
     const user = userEvent.setup();
-    render(
-      <ConnectionDialog
-        open={true}
-        onClose={mockOnClose}
-        onSave={mockOnSave}
-        connection={mockConnection}
-      />
-    );
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
 
     // Change the name - using paste() is faster than type()
     const nameField = screen.getByLabelText(/connection name/i);
@@ -232,14 +218,7 @@ describe("ConnectionDialog Component", () => {
     });
 
     const user = userEvent.setup();
-    render(
-      <ConnectionDialog
-        open={true}
-        onClose={mockOnClose}
-        onSave={mockOnSave}
-        connection={mockConnection}
-      />
-    );
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
 
     // Click test connection button
     const testButton = screen.getByRole("button", { name: /test connection/i });

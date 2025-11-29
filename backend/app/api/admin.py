@@ -2,6 +2,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import List
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlmodel import Session, select
+
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, encrypt_password, get_current_admin_user
 from app.db.database import get_session
@@ -13,8 +16,6 @@ from app.models.connection import (
 )
 from app.models.user import User
 from app.storage.smb import SMBBackend
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlmodel import Session, select
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -99,9 +100,7 @@ async def update_connection(
     """Update an existing connection"""
     connection = session.get(Connection, connection_id)
     if not connection:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     # Update fields if provided
     update_dict = connection_data.model_dump(exclude_unset=True)
@@ -118,9 +117,7 @@ async def update_connection(
     test_password = update_dict.get("password")
     test_port = update_dict.get("port", connection.port)
 
-    if any(
-        k in update_dict for k in ["host", "share_name", "username", "password", "port"]
-    ):
+    if any(k in update_dict for k in ["host", "share_name", "username", "password", "port"]):
         if not test_share:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -129,11 +126,7 @@ async def update_connection(
 
         try:
             # Use new password if provided, otherwise decrypt existing
-            password_to_test = (
-                test_password
-                if test_password
-                else decrypt_password(connection.password_encrypted)
-            )
+            password_to_test = test_password if test_password else decrypt_password(connection.password_encrypted)
 
             backend = SMBBackend(
                 host=test_host,
@@ -171,9 +164,7 @@ async def delete_connection(
     """Delete a connection"""
     connection = session.get(Connection, connection_id)
     if not connection:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     session.delete(connection)
     session.commit()
@@ -190,9 +181,7 @@ async def test_connection(
     """Test a connection"""
     connection = session.get(Connection, connection_id)
     if not connection:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     if not connection.share_name:
         raise HTTPException(

@@ -302,9 +302,7 @@ FILE_TYPE_REGISTRY: list[FileTypeDefinition] = [
     ),
     FileTypeDefinition(
         extensions=(".docx",),
-        mime_types=(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ),
+        mime_types=("application/vnd.openxmlformats-officedocument.wordprocessingml.document",),
         category=FileCategory.DOCUMENT,
         description="Word Document",
     ),
@@ -489,7 +487,6 @@ def get_browser_native_image_formats() -> set[str]:
     return {
         ext
         for file_type in FILE_TYPE_REGISTRY
-        if file_type.category == FileCategory.IMAGE
-        and not file_type.requires_conversion
+        if file_type.category == FileCategory.IMAGE and not file_type.requires_conversion
         for ext in file_type.extensions
     }

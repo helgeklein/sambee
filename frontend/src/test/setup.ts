@@ -19,10 +19,7 @@ process.stderr.write = (chunk: any, encoding?: any, callback?: any): boolean => 
 // biome-ignore lint/suspicious/noExplicitAny: Overriding console.error
 console.error = (...args: any[]) => {
   const message = args[0];
-  if (
-    typeof message === "string" &&
-    (message.includes("Warning: An update to") || message.includes("not wrapped in act(...)"))
-  ) {
+  if (typeof message === "string" && (message.includes("Warning: An update to") || message.includes("not wrapped in act(...)"))) {
     return;
   }
   originalConsoleError(...args);

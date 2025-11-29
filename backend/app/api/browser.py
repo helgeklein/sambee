@@ -1,6 +1,9 @@
 import uuid
 from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel import Session
+
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user
 from app.db.database import get_session
@@ -8,8 +11,6 @@ from app.models.connection import Connection
 from app.models.file import DirectoryListing, FileInfo
 from app.models.user import User
 from app.storage.smb import SMBBackend
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -29,9 +30,7 @@ async def list_directory(
     connection = session.get(Connection, connection_id)
     if not connection:
         logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
@@ -53,9 +52,7 @@ async def list_directory(
         listing = await backend.list_directory(path or "")
         await backend.disconnect()
 
-        logger.info(
-            f"Successfully listed directory: connection_id={connection_id}, path='{path}', items={len(listing.items)}"
-        )
+        logger.info(f"Successfully listed directory: connection_id={connection_id}, path='{path}', items={len(listing.items)}")
         return listing
 
     except Exception as e:
@@ -87,9 +84,7 @@ async def get_file_info(
     connection = session.get(Connection, connection_id)
     if not connection:
         logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
@@ -111,9 +106,7 @@ async def get_file_info(
         file_info = await backend.get_file_info(path)
         await backend.disconnect()
 
-        logger.info(
-            f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}"
-        )
+        logger.info(f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}")
         return file_info
 
     except Exception as e:

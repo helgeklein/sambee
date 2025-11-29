@@ -1,12 +1,4 @@
-import {
-  ArrowBack,
-  ArrowForward,
-  Close,
-  RotateLeft,
-  RotateRight,
-  ZoomIn,
-  ZoomOut,
-} from "@mui/icons-material";
+import { ArrowBack, ArrowForward, Close, RotateLeft, RotateRight, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, Typography, useMediaQuery, useTheme } from "@mui/material";
 import type React from "react";
 
@@ -54,9 +46,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
         display: "flex",
         alignItems: "center",
         gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
-        paddingTop: isMobile
-          ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))`
-          : theme.spacing(2),
+        paddingTop: isMobile ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))` : theme.spacing(2),
         paddingBottom: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingLeft: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingRight: isMobile ? theme.spacing(1) : theme.spacing(2),
@@ -122,36 +112,18 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
       {/* Zoom controls - hide zoom out on mobile to save space */}
       {!isMobile && (
         <Box sx={{ display: "flex", gap: 0 }}>
-          <IconButton
-            color="inherit"
-            onClick={() => onScale(scale * 0.8)}
-            title="Zoom out (-)"
-            aria-label="Zoom out"
-            size="medium"
-          >
+          <IconButton color="inherit" onClick={() => onScale(scale * 0.8)} title="Zoom out (-)" aria-label="Zoom out" size="medium">
             <ZoomOut />
           </IconButton>
 
-          <IconButton
-            color="inherit"
-            onClick={() => onScale(scale * 1.2)}
-            title="Zoom in (+)"
-            aria-label="Zoom in"
-            size="medium"
-          >
+          <IconButton color="inherit" onClick={() => onScale(scale * 1.2)} title="Zoom in (+)" aria-label="Zoom in" size="medium">
             <ZoomIn />
           </IconButton>
         </Box>
       )}
 
       {isMobile && (
-        <IconButton
-          color="inherit"
-          onClick={() => onScale(scale * 1.2)}
-          title="Zoom in (+)"
-          aria-label="Zoom in"
-          size="small"
-        >
+        <IconButton color="inherit" onClick={() => onScale(scale * 1.2)} title="Zoom in (+)" aria-label="Zoom in" size="small">
           <ZoomIn fontSize="small" />
         </IconButton>
       )}
@@ -180,13 +152,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
       </IconButton>
 
       {/* Close button */}
-      <IconButton
-        color="inherit"
-        onClick={onClose}
-        title="Close (Escape)"
-        aria-label="Close"
-        size={isMobile ? "small" : "medium"}
-      >
+      <IconButton color="inherit" onClick={onClose} title="Close (Escape)" aria-label="Close" size={isMobile ? "small" : "medium"}>
         <Close fontSize={isMobile ? "small" : "medium"} />
       </IconButton>
     </Box>

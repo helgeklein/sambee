@@ -6,8 +6,8 @@ Sambee uses **VS Code Auto-Run Tasks** as the single, reliable startup method:
 
 ### VS Code Auto-Run Tasks (Primary & Only)
 When you open the workspace **inside the container**, VS Code automatically runs:
-- **Backend: Start Dev Server** task → `/workspace/scripts/start-backend.sh`
-- **Frontend: Start Dev Server** task → `/workspace/scripts/start-frontend.sh`
+- **Backend: Start Dev Server** task → `/workspace/scripts/start-backend`
+- **Frontend: Start Dev Server** task → `/workspace/scripts/start-frontend`
 
 Both tasks have:
 - `"runOptions": { "runOn": "folderOpen" }` - Auto-start on folder open
@@ -53,10 +53,10 @@ tail -f /tmp/frontend.log
 
 ```bash
 # Start both servers
-/workspace/scripts/dev-start.sh
+/workspace/scripts/dev-start
 
 # Stop both servers
-/workspace/scripts/dev-stop.sh
+/workspace/scripts/dev-stop
 
 # Or run VS Code tasks:
 # - Press Ctrl+Shift+P
@@ -129,11 +129,11 @@ The wrapper scripts detect this and show a friendly message instead of erroring.
 
 2. **If tasks didn't auto-run:**
    - Reload the window: Ctrl+Shift+P → "Developer: Reload Window"
-   - Or manually run: `/workspace/scripts/dev-start.sh`
+   - Or manually run: `/workspace/scripts/dev-start`
 
 3. **If inside container but tasks show skip message:**
    - The container detection may have failed
-   - Manually start: `/workspace/scripts/dev-start.sh`
+   - Manually start: `/workspace/scripts/dev-start`
 
 ## Why Only One Startup Method?
 

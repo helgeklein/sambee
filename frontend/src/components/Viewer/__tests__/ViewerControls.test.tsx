@@ -120,14 +120,7 @@ describe("ViewerControls", () => {
     const mockClose = vi.fn();
     const mockDownload = vi.fn();
 
-    render(
-      <ViewerControls
-        filename="test.pdf"
-        config={{ download: true }}
-        onClose={mockClose}
-        onDownload={mockDownload}
-      />
-    );
+    render(<ViewerControls filename="test.pdf" config={{ download: true }} onClose={mockClose} onDownload={mockDownload} />);
 
     expect(screen.getByLabelText("Download")).toBeInTheDocument();
   });

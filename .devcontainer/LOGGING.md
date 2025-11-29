@@ -52,7 +52,7 @@ Connecting to SMB: //fileserver:445/shared (user: bob)
 ### 3. Improved Startup Scripts
 
 **Files:** 
-- `/workspace/scripts/dev-start.sh`
+- `/workspace/scripts/dev-start`
 - `/workspace/.devcontainer/post-start.sh`
 
 **Features:**
@@ -69,7 +69,7 @@ Connecting to SMB: //fileserver:445/shared (user: bob)
 ```
 [2025-11-05 10:08:25] ═══════════════════════════════════════
 [2025-11-05 10:08:25] 🚀 Starting Sambee development servers...
-[2025-11-05 10:08:25]    Script: /workspace/scripts/dev-start.sh
+[2025-11-05 10:08:25]    Script: /workspace/scripts/dev-start
 [2025-11-05 10:08:25]    PWD: /workspace
 [2025-11-05 10:08:25]    User: vscode
 [2025-11-05 10:08:25] ═══════════════════════════════════════
@@ -83,7 +83,7 @@ Connecting to SMB: //fileserver:445/shared (user: bob)
 
 ### 4. Unified Log Viewer
 
-**File:** `/workspace/scripts/logs.sh`
+**File:** `/workspace/scripts/logs`
 
 **Features:**
 - ✅ Shows all logs in one view
@@ -96,16 +96,16 @@ Connecting to SMB: //fileserver:445/shared (user: bob)
 **Usage:**
 ```bash
 # View all logs (last 50 lines each)
-/workspace/scripts/logs.sh
+/workspace/scripts/logs
 
 # View last 100 lines
-/workspace/scripts/logs.sh -n 100
+/workspace/scripts/logs -n 100
 
 # Follow logs in real-time
-/workspace/scripts/logs.sh -f
+/workspace/scripts/logs -f
 
 # Show help
-/workspace/scripts/logs.sh -h
+/workspace/scripts/logs -h
 ```
 
 **Output:**
@@ -141,7 +141,7 @@ Size: 218 | Modified: 2025-11-05 10:21:10
 
 ### 5. Log Rotation Tool
 
-**File:** `/workspace/scripts/rotate-logs.sh`
+**File:** `/workspace/scripts/rotate-logs`
 
 **Features:**
 - ✅ Archives large log files
@@ -151,7 +151,7 @@ Size: 218 | Modified: 2025-11-05 10:21:10
 
 **Usage:**
 ```bash
-/workspace/scripts/rotate-logs.sh
+/workspace/scripts/rotate-logs
 ```
 
 ### 6. Comprehensive Documentation
@@ -179,18 +179,18 @@ Size: 218 | Modified: 2025-11-05 10:21:10
 |------|---------|--------------|
 | `/tmp/backend.log` | FastAPI backend logs | Server startup, requests, errors |
 | `/tmp/frontend.log` | Vite frontend logs | Build output, HMR, errors |
-| `/tmp/dev-start.log` | Startup script logs | When dev-start.sh runs |
-| `/tmp/post-start.log` | Container lifecycle | When post-start.sh runs |
-| `/tmp/logs-archive/` | Rotated log archives | When rotate-logs.sh runs |
+| `/tmp/dev-start.log` | Startup script logs | When dev-start runs |
+| `/tmp/post-start.log` | Container lifecycle | When post-start runs |
+| `/tmp/logs-archive/` | Rotated log archives | When rotate-logs runs |
 
 ## Common Commands
 
 ```bash
 # Quick status check
-/workspace/scripts/logs.sh
+/workspace/scripts/logs
 
 # Watch logs in real-time
-/workspace/scripts/logs.sh -f
+/workspace/scripts/logs -f
 
 # View specific log
 tail -f /tmp/backend.log
@@ -203,12 +203,12 @@ pgrep -f uvicorn && echo "Backend: ✅" || echo "Backend: ❌"
 pgrep -f vite && echo "Frontend: ✅" || echo "Frontend: ❌"
 
 # Rotate large logs
-/workspace/scripts/rotate-logs.sh
+/workspace/scripts/rotate-logs
 
 # Clean restart with fresh logs
-/workspace/scripts/dev-stop.sh
+/workspace/scripts/dev-stop
 > /tmp/*.log
-/workspace/scripts/dev-start.sh
+/workspace/scripts/dev-start
 ```
 
 ## Benefits
@@ -235,7 +235,7 @@ When something goes wrong:
 
 1. **Check status:**
    ```bash
-   /workspace/scripts/logs.sh
+   /workspace/scripts/logs
    ```
 
 2. **Identify the problem:**
@@ -245,7 +245,7 @@ When something goes wrong:
 
 3. **Get more detail:**
    ```bash
-   /workspace/scripts/logs.sh -n 100
+   /workspace/scripts/logs -n 100
    # or
    tail -100 /tmp/backend.log
    ```
@@ -271,7 +271,7 @@ To verify the logging improvements work:
 
 1. **Stop servers:**
    ```bash
-   /workspace/scripts/dev-stop.sh
+   /workspace/scripts/dev-stop
    ```
 
 2. **Clear logs:**
@@ -284,12 +284,12 @@ To verify the logging improvements work:
 
 3. **Start servers:**
    ```bash
-   /workspace/scripts/dev-start.sh
+   /workspace/scripts/dev-start
    ```
 
 4. **View logs:**
    ```bash
-   /workspace/scripts/logs.sh
+   /workspace/scripts/logs
    ```
 
 You should see:

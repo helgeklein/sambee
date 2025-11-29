@@ -157,9 +157,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("handles connection deletion", async () => {
-    vi.mocked(api.getConnections)
-      .mockResolvedValueOnce(mockConnections)
-      .mockResolvedValueOnce([mockConnections[1]]); // After deletion
+    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections).mockResolvedValueOnce([mockConnections[1]]); // After deletion
     vi.mocked(api.deleteConnection).mockResolvedValueOnce(undefined);
 
     const user = userEvent.setup();
@@ -205,9 +203,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("reloads connections after editing", async () => {
-    vi.mocked(api.getConnections)
-      .mockResolvedValueOnce(mockConnections)
-      .mockResolvedValueOnce(mockConnections); // After save
+    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections).mockResolvedValueOnce(mockConnections); // After save
 
     const user = userEvent.setup();
     render(<SettingsDialog open={true} onClose={mockOnClose} />);

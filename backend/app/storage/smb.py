@@ -5,11 +5,12 @@ from pathlib import PurePosixPath
 from typing import AsyncIterator
 
 import smbclient
+from smbclient._os import FileAttributes
+
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.storage.base import StorageBackend
 from app.storage.smb_pool import get_connection_pool
 from app.utils.file_type_registry import get_mime_type
-from smbclient._os import FileAttributes
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +18,7 @@ logger = logging.getLogger(__name__)
 class SMBBackend(StorageBackend):
     """SMB storage backend using smbprotocol"""
 
-    def __init__(
-        self, host: str, share_name: str, username: str, password: str, port: int = 445
-    ):
+    def __init__(self, host: str, share_name: str, username: str, password: str, port: int = 445):
         self.host = host
         self.share_name = share_name
         self.username = username
@@ -41,9 +40,7 @@ class SMBBackend(StorageBackend):
         """
         # Connection pooling is handled transparently in operations
         # No explicit connection establishment needed
-        logger.debug(
-            f"SMB backend ready (will use pooled connection): //{self.host}:{self.port}/{self.share_name}"
-        )
+        logger.debug(f"SMB backend ready (will use pooled connection): //{self.host}:{self.port}/{self.share_name}")
 
     async def disconnect(self) -> None:
         """
@@ -53,9 +50,7 @@ class SMBBackend(StorageBackend):
         for reuse by other requests. The pool will clean up idle connections
         automatically.
         """
-        logger.debug(
-            f"SMB backend released (connection remains in pool): //{self.host}/{self.share_name}"
-        )
+        logger.debug(f"SMB backend released (connection remains in pool): //{self.host}/{self.share_name}")
 
     def _build_smb_path(self, path: str) -> str:
         """Build full SMB path from relative path"""
@@ -103,10 +98,7 @@ class SMBBackend(StorageBackend):
                             # OPTIMIZATION: Check directory flag directly from file_attributes
                             # to avoid calling is_dir() which might call is_symlink() which might
                             # call stat() for reparse points (symlinks/junctions)
-                            is_dir = bool(
-                                info.file_attributes
-                                & FileAttributes.FILE_ATTRIBUTE_DIRECTORY
-                            )
+                            is_dir = bool(info.file_attributes & FileAttributes.FILE_ATTRIBUTE_DIRECTORY)
 
                             # Convert Windows FILETIME (100ns intervals since 1601) to Python datetime
                             # The smb_info already has datetime objects
@@ -166,9 +158,7 @@ class SMBBackend(StorageBackend):
             ):
                 loop = asyncio.get_event_loop()
                 # Don't pass username/password - use the registered session from pool
-                stat_info = await loop.run_in_executor(
-                    None, lambda: smbclient.stat(smb_path)
-                )
+                stat_info = await loop.run_in_executor(None, lambda: smbclient.stat(smb_path))
 
                 is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
                     smb_path
@@ -211,15 +201,11 @@ class SMBBackend(StorageBackend):
 
                 # Open file in executor
                 # Don't pass username/password - use the registered session from pool
-                file_handle = await loop.run_in_executor(
-                    None, lambda: smbclient.open_file(smb_path, mode="rb")
-                )
+                file_handle = await loop.run_in_executor(None, lambda: smbclient.open_file(smb_path, mode="rb"))
 
                 try:
                     while True:
-                        chunk = await loop.run_in_executor(
-                            None, file_handle.read, chunk_size
-                        )
+                        chunk = await loop.run_in_executor(None, file_handle.read, chunk_size)
                         if not chunk:
                             break
                         yield chunk

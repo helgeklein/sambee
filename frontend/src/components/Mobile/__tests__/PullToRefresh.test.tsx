@@ -19,9 +19,7 @@ describe("PullToRefresh", () => {
   });
 
   it("is hidden when pull distance is zero and not refreshing", () => {
-    const { container } = render(
-      <PullToRefresh pullDistance={0} isRefreshing={false} threshold={80} />
-    );
+    const { container } = render(<PullToRefresh pullDistance={0} isRefreshing={false} threshold={80} />);
     // Component should be in the DOM but with opacity 0
     const animatedDiv = container.firstChild as HTMLElement;
     expect(animatedDiv).toBeInTheDocument();

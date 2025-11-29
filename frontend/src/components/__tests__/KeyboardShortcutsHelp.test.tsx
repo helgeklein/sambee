@@ -48,14 +48,7 @@ describe("KeyboardShortcutsHelp", () => {
 
     it("should show custom title", () => {
       const shortcuts = createShortcuts();
-      render(
-        <KeyboardShortcutsHelp
-          open={true}
-          onClose={mockOnClose}
-          shortcuts={shortcuts}
-          title="PDF Viewer Shortcuts"
-        />
-      );
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} title="PDF Viewer Shortcuts" />);
 
       expect(screen.getByText("PDF Viewer Shortcuts")).toBeInTheDocument();
     });
@@ -133,9 +126,7 @@ describe("KeyboardShortcutsHelp", () => {
       render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
 
       const cells = screen.getAllByRole("cell");
-      const descriptions = cells.filter((cell) =>
-        ["Download", "Zoom in", "Zoom out"].includes(cell.textContent || "")
-      );
+      const descriptions = cells.filter((cell) => ["Download", "Zoom in", "Zoom out"].includes(cell.textContent || ""));
 
       expect(descriptions[0]).toHaveTextContent("Download");
       expect(descriptions[1]).toHaveTextContent("Zoom in");
@@ -188,9 +179,7 @@ describe("KeyboardShortcutsHelp", () => {
       const user = userEvent.setup();
       const shortcuts = createShortcuts();
 
-      const { container } = render(
-        <KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />
-      );
+      const { container } = render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
 
       // Find backdrop (the div behind the dialog)
       const backdrop = container.querySelector(".MuiBackdrop-root");

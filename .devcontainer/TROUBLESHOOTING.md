@@ -7,7 +7,7 @@ This guide helps you diagnose and fix common issues with Sambee.
 Run this command to get a complete status overview:
 
 ```bash
-/workspace/scripts/logs.sh
+/workspace/scripts/logs
 ```
 
 This shows:
@@ -137,7 +137,7 @@ cat /workspace/.devcontainer/devcontainer.json | grep -A 3 "postAttachCommand"
 
 4. **Manual fallback:**
    ```bash
-   /workspace/scripts/dev-start.sh
+   /workspace/scripts/dev-start
    ```
 
 ---
@@ -255,7 +255,7 @@ grep "← GET /api/browse" /tmp/backend.log | tail -20
 
 ```bash
 # Follow all logs in real-time
-/workspace/scripts/logs.sh -f
+/workspace/scripts/logs -f
 
 # Or follow specific logs
 tail -f /tmp/backend.log
@@ -290,7 +290,7 @@ netstat -tuln | grep -E "3000|8000"
 ### Rotate logs when they get large
 
 ```bash
-/workspace/scripts/rotate-logs.sh
+/workspace/scripts/rotate-logs
 ```
 
 This archives current logs and starts fresh files. Useful when logs exceed several MB.
@@ -299,7 +299,7 @@ This archives current logs and starts fresh files. Useful when logs exceed sever
 
 ```bash
 # Stop servers
-/workspace/scripts/dev-stop.sh
+/workspace/scripts/dev-stop
 
 # Clear logs
 > /tmp/backend.log
@@ -308,20 +308,20 @@ This archives current logs and starts fresh files. Useful when logs exceed sever
 > /tmp/post-start.log
 
 # Start servers
-/workspace/scripts/dev-start.sh
+/workspace/scripts/dev-start
 
 # View fresh logs
-/workspace/scripts/logs.sh -f
+/workspace/scripts/logs -f
 ```
 
 ### Reset database
 
 ```bash
 cd /workspace/backend
-/workspace/scripts/dev-stop.sh
+/workspace/scripts/dev-stop
 rm -f /workspace/data/sambee.db
 python -c 'from app.db.database import init_db; init_db()'
-/workspace/scripts/dev-start.sh
+/workspace/scripts/dev-start
 ```
 
 ---
@@ -393,7 +393,7 @@ If you're still stuck:
 
 1. **Gather diagnostics:**
    ```bash
-   /workspace/scripts/logs.sh -n 100 > /tmp/diagnostics.txt
+   /workspace/scripts/logs -n 100 > /tmp/diagnostics.txt
    ps aux >> /tmp/diagnostics.txt
    lsof -i :3000,8000 >> /tmp/diagnostics.txt
    ```

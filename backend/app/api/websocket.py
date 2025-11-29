@@ -3,8 +3,9 @@
 import logging
 from typing import Dict, Set
 
-from app.services.directory_monitor import get_monitor
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from app.services.directory_monitor import get_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +47,7 @@ class ConnectionManager:
                         connection_id, path = key.split(":", 1)
                         monitor = get_monitor()
                         monitor.stop_monitoring(connection_id, path)
-                        logger.info(
-                            f"Stopped SMB monitoring for {key} (last subscriber disconnected)"
-                        )
+                        logger.info(f"Stopped SMB monitoring for {key} (last subscriber disconnected)")
                     except Exception as e:
                         logger.error(
                             f"Failed to stop SMB monitoring for {key}: {e}",
@@ -57,9 +56,7 @@ class ConnectionManager:
 
         logger.info(f"WebSocket disconnected: {id(websocket)}")
 
-    async def subscribe(
-        self, websocket: WebSocket, connection_id: str, path: str
-    ) -> None:
+    async def subscribe(self, websocket: WebSocket, connection_id: str, path: str) -> None:
         """Subscribe a WebSocket to directory changes and start SMB monitoring"""
         key = f"{connection_id}:{path}"
 
@@ -80,11 +77,12 @@ class ConnectionManager:
                 # Get connection details from database
                 import uuid
 
+                from sqlmodel import Session as DBSession
+                from sqlmodel import select
+
                 from app.core.security import decrypt_password
                 from app.db.database import engine
                 from app.models.connection import Connection as SMBConnection
-                from sqlmodel import Session as DBSession
-                from sqlmodel import select
 
                 # Convert string UUID to UUID object
                 try:
@@ -94,9 +92,7 @@ class ConnectionManager:
                     return
 
                 with DBSession(engine) as session:
-                    conn = session.exec(
-                        select(SMBConnection).where(SMBConnection.id == conn_uuid)
-                    ).first()
+                    conn = session.exec(select(SMBConnection).where(SMBConnection.id == conn_uuid)).first()
 
                     if conn and conn.share_name:
                         # Start monitoring with callback to notify WebSocket clients
@@ -113,17 +109,11 @@ class ConnectionManager:
                         )
                         logger.info(f"Started SMB monitoring for {key}")
                     else:
-                        logger.warning(
-                            f"Connection {connection_id} not found or invalid"
-                        )
+                        logger.warning(f"Connection {connection_id} not found or invalid")
             except Exception as e:
-                logger.error(
-                    f"Failed to start SMB monitoring for {key}: {e}", exc_info=True
-                )
+                logger.error(f"Failed to start SMB monitoring for {key}: {e}", exc_info=True)
 
-    async def unsubscribe(
-        self, websocket: WebSocket, connection_id: str, path: str
-    ) -> None:
+    async def unsubscribe(self, websocket: WebSocket, connection_id: str, path: str) -> None:
         """Unsubscribe a WebSocket from directory changes and stop SMB monitoring if last subscriber"""
         key = f"{connection_id}:{path}"
 
@@ -141,9 +131,7 @@ class ConnectionManager:
                     monitor.stop_monitoring(connection_id, path)
                     logger.info(f"Stopped SMB monitoring for {key}")
                 except Exception as e:
-                    logger.error(
-                        f"Failed to stop SMB monitoring for {key}: {e}", exc_info=True
-                    )
+                    logger.error(f"Failed to stop SMB monitoring for {key}: {e}", exc_info=True)
 
         logger.info(f"WebSocket {id(websocket)} unsubscribed from {key}")
 
@@ -162,9 +150,7 @@ class ConnectionManager:
                             "path": path,
                         }
                     )
-                    logger.info(
-                        f"Notified WebSocket {id(websocket)} about change in {key}"
-                    )
+                    logger.info(f"Notified WebSocket {id(websocket)} about change in {key}")
                 except Exception as e:
                     logger.error(f"Failed to notify WebSocket {id(websocket)}: {e}")
                     disconnected.append(websocket)
@@ -202,9 +188,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if action == "subscribe" and connection_id:
                 await manager.subscribe(websocket, connection_id, path)
-                await websocket.send_json(
-                    {"type": "subscribed", "connection_id": connection_id, "path": path}
-                )
+                await websocket.send_json({"type": "subscribed", "connection_id": connection_id, "path": path})
 
             elif action == "unsubscribe" and connection_id:
                 await manager.unsubscribe(websocket, connection_id, path)

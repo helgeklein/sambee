@@ -37,10 +37,7 @@ export function renderApp(initialRoute = "/") {
   return render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <MemoryRouter
-        initialEntries={[initialRoute]}
-        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-      >
+      <MemoryRouter initialEntries={[initialRoute]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Suspense fallback={<div>Loading...</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />

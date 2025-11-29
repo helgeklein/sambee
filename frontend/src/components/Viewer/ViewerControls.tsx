@@ -1,14 +1,4 @@
-import {
-  ArrowBack,
-  ArrowForward,
-  Close,
-  Download,
-  RotateLeft,
-  RotateRight,
-  Search,
-  ZoomIn,
-  ZoomOut,
-} from "@mui/icons-material";
+import { ArrowBack, ArrowForward, Close, Download, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useState } from "react";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
@@ -120,14 +110,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const [pageInput, setPageInput] = useState(
-    pageNavigation ? pageNavigation.currentPage.toString() : ""
-  );
+  const [pageInput, setPageInput] = useState(pageNavigation ? pageNavigation.currentPage.toString() : "");
   const [localShowSearch, setLocalShowSearch] = useState(false);
 
   // Use controlled search panel state if provided, otherwise use local state
-  const showSearch =
-    search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
+  const showSearch = search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
   const setShowSearch = (open: boolean) => {
     if (search?.onSearchPanelToggle) {
       search.onSearchPanelToggle(open);
@@ -189,9 +176,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         flexDirection: isMobile && showSearch ? "column" : "row",
         alignItems: isMobile && showSearch ? "stretch" : "center",
         gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
-        paddingTop: isMobile
-          ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))`
-          : theme.spacing(2),
+        paddingTop: isMobile ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))` : theme.spacing(2),
         paddingBottom: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingLeft: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingRight: isMobile ? theme.spacing(1) : theme.spacing(2),
