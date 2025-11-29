@@ -1,6 +1,10 @@
 import uuid
 from collections.abc import AsyncIterator
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response, StreamingResponse
+from sqlmodel import Session
+
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user
 from app.db.database import get_session
@@ -9,9 +13,6 @@ from app.models.user import User
 from app.services.image_converter import convert_image_to_jpeg
 from app.storage.smb import SMBBackend
 from app.utils.file_type_registry import needs_conversion
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response, StreamingResponse
-from sqlmodel import Session
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -39,9 +40,7 @@ async def view_file(
     connection = session.get(Connection, connection_id)
     if not connection:
         logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
@@ -74,10 +73,7 @@ async def view_file(
             raise
         except Exception as e:
             await backend.disconnect()
-            logger.error(
-                f"Failed to get file info: connection_id={connection_id}, path='{path}', "
-                f"error={type(e).__name__}: {e}"
-            )
+            logger.error(f"Failed to get file info: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"File not found: {path}",
@@ -96,9 +92,7 @@ async def view_file(
 
         # Check if image needs conversion for browser compatibility
         if needs_conversion(filename):
-            logger.info(
-                f"Image requires conversion: connection_id={connection_id}, path='{path}'"
-            )
+            logger.info(f"Image requires conversion: connection_id={connection_id}, path='{path}'")
 
             try:
                 # Read file in large chunks for optimal SMB performance
@@ -110,11 +104,9 @@ async def view_file(
                 await backend.disconnect()
 
                 # Convert to browser-ready format (uses centralized IMAGE_SETTINGS)
-                converted_bytes, converted_mime, converter_name, duration_ms = (
-                    convert_image_to_jpeg(
-                        image_bytes,
-                        filename,
-                    )
+                converted_bytes, converted_mime, converter_name, duration_ms = convert_image_to_jpeg(
+                    image_bytes,
+                    filename,
                 )
 
                 logger.info(
@@ -150,8 +142,7 @@ async def view_file(
                 error_msg = re.sub(r"\.(\s*\.)+", ".", error_msg).strip()
 
                 logger.error(
-                    f"Image conversion failed: connection_id={connection_id}, "
-                    f"path='{path}', error={error_msg}",
+                    f"Image conversion failed: connection_id={connection_id}, path='{path}', error={error_msg}",
                 )
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -177,9 +168,7 @@ async def view_file(
             finally:
                 await backend.disconnect()
 
-        logger.info(
-            f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={mime_type}"
-        )
+        logger.info(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={mime_type}")
         return StreamingResponse(
             file_streamer(),
             media_type=mime_type,
@@ -215,9 +204,7 @@ async def download_file(
     connection = session.get(Connection, connection_id)
     if not connection:
         logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
@@ -241,12 +228,8 @@ async def download_file(
         file_info = await backend.get_file_info(path)
 
         if file_info.type != "file":
-            logger.warning(
-                f"Path is not a file: connection_id={connection_id}, path='{path}', type={file_info.type}"
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file"
-            )
+            logger.warning(f"Path is not a file: connection_id={connection_id}, path='{path}', type={file_info.type}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file")
 
         # Stream the file
         async def file_streamer() -> AsyncIterator[bytes]:
@@ -261,9 +244,7 @@ async def download_file(
         if file_info.size:
             headers["Content-Length"] = str(file_info.size)
 
-        logger.info(
-            f"Streaming file for download: connection_id={connection_id}, path='{path}', size={file_info.size}"
-        )
+        logger.info(f"Streaming file for download: connection_id={connection_id}, path='{path}', size={file_info.size}")
         return StreamingResponse(
             file_streamer(),
             media_type="application/octet-stream",

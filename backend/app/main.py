@@ -117,9 +117,7 @@ app = FastAPI(
 
 # Request logging middleware
 @app.middleware("http")
-async def log_requests(
-    request: Request, call_next: Callable[[Request], Awaitable[Response]]
-) -> Response:
+async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Log all HTTP requests with request ID and user context"""
     start_time = datetime.now()
 
@@ -128,9 +126,7 @@ async def log_requests(
 
     # Extract filename from query params for viewer/download endpoints
     path_suffix = ""
-    if request.url.path.startswith("/api/viewer/") or request.url.path.startswith(
-        "/api/browse/"
-    ):
+    if request.url.path.startswith("/api/viewer/") or request.url.path.startswith("/api/browse/"):
         file_path = request.query_params.get("path")
         if file_path:
             from pathlib import PurePosixPath
@@ -149,9 +145,7 @@ async def log_requests(
 
         # Log response
         duration = (datetime.now() - start_time).total_seconds() * 1000
-        logger.info(
-            f"→ {request.method} {request.url.path} - {response.status_code} ({duration:.0f} ms){path_suffix}"
-        )
+        logger.info(f"→ {request.method} {request.url.path} - {response.status_code} ({duration:.0f} ms){path_suffix}")
 
         return response
     except Exception as e:

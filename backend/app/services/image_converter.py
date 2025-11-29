@@ -92,9 +92,7 @@ def convert_image_to_jpeg(
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format(extension)
 
             # Get converter name from preprocessor class
-            converter_name = preprocessor.__class__.__name__.replace(
-                "Preprocessor", ""
-            )  # "ImageMagick" or "GraphicsMagick"
+            converter_name = preprocessor.__class__.__name__.replace("Preprocessor", "")  # "ImageMagick" or "GraphicsMagick"
 
             # Convert DIRECTLY to final browser-ready format (in-memory)
             # PSD/PSB files don't have alpha channel, so use JPEG
@@ -103,14 +101,10 @@ def convert_image_to_jpeg(
                 output_format = "png"
             else:
                 output_format = "jpeg"
-            logger.debug(
-                f"Direct conversion (in-memory): {filename} → {output_format.upper()}"
-            )
+            logger.debug(f"Direct conversion (in-memory): {filename} → {output_format.upper()}")
 
             # Convert bytes directly - no temp files!
-            result_bytes = preprocessor.convert_to_final_format(
-                image_bytes, filename, output_format=output_format
-            )
+            result_bytes = preprocessor.convert_to_final_format(image_bytes, filename, output_format=output_format)
 
             duration_ms = (time.perf_counter() - start_time) * 1000
             mime_type = f"image/{output_format}"
@@ -125,14 +119,10 @@ def convert_image_to_jpeg(
 
         except PreprocessorError as e:
             # Preprocessing failed - provide helpful error
-            raise ValueError(
-                f"Failed to convert {extension.upper()} file: {str(e)}"
-            ) from e
+            raise ValueError(f"Failed to convert {extension.upper()} file: {str(e)}") from e
         except Exception as e:
             # Conversion error
-            raise ValueError(
-                f"Failed to convert {extension.upper()} file: {str(e)}"
-            ) from e
+            raise ValueError(f"Failed to convert {extension.upper()} file: {str(e)}") from e
 
     # Path 2: libvips conversion for all other formats
     try:
@@ -189,8 +179,7 @@ def convert_image_to_jpeg(
         basename = os.path.basename(filename)
 
         logger.debug(
-            f"libvips: {basename} → {mime_type} "
-            f"({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB, {duration_ms:.0f} ms)"
+            f"libvips: {basename} → {mime_type} ({len(image_bytes) / 1024:.0f} → {len(result_bytes) / 1024:.0f} KB, {duration_ms:.0f} ms)"
         )
         return result_bytes, mime_type, "libvips", duration_ms
 
@@ -202,18 +191,9 @@ def convert_image_to_jpeg(
         if "no known loader" in error_msg.lower():
             # This is truly an unsupported format
             if extension in {".heic", ".heif"}:
-                raise ImportError(
-                    "HEIC/HEIF support requires libvips built with libheif. "
-                    "Please ensure libheif is installed."
-                ) from e
-            raise ImportError(
-                f"Image format {extension} not supported. "
-                f"libvips may be missing required loader."
-            ) from e
-        elif (
-            "unable to load from buffer" in error_msg.lower()
-            or "not in a known format" in error_msg.lower()
-        ):
+                raise ImportError("HEIC/HEIF support requires libvips built with libheif. Please ensure libheif is installed.") from e
+            raise ImportError(f"Image format {extension} not supported. libvips may be missing required loader.") from e
+        elif "unable to load from buffer" in error_msg.lower() or "not in a known format" in error_msg.lower():
             # This is corrupt/invalid image data
             raise ValueError(f"Failed to convert image: {error_msg}") from e
 

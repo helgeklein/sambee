@@ -66,9 +66,7 @@ class SMBConnectionPool:
         self._cleanup_interval = cleanup_interval
         self._cleanup_task: Optional[asyncio.Task[None]] = None
 
-    def _get_pool_key(
-        self, host: str, port: int, username: str, share_name: str
-    ) -> tuple[str, int, str, str]:
+    def _get_pool_key(self, host: str, port: int, username: str, share_name: str) -> tuple[str, int, str, str]:
         """Generate a unique key for connection pooling."""
         return (host.lower(), port, username, share_name)
 
@@ -112,15 +110,10 @@ class SMBConnectionPool:
                 conn = self._connections[pool_key]
                 conn.reference_count += 1
                 conn.last_used = datetime.now()
-                logger.info(
-                    f"♻️  Reusing pooled connection: {host}:{port}/{share_name} "
-                    f"(refs={conn.reference_count})"
-                )
+                logger.info(f"♻️  Reusing pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
             else:
                 # Create new connection
-                logger.info(
-                    f"🔌 Creating new pooled connection: {host}:{port}/{share_name}"
-                )
+                logger.info(f"🔌 Creating new pooled connection: {host}:{port}/{share_name}")
 
                 # Register session with smbclient (establishes connection)
                 try:
@@ -166,10 +159,7 @@ class SMBConnectionPool:
                     conn.reference_count -= 1
                     conn.last_used = datetime.now()
 
-                    logger.debug(
-                        f"Released pooled connection: {host}:{port}/{share_name} "
-                        f"(refs={conn.reference_count})"
-                    )
+                    logger.debug(f"Released pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
 
                     # Don't immediately remove - keep in pool for reuse
                     # Cleanup task will handle removing idle connections
@@ -199,17 +189,12 @@ class SMBConnectionPool:
                 try:
                     smbclient.delete_session(conn.host, port=conn.port)
                 except Exception as e:
-                    logger.warning(
-                        f"Error deleting session for {conn.host}:{conn.port}: {e}"
-                    )
+                    logger.warning(f"Error deleting session for {conn.host}:{conn.port}: {e}")
 
                 del self._connections[pool_key]
 
             if to_remove:
-                logger.debug(
-                    f"Cleaned up {len(to_remove)} idle connection(s), "
-                    f"{len(self._connections)} remaining"
-                )
+                logger.debug(f"Cleaned up {len(to_remove)} idle connection(s), {len(self._connections)} remaining")
 
     async def start_cleanup_task(self) -> None:
         """Start the background cleanup task."""
@@ -246,14 +231,10 @@ class SMBConnectionPool:
         async with self._lock:
             for pool_key, conn in self._connections.items():
                 try:
-                    logger.info(
-                        f"Closing connection: {conn.host}:{conn.port}/{conn.share_name}"
-                    )
+                    logger.info(f"Closing connection: {conn.host}:{conn.port}/{conn.share_name}")
                     smbclient.delete_session(conn.host, port=conn.port)
                 except Exception as e:
-                    logger.warning(
-                        f"Error closing connection {conn.host}:{conn.port}: {e}"
-                    )
+                    logger.warning(f"Error closing connection {conn.host}:{conn.port}: {e}")
 
             self._connections.clear()
             logger.info("All SMB connections closed")
@@ -266,9 +247,7 @@ class SMBConnectionPool:
             Dictionary with pool statistics
         """
         total_refs = sum(conn.reference_count for conn in self._connections.values())
-        active_conns = sum(
-            1 for conn in self._connections.values() if conn.reference_count > 0
-        )
+        active_conns = sum(1 for conn in self._connections.values() if conn.reference_count > 0)
 
         return {
             "total_connections": len(self._connections),

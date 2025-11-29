@@ -1,6 +1,7 @@
-from sqlmodel import SQLModel, Field
-from datetime import datetime
 import uuid
+from datetime import datetime
+
+from sqlmodel import Field, SQLModel
 
 
 class User(SQLModel, table=True):

@@ -1,6 +1,10 @@
 from datetime import timedelta
 from typing import Any
 
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlmodel import Session, select
+
 from app.core.config import settings
 from app.core.logging import get_logger, set_user
 from app.core.security import (
@@ -11,9 +15,6 @@ from app.core.security import (
 )
 from app.db.database import get_session
 from app.models.user import User
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
-from sqlmodel import Session, select
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -39,9 +40,7 @@ async def login(
         )
 
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
 
     logger.info(f"Successful login: username={user.username}, is_admin={user.is_admin}")
     return {
@@ -79,9 +78,7 @@ async def change_password(
     logger.info(f"Password change requested: username={current_user.username}")
 
     if not verify_password(current_password, current_user.password_hash):
-        logger.warning(
-            f"Password change failed - incorrect current password: username={current_user.username}"
-        )
+        logger.warning(f"Password change failed - incorrect current password: username={current_user.username}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",

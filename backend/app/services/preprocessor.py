@@ -72,9 +72,7 @@ class PreprocessorInterface(ABC):
     TIMEOUT_SECONDS = 30
 
     @abstractmethod
-    def convert_to_final_format(
-        self, input_data: bytes, filename: str, output_format: str = "jpeg"
-    ) -> bytes:
+    def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
         """
         Convert an exotic format file directly to browser-ready format.
 
@@ -124,17 +122,12 @@ class PreprocessorInterface(ABC):
         # Check file size
         file_size = len(input_data)
         if file_size > self.MAX_FILE_SIZE:
-            raise ValueError(
-                f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})"
-            )
+            raise ValueError(f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})")
 
         # Check extension from filename
         extension = Path(filename).suffix.lower().lstrip(".")
         if extension not in self.SUPPORTED_FORMATS:
-            raise ValueError(
-                f"Unsupported format: {extension}. "
-                f"Supported: {', '.join(sorted(self.SUPPORTED_FORMATS))}"
-            )
+            raise ValueError(f"Unsupported format: {extension}. Supported: {', '.join(sorted(self.SUPPORTED_FORMATS))}")
 
     def _create_temp_file(self, suffix: str) -> Path:
         """
@@ -186,9 +179,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
 
-    def convert_to_final_format(
-        self, input_data: bytes, filename: str, output_format: str = "jpeg"
-    ) -> bytes:
+    def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
         """
         Convert PSD/PSB directly to browser-ready format using GraphicsMagick.
 
@@ -212,18 +203,12 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
 
         # Check tool availability
         if not self.check_availability():
-            raise PreprocessorError(
-                "GraphicsMagick is not installed or not accessible. "
-                "Install with: apt-get install graphicsmagick"
-            )
+            raise PreprocessorError("GraphicsMagick is not installed or not accessible. Install with: apt-get install graphicsmagick")
 
         # Validate output format
         valid_formats = {"png", "jpeg", "jpg"}
         if output_format.lower() not in valid_formats:
-            raise ValueError(
-                f"Invalid output format: {output_format}. "
-                f"Valid formats: {', '.join(sorted(valid_formats))}"
-            )
+            raise ValueError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
 
         # Normalize format
         if output_format.lower() == "jpg":
@@ -266,9 +251,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             # Output to stdout in specified format
             command.append(f"{output_format}:-")
 
-            logger.debug(
-                f"Converting {filename} to {output_format.upper()} with GraphicsMagick (in-memory)"
-            )
+            logger.debug(f"Converting {filename} to {output_format.upper()} with GraphicsMagick (in-memory)")
             logger.debug(f"Command: {' '.join(command)}")
 
             # Execute conversion - pipe input via stdin, capture stdout
@@ -284,9 +267,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
 
             if result.returncode != 0:
                 error_msg = result.stderr.decode("utf-8", errors="replace")
-                raise PreprocessorError(
-                    f"GraphicsMagick conversion failed: {error_msg}"
-                )
+                raise PreprocessorError(f"GraphicsMagick conversion failed: {error_msg}")
 
             # Verify output was produced
             if not result.stdout or len(result.stdout) == 0:
@@ -303,10 +284,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             return output_bytes
 
         except subprocess.TimeoutExpired:
-            raise PreprocessorError(
-                f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. "
-                "File may be too complex or corrupted."
-            )
+            raise PreprocessorError(f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. File may be too complex or corrupted.")
 
 
 class ImageMagickPreprocessor(PreprocessorInterface):
@@ -420,9 +398,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             )
 
             if result.returncode != 0:
-                logger.warning(
-                    f"Failed to detect colorspace for {filename}: {result.stderr.decode()}"
-                )
+                logger.warning(f"Failed to detect colorspace for {filename}: {result.stderr.decode()}")
                 return "Unknown"
 
             colorspace = result.stdout.decode().strip()
@@ -436,9 +412,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             logger.warning(f"Error detecting colorspace for {filename}: {e}")
             return "Unknown"
 
-    def convert_to_final_format(
-        self, input_data: bytes, filename: str, output_format: str = "jpeg"
-    ) -> bytes:
+    def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
         """
         Convert PSD/PSB directly to browser-ready format using ImageMagick.
 
@@ -462,18 +436,12 @@ class ImageMagickPreprocessor(PreprocessorInterface):
 
         # Check tool availability
         if not self.check_availability():
-            raise PreprocessorError(
-                "ImageMagick is not installed or not accessible. "
-                "Install with: apt-get install imagemagick"
-            )
+            raise PreprocessorError("ImageMagick is not installed or not accessible. Install with: apt-get install imagemagick")
 
         # Validate output format
         valid_formats = {"png", "jpeg", "jpg"}
         if output_format.lower() not in valid_formats:
-            raise ValueError(
-                f"Invalid output format: {output_format}. "
-                f"Valid formats: {', '.join(sorted(valid_formats))}"
-            )
+            raise ValueError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
 
         # Normalize format
         if output_format.lower() == "jpg":
@@ -539,9 +507,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             # Output to stdout in specified format
             command.append(f"{output_format}:-")
 
-            logger.debug(
-                f"Converting {filename} to {output_format.upper()} with ImageMagick (in-memory)"
-            )
+            logger.debug(f"Converting {filename} to {output_format.upper()} with ImageMagick (in-memory)")
             logger.debug(f"Command: {' '.join(command)}")
 
             # Execute conversion - pipe input via stdin, capture stdout
@@ -574,10 +540,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             return output_bytes
 
         except subprocess.TimeoutExpired:
-            raise PreprocessorError(
-                f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. "
-                "File may be too complex or corrupted."
-            )
+            raise PreprocessorError(f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. File may be too complex or corrupted.")
 
 
 class PreprocessorRegistry:
@@ -625,9 +588,7 @@ class PreprocessorRegistry:
         return ext in cls._FORMAT_REGISTRY
 
     @classmethod
-    def get_preprocessor_for_format(
-        cls, extension: str, preprocessor_type: Optional[str] = None
-    ) -> PreprocessorInterface:
+    def get_preprocessor_for_format(cls, extension: str, preprocessor_type: Optional[str] = None) -> PreprocessorInterface:
         """
         Get a preprocessor instance for the given file format.
 
@@ -649,8 +610,7 @@ class PreprocessorRegistry:
 
         if ext not in cls._FORMAT_REGISTRY:
             raise ValueError(
-                f"Format '{ext}' is not registered for preprocessing. "
-                f"Supported formats: {', '.join(sorted(cls._FORMAT_REGISTRY.keys()))}"
+                f"Format '{ext}' is not registered for preprocessing. Supported formats: {', '.join(sorted(cls._FORMAT_REGISTRY.keys()))}"
             )
 
         # If specific preprocessor type requested, use PreprocessorFactory
@@ -664,9 +624,7 @@ class PreprocessorRegistry:
         instance = preprocessor_class()
         if not instance.check_availability():
             # Try fallback options if the default isn't available
-            logger.warning(
-                f"{preprocessor_class.__name__} not available, trying fallbacks"
-            )
+            logger.warning(f"{preprocessor_class.__name__} not available, trying fallbacks")
             # For PSD/PSB, try alternate preprocessor
             fallback: PreprocessorInterface | None = None
             if isinstance(instance, ImageMagickPreprocessor):
@@ -681,10 +639,7 @@ class PreprocessorRegistry:
                     return fallback
 
             # No fallback available
-            raise PreprocessorError(
-                f"No available preprocessor for format '{ext}'. "
-                f"Install GraphicsMagick or ImageMagick."
-            )
+            raise PreprocessorError(f"No available preprocessor for format '{ext}'. Install GraphicsMagick or ImageMagick.")
 
         return instance
 
@@ -699,9 +654,7 @@ class PreprocessorRegistry:
         return set(cls._FORMAT_REGISTRY.keys())
 
     @classmethod
-    def register_format(
-        cls, extension: str, preprocessor_class: type[PreprocessorInterface]
-    ) -> None:
+    def register_format(cls, extension: str, preprocessor_class: type[PreprocessorInterface]) -> None:
         """
         Register a new format with a preprocessor.
 
@@ -717,9 +670,7 @@ class PreprocessorRegistry:
         """
         ext = extension.lower().lstrip(".")
         cls._FORMAT_REGISTRY[ext] = preprocessor_class
-        logger.info(
-            f"Registered preprocessor {preprocessor_class.__name__} for .{ext} files"
-        )
+        logger.info(f"Registered preprocessor {preprocessor_class.__name__} for .{ext} files")
 
 
 class PreprocessorFactory:
@@ -787,10 +738,7 @@ class PreprocessorFactory:
         elif preprocessor_type == "graphicsmagick":
             gm = GraphicsMagickPreprocessor()
             if not gm.check_availability():
-                raise PreprocessorError(
-                    "GraphicsMagick not available. Install with: "
-                    "apt-get install graphicsmagick"
-                )
+                raise PreprocessorError("GraphicsMagick not available. Install with: apt-get install graphicsmagick")
             logger.info("Using GraphicsMagick preprocessor")
             return gm
 
@@ -798,18 +746,12 @@ class PreprocessorFactory:
         elif preprocessor_type == "imagemagick":
             im = ImageMagickPreprocessor()
             if not im.check_availability():
-                raise PreprocessorError(
-                    "ImageMagick not available. Install with: "
-                    "apt-get install imagemagick"
-                )
+                raise PreprocessorError("ImageMagick not available. Install with: apt-get install imagemagick")
             logger.info("Using ImageMagick preprocessor")
             return im
 
         else:
-            raise ValueError(
-                f"Invalid preprocessor type: {preprocessor_type}. "
-                "Valid values: graphicsmagick, imagemagick, auto"
-            )
+            raise ValueError(f"Invalid preprocessor type: {preprocessor_type}. Valid values: graphicsmagick, imagemagick, auto")
 
     @staticmethod
     def get_supported_formats() -> set[str]:

@@ -1,0 +1,119 @@
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=app",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--tb=short",
+    "-q",
+    "--disable-warnings",
+]
+log_cli = false
+log_level = "ERROR"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+    "websocket: WebSocket tests",
+    "performance: Performance and load tests",
+    "security: Security vulnerability tests",
+]
+filterwarnings = [
+    # Ignore third-party deprecation warnings we can't fix
+    "ignore:Accessing argon2.__version__:DeprecationWarning:passlib",
+    "ignore:datetime\\.datetime\\.utcnow.*:DeprecationWarning:jose",
+    "ignore:datetime\\.datetime\\.utcnow.*:DeprecationWarning:pydantic",
+    # Ignore resource warnings from test cleanup (handled in fixtures)
+    "ignore::ResourceWarning",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "tests/*",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+
+[tool.ruff]
+target-version = "py313"
+line-length = 140
+
+[tool.ruff.format]
+indent-style = "space"
+
+[tool.ruff.lint]
+# Only enable essential rules (no extended plugins)
+select = ["E4", "E7", "E9", "F", "I"]
+ignore = [
+    "E501", # line too long handled by formatter/tests
+]
+
+# Per-file configuration for test files
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101",    # assert in tests
+    "SLF001",  # private-member-access in tests
+    "PLR2004", # magic values in tests
+    "B023",    # lambda loop variable capture
+    "TRY003",  # long exception messages
+    "TRY301",  # abstract raise to inner function
+    "EM101",   # string literal in exception
+    "EM102",   # f-string in exception
+    "SIM102",  # collapsible if
+    "TC003",   # type-checking import placement
+]
+
+[tool.mypy]
+python_version = "3.13"
+# Sambee uses stricter typing than HA project
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+show_error_codes = true
+# Allow some flexibility for framework code
+disallow_untyped_decorators = false
+explicit_package_bases = true
+
+# Plugin support
+plugins = ["pydantic.mypy"]
+
+[pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# Third-party libraries without type stubs
+[[tool.mypy.overrides]]
+module = [
+    "smbclient.*",
+    "passlib.*",
+    "jose.*",
+    "magic.*",
+    "pyvips.*",
+]
+ignore_missing_imports = true
