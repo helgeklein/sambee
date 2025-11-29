@@ -28,6 +28,11 @@
   "python.analysis.inlayHints.variableTypes": false,
   "python.analysis.completeFunctionParens": false,
 
+  // File Visibility
+  "files.exclude": {
+    "**/.vscode": false
+  },
+
   // File Watching Optimizations
   "files.watcherExclude": {
     "**/__pycache__/**": true,
