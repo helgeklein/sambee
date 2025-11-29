@@ -68,7 +68,7 @@ jobs:
 
     - name: Install system dependencies for image processing
       run: |
-        sudo bash scripts/install-system-deps.sh
+        sudo bash scripts/install-system-deps
 
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
@@ -106,7 +106,7 @@ jobs:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
         COVERAGE: '1'
-      run: ./scripts/test.sh
+      run: ./scripts/test
 
     - name: Upload coverage reports
       if: always()

@@ -12,7 +12,7 @@ FROM python:3.13-slim
 WORKDIR /app
 
 # Install system dependencies from centralized script
-COPY scripts/install-system-deps.sh /tmp/
+COPY scripts/install-system-deps /tmp/
 RUN bash /tmp/install-system-deps.sh && rm /tmp/install-system-deps.sh
 
 # Copy ImageMagick policy configuration

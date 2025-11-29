@@ -93,10 +93,10 @@ Development server runs at: http://localhost:3000 (powered by Vite ⚡)
 
 ```bash
 # Run all tests (backend + frontend) - fast, no coverage
-./scripts/test.sh
+./scripts/test
 
 # Run all tests with coverage (CI mode)
-COVERAGE=1 ./scripts/test.sh
+COVERAGE=1 ./scripts/test
 
 # Backend tests only
 cd backend && pytest
@@ -247,7 +247,7 @@ pip install -r requirements-dev.txt
 
 # Run tests (venv will be auto-detected)
 cd ..
-./scripts/test.sh
+./scripts/test
 ```
 
 ## Environment Variables

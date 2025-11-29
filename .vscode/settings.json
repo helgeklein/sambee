@@ -1,3 +1,110 @@
 {
-	"biome.lsp.bin": "/workspace/frontend/node_modules/@biomejs/cli-linux-x64/biome"
+  // Biome formatter (already configured)
+  "biome.lsp.bin": "/workspace/frontend/node_modules/@biomejs/cli-linux-x64/biome",
+
+  // Python Testing
+  "python.testing.pytestArgs": ["tests", "-v"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.testing.autoTestDiscoverOnSaveEnabled": false,
+  "python.testing.pytestPath": "pytest",
+  "python.testing.cwd": "${workspaceFolder}/backend",
+
+  // Python Analysis Performance (Pylance)
+  "python.analysis.packageIndexDepths": [
+    {
+      "name": "fastapi",
+      "depth": 2,
+      "includeAllSymbols": false
+    },
+    {
+      "name": "pydantic",
+      "depth": 1,
+      "includeAllSymbols": false
+    }
+  ],
+  "python.analysis.autoFormatStrings": false,
+  "python.analysis.inlayHints.functionReturnTypes": false,
+  "python.analysis.inlayHints.variableTypes": false,
+  "python.analysis.completeFunctionParens": false,
+
+  // File Watching Optimizations
+  "files.watcherExclude": {
+    "**/__pycache__/**": true,
+    "**/htmlcov/**": true,
+    "**/node_modules/**": true,
+    "**/dist/**": true,
+    "coverage.json": true,
+    "coverage.xml": true,
+    "**/.git/**": true,
+    "**/.mypy_cache/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/squashfs-root/**": true,
+    "**/.vite/**": true
+  },
+
+  // Editor Performance
+  "editor.quickSuggestions": {
+    "strings": false,
+    "comments": false,
+    "other": true
+  },
+  "editor.suggest.localityBonus": true,
+  "editor.suggest.shareSuggestSelections": false,
+  "editor.codeLens": false,
+  "editor.hover.delay": 1000,
+
+  // TypeScript/JavaScript Settings
+  "typescript.tsdk": "frontend/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "javascript.suggestionActions.enabled": false,
+
+  // GitHub Copilot Auto-Approve Commands
+  "chat.tools.terminal.autoApprove": {
+    // Safe read-only commands
+    "awk": true,
+    "curl": true,
+    "echo": true,
+    "head": true,
+    "grep": true,
+    "ls": true,
+    "lsof": true,
+    "mypy": true,
+    "nohup": true,
+    "pgrep": true,
+    "ps": true,
+    "pytest": true,
+    "ruff": true,
+    "sed": true,
+    "sleep": true,
+    "tail": true,
+    "tee": true,
+    "time": true,
+    "uptime": true,
+    "who": true,
+    // Project-specific scripts
+    "./scripts/lint": true,
+    "./scripts/test": true,
+    "./scripts/format": true,
+    "./scripts/dev-start": true,
+    "./scripts/dev-stop": true,
+    // Node/npm commands
+    "npm": true,
+    "npx": true,
+    // Safe git commands
+    "/^git\\s+(status|diff|log|show|branch)\\b/": true,
+    "/^grep (-A|-E|-i)\\b/": true,
+    "/^python(3)? -m (mypy|py_compile|pytest|ruff)\\b/": true,
+    "/^time\\b/": true,
+    // Dangerous commands - explicit deny
+    "rm": false,
+    "rmdir": false,
+    "del": false,
+    "kill": false,
+    "chmod": false,
+    "chown": false,
+    "/^git\\s+(push|reset|revert|clean)\\b/": false,
+    "/^npm\\s+(uninstall|remove)\\b/": false
+  }
 }

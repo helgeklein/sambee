@@ -23,4 +23,4 @@ fi
 echo ""
 echo "✅ All development servers stopped"
 echo ""
-echo "To start: ./scripts/dev-start.sh"
+echo "To start: ./scripts/dev-start"

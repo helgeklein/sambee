@@ -40,4 +40,4 @@ jobs:
         npm ci
 
     - name: Run lint script
-      run: ./scripts/lint.sh
+      run: ./scripts/lint

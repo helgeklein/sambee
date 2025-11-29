@@ -65,7 +65,7 @@ Sambee uses [Ruff](https://docs.astral.sh/ruff/) for Python (backend) and [Biome
 #### Check code quality (lint)
 
 ```bash
-./scripts/lint.sh
+./scripts/lint
 ```
 
 This runs:
@@ -75,7 +75,7 @@ This runs:
 #### Auto-format code
 
 ```bash
-./scripts/format.sh
+./scripts/format
 ```
 
 This runs:
@@ -108,13 +108,13 @@ Sambee includes comprehensive logging to help diagnose issues:
 
 ```bash
 # View all logs with status
-/workspace/scripts/logs.sh
+/workspace/scripts/logs
 
 # Show more lines
-/workspace/scripts/logs.sh -n 100
+/workspace/scripts/logs -n 100
 
 # Follow logs in real-time
-/workspace/scripts/logs.sh -f
+/workspace/scripts/logs -f
 
 # Or view individual logs
 tail -f /tmp/backend.log
@@ -135,7 +135,7 @@ tail -f /tmp/post-start.log
 If logs get too large:
 
 ```bash
-/workspace/scripts/rotate-logs.sh
+/workspace/scripts/rotate-logs
 ```
 
 This archives current logs and starts fresh files.

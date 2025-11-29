@@ -41,7 +41,7 @@ fi
 
 # If still not found, exit with error
 if [ -z "$MAGICK_CMD" ]; then
-    echo "❌ ImageMagick 7 not found. Please run scripts/install-system-deps.sh first."
+    echo "❌ ImageMagick 7 not found. Please run scripts/install-system-deps first."
     echo "   Or install manually: sudo apt-get install imagemagick"
     exit 1
 fi
@@ -472,7 +472,7 @@ fi
 
 # Generate .gitignore for test images
 cat > "$TEST_DATA_DIR/.gitignore" << 'EOF'
-# Auto-generated test images (regenerated via scripts/setup-test-images.sh)
+# Auto-generated test images (regenerated via scripts/setup-test-images)
 images/
 
 # Metadata manifest is auto-generated
