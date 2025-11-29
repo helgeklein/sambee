@@ -24,7 +24,7 @@ mkdir -p "$EXPECTED_DIR"/{cmyk,rgb,special}
 mkdir -p "$METADATA_DIR"
 
 # Check if ImageMagick is available
-# Note: install-system-deps.sh installs ImageMagick 7 from extracted AppImage
+# Note: install-system-deps installs ImageMagick 7 from extracted AppImage
 # with a wrapper script at /usr/local/bin/magick that sets up the environment.
 MAGICK_CMD=""
 
