@@ -217,14 +217,14 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
 
   // Download handler
   const handleDownload = useCallback(
-    (_event?: KeyboardEvent) => {
-      const downloadUrl = apiService.getDownloadUrl(connectionId, currentPath);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = filename;
-      link.click();
+    async (_event?: KeyboardEvent) => {
+      try {
+        await apiService.downloadFile(connectionId, currentPath, filename);
+      } catch (err) {
+        error("Failed to download file", { error: err, path: currentPath, connectionId });
+      }
     },
-    [connectionId, currentPath, filename]
+    [connectionId, currentPath, filename, error]
   );
 
   // Context-aware Escape handler

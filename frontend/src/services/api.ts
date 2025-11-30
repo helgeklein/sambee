@@ -166,6 +166,30 @@ class ApiService {
     return `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(path)}&token=${token}`;
   }
 
+  async downloadFile(connectionId: string, path: string, filename: string): Promise<void> {
+    const token = localStorage.getItem("access_token");
+    const baseUrl = import.meta.env.VITE_API_URL || "/api";
+    const url = `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(path)}`;
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.statusText}`);
+    }
+
+    const blob = await response.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(blobUrl);
+  }
+
   async getFileContent(connectionId: string, path: string): Promise<string> {
     const token = localStorage.getItem("access_token");
     const response = await this.api.get(`/viewer/${connectionId}/file`, {

@@ -85,12 +85,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   // Download handler
   const handleDownload = useCallback(
-    (_event?: KeyboardEvent) => {
-      const downloadUrl = apiService.getDownloadUrl(connectionId, path);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = filename;
-      link.click();
+    async (_event?: KeyboardEvent) => {
+      try {
+        await apiService.downloadFile(connectionId, path, filename);
+      } catch (err) {
+        logError("Failed to download file", { error: err, path, connectionId });
+      }
     },
     [connectionId, path, filename]
   );
