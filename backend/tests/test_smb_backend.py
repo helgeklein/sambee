@@ -16,9 +16,10 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from smbclient._os import FileAttributes
+
 from app.models.file import DirectoryListing, FileType
 from app.storage.smb import SMBBackend
-from smbclient._os import FileAttributes
 
 
 @pytest.fixture(autouse=True)

@@ -13,12 +13,13 @@ Tests cover complete user journeys and workflows:
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session, select
+
 from app.core.security import encrypt_password
 from app.models.connection import Connection
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.models.user import User
-from fastapi.testclient import TestClient
-from sqlmodel import Session, select
 
 
 @pytest.mark.integration

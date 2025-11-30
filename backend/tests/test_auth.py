@@ -4,6 +4,9 @@ Tests login, token generation/validation, password hashing, and encryption.
 """
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session
+
 from app.core.security import (
     create_access_token,
     decrypt_password,
@@ -12,8 +15,6 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
-from fastapi.testclient import TestClient
-from sqlmodel import Session
 
 
 @pytest.mark.unit
@@ -103,16 +104,15 @@ class TestTokenGeneration:
 
     def test_token_contains_username(self):
         """Test that token can be decoded to retrieve username."""
-        from app.core.config import settings
         from jose import jwt
+
+        from app.core.config import settings
 
         username = "testuser"
         token = create_access_token(data={"sub": username})
 
         # Decode without verification (just to check content)
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         assert payload["sub"] == username
 
 
@@ -191,9 +191,7 @@ class TestLoginEndpoint:
 class TestAuthenticationMiddleware:
     """Test authentication middleware and protected endpoints."""
 
-    def test_access_protected_endpoint_with_valid_token(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_access_protected_endpoint_with_valid_token(self, client: TestClient, auth_headers_admin: dict):
         """Test accessing protected endpoint with valid token."""
         response = client.get("/api/admin/connections", headers=auth_headers_admin)
         # Should not get 401 (actual response depends on data, but not auth error)
@@ -226,25 +224,19 @@ class TestAuthenticationMiddleware:
 class TestAdminAuthorization:
     """Test admin-only endpoints require admin privileges."""
 
-    def test_admin_can_access_admin_endpoint(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_admin_can_access_admin_endpoint(self, client: TestClient, auth_headers_admin: dict):
         """Test that admin users can access admin endpoints."""
         response = client.get("/api/admin/connections", headers=auth_headers_admin)
         # Should not get 403 (may get 200 with empty list)
         assert response.status_code != 403
 
-    def test_regular_user_cannot_access_admin_endpoint(
-        self, client: TestClient, auth_headers_user: dict
-    ):
+    def test_regular_user_cannot_access_admin_endpoint(self, client: TestClient, auth_headers_user: dict):
         """Test that regular users cannot access admin endpoints."""
         response = client.get("/api/admin/connections", headers=auth_headers_user)
         assert response.status_code == 403
         assert "permission" in response.json()["detail"].lower()
 
-    def test_regular_user_can_access_non_admin_endpoint(
-        self, client: TestClient, auth_headers_user: dict, test_connection
-    ):
+    def test_regular_user_can_access_non_admin_endpoint(self, client: TestClient, auth_headers_user: dict, test_connection):
         """Test that regular users can access non-admin endpoints."""
         # Browser endpoint should be accessible to all authenticated users
         response = client.get(
@@ -260,9 +252,7 @@ class TestAdminAuthorization:
 class TestGetCurrentUserEndpoint:
     """Test /me endpoint for getting current user info."""
 
-    def test_get_current_user_info_admin(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_get_current_user_info_admin(self, client: TestClient, auth_headers_admin: dict):
         """Test getting current user info as admin."""
         response = client.get("/api/auth/me", headers=auth_headers_admin)
         assert response.status_code == 200
@@ -271,9 +261,7 @@ class TestGetCurrentUserEndpoint:
         assert data["is_admin"] is True
         assert "created_at" in data
 
-    def test_get_current_user_info_regular_user(
-        self, client: TestClient, auth_headers_user: dict
-    ):
+    def test_get_current_user_info_regular_user(self, client: TestClient, auth_headers_user: dict):
         """Test getting current user info as regular user."""
         response = client.get("/api/auth/me", headers=auth_headers_user)
         assert response.status_code == 200
@@ -325,9 +313,7 @@ class TestChangePasswordEndpoint:
         )
         assert login_response.status_code == 200
 
-    def test_change_password_wrong_current_password(
-        self, client: TestClient, auth_headers_user: dict
-    ):
+    def test_change_password_wrong_current_password(self, client: TestClient, auth_headers_user: dict):
         """Test password change fails with wrong current password."""
         response = client.post(
             "/api/auth/change-password?current_password=wrongpassword&new_password=newpass123",
@@ -338,9 +324,7 @@ class TestChangePasswordEndpoint:
 
     def test_change_password_without_auth(self, client: TestClient):
         """Test that password change requires authentication."""
-        response = client.post(
-            "/api/auth/change-password?current_password=testpass&new_password=newpass123"
-        )
+        response = client.post("/api/auth/change-password?current_password=testpass&new_password=newpass123")
         assert response.status_code == 401
 
 
@@ -355,13 +339,9 @@ class TestTokenExpiration:
         from app.core.security import create_access_token
 
         # Create token that expires immediately
-        expired_token = create_access_token(
-            data={"sub": "testuser"}, expires_delta=timedelta(seconds=-1)
-        )
+        expired_token = create_access_token(data={"sub": "testuser"}, expires_delta=timedelta(seconds=-1))
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
         assert response.status_code == 401
 
     def test_token_with_invalid_signature(self, client: TestClient):
@@ -369,9 +349,7 @@ class TestTokenExpiration:
         # Create a token with wrong signature
         invalid_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0dXNlciJ9.invalid_signature"
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"})
         assert response.status_code == 401
 
     def test_token_with_missing_subject(self, client: TestClient):
@@ -381,9 +359,7 @@ class TestTokenExpiration:
         # Create token without username in 'sub'
         token_no_sub = create_access_token(data={"other": "data"})
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {token_no_sub}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token_no_sub}"})
         assert response.status_code == 401
 
     def test_token_with_nonexistent_user(self, client: TestClient):
@@ -393,9 +369,7 @@ class TestTokenExpiration:
         # Create token for user that doesn't exist
         token_fake_user = create_access_token(data={"sub": "nonexistentuser"})
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {token_fake_user}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token_fake_user}"})
         assert response.status_code == 401
 
 

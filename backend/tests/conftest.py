@@ -8,14 +8,15 @@ import uuid
 from typing import Generator
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.pool import StaticPool
+
 from app.core.security import create_access_token, get_password_hash
 from app.db.database import get_session
 from app.main import app
 from app.models.connection import Connection
 from app.models.user import User
-from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, create_engine
-from sqlmodel.pool import StaticPool
 
 
 @pytest.fixture(name="test_db_path", scope="session")

@@ -2,6 +2,7 @@
 
 import pytest
 import pyvips
+
 from app.services.image_converter import (
     convert_image_to_jpeg,
     get_image_info,

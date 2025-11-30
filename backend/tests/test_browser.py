@@ -7,9 +7,10 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi.testclient import TestClient
+
 from app.models.connection import Connection
 from app.models.file import DirectoryListing, FileInfo, FileType
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture

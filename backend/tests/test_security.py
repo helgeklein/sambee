@@ -14,6 +14,11 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from cryptography.fernet import Fernet, InvalidToken
+from fastapi.testclient import TestClient
+from jose import jwt
+from sqlmodel import Session
+
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -23,10 +28,6 @@ from app.core.security import (
     verify_password,
 )
 from app.models.connection import Connection
-from cryptography.fernet import Fernet, InvalidToken
-from fastapi.testclient import TestClient
-from jose import jwt
-from sqlmodel import Session
 
 
 class TestInjectionAttacks:

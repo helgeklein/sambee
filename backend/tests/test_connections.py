@@ -7,10 +7,11 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from app.core.security import decrypt_password
-from app.models.connection import Connection
 from fastapi.testclient import TestClient
 from sqlmodel import Session
+
+from app.core.security import decrypt_password
+from app.models.connection import Connection
 
 
 @pytest.mark.integration

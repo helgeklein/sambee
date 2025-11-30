@@ -38,6 +38,7 @@ from typing import Any
 
 import pytest
 import pyvips
+
 from app.services.image_converter import convert_image_to_jpeg
 from app.services.preprocessor import PreprocessorRegistry
 
