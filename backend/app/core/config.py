@@ -1,41 +1,56 @@
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    # App settings
+#
+# Static settings - immutable, type-safe constants
+#
+@dataclass(frozen=True)
+class StaticSettings:
+    """Static application settings that cannot be overridden"""
+
     app_name: str = "Sambee"
+    algorithm: str = "HS256"
+    data_dir: Path = Path("data")
+
+
+#
+# User-configurable settings
+#
+class UserSettings(BaseSettings):
+    """Application configuration settings
+
+    Read from (descending priority):
+      1. environment variables (production Docker container)
+      2. .env.backend file (development)
+      3. defaults defined here
+    """
+
+    # App settings
     debug: bool = False
     log_level: str = "INFO"
 
-    # Security
+    # Security (required - no defaults for production safety)
     secret_key: str
     encryption_key: str  # Fernet key for encrypting SMB passwords
-    algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
     # Admin setup (first run)
     admin_username: str = "admin"
-    admin_password: str = "admin"
+    admin_password: str = "changeme"
 
-    # Paths
-    data_dir: Path = Path("data")
-
-    # Optional test SMB
-    test_smb_host: Optional[str] = None
-    test_smb_share: Optional[str] = None
-    test_smb_username: Optional[str] = None
-    test_smb_password: Optional[str] = None
-
+    # Have Pydantic read settings
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=".env.backend",
         case_sensitive=False,
     )
 
 
-settings = Settings()  # pyright: ignore[reportCallIssue]
+# Create global instances
+static = StaticSettings()
+settings = UserSettings()  # pyright: ignore[reportCallIssue]
 
 # Ensure data directory exists
-settings.data_dir.mkdir(parents=True, exist_ok=True)
+static.data_dir.mkdir(parents=True, exist_ok=True)

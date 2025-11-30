@@ -7,6 +7,11 @@ import os
 import uuid
 from typing import Generator
 
+# Set test-only environment variables BEFORE any app imports
+# This ensures settings are available when config module is loaded
+os.environ.setdefault("SECRET_KEY", "test-secret-key-min-32-chars-long-for-testing")
+os.environ.setdefault("ENCRYPTION_KEY", "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE=")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine

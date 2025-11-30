@@ -25,15 +25,15 @@ The project includes a complete dev container configuration for consistent devel
    - Install Python dependencies
    - Install Node modules
    - Initialize the database
-   - Create default `.env` file
+   - Create default `.env.backend` file
 
 ### Troubleshooting Initial Setup
 
 If you encounter startup issues after opening the dev container:
 
-**Backend: Missing `.env` file**
-- The backend startup script will automatically create a `.env` file with secure keys if missing
-- The file is created at `/workspace/backend/.env`
+**Backend: Missing `.env.backend` file**
+- The backend startup script will automatically create a `.env.backend` file with secure keys if missing
+- The file is created at `/workspace/.env.backend`
 
 **Frontend: `vite: not found` or permission errors**
 - The frontend startup script will automatically:
@@ -147,7 +147,7 @@ Tests are organized in `backend/tests/`:
 
 - `conftest.py` - Shared fixtures (database, users, auth tokens, test connections)
 - `test_auth.py` - Authentication and authorization tests
-- `test_connections.py` - SMB connection management tests  
+- `test_connections.py` - SMB connection management tests
 - `test_browser.py` - File browsing tests with mocked SMB backend
 
 ### Writing New Tests
@@ -161,10 +161,10 @@ from fastapi.testclient import TestClient
 @pytest.mark.integration
 class TestMyFeature:
     """Test my new feature."""
-    
+
     def test_admin_can_access(
-        self, 
-        client: TestClient, 
+        self,
+        client: TestClient,
         auth_headers_admin: dict
     ):
         """Test that admin can access the endpoint."""
@@ -252,11 +252,16 @@ cd ..
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and adjust as needed:
+The `.env.backend` file is **automatically created** during dev container setup with secure generated keys.
 
-```bash
-cp .env.example .env
-```
+To customize settings, edit `/workspace/.env.backend`:
+- `DEBUG` - Enable debug mode (default: true in dev)
+- `LOG_LEVEL` - Logging level (default: DEBUG in dev)
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` - Initial admin credentials
+- `SECRET_KEY` - JWT signing key (auto-generated)
+- `ENCRYPTION_KEY` - Fernet key for SMB passwords (auto-generated)
+
+**Note:** Manual `.env.backend` creation is only needed for production deployment. See `DEPLOYMENT.md` for production setup.
 
 ## Database Management
 

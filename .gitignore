@@ -63,9 +63,8 @@ frontend/.env.production.local
 .DS_Store
 
 # Environment
-.env
+.env.backend
 .env.local
-!.env.example
 .venv/
 venv/
 env/
@@ -83,10 +82,6 @@ logs/
 
 # Docker
 .docker/
-
-# Caddy
-caddy_data/
-caddy_config/
 
 # ImageMagick AppImage extraction
 squashfs-root/

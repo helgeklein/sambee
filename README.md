@@ -52,7 +52,6 @@ Access the application at http://localhost
 - **Frontend**: React 18 with TypeScript + Vite
 - **Database**: SQLite
 - **SMB Library**: smbprotocol
-- **Reverse Proxy**: Caddy
 
 ## Development
 

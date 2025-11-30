@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from jose import jwt
 from sqlmodel import Session
 
-from app.core.config import settings
+from app.core.config import settings, static
 from app.core.security import (
     create_access_token,
     decrypt_password,
@@ -54,14 +54,9 @@ class TestInjectionAttacks:
             # Should fail authentication, not cause SQL error
             assert response.status_code in [401, 422]
             if response.status_code == 401:
-                assert (
-                    "incorrect username or password"
-                    in response.json()["detail"].lower()
-                )
+                assert "incorrect username or password" in response.json()["detail"].lower()
 
-    def test_path_traversal_in_browse(
-        self, client: TestClient, user_token: str, test_connection: Connection
-    ):
+    def test_path_traversal_in_browse(self, client: TestClient, user_token: str, test_connection: Connection):
         """Test path traversal attempts in browse endpoint"""
         # Path traversal patterns
         traversal_attempts = [
@@ -87,9 +82,7 @@ class TestInjectionAttacks:
                 assert "passwd" not in str(data).lower()
                 assert "system32" not in str(data).lower()
 
-    def test_command_injection_in_filename(
-        self, client: TestClient, user_token: str, test_connection: Connection
-    ):
+    def test_command_injection_in_filename(self, client: TestClient, user_token: str, test_connection: Connection):
         """Test command injection attempts in filenames"""
         # Command injection patterns
         command_patterns = [
@@ -110,9 +103,7 @@ class TestInjectionAttacks:
             # Should handle gracefully, not execute commands
             assert response.status_code in [200, 400, 404, 500]
 
-    def test_xss_in_filename(
-        self, client: TestClient, user_token: str, test_connection: Connection
-    ):
+    def test_xss_in_filename(self, client: TestClient, user_token: str, test_connection: Connection):
         """Test XSS attempts in filenames"""
         xss_patterns = [
             "<script>alert('xss')</script>",
@@ -163,21 +154,15 @@ class TestAuthenticationBypass:
         ]
 
         for token in invalid_tokens:
-            response = client.get(
-                "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
-            )
+            response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
             assert response.status_code == 401
 
     def test_expired_token(self, client: TestClient, session: Session):
         """Test expired token rejection"""
         # Create a token that expired 1 hour ago
-        expired_token = create_access_token(
-            data={"sub": "testuser"}, expires_delta=timedelta(hours=-1)
-        )
+        expired_token = create_access_token(data={"sub": "testuser"}, expires_delta=timedelta(hours=-1))
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {expired_token}"})
         assert response.status_code == 401
 
     def test_token_with_invalid_signature(self, client: TestClient):
@@ -190,9 +175,7 @@ class TestAuthenticationBypass:
         # Sign with a different secret
         invalid_token = jwt.encode(payload, "wrong_secret_key", algorithm="HS256")
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"})
         assert response.status_code == 401
 
     def test_token_algorithm_confusion(self, client: TestClient):
@@ -202,44 +185,28 @@ class TestAuthenticationBypass:
         payload = {"sub": "admin", "exp": int(exp_time.timestamp())}
 
         # Manually create a JWT with 'none' algorithm
-        header = (
-            base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode())
-            .decode()
-            .rstrip("=")
-        )
-        payload_b64 = (
-            base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
-        )
+        header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).decode().rstrip("=")
+        payload_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
         none_token = f"{header}.{payload_b64}."
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {none_token}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {none_token}"})
         assert response.status_code == 401
 
     def test_token_with_non_existent_user(self, client: TestClient):
         """Test token with valid signature but non-existent user"""
         token = create_access_token(data={"sub": "nonexistentuser12345"})
 
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {token}"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 401
 
-    def test_token_replay_attack(
-        self, client: TestClient, user_token: str, session: Session
-    ):
+    def test_token_replay_attack(self, client: TestClient, user_token: str, session: Session):
         """Test token replay attack (token should remain valid until expiry)"""
         # First request
-        response1 = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {user_token}"}
-        )
+        response1 = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
         assert response1.status_code == 200
 
         # Replay the same token (should work until expiration)
-        response2 = client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {user_token}"}
-        )
+        response2 = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
         assert response2.status_code == 200
 
         # Note: True replay attack prevention requires token blacklisting
@@ -249,9 +216,7 @@ class TestAuthenticationBypass:
 class TestAuthorizationBypass:
     """Test authorization bypass attempts"""
 
-    def test_regular_user_accessing_admin_endpoint(
-        self, client: TestClient, user_token: str
-    ):
+    def test_regular_user_accessing_admin_endpoint(self, client: TestClient, user_token: str):
         """Test regular user trying to access admin-only endpoints"""
         # Try to access admin connections list (admin only)
         response = client.get(
@@ -312,9 +277,7 @@ class TestAuthorizationBypass:
         # Should be forbidden (user doesn't have admin rights)
         assert response.status_code == 403
 
-    def test_admin_escalation_attempt(
-        self, client: TestClient, user_token: str, session: Session
-    ):
+    def test_admin_escalation_attempt(self, client: TestClient, user_token: str, session: Session):
         """Test user trying to escalate to admin via password change or profile update"""
         # Try to change password and somehow become admin (shouldn't work)
         response = client.post(
@@ -325,9 +288,7 @@ class TestAuthorizationBypass:
         # Password change might work, but shouldn't grant admin
         if response.status_code == 200:
             # Verify user is still not admin
-            me_response = client.get(
-                "/api/auth/me", headers={"Authorization": f"Bearer {user_token}"}
-            )
+            me_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
             assert me_response.status_code == 200
             assert me_response.json()["is_admin"] is False
 
@@ -414,9 +375,7 @@ class TestEncryptionSecurity:
         token = create_access_token(data={"sub": "testuser"})
 
         # Decode without verification to inspect payload
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
+        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
 
         # Should only contain necessary fields
         assert "sub" in payload  # Subject (username)
@@ -449,9 +408,7 @@ class TestRateLimiting:
         # Make rapid requests
         responses = []
         for _ in range(20):
-            response = client.get(
-                "/api/auth/me", headers={"Authorization": f"Bearer {user_token}"}
-            )
+            response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
             responses.append(response.status_code)
 
         # All should succeed (no rate limiting implemented yet)
@@ -525,9 +482,7 @@ class TestSecurityHeaders:
 
         # Try with existing user but wrong password
         # (Assuming admin user exists from fixtures)
-        response2 = client.post(
-            "/api/auth/token", data={"username": "admin", "password": "wrongpassword"}
-        )
+        response2 = client.post("/api/auth/token", data={"username": "admin", "password": "wrongpassword"})
 
         # Both should give same generic error (don't leak user existence)
         assert response1.status_code == 401

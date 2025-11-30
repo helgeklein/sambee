@@ -15,7 +15,7 @@
         "8000"
       ],
       "cwd": "${workspaceFolder}/backend",
-      "envFile": "${workspaceFolder}/.env",
+      "envFile": "${workspaceFolder}/.env.backend",
       "console": "integratedTerminal",
       "justMyCode": false
     },

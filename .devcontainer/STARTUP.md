@@ -15,23 +15,23 @@ Both tasks have:
 - `"isBackground": true` - Run as background processes
 - **Container detection** - Wrapper scripts check for `/.dockerenv` and skip if not in container
 
-**When it runs:** Every time you open the workspace folder in VS Code (inside container)  
-**Reliability:** ⭐⭐⭐⭐⭐ Most reliable - always runs on folder open  
-**Duplicate Prevention:** Uses dedicated panels to prevent multiple instances  
+**When it runs:** Every time you open the workspace folder in VS Code (inside container)
+**Reliability:** ⭐⭐⭐⭐⭐ Most reliable - always runs on folder open
+**Duplicate Prevention:** Uses dedicated panels to prevent multiple instances
 **Host Safety:** Gracefully skips if opened on host (before "Reopen in Container")
 
 ### postStartCommand (Setup Only)
 When the container starts:
 ```bash
-bash .devcontainer/post-start.sh
+bash .devcontainer/post-start
 ```
 
-**What it does:** 
+**What it does:**
 - Configures git safe directory
 - Ensures frontend dependencies (node_modules) exist
 - **Does NOT start servers** (leaves that to VS Code tasks)
 
-**When it runs:** Only when container is first created or explicitly started  
+**When it runs:** Only when container is first created or explicitly started
 **Purpose:** Environment setup, not server management
 
 ## Checking Server Status

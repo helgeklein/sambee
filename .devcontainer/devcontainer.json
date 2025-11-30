@@ -144,8 +144,8 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "bash .devcontainer/post-create.sh",
-  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "postCreateCommand": "bash .devcontainer/post-create",
+  "postStartCommand": "bash .devcontainer/post-start",
 
   "remoteUser": "vscode",
   "updateRemoteUserUID": true

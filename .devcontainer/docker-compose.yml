@@ -1,6 +1,6 @@
 services:
   devcontainer:
-    build: 
+    build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
     volumes:
@@ -14,22 +14,8 @@ services:
       - TZ=UTC
     network_mode: host  # Easier for SMB testing
 
-  # Development services
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ../Caddyfile.dev:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    profiles: ["with-caddy"]  # Only start when needed
-
 volumes:
   vscode-extensions:
   vscode-extensions-insiders:
   node_modules:
   pip-cache:
-  caddy_data:
-  caddy_config:

@@ -6,10 +6,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.core.config import settings
+from app.core.config import static
 
 # Database URL
-DATABASE_URL = f"sqlite:///{settings.data_dir}/sambee.db"
+DATABASE_URL = f"sqlite:///{static.data_dir}/sambee.db"
 
 # Detect if we're in a testing/CI environment
 # In these environments, use StaticPool or NullPool to avoid threading issues

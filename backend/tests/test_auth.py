@@ -106,13 +106,13 @@ class TestTokenGeneration:
         """Test that token can be decoded to retrieve username."""
         from jose import jwt
 
-        from app.core.config import settings
+        from app.core.config import settings, static
 
         username = "testuser"
         token = create_access_token(data={"sub": username})
 
         # Decode without verification (just to check content)
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
         assert payload["sub"] == username
 
 

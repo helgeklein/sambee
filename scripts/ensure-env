@@ -1,0 +1,41 @@
+#!/bin/bash
+# Shared script to ensure .env.backend file exists with secure keys
+# Used by both post-create and start-backend
+
+ensure_env_file() {
+    local env_path="${1:-.env.backend}"
+
+    if [ -f "$env_path" ]; then
+        return 0
+    fi
+
+    echo "🔐 Creating $env_path file..."
+
+    # Generate secure keys
+    ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+
+    # Create .env.backend file with actual values
+    cat > "$env_path" <<EOF
+# App Configuration
+DEBUG=true
+LOG_LEVEL=DEBUG
+DATA_DIR=/workspace/data
+
+# Security
+SECRET_KEY=${SECRET_KEY}
+ENCRYPTION_KEY=${ENCRYPTION_KEY}
+
+# Initial Admin Credentials
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=changeme
+EOF
+
+    echo "✅ Generated $env_path with secure keys"
+}
+
+# If script is executed directly (not sourced)
+if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
+    cd /workspace/backend
+    ensure_env_file .env.backend
+fi

@@ -51,9 +51,9 @@ Connecting to SMB: //fileserver:445/shared (user: bob)
 
 ### 3. Improved Startup Scripts
 
-**Files:** 
+**Files:**
 - `/workspace/scripts/dev-start`
-- `/workspace/.devcontainer/post-start.sh`
+- `/workspace/.devcontainer/post-start`
 
 **Features:**
 - ✅ Timestamped log entries

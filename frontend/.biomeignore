@@ -13,7 +13,7 @@ build/
 coverage/
 
 # Environment files
-.env
+.env.backend
 .env.local
 .env.*.local
 
