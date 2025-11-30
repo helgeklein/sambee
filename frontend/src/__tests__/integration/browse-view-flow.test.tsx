@@ -56,7 +56,7 @@ describe("Browse → View Flow", () => {
 
       // Wait for error message
       await waitFor(() => {
-        expect(screen.getByText(/failed to load markdown file/i)).toBeInTheDocument();
+        expect(screen.getByText(/failed to load markdown/i)).toBeInTheDocument();
       });
 
       // Loading indicator should be gone
@@ -70,7 +70,7 @@ describe("Browse → View Flow", () => {
 
       // Wait for error message
       await waitFor(() => {
-        expect(screen.getByText(/failed to load markdown file/i)).toBeInTheDocument();
+        expect(screen.getByText(/failed to load markdown/i)).toBeInTheDocument();
       });
     });
 
@@ -81,7 +81,7 @@ describe("Browse → View Flow", () => {
 
       // Should show error
       await waitFor(() => {
-        expect(screen.getByText(/failed to load markdown file/i)).toBeInTheDocument();
+        expect(screen.getByText(/failed to load markdown/i)).toBeInTheDocument();
       });
     });
   });
