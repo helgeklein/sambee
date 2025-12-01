@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
+from app import __version__
 from app.api import admin, auth, browser, viewer, websocket
 from app.core.config import settings
 from app.core.logging import set_request_id
@@ -110,7 +111,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Sambee",
     description="Modern SMB share file browser",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

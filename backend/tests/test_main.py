@@ -302,9 +302,10 @@ class TestApplicationMetadata:
 
     def test_app_version_set(self):
         """Test that application version is set."""
+        from app import __version__
         from app.main import app
 
-        assert app.version == "0.1.0"
+        assert app.version == __version__
 
     def test_app_description_set(self):
         """Test that application description is set."""

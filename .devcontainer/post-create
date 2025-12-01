@@ -20,6 +20,10 @@ cd /workspace
 source /workspace/scripts/ensure-env
 ensure_config_file /workspace/config.toml
 
+# Sync version from VERSION file to package.json
+echo "🔄 Syncing version..."
+/workspace/scripts/sync-version
+
 # Create local data directory
 echo "📁 Creating local data directory..."
 mkdir -p /workspace/data
