@@ -13,6 +13,13 @@ git clone https://github.com/helgeklein/sambee.git
 cd sambee
 ```
 
+Create the data directory and set ownership to user/group ID 1000, which are used by the dockerized application:
+
+```bash
+mkdir -p ./data
+chown -Rfv 1000:1000 ./data
+```
+
 ### 2. Configure Settings
 
 Create a `config.toml` configuration file:

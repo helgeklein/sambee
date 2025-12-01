@@ -28,8 +28,13 @@ COPY backend/ ./
 # Copy built frontend
 COPY --from=frontend-builder /app/build ./static
 
-# Create data directory for SQLite
-RUN mkdir -p /app/data
+# Create non-root user and data directory with appropriate permissions
+RUN useradd -m -u 1000 sambee && \
+    mkdir -p /app/data && \
+    chown sambee:sambee /app/data
+
+# Switch to non-root user
+USER sambee
 
 # Expose port
 EXPOSE 8000

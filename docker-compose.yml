@@ -1,6 +1,7 @@
 services:
   sambee:
     build: .
+    restart: unless-stopped
     volumes:
       - ./data:/app/data
       - ./config.toml:/app/config.toml:ro
