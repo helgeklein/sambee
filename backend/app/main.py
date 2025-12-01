@@ -26,15 +26,15 @@ from app.storage.smb_pool import shutdown_connection_pool
 # Logging
 #
 
-# Configure logging with more detail
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("/tmp/backend.log", mode="a"),
-    ],
-)
+# Log targets:
+# Always log to stdout (for Docker/container logging)
+handlers: list[logging.Handler] = [logging.StreamHandler(sys.stdout)]
+if IS_DEVELOPMENT:
+    # In development, also log to file for easier debugging
+    handlers.append(logging.FileHandler("/tmp/backend.log", mode="a"))
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", handlers=handlers)
 
 # Reduce noise from third-party libraries (only show warnings/errors)
 logging.getLogger("smbprotocol").setLevel(logging.WARNING)
