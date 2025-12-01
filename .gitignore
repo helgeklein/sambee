@@ -66,7 +66,9 @@ frontend/.env.production.local
 .env.backend
 .env.local
 config.toml
-!config.toml.example
+!config.example.toml
+docker-compose.yml
+!docker-compose.example.yml
 .venv/
 venv/
 env/

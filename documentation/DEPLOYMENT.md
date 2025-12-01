@@ -22,10 +22,11 @@ chown -Rfv 1000:1000 ./data
 
 ### 2. Configure Settings
 
-Create a `config.toml` configuration file:
+Create configuration files from examples:
 
 ```bash
-cp config.toml.example config.toml
+cp config.example.toml config.toml
+cp docker-compose.example.yml docker-compose.yml
 ```
 
 Edit `config.toml` and **change the following critical security values** (see below for instructions on how to generate each):
@@ -59,7 +60,7 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 Or using Docker:
 
 ```bash
-docker run --rm python:3.13-slim python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+docker run --rm python:3.13-slim sh -c "pip install -q --root-user-action=ignore --disable-pip-version-check cryptography && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
 ```
 
 Example output: `xAbC123...==` (44 characters)
@@ -94,6 +95,36 @@ The application will be available at:
    - Username: `admin` (or your configured value)
    - Password: `changeme` (or your configured value)
 
+## Reverse Proxy
+
+For production use, add a reverse proxy (nginx, Traefik, Caddy, etc.) in front of Sambee to handle HTTPS.
+
+### Caddy
+
+Instructions for setting up Caddy are out of scope for this document. However, you'll find detailed configuration guides in [this blog post](https://helgeklein.com/blog/automatic-https-certificates-for-services-on-internal-home-network-without-opening-firewall-port/) and [many others](https://helgeklein.com/blog/tag/caddy/) on the same site.
+
+If you have a Docker container with Caddy running, adding Caddy as a reverse proxy is simple, as the following sample `docker-compose.yml` shows:
+
+```yaml
+services:
+  sambee:
+    container_name: sambee
+    hostname: sambee
+    build: .
+    restart: unless-stopped
+    networks:
+      - caddy_caddynet     # frontend communications
+    expose:
+      - 8000:8000          # Sambee to Caddy
+    volumes:
+      - ./data:/app/data
+      - ./config.toml:/app/config.toml:ro
+
+networks:
+  caddy_caddynet:
+    external: true
+```
+
 ## Configuration
 
 ### Port Configuration
@@ -103,7 +134,7 @@ Default port in `docker-compose.yml`:
 ```yaml
 sambee:
   ports:
-    - "8000:8000"  # Application port
+    - 8000:8000  # Application port
 ```
 
 To run on a different port, modify the port mapping:
@@ -111,12 +142,13 @@ To run on a different port, modify the port mapping:
 ```yaml
 sambee:
   ports:
-    - "8080:8000"  # Run on port 8080 instead
+    - 8080:8000  # Run on port 8080 instead
 ```
 
 ### Data Persistence
 
 Application data is stored in `./data`:
+
 - `data/sambee.db` - SQLite database (connections, users)
 
 This directory is mounted as a volume and persists across container restarts.
@@ -139,41 +171,12 @@ docker compose logs -f sambee
 docker compose down
 ```
 
-### Restart Services
-
-```bash
-docker compose restart
-```
-
 ### Update to Latest Version
 
 ```bash
 git pull
 docker compose down
 docker compose build --no-cache
-docker compose up -d
-```
-
-### Backup Data
-
-```bash
-# Backup the entire data directory
-tar -czf sambee-backup-$(date +%Y%m%d).tar.gz data/
-
-# Or just the database
-cp data/sambee.db sambee-backup-$(date +%Y%m%d).db
-```
-
-### Restore Data
-
-```bash
-# Stop services
-docker compose down
-
-# Restore data
-tar -xzf sambee-backup-YYYYMMDD.tar.gz
-
-# Start services
 docker compose up -d
 ```
 
@@ -187,10 +190,6 @@ Check logs for errors:
 docker compose logs sambee
 ```
 
-Common issues:
-- Missing or invalid `secret_key` or `encryption_key` in `config.toml`
-- Port conflicts (change ports in `docker-compose.yml`)
-
 ### Can't Connect to SMB Shares
 
 1. Verify network connectivity from container:
@@ -200,7 +199,7 @@ Common issues:
 
 2. Check credentials are correct
 3. Ensure SMB ports (445, 139) are accessible
-4. Review logs: `docker compose logs -f sambee`
+4. Review logs
 
 ### Frontend Not Loading
 
@@ -214,25 +213,6 @@ Common issues:
    ```bash
    docker compose exec sambee ls -la /app/static
    ```
-
-### Permission Issues
-
-Ensure the data directory is writable:
-
-```bash
-chmod -R 755 data/
-```
-
-## Security Recommendations
-
-1. ✅ **Change default credentials** immediately after first login
-2. ✅ **Use strong secret_key** (32+ character random string)
-3. ✅ **Generate unique encryption_key** (Fernet key)
-4. ✅ **Use a reverse proxy** with HTTPS for production (nginx, Traefik, Cloudflare Tunnel, etc.)
-5. ✅ **Regular backups** of the `data/` directory
-6. ✅ **Keep updated** - pull latest changes and rebuild regularly
-7. ✅ **Firewall** - restrict access to necessary ports only
-8. ✅ **Network isolation** - run on internal network or behind VPN if possible
 
 ## Architecture
 
@@ -259,8 +239,6 @@ chmod -R 755 data/
 │ SMB Shares  │  Your network file shares
 └─────────────┘
 ```
-
-**Note**: For production use, add a reverse proxy (nginx, Traefik, Caddy, etc.) in front of Sambee to handle HTTPS.
 
 ## Support
 

@@ -6,4 +6,4 @@ services:
       - ./data:/app/data
       - ./config.toml:/app/config.toml:ro
     ports:
-      - "8000:8000"
+      - 8000:8000

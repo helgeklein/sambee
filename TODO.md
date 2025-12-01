@@ -25,6 +25,10 @@
   - Settings file
   - Built-in defaults
 
+## Docker
+
+- Add a healthcheck to the prod Dockerfile
+
 ## Settings
 
 ### Advanced

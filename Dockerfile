@@ -11,22 +11,25 @@ RUN npm run build
 FROM python:3.13-slim
 WORKDIR /app
 
+# Set non-interactive mode for apt to avoid warnings
+ENV DEBIAN_FRONTEND=noninteractive
+
 # Install system dependencies from centralized script
 COPY scripts/install-system-deps /tmp/
 RUN bash /tmp/install-system-deps && rm /tmp/install-system-deps
 
-# Copy ImageMagick policy configuration
+# Copy ImageMagick policy configuration (after ImageMagick is installed)
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
 # Copy and install backend dependencies
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt
 
 # Copy backend code
 COPY backend/ ./
 
 # Copy built frontend
-COPY --from=frontend-builder /app/build ./static
+COPY --from=frontend-builder /app/dist ./static
 
 # Create non-root user and data directory with appropriate permissions
 RUN useradd -m -u 1000 sambee && \
