@@ -48,6 +48,9 @@ class SMBConnectionPool:
     Multiple requests to the same server reuse the same connection.
     """
 
+    #
+    # __init__
+    #
     def __init__(
         self,
         max_idle_time: timedelta = timedelta(minutes=5),
@@ -60,14 +63,19 @@ class SMBConnectionPool:
             max_idle_time: How long to keep idle connections alive
             cleanup_interval: How often to run cleanup of idle connections
         """
+
         self._connections: dict[tuple[str, int, str, str], PooledConnection] = {}
         self._lock = asyncio.Lock()
         self._max_idle_time = max_idle_time
         self._cleanup_interval = cleanup_interval
         self._cleanup_task: Optional[asyncio.Task[None]] = None
 
+    #
+    # _get_pool_key
+    #
     def _get_pool_key(self, host: str, port: int, username: str, share_name: str) -> tuple[str, int, str, str]:
         """Generate a unique key for connection pooling."""
+
         return (host.lower(), port, username, share_name)
 
     @asynccontextmanager
@@ -164,8 +172,12 @@ class SMBConnectionPool:
                     # Don't immediately remove - keep in pool for reuse
                     # Cleanup task will handle removing idle connections
 
+    #
+    # cleanup_idle_connections
+    #
     async def cleanup_idle_connections(self) -> None:
         """Remove connections that have been idle for too long."""
+
         async with self._lock:
             now = datetime.now()
             to_remove = []
@@ -196,8 +208,12 @@ class SMBConnectionPool:
             if to_remove:
                 logger.debug(f"Cleaned up {len(to_remove)} idle connection(s), {len(self._connections)} remaining")
 
+    #
+    # start_cleanup_task
+    #
     async def start_cleanup_task(self) -> None:
         """Start the background cleanup task."""
+
         if self._cleanup_task is not None:
             return  # Already running
 
@@ -216,8 +232,12 @@ class SMBConnectionPool:
         self._cleanup_task = asyncio.create_task(cleanup_loop())
         logger.info("Started SMB connection pool cleanup task")
 
+    #
+    # stop_cleanup_task
+    #
     async def stop_cleanup_task(self) -> None:
         """Stop the background cleanup task."""
+
         if self._cleanup_task is not None:
             self._cleanup_task.cancel()
             try:
@@ -226,8 +246,12 @@ class SMBConnectionPool:
                 pass
             self._cleanup_task = None
 
+    #
+    # close_all
+    #
     async def close_all(self) -> None:
         """Close all pooled connections (for shutdown)."""
+
         async with self._lock:
             for pool_key, conn in self._connections.items():
                 try:
@@ -239,6 +263,9 @@ class SMBConnectionPool:
             self._connections.clear()
             logger.info("All SMB connections closed")
 
+    #
+    # get_stats
+    #
     def get_stats(self) -> dict[str, int]:
         """
         Get statistics about the connection pool.
@@ -246,6 +273,7 @@ class SMBConnectionPool:
         Returns:
             Dictionary with pool statistics
         """
+
         total_refs = sum(conn.reference_count for conn in self._connections.values())
         active_conns = sum(1 for conn in self._connections.values() if conn.reference_count > 0)
 
@@ -262,6 +290,9 @@ _pool: Optional[SMBConnectionPool] = None
 _pool_lock = asyncio.Lock()
 
 
+#
+# get_connection_pool
+#
 async def get_connection_pool() -> SMBConnectionPool:
     """
     Get the global SMB connection pool instance.
@@ -271,6 +302,7 @@ async def get_connection_pool() -> SMBConnectionPool:
     Returns:
         The global connection pool
     """
+
     global _pool
 
     if _pool is None:
@@ -283,8 +315,12 @@ async def get_connection_pool() -> SMBConnectionPool:
     return _pool
 
 
+#
+# shutdown_connection_pool
+#
 async def shutdown_connection_pool() -> None:
     """Shutdown the global connection pool (for application shutdown)."""
+
     global _pool
 
     if _pool is not None:

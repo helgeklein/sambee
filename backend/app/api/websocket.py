@@ -15,20 +15,31 @@ router = APIRouter()
 class ConnectionManager:
     """Manages WebSocket connections and directory subscriptions"""
 
+    #
+    # __init__
+    #
     def __init__(self) -> None:
         # Map: connection_id -> set of WebSocket connections
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         # Map: WebSocket -> set of subscribed directory paths
         self.subscriptions: Dict[WebSocket, Set[str]] = {}
 
+    #
+    # connect
+    #
     async def connect(self, websocket: WebSocket) -> None:
         """Accept a new WebSocket connection"""
+
         await websocket.accept()
         self.subscriptions[websocket] = set()
         logger.info(f"WebSocket connected: {id(websocket)}")
 
+    #
+    # disconnect
+    #
     def disconnect(self, websocket: WebSocket) -> None:
         """Remove a WebSocket connection and its subscriptions"""
+
         # Get all subscriptions for this WebSocket before removing
         subscriptions_to_remove = []
         if websocket in self.subscriptions:
@@ -56,8 +67,12 @@ class ConnectionManager:
 
         logger.info(f"WebSocket disconnected: {id(websocket)}")
 
+    #
+    # subscribe
+    #
     async def subscribe(self, websocket: WebSocket, connection_id: str, path: str) -> None:
         """Subscribe a WebSocket to directory changes and start SMB monitoring"""
+
         key = f"{connection_id}:{path}"
 
         if websocket in self.subscriptions:
@@ -113,8 +128,12 @@ class ConnectionManager:
             except Exception as e:
                 logger.error(f"Failed to start SMB monitoring for {key}: {e}", exc_info=True)
 
+    #
+    # unsubscribe
+    #
     async def unsubscribe(self, websocket: WebSocket, connection_id: str, path: str) -> None:
         """Unsubscribe a WebSocket from directory changes and stop SMB monitoring if last subscriber"""
+
         key = f"{connection_id}:{path}"
 
         if websocket in self.subscriptions:
@@ -135,8 +154,12 @@ class ConnectionManager:
 
         logger.info(f"WebSocket {id(websocket)} unsubscribed from {key}")
 
+    #
+    # notify_directory_change
+    #
     async def notify_directory_change(self, connection_id: str, path: str) -> None:
         """Notify all subscribers about a directory change"""
+
         key = f"{connection_id}:{path}"
 
         if key in self.active_connections:
@@ -164,6 +187,9 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+#
+# websocket_endpoint
+#
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """
@@ -176,6 +202,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     Server sends:
     - {"type": "directory_changed", "connection_id": "uuid", "path": "/some/path"}
     """
+
     await manager.connect(websocket)
 
     try:

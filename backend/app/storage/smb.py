@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 class SMBBackend(StorageBackend):
     """SMB storage backend using smbprotocol"""
 
+    #
+    # __init__
+    #
     def __init__(self, host: str, share_name: str, username: str, password: str, port: int = 445):
         self.host = host
         self.share_name = share_name
@@ -27,6 +30,9 @@ class SMBBackend(StorageBackend):
         self._base_path = f"\\\\{host}\\{share_name}"
         self._pool_connection = None  # Track current pool connection context
 
+    #
+    # connect
+    #
     async def connect(self) -> None:
         """
         Establish SMB connection using connection pool.
@@ -38,10 +44,14 @@ class SMBBackend(StorageBackend):
         The connection is NOT immediately established here - it's acquired
         through the pool's context manager when operations are performed.
         """
+
         # Connection pooling is handled transparently in operations
         # No explicit connection establishment needed
         logger.debug(f"SMB backend ready (will use pooled connection): //{self.host}:{self.port}/{self.share_name}")
 
+    #
+    # disconnect
+    #
     async def disconnect(self) -> None:
         """
         Release SMB connection back to pool.
@@ -50,18 +60,27 @@ class SMBBackend(StorageBackend):
         for reuse by other requests. The pool will clean up idle connections
         automatically.
         """
+
         logger.debug(f"SMB backend released (connection remains in pool): //{self.host}/{self.share_name}")
 
+    #
+    # _build_smb_path
+    #
     def _build_smb_path(self, path: str) -> str:
         """Build full SMB path from relative path"""
+
         # Ensure path uses forward slashes and doesn't start with slash
         path = path.replace("\\", "/").lstrip("/")
         if path:
             return f"{self._base_path}\\{path.replace('/', '\\')}"
         return self._base_path
 
+    #
+    # list_directory
+    #
     async def list_directory(self, path: str = "") -> DirectoryListing:
         """List contents of a directory"""
+
         smb_path = self._build_smb_path(path)
         logger.info(f"Listing directory: path='{path}' -> smb_path='{smb_path}'")
 
@@ -141,8 +160,12 @@ class SMBBackend(StorageBackend):
             )
             raise
 
+    #
+    # get_file_info
+    #
     async def get_file_info(self, path: str) -> FileInfo:
         """Get information about a specific file or directory"""
+
         smb_path = self._build_smb_path(path)
 
         try:
@@ -180,10 +203,14 @@ class SMBBackend(StorageBackend):
             logger.error(f"Failed to get file info for {path}: {e}")
             raise
 
+    #
+    # read_file
+    #
     async def read_file(  # type: ignore[override, misc]
         self, path: str, chunk_size: int = 1024 * 1024
     ) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""
+
         smb_path = self._build_smb_path(path)
 
         try:
@@ -216,8 +243,12 @@ class SMBBackend(StorageBackend):
             logger.error(f"Failed to read file {path}: {e}")
             raise
 
+    #
+    # file_exists
+    #
     async def file_exists(self, path: str) -> bool:
         """Check if a file or directory exists"""
+
         smb_path = self._build_smb_path(path)
 
         try:

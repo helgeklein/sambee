@@ -6,6 +6,9 @@ from typing import Any
 from pydantic import BaseModel
 
 
+#
+# load_toml_config
+#
 def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
     """Load configuration from TOML file if it exists.
 
@@ -13,6 +16,7 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
         Dictionary with flattened config values for Pydantic.
         Returns empty dict if file doesn't exist.
     """
+
     if not config_file.exists():
         return {}
 
@@ -90,8 +94,12 @@ class UserSettings(BaseModel):
     admin_password: str = "changeme"
 
 
+#
+# load_settings
+#
 def load_settings() -> UserSettings:
     """Load settings from config.toml file."""
+
     toml_config = load_toml_config()
     return UserSettings(**toml_config)
 

@@ -45,9 +45,13 @@ else:
 
 # Enable WAL mode and other performance optimizations for SQLite
 # Only in non-testing environments to avoid threading issues
+#
+# set_sqlite_pragma
+#
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_conn: Any, connection_record: Any) -> None:
     """Configure SQLite connection for better concurrency and performance."""
+
     cursor = dbapi_conn.cursor()
 
     if not is_testing:
@@ -73,12 +77,20 @@ def set_sqlite_pragma(dbapi_conn: Any, connection_record: Any) -> None:
     cursor.close()
 
 
+#
+# init_db
+#
 def init_db() -> None:
     """Initialize database tables"""
+
     SQLModel.metadata.create_all(engine)
 
 
+#
+# get_session
+#
 def get_session() -> Generator[Session, None, None]:
     """Dependency to get database session"""
+
     with Session(engine) as session:
         yield session

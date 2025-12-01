@@ -30,10 +30,14 @@ class ConnectionCreate(SQLModel):
     password: str
     path_prefix: Optional[str] = "/"
 
+    #
+    # validate_not_empty
+    #
     @field_validator("name", "host", "share_name", "username")
     @classmethod
     def validate_not_empty(cls, v: str) -> str:
         """Validate that required string fields are not empty."""
+
         if not v or not v.strip():
             raise ValueError("Field cannot be empty")
         return v

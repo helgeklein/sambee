@@ -18,8 +18,12 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+#
+# validate_connection
+#
 def validate_connection(connection: Connection) -> None:
     """Validate connection has required fields"""
+
     if not connection.share_name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -27,6 +31,9 @@ def validate_connection(connection: Connection) -> None:
         )
 
 
+#
+# view_file
+#
 @router.get("/{connection_id}/file", response_model=None)
 async def view_file(
     connection_id: uuid.UUID,
@@ -35,6 +42,7 @@ async def view_file(
     session: Session = Depends(get_session),
 ) -> Response | StreamingResponse:
     """Stream file contents for viewing"""
+
     set_user(current_user.username)
 
     connection = session.get(Connection, connection_id)
@@ -190,6 +198,9 @@ async def view_file(
         )
 
 
+#
+# download_file
+#
 @router.get("/{connection_id}/download")
 async def download_file(
     connection_id: uuid.UUID,
@@ -198,6 +209,7 @@ async def download_file(
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     """Download a file"""
+
     set_user(current_user.username)
     logger.info(f"Download file: connection_id={connection_id}, path='{path}'")
 

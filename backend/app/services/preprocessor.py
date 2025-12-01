@@ -71,6 +71,9 @@ class PreprocessorInterface(ABC):
     # Maximum processing time (30 seconds default)
     TIMEOUT_SECONDS = 30
 
+    #
+    # convert_to_final_format
+    #
     @abstractmethod
     def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
         """
@@ -94,6 +97,9 @@ class PreprocessorInterface(ABC):
         """
         pass
 
+    #
+    # check_availability
+    #
     @abstractmethod
     def check_availability(self) -> bool:
         """
@@ -104,6 +110,9 @@ class PreprocessorInterface(ABC):
         """
         pass
 
+    #
+    # validate_input
+    #
     def validate_input(self, input_data: bytes, filename: str) -> None:
         """
         Validate input data before processing.
@@ -115,6 +124,7 @@ class PreprocessorInterface(ABC):
         Raises:
             ValueError: If data is empty, file is too large, or has invalid extension
         """
+
         # Check for empty data
         if not input_data or len(input_data) == 0:
             raise ValueError("Empty input data")
@@ -129,6 +139,9 @@ class PreprocessorInterface(ABC):
         if extension not in self.SUPPORTED_FORMATS:
             raise ValueError(f"Unsupported format: {extension}. Supported: {', '.join(sorted(self.SUPPORTED_FORMATS))}")
 
+    #
+    # _create_temp_file
+    #
     def _create_temp_file(self, suffix: str) -> Path:
         """
         Create a temporary file for intermediate output.
@@ -139,6 +152,7 @@ class PreprocessorInterface(ABC):
         Returns:
             Path to the temporary file
         """
+
         fd, temp_path = tempfile.mkstemp(suffix=suffix, prefix="sambee_preprocessed_")
         os.close(fd)  # Close the file descriptor, we only need the path
         return Path(temp_path)
@@ -162,12 +176,20 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
 
     SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
 
+    #
+    # __init__
+    #
     def __init__(self) -> None:
         """Initialize the GraphicsMagick preprocessor."""
+
         self.gm_command = "gm"
 
+    #
+    # check_availability
+    #
     def check_availability(self) -> bool:
         """Check if GraphicsMagick is installed and accessible."""
+
         try:
             result = subprocess.run(
                 [self.gm_command, "version"],
@@ -179,6 +201,9 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
 
+    #
+    # convert_to_final_format
+    #
     def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
         """
         Convert PSD/PSB directly to browser-ready format using GraphicsMagick.
@@ -198,6 +223,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
         Raises:
             PreprocessorError: If conversion fails
         """
+
         # Validate input
         self.validate_input(input_data, filename)
 
@@ -312,13 +338,21 @@ class ImageMagickPreprocessor(PreprocessorInterface):
 
     SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
 
+    #
+    # __init__
+    #
     def __init__(self) -> None:
         """Initialize the ImageMagick preprocessor."""
+
         self.convert_command = "convert"  # ImageMagick 6
         self.magick_command = "magick"  # ImageMagick 7
 
+    #
+    # check_availability
+    #
     def check_availability(self) -> bool:
         """Check if ImageMagick is installed and accessible."""
+
         # Try ImageMagick 7 first (magick command)
         try:
             result = subprocess.run(
@@ -344,8 +378,12 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         except (subprocess.SubprocessError, FileNotFoundError):
             return False
 
+    #
+    # _get_command
+    #
     def _get_command(self) -> str:
         """Determine which ImageMagick command to use (v6 or v7)."""
+
         # Try ImageMagick 7 first
         try:
             result = subprocess.run(
@@ -362,6 +400,9 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         # Fall back to ImageMagick 6
         return self.convert_command
 
+    #
+    # _detect_colorspace
+    #
     def _detect_colorspace(self, input_data: bytes, filename: str) -> str:
         """
         Detect the colorspace of an image file.
@@ -376,6 +417,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         Raises:
             PreprocessorError: If colorspace detection fails
         """
+
         try:
             command_name = self._get_command()
             extension = Path(filename).suffix.lower().lstrip(".")
@@ -412,6 +454,9 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             logger.warning(f"Error detecting colorspace for {filename}: {e}")
             return "Unknown"
 
+    #
+    # convert_to_final_format
+    #
     def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
         """
         Convert PSD/PSB directly to browser-ready format using ImageMagick.
@@ -572,6 +617,9 @@ class PreprocessorRegistry:
         "ai": ImageMagickPreprocessor,  # Adobe Illustrator
     }
 
+    #
+    # requires_preprocessing
+    #
     @classmethod
     def requires_preprocessing(cls, extension: str) -> bool:
         """
@@ -583,10 +631,14 @@ class PreprocessorRegistry:
         Returns:
             True if the format requires preprocessing, False otherwise
         """
+
         # Normalize extension (remove dot, lowercase)
         ext = extension.lower().lstrip(".")
         return ext in cls._FORMAT_REGISTRY
 
+    #
+    # get_preprocessor_for_format
+    #
     @classmethod
     def get_preprocessor_for_format(cls, extension: str, preprocessor_type: Optional[str] = None) -> PreprocessorInterface:
         """
@@ -605,6 +657,7 @@ class PreprocessorRegistry:
             ValueError: If format is not registered for preprocessing
             PreprocessorError: If preprocessor is not available
         """
+
         # Normalize extension
         ext = extension.lower().lstrip(".")
 
@@ -643,6 +696,9 @@ class PreprocessorRegistry:
 
         return instance
 
+    #
+    # get_supported_formats
+    #
     @classmethod
     def get_supported_formats(cls) -> set[str]:
         """
@@ -651,8 +707,12 @@ class PreprocessorRegistry:
         Returns:
             Set of file extensions (lowercase, without dot) that can be preprocessed
         """
+
         return set(cls._FORMAT_REGISTRY.keys())
 
+    #
+    # register_format
+    #
     @classmethod
     def register_format(cls, extension: str, preprocessor_class: type[PreprocessorInterface]) -> None:
         """
@@ -668,6 +728,7 @@ class PreprocessorRegistry:
             # Register a custom preprocessor for CDR files
             PreprocessorRegistry.register_format("cdr", CorelDrawPreprocessor)
         """
+
         ext = extension.lower().lstrip(".")
         cls._FORMAT_REGISTRY[ext] = preprocessor_class
         logger.info(f"Registered preprocessor {preprocessor_class.__name__} for .{ext} files")
@@ -694,6 +755,9 @@ class PreprocessorFactory:
         intermediate_file = preprocessor.convert_to_intermediate(psd_file)
     """
 
+    #
+    # create
+    #
     @staticmethod
     def create(preprocessor_type: Optional[str] = None) -> PreprocessorInterface:
         """
@@ -710,6 +774,7 @@ class PreprocessorFactory:
         Raises:
             PreprocessorError: If requested preprocessor is not available
         """
+
         # Get configuration
         if preprocessor_type is None:
             preprocessor_type = os.getenv("PREPROCESSOR", "auto").lower()
@@ -753,6 +818,9 @@ class PreprocessorFactory:
         else:
             raise ValueError(f"Invalid preprocessor type: {preprocessor_type}. Valid values: graphicsmagick, imagemagick, auto")
 
+    #
+    # get_supported_formats
+    #
     @staticmethod
     def get_supported_formats() -> set[str]:
         """
@@ -761,6 +829,7 @@ class PreprocessorFactory:
         Returns:
             Set of supported file extensions (lowercase, without dot)
         """
+
         formats = set()
 
         # Check GraphicsMagick

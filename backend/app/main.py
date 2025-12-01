@@ -55,9 +55,13 @@ if "pytest" not in sys.modules:
     logger.info("=" * 80)
 
 
+#
+# lifespan
+#
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize application on startup"""
+
     try:
         logger.info("Starting Sambee application...")
 
@@ -115,6 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info(f"Shutdown complete - {datetime.now().isoformat()}")
 
 
+# FastAPI application instance
 app = FastAPI(
     title="Sambee",
     description="Modern SMB share file browser",
@@ -123,10 +128,13 @@ app = FastAPI(
 )
 
 
-# Request logging middleware
+#
+# log_requests
+#
 @app.middleware("http")
 async def log_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """Log all HTTP requests with request ID and user context"""
+
     start_time = datetime.now()
 
     # Set request ID for this request context
@@ -187,9 +195,13 @@ app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 
 
-# Health check
+#
+# health_check
+#
 @app.get("/api/health")
 async def health_check() -> dict[str, str]:
+    """Health check endpoint"""
+
     return {"status": "healthy"}
 
 
@@ -198,9 +210,13 @@ static_path = Path("/app/static")
 if static_path.exists():
     app.mount("/assets", StaticFiles(directory=static_path / "assets"), name="assets")
 
+    #
+    # serve_spa
+    #
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str) -> FileResponse | None:
         """Serve React SPA for all non-API routes"""
+
         if not full_path.startswith("api/"):
             return FileResponse(static_path / "index.html")
         return None

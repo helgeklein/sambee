@@ -21,12 +21,16 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+#
+# list_connections
+#
 @router.get("/connections", response_model=List[ConnectionRead])
 async def list_connections(
     current_user: User = Depends(get_current_admin_user),
     session: Session = Depends(get_session),
 ) -> list[Connection]:
     """List all configured connections"""
+
     set_user(current_user.username)
     logger.info(f"Listing connections: user={current_user.username}")
 
@@ -35,6 +39,9 @@ async def list_connections(
     return list(connections)
 
 
+#
+# create_connection
+#
 @router.post("/connections", response_model=ConnectionRead)
 async def create_connection(
     connection_data: ConnectionCreate,
@@ -42,6 +49,7 @@ async def create_connection(
     session: Session = Depends(get_session),
 ) -> Connection:
     """Create a new SMB connection"""
+
     set_user(current_user.username)
     logger.info(
         f"Creating connection: name={connection_data.name}, host={connection_data.host}, "
@@ -90,6 +98,9 @@ async def create_connection(
     return connection
 
 
+#
+# update_connection
+#
 @router.put("/connections/{connection_id}", response_model=ConnectionRead)
 async def update_connection(
     connection_id: uuid.UUID,
@@ -98,6 +109,7 @@ async def update_connection(
     session: Session = Depends(get_session),
 ) -> Connection:
     """Update an existing connection"""
+
     connection = session.get(Connection, connection_id)
     if not connection:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
@@ -155,6 +167,9 @@ async def update_connection(
     return connection
 
 
+#
+# delete_connection
+#
 @router.delete("/connections/{connection_id}")
 async def delete_connection(
     connection_id: uuid.UUID,
@@ -162,6 +177,7 @@ async def delete_connection(
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Delete a connection"""
+
     connection = session.get(Connection, connection_id)
     if not connection:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
@@ -172,6 +188,9 @@ async def delete_connection(
     return {"message": "Connection deleted successfully"}
 
 
+#
+# test_connection
+#
 @router.post("/connections/{connection_id}/test")
 async def test_connection(
     connection_id: uuid.UUID,
@@ -179,6 +198,7 @@ async def test_connection(
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Test a connection"""
+
     connection = session.get(Connection, connection_id)
     if not connection:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")

@@ -49,12 +49,18 @@ class DirectoryMonitor:
     Manages directory handles and watchers with proper cleanup.
     """
 
+    #
+    # __init__
+    #
     def __init__(self) -> None:
         # Map: "connection_id:path" -> MonitoredDirectory
         self._monitors: Dict[str, "MonitoredDirectory"] = {}
         self._lock = threading.Lock()
         self._running = True
 
+    #
+    # start_monitoring
+    #
     def start_monitoring(
         self,
         connection_id: str,
@@ -79,6 +85,7 @@ class DirectoryMonitor:
             port: SMB port
             on_change_callback: Async callback function(connection_id, path) called on changes
         """
+
         key = f"{connection_id}:{path}"
 
         with self._lock:
@@ -107,6 +114,9 @@ class DirectoryMonitor:
                 logger.error(f"Failed to start monitoring {key}: {e}", exc_info=True)
                 raise
 
+    #
+    # stop_monitoring
+    #
     def stop_monitoring(self, connection_id: str, path: str) -> None:
         """
         Stop monitoring a directory (decreases subscriber count, stops when 0).
@@ -115,6 +125,7 @@ class DirectoryMonitor:
             connection_id: Connection identifier
             path: Directory path
         """
+
         key = f"{connection_id}:{path}"
 
         with self._lock:
@@ -136,8 +147,12 @@ class DirectoryMonitor:
             else:
                 logger.info(f"Decreased subscriber count for {key} to {monitor.subscriber_count}")
 
+    #
+    # stop_all
+    #
     def stop_all(self) -> None:
         """Stop all monitors and clean up resources."""
+
         with self._lock:
             self._running = False
             keys = list(self._monitors.keys())
@@ -161,6 +176,9 @@ class MonitoredDirectory:
     Handles proper resource cleanup to prevent handle leaks.
     """
 
+    #
+    # __init__
+    #
     def __init__(
         self,
         connection_id: str,
@@ -195,8 +213,12 @@ class MonitoredDirectory:
         self._retry_count = 0
         self._consecutive_failures = 0
 
+    #
+    # start
+    #
     def start(self) -> None:
         """Start monitoring this directory."""
+
         try:
             # Establish SMB connection
             self._connection = Connection(guid=None, server_name=self.host, port=self.port)
@@ -240,8 +262,12 @@ class MonitoredDirectory:
             self._cleanup()
             raise
 
+    #
+    # _reconnect
+    #
     def _reconnect(self) -> None:
         """Reconnect to SMB server after connection loss with exponential backoff."""
+
         self._consecutive_failures += 1
 
         if self._consecutive_failures > MAX_RETRY_ATTEMPTS:
@@ -304,8 +330,12 @@ class MonitoredDirectory:
 
         logger.info(f"Successfully reconnected monitor for {self.connection_id}:{self.path}")
 
+    #
+    # _monitor_loop
+    #
     def _monitor_loop(self) -> None:
         """Background thread that monitors for changes."""
+
         try:
             while not self._stop_event.is_set():
                 # Start watching for changes
@@ -424,8 +454,12 @@ class MonitoredDirectory:
         finally:
             logger.info(f"Monitor loop stopped for {self.connection_id}:{self.path}")
 
+    #
+    # _get_action_name
+    #
     def _get_action_name(self, action: int) -> str:
         """Get human-readable action name."""
+
         action_names = {
             FileAction.FILE_ACTION_ADDED: "ADDED",
             FileAction.FILE_ACTION_REMOVED: "REMOVED",
@@ -435,8 +469,12 @@ class MonitoredDirectory:
         }
         return action_names.get(action, f"UNKNOWN({action})")
 
+    #
+    # stop
+    #
     def stop(self) -> None:
         """Stop monitoring and clean up resources."""
+
         logger.info(f"Stopping monitor for {self.connection_id}:{self.path}")
         self._stop_event.set()
 
@@ -456,8 +494,12 @@ class MonitoredDirectory:
         # Clean up SMB resources
         self._cleanup()
 
+    #
+    # _cleanup
+    #
     def _cleanup(self) -> None:
         """Clean up SMB resources in proper order."""
+
         # Close in reverse order of creation to prevent leaks
 
         if self._open:
@@ -501,16 +543,24 @@ class MonitoredDirectory:
 _global_monitor: Optional[DirectoryMonitor] = None
 
 
+#
+# get_monitor
+#
 def get_monitor() -> DirectoryMonitor:
     """Get or create the global directory monitor instance."""
+
     global _global_monitor
     if _global_monitor is None:
         _global_monitor = DirectoryMonitor()
     return _global_monitor
 
 
+#
+# shutdown_monitor
+#
 def shutdown_monitor() -> None:
     """Shutdown the global monitor and clean up all resources."""
+
     global _global_monitor
     if _global_monitor is not None:
         _global_monitor.stop_all()

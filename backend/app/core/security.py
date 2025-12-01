@@ -19,25 +19,48 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 fernet = Fernet(settings.encryption_key.encode())
 
 
+#
+# verify_password
+#
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a hashed password"""
+
     return bool(pwd_context.verify(plain_password, hashed_password))
 
 
+#
+# get_password_hash
+#
 def get_password_hash(password: str) -> str:
+    """Hash a password for storage"""
+
     return str(pwd_context.hash(password))
 
 
+#
+# encrypt_password
+#
 def encrypt_password(password: str) -> str:
     """Encrypt password for storage"""
+
     return fernet.encrypt(password.encode()).decode()
 
 
+#
+# decrypt_password
+#
 def decrypt_password(encrypted_password: str) -> str:
     """Decrypt stored password"""
+
     return fernet.decrypt(encrypted_password.encode()).decode()
 
 
+#
+# create_access_token
+#
 def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token"""
+
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -48,7 +71,12 @@ def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta]
     return encoded_jwt
 
 
+#
+# get_current_user
+#
 async def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
+    """Get the current authenticated user from token"""
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -71,9 +99,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
     return user
 
 
+#
+# get_current_admin_user
+#
 async def get_current_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
+    """Ensure the current user is an admin"""
+
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
     return current_user

@@ -16,6 +16,9 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+#
+# list_directory
+#
 @router.get("/{connection_id}/list", response_model=DirectoryListing)
 async def list_directory(
     connection_id: uuid.UUID,
@@ -24,6 +27,7 @@ async def list_directory(
     session: Session = Depends(get_session),
 ) -> DirectoryListing:
     """List contents of a directory"""
+
     # Set user context for logging
     set_user(current_user.username)
 
@@ -68,6 +72,9 @@ async def list_directory(
         )
 
 
+#
+# get_file_info
+#
 @router.get("/{connection_id}/info", response_model=FileInfo)
 async def get_file_info(
     connection_id: uuid.UUID,
@@ -76,6 +83,7 @@ async def get_file_info(
     session: Session = Depends(get_session),
 ) -> FileInfo:
     """Get information about a specific file or directory"""
+
     # Set user context for logging
     set_user(current_user.username)
 

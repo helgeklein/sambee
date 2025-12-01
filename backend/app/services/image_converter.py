@@ -46,6 +46,9 @@ except Exception as e:
     VIPS_AVAILABLE = False
 
 
+#
+# convert_image_to_jpeg
+#
 def convert_image_to_jpeg(
     image_bytes: bytes,
     filename: str,
@@ -74,6 +77,7 @@ def convert_image_to_jpeg(
         ValueError: If the image cannot be converted
         ImportError: If HEIC support is needed but not available
     """
+
     if not VIPS_AVAILABLE:
         raise ImportError("libvips is not available")
 

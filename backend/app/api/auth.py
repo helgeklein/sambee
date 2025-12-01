@@ -20,12 +20,16 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+#
+# login
+#
 @router.post("/token")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
 ) -> dict[str, str | bool]:
     """Login endpoint for OAuth2 password flow"""
+
     logger.info(f"Login attempt: username={form_data.username}")
 
     statement = select(User).where(User.username == form_data.username)
@@ -51,11 +55,15 @@ async def login(
     }
 
 
+#
+# get_current_user_info
+#
 @router.get("/me")
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Get current user information"""
+
     set_user(current_user.username)
     logger.info(f"User info requested: username={current_user.username}")
 
@@ -66,6 +74,9 @@ async def get_current_user_info(
     }
 
 
+#
+# change_password
+#
 @router.post("/change-password")
 async def change_password(
     current_password: str,
@@ -74,6 +85,7 @@ async def change_password(
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Change current user's password"""
+
     set_user(current_user.username)
     logger.info(f"Password change requested: username={current_user.username}")
 

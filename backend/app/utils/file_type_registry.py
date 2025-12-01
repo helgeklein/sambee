@@ -376,6 +376,9 @@ for file_type in FILE_TYPE_REGISTRY:
 # ============================================================================
 
 
+#
+# get_file_type_by_extension
+#
 def get_file_type_by_extension(filename: str) -> Optional[FileTypeDefinition]:
     """
     Get file type definition by filename/extension.
@@ -386,12 +389,16 @@ def get_file_type_by_extension(filename: str) -> Optional[FileTypeDefinition]:
     Returns:
         FileTypeDefinition if found, None otherwise
     """
+
     if "." not in filename:
         return None
     ext = f".{filename.lower().rsplit('.', 1)[-1]}"
     return _extension_map.get(ext)
 
 
+#
+# get_file_type_by_mime
+#
 def get_file_type_by_mime(mime_type: str) -> Optional[FileTypeDefinition]:
     """
     Get file type definition by MIME type.
@@ -402,9 +409,13 @@ def get_file_type_by_mime(mime_type: str) -> Optional[FileTypeDefinition]:
     Returns:
         FileTypeDefinition if found, None otherwise
     """
+
     return _mime_type_map.get(mime_type.lower())
 
 
+#
+# get_mime_type
+#
 def get_mime_type(filename: str, fallback: str = "application/octet-stream") -> str:
     """
     Get MIME type for a filename.
@@ -419,6 +430,7 @@ def get_mime_type(filename: str, fallback: str = "application/octet-stream") -> 
     Returns:
         MIME type string
     """
+
     # Try registry first
     file_type = get_file_type_by_extension(filename)
     if file_type:
@@ -434,6 +446,9 @@ def get_mime_type(filename: str, fallback: str = "application/octet-stream") -> 
     return fallback
 
 
+#
+# is_image_file
+#
 def is_image_file(filename: str) -> bool:
     """
     Check if a file is an image.
@@ -444,10 +459,14 @@ def is_image_file(filename: str) -> bool:
     Returns:
         True if the file is an image format
     """
+
     file_type = get_file_type_by_extension(filename)
     return file_type is not None and file_type.category == FileCategory.IMAGE
 
 
+#
+# needs_conversion
+#
 def needs_conversion(filename: str) -> bool:
     """
     Check if an image file needs conversion for browser display.
@@ -458,10 +477,14 @@ def needs_conversion(filename: str) -> bool:
     Returns:
         True if the file needs conversion, False otherwise
     """
+
     file_type = get_file_type_by_extension(filename)
     return file_type is not None and file_type.requires_conversion
 
 
+#
+# get_image_formats_requiring_conversion
+#
 def get_image_formats_requiring_conversion() -> set[str]:
     """
     Get set of image file extensions that require conversion.
@@ -469,6 +492,7 @@ def get_image_formats_requiring_conversion() -> set[str]:
     Returns:
         Set of lowercase extensions with leading dot (e.g., {".tiff", ".heic"})
     """
+
     return {
         ext
         for file_type in FILE_TYPE_REGISTRY
@@ -477,6 +501,9 @@ def get_image_formats_requiring_conversion() -> set[str]:
     }
 
 
+#
+# get_browser_native_image_formats
+#
 def get_browser_native_image_formats() -> set[str]:
     """
     Get set of browser-native image file extensions.
@@ -484,6 +511,7 @@ def get_browser_native_image_formats() -> set[str]:
     Returns:
         Set of lowercase extensions with leading dot (e.g., {".jpg", ".png"})
     """
+
     return {
         ext
         for file_type in FILE_TYPE_REGISTRY
