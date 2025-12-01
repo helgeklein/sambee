@@ -1,9 +1,8 @@
 services:
   sambee:
     build: .
-    env_file:
-      - container-vars.env
     volumes:
       - ./data:/app/data
+      - ./config.toml:/app/config.toml:ro
     ports:
       - "8000:8000"

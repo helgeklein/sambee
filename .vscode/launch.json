@@ -3,17 +3,10 @@
   "configurations": [
     {
       "name": "Backend: FastAPI",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
-      "args": [
-        "app.main:app",
-        "--reload",
-        "--host",
-        "0.0.0.0",
-        "--port",
-        "8000"
-      ],
+      "args": ["app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
       "cwd": "${workspaceFolder}/backend",
       "envFile": "${workspaceFolder}/.env.backend",
       "console": "integratedTerminal",
@@ -32,7 +25,7 @@
     },
     {
       "name": "Python: Debug Current File",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",

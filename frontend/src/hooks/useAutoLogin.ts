@@ -21,10 +21,21 @@ export function useAutoLogin() {
         return;
       }
 
+      // Check if auto-login has already been attempted (prevents endless retry loop)
+      const autoLoginAttempted = sessionStorage.getItem("auto_login_attempted");
+      if (autoLoginAttempted === "true") {
+        logger.debug("Auto-login: Already attempted this session, skipping");
+        setIsAuthReady(true);
+        return;
+      }
+
+      // Mark that we've attempted auto-login for this session
+      sessionStorage.setItem("auto_login_attempted", "true");
+
       // Auto-login with hardcoded admin credentials for development
       try {
         logger.info("Auto-login: Authenticating with default admin credentials");
-        const response = await login("admin", "admin");
+        const response = await login("admin", "changeme");
         localStorage.setItem("access_token", response.access_token);
         logger.info("Auto-login: Successfully authenticated", {
           username: response.username,

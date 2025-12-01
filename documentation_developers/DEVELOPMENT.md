@@ -25,15 +25,15 @@ The project includes a complete dev container configuration for consistent devel
    - Install Python dependencies
    - Install Node modules
    - Initialize the database
-   - Create default `.env.backend` file
+   - Create default `config.toml` file with secure keys
 
 ### Troubleshooting Initial Setup
 
 If you encounter startup issues after opening the dev container:
 
-**Backend: Missing `.env.backend` file**
-- The backend startup script will automatically create a `.env.backend` file with secure keys if missing
-- The file is created at `/workspace/.env.backend`
+**Backend: Missing `config.toml` file**
+- The backend startup script will automatically create a `config.toml` file with secure keys if missing
+- The file is created at `/workspace/config.toml`
 
 **Frontend: `vite: not found` or permission errors**
 - The frontend startup script will automatically:
@@ -250,18 +250,21 @@ cd ..
 ./scripts/test
 ```
 
-## Environment Variables
+## Configuration
 
-The `.env.backend` file is **automatically created** during dev container setup with secure generated keys.
+The `config.toml` file is **automatically created** during dev container setup with secure generated keys.
 
-To customize settings, edit `/workspace/.env.backend`:
-- `DEBUG` - Enable debug mode (default: true in dev)
-- `LOG_LEVEL` - Logging level (default: DEBUG in dev)
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` - Initial admin credentials
-- `SECRET_KEY` - JWT signing key (auto-generated)
-- `ENCRYPTION_KEY` - Fernet key for SMB passwords (auto-generated)
+To customize settings, edit `/workspace/config.toml`:
+- `[app]` section - Debug mode, log level
+- `[security]` section - JWT signing key, Fernet encryption key, token expiration
+- `[admin]` section - Initial admin credentials
+- `[paths]` section - Data directory location
 
-**Note:** Manual `.env.backend` creation is only needed for production deployment. See `DEPLOYMENT.md` for production setup.
+**Configuration Priority** (highest to lowest):
+1. `config.toml` file (recommended)
+2. Code defaults
+
+**Note:** For production deployment, mount `config.toml` as a read-only volume. See `DEPLOYMENT.md` for details.
 
 ## Database Management
 

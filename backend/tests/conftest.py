@@ -5,12 +5,26 @@ Provides test database, test client, authentication, and mock SMB backend.
 
 import os
 import uuid
+from pathlib import Path
 from typing import Generator
 
-# Set test-only environment variables BEFORE any app imports
+# Create test config.toml BEFORE any app imports
 # This ensures settings are available when config module is loaded
-os.environ.setdefault("SECRET_KEY", "test-secret-key-min-32-chars-long-for-testing")
-os.environ.setdefault("ENCRYPTION_KEY", "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE=")
+_test_config = Path("config.toml")
+if not _test_config.exists():
+    _test_config.write_text("""[app]
+debug = false
+log_level = "INFO"
+
+[security]
+secret_key = "test-secret-key-min-32-chars-long-for-testing"
+encryption_key = "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE="
+access_token_expire_minutes = 1440
+
+[admin]
+username = "admin"
+password = "changeme"
+""")
 
 import pytest
 from fastapi.testclient import TestClient

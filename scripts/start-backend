@@ -34,9 +34,9 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
         WAITED=$((WAITED + 1))
     done
 
-    # Ensure .env.backend file exists
+    # Ensure config.toml file exists
     source /workspace/scripts/ensure-env
-    ensure_env_file .env.backend
+    ensure_config_file /workspace/config.toml
 
     # Check if uvicorn is installed, install dependencies if not
     if ! command -v uvicorn &> /dev/null; then
@@ -44,6 +44,9 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
         pip install -q -r requirements.txt
         echo "✅ Backend dependencies installed"
     fi
+
+    # Export PYTHONPATH for uvicorn's reload subprocess (Python 3.13 multiprocessing fix)
+    export PYTHONPATH="${PYTHONPATH:+${PYTHONPATH}:}/workspace/backend"
 
     uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 else

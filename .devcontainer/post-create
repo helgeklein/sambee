@@ -15,16 +15,16 @@ pip install --upgrade pip
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
-# Create .env.backend file if it doesn't exist (MUST happen before database init)
-cd /workspace/backend
+# Create config.toml file if it doesn't exist (MUST happen before database init)
+cd /workspace
 source /workspace/scripts/ensure-env
-ensure_env_file .env.backend
+ensure_config_file /workspace/config.toml
 
 # Create local data directory
 echo "📁 Creating local data directory..."
 mkdir -p /workspace/data
 
-# Initialize database (now that .env.backend exists)
+# Initialize database (now that config.toml exists)
 echo "🗄️ Initializing SQLite database..."
 cd /workspace/backend
 python -c "from app.db.database import init_db; init_db()"

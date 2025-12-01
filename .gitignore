@@ -62,9 +62,11 @@ frontend/.env.production.local
 *~
 .DS_Store
 
-# Environment
+# Environment and Configuration
 .env.backend
 .env.local
+config.toml
+!config.toml.example
 .venv/
 venv/
 env/

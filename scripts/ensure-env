@@ -1,41 +1,45 @@
 #!/bin/bash
-# Shared script to ensure .env.backend file exists with secure keys
+# Shared script to ensure config.toml file exists with secure keys
 # Used by both post-create and start-backend
 
-ensure_env_file() {
-    local env_path="${1:-.env.backend}"
+ensure_config_file() {
+    local config_path="${1:-config.toml}"
 
-    if [ -f "$env_path" ]; then
+    if [ -f "$config_path" ]; then
         return 0
     fi
 
-    echo "🔐 Creating $env_path file..."
+    echo "🔐 Creating $config_path file..."
 
     # Generate secure keys
     ENCRYPTION_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
     SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
 
-    # Create .env.backend file with actual values
-    cat > "$env_path" <<EOF
-# App Configuration
-DEBUG=true
-LOG_LEVEL=DEBUG
-DATA_DIR=/workspace/data
+    # Create config.toml file with actual values
+    cat > "$config_path" <<EOF
+# Sambee Configuration File
+# Auto-generated for development
 
-# Security
-SECRET_KEY=${SECRET_KEY}
-ENCRYPTION_KEY=${ENCRYPTION_KEY}
+[app]
+debug = true
+log_level = "DEBUG"
 
-# Initial Admin Credentials
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=changeme
+[security]
+# GENERATED: Change these in production!
+secret_key = "${SECRET_KEY}"
+encryption_key = "${ENCRYPTION_KEY}"
+access_token_expire_minutes = 1440
+
+[admin]
+username = "admin"
+password = "changeme"
 EOF
 
-    echo "✅ Generated $env_path with secure keys"
+    echo "✅ Generated $config_path with secure keys"
 }
 
 # If script is executed directly (not sourced)
 if [ "${BASH_SOURCE[0]}" -ef "$0" ]; then
-    cd /workspace/backend
-    ensure_env_file .env.backend
+    cd /workspace
+    ensure_config_file config.toml
 fi

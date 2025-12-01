@@ -3,7 +3,6 @@
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Domain name (optional, for HTTPS)
 
 ## Quick Deployment
 
@@ -14,23 +13,25 @@ git clone https://github.com/helgeklein/sambee.git
 cd sambee
 ```
 
-### 2. Configure Environment
+### 2. Configure Settings
 
-Create a `container-vars.env` file in the project root from the provided example:
+Create a `config.toml` configuration file:
 
 ```bash
-cp container-vars-example.env container-vars.env
+cp config.toml.example config.toml
 ```
 
-Edit `container-vars.env` and **change these critical security values** (see below for instructions on how to generate each):
+Edit `config.toml` and **change the following critical security values** (see below for instructions on how to generate each):
 
-- `SECRET_KEY`
-- `ENCRYPTION_KEY`
-- `ADMIN_PASSWORD`
+-  Security
+   - `encryption_key`
+   - `secret_key`
+- Admin
+   - `password`
 
-#### Generate SECRET_KEY
+#### Generate secret_key
 
-The `SECRET_KEY` is used for JWT token signing (user authentication). Generate a random hex string (64 characters):
+The `secret_key` is used for JWT token signing (user authentication). Generate a random hex string (64 characters):
 
 ```bash
 openssl rand -hex 32
@@ -38,9 +39,9 @@ openssl rand -hex 32
 
 Example output: `a1b2c3d4e5f6...` (64 characters)
 
-#### Generate ENCRYPTION_KEY
+#### Generate encryption_key
 
-The `ENCRYPTION_KEY` is used for encrypting SMB passwords in the database. It **must** be a valid Fernet key (44 characters, base64-encoded).
+The `encryption_key` is used for encrypting SMB passwords in the database. It **must** be a valid Fernet key (44 characters, base64-encoded).
 
 Generate using Python:
 
@@ -56,11 +57,11 @@ docker run --rm python:3.13-slim python -c "from cryptography.fernet import Fern
 
 Example output: `xAbC123...==` (44 characters)
 
-**Important**: These keys use different formats and are **not interchangeable**. The SECRET_KEY is a hex string, while the ENCRYPTION_KEY is a base64-encoded Fernet key.
+**Important**: These keys use different formats and are **not interchangeable**. The `secret_key` is a hex string, while the `encryption_key` is a base64-encoded Fernet key.
 
-#### Generate ADMIN_PASSWORD
+#### Generate admin password
 
-The `ADMIN_PASSWORD` is used for the admin user account. Generate a random string of 15 characters or more:
+The admin `password` is used for the admin user account. Generate a random string of 15 characters or more:
 
 ```bash
 openssl rand -hex 8
@@ -82,7 +83,7 @@ The application will be available at:
 ### 4. First Login
 
 1. Navigate to http://localhost:8000
-2. Login with credentials from `container-vars.env`:
+2. Login with credentials from `config.toml`:
    - Username: `admin` (or your configured value)
    - Password: `changeme` (or your configured value)
 
@@ -180,7 +181,7 @@ docker compose logs sambee
 ```
 
 Common issues:
-- Missing or invalid `SECRET_KEY` or `ENCRYPTION_KEY` in `container-vars.env`
+- Missing or invalid `secret_key` or `encryption_key` in `config.toml`
 - Port conflicts (change ports in `docker-compose.yml`)
 
 ### Can't Connect to SMB Shares
@@ -218,8 +219,8 @@ chmod -R 755 data/
 ## Security Recommendations
 
 1. ✅ **Change default credentials** immediately after first login
-2. ✅ **Use strong SECRET_KEY** (32+ character random string)
-3. ✅ **Generate unique ENCRYPTION_KEY** (Fernet key)
+2. ✅ **Use strong secret_key** (32+ character random string)
+3. ✅ **Generate unique encryption_key** (Fernet key)
 4. ✅ **Use a reverse proxy** with HTTPS for production (nginx, Traefik, Cloudflare Tunnel, etc.)
 5. ✅ **Regular backups** of the `data/` directory
 6. ✅ **Keep updated** - pull latest changes and rebuild regularly
