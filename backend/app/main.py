@@ -15,11 +15,16 @@ from sqlmodel import Session, select
 from app import __version__
 from app.api import admin, auth, browser, viewer, websocket
 from app.core.config import settings
+from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.logging import set_request_id
 from app.core.security import get_password_hash
 from app.db.database import engine, init_db
 from app.models.user import User
 from app.storage.smb_pool import shutdown_connection_pool
+
+#
+# Logging
+#
 
 # Configure logging with more detail
 logging.basicConfig(
@@ -37,12 +42,14 @@ logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
 logging.getLogger("pyvips").setLevel(logging.WARNING)
 logging.getLogger("app.storage.smb_pool").setLevel(logging.WARNING)
 
+# Logger for this module
 logger = logging.getLogger(__name__)
 
 # Log startup time (skip during tests to reduce noise)
 if "pytest" not in sys.modules:
     logger.info("=" * 80)
     logger.info(f"Sambee Backend Starting - {datetime.now().isoformat()}")
+    logger.info(f"Environment: {'PRODUCTION' if IS_PRODUCTION else 'DEVELOPMENT'}")
     logger.info(f"Python: {sys.version}")
     logger.info(f"Working Directory: {Path.cwd()}")
     logger.info("=" * 80)
@@ -158,14 +165,19 @@ async def log_requests(request: Request, call_next: Callable[[Request], Awaitabl
         raise
 
 
-# CORS configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS configuration - only needed in development when frontend runs on separate server
+# Production: frontend served from same origin (no CORS needed)
+if IS_DEVELOPMENT:
+    logger.info(f"🔓 CORS enabled for development: {DEV_CORS_ORIGINS}")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=DEV_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    logger.info("🔒 CORS disabled (production mode - frontend served from same origin)")
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
