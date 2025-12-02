@@ -28,9 +28,7 @@ from app.models.file import DirectoryListing, FileInfo, FileType
 class TestConcurrentUsers:
     """Test system behavior with multiple concurrent users."""
 
-    def test_concurrent_browse_requests(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_concurrent_browse_requests(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test concurrent directory browse requests (limited by SQLite)."""
         # Create test connection
         connection = Connection(
@@ -145,9 +143,7 @@ class TestConcurrentUsers:
 
         with patch("app.api.browser.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
-            mock_instance.list_directory.return_value = DirectoryListing(
-                path="/", items=[], total=0
-            )
+            mock_instance.list_directory.return_value = DirectoryListing(path="/", items=[], total=0)
             mock_backend_class.return_value = mock_instance
 
             # Test sequential access (works with both QueuePool and StaticPool)
@@ -178,9 +174,7 @@ class TestConcurrentUsers:
 class TestLargeDirectories:
     """Test handling of large directories with many files."""
 
-    def test_browse_1000_files(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_browse_1000_files(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test browsing directory with 1000 files completes in < 1s."""
         connection = Connection(
             name="Large Dir",
@@ -225,9 +219,7 @@ class TestLargeDirectories:
             # Should complete in under 1 second
             assert elapsed < 1.0, f"1000 files took {elapsed:.2f}s"
 
-    def test_browse_nested_directories(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_browse_nested_directories(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test browsing deeply nested directories."""
         connection = Connection(
             name="Deep Dirs",
@@ -269,9 +261,7 @@ class TestLargeDirectories:
             assert response.status_code == 200
             assert elapsed < 0.5, f"Deep path took {elapsed:.2f}s"
 
-    def test_sequential_directory_navigation(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_sequential_directory_navigation(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test navigating through multiple directories sequentially."""
         connection = Connection(
             name="Nav Test",
@@ -333,9 +323,7 @@ class TestLargeDirectories:
 class TestResponseTimes:
     """Test API endpoint response time benchmarks."""
 
-    def test_auth_token_validation_response_time(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_auth_token_validation_response_time(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test token validation is fast."""
         # Create a connection to test auth
         connection = Connection(
@@ -352,9 +340,7 @@ class TestResponseTimes:
 
         with patch("app.api.browser.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
-            mock_instance.list_directory.return_value = DirectoryListing(
-                path="/", items=[], total=0
-            )
+            mock_instance.list_directory.return_value = DirectoryListing(path="/", items=[], total=0)
             mock_backend_class.return_value = mock_instance
 
             start_time = time.time()
@@ -368,9 +354,7 @@ class TestResponseTimes:
             # Auth validation should be fast (< 100ms)
             assert elapsed < 0.1, f"Auth validation took {elapsed:.2f}s"
 
-    def test_connection_list_response_time(
-        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
-    ):
+    def test_connection_list_response_time(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session):
         """Test listing connections is fast even with many connections."""
         # Create 50 connections
         for i in range(50):
@@ -395,9 +379,7 @@ class TestResponseTimes:
         # Should be fast even with 50 connections
         assert elapsed < 0.1, f"List 50 connections took {elapsed:.2f}s"
 
-    def test_file_view_start_time(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_file_view_start_time(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test file view starts streaming quickly."""
         connection = Connection(
             name="View Test",
@@ -560,9 +542,7 @@ class TestWebSocketPerformance:
 class TestResourceUsage:
     """Test resource usage under various load conditions."""
 
-    def test_connection_creation_memory(
-        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
-    ):
+    def test_connection_creation_memory(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session):
         """Test memory usage when creating many connections."""
         import gc
 
@@ -603,9 +583,7 @@ class TestResourceUsage:
                     headers=auth_headers_admin,
                 )
 
-    def test_session_cleanup(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_session_cleanup(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test that database sessions are properly closed."""
         connection = Connection(
             name="Session Test",
@@ -621,9 +599,7 @@ class TestResourceUsage:
 
         with patch("app.api.browser.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
-            mock_instance.list_directory.return_value = DirectoryListing(
-                path="/", items=[], total=0
-            )
+            mock_instance.list_directory.return_value = DirectoryListing(path="/", items=[], total=0)
             mock_backend_class.return_value = mock_instance
 
             # Make 100 requests - each should properly close its session
@@ -641,9 +617,7 @@ class TestResourceUsage:
 class TestDataTransfer:
     """Test data transfer performance for file operations."""
 
-    def test_large_directory_listing_transfer(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_large_directory_listing_transfer(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test transferring large directory listings."""
         connection = Connection(
             name="Large Transfer",
@@ -688,9 +662,7 @@ class TestDataTransfer:
             # Verify data size
             assert len(response.json()["items"]) == 500
 
-    def test_concurrent_file_streams(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_concurrent_file_streams(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test multiple sequential file view streams (SQLite limitation)."""
         connection = Connection(
             name="Stream Test",

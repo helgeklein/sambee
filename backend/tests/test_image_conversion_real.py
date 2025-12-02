@@ -77,10 +77,7 @@ def load_test_image(relative_path: str) -> bytes:
     """Load a test image file."""
     image_path = IMAGES_DIR / relative_path
     if not image_path.exists():
-        pytest.skip(
-            f"Test image not found: {relative_path}. "
-            "Run ./scripts/setup-test-images first."
-        )
+        pytest.skip(f"Test image not found: {relative_path}. Run ./scripts/setup-test-images first.")
     return image_path.read_bytes()
 
 
@@ -122,11 +119,7 @@ def color_distance(color1: tuple[int, int, int], color2: tuple[int, int, int]) -
     Returns:
         Distance in range 0-441 (sqrt(255^2 + 255^2 + 255^2))
     """
-    return (
-        (color1[0] - color2[0]) ** 2
-        + (color1[1] - color2[1]) ** 2
-        + (color1[2] - color2[2]) ** 2
-    ) ** 0.5
+    return ((color1[0] - color2[0]) ** 2 + (color1[1] - color2[1]) ** 2 + (color1[2] - color2[2]) ** 2) ** 0.5
 
 
 @pytest.mark.integration
@@ -139,9 +132,7 @@ class TestCMYKConversion:
         input_data = load_test_image("cmyk/photoshop_cmyk.psd")
 
         # Convert to JPEG
-        output_data, mime_type, converter, duration = convert_image_to_jpeg(
-            input_data, filename="photoshop_cmyk.psd"
-        )
+        output_data, mime_type, converter, duration = convert_image_to_jpeg(input_data, filename="photoshop_cmyk.psd")
 
         # Verify output colorspace is sRGB
         colorspace = get_image_colorspace(output_data)
@@ -155,19 +146,14 @@ class TestCMYKConversion:
 
         distance = color_distance(avg_color, expected_color)
         # Allow some tolerance for ICC profile conversion
-        assert distance < 30, (
-            f"Color mismatch: expected {expected_color}, got {avg_color}, "
-            f"distance={distance:.1f}"
-        )
+        assert distance < 30, f"Color mismatch: expected {expected_color}, got {avg_color}, distance={distance:.1f}"
 
     def test_cmyk_tiff_to_rgb(self):
         """Test CMYK TIFF converts to RGB (via libvips)."""
         input_data = load_test_image("cmyk/tiff_cmyk.tif")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="tiff_cmyk.tif"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="tiff_cmyk.tif")
 
         # Verify output colorspace
         colorspace = get_image_colorspace(output_data)
@@ -194,15 +180,11 @@ class TestCMYKConversion:
         assert PreprocessorRegistry.requires_preprocessing("eps")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="postscript_cmyk.eps"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="postscript_cmyk.eps")
 
         # Verify output colorspace (vector formats may produce rgb16)
         colorspace = get_image_colorspace(output_data)
-        assert colorspace in ("srgb", "rgb16"), (
-            f"Expected srgb or rgb16, got {colorspace}"
-        )
+        assert colorspace in ("srgb", "rgb16"), f"Expected srgb or rgb16, got {colorspace}"
 
         # Verify color accuracy (yellow CMYK -> RGB)
         # Pure yellow in CMYK (0,0,100,0) converts to approximately RGB(255,242,21)
@@ -221,15 +203,11 @@ class TestCMYKConversion:
         assert PreprocessorRegistry.requires_preprocessing("ai")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="illustrator_cmyk.ai"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="illustrator_cmyk.ai")
 
         # Verify output colorspace (vector formats may produce rgb16)
         colorspace = get_image_colorspace(output_data)
-        assert colorspace in ("srgb", "rgb16"), (
-            f"Expected srgb or rgb16, got {colorspace}"
-        )
+        assert colorspace in ("srgb", "rgb16"), f"Expected srgb or rgb16, got {colorspace}"
 
         # Verify color accuracy (black CMYK -> RGB)
         # CMYK black (0,0,0,100) converts to approximately RGB(55,52,53)
@@ -249,9 +227,7 @@ class TestRGBPreservation:
         input_data = load_test_image("rgb/photoshop_rgb.psd")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="photoshop_rgb.psd"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="photoshop_rgb.psd")
 
         # Verify output colorspace
         colorspace = get_image_colorspace(output_data)
@@ -269,9 +245,7 @@ class TestRGBPreservation:
         input_data = load_test_image("rgb/tiff_rgb.tif")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="tiff_rgb.tif"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="tiff_rgb.tif")
 
         # Verify color preservation (magenta: RGB 255,0,255)
         avg_color = get_average_color(output_data)
@@ -285,9 +259,7 @@ class TestRGBPreservation:
         input_data = load_test_image("rgb/postscript_rgb.eps")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="postscript_rgb.eps"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="postscript_rgb.eps")
 
         # Verify color preservation (yellow: RGB 255,255,0)
         avg_color = get_average_color(output_data)
@@ -301,9 +273,7 @@ class TestRGBPreservation:
         input_data = load_test_image("rgb/illustrator_rgb.ai")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="illustrator_rgb.ai"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="illustrator_rgb.ai")
 
         # Verify color preservation (red: RGB 255,0,0)
         avg_color = get_average_color(output_data)
@@ -322,9 +292,7 @@ class TestSpecialColorspaces:
         input_data = load_test_image("special/grayscale.psd")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="grayscale.psd"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="grayscale.psd")
 
         # Verify conversion succeeded
         assert len(output_data) > 0
@@ -341,9 +309,7 @@ class TestSpecialColorspaces:
         input_data = load_test_image("special/lab_color.tif")
 
         # Convert to JPEG
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="lab_color.tif"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="lab_color.tif")
 
         # Verify conversion succeeded
         assert len(output_data) > 0
@@ -365,9 +331,7 @@ class TestConversionPipeline:
             try:
                 input_data = load_test_image(image_path)
 
-                output_data, _, _, _ = convert_image_to_jpeg(
-                    input_data, filename=Path(image_path).name
-                )
+                output_data, _, _, _ = convert_image_to_jpeg(input_data, filename=Path(image_path).name)
 
                 assert len(output_data) > 0, f"Empty output for {image_path}"
 
@@ -384,9 +348,7 @@ class TestConversionPipeline:
         input_data = load_test_image("cmyk/photoshop_cmyk.psd")
 
         start = time.time()
-        output_data, _, _, _ = convert_image_to_jpeg(
-            input_data, filename="photoshop_cmyk.psd"
-        )
+        output_data, _, _, _ = convert_image_to_jpeg(input_data, filename="photoshop_cmyk.psd")
         duration = time.time() - start
 
         # Small test image should convert quickly (< 5 seconds)

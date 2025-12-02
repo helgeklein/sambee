@@ -15,8 +15,25 @@ from app.models.user import User
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
-# Initialize Fernet cipher for password encryption
-fernet = Fernet(settings.encryption_key.encode())
+# Fernet cipher for password encryption (initialized lazily)
+_fernet: Fernet | None = None
+
+
+#
+# get_fernet
+#
+def get_fernet() -> Fernet:
+    """
+    Get or initialize the Fernet cipher.
+
+    Lazy initialization ensures encryption_key is loaded from database first.
+    """
+    global _fernet
+    if _fernet is None:
+        if not settings.encryption_key:
+            raise RuntimeError("Encryption key not loaded from database yet")
+        _fernet = Fernet(settings.encryption_key.encode())
+    return _fernet
 
 
 #
@@ -43,7 +60,7 @@ def get_password_hash(password: str) -> str:
 def encrypt_password(password: str) -> str:
     """Encrypt password for storage"""
 
-    return fernet.encrypt(password.encode()).decode()
+    return get_fernet().encrypt(password.encode()).decode()
 
 
 #
@@ -52,7 +69,7 @@ def encrypt_password(password: str) -> str:
 def decrypt_password(encrypted_password: str) -> str:
     """Decrypt stored password"""
 
-    return fernet.decrypt(encrypted_password.encode()).decode()
+    return get_fernet().decrypt(encrypted_password.encode()).decode()
 
 
 #

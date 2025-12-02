@@ -17,6 +17,7 @@ from app.api import admin, auth, browser, viewer, websocket
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.logging import set_request_id
+from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import engine, init_db
 from app.models.user import User
@@ -75,15 +76,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         with Session(engine) as session:
             statement = select(User).where(User.username == settings.admin_username)
             admin = session.exec(statement).first()
+
             if not admin:
+                # Generate password based on environment
+                admin_password = generate_admin_password(IS_PRODUCTION)
+
                 admin = User(
                     username=settings.admin_username,
-                    password_hash=get_password_hash(settings.admin_password),
+                    password_hash=get_password_hash(admin_password),
                     is_admin=True,
                 )
                 session.add(admin)
                 session.commit()
-                logger.info(f"✅ Created default admin user: {settings.admin_username}")
+
+                # Display credentials prominently in production
+                if IS_PRODUCTION:
+                    logger.warning("=" * 80)
+                    logger.warning("🔑 FIRST-TIME SETUP - SAVE THESE CREDENTIALS")
+                    logger.warning(f"   Username: {settings.admin_username}")
+                    logger.warning(f"   Password: {admin_password}")
+                    logger.warning("   ⚠️  Change password immediately after first login!")
+                    logger.warning("   Credentials will not be displayed again.")
+                    logger.warning("=" * 80)
+                else:
+                    logger.info(f"✅ Created admin user: {settings.admin_username} / {admin_password}")
             else:
                 logger.info(f"✅ Admin user exists: {settings.admin_username}")
 

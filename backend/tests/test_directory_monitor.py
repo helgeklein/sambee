@@ -251,9 +251,7 @@ class TestMonitoredDirectoryLifecycle:
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_start_monitoring_establishes_connection(
-        self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection
-    ):
+    def test_start_monitoring_establishes_connection(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
         """Test that starting monitoring establishes SMB connection."""
         # Setup mocks
         mock_conn_instance = MagicMock()
@@ -284,14 +282,10 @@ class TestMonitoredDirectoryLifecycle:
         monitored.start()
 
         # Verify connection sequence
-        mock_connection.assert_called_once_with(
-            guid=None, server_name="server.local", port=445
-        )
+        mock_connection.assert_called_once_with(guid=None, server_name="server.local", port=445)
         mock_conn_instance.connect.assert_called_once()
 
-        mock_session.assert_called_once_with(
-            mock_conn_instance, username="user", password="pass"
-        )
+        mock_session.assert_called_once_with(mock_conn_instance, username="user", password="pass")
 
         # Tree connect should be called
         mock_tree.assert_called_once()
@@ -322,9 +316,7 @@ class TestMonitoredDirectoryLifecycle:
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_stop_monitoring_cleanup(
-        self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection
-    ):
+    def test_stop_monitoring_cleanup(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
         """Test that stopping monitoring cleans up all resources."""
         # Setup mocks
         mock_conn_instance = MagicMock()
@@ -372,9 +364,7 @@ class TestChangeNotifications:
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_callback_invoked_on_change(
-        self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection
-    ):
+    def test_callback_invoked_on_change(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
         """Test that callback is invoked when changes are detected."""
         # Setup mocks
         mock_conn_instance = MagicMock()
@@ -569,9 +559,7 @@ class TestResourceManagement:
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_resources_properly_ordered(
-        self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection
-    ):
+    def test_resources_properly_ordered(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
         """Test that SMB resources are created in correct order."""
         # Setup mocks
         mock_conn_instance = MagicMock()

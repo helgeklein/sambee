@@ -1,33 +1,18 @@
-# Sambee Configuration File
-# Copy this file to config.toml and customize as needed
+# Sambee Configuration File (Optional)
+# All security secrets are auto-generated and stored in the database.
+# This file is only needed for customizing application behavior.
 #
-# For Docker deployments, mount this file as read-only:
-#   volumes:
-#     - ./config.toml:/app/config.toml:ro
+# Copy this file to config.toml to customize settings:
+#   cp config.example.toml config.toml
 
 [app]
-# Enable debug mode (more verbose logging)
-debug = false
-
 # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
 log_level = "INFO"
 
 [security]
-# JWT signing key for user authentication
-# Generate with: openssl rand -hex 32
-# REQUIRED: Must be changed in production!
-secret_key = "change-me-use-a-long-random-string"
-
-# Fernet key for encrypting SMB passwords in database
-# Generate with: python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-# REQUIRED: Must be changed in production!
-encryption_key = "generate-using-fernet-generate-key"
-
 # JWT token expiration time in minutes (default: 24 hours)
 access_token_expire_minutes = 1440
 
 [admin]
-# Initial admin account credentials
-# IMPORTANT: Change these after first login!
+# Initial admin account username
 username = "admin"
-password = "changeme"

@@ -4,6 +4,7 @@ import { logger } from "./logger";
 
 class ApiService {
   private api: AxiosInstance;
+  private skipRedirectOnce = false;
 
   constructor() {
     const baseURL = import.meta.env.VITE_API_URL || "/api";
@@ -69,12 +70,23 @@ class ApiService {
         // Redirect to login on any 401 Unauthorized response
         // This includes expired tokens, invalid credentials, etc.
         if (error.response?.status === 401) {
-          logger.warn("Authentication failed (401), redirecting to login", {
-            detail: (error.response?.data as { detail?: string })?.detail,
-            requestId,
-          });
           localStorage.removeItem("access_token");
-          window.location.href = "/login";
+
+          // Skip redirect if we're validating token (auto-login flow)
+          if (this.skipRedirectOnce) {
+            this.skipRedirectOnce = false;
+            logger.debug("Skipping redirect during token validation");
+            return Promise.reject(error);
+          }
+
+          // Don't redirect if already on login page
+          if (window.location.pathname !== "/login") {
+            logger.warn("Authentication failed (401), redirecting to login", {
+              detail: (error.response?.data as { detail?: string })?.detail,
+              requestId,
+            });
+            window.location.href = "/login";
+          }
         }
         return Promise.reject(error);
       }
@@ -104,6 +116,16 @@ class ApiService {
     logger.debug("Fetching current user info");
     const response = await this.api.get<User>("/auth/me");
     return response.data;
+  }
+
+  async validateToken(): Promise<boolean> {
+    this.skipRedirectOnce = true;
+    try {
+      await this.getCurrentUser();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {

@@ -124,9 +124,7 @@ class TestListDirectory:
         assert response.status_code == 200
         mock_instance.list_directory.assert_called_once_with("/folder/subfolder")
 
-    def test_list_directory_without_auth(
-        self, client: TestClient, test_connection: Connection
-    ):
+    def test_list_directory_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that listing directory requires authentication."""
         response = client.get(
             f"/api/browse/{test_connection.id}/list",
@@ -134,9 +132,7 @@ class TestListDirectory:
         )
         assert response.status_code == 401
 
-    def test_list_nonexistent_connection(
-        self, client: TestClient, auth_headers_user: dict
-    ):
+    def test_list_nonexistent_connection(self, client: TestClient, auth_headers_user: dict):
         """Test listing directory for non-existent connection."""
         import uuid
 
@@ -148,9 +144,7 @@ class TestListDirectory:
         )
         assert response.status_code == 404
 
-    def test_list_connection_without_share(
-        self, client: TestClient, auth_headers_user: dict, session
-    ):
+    def test_list_connection_without_share(self, client: TestClient, auth_headers_user: dict, session):
         """Test listing directory for connection without share name."""
         import uuid
 
@@ -204,9 +198,7 @@ class TestGetFileInfo:
 
         mock_instance.get_file_info.assert_called_once_with("/document.txt")
 
-    def test_get_file_info_without_auth(
-        self, client: TestClient, test_connection: Connection
-    ):
+    def test_get_file_info_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that getting file info requires authentication."""
         response = client.get(
             f"/api/browse/{test_connection.id}/info",

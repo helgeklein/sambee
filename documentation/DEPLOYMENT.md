@@ -20,64 +20,29 @@ mkdir -p ./data
 chown -Rfv 1000:1000 ./data
 ```
 
-### 2. Configure Settings
+### 2. Create Docker Compose File
 
-Create configuration files from examples:
+Create `docker-compose.yml` from the provided example:
 
 ```bash
-cp config.example.toml config.toml
 cp docker-compose.example.yml docker-compose.yml
 ```
 
-Edit `config.toml` and **change the following critical security values** (see below for instructions on how to generate each):
+Change settings in `docker-compose.yml` as needed.
 
--  Security
-   - `encryption_key`
-   - `secret_key`
-- Admin
-   - `password`
+**Note:** Make sure to read the section **Reverse Proxy** below.
 
-#### Generate secret_key
+### 3. Configure Settings (Optional)
 
-The `secret_key` is used for JWT token signing (user authentication). Generate a random hex string (64 characters):
+If you prefer to customize settings, create `config.toml` from the provided example:
 
 ```bash
-openssl rand -hex 32
+cp config.example.toml config.toml
 ```
 
-Example output: `a1b2c3d4e5f6...` (64 characters)
+Change settings in `config.toml` as needed.
 
-#### Generate encryption_key
-
-The `encryption_key` is used for encrypting SMB passwords in the database. It **must** be a valid Fernet key (44 characters, base64-encoded).
-
-Generate using Python:
-
-```bash
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Or using Docker:
-
-```bash
-docker run --rm python:3.13-slim sh -c "pip install -q --root-user-action=ignore --disable-pip-version-check cryptography && python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
-```
-
-Example output: `xAbC123...==` (44 characters)
-
-**Important**: These keys use different formats and are **not interchangeable**. The `secret_key` is a hex string, while the `encryption_key` is a base64-encoded Fernet key.
-
-#### Generate admin password
-
-The admin `password` is used for the admin user account. Generate a random string of 15 characters or more:
-
-```bash
-openssl rand -hex 8
-```
-
-Example output: `a1b2c3d4e5f6...` (16+ characters)
-
-### 3. Deploy
+### 4. Deploy
 
 ```bash
 docker compose up -d
@@ -88,16 +53,24 @@ The application will be available at:
 - **Backend API**: http://localhost:8000/api
 - **API Docs**: http://localhost:8000/docs
 
-### 4. First Login
+### 5. First Login
 
-1. Navigate to http://localhost:8000
-2. Login with credentials from `config.toml`:
-   - Username: `admin` (or your configured value)
-   - Password: `changeme` (or your configured value)
+Get your admin password from the logs:
+
+```bash
+docker compose logs sambee | grep -A 5 "FIRST-TIME SETUP"
+```
+
+Navigate to http://localhost:8000
+
+Login with:
+
+   - **Username:** `admin` (or your configured value from `config.toml`).
+   - **Password:** The randomly generated password from the previous step.
 
 ## Reverse Proxy
 
-For production use, add a reverse proxy (nginx, Traefik, Caddy, etc.) in front of Sambee to handle HTTPS.
+For production use, add a reverse proxy (Caddy, nginx, Traefik, etc.) in front of Sambee to handle HTTPS.
 
 ### Caddy
 
@@ -118,7 +91,8 @@ services:
       - 8000:8000          # Sambee to Caddy
     volumes:
       - ./data:/app/data
-      - ./config.toml:/app/config.toml:ro
+      # Optional: Mount config.toml if you want to customize settings by uncommenting the line below
+      # - ./config.toml:/app/config.toml:ro
 
 networks:
   caddy_caddynet:
@@ -149,9 +123,11 @@ sambee:
 
 Application data is stored in `./data`:
 
-- `data/sambee.db` - SQLite database (connections, users)
+- `data/sambee.db` - SQLite database (connections, users, security keys)
 
 This directory is mounted as a volume and persists across container restarts.
+
+**Important**: The database contains all security keys and encrypted passwords. Back up this file regularly and keep backups secure.
 
 ## Management
 
@@ -181,6 +157,23 @@ docker compose up -d
 ```
 
 ## Troubleshooting
+
+### Forgot Admin Password
+
+If you've lost the admin password, you can reset it by deleting the admin user from the database:
+
+```bash
+# Delete only the admin user (preserves all connections and settings)
+docker compose exec sambee sqlite3 /app/data/sambee.db "DELETE FROM users WHERE username='admin';"
+
+# Restart the container - a new admin password will be generated
+docker compose restart sambee
+
+# View the new admin password
+docker compose logs sambee | grep -A 5 "FIRST-TIME SETUP"
+```
+
+This will regenerate a new admin password while preserving all your SMB connections and settings.
 
 ### Container Won't Start
 

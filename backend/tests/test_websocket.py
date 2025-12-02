@@ -36,16 +36,12 @@ class WebSocketClient:
 
     def subscribe(self, connection_id: str, path: str = ""):
         """Send subscribe action."""
-        self.send_json(
-            {"action": "subscribe", "connection_id": connection_id, "path": path}
-        )
+        self.send_json({"action": "subscribe", "connection_id": connection_id, "path": path})
         return self.receive_json()
 
     def unsubscribe(self, connection_id: str, path: str = ""):
         """Send unsubscribe action."""
-        self.send_json(
-            {"action": "unsubscribe", "connection_id": connection_id, "path": path}
-        )
+        self.send_json({"action": "unsubscribe", "connection_id": connection_id, "path": path})
         return self.receive_json()
 
     def ping(self):
@@ -103,9 +99,7 @@ class TestSubscriptionManagement:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_subscribe_to_directory(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_subscribe_to_directory(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test subscribing to a directory for change notifications."""
         # Mock the monitor
         mock_monitor = MagicMock()
@@ -134,9 +128,7 @@ class TestSubscriptionManagement:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_subscribe_multiple_directories(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_subscribe_multiple_directories(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test subscribing to multiple directories."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
@@ -164,9 +156,7 @@ class TestSubscriptionManagement:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_unsubscribe_from_directory(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_unsubscribe_from_directory(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test unsubscribing from a directory."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
@@ -196,9 +186,7 @@ class TestSubscriptionManagement:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_multiple_clients_same_directory(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_multiple_clients_same_directory(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test multiple clients subscribing to the same directory."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
@@ -223,9 +211,7 @@ class TestSubscriptionManagement:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_last_subscriber_stops_monitoring(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_last_subscriber_stops_monitoring(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test that monitoring stops when last subscriber unsubscribes."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
@@ -259,9 +245,7 @@ class TestDirectoryMonitoringIntegration:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_monitoring_starts_with_connection_details(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_monitoring_starts_with_connection_details(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test that SMB monitoring starts with correct connection details."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
@@ -290,9 +274,7 @@ class TestDirectoryMonitoringIntegration:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_invalid_connection_id_format(
-        self, mock_db_session, mock_get_monitor, client
-    ):
+    def test_invalid_connection_id_format(self, mock_db_session, mock_get_monitor, client):
         """Test handling of invalid connection ID format."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
@@ -337,9 +319,7 @@ class TestDirectoryMonitoringIntegration:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_connection_without_share_name(
-        self, mock_db_session, mock_get_monitor, client, session
-    ):
+    def test_connection_without_share_name(self, mock_db_session, mock_get_monitor, client, session):
         """Test handling of connection without share name."""
         from app.models.connection import Connection
 
@@ -376,9 +356,7 @@ class TestDirectoryMonitoringIntegration:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_monitoring_startup_failure(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_monitoring_startup_failure(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test handling of SMB monitoring startup failures."""
         mock_monitor = MagicMock()
         mock_monitor.start_monitoring.side_effect = Exception("SMB connection failed")
@@ -403,9 +381,7 @@ class TestChangeNotifications:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_notify_single_subscriber(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_notify_single_subscriber(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test notifying a single subscriber about directory changes."""
         from app.api.websocket import manager
 
@@ -425,9 +401,7 @@ class TestChangeNotifications:
             # Simulate a directory change notification
             import asyncio
 
-            asyncio.run(
-                manager.notify_directory_change(str(test_connection.id), "/documents")
-            )
+            asyncio.run(manager.notify_directory_change(str(test_connection.id), "/documents"))
 
             # Client should receive notification
             notification = ws_client.receive_json()
@@ -437,9 +411,7 @@ class TestChangeNotifications:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_notify_multiple_subscribers(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_notify_multiple_subscribers(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test notifying multiple subscribers about the same change."""
         from app.api.websocket import manager
 
@@ -464,9 +436,7 @@ class TestChangeNotifications:
                 # Trigger notification
                 import asyncio
 
-                asyncio.run(
-                    manager.notify_directory_change(str(test_connection.id), "/shared")
-                )
+                asyncio.run(manager.notify_directory_change(str(test_connection.id), "/shared"))
 
                 # Both clients should receive notification
                 notif1 = client1.receive_json()
@@ -479,9 +449,7 @@ class TestChangeNotifications:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_subscription_filtering(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_subscription_filtering(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test that notifications are filtered by subscription."""
         from app.api.websocket import manager
 
@@ -503,9 +471,7 @@ class TestChangeNotifications:
             # Trigger notification for /images (not subscribed)
             import asyncio
 
-            asyncio.run(
-                manager.notify_directory_change(str(test_connection.id), "/images")
-            )
+            asyncio.run(manager.notify_directory_change(str(test_connection.id), "/images"))
 
             # Client should NOT receive notification
             # (would timeout if trying to receive)
@@ -568,9 +534,7 @@ class TestErrorHandling:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_notification_to_disconnected_client(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_notification_to_disconnected_client(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test handling of notifications to disconnected clients."""
 
         mock_monitor = MagicMock()
@@ -636,9 +600,7 @@ class TestConcurrency:
 
     @patch("app.api.websocket.get_monitor")
     @patch("sqlmodel.Session")
-    def test_rapid_subscribe_unsubscribe(
-        self, mock_db_session, mock_get_monitor, client, test_connection
-    ):
+    def test_rapid_subscribe_unsubscribe(self, mock_db_session, mock_get_monitor, client, test_connection):
         """Test rapid subscription and unsubscription cycles."""
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor

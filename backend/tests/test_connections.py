@@ -18,9 +18,7 @@ from app.models.connection import Connection
 class TestListConnections:
     """Test listing SMB connections."""
 
-    def test_list_connections_as_admin(
-        self, client: TestClient, auth_headers_admin: dict, multiple_connections: list
-    ):
+    def test_list_connections_as_admin(self, client: TestClient, auth_headers_admin: dict, multiple_connections: list):
         """Test that admin can list all connections."""
         response = client.get("/api/admin/connections", headers=auth_headers_admin)
 
@@ -47,9 +45,7 @@ class TestListConnections:
         response = client.get("/api/admin/connections")
         assert response.status_code == 401
 
-    def test_list_connections_as_regular_user(
-        self, client: TestClient, auth_headers_user: dict, multiple_connections: list
-    ):
+    def test_list_connections_as_regular_user(self, client: TestClient, auth_headers_user: dict, multiple_connections: list):
         """Test that regular users cannot list connections."""
         response = client.get("/api/admin/connections", headers=auth_headers_user)
         assert response.status_code == 403
@@ -59,9 +55,7 @@ class TestListConnections:
 class TestCreateConnection:
     """Test creating SMB connections."""
 
-    def test_create_connection_success(
-        self, client: TestClient, auth_headers_admin: dict, session: Session
-    ):
+    def test_create_connection_success(self, client: TestClient, auth_headers_admin: dict, session: Session):
         """Test creating a new connection with valid data."""
         connection_data = {
             "name": "New Test Server",
@@ -104,9 +98,7 @@ class TestCreateConnection:
             decrypted = decrypt_password(db_conn.password_encrypted)
             assert decrypted == connection_data["password"]
 
-    def test_create_connection_custom_port(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_create_connection_custom_port(self, client: TestClient, auth_headers_admin: dict):
         """Test creating connection with custom port."""
         connection_data = {
             "name": "Custom Port Server",
@@ -133,9 +125,7 @@ class TestCreateConnection:
             data = response.json()
             assert data["port"] == 8445
 
-    def test_create_connection_missing_required_fields(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_create_connection_missing_required_fields(self, client: TestClient, auth_headers_admin: dict):
         """Test that creating connection without required fields fails."""
         incomplete_data = {
             "name": "Incomplete Server",
@@ -151,9 +141,7 @@ class TestCreateConnection:
 
         assert response.status_code == 422  # Validation error
 
-    def test_create_connection_as_regular_user(
-        self, client: TestClient, auth_headers_user: dict
-    ):
+    def test_create_connection_as_regular_user(self, client: TestClient, auth_headers_user: dict):
         """Test that regular users cannot create connections."""
         connection_data = {
             "name": "Unauthorized Server",
@@ -227,10 +215,7 @@ class TestUpdateConnection:
             # Verify in database
             session.refresh(test_connection)
             assert test_connection.name == update_data["name"]
-            assert (
-                decrypt_password(test_connection.password_encrypted)
-                == update_data["password"]
-            )
+            assert decrypt_password(test_connection.password_encrypted) == update_data["password"]
 
     def test_update_connection_partial(
         self,
@@ -257,9 +242,7 @@ class TestUpdateConnection:
         # Host should remain unchanged
         assert data["host"] == original_host
 
-    def test_update_nonexistent_connection(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_update_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict):
         """Test updating a connection that doesn't exist."""
         fake_id = uuid.uuid4()
         update_data = {"name": "Non-existent Server"}
@@ -272,9 +255,7 @@ class TestUpdateConnection:
 
         assert response.status_code == 404
 
-    def test_update_connection_as_regular_user(
-        self, client: TestClient, auth_headers_user: dict, test_connection: Connection
-    ):
+    def test_update_connection_as_regular_user(self, client: TestClient, auth_headers_user: dict, test_connection: Connection):
         """Test that regular users cannot update connections."""
         update_data = {"name": "Unauthorized Update"}
 
@@ -313,9 +294,7 @@ class TestDeleteConnection:
         deleted_conn = session.get(Connection, conn_id)
         assert deleted_conn is None
 
-    def test_delete_nonexistent_connection(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_delete_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict):
         """Test deleting a connection that doesn't exist."""
         fake_id = uuid.uuid4()
 
@@ -326,9 +305,7 @@ class TestDeleteConnection:
 
         assert response.status_code == 404
 
-    def test_delete_connection_as_regular_user(
-        self, client: TestClient, auth_headers_user: dict, test_connection: Connection
-    ):
+    def test_delete_connection_as_regular_user(self, client: TestClient, auth_headers_user: dict, test_connection: Connection):
         """Test that regular users cannot delete connections."""
         response = client.delete(
             f"/api/admin/connections/{test_connection.id}",
@@ -337,9 +314,7 @@ class TestDeleteConnection:
 
         assert response.status_code == 403
 
-    def test_delete_connection_without_auth(
-        self, client: TestClient, test_connection: Connection
-    ):
+    def test_delete_connection_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that deleting connection requires authentication."""
         response = client.delete(f"/api/admin/connections/{test_connection.id}")
         assert response.status_code == 401
@@ -349,9 +324,7 @@ class TestDeleteConnection:
 class TestTestConnection:
     """Test the connection test endpoint."""
 
-    def test_test_connection_endpoint_exists(
-        self, client: TestClient, auth_headers_admin: dict, test_connection: Connection
-    ):
+    def test_test_connection_endpoint_exists(self, client: TestClient, auth_headers_admin: dict, test_connection: Connection):
         """Test that the test connection endpoint is accessible."""
         response = client.post(
             f"/api/admin/connections/{test_connection.id}/test",
@@ -363,9 +336,7 @@ class TestTestConnection:
         assert response.status_code != 404
         assert response.status_code != 405
 
-    def test_test_nonexistent_connection(
-        self, client: TestClient, auth_headers_admin: dict
-    ):
+    def test_test_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict):
         """Test testing a connection that doesn't exist."""
         fake_id = uuid.uuid4()
 

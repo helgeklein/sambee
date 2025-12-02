@@ -20,6 +20,12 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
     if not config_file.exists():
         return {}
 
+    # Check if config_file is actually a directory (common Docker mount issue)
+    if config_file.is_dir():
+        raise RuntimeError(
+            f"'{config_file}' is a directory, not a file. Common cause: Docker created a directory because the file doesn't exist on the host."
+        )
+
     with open(config_file, "rb") as f:
         toml_data = tomllib.load(f)
 
@@ -30,18 +36,12 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
     # App settings
     if "app" in toml_data:
         app = toml_data["app"]
-        if "debug" in app:
-            flat_config["debug"] = app["debug"]
         if "log_level" in app:
             flat_config["log_level"] = app["log_level"]
 
     # Security settings
     if "security" in toml_data:
         security = toml_data["security"]
-        if "secret_key" in security:
-            flat_config["secret_key"] = security["secret_key"]
-        if "encryption_key" in security:
-            flat_config["encryption_key"] = security["encryption_key"]
         if "access_token_expire_minutes" in security:
             flat_config["access_token_expire_minutes"] = security["access_token_expire_minutes"]
 
@@ -50,8 +50,6 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
         admin = toml_data["admin"]
         if "username" in admin:
             flat_config["admin_username"] = admin["username"]
-        if "password" in admin:
-            flat_config["admin_password"] = admin["password"]
 
     return flat_config
 
@@ -74,24 +72,23 @@ class StaticSettings:
 class UserSettings(BaseModel):
     """Application configuration settings
 
-    Loaded from config.toml file only.
+    Loaded from config.toml file (optional - all secrets auto-generated in database).
 
-    For production: Mount config.toml as read-only volume in container
-    For development: Use config.toml (auto-generated if missing)
+    Note: secret_key, encryption_key, and admin_password are stored in the
+    database and auto-generated on first run. They are not loaded from config.
     """
 
     # App settings
-    debug: bool = False
     log_level: str = "INFO"
 
-    # Security (required - no defaults for production safety)
-    secret_key: str
-    encryption_key: str  # Fernet key for encrypting SMB passwords
+    # Security - secrets loaded from database (not config file)
+    # These will be set by database.py after initialization
+    secret_key: str = ""  # Loaded from database
+    encryption_key: str = ""  # Loaded from database
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
-    # Admin setup (first run)
+    # Admin setup (username only - password auto-generated)
     admin_username: str = "admin"
-    admin_password: str = "changeme"
 
 
 #

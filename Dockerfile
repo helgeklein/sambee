@@ -21,6 +21,9 @@ RUN bash /tmp/install-system-deps && rm /tmp/install-system-deps
 # Copy ImageMagick policy configuration (after ImageMagick is installed)
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
+# Copy VERSION file
+COPY VERSION /VERSION
+
 # Copy and install backend dependencies
 COPY backend/requirements.txt .
 RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt

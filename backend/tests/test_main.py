@@ -42,9 +42,7 @@ class TestCORSMiddleware:
         )
         # Should allow the origin
         assert "access-control-allow-origin" in response.headers
-        assert (
-            response.headers["access-control-allow-origin"] == "http://localhost:3000"
-        )
+        assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
     def test_cors_allows_credentials(self, client: TestClient):
         """Test that CORS allows credentials."""
@@ -117,9 +115,7 @@ class TestApplicationLifecycle:
         # Mock the database session
         mock_db_session = MagicMock()
         mock_session.return_value.__enter__.return_value = mock_db_session
-        mock_db_session.exec.return_value.first.return_value = MagicMock(
-            username="testadmin"
-        )
+        mock_db_session.exec.return_value.first.return_value = MagicMock(username="testadmin")
 
         # Create client which triggers startup
         with TestClient(app):
@@ -162,18 +158,14 @@ class TestApplicationLifecycle:
     @patch("app.main.init_db")
     @patch("app.main.Session")
     @patch("app.services.directory_monitor.shutdown_monitor")
-    def test_shutdown_stops_directory_monitors(
-        self, mock_shutdown, mock_session, mock_init_db
-    ):
+    def test_shutdown_stops_directory_monitors(self, mock_shutdown, mock_session, mock_init_db):
         """Test that directory monitors are stopped on shutdown."""
         from app.main import app
 
         # Mock the database session
         mock_db_session = MagicMock()
         mock_session.return_value.__enter__.return_value = mock_db_session
-        mock_db_session.exec.return_value.first.return_value = MagicMock(
-            username="testadmin"
-        )
+        mock_db_session.exec.return_value.first.return_value = MagicMock(username="testadmin")
 
         # Create and close client which triggers shutdown
         with TestClient(app):
@@ -185,18 +177,14 @@ class TestApplicationLifecycle:
     @patch("app.main.init_db")
     @patch("app.main.Session")
     @patch("app.services.directory_monitor.shutdown_monitor")
-    def test_shutdown_handles_monitor_errors(
-        self, mock_shutdown, mock_session, mock_init_db, caplog
-    ):
+    def test_shutdown_handles_monitor_errors(self, mock_shutdown, mock_session, mock_init_db, caplog):
         """Test that shutdown handles errors from directory monitor gracefully."""
         from app.main import app
 
         # Mock the database session
         mock_db_session = MagicMock()
         mock_session.return_value.__enter__.return_value = mock_db_session
-        mock_db_session.exec.return_value.first.return_value = MagicMock(
-            username="testadmin"
-        )
+        mock_db_session.exec.return_value.first.return_value = MagicMock(username="testadmin")
 
         # Make shutdown_monitor raise an error
         mock_shutdown.side_effect = Exception("Monitor shutdown error")

@@ -13,7 +13,6 @@ from typing import Generator
 _test_config = Path("config.toml")
 if not _test_config.exists():
     _test_config.write_text("""[app]
-debug = false
 log_level = "INFO"
 
 [security]
@@ -70,7 +69,7 @@ def engine_fixture(test_db_path: str):
         f"sqlite:///{test_db_path}",
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
-        echo=settings.debug,  # Match production engine settings
+        echo=(settings.log_level == "DEBUG"),  # Enable SQL logging in debug mode
     )
     SQLModel.metadata.create_all(engine)
     yield engine
@@ -95,6 +94,11 @@ def patch_db_engine(engine):
     # Patch main module (used in lifespan startup)
     original_main_engine = main_module.engine
     main_module.engine = engine
+
+    # Initialize database to load secrets (required for encryption operations)
+    from app.db.database import init_db
+
+    init_db()
 
     yield
 

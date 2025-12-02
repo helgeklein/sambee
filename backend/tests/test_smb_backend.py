@@ -479,9 +479,7 @@ class TestDirectoryListing:
         mock_bad_entry.name = "bad.txt"
         mock_bad_entry.smb_info.file_attributes = 0
         # Simulate an error when accessing properties
-        type(mock_bad_entry.smb_info).end_of_file = property(
-            lambda self: (_ for _ in ()).throw(Exception("Corrupted metadata"))
-        )
+        type(mock_bad_entry.smb_info).end_of_file = property(lambda self: (_ for _ in ()).throw(Exception("Corrupted metadata")))
 
         mock_scandir.return_value = [mock_good_entry, mock_bad_entry]
 

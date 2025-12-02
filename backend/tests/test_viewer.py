@@ -116,9 +116,7 @@ def mock_smb_viewer_backend(mock_text_file):
 class TestViewerFile:
     """Test cases for the file viewer endpoint."""
 
-    def test_view_text_file_success(
-        self, client, auth_headers_user, test_connection, mock_smb_viewer_backend
-    ):
+    def test_view_text_file_success(self, client, auth_headers_user, test_connection, mock_smb_viewer_backend):
         """Test successful text file viewer."""
         mock, mock_instance = mock_smb_viewer_backend
 
@@ -140,16 +138,12 @@ class TestViewerFile:
         mock_instance.get_file_info.assert_called_once_with("/document.txt")
         # Note: read_file is a lambda function, so we can't assert on it
 
-    def test_view_markdown_file(
-        self, client, auth_headers_user, test_connection, mock_markdown_file
-    ):
+    def test_view_markdown_file(self, client, auth_headers_user, test_connection, mock_markdown_file):
         """Test viewing a markdown file with correct MIME type."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_markdown_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"# Markdown Content\n\nThis is **bold** text."]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"# Markdown Content\n\nThis is **bold** text."])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -164,18 +158,14 @@ class TestViewerFile:
             assert response.headers["content-type"] == "text/markdown; charset=utf-8"
             assert b"# Markdown Content" in response.content
 
-    def test_view_binary_file(
-        self, client, auth_headers_user, test_connection, mock_binary_file
-    ):
+    def test_view_binary_file(self, client, auth_headers_user, test_connection, mock_binary_file):
         """Test viewing a binary file (image)."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_binary_file
             # Simulate PNG header
             png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [png_data]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([png_data])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -239,9 +229,7 @@ class TestViewerFile:
         assert response.status_code == 400
         assert "share" in response.json()["detail"].lower()
 
-    def test_view_directory_instead_of_file(
-        self, client, auth_headers_user, test_connection, mock_directory
-    ):
+    def test_view_directory_instead_of_file(self, client, auth_headers_user, test_connection, mock_directory):
         """Test attempting to view a directory."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
@@ -260,9 +248,7 @@ class TestViewerFile:
             # Returns 400 Bad Request when path is a directory, not a file
             assert response.status_code == 400
 
-    def test_view_file_no_mime_type(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_view_file_no_mime_type(self, client, auth_headers_user, test_connection):
         """Test viewing a file with no MIME type detected."""
         unknown_file = FileInfo(
             name="unknown.xyz",
@@ -276,9 +262,7 @@ class TestViewerFile:
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = unknown_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"unknown content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"unknown content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -293,9 +277,7 @@ class TestViewerFile:
             # Should default to octet-stream
             assert "application/octet-stream" in response.headers["content-type"]
 
-    def test_view_file_with_special_chars_in_name(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_view_file_with_special_chars_in_name(self, client, auth_headers_user, test_connection):
         """Test viewing a file with special characters in the filename."""
         special_file = FileInfo(
             name="document (copy) #1.txt",
@@ -309,9 +291,7 @@ class TestViewerFile:
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = special_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -325,9 +305,7 @@ class TestViewerFile:
             assert response.status_code == 200
             assert response.headers["content-type"] == "text/plain; charset=utf-8"
 
-    def test_view_smb_connection_failure(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_view_smb_connection_failure(self, client, auth_headers_user, test_connection):
         """Test handling of SMB connection failures."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
@@ -343,16 +321,12 @@ class TestViewerFile:
             assert response.status_code == 500
             assert "connection failed" in response.json()["detail"].lower()
 
-    def test_view_file_not_found_on_smb(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_view_file_not_found_on_smb(self, client, auth_headers_user, test_connection):
         """Test handling when file doesn't exist on SMB share."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.connect.return_value = None
-            backend_instance.get_file_info.side_effect = FileNotFoundError(
-                "File not found"
-            )
+            backend_instance.get_file_info.side_effect = FileNotFoundError("File not found")
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
 
@@ -368,17 +342,13 @@ class TestViewerFile:
 class TestDownloadFile:
     """Test cases for the file download endpoint."""
 
-    def test_download_file_success(
-        self, client, auth_headers_user, test_connection, mock_text_file
-    ):
+    def test_download_file_success(self, client, auth_headers_user, test_connection, mock_text_file):
         """Test successful file download."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
             content = b"Download content"
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [content]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([content])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -390,24 +360,17 @@ class TestDownloadFile:
             )
 
             assert response.status_code == 200
-            assert (
-                response.headers["content-disposition"]
-                == 'attachment; filename="document.txt"'
-            )
+            assert response.headers["content-disposition"] == 'attachment; filename="document.txt"'
             assert response.headers["content-type"] == "application/octet-stream"
             assert response.content == content
 
-    def test_download_binary_file(
-        self, client, auth_headers_user, test_connection, mock_binary_file
-    ):
+    def test_download_binary_file(self, client, auth_headers_user, test_connection, mock_binary_file):
         """Test downloading a binary file."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_binary_file
             png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [png_data]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([png_data])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -419,15 +382,10 @@ class TestDownloadFile:
             )
 
             assert response.status_code == 200
-            assert (
-                response.headers["content-disposition"]
-                == 'attachment; filename="image.png"'
-            )
+            assert response.headers["content-disposition"] == 'attachment; filename="image.png"'
             assert response.content == png_data
 
-    def test_download_large_file_chunks(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_download_large_file_chunks(self, client, auth_headers_user, test_connection):
         """Test downloading a large file that comes in multiple chunks."""
         large_file = FileInfo(
             name="large.bin",
@@ -444,9 +402,7 @@ class TestDownloadFile:
             # Simulate large file in chunks
             chunk_size = 8192
             chunks = [b"X" * chunk_size for _ in range(10)]
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                chunks
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(chunks)
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -469,9 +425,7 @@ class TestDownloadFile:
 
         assert response.status_code == 401
 
-    def test_download_directory_instead_of_file(
-        self, client, auth_headers_user, test_connection, mock_directory
-    ):
+    def test_download_directory_instead_of_file(self, client, auth_headers_user, test_connection, mock_directory):
         """Test attempting to download a directory."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
@@ -503,9 +457,7 @@ class TestDownloadFile:
 
         assert response.status_code == 404
 
-    def test_download_file_without_size(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_download_file_without_size(self, client, auth_headers_user, test_connection):
         """Test downloading a file without size information."""
         file_no_size = FileInfo(
             name="nosize.txt",
@@ -519,9 +471,7 @@ class TestDownloadFile:
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = file_no_size
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -540,16 +490,12 @@ class TestDownloadFile:
 class TestViewerAuthentication:
     """Test authentication and authorization for viewer endpoints."""
 
-    def test_view_with_valid_token(
-        self, client, auth_headers_user, test_connection, mock_text_file
-    ):
+    def test_view_with_valid_token(self, client, auth_headers_user, test_connection, mock_text_file):
         """Test view with a valid user token."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -572,16 +518,12 @@ class TestViewerAuthentication:
 
         assert response.status_code == 401
 
-    def test_view_with_admin_token(
-        self, client, auth_headers_admin, test_connection, mock_text_file
-    ):
+    def test_view_with_admin_token(self, client, auth_headers_admin, test_connection, mock_text_file):
         """Test that admin users can view files."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -594,16 +536,12 @@ class TestViewerAuthentication:
 
             assert response.status_code == 200
 
-    def test_download_with_valid_token(
-        self, client, auth_headers_user, test_connection, mock_text_file
-    ):
+    def test_download_with_valid_token(self, client, auth_headers_user, test_connection, mock_text_file):
         """Test download with a valid user token."""
         with patch("app.api.viewer.SMBBackend") as mock:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = mock_text_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -620,9 +558,7 @@ class TestViewerAuthentication:
 class TestValidateConnection:
     """Test the validate_connection helper function."""
 
-    def test_validate_connection_with_share_name(
-        self, client, auth_headers_user, test_connection
-    ):
+    def test_validate_connection_with_share_name(self, client, auth_headers_user, test_connection):
         """Test that connections with share names are valid."""
         # This is implicitly tested by other tests, but we verify behavior
         with patch("app.api.viewer.SMBBackend") as mock:
@@ -635,9 +571,7 @@ class TestValidateConnection:
                 modified_at=datetime(2024, 1, 1, 12, 0, 0),
                 mime_type="text/plain",
             )
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock(
-                [b"content"]
-            )
+            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"content"])
             backend_instance.connect.return_value = None
             backend_instance.disconnect.return_value = None
             mock.return_value = backend_instance
@@ -650,9 +584,7 @@ class TestValidateConnection:
 
             assert response.status_code == 200
 
-    def test_validate_connection_without_share_name(
-        self, client, auth_headers_user, session
-    ):
+    def test_validate_connection_without_share_name(self, client, auth_headers_user, session):
         """Test that connections without share names return 400."""
         from app.models.connection import Connection
 

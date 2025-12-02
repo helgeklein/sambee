@@ -26,9 +26,7 @@ from app.models.user import User
 class TestCompleteUserJourney:
     """Test complete user workflow from registration to file operations."""
 
-    def test_complete_authenticated_workflow(
-        self, client: TestClient, session: Session, auth_headers_admin: dict[str, str]
-    ):
+    def test_complete_authenticated_workflow(self, client: TestClient, session: Session, auth_headers_admin: dict[str, str]):
         """Test full workflow: admin operations on connections, browse, view, download."""
         # Step 1: Admin creates SMB connection (mock the connection test)
         with patch("app.api.admin.SMBBackend") as mock_backend_class:
@@ -170,9 +168,7 @@ class TestCompleteUserJourney:
         connections = response.json()
         assert not any(c["id"] == connection_id for c in connections)
 
-    def test_regular_user_workflow(
-        self, client: TestClient, session: Session, auth_headers_user: dict[str, str]
-    ):
+    def test_regular_user_workflow(self, client: TestClient, session: Session, auth_headers_user: dict[str, str]):
         """Test regular user can browse but not manage connections."""
         # Create connection for browsing
         connection = Connection(
@@ -190,9 +186,7 @@ class TestCompleteUserJourney:
         # User can browse
         with patch("app.api.browser.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
-            mock_instance.list_directory.return_value = DirectoryListing(
-                path="/", items=[], total=0
-            )
+            mock_instance.list_directory.return_value = DirectoryListing(path="/", items=[], total=0)
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
@@ -329,9 +323,7 @@ class TestMultiUserCollaboration:
 class TestErrorRecoveryScenarios:
     """Test error handling and recovery in realistic scenarios."""
 
-    def test_smb_connection_error_during_browse(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_smb_connection_error_during_browse(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test graceful handling of SMB connection errors."""
         # Create connection
         connection = Connection(
@@ -357,9 +349,7 @@ class TestErrorRecoveryScenarios:
             assert response.status_code == 500
             assert "detail" in response.json()
 
-    def test_file_not_found_during_view(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_file_not_found_during_view(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test file not found error during viewing."""
         connection = Connection(
             name="Not Found Test",
@@ -376,9 +366,7 @@ class TestErrorRecoveryScenarios:
         with patch("app.api.viewer.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             # Make get_file_info raise an exception for missing file
-            mock_instance.get_file_info.side_effect = FileNotFoundError(
-                "File not found"
-            )
+            mock_instance.get_file_info.side_effect = FileNotFoundError("File not found")
             mock_instance.disconnect.return_value = None
             mock_backend_class.return_value = mock_instance
 
@@ -396,9 +384,7 @@ class TestErrorRecoveryScenarios:
         response = client.get("/api/admin/connections", headers=invalid_headers)
         assert response.status_code == 401
 
-    def test_missing_connection_error(
-        self, client: TestClient, auth_headers_user: dict[str, str]
-    ):
+    def test_missing_connection_error(self, client: TestClient, auth_headers_user: dict[str, str]):
         """Test accessing non-existent connection."""
         fake_id = "nonexistent-uuid-12345"
 
@@ -408,9 +394,7 @@ class TestErrorRecoveryScenarios:
         )
         assert response.status_code in [404, 422]  # Not found or validation error
 
-    def test_directory_view_error(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_directory_view_error(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test attempting to view a directory."""
         connection = Connection(
             name="Dir Test",
@@ -524,9 +508,7 @@ class TestWebSocketScenarios:
 class TestAdminConnectionManagement:
     """Test admin-specific connection management scenarios."""
 
-    def test_create_connection_validation(
-        self, client: TestClient, auth_headers_admin: dict[str, str]
-    ):
+    def test_create_connection_validation(self, client: TestClient, auth_headers_admin: dict[str, str]):
         """Test connection creation with validation."""
         # Valid connection (mock the connection test)
         with patch("app.api.admin.SMBBackend") as mock_backend_class:
@@ -563,9 +545,7 @@ class TestAdminConnectionManagement:
                 headers=auth_headers_admin,
             )
 
-    def test_create_connection_missing_fields(
-        self, client: TestClient, auth_headers_admin: dict[str, str]
-    ):
+    def test_create_connection_missing_fields(self, client: TestClient, auth_headers_admin: dict[str, str]):
         """Test connection creation with missing required fields."""
         invalid_data = {
             "name": "Incomplete",
@@ -579,9 +559,7 @@ class TestAdminConnectionManagement:
         )
         assert response.status_code == 422  # Validation error
 
-    def test_update_connection_with_put(
-        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
-    ):
+    def test_update_connection_with_put(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session):
         """Test connection updates using PUT (not PATCH)."""
         # Create connection
         connection = Connection(
@@ -618,9 +596,7 @@ class TestAdminConnectionManagement:
             assert response.status_code == 200
             assert response.json()["name"] == "Updated Name"
 
-    def test_update_connection_password(
-        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
-    ):
+    def test_update_connection_password(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session):
         """Test updating connection password."""
         old_password_encrypted = encrypt_password("old_password")
         connection = Connection(
@@ -657,15 +633,11 @@ class TestAdminConnectionManagement:
             assert response.status_code == 200
 
             # Verify password was re-encrypted
-            updated_conn = session.exec(
-                select(Connection).where(Connection.id == connection.id)
-            ).first()
+            updated_conn = session.exec(select(Connection).where(Connection.id == connection.id)).first()
             assert updated_conn is not None
             assert updated_conn.password_encrypted != old_password_encrypted
 
-    def test_delete_nonexistent_connection(
-        self, client: TestClient, auth_headers_admin: dict[str, str]
-    ):
+    def test_delete_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict[str, str]):
         """Test deleting a connection that doesn't exist."""
         fake_id = "00000000-0000-0000-0000-000000000000"
         response = client.delete(
@@ -674,9 +646,7 @@ class TestAdminConnectionManagement:
         )
         assert response.status_code == 404
 
-    def test_list_all_connections(
-        self, client: TestClient, auth_headers_admin: dict[str, str], session: Session
-    ):
+    def test_list_all_connections(self, client: TestClient, auth_headers_admin: dict[str, str], session: Session):
         """Test retrieving all connections."""
         # Create test connection
         connection = Connection(
@@ -705,9 +675,7 @@ class TestAdminConnectionManagement:
 class TestBrowserEdgeCases:
     """Test browser API edge cases and error scenarios."""
 
-    def test_browse_root_directory(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_browse_root_directory(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test browsing root directory."""
         connection = Connection(
             name="Root Browse",
@@ -744,9 +712,7 @@ class TestBrowserEdgeCases:
             data = response.json()
             assert len(data["items"]) == 1
 
-    def test_browse_nested_directory(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_browse_nested_directory(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test browsing deeply nested directory."""
         connection = Connection(
             name="Nested Browse",
@@ -782,9 +748,7 @@ class TestBrowserEdgeCases:
             )
             assert response.status_code == 200
 
-    def test_browse_with_special_characters(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_browse_with_special_characters(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test browsing directories with special characters."""
         connection = Connection(
             name="Special Chars",
@@ -822,9 +786,7 @@ class TestBrowserEdgeCases:
             # Should handle gracefully
             assert response.status_code in [200, 500]
 
-    def test_browse_empty_directory(
-        self, client: TestClient, auth_headers_user: dict[str, str], session: Session
-    ):
+    def test_browse_empty_directory(self, client: TestClient, auth_headers_user: dict[str, str], session: Session):
         """Test browsing an empty directory."""
         connection = Connection(
             name="Empty Dir",
@@ -840,9 +802,7 @@ class TestBrowserEdgeCases:
 
         with patch("app.api.browser.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
-            mock_instance.list_directory.return_value = DirectoryListing(
-                path="/", items=[], total=0
-            )
+            mock_instance.list_directory.return_value = DirectoryListing(path="/", items=[], total=0)
             mock_backend_class.return_value = mock_instance
 
             response = client.get(
@@ -864,14 +824,10 @@ class TestAuthenticationFlows:
         session.commit()
 
         # Login is tested via fixtures, but we can test the endpoint exists
-        response = client.get(
-            "/api/auth/me", headers={"Authorization": "Bearer invalid"}
-        )
+        response = client.get("/api/auth/me", headers={"Authorization": "Bearer invalid"})
         assert response.status_code in [401, 422]  # Invalid token rejected
 
-    def test_access_admin_endpoint_as_regular_user(
-        self, client: TestClient, auth_headers_user: dict[str, str]
-    ):
+    def test_access_admin_endpoint_as_regular_user(self, client: TestClient, auth_headers_user: dict[str, str]):
         """Test that regular users cannot access admin endpoints."""
         response = client.get("/api/admin/connections", headers=auth_headers_user)
         assert response.status_code == 403

@@ -295,9 +295,7 @@ class TestTransactionHandling:
         session.rollback()
 
         # Query should not find the user
-        result = session.exec(
-            select(User).where(User.username == "rollback_test")
-        ).first()
+        result = session.exec(select(User).where(User.username == "rollback_test")).first()
         assert result is None
 
     def test_transaction_isolation(self, session: Session):
@@ -313,9 +311,7 @@ class TestTransactionHandling:
         gen = get_session()
         other_session = next(gen)
 
-        result = other_session.exec(
-            select(User).where(User.username == "isolation_test")
-        ).first()
+        result = other_session.exec(select(User).where(User.username == "isolation_test")).first()
         assert result is None  # Uncommitted data not visible
 
         # Cleanup
@@ -394,8 +390,8 @@ class TestDatabaseConfiguration:
         from app.core.config import settings
         from app.db.database import engine
 
-        # Echo should match debug setting
-        assert engine.echo == settings.debug
+        # Echo should be enabled when log_level is DEBUG
+        assert engine.echo == (settings.log_level == "DEBUG")
 
 
 @pytest.mark.integration

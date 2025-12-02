@@ -6,7 +6,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
-from app.core.config import static
+from app.core.config import settings, static
 
 # Database URL
 DATABASE_URL = f"sqlite:///{static.data_dir}/sambee.db"
@@ -81,9 +81,23 @@ def set_sqlite_pragma(dbapi_conn: Any, connection_record: Any) -> None:
 # init_db
 #
 def init_db() -> None:
-    """Initialize database tables"""
+    """Initialize database tables and load application secrets"""
 
+    # Import here to avoid circular dependency
+    from app.core.secrets import get_or_create_app_secrets
+    from app.models.app_secret import AppSecret  # noqa: F401 - Required for table creation
+
+    # Create all tables
     SQLModel.metadata.create_all(engine)
+
+    # Load or generate app secrets
+    with Session(engine) as session:
+        app_secret = get_or_create_app_secrets(session)
+
+        # Store secrets in settings for application use
+        # (These will be accessed by security.py and other modules)
+        settings.secret_key = app_secret.secret_key
+        settings.encryption_key = app_secret.encryption_key
 
 
 #

@@ -4,6 +4,7 @@
 - Follow the DRY principle.
 - Favor elegant solutions.
 - Don't use hacks. Find the root cause and fix problems properly.
+- All potential errors should be handled. The user should not see stack traces, but clear, concise log messages.
 
 ## AI behavior
 

@@ -87,9 +87,7 @@ class TestImageFormatDetection:
         """Test is_image_file rejects unsupported formats."""
         unsupported = ["document.pdf", "video.mp4", "text.txt", "archive.zip"]
         for filename in unsupported:
-            assert is_image_file(filename) is False, (
-                f"{filename} should not be recognized"
-            )
+            assert is_image_file(filename) is False, f"{filename} should not be recognized"
 
 
 class TestImageConversion:
@@ -138,9 +136,7 @@ class TestImageConversion:
         """Test converting RGB image to JPEG."""
         test_image = self.create_test_image("RGB", (200, 150))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            test_image, "test.png"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
 
         assert mime_type == "image/jpeg"
         assert len(result_bytes) > 0
@@ -155,9 +151,7 @@ class TestImageConversion:
         """Test converting RGBA image to JPEG (removes alpha)."""
         test_image = self.create_test_image("RGBA", (100, 100))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            test_image, "test.png"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
 
         assert mime_type == "image/jpeg"
 
@@ -170,9 +164,7 @@ class TestImageConversion:
         """Test converting BMP to JPEG."""
         test_bmp = self.create_test_bmp((150, 200))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            test_bmp, "test.bmp"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_bmp, "test.bmp")
 
         assert mime_type == "image/jpeg"
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
@@ -183,9 +175,7 @@ class TestImageConversion:
         """Test image downscaling with max_dimension."""
         test_image = self.create_test_image("RGB", (2000, 1500))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            test_image, "large.png", max_dimension=800
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "large.png", max_dimension=800)
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Image should be scaled down proportionally
@@ -198,9 +188,7 @@ class TestImageConversion:
         test_image = self.create_test_image("RGB", (500, 500))
 
         # Convert image - should use IMAGE_SETTINGS (quality=85)
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            test_image, "test.png"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
 
         # Verify it's a valid JPEG
         assert mime_type == "image/jpeg"
@@ -246,9 +234,7 @@ class TestEdgeCases:
         image = image + 128  # Mid-gray
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            image_bytes, "gray.png"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "gray.png")
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Grayscale can be stored as 1 or 3 bands in JPEG
@@ -261,9 +247,7 @@ class TestEdgeCases:
         image = image + [100, 100, 100]
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            image_bytes, "palette.png"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "palette.png")
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB
@@ -287,9 +271,7 @@ newpath
 fill
 showpage
 """
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            eps_data, "test.eps"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(eps_data, "test.eps")
 
         assert mime_type == "image/png"
         assert len(result_bytes) > 0
@@ -330,9 +312,7 @@ startxref
 219
 %%EOF
 """
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            ai_data, "test.ai"
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(ai_data, "test.ai")
 
         assert mime_type == "image/png"
         assert len(result_bytes) > 0
@@ -346,9 +326,7 @@ startxref
         image = image + [255, 0, 0]
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(
-            image_bytes, "small.png", max_dimension=1000
-        )
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "small.png", max_dimension=1000)
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Should remain 50x50, not upscaled

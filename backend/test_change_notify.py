@@ -57,12 +57,9 @@ def test_change_notification():
     open_handle = Open(tree, windows_path)
     open_handle.create(
         impersonation_level=ImpersonationLevel.Impersonation,
-        desired_access=DirectoryAccessMask.FILE_LIST_DIRECTORY
-        | DirectoryAccessMask.SYNCHRONIZE,
+        desired_access=DirectoryAccessMask.FILE_LIST_DIRECTORY | DirectoryAccessMask.SYNCHRONIZE,
         file_attributes=FileAttributes.FILE_ATTRIBUTE_DIRECTORY,
-        share_access=ShareAccess.FILE_SHARE_READ
-        | ShareAccess.FILE_SHARE_WRITE
-        | ShareAccess.FILE_SHARE_DELETE,
+        share_access=ShareAccess.FILE_SHARE_READ | ShareAccess.FILE_SHARE_WRITE | ShareAccess.FILE_SHARE_DELETE,
         create_disposition=CreateDisposition.FILE_OPEN,
         create_options=CreateOptions.FILE_DIRECTORY_FILE,
     )
