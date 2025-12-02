@@ -31,6 +31,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from app.core.exceptions import SambeeError
 from app.core.image_settings import (
     get_graphicsmagick_jpeg_args,
     get_graphicsmagick_png_args,
@@ -48,7 +49,7 @@ class PreprocessorType(Enum):
     IMAGEMAGICK = "imagemagick"
 
 
-class PreprocessorError(Exception):
+class PreprocessorError(SambeeError):
     """Base exception for preprocessor errors."""
 
     pass
@@ -127,17 +128,17 @@ class PreprocessorInterface(ABC):
 
         # Check for empty data
         if not input_data or len(input_data) == 0:
-            raise ValueError("Empty input data")
+            raise PreprocessorError("Empty input data")
 
         # Check file size
         file_size = len(input_data)
         if file_size > self.MAX_FILE_SIZE:
-            raise ValueError(f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})")
+            raise PreprocessorError(f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})")
 
         # Check extension from filename
         extension = Path(filename).suffix.lower().lstrip(".")
         if extension not in self.SUPPORTED_FORMATS:
-            raise ValueError(f"Unsupported format: {extension}. Supported: {', '.join(sorted(self.SUPPORTED_FORMATS))}")
+            raise PreprocessorError(f"Unsupported format: {extension}. Supported: {', '.join(sorted(self.SUPPORTED_FORMATS))}")
 
     #
     # _create_temp_file
@@ -234,7 +235,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
         # Validate output format
         valid_formats = {"png", "jpeg", "jpg"}
         if output_format.lower() not in valid_formats:
-            raise ValueError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
+            raise PreprocessorError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
 
         # Normalize format
         if output_format.lower() == "jpg":
@@ -282,18 +283,19 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
 
             # Execute conversion - pipe input via stdin, capture stdout
             start_time = time.perf_counter()
-            result = subprocess.run(
-                command,
-                input=input_data,  # Send data via stdin
-                capture_output=True,
-                timeout=self.TIMEOUT_SECONDS,
-                check=False,
-            )
-            duration_ms = (time.perf_counter() - start_time) * 1000
+            try:
+                result = subprocess.run(
+                    command,
+                    input=input_data,  # Send data via stdin
+                    capture_output=True,
+                    timeout=self.TIMEOUT_SECONDS,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
+                raise PreprocessorError(f"GraphicsMagick conversion failed: {error_msg}") from None
 
-            if result.returncode != 0:
-                error_msg = result.stderr.decode("utf-8", errors="replace")
-                raise PreprocessorError(f"GraphicsMagick conversion failed: {error_msg}")
+            duration_ms = (time.perf_counter() - start_time) * 1000
 
             # Verify output was produced
             if not result.stdout or len(result.stdout) == 0:
@@ -431,21 +433,20 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                 f"{extension}:-[0]",
             ]
 
-            result = subprocess.run(
-                command,
-                input=input_data,
-                capture_output=True,
-                timeout=30,
-                check=False,
-            )
-
-            if result.returncode != 0:
-                logger.warning(f"Failed to detect colorspace for {filename}: {result.stderr.decode()}")
+            try:
+                result = subprocess.run(
+                    command,
+                    input=input_data,
+                    capture_output=True,
+                    timeout=30,
+                    check=True,
+                )
+                colorspace = result.stdout.decode().strip()
+                logger.debug(f"Detected colorspace for {filename}: {colorspace}")
+                return colorspace
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to detect colorspace for {filename}: {e.stderr.decode() if e.stderr else 'Unknown error'}")
                 return "Unknown"
-
-            colorspace = result.stdout.decode().strip()
-            logger.debug(f"Detected colorspace for {filename}: {colorspace}")
-            return colorspace
 
         except subprocess.TimeoutExpired:
             logger.warning(f"Colorspace detection timed out for {filename}")
@@ -486,7 +487,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
         # Validate output format
         valid_formats = {"png", "jpeg", "jpg"}
         if output_format.lower() not in valid_formats:
-            raise ValueError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
+            raise PreprocessorError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
 
         # Normalize format
         if output_format.lower() == "jpg":
@@ -557,18 +558,19 @@ class ImageMagickPreprocessor(PreprocessorInterface):
 
             # Execute conversion - pipe input via stdin, capture stdout
             start_time = time.perf_counter()
-            result = subprocess.run(
-                command,
-                input=input_data,  # Send data via stdin
-                capture_output=True,
-                timeout=self.TIMEOUT_SECONDS,
-                check=False,
-            )
-            duration_ms = (time.perf_counter() - start_time) * 1000
+            try:
+                result = subprocess.run(
+                    command,
+                    input=input_data,  # Send data via stdin
+                    capture_output=True,
+                    timeout=self.TIMEOUT_SECONDS,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
+                raise PreprocessorError(f"ImageMagick conversion failed: {error_msg}") from None
 
-            if result.returncode != 0:
-                error_msg = result.stderr.decode("utf-8", errors="replace")
-                raise PreprocessorError(f"ImageMagick conversion failed: {error_msg}")
+            duration_ms = (time.perf_counter() - start_time) * 1000
 
             # Verify output was produced
             if not result.stdout or len(result.stdout) == 0:
@@ -662,7 +664,7 @@ class PreprocessorRegistry:
         ext = extension.lower().lstrip(".")
 
         if ext not in cls._FORMAT_REGISTRY:
-            raise ValueError(
+            raise PreprocessorError(
                 f"Format '{ext}' is not registered for preprocessing. Supported formats: {', '.join(sorted(cls._FORMAT_REGISTRY.keys()))}"
             )
 
@@ -816,7 +818,7 @@ class PreprocessorFactory:
             return im
 
         else:
-            raise ValueError(f"Invalid preprocessor type: {preprocessor_type}. Valid values: graphicsmagick, imagemagick, auto")
+            raise PreprocessorError(f"Invalid preprocessor type: {preprocessor_type}. Valid values: graphicsmagick, imagemagick, auto")
 
     #
     # get_supported_formats

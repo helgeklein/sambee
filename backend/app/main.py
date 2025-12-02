@@ -8,7 +8,7 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
@@ -16,7 +16,8 @@ from app import __version__
 from app.api import admin, auth, browser, viewer, websocket
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
-from app.core.logging import set_request_id
+from app.core.exceptions import ConfigurationError, SambeeError
+from app.core.logging import log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import engine, init_db
@@ -34,8 +35,27 @@ if IS_DEVELOPMENT:
     # In development, also log to file for easier debugging
     handlers.append(logging.FileHandler("/tmp/backend.log", mode="a"))
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", handlers=handlers)
+# Configure logging (no timestamp - Docker adds them automatically)
+log_format = "%(name)s - %(levelname)s - %(message)s"
+logging.basicConfig(level=logging.INFO, format=log_format, handlers=handlers)
+
+# Configure Uvicorn's loggers to use our format and rename uvicorn.error -> uvicorn
+uvicorn_formatter = logging.Formatter(log_format)
+for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
+    uvicorn_logger = logging.getLogger(logger_name)
+    uvicorn_logger.setLevel(logging.INFO)
+    # Replace handlers with our formatted ones
+    uvicorn_logger.handlers.clear()
+    for handler in handlers:
+        new_handler = logging.StreamHandler(handler.stream) if isinstance(handler, logging.StreamHandler) else handler
+        # Rename uvicorn.error to just uvicorn for cleaner logs
+        if logger_name == "uvicorn.error":
+            renamed_formatter = logging.Formatter(log_format.replace("%(name)s", "uvicorn"))
+            new_handler.setFormatter(renamed_formatter)
+        else:
+            new_handler.setFormatter(uvicorn_formatter)
+        uvicorn_logger.addHandler(new_handler)
+    uvicorn_logger.propagate = False
 
 # Reduce noise from third-party libraries (only show warnings/errors)
 logging.getLogger("smbprotocol").setLevel(logging.WARNING)
@@ -69,7 +89,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Initialize database
         logger.info("Initializing database...")
         init_db()
-        logger.info("✅ Database initialized")
+        logger.info("Database initialized")
 
         # Create default admin user if doesn't exist
         logger.info("Checking for admin user...")
@@ -92,23 +112,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # Display credentials prominently in production
                 if IS_PRODUCTION:
                     logger.warning("=" * 80)
-                    logger.warning("🔑 FIRST-TIME SETUP - SAVE THESE CREDENTIALS")
+                    logger.warning("FIRST-TIME SETUP - SAVE THESE CREDENTIALS")
                     logger.warning(f"   Username: {settings.admin_username}")
                     logger.warning(f"   Password: {admin_password}")
-                    logger.warning("   ⚠️  Change password immediately after first login!")
+                    logger.warning("   Change password immediately after first login!")
                     logger.warning("   Credentials will not be displayed again.")
                     logger.warning("=" * 80)
                 else:
-                    logger.info(f"✅ Created admin user: {settings.admin_username} / {admin_password}")
+                    logger.info(f"Created admin user: {settings.admin_username} / {admin_password}")
             else:
-                logger.info(f"✅ Admin user exists: {settings.admin_username}")
+                logger.info(f"Admin user exists: {settings.admin_username}")
 
-        logger.info("🚀 Sambee application startup complete!")
+        logger.info("Sambee application startup complete!")
         logger.info("API Documentation: http://localhost:8000/docs")
 
+    except ConfigurationError as e:
+        log_error(logger, f"Configuration error: {e}")
+        log_error(logger, "Application startup failed. Exiting.")
+        sys.exit(1)
     except Exception as e:
-        logger.error(f"❌ Startup failed: {e}", exc_info=True)
-        raise
+        log_error(logger, f"Startup failed: {e}")
+        log_error(logger, "Application startup failed. Exiting.")
+        sys.exit(1)
 
     yield
 
@@ -118,9 +143,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Close all SMB connection pool connections
     logger.info("Closing SMB connection pool...")
     await shutdown_connection_pool()
-    logger.info("✅ SMB connection pool closed")
+    logger.info("SMB connection pool closed")
 
-    logger.info("👋 Sambee application shutdown complete")
+    logger.info("Sambee application shutdown complete")
 
     # Stop all directory monitors and clean up SMB handles
     try:
@@ -128,9 +153,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         logger.info("Stopping directory monitors...")
         shutdown_monitor()
-        logger.info("✅ Directory monitors stopped")
+        logger.info("Directory monitors stopped")
     except Exception as e:
-        logger.error(f"Error stopping directory monitors: {e}", exc_info=True)
+        log_error(logger, f"Error stopping directory monitors: {e}")
 
     logger.info(f"Shutdown complete - {datetime.now().isoformat()}")
 
@@ -142,6 +167,20 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+
+#
+# sambee_error_handler
+#
+@app.exception_handler(SambeeError)
+async def sambee_error_handler(request: Request, exc: SambeeError) -> JSONResponse:
+    """Handle SambeeError exceptions with clean error messages."""
+
+    log_error(logger, f"Error handling request: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+    )
 
 
 #
@@ -192,7 +231,7 @@ async def log_requests(request: Request, call_next: Callable[[Request], Awaitabl
 # CORS configuration - only needed in development when frontend runs on separate server
 # Production: frontend served from same origin (no CORS needed)
 if IS_DEVELOPMENT:
-    logger.info(f"🔓 CORS enabled for development: {DEV_CORS_ORIGINS}")
+    logger.info(f"CORS enabled for development: {DEV_CORS_ORIGINS}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=DEV_CORS_ORIGINS,
@@ -201,7 +240,7 @@ if IS_DEVELOPMENT:
         allow_headers=["*"],
     )
 else:
-    logger.info("🔒 CORS disabled (production mode - frontend served from same origin)")
+    logger.info("CORS disabled (production mode - frontend served from same origin)")
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
@@ -230,9 +269,8 @@ if static_path.exists():
     # serve_spa
     #
     @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str) -> FileResponse | None:
+    async def serve_spa(full_path: str) -> FileResponse:
         """Serve React SPA for all non-API routes"""
 
-        if not full_path.startswith("api/"):
-            return FileResponse(static_path / "index.html")
-        return None
+        # Only serve for non-API routes (API routes are registered with higher priority)
+        return FileResponse(static_path / "index.html")

@@ -1,9 +1,12 @@
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+from app.core.exceptions import ConfigurationError
 
 
 #
@@ -22,7 +25,7 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
 
     # Check if config_file is actually a directory (common Docker mount issue)
     if config_file.is_dir():
-        raise RuntimeError(
+        raise ConfigurationError(
             f"'{config_file}' is a directory, not a file. Common cause: Docker created a directory because the file doesn't exist on the host."
         )
 
@@ -103,7 +106,18 @@ def load_settings() -> UserSettings:
 
 # Create global instances
 static = StaticSettings()
-settings = load_settings()
+
+try:
+    settings = load_settings()
+except ConfigurationError as e:
+    # Print clean error message and exit before uvicorn can show stack trace
+    import logging
+
+    logging.basicConfig(level=logging.ERROR, format="%(levelname)s - %(message)s")
+    logger = logging.getLogger(__name__)
+    logger.error(f"Configuration Error: {e}")
+    logger.error("Fix the issue and restart the application.")
+    sys.exit(1)
 
 # Ensure data directory exists
 static.data_dir.mkdir(parents=True, exist_ok=True)

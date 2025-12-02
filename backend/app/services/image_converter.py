@@ -40,9 +40,12 @@ try:
     # Note: libvips handles concurrency automatically
     VIPS_AVAILABLE = True
 except Exception as e:
-    import sys
+    import logging
 
-    print(f"ERROR: Failed to initialize libvips: {e}", file=sys.stderr)
+    logging.basicConfig(level=logging.ERROR, format="%(levelname)s - %(message)s")
+    logger = logging.getLogger(__name__)
+    logger.error(f"Failed to initialize libvips: {e}")
+    logger.error("Please ensure libvips is installed.")
     VIPS_AVAILABLE = False
 
 

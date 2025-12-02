@@ -163,6 +163,14 @@ docker compose up -d
 If you've lost the admin password, you can reset it by deleting the admin user from the database:
 
 ```bash
+# Stop the container
+docker compose stop
+
+# Delete only the admin user (preserves all connections and settings)
+python3 -c "import sqlite3; conn = sqlite3.connect('./data/sambee.db'); conn.execute(\"DELETE FROM user WHERE username='admin'\"); conn.commit(); conn.close()"
+
+# Start the container - a new admin password will be generated
+docker compose start
 # Delete only the admin user (preserves all connections and settings)
 docker compose exec sambee sqlite3 /app/data/sambee.db "DELETE FROM users WHERE username='admin';"
 

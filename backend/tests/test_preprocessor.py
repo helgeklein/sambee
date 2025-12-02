@@ -11,6 +11,7 @@ These tests verify that the preprocessor can:
 """
 
 import os
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -67,8 +68,8 @@ class TestPreprocessorRegistry:
             pytest.skip("No preprocessor available in test environment")
 
     def test_get_preprocessor_for_format_invalid(self):
-        """Test that invalid format raises ValueError."""
-        with pytest.raises(ValueError, match="not registered for preprocessing"):
+        """Test that invalid format raises PreprocessorError."""
+        with pytest.raises(PreprocessorError, match="not registered for preprocessing"):
             PreprocessorRegistry.get_preprocessor_for_format("jpg")
 
     def test_get_preprocessor_for_format_with_override(self):
@@ -149,31 +150,31 @@ class TestPreprocessorInterface:
     """Test the abstract base class functionality."""
 
     def test_validate_input_file_not_found(self, tmp_path):
-        """Test that validate_input raises ValueError for empty bytes."""
+        """Test that validate_input raises PreprocessorError for empty bytes."""
         preprocessor = GraphicsMagickPreprocessor()
         empty_bytes = b""
 
-        with pytest.raises(ValueError, match="Empty input data"):
+        with pytest.raises(PreprocessorError, match="Empty input data"):
             preprocessor.validate_input(empty_bytes, "test.psd")
 
     def test_validate_input_file_too_large(self, tmp_path):
-        """Test that validate_input raises ValueError for data exceeding MAX_FILE_SIZE."""
+        """Test that validate_input raises PreprocessorError for data exceeding MAX_FILE_SIZE."""
         preprocessor = GraphicsMagickPreprocessor()
 
         # Create data that exceeds max size
         large_data = b"x" * (preprocessor.MAX_FILE_SIZE + 1)
 
-        with pytest.raises(ValueError, match="File too large"):
+        with pytest.raises(PreprocessorError, match="File too large"):
             preprocessor.validate_input(large_data, "large.psd")
 
     def test_validate_input_unsupported_format(self, tmp_path):
-        """Test that validate_input raises ValueError for unsupported formats."""
+        """Test that validate_input raises PreprocessorError for unsupported formats."""
         preprocessor = GraphicsMagickPreprocessor()
 
         # Test with unsupported extension
         test_data = b"test content"
 
-        with pytest.raises(ValueError, match="Unsupported format"):
+        with pytest.raises(PreprocessorError, match="Unsupported format"):
             preprocessor.validate_input(test_data, "test.txt")
 
     def test_validate_input_success(self, tmp_path):
@@ -245,7 +246,7 @@ class TestGraphicsMagickPreprocessor:
         psd_data = b"8BPS" + b"x" * 100
 
         with patch.object(preprocessor, "check_availability", return_value=True):
-            with pytest.raises(ValueError, match="Invalid output format"):
+            with pytest.raises(PreprocessorError, match="Invalid output format"):
                 preprocessor.convert_to_final_format(psd_data, "test.psd", output_format="invalid")
 
     def test_convert_successful(self, tmp_path):
@@ -272,18 +273,17 @@ class TestGraphicsMagickPreprocessor:
                 assert result[:3] == b"\xff\xd8\xff"
 
     def test_convert_command_fails(self, tmp_path):
-        """Test conversion fails when GraphicsMagick command fails."""
+        """Test conversion fails gracefully when GraphicsMagick command fails."""
         preprocessor = GraphicsMagickPreprocessor()
 
         psd_data = b"8BPS" + b"x" * 100
 
-        # Mock failed conversion
-        mock_result = MagicMock()
-        mock_result.returncode = 1
-        mock_result.stderr = b"GraphicsMagick: unable to open image"
+        # Mock CalledProcessError since we use check=True
+        mock_error = subprocess.CalledProcessError(1, "gm")
+        mock_error.stderr = b"GraphicsMagick: unable to open image"
 
         with patch.object(preprocessor, "check_availability", return_value=True):
-            with patch("subprocess.run", return_value=mock_result):
+            with patch("subprocess.run", side_effect=mock_error):
                 with pytest.raises(PreprocessorError, match="GraphicsMagick conversion failed"):
                     preprocessor.convert_to_final_format(psd_data, "test.psd")
 
@@ -417,7 +417,7 @@ class TestPreprocessorFactory:
 
     def test_create_invalid_type(self):
         """Test error for invalid preprocessor type."""
-        with pytest.raises(ValueError, match="Invalid preprocessor type"):
+        with pytest.raises(PreprocessorError, match="Invalid preprocessor type"):
             PreprocessorFactory.create("invalid")
 
     def test_create_from_env_var(self):

@@ -118,10 +118,10 @@ class SMBConnectionPool:
                 conn = self._connections[pool_key]
                 conn.reference_count += 1
                 conn.last_used = datetime.now()
-                logger.info(f"♻️  Reusing pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
+                logger.info(f"Reusing pooled connection: {host}:{port}/{share_name} (refs={conn.reference_count})")
             else:
                 # Create new connection
-                logger.info(f"🔌 Creating new pooled connection: {host}:{port}/{share_name}")
+                logger.info(f"Creating new pooled connection: {host}:{port}/{share_name}")
 
                 # Register session with smbclient (establishes connection)
                 try:
@@ -153,7 +153,7 @@ class SMBConnectionPool:
                 )
                 self._connections[pool_key] = conn
 
-                logger.info(f"✅ SMB connection pooled: {host}:{port}/{share_name}")
+                logger.info(f"SMB connection pooled: {host}:{port}/{share_name}")
 
         try:
             # Yield control to caller (connection is ready)

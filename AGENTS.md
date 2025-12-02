@@ -6,6 +6,11 @@
 - Don't use hacks. Find the root cause and fix problems properly.
 - All potential errors should be handled. The user should not see stack traces, but clear, concise log messages.
 
+### Error handling and logging
+
+- All potential errors should be handled. The user should not see stack traces, but clear, concise log messages.
+- Log messages should be specific to the situation and contain actionable info for the user.
+
 ## AI behavior
 
 - When asked to analyze or research, present your findings and ask if/how to implement them.

@@ -118,3 +118,21 @@ def get_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
 
     base_logger = logging.getLogger(name)
     return ContextAdapter(base_logger, {})
+
+
+#
+# log_error
+#
+def log_error(logger: logging.Logger | logging.LoggerAdapter[logging.Logger], message: str) -> None:
+    """
+    Log an error message without stack trace.
+
+    Use this for user-facing errors where stack traces would be confusing.
+    Always logs with exc_info=False to prevent stack trace output.
+
+    Args:
+        logger: Logger instance to use for logging.
+        message: Clear, concise error message with actionable information.
+    """
+
+    logger.error(message, exc_info=False)

@@ -9,6 +9,7 @@ from passlib.context import CryptContext
 from sqlmodel import Session, select
 
 from app.core.config import settings, static
+from app.core.exceptions import ConfigurationError
 from app.db.database import get_session
 from app.models.user import User
 
@@ -31,6 +32,7 @@ def get_fernet() -> Fernet:
     global _fernet
     if _fernet is None:
         if not settings.encryption_key:
+            raise ConfigurationError("Encryption key not loaded from database yet")
             raise RuntimeError("Encryption key not loaded from database yet")
         _fernet = Fernet(settings.encryption_key.encode())
     return _fernet
