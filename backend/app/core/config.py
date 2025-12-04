@@ -7,13 +7,14 @@ from typing import Any
 from pydantic import BaseModel, field_validator
 
 from app.core.auth_methods import AuthMethod, parse_auth_method
+from app.core.environment import IS_DEVELOPMENT
 from app.core.exceptions import ConfigurationError
 
 
 #
 # load_toml_config
 #
-def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
+def load_toml_config(config_file: Path) -> dict[str, Any]:
     """Load configuration from TOML file if it exists.
 
     Returns:
@@ -115,7 +116,15 @@ class UserSettings(BaseModel):
 def load_settings() -> UserSettings:
     """Load settings from config.toml file."""
 
-    toml_config = load_toml_config()
+    # Determine config file location based on environment
+    if IS_DEVELOPMENT:
+        # DEV mode: running in devcontainer
+        config_path = Path("/workspace/config.toml")
+    else:
+        # PROD mode: running in Docker
+        config_path = Path("/app/config.toml")
+
+    toml_config = load_toml_config(config_path)
     return UserSettings(**toml_config)
 
 
