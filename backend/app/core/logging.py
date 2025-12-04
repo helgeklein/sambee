@@ -121,6 +121,36 @@ def get_logger(name: str) -> logging.LoggerAdapter[logging.Logger]:
 
 
 #
+# setup_early_error_logging
+#
+def setup_early_error_logging() -> logging.Logger:
+    """
+    Setup minimal logging for early startup errors.
+
+    Used for critical errors that occur before main application initialization,
+    such as missing configuration files, import errors, or file system issues.
+
+    This function is idempotent - safe to call multiple times. It configures
+    the root logger with a simple format suitable for error messages.
+
+    Returns:
+        Logger instance ready to use for error logging.
+
+    Example:
+        logger = setup_early_error_logging()
+        logger.error("Configuration file not found")
+        sys.exit(1)
+    """
+
+    # Configure root logger if not already configured
+    # basicConfig is idempotent - only configures if no handlers exist
+    logging.basicConfig(level=logging.ERROR, format="%(levelname)s - %(message)s")
+
+    # Return a logger for the caller
+    return logging.getLogger("sambee.startup")
+
+
+#
 # log_error
 #
 def log_error(logger: logging.Logger | logging.LoggerAdapter[logging.Logger], message: str) -> None:

@@ -91,9 +91,25 @@ async def create_connection(
         path_prefix=connection_data.path_prefix,
     )
 
-    session.add(connection)
-    session.commit()
-    session.refresh(connection)
+    try:
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+    except Exception as e:
+        session.rollback()
+        # Check if it's a duplicate name error
+        if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
+            logger.error(f"Duplicate connection name: name={connection_data.name}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Connection with name '{connection_data.name}' already exists",
+            )
+        # Other database errors
+        logger.error(f"Failed to save connection: error={type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save connection to database",
+        )
 
     return connection
 
@@ -160,9 +176,26 @@ async def update_connection(
         setattr(connection, key, value)
 
     connection.updated_at = datetime.now(timezone.utc)
-    session.add(connection)
-    session.commit()
-    session.refresh(connection)
+
+    try:
+        session.add(connection)
+        session.commit()
+        session.refresh(connection)
+    except Exception as e:
+        session.rollback()
+        # Check if it's a duplicate name error
+        if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
+            logger.error(f"Duplicate connection name: name={connection.name}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Connection with name '{connection.name}' already exists",
+            )
+        # Other database errors
+        logger.error(f"Failed to update connection: error={type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update connection in database",
+        )
 
     return connection
 

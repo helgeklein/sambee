@@ -33,7 +33,6 @@ def get_fernet() -> Fernet:
     if _fernet is None:
         if not settings.encryption_key:
             raise ConfigurationError("Encryption key not loaded from database yet")
-            raise RuntimeError("Encryption key not loaded from database yet")
         _fernet = Fernet(settings.encryption_key.encode())
     return _fernet
 
@@ -62,7 +61,10 @@ def get_password_hash(password: str) -> str:
 def encrypt_password(password: str) -> str:
     """Encrypt password for storage"""
 
-    return get_fernet().encrypt(password.encode()).decode()
+    try:
+        return get_fernet().encrypt(password.encode()).decode()
+    except Exception as e:
+        raise ConfigurationError(f"Failed to encrypt password: {e}") from e
 
 
 #
@@ -71,7 +73,10 @@ def encrypt_password(password: str) -> str:
 def decrypt_password(encrypted_password: str) -> str:
     """Decrypt stored password"""
 
-    return get_fernet().decrypt(encrypted_password.encode()).decode()
+    try:
+        return get_fernet().decrypt(encrypted_password.encode()).decode()
+    except Exception as e:
+        raise ConfigurationError(f"Failed to decrypt password. Data may be corrupted or encryption key changed: {e}") from e
 
 
 #

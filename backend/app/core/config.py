@@ -29,8 +29,11 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
             f"'{config_file}' is a directory, not a file. Common cause: Docker created a directory because the file doesn't exist on the host."
         )
 
-    with open(config_file, "rb") as f:
-        toml_data = tomllib.load(f)
+    try:
+        with open(config_file, "rb") as f:
+            toml_data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigurationError(f"Invalid TOML syntax in '{config_file}': {e}") from e
 
     # Flatten nested TOML structure for Pydantic
     # Convert sections like [security] to flat keys like SECRET_KEY
@@ -111,13 +114,18 @@ try:
     settings = load_settings()
 except ConfigurationError as e:
     # Print clean error message and exit before uvicorn can show stack trace
-    import logging
+    from app.core.logging import setup_early_error_logging
 
-    logging.basicConfig(level=logging.ERROR, format="%(levelname)s - %(message)s")
-    logger = logging.getLogger(__name__)
+    logger = setup_early_error_logging()
     logger.error(f"Configuration Error: {e}")
-    logger.error("Fix the issue and restart the application.")
     sys.exit(1)
 
 # Ensure data directory exists
-static.data_dir.mkdir(parents=True, exist_ok=True)
+try:
+    static.data_dir.mkdir(parents=True, exist_ok=True)
+except (PermissionError, OSError) as e:
+    from app.core.logging import setup_early_error_logging
+
+    logger = setup_early_error_logging()
+    logger.error(f"Failed to create data directory '{static.data_dir}': {e}")
+    sys.exit(1)
