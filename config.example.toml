@@ -10,6 +10,11 @@
 log_level = "INFO"
 
 [security]
+# Authentication method: "password" or "none"
+# - password: Standard username/password authentication (default)
+# - none: No authentication required (use only if reverse proxy handles authentication)
+auth_method = "password"
+
 # JWT token expiration time in minutes (default: 24 hours)
 access_token_expire_minutes = 1440
 

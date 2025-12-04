@@ -12,11 +12,11 @@ This is the backend equivalent of frontend/src/utils/FileTypeRegistry.ts
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Optional
 
 
-class FileCategory(str, Enum):
+class FileCategory(StrEnum):
     """Valid file type categories."""
 
     IMAGE = "image"

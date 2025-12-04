@@ -20,8 +20,13 @@ describe("Login Component", () => {
     vi.clearAllMocks();
   });
 
-  it("renders login form with all elements", () => {
+  it("renders login form with all elements", async () => {
     render(<Login />);
+
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
 
     // Check for heading
     expect(screen.getByRole("heading", { name: /sambee login/i })).toBeInTheDocument();
@@ -40,6 +45,11 @@ describe("Login Component", () => {
   it("allows users to type in username and password fields", async () => {
     const user = userEvent.setup();
     render(<Login />);
+
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
 
     const usernameInput = screen.getByLabelText(/username/i);
     const passwordInput = screen.getByLabelText(/password/i);
@@ -65,6 +75,11 @@ describe("Login Component", () => {
     const user = userEvent.setup();
     render(<Login />);
 
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
+
     // Fill in form with valid credentials
     await user.type(screen.getByLabelText(/username/i), "admin");
     await user.type(screen.getByLabelText(/password/i), "admin");
@@ -88,6 +103,11 @@ describe("Login Component", () => {
     const user = userEvent.setup();
     render(<Login />);
 
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
+
     // Fill in form with invalid credentials
     await user.type(screen.getByLabelText(/username/i), "wronguser");
     await user.type(screen.getByLabelText(/password/i), "wrongpass");
@@ -107,6 +127,11 @@ describe("Login Component", () => {
   it("clears previous error messages on new submission", async () => {
     const user = userEvent.setup();
     render(<Login />);
+
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
 
     // First attempt with invalid credentials
     vi.mocked(mockLogin).mockRejectedValueOnce(new Error("Unauthorized"));
@@ -152,6 +177,11 @@ describe("Login Component", () => {
     const user = userEvent.setup();
     render(<Login />);
 
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
+
     // Fill in form
     const usernameInput = screen.getByLabelText(/username/i);
     const passwordInput = screen.getByLabelText(/password/i);
@@ -179,6 +209,11 @@ describe("Login Component", () => {
 
     const user = userEvent.setup();
     render(<Login />);
+
+    // Wait for auth config check to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+    });
 
     // Use the non-admin test user
     await user.type(screen.getByLabelText(/username/i), "testuser");

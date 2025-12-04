@@ -72,21 +72,26 @@ class ApiService {
         if (error.response?.status === 401) {
           localStorage.removeItem("access_token");
 
-          // Skip redirect if we're validating token (auto-login flow)
+          // Skip redirect if we're validating token
           if (this.skipRedirectOnce) {
             this.skipRedirectOnce = false;
             logger.debug("Skipping redirect during token validation");
             return Promise.reject(error);
           }
 
-          // Don't redirect if already on login page
-          if (window.location.pathname !== "/login") {
-            logger.warn("Authentication failed (401), redirecting to login", {
-              detail: (error.response?.data as { detail?: string })?.detail,
-              requestId,
+          // Only redirect to login if password auth is enabled
+          // If auth_method is "none", 401 shouldn't happen (but if it does, don't redirect)
+          import("./authConfig").then(({ isAuthRequired }) => {
+            isAuthRequired().then((authRequired) => {
+              if (authRequired && window.location.pathname !== "/login") {
+                logger.warn("Authentication failed (401), redirecting to login", {
+                  detail: (error.response?.data as { detail?: string })?.detail,
+                  requestId,
+                });
+                window.location.href = "/login";
+              }
             });
-            window.location.href = "/login";
-          }
+          });
         }
         return Promise.reject(error);
       }

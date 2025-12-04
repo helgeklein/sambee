@@ -3,7 +3,6 @@ import { createTheme, ThemeProvider } from "@mui/material/styles";
 import { lazy, Suspense } from "react";
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { useAutoLogin } from "./hooks/useAutoLogin";
 
 // Lazy load route components for better code splitting
 const Login = lazy(() => import("./pages/Login"));
@@ -22,20 +21,6 @@ const theme = createTheme({
 });
 
 function App() {
-  // Auto-login with hardcoded admin credentials for development
-  // TODO: Remove this when implementing proper production authentication
-  const isAuthReady = useAutoLogin();
-
-  // Show loading while authenticating
-  if (!isAuthReady) {
-    return (
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <div>Loading...</div>
-      </ThemeProvider>
-    );
-  }
-
   return (
     <ErrorBoundary>
       <ThemeProvider theme={theme}>

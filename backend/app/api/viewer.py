@@ -6,7 +6,7 @@ from fastapi.responses import Response, StreamingResponse
 from sqlmodel import Session
 
 from app.core.logging import get_logger, set_user
-from app.core.security import decrypt_password, get_current_user
+from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.user import User
@@ -38,7 +38,7 @@ def validate_connection(connection: Connection) -> None:
 async def view_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> Response | StreamingResponse:
     """Stream file contents for viewing"""
@@ -205,7 +205,7 @@ async def view_file(
 async def download_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     """Download a file"""

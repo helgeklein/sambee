@@ -3,6 +3,14 @@ import { HttpResponse, http } from "msw";
 const API_BASE = "http://localhost:8000/api";
 
 export const handlers = [
+  // Auth - Get auth config
+  http.get(`${API_BASE}/auth/config`, () => {
+    console.log("MSW: Auth config request received");
+    return HttpResponse.json({
+      auth_method: "password",
+    });
+  }),
+
   // Auth - Login
   http.post(`${API_BASE}/auth/token`, async ({ request }) => {
     const body = await request.formData();

@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
+from app.core.auth_methods import AuthMethod, parse_auth_method
 from app.core.exceptions import ConfigurationError
 
 
@@ -50,6 +51,8 @@ def load_toml_config(config_file: Path = Path("config.toml")) -> dict[str, Any]:
         security = toml_data["security"]
         if "access_token_expire_minutes" in security:
             flat_config["access_token_expire_minutes"] = security["access_token_expire_minutes"]
+        if "auth_method" in security:
+            flat_config["auth_method"] = security["auth_method"]
 
     # Admin settings
     if "admin" in toml_data:
@@ -92,6 +95,15 @@ class UserSettings(BaseModel):
     secret_key: str = ""  # Loaded from database
     encryption_key: str = ""  # Loaded from database
     access_token_expire_minutes: int = 60 * 24  # 24 hours
+    auth_method: AuthMethod = AuthMethod.PASSWORD  # Authentication method
+
+    @field_validator("auth_method", mode="before")
+    @classmethod
+    def validate_auth_method(cls, v: str | AuthMethod) -> AuthMethod:
+        """Validate and convert auth_method to AuthMethod enum"""
+        if isinstance(v, AuthMethod):
+            return v
+        return parse_auth_method(v)
 
     # Admin setup (username only - password auto-generated)
     admin_username: str = "admin"

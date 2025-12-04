@@ -1,14 +1,37 @@
 import { Alert, Box, Button, Container, Paper, TextField, Typography } from "@mui/material";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "../services/api";
+import { isAuthRequired } from "../services/authConfig";
+import { logger } from "../services/logger";
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Check if authentication is required
+  useEffect(() => {
+    const checkAuthConfig = async () => {
+      try {
+        const authRequired = await isAuthRequired();
+        if (!authRequired) {
+          logger.info("Auth method is 'none' - redirecting to browse");
+          navigate("/browse", { replace: true });
+          return;
+        }
+      } catch (error) {
+        logger.error("Failed to check auth config", { error });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuthConfig();
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,6 +45,24 @@ const Login: React.FC = () => {
       setError("Invalid username or password");
     }
   };
+
+  // Show loading while checking auth configuration
+  if (isLoading) {
+    return (
+      <Container maxWidth="sm">
+        <Box
+          sx={{
+            marginTop: 8,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          <Typography>Loading...</Typography>
+        </Box>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="sm">

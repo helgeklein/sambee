@@ -28,6 +28,9 @@ describe("MSW Setup Verification", () => {
 
     const user = userEvent.setup();
 
+    // Wait for auth config check to complete
+    await screen.findByLabelText(/username/i);
+
     // Try to login with invalid credentials
     const usernameInput = screen.getByLabelText(/username/i);
     const passwordInput = screen.getByLabelText(/password/i);
@@ -45,6 +48,9 @@ describe("MSW Setup Verification", () => {
     renderLogin();
 
     const user = userEvent.setup();
+
+    // Wait for auth config check to complete
+    await screen.findByLabelText(/username/i);
 
     // Try to login (MSW will return default 401 for unknown credentials)
     const usernameInput = screen.getByLabelText(/username/i);
@@ -67,6 +73,9 @@ describe("MSW Setup Verification", () => {
 
     const user = userEvent.setup();
 
+    // Wait for auth config check to complete
+    await screen.findByLabelText(/username/i);
+
     const usernameInput = screen.getByLabelText(/username/i);
     const passwordInput = screen.getByLabelText(/password/i);
     const loginButton = screen.getByRole("button", { name: /sign in/i });
@@ -86,6 +95,9 @@ describe("MSW Setup Verification", () => {
     renderLogin();
 
     const user = userEvent.setup();
+
+    // Wait for auth config check to complete
+    await screen.findByLabelText(/username/i);
 
     const usernameInput = screen.getByLabelText(/username/i);
     const passwordInput = screen.getByLabelText(/password/i);

@@ -40,6 +40,9 @@ describe("Login Flow Integration", () => {
 
       const user = userEvent.setup();
 
+      // Wait for auth config check to complete
+      await screen.findByLabelText(/username/i);
+
       const usernameInput = screen.getByLabelText(/username/i);
       const passwordInput = screen.getByLabelText(/password/i);
       const loginButton = screen.getByRole("button", { name: /sign in/i });
@@ -64,6 +67,9 @@ describe("Login Flow Integration", () => {
       renderLogin();
 
       const user = userEvent.setup();
+
+      // Wait for auth config check to complete
+      await screen.findByLabelText(/username/i);
 
       const usernameInput = screen.getByLabelText(/username/i);
       const passwordInput = screen.getByLabelText(/password/i);
@@ -92,6 +98,10 @@ describe("Login Flow Integration", () => {
       renderLogin();
 
       const user = userEvent.setup();
+
+      // Wait for auth config check to complete
+      await screen.findByRole("button", { name: /sign in/i });
+
       const loginButton = screen.getByRole("button", { name: /sign in/i });
 
       // Try to submit empty form
@@ -106,6 +116,10 @@ describe("Login Flow Integration", () => {
       renderLogin();
 
       const user = userEvent.setup();
+
+      // Wait for auth config check to complete
+      await screen.findByLabelText(/password/i);
+
       const passwordInput = screen.getByLabelText(/password/i);
       const loginButton = screen.getByRole("button", { name: /sign in/i });
 
@@ -121,6 +135,10 @@ describe("Login Flow Integration", () => {
       renderLogin();
 
       const user = userEvent.setup();
+
+      // Wait for auth config check to complete
+      await screen.findByLabelText(/username/i);
+
       const usernameInput = screen.getByLabelText(/username/i);
       const loginButton = screen.getByRole("button", { name: /sign in/i });
 

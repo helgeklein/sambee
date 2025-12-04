@@ -1,11 +1,11 @@
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import List, Optional
 
 from pydantic import BaseModel
 
 
-class FileType(str, Enum):
+class FileType(StrEnum):
     FILE = "file"
     DIRECTORY = "directory"
 

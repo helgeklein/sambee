@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session
 
 from app.core.logging import get_logger, set_user
-from app.core.security import decrypt_password, get_current_user
+from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.file import DirectoryListing, FileInfo
@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 async def list_directory(
     connection_id: uuid.UUID,
     path: Optional[str] = Query("", description="Path within the share"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> DirectoryListing:
     """List contents of a directory"""
@@ -79,7 +79,7 @@ async def list_directory(
 async def get_file_info(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file or directory"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> FileInfo:
     """Get information about a specific file or directory"""

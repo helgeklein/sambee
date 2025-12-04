@@ -5,11 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
+from app.core.auth_methods import AuthMethod
 from app.core.config import settings
 from app.core.logging import get_logger, set_user
 from app.core.security import (
     create_access_token,
-    get_current_user,
+    get_current_user_with_auth_check,
     get_password_hash,
     verify_password,
 )
@@ -21,6 +22,20 @@ logger = get_logger(__name__)
 
 
 #
+# get_auth_config
+#
+@router.get("/config")
+async def get_auth_config() -> dict[str, str]:
+    """Get authentication configuration.
+
+    Public endpoint that returns the current authentication method.
+    Frontend uses this to determine whether to show login form.
+    """
+
+    return {"auth_method": settings.auth_method.value}
+
+
+#
 # login
 #
 @router.post("/token")
@@ -29,6 +44,14 @@ async def login(
     session: Session = Depends(get_session),
 ) -> dict[str, str | bool]:
     """Login endpoint for OAuth2 password flow"""
+
+    # Reject login attempts when auth_method is "none"
+    if settings.auth_method == AuthMethod.NONE:
+        logger.warning("Login attempt rejected: auth_method is 'none' (reverse proxy should handle auth)")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Password authentication is not enabled",
+        )
 
     logger.info(f"Login attempt: username={form_data.username}")
 
@@ -60,7 +83,7 @@ async def login(
 #
 @router.get("/me")
 async def get_current_user_info(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
 ) -> dict[str, Any]:
     """Get current user information"""
 
@@ -81,10 +104,18 @@ async def get_current_user_info(
 async def change_password(
     current_password: str,
     new_password: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Change current user's password"""
+
+    # Reject password changes when auth_method is "none"
+    if settings.auth_method == AuthMethod.NONE:
+        logger.warning("Password change rejected: auth_method is 'none' (reverse proxy handles auth)")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password changes are not available when authentication is handled by reverse proxy",
+        )
 
     set_user(current_user.username)
     logger.info(f"Password change requested: username={current_user.username}")
