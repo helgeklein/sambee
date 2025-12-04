@@ -314,8 +314,14 @@ const Browser: React.FC = () => {
       setLoadingConnections(true);
       const token = localStorage.getItem("access_token");
       if (!token) {
-        navigate("/login");
-        return;
+        // Check if auth is required before redirecting to login
+        const { isAuthRequired } = await import("../services/authConfig");
+        const authRequired = await isAuthRequired();
+        if (authRequired) {
+          navigate("/login");
+          return;
+        }
+        // If auth is not required (auth_method="none"), continue without token
       }
       const data = await api.getConnections();
       setConnections(data);
