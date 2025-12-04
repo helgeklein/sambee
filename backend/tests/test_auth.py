@@ -400,3 +400,116 @@ class TestPasswordHashingEdgeCases:
         unicode_password = "пароль密码🔐"
         hashed = get_password_hash(unicode_password)
         assert verify_password(unicode_password, hashed)
+
+
+@pytest.mark.integration
+class TestAuthMethodNone:
+    """Test authentication behavior when auth_method is set to 'none'."""
+
+    @pytest.fixture
+    def config_admin_user(self, session: Session):
+        """Create admin user with username matching settings.admin_username."""
+        from app.core.config import settings
+
+        user = User(
+            username=settings.admin_username,
+            password_hash=get_password_hash("admin123"),
+            is_admin=True,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        return user
+
+    def test_auth_config_returns_none(self, client: TestClient, monkeypatch):
+        """Test /api/auth/config returns 'none' when configured."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+
+        response = client.get("/api/auth/config")
+        assert response.status_code == 200
+        assert response.json() == {"auth_method": "none"}
+
+    def test_login_endpoint_disabled_with_none(self, client: TestClient, config_admin_user: User, monkeypatch):
+        """Test that login endpoint returns 404 when auth_method is 'none'."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+
+        response = client.post(
+            "/api/auth/token",
+            data={
+                "username": config_admin_user.username,
+                "password": "admin123",
+            },
+        )
+
+        assert response.status_code == 404
+        assert "not enabled" in response.json()["detail"].lower()
+
+    def test_change_password_disabled_with_none(self, client: TestClient, config_admin_user: User, monkeypatch):
+        """Test that change-password endpoint returns 400 when auth_method is 'none'."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+
+        response = client.post(
+            "/api/auth/change-password",
+            params={"current_password": "oldpass", "new_password": "newpass"},
+        )
+
+        assert response.status_code == 400
+        assert "not available" in response.json()["detail"].lower() or "reverse proxy" in response.json()["detail"].lower()
+
+    def test_me_endpoint_returns_admin_without_token(self, client: TestClient, config_admin_user: User, monkeypatch):
+        """Test /api/auth/me returns admin user without token when auth_method is 'none'."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+
+        response = client.get("/api/auth/me")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["username"] == settings.admin_username
+        assert data["is_admin"] is True
+
+    def test_protected_endpoint_accessible_without_token(self, client: TestClient, config_admin_user: User, monkeypatch):
+        """Test that protected endpoints are accessible without token when auth_method is 'none'."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+
+        # Test admin endpoint (should be accessible as we're treated as admin)
+        response = client.get("/api/admin/connections")
+        assert response.status_code == 200
+
+    def test_browser_endpoint_accessible_without_token(self, client: TestClient, config_admin_user: User, test_connection, monkeypatch):
+        """Test that browser endpoints are accessible without token when auth_method is 'none'."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+
+        response = client.get(
+            f"/api/browser/{test_connection.id}/list",
+            params={"path": ""},
+        )
+        # Should not get 401 (may fail due to SMB connection, but not auth error)
+        assert response.status_code != 401
+
+    def test_auth_method_password_still_requires_token(self, client: TestClient, admin_user: User, monkeypatch):
+        """Test that auth_method='password' still requires valid token."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.PASSWORD)
+
+        # Without token should fail
+        response = client.get("/api/auth/me")
+        assert response.status_code == 401

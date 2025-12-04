@@ -20,6 +20,10 @@ logger = get_logger(__name__)
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
+# OAuth2 scheme that doesn't auto-error on missing tokens
+# Used for endpoints that need to handle both password and 'none' auth methods
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
+
 # Fernet cipher for password encryption (initialized lazily)
 _fernet: Fernet | None = None
 
@@ -131,7 +135,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
 # get_current_user_with_auth_check
 #
 async def get_current_user_with_auth_check(
-    token: str = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     session: Session = Depends(get_session),
 ) -> User:
     """Get the current authenticated user based on configured auth method.
@@ -155,7 +159,15 @@ async def get_current_user_with_auth_check(
             )
         return user
 
-    # For "password" auth method, use standard JWT validation
+    # For "password" auth method, require a valid token
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Validate JWT token
     return await get_current_user(token=token, session=session)
 
 
@@ -163,7 +175,7 @@ async def get_current_user_with_auth_check(
 # get_current_admin_user
 #
 async def get_current_admin_user(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_auth_check),
 ) -> User:
     """Ensure the current user is an admin"""
 
