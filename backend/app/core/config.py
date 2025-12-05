@@ -47,12 +47,19 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         if "log_level" in app:
             flat_config["log_level"] = app["log_level"]
 
+    # Auth settings (check here first, then security section for backwards compatibility)
+    if "auth" in toml_data:
+        auth = toml_data["auth"]
+        if "auth_method" in auth:
+            flat_config["auth_method"] = auth["auth_method"]
+
     # Security settings
     if "security" in toml_data:
         security = toml_data["security"]
         if "access_token_expire_minutes" in security:
             flat_config["access_token_expire_minutes"] = security["access_token_expire_minutes"]
-        if "auth_method" in security:
+        # Only use security.auth_method if not already set from auth section
+        if "auth_method" in security and "auth_method" not in flat_config:
             flat_config["auth_method"] = security["auth_method"]
 
     # Admin settings
@@ -116,8 +123,14 @@ class UserSettings(BaseModel):
 def load_settings() -> UserSettings:
     """Load settings from config.toml file."""
 
+    # Allow tests to override config path via environment variable
+    import os
+
+    env_config_path = os.environ.get("SAMBEE_CONFIG_PATH")
+    if env_config_path:
+        config_path = Path(env_config_path)
     # Determine config file location based on environment
-    if IS_DEVELOPMENT:
+    elif IS_DEVELOPMENT:
         # DEV mode: running in devcontainer
         config_path = Path("/workspace/config.toml")
     else:

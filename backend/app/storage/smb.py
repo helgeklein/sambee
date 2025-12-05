@@ -146,13 +146,17 @@ class SMBBackend(StorageBackend):
                             )
                     return result
 
-                items = await loop.run_in_executor(None, _scan_directory)
+                # Add timeout to prevent indefinite hangs (30 seconds for directory listing)
+                items = await asyncio.wait_for(loop.run_in_executor(None, _scan_directory), timeout=30.0)
 
                 # NOTE: No sorting here - frontend handles sorting based on user preference
                 # Avoiding unnecessary work on the backend for large directories
 
                 return DirectoryListing(path=path or "/", items=items, total=len(items))
 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout listing directory '{path}' (smb_path='{smb_path}') after 30 seconds")
+            raise TimeoutError(f"SMB operation timed out while listing directory: {path}")
         except Exception as e:
             logger.error(
                 f"Failed to list directory '{path}' (smb_path='{smb_path}'): {type(e).__name__}: {e}",
@@ -181,7 +185,8 @@ class SMBBackend(StorageBackend):
             ):
                 loop = asyncio.get_event_loop()
                 # Don't pass username/password - use the registered session from pool
-                stat_info = await loop.run_in_executor(None, lambda: smbclient.stat(smb_path))
+                # Add timeout to prevent indefinite hangs (10 seconds for stat)
+                stat_info = await asyncio.wait_for(loop.run_in_executor(None, lambda: smbclient.stat(smb_path)), timeout=10.0)
 
                 is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
                     smb_path
@@ -228,16 +233,20 @@ class SMBBackend(StorageBackend):
 
                 # Open file in executor
                 # Don't pass username/password - use the registered session from pool
-                file_handle = await loop.run_in_executor(None, lambda: smbclient.open_file(smb_path, mode="rb"))
+                # Add timeout to prevent indefinite hangs (15 seconds for file open)
+                file_handle = await asyncio.wait_for(
+                    loop.run_in_executor(None, lambda: smbclient.open_file(smb_path, mode="rb")), timeout=15.0
+                )
 
                 try:
                     while True:
-                        chunk = await loop.run_in_executor(None, file_handle.read, chunk_size)
+                        # Add timeout to prevent indefinite hangs (30 seconds per chunk)
+                        chunk = await asyncio.wait_for(loop.run_in_executor(None, file_handle.read, chunk_size), timeout=30.0)
                         if not chunk:
                             break
                         yield chunk
                 finally:
-                    await loop.run_in_executor(None, file_handle.close)
+                    await asyncio.wait_for(loop.run_in_executor(None, file_handle.close), timeout=5.0)
 
         except Exception as e:
             logger.error(f"Failed to read file {path}: {e}")
@@ -264,11 +273,15 @@ class SMBBackend(StorageBackend):
             ):
                 loop = asyncio.get_event_loop()
                 # Don't pass username/password - use the registered session from pool
-                exists = await loop.run_in_executor(
-                    None,
-                    lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
-                        smb_path
+                # Add timeout to prevent indefinite hangs (10 seconds for exists check)
+                exists = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
+                            smb_path
+                        ),
                     ),
+                    timeout=10.0,
                 )
                 return bool(exists)
         except Exception:

@@ -8,23 +8,6 @@ import uuid
 from pathlib import Path
 from typing import Generator
 
-# Create test config.toml BEFORE any app imports
-# This ensures settings are available when config module is loaded
-_test_config = Path("config.toml")
-if not _test_config.exists():
-    _test_config.write_text("""[app]
-log_level = "INFO"
-
-[security]
-secret_key = "test-secret-key-min-32-chars-long-for-testing"
-encryption_key = "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE="
-access_token_expire_minutes = 1440
-
-[admin]
-username = "admin"
-password = "changeme"
-""")
-
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, SQLModel, create_engine
@@ -35,6 +18,70 @@ from app.db.database import get_session
 from app.main import app
 from app.models.connection import Connection
 from app.models.user import User
+
+
+def pytest_configure(config):
+    """Pytest hook called before test collection.
+    Create test config file to avoid overwriting developer's config.
+    """
+    test_config = Path("/tmp/test_config.toml")
+    test_config.write_text(
+        """[app]
+log_level = "INFO"
+
+[auth]
+auth_method = "password"
+
+[security]
+secret_key = "test-secret-key-min-32-chars-long-for-testing"
+encryption_key = "797e7kOP_3m-d9nguKSO5ctIGg8AG5BmNIla9TMEZzE="
+access_token_expire_minutes = 1440
+
+[admin]
+username = "admin"
+password = "changeme"
+"""
+    )
+
+    # Set environment variable to redirect config loading
+    os.environ["SAMBEE_CONFIG_PATH"] = str(test_config)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def reload_config():
+    """Reload settings after environment variable is set.
+
+    This fixture runs before any tests and ensures the config
+    module uses the test config file set by pytest_configure.
+    """
+    import sys
+
+    import app.api.auth
+    import app.core.config as config_module
+    import app.core.security
+    import app.db.database
+    import app.main
+
+    # Reload the settings with the test config path
+    new_settings = config_module.load_settings()
+    config_module.settings = new_settings
+
+    # Patch all modules that imported settings to point to the same object
+    # This ensures that when init_db() updates settings with secrets,
+    # all modules see the updated values
+    app.main.settings = new_settings
+    app.api.auth.settings = new_settings
+    app.core.security.settings = new_settings
+    app.db.database.settings = new_settings
+
+    # Also patch test modules if they've been imported
+    if "tests.test_security" in sys.modules:
+        import tests.test_security
+
+        tests.test_security.settings = new_settings
+
+    yield
+    # No cleanup needed
 
 
 @pytest.fixture(name="test_db_path", scope="session")
@@ -56,11 +103,14 @@ def test_db_path_fixture(tmp_path_factory) -> Generator[str, None, None]:
 
 
 @pytest.fixture(name="engine", scope="session")
-def engine_fixture(test_db_path: str):
+def engine_fixture(test_db_path: str, reload_config):
     """Create a test database engine with in-memory pool.
 
     Uses session scope to share the database across all tests in a worker,
     avoiding the overhead of recreating tables for each test.
+
+    Note: Explicitly depends on reload_config to ensure settings are loaded
+    from test config before creating the engine.
     """
     from app.core.config import settings
 
@@ -83,6 +133,9 @@ def patch_db_engine(engine):
 
     This ensures that any code importing from app.db.database or app.main
     gets the test engine instead of the production one.
+
+    Note: This runs after reload_config (via engine dependency), so init_db()
+    will load secrets into the correct settings object.
     """
     import app.db.database as db_module
     import app.main as main_module
@@ -108,11 +161,14 @@ def patch_db_engine(engine):
 
 
 @pytest.fixture(name="session")
-def session_fixture(engine) -> Generator[Session, None, None]:
+def session_fixture(engine, patch_db_engine) -> Generator[Session, None, None]:
     """Create a test database session with transaction rollback.
 
     Each test runs in its own transaction which is rolled back after the test,
     ensuring a clean state for the next test while sharing the same database schema.
+
+    Note: Explicitly depends on patch_db_engine to ensure init_db() has run
+    and secrets are loaded before any test code tries to use encryption.
     """
     connection = engine.connect()
     transaction = connection.begin()

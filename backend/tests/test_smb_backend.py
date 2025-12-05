@@ -826,7 +826,7 @@ class TestErrorHandling:
             password="pass",
         )
 
-        with pytest.raises(TimeoutError, match="Connection timed out"):
+        with pytest.raises(TimeoutError, match="SMB operation timed out"):
             await backend.list_directory("")
 
     @pytest.mark.asyncio
