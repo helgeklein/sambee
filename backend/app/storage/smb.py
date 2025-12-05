@@ -231,22 +231,67 @@ class SMBBackend(StorageBackend):
             ):
                 loop = asyncio.get_event_loop()
 
-                # Open file in executor
-                # Don't pass username/password - use the registered session from pool
-                # Add timeout to prevent indefinite hangs (15 seconds for file open)
-                file_handle = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: smbclient.open_file(smb_path, mode="rb")), timeout=15.0
-                )
+                # Open file with retry logic for file locking issues
+                # SMB can throw "file in use" errors when multiple requests access the same file
+                max_retries = 3
+                retry_delay = 0.1  # Start with 100ms
+                file_handle = None
+
+                for attempt in range(max_retries):
+                    try:
+                        file_handle = await asyncio.wait_for(
+                            loop.run_in_executor(None, lambda: smbclient.open_file(smb_path, mode="rb", share_access="rwd")),
+                            timeout=15.0,
+                        )
+                        if attempt > 0:
+                            logger.info(f"Successfully opened file after {attempt + 1} attempts: {path}")
+                        break  # Success
+                    except Exception as e:
+                        # Check if it's a file locking error (NtStatus 0xc0000043)
+                        error_str = str(e)
+                        is_lock_error = "0xc0000043" in error_str or "being used by another process" in error_str
+
+                        if is_lock_error and attempt < max_retries - 1:
+                            # Wait with exponential backoff and retry
+                            logger.warning(f"File locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries}): {path}")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2  # Double the delay each time
+                        else:
+                            # Not a lock error or out of retries
+                            raise
+
+                if not file_handle:
+                    raise RuntimeError(f"Failed to open file after {max_retries} attempts")
 
                 try:
                     while True:
-                        # Add timeout to prevent indefinite hangs (30 seconds per chunk)
-                        chunk = await asyncio.wait_for(loop.run_in_executor(None, file_handle.read, chunk_size), timeout=30.0)
-                        if not chunk:
-                            break
-                        yield chunk
+                        try:
+                            # Add timeout to prevent indefinite hangs (30 seconds per chunk)
+                            chunk = await asyncio.wait_for(loop.run_in_executor(None, file_handle.read, chunk_size), timeout=30.0)
+                            if not chunk:
+                                break
+                            yield chunk
+                        except Exception as read_error:
+                            # Check for file deletion/modification errors
+                            error_str = str(read_error)
+                            # NtStatus 0xc0000034 = FILE_NOT_FOUND (file deleted during read)
+                            # NtStatus 0xc0000043 = SHARING_VIOLATION (file locked during read)
+                            if "0xc0000034" in error_str or "does not exist" in error_str.lower():
+                                logger.warning(f"File was deleted during read: {path}")
+                                raise FileNotFoundError(f"File was deleted: {path}")
+                            elif "0xc0000043" in error_str or "sharing violation" in error_str.lower():
+                                logger.warning(f"File sharing violation during read (possibly being modified): {path}")
+                                raise IOError(f"File access conflict: {path}")
+                            else:
+                                # Unknown error during read
+                                logger.error(f"Error reading chunk from {path}: {read_error}")
+                                raise
                 finally:
-                    await asyncio.wait_for(loop.run_in_executor(None, file_handle.close), timeout=5.0)
+                    try:
+                        await asyncio.wait_for(loop.run_in_executor(None, file_handle.close), timeout=5.0)
+                    except Exception as close_error:
+                        # Log but don't raise - we're already in cleanup
+                        logger.warning(f"Error closing file handle for {path}: {close_error}")
 
         except Exception as e:
             logger.error(f"Failed to read file {path}: {e}")

@@ -173,6 +173,15 @@ async def view_file(
                 # Use large chunks for optimal SMB performance
                 async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
                     yield chunk
+            except FileNotFoundError as e:
+                logger.warning(f"File not found during streaming: {path} - {e}")
+                # Can't raise HTTPException mid-stream, connection will be closed
+                # Client will see incomplete response
+                raise
+            except IOError as e:
+                logger.warning(f"File access error during streaming: {path} - {e}")
+                # Can't raise HTTPException mid-stream, connection will be closed
+                raise
             finally:
                 await backend.disconnect()
 
