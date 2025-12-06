@@ -170,8 +170,9 @@ async def view_file(
         # Stream the file (browser-native format or non-image)
         async def file_streamer() -> AsyncIterator[bytes]:
             try:
-                # Use large chunks for optimal SMB performance
-                async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
+                # Use smaller chunks (1MB) to reduce SMB credit requirements
+                # Large chunks (8MB) can exhaust credits with concurrent requests
+                async for chunk in backend.read_file(path, chunk_size=1024 * 1024):
                     yield chunk
             except FileNotFoundError as e:
                 logger.warning(f"File not found during streaming: {path} - {e}")

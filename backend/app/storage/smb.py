@@ -247,17 +247,19 @@ class SMBBackend(StorageBackend):
                             logger.info(f"Successfully opened file after {attempt + 1} attempts: {path}")
                         break  # Success
                     except Exception as e:
-                        # Check if it's a file locking error (NtStatus 0xc0000043)
+                        # Check for retryable errors
                         error_str = str(e)
                         is_lock_error = "0xc0000043" in error_str or "being used by another process" in error_str
+                        is_credit_error = "credits" in error_str.lower() and "available" in error_str.lower()
 
-                        if is_lock_error and attempt < max_retries - 1:
+                        if (is_lock_error or is_credit_error) and attempt < max_retries - 1:
                             # Wait with exponential backoff and retry
-                            logger.warning(f"File locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries}): {path}")
+                            error_type = "credits exhausted" if is_credit_error else "file locked"
+                            logger.warning(f"SMB {error_type}, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries}): {path}")
                             await asyncio.sleep(retry_delay)
                             retry_delay *= 2  # Double the delay each time
                         else:
-                            # Not a lock error or out of retries
+                            # Not a retryable error or out of retries
                             raise
 
                 if not file_handle:
@@ -276,12 +278,16 @@ class SMBBackend(StorageBackend):
                             error_str = str(read_error)
                             # NtStatus 0xc0000034 = FILE_NOT_FOUND (file deleted during read)
                             # NtStatus 0xc0000043 = SHARING_VIOLATION (file locked during read)
+                            # Credit exhaustion = "Request requires X credits but only Y credits are available"
                             if "0xc0000034" in error_str or "does not exist" in error_str.lower():
                                 logger.warning(f"File was deleted during read: {path}")
                                 raise FileNotFoundError(f"File was deleted: {path}")
                             elif "0xc0000043" in error_str or "sharing violation" in error_str.lower():
                                 logger.warning(f"File sharing violation during read (possibly being modified): {path}")
                                 raise IOError(f"File access conflict: {path}")
+                            elif "credits" in error_str.lower() and "available" in error_str.lower():
+                                logger.error(f"SMB credit exhaustion during read: {path} - {read_error}")
+                                raise IOError(f"SMB server out of credits (too many concurrent requests): {path}")
                             else:
                                 # Unknown error during read
                                 logger.error(f"Error reading chunk from {path}: {read_error}")

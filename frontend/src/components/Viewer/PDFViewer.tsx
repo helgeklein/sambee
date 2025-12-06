@@ -4,6 +4,7 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
@@ -101,6 +102,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
   const [showHelp, setShowHelp] = useState(false);
   const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
+  const fetchWithRetry = useApiRetry();
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -125,9 +127,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setLoading(true);
         setError(null);
 
-        const blob = await apiService.getPdfBlob(connectionId, path, {
-          signal: abortController.signal,
-        });
+        const blob = await fetchWithRetry(
+          () =>
+            apiService.getPdfBlob(connectionId, path, {
+              signal: abortController.signal,
+            }),
+          {
+            signal: abortController.signal,
+            maxRetries: 1,
+            retryDelay: 1000,
+          }
+        );
 
         if (!blob || blob.size === 0) {
           throw new Error("Received empty PDF blob");
@@ -140,7 +150,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       } catch (err) {
         if (!isMounted) return;
 
-        const errorMessage = getErrorMessage(err);
+        // Show "server busy" only for actual transient/network errors
+        const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
+
         logError("Failed to fetch PDF", {
           path,
           error: err,
@@ -165,7 +177,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         URL.revokeObjectURL(blobUrl);
       }
     };
-  }, [connectionId, path]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionId, path, fetchWithRetry]);
 
   // Measure container dimensions with ResizeObserver
   // Trigger after PDF loads to ensure container is in DOM

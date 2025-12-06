@@ -35,9 +35,9 @@
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import MarkdownViewer from "../../components/Viewer/MarkdownViewer";
-import { mockApiError } from "../../test/integration-utils";
+import apiService from "../../services/api";
 
 describe("Browse → View Flow", () => {
   beforeEach(() => {
@@ -49,40 +49,69 @@ describe("Browse → View Flow", () => {
 
   describe("Error Handling", () => {
     it("should show error when file view fails", async () => {
-      // Mock API error for view endpoint
-      mockApiError("http://localhost:8000/api/viewer", 500);
+      // Mock API to return 500 error
+      const getFileContentSpy = vi.spyOn(apiService, "getFileContent");
+      getFileContentSpy.mockRejectedValueOnce({
+        response: { status: 500, data: { detail: "Internal server error" } },
+        message: "Request failed with status code 500",
+      });
 
       render(<MarkdownViewer connectionId="test-conn" path="/broken.md" onClose={() => {}} />);
 
-      // Wait for error message
-      await waitFor(() => {
-        expect(screen.getByText(/failed to load markdown/i)).toBeInTheDocument();
-      });
+      // Wait for error message (longer timeout in case of retry)
+      await waitFor(
+        () => {
+          expect(screen.getByText(/internal server error/i)).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
 
       // Loading indicator should be gone
       expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+
+      getFileContentSpy.mockRestore();
     });
 
     it("should show error for unauthorized access", async () => {
-      mockApiError("http://localhost:8000/api/viewer", 401);
+      // Mock API to return 401 error
+      const getFileContentSpy = vi.spyOn(apiService, "getFileContent");
+      getFileContentSpy.mockRejectedValueOnce({
+        response: { status: 401, data: { detail: "Unauthorized" } },
+        message: "Request failed with status code 401",
+      });
 
       render(<MarkdownViewer connectionId="test-conn" path="/secure.md" onClose={() => {}} />);
 
-      // Wait for error message
-      await waitFor(() => {
-        expect(screen.getByText(/failed to load markdown/i)).toBeInTheDocument();
-      });
+      // Wait for error message (longer timeout in case of retry)
+      await waitFor(
+        () => {
+          expect(screen.getByText(/unauthorized/i)).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
+
+      getFileContentSpy.mockRestore();
     });
 
     it("should handle network errors gracefully", async () => {
-      mockApiError("http://localhost:8000/api/viewer", 0); // Network error
+      // Mock network error (no response object)
+      const getFileContentSpy = vi.spyOn(apiService, "getFileContent");
+      getFileContentSpy.mockRejectedValueOnce({
+        code: "ERR_NETWORK",
+        message: "Network Error",
+      });
 
       render(<MarkdownViewer connectionId="test-conn" path="/test.md" onClose={() => {}} />);
 
-      // Should show error
-      await waitFor(() => {
-        expect(screen.getByText(/failed to load markdown/i)).toBeInTheDocument();
-      });
+      // Network errors trigger retry, so wait longer and expect "Server is busy" message
+      await waitFor(
+        () => {
+          expect(screen.getByText(/server is busy/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
+
+      getFileContentSpy.mockRestore();
     });
   });
 });

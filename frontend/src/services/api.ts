@@ -7,7 +7,8 @@ class ApiService {
   private skipRedirectOnce = false;
 
   constructor() {
-    const baseURL = import.meta.env.VITE_API_URL || "/api";
+    // Use absolute URL for tests (required by MSW), relative for production
+    const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === "test" ? "http://localhost:3000/api" : "/api");
     this.api = axios.create({
       baseURL,
     });

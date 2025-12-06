@@ -17,19 +17,12 @@ export default defineConfig({
     // Timeout for each test (default is 5000ms)
     testTimeout: 10000,
     env: {
-      VITE_API_URL: "http://localhost:8000/api",
+      VITE_API_URL: "http://localhost:3000/api",
     },
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
-      exclude: [
-        "node_modules/",
-        "src/test/",
-        "**/*.d.ts",
-        "**/*.config.*",
-        "**/dist/",
-        "src/vite-env.d.ts",
-      ],
+      exclude: ["node_modules/", "src/test/", "**/*.d.ts", "**/*.config.*", "**/dist/", "src/vite-env.d.ts"],
       thresholds: {
         lines: 80,
         functions: 80,

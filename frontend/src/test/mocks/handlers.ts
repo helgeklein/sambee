@@ -1,6 +1,6 @@
 import { HttpResponse, http } from "msw";
 
-const API_BASE = "http://localhost:8000/api";
+const API_BASE = "http://localhost:3000/api";
 
 export const handlers = [
   // Auth - Get auth config
@@ -265,6 +265,36 @@ export const handlers = [
       file_path: path,
       mime_type: "text/plain",
       size: 1024,
+    });
+  }),
+
+  // Viewer - Get file content
+  http.get(`${API_BASE}/viewer/:connectionId/file`, ({ request }) => {
+    const authHeader = request.headers.get("Authorization");
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    const path = url.searchParams.get("path") || "";
+
+    // Return markdown content for .md files
+    if (path.endsWith(".md")) {
+      return new HttpResponse("# Test Markdown\n\nThis is test content.", {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain",
+        },
+      });
+    }
+
+    // Default: return plain text
+    return new HttpResponse("Test file content", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain",
+      },
     });
   }),
 ];

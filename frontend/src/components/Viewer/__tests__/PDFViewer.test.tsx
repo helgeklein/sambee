@@ -148,9 +148,13 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/Failed to load PDF/i)).toBeInTheDocument();
-      });
+      // Wait longer because network errors trigger retry with 1s delay
+      await waitFor(
+        () => {
+          expect(screen.getByText(/Server is busy/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
     });
 
     it("shows CircularProgress while loading", () => {
@@ -198,9 +202,12 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText("Access denied")).toBeInTheDocument();
-      });
+      await waitFor(
+        () => {
+          expect(screen.getByText("Access denied")).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
     });
   });
 
@@ -593,9 +600,12 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText("Custom error message")).toBeInTheDocument();
-      });
+      await waitFor(
+        () => {
+          expect(screen.getByText("Custom error message")).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
     });
 
     it("extracts detail field from API errors", async () => {
@@ -607,9 +617,12 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText("File not found")).toBeInTheDocument();
-      });
+      await waitFor(
+        () => {
+          expect(screen.getByText("File not found")).toBeInTheDocument();
+        },
+        { timeout: 2000 }
+      );
     });
 
     it("shows generic error for unknown errors", async () => {
@@ -617,9 +630,13 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/Failed to load PDF/i)).toBeInTheDocument();
-      });
+      // Plain Error objects without response are treated as transient/network errors
+      await waitFor(
+        () => {
+          expect(screen.getByText(/Server is busy/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
     });
 
     it("logs errors appropriately", async () => {
@@ -628,15 +645,18 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(logger.error).toHaveBeenCalledWith(
-          "Failed to fetch PDF",
-          expect.objectContaining({
-            path: "/test/document.pdf",
-            error,
-          })
-        );
-      });
+      await waitFor(
+        () => {
+          expect(logger.error).toHaveBeenCalledWith(
+            "Failed to fetch PDF",
+            expect.objectContaining({
+              path: "/test/document.pdf",
+              error,
+            })
+          );
+        },
+        { timeout: 3000 }
+      );
     });
   });
 
@@ -660,14 +680,18 @@ describe("PDFViewer", () => {
 
       render(<PDFViewer {...defaultProps} />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/Failed to load PDF/i)).toBeInTheDocument();
-      });
+      // Plain Error objects without response are treated as transient/network errors
+      await waitFor(
+        () => {
+          expect(screen.getByText(/Server is busy/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
 
       // Wait a bit to ensure focus doesn't happen
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      const container = screen.getByText(/Failed to load PDF/i).parentElement;
+      const container = screen.getByText(/Server is busy/i).parentElement;
       expect(document.activeElement).not.toBe(container);
     });
   });

@@ -161,9 +161,11 @@ export function mockApiSuccess() {
  * Mock API failure for specific endpoint
  */
 export function mockApiError(endpoint: string, status = 500) {
+  // Convert relative paths to absolute URLs for MSW matching
+  const fullEndpoint = endpoint.startsWith("http") ? endpoint : `http://localhost:3000${endpoint}`;
   server.use(
-    http.all(endpoint, () => {
-      return HttpResponse.json({ error: "Internal server error" }, { status });
+    http.all(fullEndpoint, () => {
+      return HttpResponse.json({ error: "Internal server error", detail: "Mocked error" }, { status });
     })
   );
 }
@@ -172,8 +174,10 @@ export function mockApiError(endpoint: string, status = 500) {
  * Mock network error
  */
 export function mockNetworkError(endpoint: string) {
+  // Convert relative paths to absolute URLs for MSW matching
+  const fullEndpoint = endpoint.startsWith("http") ? endpoint : `http://localhost:3000${endpoint}`;
   server.use(
-    http.all(endpoint, () => {
+    http.all(fullEndpoint, () => {
       return HttpResponse.error();
     })
   );

@@ -488,9 +488,13 @@ describe("Browser - PDF Viewer Integration", () => {
       const pdfFile = await screen.findByText("document.pdf");
       fireEvent.click(pdfFile);
 
-      await waitFor(() => {
-        expect(screen.getByText(/Failed to load PDF/i)).toBeInTheDocument();
-      });
+      // Wait longer because network errors trigger retry with 1s delay
+      await waitFor(
+        () => {
+          expect(screen.getByText(/Server is busy/i)).toBeInTheDocument();
+        },
+        { timeout: 3000 }
+      );
     });
 
     it("shows error for access denied", async () => {

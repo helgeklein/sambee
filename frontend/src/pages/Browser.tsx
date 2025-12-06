@@ -163,6 +163,9 @@ const Browser: React.FC = () => {
   const isTouchDevice = useMediaQuery("(pointer: coarse)");
   const rowHeight = isTouchDevice ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP;
 
+  // Track if keyboard is being used for navigation (for proper focus styling)
+  const [isUsingKeyboard, setIsUsingKeyboard] = useState(false);
+
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [currentPath, setCurrentPath] = useState("");
@@ -192,7 +195,7 @@ const Browser: React.FC = () => {
     const immediate = options?.immediate ?? false;
 
     const commit = () => {
-      setFocusedIndex((prev) => (prev === next ? prev : next));
+      setFocusedIndex((prev: number) => (prev === next ? prev : next));
     };
 
     if (immediate) {
@@ -220,7 +223,7 @@ const Browser: React.FC = () => {
       if (target === null) {
         return;
       }
-      setFocusedIndex((prev) => (prev === target ? prev : target));
+      setFocusedIndex((prev: number) => (prev === target ? prev : target));
     });
   }, []);
 
@@ -294,7 +297,7 @@ const Browser: React.FC = () => {
 
   const getConnectionByName = useCallback(
     (slug: string): Connection | undefined => {
-      return connections.find((c) => slugifyConnectionName(c.name) === slug);
+      return connections.find((c: Connection) => slugifyConnectionName(c.name) === slug);
     },
     [connections, slugifyConnectionName]
   );
@@ -452,7 +455,7 @@ const Browser: React.FC = () => {
       if (isUpdatingFromUrl.current) return; // Don't update URL when state is being set from URL
 
       // Find connection and use its name as identifier
-      const connection = connections.find((c) => c.id === connectionId);
+      const connection = connections.find((c: Connection) => c.id === connectionId);
       if (!connection) return;
 
       const identifier = slugifyConnectionName(connection.name);
@@ -707,7 +710,7 @@ const Browser: React.FC = () => {
     let filtered = files;
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = files.filter((f) => f.name.toLowerCase().includes(query));
+      filtered = files.filter((f: FileEntry) => f.name.toLowerCase().includes(query));
     }
 
     // Single-pass separation and sorting
@@ -754,8 +757,8 @@ const Browser: React.FC = () => {
   // Use sortedAndFilteredFiles to match the display order
   const imageFiles = useMemo(() => {
     return sortedAndFilteredFiles
-      .filter((f) => f.type === "file" && isImageFile(f.name))
-      .map((f) => (currentPath ? `${currentPath}/${f.name}` : f.name));
+      .filter((f: FileEntry) => f.type === "file" && isImageFile(f.name))
+      .map((f: FileEntry) => (currentPath ? `${currentPath}/${f.name}` : f.name));
   }, [sortedAndFilteredFiles, currentPath]);
 
   const handleFileClick = useCallback(
@@ -856,7 +859,7 @@ const Browser: React.FC = () => {
 
   const handleViewIndexChange = useCallback((index: number) => {
     currentViewIndexRef.current = index;
-    setViewInfo((prev) => {
+    setViewInfo((prev: typeof viewInfo) => {
       if (!prev || !prev.images || prev.images.length === 0) {
         return prev;
       }
@@ -894,7 +897,7 @@ const Browser: React.FC = () => {
       return;
     }
 
-    const targetIndex = sortedAndFilteredFiles.findIndex((file) => {
+    const targetIndex = sortedAndFilteredFiles.findIndex((file: FileEntry) => {
       if (file.type !== "file") {
         return false;
       }
@@ -942,7 +945,7 @@ const Browser: React.FC = () => {
     const savedState = navigationHistory.current.get(currentPath);
     if (savedState?.selectedFileName) {
       // Find the index of the previously selected item
-      const restoredIndex = sortedAndFilteredFiles.findIndex((f) => f.name === savedState.selectedFileName);
+      const restoredIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName);
       if (restoredIndex >= 0) {
         updateFocus(restoredIndex, { immediate: true });
         // Restore scroll position in next frame to ensure list is rendered
@@ -1302,7 +1305,7 @@ const Browser: React.FC = () => {
         searchBufferRef.current += e.key.toLowerCase();
 
         // Find first file matching the accumulated prefix
-        const index = files.findIndex((f) => f.name.toLowerCase().startsWith(searchBufferRef.current));
+        const index = files.findIndex((f: FileEntry) => f.name.toLowerCase().startsWith(searchBufferRef.current));
         if (index !== -1) {
           updateFocus(index);
         }
@@ -1322,6 +1325,22 @@ const Browser: React.FC = () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [settingsOpen, showHelp, searchQuery, viewInfo, updateFocus, listContainerEl]);
+
+  // Track keyboard usage for proper focus styling
+  // Per accessibility best practices, focus indicators should only show for keyboard navigation
+  useLayoutEffect(() => {
+    const handleKeyDown = () => setIsUsingKeyboard(true);
+    const handlePointerDown = () => setIsUsingKeyboard(false);
+
+    // Use capture phase to ensure these run before any other handlers
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, []);
 
   const handleBreadcrumbClick = (index: number) => {
     const pathParts = currentPath.split("/");
@@ -1367,27 +1386,6 @@ const Browser: React.FC = () => {
         flex: 1,
         minWidth: 0,
       },
-      buttonBase: {
-        display: "flex",
-        alignItems: "center",
-        gap: 1,
-        height: "100%",
-        width: "100%",
-        px: 2,
-        py: 1.5,
-        cursor: "pointer",
-        userSelect: "none",
-        border: "none",
-        borderRadius: 0,
-        transition: "background-color 80ms ease-out",
-        textAlign: "left",
-        "&:hover": {
-          backgroundColor: theme.palette.action.hover,
-        },
-        "&:active": {
-          backgroundColor: theme.palette.action.selected,
-        },
-      },
       buttonSelected: {
         display: "flex",
         alignItems: "center",
@@ -1399,15 +1397,17 @@ const Browser: React.FC = () => {
         cursor: "pointer",
         userSelect: "none",
         border: "none",
-        background: theme.palette.action.selected,
         borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
+        WebkitTapHighlightColor: "transparent",
+        // Only show focus highlight when keyboard is being used
+        background: isUsingKeyboard ? theme.palette.action.selected : "transparent",
         "&:hover": {
-          backgroundColor: theme.palette.action.hover,
+          backgroundColor: isUsingKeyboard ? theme.palette.action.hover : "transparent",
         },
         "&:active": {
-          backgroundColor: theme.palette.action.selected,
+          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
         },
       },
       buttonNotSelected: {
@@ -1425,86 +1425,105 @@ const Browser: React.FC = () => {
         borderRadius: 0,
         transition: "background-color 80ms ease-out",
         textAlign: "left",
+        WebkitTapHighlightColor: "transparent",
         "&:hover": {
-          backgroundColor: theme.palette.action.hover,
+          backgroundColor: isUsingKeyboard ? theme.palette.action.hover : "transparent",
         },
         "&:active": {
-          backgroundColor: theme.palette.action.selected,
+          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
         },
       },
     }),
-    [theme]
+    [theme, isUsingKeyboard]
   );
 
+  type FileRowProps = {
+    file: FileEntry;
+    index: number;
+    isSelected: boolean;
+    virtualStart: number;
+    virtualSize: number;
+    onClick: (file: FileEntry, index: number) => void;
+  };
+
   const FileRow = React.memo(
-    React.forwardRef<
-      HTMLDivElement,
-      {
-        file: FileEntry;
-        index: number;
-        isSelected: boolean;
-        virtualStart: number;
-        virtualSize: number;
-        onClick: (file: FileEntry, index: number) => void;
-      }
-    >(({ file, index, isSelected, virtualStart, virtualSize, onClick }, ref) => {
-      perfStart(`fileRow_${index}`);
+    React.forwardRef<HTMLDivElement, FileRowProps>(
+      (
+        {
+          file,
+          index,
+          isSelected,
+          virtualStart,
+          virtualSize,
+          onClick,
+        }: {
+          file: FileEntry;
+          index: number;
+          isSelected: boolean;
+          virtualStart: number;
+          virtualSize: number;
+          onClick: (file: FileEntry, index: number) => void;
+        },
+        ref: React.ForwardedRef<HTMLDivElement>
+      ) => {
+        perfStart(`fileRow_${index}`);
 
-      perfStart(`fileRow_${index}_formatting`);
-      // Secondary info removed for cleaner, more compact display
-      // Will be added back when implementing multiple view modes (list, detail, thumbnail)
-      const secondaryText = "";
-      perfEnd(`fileRow_${index}_formatting`, 1);
+        perfStart(`fileRow_${index}_formatting`);
+        // Secondary info removed for cleaner, more compact display
+        // Will be added back when implementing multiple view modes (list, detail, thumbnail)
+        const secondaryText = "";
+        perfEnd(`fileRow_${index}_formatting`, 1);
 
-      perfStart(`fileRow_${index}_render`);
-      const result = (
-        <div
-          ref={ref}
-          data-index={index}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: `${virtualSize}px`,
-            transform: `translateY(${virtualStart}px)`,
-            willChange: "transform", // GPU acceleration hint
-          }}
-        >
-          <Box
-            component="button"
-            tabIndex={-1}
-            onClick={() => onClick(file, index)}
-            sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
-            aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
+        perfStart(`fileRow_${index}_render`);
+        const result = (
+          <div
+            ref={ref}
+            data-index={index}
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: `${virtualSize}px`,
+              transform: `translateY(${virtualStart}px)`,
+              willChange: "transform", // GPU acceleration hint
+            }}
           >
-            <Box sx={fileRowStyles.iconBox}>
-              {getFileIcon({
-                filename: file.name,
-                isDirectory: file.type === "directory",
-                size: 24,
-              })}
-            </Box>
-            <Box sx={fileRowStyles.contentBox}>
-              <Typography variant="body2" noWrap title={file.name} color="text.primary">
-                {file.name}
-              </Typography>
-              {secondaryText ? (
-                <Typography variant="caption" color="text.secondary" noWrap>
-                  {secondaryText}
+            <Box
+              component="button"
+              tabIndex={-1}
+              onClick={() => onClick(file, index)}
+              sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
+              aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
+            >
+              <Box sx={fileRowStyles.iconBox}>
+                {getFileIcon({
+                  filename: file.name,
+                  isDirectory: file.type === "directory",
+                  size: 24,
+                })}
+              </Box>
+              <Box sx={fileRowStyles.contentBox}>
+                <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                  {file.name}
                 </Typography>
-              ) : null}
+                {secondaryText ? (
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {secondaryText}
+                  </Typography>
+                ) : null}
+              </Box>
             </Box>
-          </Box>
-        </div>
-      );
-      perfEnd(`fileRow_${index}_render`, 2);
-      perfEnd(`fileRow_${index}`, 5);
+          </div>
+        );
+        perfEnd(`fileRow_${index}_render`, 2);
+        perfEnd(`fileRow_${index}`, 5);
 
-      return result;
-    }),
+        return result;
+      }
+    ),
     // Custom comparison for optimal re-renders
-    (prev, next) =>
+    (prev: FileRowProps, next: FileRowProps) =>
       prev.index === next.index &&
       prev.isSelected === next.isSelected &&
       prev.file.name === next.file.name &&
@@ -1617,7 +1636,7 @@ const Browser: React.FC = () => {
                       },
                     }}
                   >
-                    {connections.map((conn) => (
+                    {connections.map((conn: Connection) => (
                       <MenuItem key={conn.id} value={conn.id}>
                         {conn.name} ({conn.host}/{conn.share_name})
                       </MenuItem>
@@ -1711,7 +1730,7 @@ const Browser: React.FC = () => {
                       Root
                     </Link>
                     {/* Desktop: Show all segments */}
-                    {pathParts.map((part, index) => {
+                    {pathParts.map((part: string, index: number) => {
                       const isLast = index === pathParts.length - 1;
                       if (isLast) {
                         // Last segment is non-clickable
@@ -1752,7 +1771,7 @@ const Browser: React.FC = () => {
                       <ToggleButtonGroup
                         value={sortBy}
                         exclusive
-                        onChange={(_, newSort) => {
+                        onChange={(_: React.MouseEvent<HTMLElement>, newSort: SortField | null) => {
                           if (newSort !== null) setSortBy(newSort);
                         }}
                         size="small"
@@ -1796,7 +1815,7 @@ const Browser: React.FC = () => {
                   size="small"
                   placeholder={isMobile ? "Search..." : "Search files and folders... (press / to focus)"}
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
                   inputRef={searchInputRef}
                   sx={{
                     "& .MuiInputBase-root": {
@@ -1885,7 +1904,7 @@ const Browser: React.FC = () => {
                           position: "relative",
                         }}
                       >
-                        {virtualItemsForRender.map((virtualItem) => (
+                        {virtualItemsForRender.map((virtualItem: ReturnType<typeof rowVirtualizer.getVirtualItems>[number]) => (
                           <FileRow
                             ref={rowVirtualizer.measureElement}
                             key={virtualItem.key}
@@ -1935,7 +1954,17 @@ const DynamicViewer: React.FC<{
   };
   onClose: () => void;
   onIndexChange?: (index: number) => void;
-}> = ({ connectionId, viewInfo, onClose, onIndexChange }) => {
+}> = ({
+  connectionId,
+  viewInfo,
+  onClose,
+  onIndexChange,
+}: {
+  connectionId: string;
+  viewInfo: { path: string; mimeType: string; images?: string[]; currentIndex?: number };
+  onClose: () => void;
+  onIndexChange?: (index: number) => void;
+}) => {
   const [ViewerComponent, setViewerComponent] = useState<ViewerComponent | null>(null);
 
   useEffect(() => {

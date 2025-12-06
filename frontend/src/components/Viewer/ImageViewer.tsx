@@ -1,7 +1,11 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
-import type { MouseEvent, TouchEvent } from "react";
+import type { MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Swiper as SwiperType } from "swiper";
+import { Swiper, SwiperSlide } from "swiper/react";
+import "swiper/css";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
@@ -55,13 +59,22 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [rotate, setRotate] = useState(0);
   const [scale, setScale] = useState(1);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [_isFullscreen, setIsFullscreen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const lastTapRef = useRef<number>(0);
+  const [hideControls, setHideControls] = useState(false);
+  const lastClickTimeRef = useRef<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const swiperRef = useRef<SwiperType | null>(null);
+
+  // Carousel image caching
+  const imageCache = useRef<Map<number, string>>(new Map());
+  const [_cachedIndices, setCachedIndices] = useState<Set<number>>(new Set());
+  const [loadingStates, setLoadingStates] = useState<Map<number, boolean>>(new Map());
+  const [errorStates, setErrorStates] = useState<Map<number, string | null>>(new Map());
+
+  // Abort controllers for ongoing fetches
+  const abortControllers = useRef<Map<number, AbortController>>(new Map());
+  const fetchWithRetry = useApiRetry();
 
   // Get current image path
   const currentPath = images[currentIndex];
@@ -73,83 +86,125 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     onCurrentIndexChange?.(currentIndex);
   }, [currentIndex, onCurrentIndexChange]);
 
-  // Fetch image via Axios to include Authorization header, then create blob URL
-  useEffect(() => {
-    let isMounted = true;
-    let blobUrl: string | null = null;
-    const abortController = new AbortController();
+  // Function to fetch and cache a single image
+  const fetchAndCacheImage = useCallback(
+    async (index: number) => {
+      if (index < 0 || index >= images.length) return;
+      if (imageCache.current.has(index)) return;
+      if (loadingStates.get(index)) return; // Already loading
 
-    const fetchImage = async () => {
+      // Cancel any existing fetch for this index
+      const existingController = abortControllers.current.get(index);
+      if (existingController) {
+        existingController.abort();
+      }
+
+      const abortController = new AbortController();
+      abortControllers.current.set(index, abortController);
+
+      setLoadingStates((prev) => new Map(prev).set(index, true));
+      setErrorStates((prev) => new Map(prev).set(index, null));
+
       try {
-        setError(null);
-        setLoading(true);
-        // Don't clear imageUrl yet - keep showing the previous image during load
-
-        logInfo("Fetching image via Axios with auth header", {
-          path: currentPath,
+        const imagePath = images[index];
+        logInfo("Fetching image for carousel", {
+          index,
+          path: imagePath,
           connectionId,
         });
 
-        // Fetch with Axios - this will include Authorization header via interceptor
-        const blob = await apiService.getImageBlob(connectionId, currentPath, {
-          signal: abortController.signal,
-        });
+        const blob = await fetchWithRetry(
+          () =>
+            apiService.getImageBlob(connectionId, imagePath, {
+              signal: abortController.signal,
+            }),
+          {
+            signal: abortController.signal,
+            maxRetries: 1,
+            retryDelay: 1000,
+          }
+        );
 
         if (!blob || blob.size === 0) {
           throw new Error("Received empty image blob");
         }
 
-        if (!isMounted) return;
+        const blobUrl = URL.createObjectURL(blob);
+        imageCache.current.set(index, blobUrl);
+        setCachedIndices((prev) => new Set(prev).add(index));
 
-        // Create blob URL from response
-        blobUrl = URL.createObjectURL(blob);
-        logInfo("Created blob URL for image", {
-          path: currentPath,
+        logInfo("Cached image for carousel", {
+          index,
           blobUrl,
           size: blob.size,
         });
 
-        // Update to new image URL - this triggers a re-render with the new image
-        setImageUrl(blobUrl);
-        setLoading(false);
+        setLoadingStates((prev) => new Map(prev).set(index, false));
       } catch (err) {
-        if (!isMounted) return;
+        if (abortController.signal.aborted) {
+          logInfo("Image fetch aborted", { index });
+          return;
+        }
 
-        // Extract detailed error message from backend or network error
-        const errorMessage = getErrorMessage(err);
-
-        logError("Failed to fetch image", {
-          path: currentPath,
+        logError("Failed to fetch image for carousel", {
+          index,
           error: err,
           detail: isApiError(err) ? err.response?.data?.detail : undefined,
           status: isApiError(err) ? err.response?.status : undefined,
         });
-        setError(errorMessage);
-        setLoading(false);
+
+        // Show "server busy" only for actual transient/network errors
+        // For other errors, show the specific error message from backend
+        const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
+
+        setErrorStates((prev) => new Map(prev).set(index, errorMessage));
+        setLoadingStates((prev) => new Map(prev).set(index, false));
+      } finally {
+        abortControllers.current.delete(index);
       }
-    };
+    },
+    [connectionId, images, loadingStates, fetchWithRetry]
+  );
 
-    fetchImage();
+  // Preload current and adjacent images
+  useEffect(() => {
+    const indicesToLoad = [
+      currentIndex - 1, // Previous
+      currentIndex, // Current
+      currentIndex + 1, // Next
+    ].filter((i) => i >= 0 && i < images.length);
 
-    // Cleanup: revoke blob URL when component unmounts or image changes
-    return () => {
-      isMounted = false;
-      abortController.abort();
+    indicesToLoad.forEach((index) => {
+      fetchAndCacheImage(index);
+    });
+  }, [currentIndex, images.length, fetchAndCacheImage]);
 
-      if (blobUrl) {
-        logInfo("Revoking blob URL", { blobUrl });
-        URL.revokeObjectURL(blobUrl);
+  // Cleanup: revoke blob URLs for images far from current position
+  useEffect(() => {
+    const activeRange = 2; // Keep ±2 images cached
+    const indicesToKeep = new Set(
+      Array.from({ length: activeRange * 2 + 1 }, (_, i) => currentIndex - activeRange + i).filter((i) => i >= 0 && i < images.length)
+    );
+
+    imageCache.current.forEach((url, index) => {
+      if (!indicesToKeep.has(index)) {
+        logInfo("Revoking blob URL for distant image", { index, url });
+        URL.revokeObjectURL(url);
+        imageCache.current.delete(index);
+        setCachedIndices((prev) => {
+          const next = new Set(prev);
+          next.delete(index);
+          return next;
+        });
       }
-    };
-  }, [connectionId, currentPath]);
+    });
+  }, [currentIndex, images.length]);
 
   // Navigation handlers
   const handleNext = useCallback(
     (_event?: KeyboardEvent) => {
       if (currentIndex < images.length - 1) {
-        const nextIndex = currentIndex + 1;
-        setCurrentIndex(nextIndex);
-        logInfo("Navigated to next image", { index: nextIndex });
+        swiperRef.current?.slideNext();
       }
     },
     [currentIndex, images.length]
@@ -158,9 +213,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const handlePrevious = useCallback(
     (_event?: KeyboardEvent) => {
       if (currentIndex > 0) {
-        const prevIndex = currentIndex - 1;
-        setCurrentIndex(prevIndex);
-        logInfo("Navigated to previous image", { index: prevIndex });
+        swiperRef.current?.slidePrev();
       }
     },
     [currentIndex]
@@ -200,7 +253,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const handleFirst = useCallback(
     (_event?: KeyboardEvent) => {
       if (images.length > 1) {
-        setCurrentIndex(0);
+        swiperRef.current?.slideTo(0);
       }
     },
     [images.length]
@@ -209,7 +262,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const handleLast = useCallback(
     (_event?: KeyboardEvent) => {
       if (images.length > 1) {
-        setCurrentIndex(images.length - 1);
+        swiperRef.current?.slideTo(images.length - 1);
       }
     },
     [images.length]
@@ -221,10 +274,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       try {
         await apiService.downloadFile(connectionId, currentPath, filename);
       } catch (err) {
-        error("Failed to download file", { error: err, path: currentPath, connectionId });
+        logError("Failed to download file", { error: err, path: currentPath, connectionId });
       }
     },
-    [connectionId, currentPath, filename, error]
+    [connectionId, currentPath, filename]
   );
 
   // Context-aware Escape handler
@@ -243,36 +296,42 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     setScale((value) => (value > 1 ? 1 : Math.min(value * 2, 3)));
   }, []);
 
-  const handleTouchEnd = useCallback(
-    (event: TouchEvent<HTMLImageElement>) => {
-      if (event.touches.length > 0 || event.changedTouches.length !== 1) {
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastTapRef.current < 300) {
-        event.preventDefault();
-        handleDoubleZoom();
-        lastTapRef.current = 0;
-      } else {
-        lastTapRef.current = now;
-      }
-    },
-    [handleDoubleZoom]
-  );
-
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(() => {
     if (!dialogRef.current) return;
 
     if (!document.fullscreenElement) {
+      // Try native fullscreen API
       dialogRef.current.requestFullscreen().catch((err) => {
         logError("Failed to enable fullscreen", { error: err });
       });
     } else {
       document.exitFullscreen();
     }
+
+    // Toggle controls visibility for mobile (works even if fullscreen API fails)
+    setHideControls((prev) => {
+      const newValue = !prev;
+      logInfo("Toggling controls visibility", { hideControls: newValue });
+      return newValue;
+    });
   }, []);
+
+  // Handle Swiper click/tap events (works on mobile without interfering with swipe)
+  const handleSwiperClick = useCallback(() => {
+    const now = Date.now();
+    const timeSinceLastClick = now - lastClickTimeRef.current;
+
+    if (timeSinceLastClick < 300 && timeSinceLastClick > 0) {
+      // Double tap/click detected
+      handleDoubleZoom();
+      toggleFullscreen();
+      lastClickTimeRef.current = 0;
+    } else {
+      // Single tap/click
+      lastClickTimeRef.current = now;
+    }
+  }, [handleDoubleZoom, toggleFullscreen]);
 
   const handleDoubleClick = useCallback(
     (event: MouseEvent<HTMLImageElement>) => {
@@ -406,20 +465,99 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   useEffect(() => {
     return () => {
       logInfo("Image viewer closed");
+
       // Exit fullscreen if still active when component unmounts
       if (document.fullscreenElement) {
         document.exitFullscreen();
       }
+
+      // Abort any ongoing fetches
+      for (const controller of abortControllers.current.values()) {
+        controller.abort();
+      }
+      abortControllers.current.clear();
+
+      // Revoke all blob URLs
+      imageCache.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      imageCache.current.clear();
     };
   }, []);
 
-  // Handle errors
-  const handleError = useCallback(() => {
-    logError("Error loading image", {
-      path: currentPath,
-      connectionId,
-    });
-  }, [currentPath, connectionId]);
+  // ImageSlide component for rendering individual carousel slides
+  const ImageSlide: React.FC<{ index: number }> = useCallback(
+    ({ index }) => {
+      const imageUrl = imageCache.current.get(index);
+      const isLoading = loadingStates.get(index);
+      const error = errorStates.get(index);
+      const imagePath = images[index];
+      const slideFilename = imagePath?.split("/").pop() || "";
+
+      return (
+        <Box
+          sx={{
+            width: "100%",
+            height: "100%",
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            position: "relative",
+          }}
+        >
+          {/* Loading state for this slide */}
+          {isLoading && (
+            <Box
+              display="flex"
+              alignItems="center"
+              justifyContent="center"
+              position="absolute"
+              sx={{
+                backgroundColor: "rgba(0, 0, 0, 0.3)",
+              }}
+            >
+              <CircularProgress />
+            </Box>
+          )}
+
+          {/* Error state for this slide */}
+          {error && (
+            <Box color="error.main" textAlign="center" px={2}>
+              {error}
+            </Box>
+          )}
+
+          {/* Image */}
+          {!error && imageUrl && (
+            <Box
+              component="img"
+              src={imageUrl}
+              alt={slideFilename}
+              onError={() => {
+                logError("Error loading image in carousel", {
+                  index,
+                  path: imagePath,
+                });
+              }}
+              onDoubleClick={index === currentIndex ? handleDoubleClick : undefined}
+              sx={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                width: "auto",
+                height: "auto",
+                objectFit: "contain",
+                transform: index === currentIndex ? `rotate(${rotate}deg) scale(${scale})` : "none",
+                transition: index === currentIndex ? "transform 0.3s ease" : "none",
+                pointerEvents: index === currentIndex ? "auto" : "none",
+              }}
+            />
+          )}
+        </Box>
+      );
+    },
+    [images, loadingStates, errorStates, currentIndex, rotate, scale, handleDoubleClick]
+  );
 
   return (
     <Dialog
@@ -462,101 +600,75 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         }}
       >
         {/* Image Controls Overlay */}
-        <Box
-          sx={{
-            flexShrink: 0,
-            zIndex: 1,
-          }}
-        >
-          <ViewerControls
-            filename={filename}
-            config={{
-              navigation: images.length > 1,
-              zoom: true,
-              rotation: true,
+        {!hideControls && (
+          <Box
+            sx={{
+              flexShrink: 0,
+              zIndex: 1,
             }}
-            onClose={handleClose}
-            navigation={
-              images.length > 1
-                ? {
-                    currentIndex,
-                    totalItems: images.length,
-                    onNext: handleNext,
-                    onPrevious: handlePrevious,
-                  }
-                : undefined
-            }
-            zoom={{
-              onZoomIn: handleZoomIn,
-              onZoomOut: handleZoomOut,
-            }}
-            rotation={{
-              onRotateLeft: handleRotateLeft,
-              onRotateRight: handleRotateRight,
-            }}
-          />
-        </Box>
+          >
+            <ViewerControls
+              filename={filename}
+              config={{
+                navigation: images.length > 1,
+                zoom: true,
+                rotation: true,
+              }}
+              onClose={handleClose}
+              navigation={
+                images.length > 1
+                  ? {
+                      currentIndex,
+                      totalItems: images.length,
+                      onNext: handleNext,
+                      onPrevious: handlePrevious,
+                    }
+                  : undefined
+              }
+              zoom={{
+                onZoomIn: handleZoomIn,
+                onZoomOut: handleZoomOut,
+              }}
+              rotation={{
+                onRotateLeft: handleRotateLeft,
+                onRotateRight: handleRotateRight,
+              }}
+            />
+          </Box>
+        )}
 
-        {/* Image content area - flex grows to fill remaining space */}
+        {/* Carousel container - horizontal scrolling */}
         <Box
           sx={{
             flex: 1,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            position: "relative",
             overflow: "hidden",
-            minHeight: 0, // Important for flex child with overflow
+            minHeight: 0,
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
           }}
         >
-          {/* Loading state - show spinner when loading */}
-          {loading && (
-            <Box
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              position="absolute"
-              top={0}
-              left={0}
-              right={0}
-              bottom={0}
-              zIndex={2}
-              sx={{
-                backgroundColor: imageUrl ? "rgba(0, 0, 0, 0.3)" : "transparent",
-              }}
-            >
-              <CircularProgress />
-            </Box>
-          )}
-
-          {/* Error state */}
-          {error && (
-            <Box color="error.main" textAlign="center">
-              {error}
-            </Box>
-          )}
-
-          {/* Image with zoom, pan, and rotate functionality */}
-          {/* Keep showing image even while loading next one to avoid flicker */}
-          {!error && imageUrl && (
-            <Box
-              component="img"
-              src={imageUrl}
-              alt={filename}
-              onError={handleError}
-              onDoubleClick={handleDoubleClick}
-              onTouchEnd={handleTouchEnd}
-              sx={{
-                maxWidth: "100%",
-                maxHeight: "100%",
-                width: "auto",
-                height: "auto",
-                objectFit: "contain",
-                transform: `rotate(${rotate}deg) scale(${scale})`,
-                transition: "transform 0.3s ease",
-              }}
-            />
-          )}
+          <Swiper
+            onSwiper={(swiper) => {
+              swiperRef.current = swiper;
+            }}
+            onSlideChange={(swiper) => {
+              const newIndex = swiper.activeIndex;
+              setCurrentIndex(newIndex);
+              logInfo("Navigated to image via swipe", { index: newIndex });
+            }}
+            onClick={handleSwiperClick}
+            initialSlide={initialIndex}
+            spaceBetween={32}
+            slidesPerView={1}
+            centeredSlides={true}
+            style={{ height: "100%", width: "100%" }}
+          >
+            {images.map((_imagePath, index) => (
+              <SwiperSlide key={`slide-${images[index]}`}>
+                <ImageSlide index={index} />
+              </SwiperSlide>
+            ))}
+          </Swiper>
         </Box>
       </Box>
       <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={imageShortcuts} title="Image Viewer Shortcuts" />

@@ -380,6 +380,29 @@ describe("Browser Component - Interactions", () => {
       // Component should still be functional (not crashed)
       expect(screen.getByText("Sambee")).toBeInTheDocument();
     });
+
+    it("handles switching between mouse and keyboard input without crashing", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      expect(await screen.findByText("Documents")).toBeInTheDocument();
+
+      const listContainer = screen.getByTestId("virtual-list");
+
+      // Simulate mouse interaction
+      await user.click(listContainer);
+
+      // Then keyboard navigation
+      await user.keyboard("{ArrowDown}");
+
+      // Then another mouse interaction
+      await user.click(listContainer);
+
+      // Verify component still renders correctly
+      expect(screen.getByText("Sambee")).toBeInTheDocument();
+      expect(screen.getByText("Documents")).toBeInTheDocument();
+    });
   });
 
   describe("Error Handling", () => {

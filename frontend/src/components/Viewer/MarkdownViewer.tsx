@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
@@ -44,20 +45,33 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [showHelp, setShowHelp] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const fetchWithRetry = useApiRetry();
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
 
   // Load markdown content
   useEffect(() => {
+    const abortController = new AbortController();
+
     const loadContent = async () => {
       try {
         setLoading(true);
         setError(null);
-        const data = await apiService.getFileContent(connectionId, path);
+        const data = await fetchWithRetry(() => apiService.getFileContent(connectionId, path), {
+          signal: abortController.signal,
+          maxRetries: 1,
+          retryDelay: 1000,
+        });
         setContent(data);
       } catch (err) {
-        const errorMessage = getErrorMessage(err);
+        if (abortController.signal.aborted) {
+          return;
+        }
+
+        // Show "server busy" only for actual transient/network errors
+        const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
+
         setError(errorMessage);
         logError("Error loading markdown:", {
           error: err,
@@ -71,7 +85,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     };
 
     loadContent();
-  }, [connectionId, path]);
+
+    return () => {
+      abortController.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectionId, path, fetchWithRetry]);
 
   // Auto-focus the content when loaded so keyboard scrolling works
   useEffect(() => {
