@@ -1,5 +1,5 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
-import type { MouseEvent } from "react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Swiper as SwiperType } from "swiper";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -40,6 +40,17 @@ const getErrorMessage = (err: unknown): string => {
 
   // Generic fallback
   return "Failed to load image";
+};
+
+/**
+ * Detect if the device supports touch input
+ */
+const isTouchDevice = () => {
+  return (
+    "ontouchstart" in window ||
+    navigator.maxTouchPoints > 0 ||
+    ((navigator as unknown as { msMaxTouchPoints?: number }).msMaxTouchPoints ?? 0) > 0
+  );
 };
 
 /**
@@ -202,7 +213,8 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
 
   // Navigation handlers
   const handleNext = useCallback(
-    (_event?: KeyboardEvent) => {
+    (event?: KeyboardEvent) => {
+      event?.preventDefault();
       if (currentIndex < images.length - 1) {
         swiperRef.current?.slideNext();
       }
@@ -211,7 +223,8 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   );
 
   const handlePrevious = useCallback(
-    (_event?: KeyboardEvent) => {
+    (event?: KeyboardEvent) => {
+      event?.preventDefault();
       if (currentIndex > 0) {
         swiperRef.current?.slidePrev();
       }
@@ -296,8 +309,8 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     setScale((value) => (value > 1 ? 1 : Math.min(value * 2, 3)));
   }, []);
 
-  // Toggle fullscreen mode
-  const toggleFullscreen = useCallback(() => {
+  // Toggle fullscreen mode for desktop (keyboard shortcut) - does NOT hide controls
+  const toggleFullscreenDesktop = useCallback(() => {
     if (!dialogRef.current) return;
 
     if (!document.fullscreenElement) {
@@ -308,40 +321,112 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     } else {
       document.exitFullscreen();
     }
-
-    // Toggle controls visibility for mobile (works even if fullscreen API fails)
-    setHideControls((prev) => {
-      const newValue = !prev;
-      logInfo("Toggling controls visibility", { hideControls: newValue });
-      return newValue;
-    });
   }, []);
 
-  // Handle Swiper click/tap events (works on mobile without interfering with swipe)
+  // Handle Swiper click/tap events
+  // Desktop: double-click for zoom only
+  // Mobile: double-tap for zoom + fullscreen (with controls hidden)
   const handleSwiperClick = useCallback(() => {
     const now = Date.now();
     const timeSinceLastClick = now - lastClickTimeRef.current;
 
     if (timeSinceLastClick < 300 && timeSinceLastClick > 0) {
       // Double tap/click detected
+      const isTouch = isTouchDevice();
+      logInfo("Double tap/click detected", { isTouch });
+
       handleDoubleZoom();
-      toggleFullscreen();
+
+      // On touch devices, enter fullscreen mode and hide controls
+      if (isTouch) {
+        logInfo("Entering fullscreen for touch device");
+
+        // If already zoomed (scale > 1), exit fullscreen; otherwise enter it
+        if (scale > 1) {
+          // Exiting fullscreen - show controls
+          setHideControls(false);
+        } else {
+          // Entering fullscreen - hide controls
+          setHideControls(true);
+        }
+      }
+
       lastClickTimeRef.current = 0;
     } else {
       // Single tap/click
       lastClickTimeRef.current = now;
     }
-  }, [handleDoubleZoom, toggleFullscreen]);
+  }, [handleDoubleZoom, scale]);
 
-  const handleDoubleClick = useCallback(
-    (event: MouseEvent<HTMLImageElement>) => {
-      event.preventDefault();
-      toggleFullscreen();
-    },
-    [toggleFullscreen]
-  );
+  // Disable/enable Swiper swiping based on zoom level
+  useEffect(() => {
+    if (swiperRef.current) {
+      if (scale > 1) {
+        swiperRef.current.allowSlideNext = false;
+        swiperRef.current.allowSlidePrev = false;
+        logInfo("Swiper sliding disabled (zoomed in)");
+      } else {
+        swiperRef.current.allowSlideNext = true;
+        swiperRef.current.allowSlidePrev = true;
+        logInfo("Swiper sliding enabled (zoomed out)");
+      }
+    }
+  }, [scale]);
 
-  // Listen for fullscreen changes (e.g., user pressing F11 or ESC)
+  // Extra scroll prevention when zoomed - lock body position
+  useEffect(() => {
+    if (scale > 1) {
+      const bodyElement = document.body;
+      const scrollY = window.scrollY;
+
+      const originalPosition = bodyElement.style.position;
+      const originalTop = bodyElement.style.top;
+      const originalWidth = bodyElement.style.width;
+
+      bodyElement.style.position = "fixed";
+      bodyElement.style.top = `-${scrollY}px`;
+      bodyElement.style.width = "100%";
+
+      return () => {
+        bodyElement.style.position = originalPosition;
+        bodyElement.style.top = originalTop;
+        bodyElement.style.width = originalWidth;
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [scale]);
+
+  // Prevent body scroll and pull-to-refresh when viewer is open
+  useEffect(() => {
+    // Save original styles
+    const htmlElement = document.documentElement;
+    const bodyElement = document.body;
+
+    const originalHtmlOverscroll = htmlElement.style.overscrollBehavior;
+    const originalHtmlOverflow = htmlElement.style.overflow;
+    const originalHtmlTouchAction = htmlElement.style.touchAction;
+    const originalBodyOverflow = bodyElement.style.overflow;
+    const originalBodyOverscroll = bodyElement.style.overscrollBehavior;
+    const originalBodyTouchAction = bodyElement.style.touchAction;
+
+    // Set on BOTH html and body for maximum compatibility
+    htmlElement.style.overscrollBehavior = "none";
+    htmlElement.style.overflow = "hidden";
+    htmlElement.style.touchAction = "none";
+    bodyElement.style.overflow = "hidden";
+    bodyElement.style.overscrollBehavior = "none";
+    bodyElement.style.touchAction = "none";
+
+    return () => {
+      // Restore original styles when component unmounts
+      htmlElement.style.overscrollBehavior = originalHtmlOverscroll;
+      htmlElement.style.overflow = originalHtmlOverflow;
+      htmlElement.style.touchAction = originalHtmlTouchAction;
+      bodyElement.style.overflow = originalBodyOverflow;
+      bodyElement.style.overscrollBehavior = originalBodyOverscroll;
+      bodyElement.style.touchAction = originalBodyTouchAction;
+    };
+  }, []); // Listen for fullscreen changes (e.g., user pressing F11 or ESC)
   useEffect(() => {
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
@@ -414,7 +499,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       // Fullscreen
       {
         ...VIEWER_SHORTCUTS.FULLSCREEN,
-        handler: toggleFullscreen,
+        handler: toggleFullscreenDesktop,
       },
       // Close viewer or exit fullscreen on Escape
       {
@@ -442,7 +527,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       handleZoomReset,
       handleRotateRight,
       handleRotateLeft,
-      toggleFullscreen,
+      toggleFullscreenDesktop,
       handleEscape,
       handleShowHelp,
     ]
@@ -504,6 +589,10 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             alignItems: "center",
             justifyContent: "center",
             position: "relative",
+            overflow: index === currentIndex && scale > 1 ? "auto" : "hidden",
+            overscrollBehavior: "none",
+            WebkitOverflowScrolling: "touch",
+            touchAction: index === currentIndex && scale > 1 ? "pan-x pan-y pinch-zoom" : "none",
           }}
         >
           {/* Loading state for this slide */}
@@ -540,14 +629,13 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                   path: imagePath,
                 });
               }}
-              onDoubleClick={index === currentIndex ? handleDoubleClick : undefined}
               sx={{
-                maxWidth: "100%",
-                maxHeight: "100%",
-                width: "auto",
+                maxWidth: index === currentIndex && scale > 1 ? "none" : "100%",
+                maxHeight: index === currentIndex && scale > 1 ? "none" : "100%",
+                width: index === currentIndex && scale > 1 ? `${scale * 100}%` : "auto",
                 height: "auto",
                 objectFit: "contain",
-                transform: index === currentIndex ? `rotate(${rotate}deg) scale(${scale})` : "none",
+                transform: index === currentIndex ? `rotate(${rotate}deg)` : "none",
                 transition: index === currentIndex ? "transform 0.3s ease" : "none",
                 pointerEvents: index === currentIndex ? "auto" : "none",
               }}
@@ -556,16 +644,17 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         </Box>
       );
     },
-    [images, loadingStates, errorStates, currentIndex, rotate, scale, handleDoubleClick]
+    [images, loadingStates, errorStates, currentIndex, rotate, scale]
   );
 
   return (
     <Dialog
       open={true}
-      onClose={handleClose}
+      onClose={() => handleClose()}
       maxWidth={false}
       fullScreen
       ref={dialogRef}
+      disableScrollLock={false}
       sx={{
         "& .MuiDialog-container": {
           alignItems: "stretch",
@@ -573,6 +662,11 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           padding: 0,
           height: "100dvh",
           width: "100dvw",
+          overflow: "hidden",
+          position: "fixed",
+        },
+        "& .MuiBackdrop-root": {
+          position: "fixed",
         },
       }}
       PaperProps={{
@@ -585,6 +679,9 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           height: "100dvh",
           maxHeight: "100dvh",
           overflow: "hidden",
+          position: "fixed",
+          top: 0,
+          left: 0,
         },
       }}
     >
@@ -597,6 +694,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           flexDirection: "column",
           overflow: "hidden",
           boxSizing: "border-box",
+          overscrollBehavior: "none",
         }}
       >
         {/* Image Controls Overlay */}
@@ -645,22 +743,38 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             overflow: "hidden",
             minHeight: 0,
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            overscrollBehavior: "none",
           }}
         >
           <Swiper
             onSwiper={(swiper) => {
               swiperRef.current = swiper;
             }}
-            onSlideChange={(swiper) => {
+            onSlideChange={() => {
+              // Don't update here - let transition end handle it
+            }}
+            onSlideChangeTransitionEnd={(swiper) => {
               const newIndex = swiper.activeIndex;
-              setCurrentIndex(newIndex);
-              logInfo("Navigated to image via swipe", { index: newIndex });
+              // Defer state update to next frame to avoid blocking
+              setTimeout(() => {
+                setCurrentIndex(newIndex);
+                logInfo("Navigated to image via swipe", { index: newIndex });
+              }, 0);
             }}
             onClick={handleSwiperClick}
             initialSlide={initialIndex}
             spaceBetween={32}
             slidesPerView={1}
             centeredSlides={true}
+            speed={400}
+            cssMode={false}
+            keyboard={{ enabled: false }}
+            allowTouchMove={scale === 1}
+            simulateTouch={scale === 1}
+            touchRatio={scale === 1 ? 1 : 0}
+            threshold={scale > 1 ? 50 : 5}
+            resistanceRatio={0}
+            preventInteractionOnTransition={false}
             style={{ height: "100%", width: "100%" }}
           >
             {images.map((_imagePath, index) => (
@@ -671,6 +785,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           </Swiper>
         </Box>
       </Box>
+
       <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={imageShortcuts} title="Image Viewer Shortcuts" />
     </Dialog>
   );
