@@ -4,6 +4,9 @@
  * Provides structured logging with context, log levels, and optional backend forwarding.
  */
 
+import { LogBuffer, type LogEntry as MobileLogEntry } from "./logBuffer";
+import { LogTransport } from "./logTransport";
+
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -32,6 +35,8 @@ class Logger {
   private minLevel: LogLevel;
   private isDevelopment: boolean;
   private isTest: boolean;
+  private mobileLogBuffer: LogBuffer | null = null;
+  private mobileLoggingEnabled = false;
 
   constructor() {
     this.isDevelopment = import.meta.env.DEV;
@@ -42,6 +47,117 @@ class Logger {
       // Alternative: check if vitest globals are available
       (typeof globalThis !== "undefined" && ("describe" in globalThis || "it" in globalThis || "test" in globalThis));
     this.minLevel = this.isDevelopment ? LogLevel.DEBUG : LogLevel.INFO;
+  }
+
+  /**
+   * Enable mobile logging to backend
+   *
+   * @param maxLogs - Maximum number of logs to buffer before auto-flush (default: 50)
+   * @param flushIntervalMs - Time interval for auto-flush in milliseconds (default: 30000 = 30s)
+   */
+  enableMobileLogging(maxLogs = 50, flushIntervalMs = 30000): void {
+    // Don't enable in test environment
+    if (this.isTest) {
+      return;
+    }
+
+    if (this.mobileLoggingEnabled) {
+      return;
+    }
+
+    const transport = new LogTransport();
+    this.mobileLogBuffer = new LogBuffer(
+      async (batch) => {
+        await transport.send(batch);
+      },
+      maxLogs,
+      flushIntervalMs
+    );
+
+    this.mobileLogBuffer.enable();
+    this.mobileLoggingEnabled = true;
+
+    this.info("Mobile logging enabled", {
+      sessionId: this.mobileLogBuffer.getSessionId(),
+      maxLogs,
+      flushIntervalMs,
+    });
+  }
+
+  /**
+   * Disable mobile logging to backend
+   */
+  disableMobileLogging(): void {
+    if (!this.mobileLoggingEnabled || !this.mobileLogBuffer) {
+      return;
+    }
+
+    this.info("Mobile logging disabled");
+
+    // Flush any remaining logs before disabling
+    void this.mobileLogBuffer.flush();
+    this.mobileLogBuffer.disable();
+    this.mobileLoggingEnabled = false;
+  }
+
+  /**
+   * Manually flush mobile logs to backend
+   */
+  async flushMobileLogs(): Promise<void> {
+    if (this.mobileLogBuffer) {
+      await this.mobileLogBuffer.flush();
+    }
+  }
+
+  /**
+   * Log a debug message (also sends to mobile backend if enabled)
+   */
+  debugMobile(message: string, context?: LogContext, component?: string): void {
+    this.debug(message, context);
+    this.sendToMobileBackend(LogLevel.DEBUG, message, context, component);
+  }
+
+  /**
+   * Log an info message (also sends to mobile backend if enabled)
+   */
+  infoMobile(message: string, context?: LogContext, component?: string): void {
+    this.info(message, context);
+    this.sendToMobileBackend(LogLevel.INFO, message, context, component);
+  }
+
+  /**
+   * Log a warning message (also sends to mobile backend if enabled)
+   */
+  warnMobile(message: string, context?: LogContext, component?: string): void {
+    this.warn(message, context);
+    this.sendToMobileBackend(LogLevel.WARN, message, context, component);
+  }
+
+  /**
+   * Log an error message (also sends to mobile backend if enabled)
+   */
+  errorMobile(message: string, context?: LogContext, component?: string, error?: Error): void {
+    this.error(message, context, error);
+    this.sendToMobileBackend(LogLevel.ERROR, message, context, component);
+  }
+
+  /**
+   * Send a log entry to the mobile backend buffer
+   */
+  private sendToMobileBackend(level: LogLevel, message: string, context?: LogContext, component?: string): void {
+    if (!this.mobileLoggingEnabled || !this.mobileLogBuffer) {
+      return;
+    }
+
+    const entry: MobileLogEntry = {
+      timestamp: Date.now(),
+      level: LogLevel[level],
+      message,
+      context,
+      component,
+    };
+
+    this.mobileLogBuffer.add(entry);
   }
 
   /**

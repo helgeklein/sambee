@@ -8,7 +8,7 @@ import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcu
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
-import { error as logError, info as logInfo } from "../../services/logger";
+import { error as logError, logger, info as logInfo } from "../../services/logger";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
@@ -77,6 +77,29 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const swiperRef = useRef<SwiperType | null>(null);
 
+  // Enable mobile logging if on touch device
+  useEffect(() => {
+    if (isTouchDevice()) {
+      logger.enableMobileLogging(100, 30000); // 100 logs, 30s flush interval
+      logger.infoMobile(
+        "ImageViewer mounted on touch device",
+        {
+          imageCount: images.length,
+          initialIndex,
+        },
+        "ImageViewer"
+      );
+    }
+
+    return () => {
+      if (isTouchDevice()) {
+        logger.infoMobile("ImageViewer unmounting", {}, "ImageViewer");
+        void logger.flushMobileLogs();
+        logger.disableMobileLogging();
+      }
+    };
+  }, [images.length, initialIndex]);
+
   // Carousel image caching
   const imageCache = useRef<Map<number, string>>(new Map());
   const [_cachedIndices, setCachedIndices] = useState<Set<number>>(new Set());
@@ -118,11 +141,24 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
 
       try {
         const imagePath = images[index];
+        const fetchStartTime = Date.now();
+
         logInfo("Fetching image for carousel", {
           index,
           path: imagePath,
           connectionId,
         });
+
+        if (isTouchDevice()) {
+          logger.debugMobile(
+            "Image fetch started",
+            {
+              index,
+              timestamp: fetchStartTime,
+            },
+            "ImageLoader"
+          );
+        }
 
         const blob = await fetchWithRetry(
           () =>
@@ -144,11 +180,26 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         imageCache.current.set(index, blobUrl);
         setCachedIndices((prev) => new Set(prev).add(index));
 
+        const fetchDuration = Date.now() - fetchStartTime;
+
         logInfo("Cached image for carousel", {
           index,
           blobUrl,
           size: blob.size,
         });
+
+        if (isTouchDevice()) {
+          logger.debugMobile(
+            "Image fetch completed",
+            {
+              index,
+              duration: fetchDuration,
+              size: blob.size,
+              timestamp: Date.now(),
+            },
+            "ImageLoader"
+          );
+        }
 
         setLoadingStates((prev) => new Map(prev).set(index, false));
       } catch (err) {
@@ -306,7 +357,21 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   );
 
   const handleDoubleZoom = useCallback(() => {
-    setScale((value) => (value > 1 ? 1 : Math.min(value * 2, 3)));
+    setScale((value) => {
+      const newScale = value > 1 ? 1 : Math.min(value * 2, 3);
+      if (isTouchDevice()) {
+        logger.debugMobile(
+          "Scale changed via double-tap",
+          {
+            oldScale: value,
+            newScale,
+            timestamp: Date.now(),
+          },
+          "ImageViewer"
+        );
+      }
+      return newScale;
+    });
   }, []);
 
   // Toggle fullscreen mode for desktop (keyboard shortcut) - does NOT hide controls
@@ -750,16 +815,91 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             onSwiper={(swiper) => {
               swiperRef.current = swiper;
             }}
-            onSlideChange={() => {
-              // Don't update here - let transition end handle it
+            onSlideChange={(swiper) => {
+              // Log transition start
+              if (isTouchDevice()) {
+                logger.debugMobile(
+                  "Slide change started",
+                  {
+                    fromIndex: currentIndex,
+                    toIndex: swiper.activeIndex,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+              }
+            }}
+            onSlideChangeTransitionStart={(swiper) => {
+              // Log when CSS transition begins
+              if (isTouchDevice()) {
+                logger.debugMobile(
+                  "Slide transition CSS started",
+                  {
+                    activeIndex: swiper.activeIndex,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+              }
             }}
             onSlideChangeTransitionEnd={(swiper) => {
               const newIndex = swiper.activeIndex;
+
+              // Log transition end
+              if (isTouchDevice()) {
+                logger.debugMobile(
+                  "Slide transition ended",
+                  {
+                    newIndex,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+              }
+
               // Defer state update to next frame to avoid blocking
               setTimeout(() => {
                 setCurrentIndex(newIndex);
                 logInfo("Navigated to image via swipe", { index: newIndex });
               }, 0);
+            }}
+            onTouchStart={() => {
+              if (isTouchDevice() && scale === 1) {
+                logger.debugMobile(
+                  "Touch start on Swiper",
+                  {
+                    scale,
+                    currentIndex,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+              }
+            }}
+            onTouchMove={() => {
+              // Log periodically during swipe (throttled to avoid spam)
+              if (isTouchDevice() && scale === 1 && Math.random() < 0.1) {
+                logger.debugMobile(
+                  "Touch move during swipe",
+                  {
+                    currentIndex,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+              }
+            }}
+            onTouchEnd={() => {
+              if (isTouchDevice() && scale === 1) {
+                logger.debugMobile(
+                  "Touch end on Swiper",
+                  {
+                    currentIndex,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+              }
             }}
             onClick={handleSwiperClick}
             initialSlide={initialIndex}

@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from app import __version__
-from app.api import admin, auth, browser, viewer, websocket
+from app.api import admin, auth, browser, logs, viewer, websocket
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -247,6 +247,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
+app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 
 
