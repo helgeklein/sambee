@@ -183,9 +183,8 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
+                # Get file stats with a timeout to avoid blocking
                 loop = asyncio.get_event_loop()
-                # Don't pass username/password - use the registered session from pool
-                # Add timeout to prevent indefinite hangs (10 seconds for stat)
                 stat_info = await asyncio.wait_for(loop.run_in_executor(None, lambda: smbclient.stat(smb_path)), timeout=10.0)
 
                 is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
@@ -211,11 +210,15 @@ class SMBBackend(StorageBackend):
     #
     # read_file
     #
-    async def read_file(  # type: ignore[override, misc]
-        self, path: str, chunk_size: int = 1024 * 1024
-    ) -> AsyncIterator[bytes]:
+    async def read_file(self, path: str) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""
 
+        # Set the SMB chunk size
+        # Larger chunk sizes can improve throughput but use more memory (on both client and server)
+        # Larger chunks also use more SMB credits
+        chunk_size: int = 4 * 1024 * 1024
+
+        # Build full SMB path
         smb_path = self._build_smb_path(path)
 
         try:

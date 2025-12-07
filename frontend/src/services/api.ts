@@ -233,11 +233,29 @@ class ApiService {
   /**
    * Fetch image as blob with authentication headers.
    * Returns blob data that can be used to create object URLs.
+   * Optionally resizes images to fit viewport dimensions.
    */
-  async getImageBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
+  async getImageBlob(
+    connectionId: string,
+    path: string,
+    options: { signal?: AbortSignal; viewportWidth?: number; viewportHeight?: number; no_resizing?: boolean } = {}
+  ): Promise<Blob> {
     try {
+      const params: Record<string, string | number> = { path };
+
+      // Add viewport dimensions if provided (for server-side resizing)
+      if (options.viewportWidth) {
+        params.viewport_width = Math.round(options.viewportWidth * window.devicePixelRatio);
+      }
+      if (options.viewportHeight) {
+        params.viewport_height = Math.round(options.viewportHeight * window.devicePixelRatio);
+      }
+      if (options.no_resizing) {
+        params.no_resizing = 1;
+      }
+
       const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
-        params: { path },
+        params,
         responseType: "arraybuffer",
         signal: options.signal,
       });
@@ -356,6 +374,30 @@ class ApiService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Get frontend logging configuration
+   */
+  async getLoggingConfig() {
+    const response = await this.api.get<{
+      enabled: boolean;
+      levels: string[];
+      components: string[];
+    }>("/logs/config");
+    return response.data;
+  }
+
+  /**
+   * Update frontend logging configuration
+   */
+  async updateLoggingConfig(config: { enabled: boolean; levels: string[]; components: string[] }) {
+    const response = await this.api.put<{
+      enabled: boolean;
+      levels: string[];
+      components: string[];
+    }>("/logs/config", config);
+    return response.data;
   }
 }
 

@@ -50,6 +50,34 @@ class Logger {
   }
 
   /**
+   * Initialize mobile logging based on server configuration
+   *
+   * Should be called after user authentication to fetch user-specific logging config.
+   */
+  async initializeMobileLogging(): Promise<void> {
+    // Don't enable in test environment
+    if (this.isTest) {
+      return;
+    }
+
+    try {
+      const { loggingConfig } = await import("./loggingConfig");
+      const config = await loggingConfig.getConfig();
+
+      if (config.enabled) {
+        this.enableMobileLogging();
+        this.info("Mobile logging initialized from server config", {
+          levels: config.levels,
+          components: config.components,
+        });
+      }
+    } catch (error) {
+      // Silently fail - logging config is optional
+      console.warn("Failed to initialize mobile logging config:", error);
+    }
+  }
+
+  /**
    * Enable mobile logging to backend
    *
    * @param maxLogs - Maximum number of logs to buffer before auto-flush (default: 50)
@@ -144,8 +172,29 @@ class Logger {
   /**
    * Send a log entry to the mobile backend buffer
    */
-  private sendToMobileBackend(level: LogLevel, message: string, context?: LogContext, component?: string): void {
+  private async sendToMobileBackend(level: LogLevel, message: string, context?: LogContext, component?: string): Promise<void> {
     if (!this.mobileLoggingEnabled || !this.mobileLogBuffer) {
+      return;
+    }
+
+    // Check if this log should be sent based on configuration
+    try {
+      const { loggingConfig } = await import("./loggingConfig");
+
+      const levelName = LogLevel[level].toLowerCase();
+      const levelEnabled = await loggingConfig.isLevelEnabled(levelName);
+      if (!levelEnabled) {
+        return;
+      }
+
+      if (component) {
+        const componentEnabled = await loggingConfig.isComponentEnabled(component);
+        if (!componentEnabled) {
+          return;
+        }
+      }
+    } catch {
+      // If config check fails, don't send to avoid blocking
       return;
     }
 

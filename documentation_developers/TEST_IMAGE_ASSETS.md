@@ -4,8 +4,8 @@
 
 This directory contains auto-generated test images for testing image conversion and colorspace handling. These minimal test images verify that our conversion pipeline correctly handles various image formats and colorspace configurations, particularly CMYK→RGB conversion.
 
-**Total Size**: ~552KB (10 images)  
-**Generation**: Auto-generated via `scripts/setup-test-images`  
+**Total Size**: ~552KB (10 images)
+**Generation**: Auto-generated via `scripts/setup-test-images`
 **Repository Impact**: Zero bloat - small, purpose-built files
 
 ## Directory Structure
@@ -208,8 +208,8 @@ def get_average_color(image_data: bytes) -> tuple[int, int, int]:
 
 def color_distance(color1: tuple, color2: tuple) -> float:
     """Calculate Euclidean distance between two RGB colors."""
-    return ((color1[0] - color2[0])**2 + 
-            (color1[1] - color2[1])**2 + 
+    return ((color1[0] - color2[0])**2 +
+            (color1[1] - color2[1])**2 +
             (color1[2] - color2[2])**2) ** 0.5
 ```
 
@@ -219,20 +219,20 @@ Example test:
 def test_cmyk_psd_to_rgb():
     """Test CMYK PSD converts to RGB via ICC profiles."""
     input_data = load_test_image("cmyk/photoshop_cmyk.psd")
-    
+
     # Convert to JPEG
-    output_data, mime_type, converter, duration = convert_image_to_jpeg(
+    output_data, mime_type, converter, duration = convert_image_for_viewer(
         input_data, filename="photoshop_cmyk.psd"
     )
-    
+
     # Verify output colorspace is sRGB
     colorspace = get_image_colorspace(output_data)
     assert colorspace == "srgb"
-    
+
     # Verify color accuracy (cyan CMYK → RGB)
     avg_color = get_average_color(output_data)
     expected_color = (148, 217, 248)  # Actual ICC profile result
-    
+
     distance = color_distance(avg_color, expected_color)
     assert distance < 30, f"Color mismatch: {avg_color} vs {expected_color}"
 ```
@@ -260,7 +260,7 @@ If you need to regenerate specific images:
 # CMYK PSD - cyan color
 magick -size 100x100 xc:"cmyk(100,0,0,0)" -colorspace CMYK psd:photoshop_cmyk.psd
 
-# RGB TIFF - magenta color  
+# RGB TIFF - magenta color
 magick -size 100x100 xc:"rgb(255,0,255)" -colorspace sRGB tiff:tiff_rgb.tif
 
 # Grayscale PSD - 50% gray
@@ -313,7 +313,7 @@ Test images are auto-generated before running tests:
 # .github/workflows/test.yml
 - name: Setup test images
   run: ./scripts/setup-test-images
-  
+
 - name: Run image conversion tests
   run: pytest tests/test_image_conversion_real.py -v
 ```

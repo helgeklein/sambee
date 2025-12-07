@@ -21,3 +21,23 @@ access_token_expire_minutes = 1440
 [admin]
 # Initial admin account username
 username = "admin"
+
+[image_viewer]
+# Conversion size threshold: images larger than this are always converted for viewing
+# conv_size_thresh = 512000
+
+[frontend_logging]
+# Enable frontend logging globally (default: false)
+# Individual users can override this in their profile
+# enabled = false
+
+# Delete frontend logs older than this many hours (default: 1)
+# log_retention_hours = 1
+
+# Default log levels for all users (comma-separated, case-insensitive)
+# Options: debug, info, warn, error
+# default_log_levels = "error,warn,info,debug"
+
+# Default log components for all users (comma-separated, empty = all components)
+# Examples: ImageViewer, ImageLoader, Swiper
+# default_log_components = ""

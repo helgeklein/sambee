@@ -326,6 +326,10 @@ const Browser: React.FC = () => {
         }
         // If auth is not required (auth_method="none"), continue without token
       }
+
+      // Initialize mobile logging if not already done (handles page refresh with existing token)
+      await logger.initializeMobileLogging();
+
       const data = await api.getConnections();
       setConnections(data);
 

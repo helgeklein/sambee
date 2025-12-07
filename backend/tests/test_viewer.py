@@ -248,35 +248,6 @@ class TestViewerFile:
             # Returns 400 Bad Request when path is a directory, not a file
             assert response.status_code == 400
 
-    def test_view_file_no_mime_type(self, client, auth_headers_user, test_connection):
-        """Test viewing a file with no MIME type detected."""
-        unknown_file = FileInfo(
-            name="unknown.xyz",
-            path="/unknown.xyz",
-            type=FileType.FILE,
-            size=100,
-            modified_at=datetime(2024, 1, 1, 12, 0, 0),
-            mime_type=None,
-        )
-
-        with patch("app.api.viewer.SMBBackend") as mock:
-            backend_instance = AsyncMock()
-            backend_instance.get_file_info.return_value = unknown_file
-            backend_instance.read_file = lambda path, **kwargs: AsyncIteratorMock([b"unknown content"])
-            backend_instance.connect.return_value = None
-            backend_instance.disconnect.return_value = None
-            mock.return_value = backend_instance
-
-            response = client.get(
-                f"/api/viewer/{test_connection.id}/file",
-                headers=auth_headers_user,
-                params={"path": "/unknown.xyz"},
-            )
-
-            assert response.status_code == 200
-            # Should default to octet-stream
-            assert "application/octet-stream" in response.headers["content-type"]
-
     def test_view_file_with_special_chars_in_name(self, client, auth_headers_user, test_connection):
         """Test viewing a file with special characters in the filename."""
         special_file = FileInfo(

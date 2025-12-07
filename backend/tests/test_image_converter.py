@@ -4,65 +4,17 @@ import pytest
 import pyvips
 
 from app.services.image_converter import (
-    convert_image_to_jpeg,
+    convert_image_for_viewer,
     get_image_info,
 )
 from app.utils.file_type_registry import (
     is_image_file,
-    needs_conversion,
+    needs_processing,
 )
 
 
 class TestImageFormatDetection:
     """Test image format detection functions."""
-
-    def test_needs_conversion_tiff(self):
-        """TIFF files need conversion."""
-        assert needs_conversion("photo.tif") is True
-        assert needs_conversion("photo.tiff") is True
-        assert needs_conversion("PHOTO.TIF") is True
-
-    def test_needs_conversion_heic(self):
-        """HEIC files need conversion."""
-        assert needs_conversion("photo.heic") is True
-        assert needs_conversion("photo.heif") is True
-        assert needs_conversion("IMG_1234.HEIC") is True
-
-    def test_needs_conversion_bmp(self):
-        """BMP files need conversion."""
-        assert needs_conversion("image.bmp") is True
-        assert needs_conversion("image.dib") is True
-
-    def test_needs_conversion_ico(self):
-        """ICO files need conversion."""
-        assert needs_conversion("icon.ico") is True
-
-    def test_needs_conversion_eps(self):
-        """EPS files need conversion."""
-        assert needs_conversion("vector.eps") is True
-        assert needs_conversion("VECTOR.EPS") is True
-
-    def test_needs_conversion_ai(self):
-        """AI files need conversion."""
-        assert needs_conversion("illustration.ai") is True
-        assert needs_conversion("ILLUSTRATION.AI") is True
-
-    def test_no_conversion_needed_jpeg(self):
-        """JPEG files don't need conversion."""
-        assert needs_conversion("photo.jpg") is False
-        assert needs_conversion("photo.jpeg") is False
-
-    def test_no_conversion_needed_png(self):
-        """PNG files don't need conversion."""
-        assert needs_conversion("image.png") is False
-
-    def test_no_conversion_needed_webp(self):
-        """WebP files don't need conversion."""
-        assert needs_conversion("photo.webp") is False
-
-    def test_no_conversion_needed_svg(self):
-        """SVG files don't need conversion."""
-        assert needs_conversion("logo.svg") is False
 
     def test_is_image_file_supported_formats(self):
         """Test is_image_file recognizes all supported formats."""
@@ -88,6 +40,59 @@ class TestImageFormatDetection:
         unsupported = ["document.pdf", "video.mp4", "text.txt", "archive.zip"]
         for filename in unsupported:
             assert is_image_file(filename) is False, f"{filename} should not be recognized"
+
+    @pytest.mark.parametrize(
+        "filename,size,expected",
+        [
+            # Browser-native formats below threshold - no processing
+            ("photo.jpg", 100 * 1024, False),  # 100 KB JPEG
+            ("photo.png", 250 * 1024, False),  # 250 KB PNG
+            ("photo.webp", 499 * 1024, False),  # 499 KB WebP (just under threshold)
+            ("photo.gif", 100 * 1024, False),  # 100 KB GIF
+            # Browser-native formats above threshold - needs processing
+            ("photo.jpg", 500 * 1024, False),  # 500 KB JPEG (exactly at threshold, but not over)
+            ("photo.jpg", 500 * 1024 + 1, True),  # 500 KB + 1 byte JPEG (over threshold)
+            ("photo.png", 501 * 1024, True),  # 501 KB PNG (over threshold)
+            ("photo.webp", 1024 * 1024, True),  # 1 MB WebP
+            ("photo.gif", 2 * 1024 * 1024, True),  # 2 MB GIF
+            ("photo.jpeg", 10 * 1024 * 1024, True),  # 10 MB JPEG
+            # Formats requiring conversion regardless of size
+            ("photo.tiff", 100 * 1024, True),  # 100 KB TIFF - still needs conversion
+            ("photo.tif", 100 * 1024, True),  # 100 KB TIF - still needs conversion
+            ("PHOTO.TIFF", 100 * 1024, True),  # Case insensitive
+            ("photo.heic", 50 * 1024, True),  # 50 KB HEIC - still needs conversion
+            ("photo.heif", 50 * 1024, True),  # 50 KB HEIF - still needs conversion
+            ("IMG_1234.HEIC", 50 * 1024, True),  # Case insensitive
+            ("photo.bmp", 200 * 1024, True),  # 200 KB BMP - still needs conversion
+            ("image.dib", 200 * 1024, True),  # DIB format
+            ("icon.ico", 50 * 1024, True),  # ICO format
+            ("vector.eps", 100 * 1024, True),  # EPS format
+            ("VECTOR.EPS", 100 * 1024, True),  # Case insensitive
+            ("illustration.ai", 100 * 1024, True),  # AI format
+            ("ILLUSTRATION.AI", 100 * 1024, True),  # Case insensitive
+            ("photo.psd", 100 * 1024, True),  # 100 KB PSD - still needs conversion
+            # Formats requiring conversion, also large
+            ("photo.tiff", 1024 * 1024, True),  # 1 MB TIFF - needs conversion (both reasons)
+            ("photo.heic", 2 * 1024 * 1024, True),  # 2 MB HEIC - needs conversion (both reasons)
+            # No size specified (None)
+            ("photo.jpg", None, False),  # JPEG, no size - no processing
+            ("photo.jpeg", None, False),  # JPEG variant
+            ("photo.png", None, False),  # PNG, no size - no processing
+            ("photo.webp", None, False),  # WebP, no size - no processing
+            ("logo.svg", None, False),  # SVG, no size - no processing
+            ("photo.tiff", None, True),  # TIFF, no size - still needs conversion
+            ("photo.heic", None, True),  # HEIC, no size - still needs conversion
+            ("photo.bmp", None, True),  # BMP, no size - still needs conversion
+            # Edge cases
+            ("photo.jpg", 0, False),  # 0 bytes - no processing
+            ("photo.jpg", 1, False),  # 1 byte - no processing
+            ("photo.jpg", 499 * 1024 + 1023, False),  # Just under 500 KB - no processing
+        ],
+    )
+    def test_needs_processing_with_size(self, filename: str, size: int | None, expected: bool):
+        """Test needs_processing correctly handles size parameter."""
+        result = needs_processing(filename, size=size)
+        assert result == expected, f"needs_processing('{filename}', size={size}) should return {expected}, got {result}"
 
 
 class TestImageConversion:
@@ -133,10 +138,26 @@ class TestImageConversion:
             return bytes(image.pngsave_buffer())
 
     def test_convert_rgb_to_jpeg(self):
-        """Test converting RGB image to JPEG."""
+        """Test converting RGB image to WebP (default)."""
         test_image = self.create_test_image("RGB", (200, 150))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_image, "test.png")
+
+        # Default format is now WebP
+        assert mime_type == "image/webp"
+        assert len(result_bytes) > 0
+
+        # Verify it's a valid WebP using pyvips
+        result_img = pyvips.Image.new_from_buffer(result_bytes, "")
+        assert result_img.width == 200  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height == 150  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB or grayscale
+
+    def test_convert_rgb_to_jpeg_explicit(self):
+        """Test converting RGB image to JPEG explicitly."""
+        test_image = self.create_test_image("RGB", (200, 150))
+
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_image, "test.png", output_format="jpeg")
 
         assert mime_type == "image/jpeg"
         assert len(result_bytes) > 0
@@ -148,10 +169,24 @@ class TestImageConversion:
         assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB or grayscale
 
     def test_convert_rgba_to_jpeg(self):
-        """Test converting RGBA image to JPEG (removes alpha)."""
+        """Test converting RGBA image to WebP (preserves or removes alpha based on format)."""
         test_image = self.create_test_image("RGBA", (100, 100))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
+        # Default output is WebP which can preserve alpha
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_image, "test.png")
+
+        assert mime_type == "image/webp"
+
+        # Verify image is valid
+        result_img = pyvips.Image.new_from_buffer(result_bytes, "")
+        assert result_img.width == 100  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height == 100  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+
+    def test_convert_rgba_to_jpeg_explicit(self):
+        """Test converting RGBA image to JPEG explicitly (removes alpha)."""
+        test_image = self.create_test_image("RGBA", (100, 100))
+
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_image, "test.png", output_format="jpeg")
 
         assert mime_type == "image/jpeg"
 
@@ -161,51 +196,67 @@ class TestImageConversion:
         assert result_img.bands == 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB
 
     def test_convert_bmp_to_jpeg(self):
-        """Test converting BMP to JPEG."""
+        """Test converting BMP to WebP (default)."""
         test_bmp = self.create_test_bmp((150, 200))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_bmp, "test.bmp")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_bmp, "test.bmp")
 
-        assert mime_type == "image/jpeg"
+        assert mime_type == "image/webp"
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         assert result_img.width == 150  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         assert result_img.height == 200  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
-    def test_convert_with_max_dimension(self):
-        """Test image downscaling with max_dimension."""
-        test_image = self.create_test_image("RGB", (2000, 1500))
+    def test_convert_with_max_dimensions(self):
+        """Test image resizing with max_width and max_height."""
+        test_image = self.create_test_image("RGB", (3000, 2000))
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "large.png", max_dimension=800)
+        # Resize to 1000x800 max dimensions
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(
+            test_image, "large.png", max_width=1000, max_height=800
+        )
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
-        # Image should be scaled down proportionally
+        # Image should fit within max dimensions while maintaining aspect ratio
+        assert result_img.width <= 1000  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert result_img.height <= 800  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        # Should maintain aspect ratio (3000:2000 = 3:2 = 1.5)
+        original_aspect = 3000 / 2000
+        result_aspect = result_img.width / result_img.height  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        assert abs(result_aspect - original_aspect) < 0.01  # Within 1% of original
+
+    def test_convert_with_single_dimension_constraint(self):
+        """Test image resizing with only width or height constraint."""
+        test_image = self.create_test_image("RGB", (2000, 1500))
+
+        # Test with only max_width
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_image, "large.png", max_width=800)
+        result_img = pyvips.Image.new_from_buffer(result_bytes, "")
+        assert result_img.width <= 800  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         assert max(result_img.width, result_img.height) <= 800  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-        # Aspect ratio should be preserved (approximately)
-        assert abs(result_img.width / result_img.height - 2000 / 1500) < 0.01  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
     def test_convert_uses_image_settings(self):
         """Test that conversion uses centralized IMAGE_SETTINGS."""
         test_image = self.create_test_image("RGB", (500, 500))
 
-        # Convert image - should use IMAGE_SETTINGS (quality=85)
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(test_image, "test.png")
+        # Convert image - should use IMAGE_SETTINGS (quality=85 for JPEG, Q=80 for WebP)
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(test_image, "test.png")
 
-        # Verify it's a valid JPEG
-        assert mime_type == "image/jpeg"
+        # Verify it's a valid WebP (default format)
+        assert mime_type == "image/webp"
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         assert result_img.width == 500  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         assert result_img.height == 500  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # File size should be reasonable (solid color image compresses well)
-        # Expect roughly 1-10 KB for a 500x500 solid color image
-        assert 1_000 < len(result_bytes) < 20_000
+        # Expect roughly 1-15 KB for a 500x500 solid color image (WebP compresses better than JPEG)
+        assert 500 < len(result_bytes) < 20_000
 
     def test_invalid_image_raises_error(self):
         """Test that invalid image data raises ValueError."""
         invalid_data = b"This is not an image"
 
         with pytest.raises(ValueError, match="Failed to convert image"):
-            convert_image_to_jpeg(invalid_data, "test.jpg")
+            convert_image_for_viewer(invalid_data, "test.jpg")
 
     def test_get_image_info(self):
         """Test getting image information."""
@@ -234,7 +285,7 @@ class TestEdgeCases:
         image = image + 128  # Mid-gray
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "gray.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(image_bytes, "gray.png")
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Grayscale can be stored as 1 or 3 bands in JPEG
@@ -247,7 +298,7 @@ class TestEdgeCases:
         image = image + [100, 100, 100]
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "palette.png")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(image_bytes, "palette.png")
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         assert result_img.bands >= 3  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]  # RGB
@@ -271,7 +322,7 @@ newpath
 fill
 showpage
 """
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(eps_data, "test.eps")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(eps_data, "test.eps")
 
         assert mime_type == "image/png"
         assert len(result_bytes) > 0
@@ -302,17 +353,17 @@ endobj
 endobj
 xref
 0 4
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
 trailer
 << /Size 4 /Root 1 0 R >>
 startxref
 219
 %%EOF
 """
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(ai_data, "test.ai")
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(ai_data, "test.ai")
 
         assert mime_type == "image/png"
         assert len(result_bytes) > 0
@@ -326,7 +377,9 @@ startxref
         image = image + [255, 0, 0]
         image_bytes = bytes(image.pngsave_buffer())
 
-        result_bytes, mime_type, converter_name, duration_ms = convert_image_to_jpeg(image_bytes, "small.png", max_dimension=1000)
+        result_bytes, mime_type, converter_name, duration_ms = convert_image_for_viewer(
+            image_bytes, "small.png", max_width=1000, max_height=1000
+        )
 
         result_img = pyvips.Image.new_from_buffer(result_bytes, "")
         # Should remain 50x50, not upscaled

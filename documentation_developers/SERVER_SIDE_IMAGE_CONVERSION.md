@@ -16,16 +16,17 @@ Core service that handles image format detection and conversion.
 
 **Key Functions:**
 ```python
-needs_conversion(filename: str) -> bool
+needs_processing(filename: str) -> bool
     # Checks if a file needs conversion for browser compatibility
 
-convert_image_to_jpeg(
+convert_image_for_viewer(
     image_bytes: bytes,
     filename: str,
-    quality: int = 85,
-    max_dimension: Optional[int] = None
-) -> tuple[bytes, str]
-    # Converts image to JPEG/PNG with optional downscaling
+2    max_width: Optional[int] = None,
+    max_height: Optional[int] = None,
+    output_format: str = "auto"
+) -> tuple[bytes, str, str, float]
+    # Converts image to WebP/JPEG/PNG with optional resizing (downscale only)
 
 is_image_file(filename: str) -> bool
     # Checks if file is a supported image format
@@ -127,11 +128,12 @@ Default settings in `image_converter.py`:
 To adjust conversion parameters, modify the call in `viewer.py`:
 
 ```python
-converted_bytes, converted_mime = convert_image_to_jpeg(
+converted_bytes, converted_mime = convert_image_for_viewer(
     image_bytes,
     filename,
     quality=90,        # Higher quality (larger files)
-    max_dimension=2048,  # Smaller max size
+    max_width=2048,
+    max_height=2048,  # Maximum dimensions
 )
 ```
 
@@ -153,7 +155,7 @@ converted_bytes, converted_mime = convert_image_to_jpeg(
 - **Output**: Converted JPEG/PNG in memory
 - **Peak**: ~4x original file size during conversion
 
-**Mitigation**: `max_dimension=4096` limits peak memory usage
+**Mitigation**: `max_width=4096, max_height=4096` limits peak memory usage
 
 ### Server Impact
 
@@ -206,7 +208,7 @@ except asyncio.TimeoutError:
 - Format detection (TIFF, HEIC, BMP, ICO, etc.)
 - RGB/RGBA/Grayscale/Palette mode conversion
 - Quality settings
-- Downscaling with `max_dimension`
+- Downscaling with `max_width`/`max_height`
 - Transparency handling (ICO → PNG)
 - Error handling (invalid data, missing HEIC support)
 - Image metadata extraction
@@ -254,11 +256,12 @@ if file_size > 10_000_000:
 
 Generate smaller thumbnails for gallery view:
 ```python
-thumbnail = convert_image_to_jpeg(
+thumbnail = convert_image_for_viewer(
     image_bytes,
     filename,
     quality=75,
-    max_dimension=800  # Small for grid view
+    max_width=800,
+    max_height=800  # Small for grid view
 )
 ```
 
@@ -312,7 +315,7 @@ RUN apt-get update && apt-get install -y libheif-dev
 3. Limited server CPU
 
 **Solutions**:
-- Reduce `max_dimension` to 2048 or 1024
+- Reduce `max_width`/`max_height` to 2048 or 1024
 - Lower JPEG quality to 75
 - Add caching layer
 - Use async conversion queue
@@ -324,7 +327,7 @@ RUN apt-get update && apt-get install -y libheif-dev
 **Cause**: Multiple large images being converted simultaneously
 
 **Solutions**:
-- Reduce `max_dimension`
+- Reduce `max_width`/`max_height`
 - Add rate limiting on viewer endpoint
 - Increase server memory
 - Implement conversion queue with concurrency limit
@@ -371,7 +374,7 @@ Image.MAX_IMAGE_PIXELS = 178_956_970  # ~4096 x 4096 x 10 layers
 
 ### Memory Limits
 
-Set `max_dimension` conservatively to prevent memory exhaustion attacks.
+Set `max_width`/`max_height` conservatively to prevent memory exhaustion attacks.
 
 ### MIME Type Validation
 

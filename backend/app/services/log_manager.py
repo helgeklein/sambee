@@ -5,6 +5,7 @@ Mobile log management service
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from app.core.logging import get_logger
 from app.models.logs import MobileLogBatch
@@ -32,7 +33,7 @@ class MobileLogManager:
     #
     # write_log_batch
     #
-    def write_log_batch(self, batch: MobileLogBatch, metadata: dict | None = None) -> str:
+    def write_log_batch(self, batch: MobileLogBatch, metadata: dict[str, Any] | None = None) -> str:
         """
         Write a batch of logs to a JSONL file
 
@@ -100,7 +101,7 @@ class MobileLogManager:
     #
     # list_log_files
     #
-    def list_log_files(self) -> list[dict]:
+    def list_log_files(self) -> list[dict[str, Any]]:
         """
         List all available log files with metadata
 

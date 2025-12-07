@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
+from app.core.config import settings
+
 
 class FileCategory(StrEnum):
     """Valid file type categories."""
@@ -465,21 +467,30 @@ def is_image_file(filename: str) -> bool:
 
 
 #
-# needs_conversion
+# needs_processing
 #
-def needs_conversion(filename: str) -> bool:
+def needs_processing(filename: str, size: Optional[int] = None) -> bool:
     """
     Check if an image file needs conversion for browser display.
 
     Args:
         filename: The filename or path
+        size: Optional size of the file in bytes
 
     Returns:
         True if the file needs conversion, False otherwise
     """
 
+    # Check file type
     file_type = get_file_type_by_extension(filename)
-    return file_type is not None and file_type.requires_conversion
+    if file_type is not None and file_type.requires_conversion:
+        return True
+
+    # Check file size against configured threshold
+    if size is not None and size > settings.image_viewer_conv_size_thresh:
+        return True
+
+    return False
 
 
 #

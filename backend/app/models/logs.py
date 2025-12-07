@@ -2,7 +2,7 @@
 Models for mobile log collection
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -16,7 +16,7 @@ class MobileLogEntry(BaseModel):
     timestamp: int = Field(..., description="Unix timestamp in milliseconds")
     level: str = Field(..., description="Log level: debug, info, warn, error")
     message: str = Field(..., description="Log message")
-    context: Optional[dict] = Field(None, description="Additional context data")
+    context: Optional[dict[str, Any]] = Field(None, description="Additional context data")
     component: Optional[str] = Field(None, description="Component name that generated the log")
 
 
@@ -27,5 +27,5 @@ class MobileLogBatch(BaseModel):
     """Batch of log entries from mobile device"""
 
     session_id: str = Field(..., description="Unique session identifier")
-    device_info: dict = Field(..., description="Device information (user agent, screen size, etc)")
+    device_info: dict[str, Any] = Field(..., description="Device information (user agent, screen size, etc)")
     logs: list[MobileLogEntry] = Field(..., description="List of log entries")

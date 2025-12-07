@@ -675,29 +675,6 @@ class TestFileReading:
 
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.open_file")
-    async def test_read_custom_chunk_size(self, mock_open):
-        """Test reading with custom chunk size."""
-        mock_file = MagicMock()
-        mock_file.read.side_effect = [b"data", b""]
-        mock_file.close.return_value = None
-        mock_open.return_value = mock_file
-
-        backend = SMBBackend(
-            host="server.local",
-            share_name="share",
-            username="user",
-            password="pass",
-        )
-
-        chunks = []
-        async for chunk in backend.read_file("file.bin", chunk_size=4096):
-            chunks.append(chunk)
-
-        # Verify chunk_size was passed to read
-        mock_file.read.assert_called_with(4096)
-
-    @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.open_file")
     async def test_read_file_error(self, mock_open):
         """Test error handling when file read fails."""
         mock_open.side_effect = PermissionError("Access denied")

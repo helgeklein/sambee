@@ -110,7 +110,7 @@ Centralized registry for managing format-to-preprocessor mappings.
 if PreprocessorRegistry.requires_preprocessing(".psd"):
     # Get preprocessor for format
     preprocessor = PreprocessorRegistry.get_preprocessor_for_format(".psd")
-    
+
     # Convert directly to JPEG
     jpeg_bytes = preprocessor.convert_to_final_format(
         psd_bytes, "example.psd", output_format="jpeg"
@@ -127,36 +127,36 @@ if PreprocessorRegistry.requires_preprocessing(".psd"):
 
 ### Integration with Image Converter
 
-The preprocessing is integrated directly into `convert_image_to_jpeg()`:
+The preprocessing is integrated directly into `convert_image_for_viewer()`:
 
 ```python
-def convert_image_to_jpeg(
-    image_bytes: bytes, 
-    filename: str, 
+def convert_image_for_viewer(
+    image_bytes: bytes,
+    filename: str,
     max_dimension: Optional[int] = None
 ) -> tuple[bytes, str, str, float]:
     """Convert image to browser-ready format.
-    
+
     Returns: (bytes, mime_type, converter_name, duration_ms)
     """
     extension = get_extension(filename)
-    
+
     # Check if preprocessing needed (PSD/PSB)
     if PreprocessorRegistry.requires_preprocessing(extension):
         start_time = time.perf_counter()
-        
+
         # Get preprocessor (with automatic fallback)
         preprocessor = PreprocessorRegistry.get_preprocessor_for_format(extension)
         converter_name = preprocessor.__class__.__name__.replace("Preprocessor", "")
-        
+
         # Convert DIRECTLY to browser-ready JPEG (in-memory)
         result_bytes = preprocessor.convert_to_final_format(
             image_bytes, filename, output_format="jpeg"
         )
-        
+
         duration_ms = (time.perf_counter() - start_time) * 1000
         return result_bytes, "image/jpeg", converter_name, duration_ms
-    
+
     # Standard libvips processing for other formats
     start_time = time.perf_counter()
     vips_image = pyvips.Image.new_from_buffer(image_bytes, "")
@@ -289,16 +289,16 @@ To add support for a new tool (e.g., for PDF files):
 ```python
 class PDFPreprocessor(PreprocessorInterface):
     SUPPORTED_FORMATS = {"pdf"}
-    
+
     def check_availability(self) -> bool:
         # Check if tool exists
         result = subprocess.run(
-            ["pdftoppm", "-v"], 
-            capture_output=True, 
+            ["pdftoppm", "-v"],
+            capture_output=True,
             check=False
         )
         return result.returncode == 0
-    
+
     def convert_to_final_format(
         self, input_data: bytes, filename: str, output_format: str = "jpeg"
     ) -> bytes:
@@ -311,7 +311,7 @@ class PDFPreprocessor(PreprocessorInterface):
             "-singlefile",
             "-",  # Read from stdin
         ]
-        
+
         # Execute with stdin/stdout
         result = subprocess.run(
             command,
@@ -320,10 +320,10 @@ class PDFPreprocessor(PreprocessorInterface):
             timeout=self.TIMEOUT_SECONDS,
             check=False,
         )
-        
+
         if result.returncode != 0:
             raise PreprocessorError(f"PDF conversion failed: {result.stderr.decode()}")
-        
+
         return result.stdout
 ```
 
@@ -339,7 +339,7 @@ class PreprocessorRegistry:
 
 3. **Update file_type_registry.py** (if needed):
 ```python
-# Add PDF to needs_conversion check
+# Add PDF to needs_processing check
 _CONVERSION_NEEDED = {
     ".psd", ".psb",  # Exotic formats
     ".pdf",          # New format
@@ -357,15 +357,15 @@ RUN apt-get install -y poppler-utils  # For pdftoppm
 class TestPDFPreprocessor:
     def test_convert_pdf_to_jpeg(self):
         preprocessor = PDFPreprocessor()
-        
+
         # Load PDF bytes
         pdf_bytes = Path("test.pdf").read_bytes()
-        
+
         # Convert to JPEG
         jpeg_bytes = preprocessor.convert_to_final_format(
             pdf_bytes, "test.pdf", output_format="jpeg"
         )
-        
+
         # Verify output
         assert isinstance(jpeg_bytes, bytes)
         assert len(jpeg_bytes) > 0
@@ -411,11 +411,11 @@ Path('output.jpg').write_bytes(jpeg_bytes)
 
 # Or test via image converter
 python -c "
-from app.services.image_converter import convert_image_to_jpeg
+from app.services.image_converter import convert_image_for_viewer
 from pathlib import Path
 
 psd_bytes = Path('test.psd').read_bytes()
-jpeg_bytes, mime_type, converter, duration = convert_image_to_jpeg(
+jpeg_bytes, mime_type, converter, duration = convert_image_for_viewer(
     psd_bytes, 'test.psd'
 )
 print(f'{converter}: {len(psd_bytes)} → {len(jpeg_bytes)} bytes in {duration:.0f} ms')

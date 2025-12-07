@@ -49,15 +49,17 @@ except Exception as e:
 
 
 #
-# convert_image_to_jpeg
+# convert_image_for_viewer
 #
-def convert_image_to_jpeg(
+def convert_image_for_viewer(
     image_bytes: bytes,
     filename: str,
-    max_dimension: Optional[int] = None,
+    max_width: Optional[int] = None,
+    max_height: Optional[int] = None,
+    output_format: str = "auto",
 ) -> tuple[bytes, str, str, float]:
     """
-    Convert an image to JPEG/PNG format.
+    Convert an image to browser-ready format (JPEG/PNG/WebP).
 
     For formats not natively supported by libvips (PSD, PSB), converts
     directly to final browser-ready format using external preprocessors.
@@ -66,12 +68,15 @@ def convert_image_to_jpeg(
     Args:
         image_bytes: Raw image file bytes
         filename: Original filename (used to determine format)
-        max_dimension: Optional max width/height for downscaling large images
+        max_width: Maximum width in pixels (image scaled to fit if larger)
+        max_height: Maximum height in pixels (image scaled to fit if larger)
+        output_format: Output format - "webp", "jpeg", "png", or "auto" (default)
+                      "auto" chooses based on transparency and file type
 
     Returns:
         Tuple of (converted_bytes, mime_type, converter_name, duration_ms)
         - converted_bytes: The converted image bytes
-        - mime_type: MIME type of the output (e.g., "image/jpeg")
+        - mime_type: MIME type of the output (e.g., "image/webp")
         - converter_name: Name of converter used ("ImageMagick", "GraphicsMagick", or "libvips")
         - duration_ms: Conversion duration in milliseconds
 
@@ -89,7 +94,7 @@ def convert_image_to_jpeg(
     # Check if this format needs preprocessing (use registry)
     needs_preprocessing = PreprocessorRegistry.requires_preprocessing(extension)
 
-    # Path 1: Direct conversion for preprocessed formats (PSD, PSB)
+    # Path 1: Direct conversion for preprocessed formats (e.g., PSD)
     if needs_preprocessing:
         try:
             start_time = time.perf_counter()
@@ -138,10 +143,21 @@ def convert_image_to_jpeg(
         # The empty string tells vips to auto-detect format from buffer
         image = pyvips.Image.new_from_buffer(image_bytes, "")
 
-        # Determine output format based on transparency and file type
+        # Determine output format based on transparency, file type, and user preference
         has_alpha = image.hasalpha()  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-        if extension == ".ico" and has_alpha:
-            output_format = "png"
+
+        if output_format == "auto":
+            # Auto-select format based on image characteristics
+            if extension == ".ico" and has_alpha:
+                output_format = "png"
+            else:
+                # Default to WebP for better compression
+                output_format = "webp"
+
+        # Set MIME type
+        if output_format == "webp":
+            mime_type = "image/webp"
+        elif output_format == "png":
             mime_type = "image/png"
         else:
             output_format = "jpeg"
@@ -161,16 +177,26 @@ def convert_image_to_jpeg(
             if image.interpretation in ["cmyk", "lab", "xyz"]:  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
                 image = image.colourspace("srgb")  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
-        # Step 3: Resize if needed
-        if max_dimension and max(image.width, image.height) > max_dimension:  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
-            # thumbnail_image maintains aspect ratio
-            # Uses high-quality interpolation (lanczos3 by default)
-            image = image.thumbnail_image(max_dimension, height=max_dimension)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        # Step 3: Resize if needed (downscale only, never upscale)
+        if max_width or max_height:
+            # Only resize if image exceeds max dimensions
+            current_width = image.width  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            current_height = image.height  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+            needs_resize = (max_width and current_width > max_width) or (max_height and current_height > max_height)
+
+            if needs_resize:
+                # Resize to fit within max dimensions while maintaining aspect ratio
+                # thumbnail_image handles None values - it will scale to fit the constraint
+                image = image.thumbnail_image(max_width or 10000000, height=max_height or 10000000)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
         # Step 4: Convert to output format
         # Pipeline executes NOW when we call save
         # Use centralized settings from IMAGE_SETTINGS
-        if output_format == "jpeg":
+        if output_format == "webp":
+            # WebP: good compression, wide browser support
+            # Q=80 provides good balance between quality and file size
+            output_bytes = image.webpsave_buffer(Q=80, strip=True)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
+        elif output_format == "jpeg":
             jpeg_kwargs = get_libvips_jpeg_kwargs()
             output_bytes = image.jpegsave_buffer(**jpeg_kwargs)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
         else:  # PNG

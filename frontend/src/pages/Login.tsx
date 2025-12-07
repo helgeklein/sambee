@@ -20,6 +20,8 @@ const Login: React.FC = () => {
         const authRequired = await isAuthRequired();
         if (!authRequired) {
           logger.info("Auth method is 'none' - redirecting to browse");
+          // Initialize mobile logging for no-auth mode
+          await logger.initializeMobileLogging();
           navigate("/browse", { replace: true });
           return;
         }
@@ -40,6 +42,10 @@ const Login: React.FC = () => {
     try {
       const response = await login(username, password);
       localStorage.setItem("access_token", response.access_token);
+
+      // Initialize mobile logging after successful login
+      await logger.initializeMobileLogging();
+
       navigate("/browse");
     } catch (_err) {
       setError("Invalid username or password");

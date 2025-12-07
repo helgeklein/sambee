@@ -9,13 +9,135 @@ from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
+from app.models.file import FileType
 from app.models.user import User
-from app.services.image_converter import convert_image_to_jpeg
+from app.services.image_converter import convert_image_for_viewer
 from app.storage.smb import SMBBackend
-from app.utils.file_type_registry import needs_conversion
+from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+#
+# create_file_streamer
+#
+def create_file_streamer(backend: SMBBackend, path: str) -> AsyncIterator[bytes]:
+    """Create an async generator that streams file contents from SMB backend
+
+    Handles error cases during streaming and ensures backend disconnection.
+    """
+
+    async def file_streamer() -> AsyncIterator[bytes]:
+        try:
+            async for chunk in backend.read_file(path):
+                yield chunk
+        except FileNotFoundError as e:
+            logger.warning(f"File not found during streaming: {path} - {e}")
+            # Can't raise HTTPException mid-stream, connection will be closed
+            # Client will see incomplete response
+            raise
+        except IOError as e:
+            logger.warning(f"File access error during streaming: {path} - {e}")
+            # Can't raise HTTPException mid-stream, connection will be closed
+            raise
+        finally:
+            await backend.disconnect()
+
+    return file_streamer()
+
+
+#
+# read_and_convert_image
+#
+async def read_and_convert_image(
+    backend: SMBBackend,
+    path: str,
+    filename: str,
+    connection_id: uuid.UUID,
+    max_width: int | None = None,
+    max_height: int | None = None,
+    no_resizing: bool = False,
+) -> Response:
+    """Read an image file from SMB backend and convert it to browser-compatible format
+
+    Handles the complete workflow of:
+    - Reading file chunks from SMB
+    - Converting to browser-ready format (WebP/PNG/JPEG)
+    - Optionally resizing based on viewport dimensions
+    - Error handling for conversion failures
+    """
+
+    try:
+        # Read file into memory
+        chunks = []
+        async for chunk in backend.read_file(path):
+            chunks.append(chunk)
+        image_bytes = b"".join(chunks)
+
+        await backend.disconnect()
+
+        # Convert to browser-ready format with optional resizing
+        # If no_resizing=True, don't resize
+        max_width = None if no_resizing else max_width
+        max_height = None if no_resizing else max_height
+
+        converted_bytes, converted_mime, converter_name, duration_ms = convert_image_for_viewer(
+            image_bytes,
+            filename,
+            max_width=max_width,
+            max_height=max_height,
+            output_format="auto",  # Auto-select WebP/PNG/JPEG
+        )
+
+        logger.info(
+            f"Image converted: {filename} → {converted_mime} "
+            f"({len(image_bytes) / 1024:.0f} → {len(converted_bytes) / 1024:.0f} KB) "
+            f"via {converter_name} in {duration_ms:.0f} ms"
+        )
+
+        return Response(
+            content=converted_bytes,
+            media_type=converted_mime,
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+
+    except ImportError as e:
+        logger.error(
+            f"Image conversion failed - missing dependency: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Image format not supported: HEIC/HEIF requires additional system libraries",
+        )
+    except ValueError as e:
+        # Clean error message: replace newlines with ". " and normalize spaces
+        import re
+
+        # Replace Windows (\r\n) and Unix (\n) newlines with ". "
+        error_msg = re.sub(r"\r?\n", ". ", str(e))
+        # Collapse multiple spaces/tabs into single space
+        error_msg = re.sub(r"[ \t]+", " ", error_msg)
+        # Clean up multiple periods (e.g., ".. " -> ". ")
+        error_msg = re.sub(r"\.(\s*\.)+", ".", error_msg).strip()
+
+        logger.error(
+            f"Image conversion failed: connection_id={connection_id}, path='{path}', error={error_msg}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_msg,
+        )
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during image conversion: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process image",
+        )
 
 
 #
@@ -38,26 +160,30 @@ def validate_connection(connection: Connection) -> None:
 async def view_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
+    viewport_width: int | None = Query(None, description="Viewport width in pixels (including DPR)"),
+    viewport_height: int | None = Query(None, description="Viewport height in pixels (including DPR)"),
+    no_resizing: bool = Query(False, description="Return original image without resizing"),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> Response | StreamingResponse:
     """Stream file contents for viewing"""
 
+    # Set the user for logging
     set_user(current_user.username)
 
+    # Get the storage connection
     connection = session.get(Connection, connection_id)
     if not connection:
         logger.warning(f"Connection not found: connection_id={connection_id}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
 
+    # Verify the connection configuration
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Connection has no share name configured")
 
     try:
+        # Create SMB backend...
         backend = SMBBackend(
             host=connection.host,
             share_name=connection.share_name,
@@ -65,133 +191,43 @@ async def view_file(
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
         )
-
+        # ...and connect
         await backend.connect()
 
-        # Check if path is a file (not a directory)
+        # Get file info and ensure path points to a file (not a directory)
         try:
             file_info = await backend.get_file_info(path)
-            if file_info.type.value == "directory":
+            if file_info.type == FileType.DIRECTORY:
                 await backend.disconnect()
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Cannot view a directory",
-                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot view a directory")
         except HTTPException:
             raise
         except Exception as e:
             await backend.disconnect()
             logger.error(f"Failed to get file info: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"File not found: {path}",
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {path}")
+
+        # Check if image needs processing for browser compatibility and viewing speed
+        if needs_processing(file_info.name, file_info.size):
+            size_string = f"{file_info.size / 1024:.0f} KB" if file_info.size else "unknown"
+            logger.info(f"Image requires processing: connection_id={connection_id}, path='{path}', size={size_string}")
+            return await read_and_convert_image(
+                backend=backend,
+                path=path,
+                filename=file_info.name,
+                connection_id=connection_id,
+                max_width=viewport_width,
+                max_height=viewport_height,
+                no_resizing=no_resizing,
             )
-
-        # Determine MIME type from filename to avoid guessing wrong types
-        import mimetypes
-        from pathlib import PurePosixPath
-
-        filename = PurePosixPath(path).name
-        mime_type, _ = mimetypes.guess_type(filename)
-        # Only use guessed type if it's not a strange default
-        # For unknown extensions, use application/octet-stream
-        if not mime_type or mime_type.startswith("chemical/"):
-            mime_type = "application/octet-stream"
-
-        # Check if image needs conversion for browser compatibility
-        if needs_conversion(filename):
-            logger.info(f"Image requires conversion: connection_id={connection_id}, path='{path}'")
-
-            try:
-                # Read file in large chunks for optimal SMB performance
-                chunks = []
-                async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
-                    chunks.append(chunk)
-                image_bytes = b"".join(chunks)
-
-                await backend.disconnect()
-
-                # Convert to browser-ready format (uses centralized IMAGE_SETTINGS)
-                converted_bytes, converted_mime, converter_name, duration_ms = convert_image_to_jpeg(
-                    image_bytes,
-                    filename,
-                )
-
-                logger.info(
-                    f"Image converted: {filename} → {converted_mime} "
-                    f"({len(image_bytes) / 1024:.0f} → {len(converted_bytes) / 1024:.0f} KB) "
-                    f"via {converter_name} in {duration_ms:.0f} ms"
-                )
-
-                return Response(
-                    content=converted_bytes,
-                    media_type=converted_mime,
-                    headers={"Content-Disposition": f'inline; filename="{filename}"'},
-                )
-
-            except ImportError as e:
-                logger.error(
-                    f"Image conversion failed - missing dependency: {e}",
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                    detail="Image format not supported: HEIC/HEIF requires additional system libraries",
-                )
-            except ValueError as e:
-                # Clean error message: replace newlines with ". " and normalize spaces
-                import re
-
-                # Replace Windows (\r\n) and Unix (\n) newlines with ". "
-                error_msg = re.sub(r"\r?\n", ". ", str(e))
-                # Collapse multiple spaces/tabs into single space
-                error_msg = re.sub(r"[ \t]+", " ", error_msg)
-                # Clean up multiple periods (e.g., ".. " -> ". ")
-                error_msg = re.sub(r"\.(\s*\.)+", ".", error_msg).strip()
-
-                logger.error(
-                    f"Image conversion failed: connection_id={connection_id}, path='{path}', error={error_msg}",
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=error_msg,
-                )
-            except Exception as e:
-                logger.error(
-                    f"Unexpected error during image conversion: connection_id={connection_id}, "
-                    f"path='{path}', error={type(e).__name__}: {e}",
-                    exc_info=True,
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to process image",
-                )
-
-        # Stream the file (browser-native format or non-image)
-        async def file_streamer() -> AsyncIterator[bytes]:
-            try:
-                # Use smaller chunks (1MB) to reduce SMB credit requirements
-                # Large chunks (8MB) can exhaust credits with concurrent requests
-                async for chunk in backend.read_file(path, chunk_size=1024 * 1024):
-                    yield chunk
-            except FileNotFoundError as e:
-                logger.warning(f"File not found during streaming: {path} - {e}")
-                # Can't raise HTTPException mid-stream, connection will be closed
-                # Client will see incomplete response
-                raise
-            except IOError as e:
-                logger.warning(f"File access error during streaming: {path} - {e}")
-                # Can't raise HTTPException mid-stream, connection will be closed
-                raise
-            finally:
-                await backend.disconnect()
-
-        logger.info(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={mime_type}")
-        return StreamingResponse(
-            file_streamer(),
-            media_type=mime_type,
-            headers={"Content-Disposition": f'inline; filename="{filename}"'},
-        )
+        else:
+            # Stream the file (browser-native format or non-image)
+            logger.info(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}")
+            return StreamingResponse(
+                create_file_streamer(backend, path),
+                media_type=file_info.mime_type,
+                headers={"Content-Disposition": f'inline; filename="{file_info.name}"'},
+            )
 
     except HTTPException:
         raise
@@ -254,21 +290,13 @@ async def download_file(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file")
 
         # Stream the file
-        async def file_streamer() -> AsyncIterator[bytes]:
-            try:
-                # Read file in large chunks for optimal SMB performance
-                async for chunk in backend.read_file(path, chunk_size=8 * 1024 * 1024):
-                    yield chunk
-            finally:
-                await backend.disconnect()
-
         headers = {"Content-Disposition": f'attachment; filename="{file_info.name}"'}
         if file_info.size:
             headers["Content-Length"] = str(file_info.size)
 
         logger.info(f"Streaming file for download: connection_id={connection_id}, path='{path}', size={file_info.size}")
         return StreamingResponse(
-            file_streamer(),
+            create_file_streamer(backend, path),
             media_type="application/octet-stream",
             headers=headers,
         )

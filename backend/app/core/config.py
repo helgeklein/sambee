@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
-from app.core.auth_methods import AuthMethod, parse_auth_method
+from app.core.auth_methods import AuthMethod
 from app.core.environment import IS_DEVELOPMENT
 from app.core.exceptions import ConfigurationError
 
@@ -68,6 +68,24 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         if "username" in admin:
             flat_config["admin_username"] = admin["username"]
 
+    # Image viewer settings
+    if "image_viewer" in toml_data:
+        image_viewer = toml_data["image_viewer"]
+        if "conv_size_thresh" in image_viewer:
+            flat_config["image_viewer_conv_size_thresh"] = image_viewer["conv_size_thresh"]
+
+    # Frontend logging settings
+    if "frontend_logging" in toml_data:
+        frontend_logging = toml_data["frontend_logging"]
+        if "enabled" in frontend_logging:
+            flat_config["frontend_logging_enabled"] = frontend_logging["enabled"]
+        if "log_retention_hours" in frontend_logging:
+            flat_config["frontend_log_retention_hours"] = frontend_logging["log_retention_hours"]
+        if "default_log_levels" in frontend_logging:
+            flat_config["frontend_default_log_levels"] = frontend_logging["default_log_levels"]
+        if "default_log_components" in frontend_logging:
+            flat_config["frontend_default_log_components"] = frontend_logging["default_log_components"]
+
     return flat_config
 
 
@@ -86,41 +104,37 @@ class StaticSettings:
 #
 # User-configurable settings
 #
-class UserSettings(BaseModel):
-    """Application configuration settings
+class Settings(BaseModel):
+    """Application settings with validation"""
 
-    Loaded from config.toml file (optional - all secrets auto-generated in database).
-
-    Note: secret_key, encryption_key, and admin_password are stored in the
-    database and auto-generated on first run. They are not loaded from config.
-    """
+    model_config = {"extra": "allow"}
 
     # App settings
     log_level: str = "INFO"
 
-    # Security - secrets loaded from database (not config file)
-    # These will be set by database.py after initialization
-    secret_key: str = ""  # Loaded from database
-    encryption_key: str = ""  # Loaded from database
-    access_token_expire_minutes: int = 60 * 24  # 24 hours
-    auth_method: AuthMethod = AuthMethod.PASSWORD  # Authentication method
+    # Auth method - must be set via config or environment variable
+    auth_method: AuthMethod = AuthMethod.PASSWORD
 
-    @field_validator("auth_method", mode="before")
-    @classmethod
-    def validate_auth_method(cls, v: str | AuthMethod) -> AuthMethod:
-        """Validate and convert auth_method to AuthMethod enum"""
-        if isinstance(v, AuthMethod):
-            return v
-        return parse_auth_method(v)
+    # Security settings
+    access_token_expire_minutes: int = 1440
 
-    # Admin setup (username only - password auto-generated)
+    # Admin settings
     admin_username: str = "admin"
+
+    # Image viewer settings
+    image_viewer_conv_size_thresh: int = 512000
+
+    # Frontend logging settings
+    frontend_logging_enabled: bool = False
+    frontend_log_retention_hours: int = 1
+    frontend_default_log_levels: str = "error,warn,info,debug"
+    frontend_default_log_components: str = ""
 
 
 #
 # load_settings
 #
-def load_settings() -> UserSettings:
+def load_settings() -> Settings:
     """Load settings from config.toml file."""
 
     # Allow tests to override config path via environment variable
@@ -138,7 +152,7 @@ def load_settings() -> UserSettings:
         config_path = Path("/app/config.toml")
 
     toml_config = load_toml_config(config_path)
-    return UserSettings(**toml_config)
+    return Settings(**toml_config)
 
 
 # Create global instances

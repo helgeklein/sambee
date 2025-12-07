@@ -76,10 +76,14 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const lastClickTimeRef = useRef<number>(0);
   const dialogRef = useRef<HTMLDivElement>(null);
   const swiperRef = useRef<SwiperType | null>(null);
+  const mobileLoggingInitialized = useRef(false);
+  const failedSwipeFlushTimer = useRef<NodeJS.Timeout | null>(null);
+  const isTouching = useRef(false);
 
-  // Enable mobile logging if on touch device
+  // Enable mobile logging if on touch device (only once)
   useEffect(() => {
-    if (isTouchDevice()) {
+    if (isTouchDevice() && !mobileLoggingInitialized.current) {
+      mobileLoggingInitialized.current = true;
       logger.enableMobileLogging(100, 30000); // 100 logs, 30s flush interval
       logger.infoMobile(
         "ImageViewer mounted on touch device",
@@ -90,15 +94,18 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         "ImageViewer"
       );
     }
+  }, [images.length, initialIndex]);
 
+  // Cleanup mobile logging on unmount
+  useEffect(() => {
     return () => {
-      if (isTouchDevice()) {
+      if (isTouchDevice() && mobileLoggingInitialized.current) {
         logger.infoMobile("ImageViewer unmounting", {}, "ImageViewer");
         void logger.flushMobileLogs();
         logger.disableMobileLogging();
       }
     };
-  }, [images.length, initialIndex]);
+  }, []);
 
   // Carousel image caching
   const imageCache = useRef<Map<number, string>>(new Map());
@@ -160,10 +167,17 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           );
         }
 
+        // Get viewport dimensions for server-side resizing
+        // Use window dimensions as a proxy for the image container size
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
         const blob = await fetchWithRetry(
           () =>
             apiService.getImageBlob(connectionId, imagePath, {
               signal: abortController.signal,
+              viewportWidth,
+              viewportHeight,
             }),
           {
             signal: abortController.signal,
@@ -201,7 +215,32 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           );
         }
 
-        setLoadingStates((prev) => new Map(prev).set(index, false));
+        // Skip state update if touch is active to avoid blocking the UI
+        // State will be updated after touch ends via useEffect
+        if (!isTouching.current) {
+          if (isTouchDevice()) {
+            logger.debugMobile(
+              "Setting loading state to false (not touching)",
+              {
+                index,
+                timestamp: Date.now(),
+              },
+              "ImageLoader"
+            );
+          }
+          setLoadingStates((prev) => new Map(prev).set(index, false));
+        } else {
+          if (isTouchDevice()) {
+            logger.debugMobile(
+              "Deferring loading state update (touch active)",
+              {
+                index,
+                timestamp: Date.now(),
+              },
+              "ImageLoader"
+            );
+          }
+        }
       } catch (err) {
         if (abortController.signal.aborted) {
           logInfo("Image fetch aborted", { index });
@@ -219,8 +258,11 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         // For other errors, show the specific error message from backend
         const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
 
-        setErrorStates((prev) => new Map(prev).set(index, errorMessage));
-        setLoadingStates((prev) => new Map(prev).set(index, false));
+        // Defer state updates to avoid interfering with touch events
+        requestAnimationFrame(() => {
+          setErrorStates((prev) => new Map(prev).set(index, errorMessage));
+          setLoadingStates((prev) => new Map(prev).set(index, false));
+        });
       } finally {
         abortControllers.current.delete(index);
       }
@@ -228,17 +270,66 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     [connectionId, images, loadingStates, fetchWithRetry]
   );
 
-  // Preload current and adjacent images
+  // Load current image, then preload adjacent images sequentially
+  // With server-side resizing, images are small enough to preload safely
   useEffect(() => {
-    const indicesToLoad = [
-      currentIndex - 1, // Previous
-      currentIndex, // Current
-      currentIndex + 1, // Next
-    ].filter((i) => i >= 0 && i < images.length);
+    // Don't preload during active touch to avoid blocking the main thread
+    if (isTouching.current) {
+      if (isTouchDevice()) {
+        logger.debugMobile(
+          "Skipping preload (touch active)",
+          {
+            currentIndex,
+            timestamp: Date.now(),
+          },
+          "ImageLoader"
+        );
+      }
+      return;
+    }
 
-    indicesToLoad.forEach((index) => {
-      fetchAndCacheImage(index);
-    });
+    // Load current image first, then load adjacent images after it completes
+    if (currentIndex >= 0 && currentIndex < images.length) {
+      if (isTouchDevice()) {
+        logger.debugMobile(
+          "useEffect: calling fetchAndCacheImage for current",
+          {
+            currentIndex,
+            timestamp: Date.now(),
+          },
+          "ImageLoader"
+        );
+      }
+      fetchAndCacheImage(currentIndex)
+        .then(() => {
+          // After current image loads, preload previous and next images
+          const prevIndex = currentIndex - 1;
+          const nextIndex = currentIndex + 1;
+
+          if (isTouchDevice()) {
+            logger.debugMobile(
+              "useEffect: current loaded, preloading adjacent",
+              {
+                currentIndex,
+                prevIndex,
+                nextIndex,
+                timestamp: Date.now(),
+              },
+              "ImageLoader"
+            );
+          }
+
+          if (prevIndex >= 0) {
+            fetchAndCacheImage(prevIndex);
+          }
+          if (nextIndex < images.length) {
+            fetchAndCacheImage(nextIndex);
+          }
+        })
+        .catch(() => {
+          // Ignore errors, just don't preload adjacent images if current fails
+        });
+    }
   }, [currentIndex, images.length, fetchAndCacheImage]);
 
   // Cleanup: revoke blob URLs for images far from current position
@@ -688,6 +779,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
               component="img"
               src={imageUrl}
               alt={slideFilename}
+              decoding="async"
               onError={() => {
                 logError("Error loading image in carousel", {
                   index,
@@ -809,6 +901,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             minHeight: 0,
             paddingBottom: "env(safe-area-inset-bottom, 0px)",
             overscrollBehavior: "none",
+            touchAction: "pan-x",
           }}
         >
           <Swiper
@@ -845,10 +938,37 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             onSlideChangeTransitionEnd={(swiper) => {
               const newIndex = swiper.activeIndex;
 
-              // Log transition end
+              // Clear failed swipe timer since transition succeeded
+              if (failedSwipeFlushTimer.current) {
+                clearTimeout(failedSwipeFlushTimer.current);
+                failedSwipeFlushTimer.current = null;
+              }
+
+              // Log transition end with detailed swiper state
               if (isTouchDevice()) {
                 logger.debugMobile(
                   "Slide transition ended",
+                  {
+                    newIndex,
+                    swiperRealIndex: swiper.realIndex,
+                    swiperActiveIndex: swiper.activeIndex,
+                    currentIndexBefore: currentIndex,
+                    isBeginning: swiper.isBeginning,
+                    isEnd: swiper.isEnd,
+                    animating: swiper.animating,
+                    timestamp: Date.now(),
+                  },
+                  "Swiper"
+                );
+                // Flush logs after successful transition
+                void logger.flushMobileLogs();
+              }
+
+              // Update state immediately - RAF was causing issues where the callback
+              // would sometimes never fire, leading to swiper freeze
+              if (isTouchDevice()) {
+                logger.debugMobile(
+                  "Setting currentIndex (immediately)",
                   {
                     newIndex,
                     timestamp: Date.now(),
@@ -856,21 +976,46 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                   "Swiper"
                 );
               }
-
-              // Defer state update to next frame to avoid blocking
-              setTimeout(() => {
-                setCurrentIndex(newIndex);
-                logInfo("Navigated to image via swipe", { index: newIndex });
-              }, 0);
+              setCurrentIndex(newIndex);
+              logInfo("Navigated to image via swipe", { index: newIndex });
             }}
             onTouchStart={() => {
               if (isTouchDevice() && scale === 1) {
+                isTouching.current = true;
+
+                // Abort in-flight fetches for images that are NOT already cached and NOT
+                // immediately adjacent (current ±1). Already-cached images are safe to display.
+                // Adjacent images we need for the swipe, so keep those fetches running.
+                const adjacentIndices = new Set([currentIndex - 1, currentIndex, currentIndex + 1]);
+                let abortCount = 0;
+                for (const [index, controller] of abortControllers.current.entries()) {
+                  const isAdjacent = adjacentIndices.has(index);
+                  const isCached = imageCache.current.has(index);
+                  // Abort if: not adjacent AND not already cached
+                  if (!isAdjacent && !isCached) {
+                    controller.abort();
+                    abortControllers.current.delete(index);
+                    abortCount++;
+                  }
+                }
+
+                const swiper = swiperRef.current;
                 logger.debugMobile(
                   "Touch start on Swiper",
                   {
                     scale,
                     currentIndex,
                     timestamp: Date.now(),
+                    abortedFetches: abortCount,
+                    swiperState: swiper
+                      ? {
+                          activeIndex: swiper.activeIndex,
+                          realIndex: swiper.realIndex,
+                          animating: swiper.animating,
+                          allowSlideNext: swiper.allowSlideNext,
+                          allowSlidePrev: swiper.allowSlidePrev,
+                        }
+                      : null,
                   },
                   "Swiper"
                 );
@@ -891,14 +1036,82 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             }}
             onTouchEnd={() => {
               if (isTouchDevice() && scale === 1) {
+                isTouching.current = false;
+                const swiper = swiperRef.current;
                 logger.debugMobile(
                   "Touch end on Swiper",
+                  {
+                    currentIndex,
+                    timestamp: Date.now(),
+                    swiperState: swiper
+                      ? {
+                          activeIndex: swiper.activeIndex,
+                          realIndex: swiper.realIndex,
+                          animating: swiper.animating,
+                          allowSlideNext: swiper.allowSlideNext,
+                          allowSlidePrev: swiper.allowSlidePrev,
+                          isBeginning: swiper.isBeginning,
+                          isEnd: swiper.isEnd,
+                        }
+                      : null,
+                  },
+                  "Swiper"
+                );
+
+                // Update loading states for any images that finished during the touch
+                // This is deferred to avoid blocking the UI during touch handling
+                setLoadingStates((prev) => {
+                  const updated = new Map(prev);
+                  let changed = false;
+                  imageCache.current.forEach((_, index) => {
+                    if (prev.get(index) !== false) {
+                      updated.set(index, false);
+                      changed = true;
+                    }
+                  });
+                  if (changed && isTouchDevice()) {
+                    logger.debugMobile(
+                      "Updated loading states after touch end",
+                      {
+                        timestamp: Date.now(),
+                      },
+                      "ImageLoader"
+                    );
+                  }
+                  return changed ? updated : prev;
+                });
+
+                // Set timer to flush logs if no slide change occurs within 1 second
+                // (this captures failed swipes)
+                if (failedSwipeFlushTimer.current) {
+                  clearTimeout(failedSwipeFlushTimer.current);
+                }
+                failedSwipeFlushTimer.current = setTimeout(() => {
+                  logger.debugMobile(
+                    "No slide change after touch end - possible failed swipe",
+                    {
+                      currentIndex,
+                      timestamp: Date.now(),
+                    },
+                    "Swiper"
+                  );
+                  void logger.flushMobileLogs();
+                }, 1000);
+              }
+            }}
+            onTouchCancel={() => {
+              if (isTouchDevice() && scale === 1) {
+                isTouching.current = false;
+                logger.warnMobile(
+                  "Touch CANCELLED on Swiper",
                   {
                     currentIndex,
                     timestamp: Date.now(),
                   },
                   "Swiper"
                 );
+                // Flush logs immediately to capture cancellation
+                void logger.flushMobileLogs();
               }
             }}
             onClick={handleSwiperClick}
@@ -915,6 +1128,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             threshold={scale > 1 ? 50 : 5}
             resistanceRatio={0}
             preventInteractionOnTransition={false}
+            passiveListeners={false}
             style={{ height: "100%", width: "100%" }}
           >
             {images.map((_imagePath, index) => (

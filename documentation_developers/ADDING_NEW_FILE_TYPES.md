@@ -313,7 +313,7 @@ Done! The format is now fully integrated.
 
 **What happens automatically:**
 - ✅ Backend returns correct MIME type via `get_mime_type()`
-- ✅ Backend routes to image converter via `needs_conversion()`
+- ✅ Backend routes to image converter via `needs_processing()`
 - ✅ File icon displays with purple color (frontend)
 - ✅ Preview opens when file is clicked (frontend)
 - ✅ Gallery mode includes JPEG XL files (frontend)
@@ -327,7 +327,7 @@ Done! The format is now fully integrated.
 - **Type-safe**: Uses `FileCategory` enum for validation
 - **Functions**:
   - `get_mime_type(filename)` - Get MIME type for a file
-  - `needs_conversion(filename)` - Check if image needs conversion
+  - `needs_processing(filename)` - Check if image needs conversion
   - `is_image_file(filename)` - Check if file is an image
   - `get_file_type_by_extension(filename)` - Get full definition
   - `get_file_type_by_mime(mime_type)` - Get definition by MIME type
@@ -347,4 +347,4 @@ Done! The format is now fully integrated.
 2. **Frontend receives**: File list with MIME types included
 3. **Icon display**: Frontend uses `getFileIcon()` based on filename
 4. **Preview**: Frontend uses `getViewerComponent()` based on `mime_type` from backend
-5. **Image conversion**: Backend uses `needs_conversion()` to route through `image_converter.py`
+5. **Image conversion**: Backend uses `needs_processing()` to route through `image_converter.py`
