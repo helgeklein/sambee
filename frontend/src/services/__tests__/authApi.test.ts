@@ -1,0 +1,332 @@
+/**
+ * Contract tests for Authentication API
+ *
+ * Ensures frontend types match backend API responses for authentication endpoints
+ */
+
+import type { AxiosResponse } from "axios";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AuthToken, User } from "../../types";
+
+// Mock axios before importing services
+vi.mock("axios", () => {
+  const mockAxiosInstance = {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+    interceptors: {
+      request: {
+        use: vi.fn(),
+        eject: vi.fn(),
+      },
+      response: {
+        use: vi.fn(),
+        eject: vi.fn(),
+      },
+    },
+  };
+
+  return {
+    default: {
+      create: vi.fn(() => mockAxiosInstance),
+      isCancel: vi.fn(() => false),
+      get: vi.fn(), // Standalone get for authConfig
+    },
+  };
+});
+
+import axios from "axios";
+import { apiService } from "../api";
+import type { AuthMethod } from "../authConfig";
+import { clearAuthConfigCache, getAuthConfig } from "../authConfig";
+
+const mockedAxios = vi.mocked(axios);
+const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
+  get: ReturnType<typeof vi.fn>;
+  post: ReturnType<typeof vi.fn>;
+};
+
+// Also need to mock the standalone axios.get for authConfig
+const mockAxiosGet = axios.get as ReturnType<typeof vi.fn>;
+
+describe("Authentication API Contract Tests", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    clearAuthConfigCache();
+  });
+
+  describe("Contract Tests - GET /auth/config", () => {
+    it("should return correct auth config format", async () => {
+      clearAuthConfigCache();
+      const backendResponse = {
+        auth_method: "password" as AuthMethod,
+      };
+
+      mockAxiosGet.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const config = await getAuthConfig();
+
+      // Verify required field is present
+      expect(config).toHaveProperty("auth_method");
+
+      // Verify type
+      expect(typeof config.auth_method).toBe("string");
+
+      // Verify value
+      expect(config.auth_method).toBe("password");
+    });
+
+    it("should handle 'none' auth method", async () => {
+      clearAuthConfigCache();
+      const backendResponse = {
+        auth_method: "none" as AuthMethod,
+      };
+
+      mockAxiosGet.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const config = await getAuthConfig();
+      expect(config.auth_method).toBe("none");
+    });
+
+    it("should handle 'password' auth method", async () => {
+      clearAuthConfigCache();
+      const backendResponse = {
+        auth_method: "password" as AuthMethod,
+      };
+
+      mockAxiosGet.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const config = await getAuthConfig();
+      expect(config.auth_method).toBe("password");
+    });
+  });
+  describe("Contract Tests - POST /auth/token", () => {
+    it("should return correct token response format", async () => {
+      const backendResponse: AuthToken = {
+        access_token: "test-token-123",
+        token_type: "bearer",
+        username: "testuser",
+        is_admin: false,
+      };
+
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.login("testuser", "password");
+
+      // Verify all required fields are present
+      expect(result).toHaveProperty("access_token");
+      expect(result).toHaveProperty("token_type");
+      expect(result).toHaveProperty("username");
+      expect(result).toHaveProperty("is_admin");
+
+      // Verify types
+      expect(typeof result.access_token).toBe("string");
+      expect(typeof result.token_type).toBe("string");
+      expect(typeof result.username).toBe("string");
+      expect(typeof result.is_admin).toBe("boolean");
+
+      // Verify values
+      expect(result.access_token).toBe("test-token-123");
+      expect(result.token_type).toBe("bearer");
+      expect(result.username).toBe("testuser");
+      expect(result.is_admin).toBe(false);
+    });
+
+    it("should handle admin user token response", async () => {
+      const backendResponse: AuthToken = {
+        access_token: "admin-token-456",
+        token_type: "bearer",
+        username: "admin",
+        is_admin: true,
+      };
+
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.login("admin", "adminpass");
+
+      expect(result.is_admin).toBe(true);
+      expect(result.username).toBe("admin");
+    });
+
+    it("should handle non-admin user token response", async () => {
+      const backendResponse: AuthToken = {
+        access_token: "user-token-789",
+        token_type: "bearer",
+        username: "regularuser",
+        is_admin: false,
+      };
+
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.login("regularuser", "userpass");
+
+      expect(result.is_admin).toBe(false);
+      expect(result.username).toBe("regularuser");
+    });
+  });
+
+  describe("Contract Tests - GET /auth/me", () => {
+    it("should return correct user format", async () => {
+      const backendResponse: User = {
+        username: "testuser",
+        is_admin: false,
+        created_at: "2024-01-01T00:00:00Z",
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getCurrentUser();
+
+      // Verify all required fields are present
+      expect(result).toHaveProperty("username");
+      expect(result).toHaveProperty("is_admin");
+
+      // Verify types
+      expect(typeof result.username).toBe("string");
+      expect(typeof result.is_admin).toBe("boolean");
+
+      // Verify values
+      expect(result.username).toBe("testuser");
+      expect(result.is_admin).toBe(false);
+    });
+
+    it("should include created_at timestamp when provided", async () => {
+      const backendResponse: User = {
+        username: "testuser",
+        is_admin: false,
+        created_at: "2024-01-01T12:30:45Z",
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getCurrentUser();
+
+      // Verify optional field
+      expect(result).toHaveProperty("created_at");
+      expect(typeof result.created_at).toBe("string");
+      expect(result.created_at).toBe("2024-01-01T12:30:45Z");
+    });
+
+    it("should handle admin user info", async () => {
+      const backendResponse: User = {
+        username: "admin",
+        is_admin: true,
+        created_at: "2023-12-01T00:00:00Z",
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getCurrentUser();
+
+      expect(result.username).toBe("admin");
+      expect(result.is_admin).toBe(true);
+    });
+
+    it("should handle user without created_at timestamp", async () => {
+      const backendResponse: User = {
+        username: "testuser",
+        is_admin: false,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getCurrentUser();
+
+      expect(result.username).toBe("testuser");
+      expect(result.is_admin).toBe(false);
+      // created_at is optional, may or may not be present
+    });
+  });
+
+  describe("Contract Tests - POST /auth/change-password", () => {
+    it("should handle successful password change", async () => {
+      // Backend returns empty response for successful password change
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: {},
+      } as AxiosResponse);
+
+      // Should not throw
+      await expect(apiService.changePassword("oldpass", "newpass")).resolves.toBeUndefined();
+
+      // Verify correct request was made
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/auth/change-password", {
+        current_password: "oldpass",
+        new_password: "newpass",
+      });
+    });
+
+    it("should send correct request format", async () => {
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: {},
+      } as AxiosResponse);
+
+      await apiService.changePassword("current123", "new456");
+
+      // Verify request structure
+      const callArgs = mockAxiosInstance.post.mock.calls[0];
+      expect(callArgs[0]).toBe("/auth/change-password");
+      expect(callArgs[1]).toEqual({
+        current_password: "current123",
+        new_password: "new456",
+      });
+    });
+  });
+
+  describe("Error Handling", () => {
+    it("should handle 401 unauthorized on login", async () => {
+      mockAxiosInstance.post.mockRejectedValueOnce({
+        response: {
+          status: 401,
+          data: { detail: "Incorrect username or password" },
+        },
+      });
+
+      await expect(apiService.login("wrong", "credentials")).rejects.toMatchObject({
+        response: { status: 401 },
+      });
+    });
+
+    it("should handle network error on auth config fetch", async () => {
+      clearAuthConfigCache();
+      mockAxiosGet.mockRejectedValueOnce(new Error("Network error"));
+
+      // Should default to password auth on error
+      const config = await getAuthConfig();
+      expect(config.auth_method).toBe("password");
+    });
+    it("should handle 401 on getCurrentUser", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 401,
+          data: { detail: "Not authenticated" },
+        },
+      });
+
+      await expect(apiService.getCurrentUser()).rejects.toMatchObject({
+        response: { status: 401 },
+      });
+    });
+  });
+});

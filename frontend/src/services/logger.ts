@@ -67,7 +67,7 @@ class Logger {
       if (config.enabled) {
         this.enableMobileLogging();
         this.info("Mobile logging initialized from server config", {
-          levels: config.levels,
+          log_level: config.log_level,
           components: config.components,
         });
       }

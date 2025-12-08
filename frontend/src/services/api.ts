@@ -382,22 +382,58 @@ class ApiService {
   async getLoggingConfig() {
     const response = await this.api.get<{
       enabled: boolean;
-      levels: string[];
+      log_level: string;
       components: string[];
     }>("/logs/config");
     return response.data;
   }
 
   /**
-   * Update frontend logging configuration
+   * Send mobile log entries to server
    */
-  async updateLoggingConfig(config: { enabled: boolean; levels: string[]; components: string[] }) {
-    const response = await this.api.put<{
-      enabled: boolean;
-      levels: string[];
-      components: string[];
-    }>("/logs/config", config);
+  async sendMobileLogs(batch: {
+    session_id: string;
+    device_info: Record<string, unknown>;
+    logs: Array<{
+      timestamp: number;
+      level: string;
+      message: string;
+      context?: Record<string, unknown>;
+      component?: string;
+    }>;
+  }) {
+    const response = await this.api.post<{
+      status: string;
+      filename: string;
+      logs_received: number;
+    }>("/logs/mobile", batch);
     return response.data;
+  }
+
+  /**
+   * List available mobile log files
+   */
+  async listMobileLogs() {
+    const response = await this.api.get<{
+      files: Array<{
+        filename: string;
+        size: number;
+        modified: string;
+        session_id: string;
+        log_count: number;
+      }>;
+      total_size: number;
+    }>("/logs/list");
+    return response.data;
+  }
+
+  /**
+   * Get download URL for a mobile log file
+   */
+  getLogDownloadUrl(filename: string): string {
+    const token = localStorage.getItem("access_token");
+    const baseURL = this.api.defaults.baseURL || "/api";
+    return `${baseURL}/logs/download/${encodeURIComponent(filename)}?token=${token}`;
   }
 }
 

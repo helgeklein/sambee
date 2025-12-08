@@ -7,12 +7,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlmodel import Session
 
 from app.core.config import settings, static
 from app.core.logging import get_logger
 from app.core.security import get_current_user_with_auth_check
-from app.db.database import get_session
 from app.models.logs import MobileLogBatch
 from app.models.user import User
 from app.services.log_manager import MobileLogManager
@@ -156,16 +154,8 @@ class LoggingConfig(BaseModel):
     """Frontend logging configuration"""
 
     enabled: bool
-    levels: list[str]
+    log_level: str  # Log level: DEBUG, INFO, WARNING, ERROR
     components: list[str]  # Empty list means all components
-
-
-class UpdateLoggingConfigRequest(BaseModel):
-    """Request to update logging configuration"""
-
-    enabled: bool
-    levels: list[str]
-    components: list[str]
 
 
 #
@@ -185,73 +175,27 @@ async def get_logging_config(
         Logging configuration
     """
 
-    # User preference takes precedence, fallback to global default
-    enabled = user.enable_frontend_logging if user.enable_frontend_logging is not None else settings.frontend_logging_enabled
+    import re
 
-    # Parse comma-separated strings to lists, using system defaults if user has defaults
-    levels_str = user.frontend_log_levels if user.frontend_log_levels != "error,warn,info,debug" else settings.frontend_default_log_levels
-    components_str = user.frontend_log_components if user.frontend_log_components != "" else settings.frontend_default_log_components
+    # Check if logging is enabled globally
+    enabled = settings.frontend_logging_enabled
 
-    levels = [lvl.strip() for lvl in levels_str.split(",") if lvl.strip()]
-    components = [comp.strip() for comp in components_str.split(",") if comp.strip()]
+    # If username regex is configured, check if user matches
+    if enabled and settings.frontend_logging_username_regex:
+        try:
+            pattern = re.compile(settings.frontend_logging_username_regex)
+            enabled = bool(pattern.match(user.username))
+        except re.error as e:
+            logger.error(f"Invalid frontend_logging_username_regex: {e}")
+            enabled = False
+
+    # Get log level from settings (already validated and normalized to uppercase)
+    log_level = settings.frontend_log_level
+
+    components = [comp.strip() for comp in settings.frontend_log_components.split(",") if comp.strip()]
 
     return LoggingConfig(
         enabled=enabled,
-        levels=levels,
+        log_level=log_level,
         components=components,
     )
-
-
-#
-# update_logging_config
-#
-@router.put("/config")
-async def update_logging_config(
-    request: UpdateLoggingConfigRequest,
-    user: Annotated[User, Depends(get_current_user_with_auth_check)],
-    session: Session = Depends(get_session),
-) -> LoggingConfig:
-    """
-    Update frontend logging configuration for current user
-
-    Args:
-        request: New logging configuration
-        user: Authenticated user
-        session: Database session
-
-    Returns:
-        Updated logging configuration
-    """
-
-    try:
-        # Validate levels
-        valid_levels = {"debug", "info", "warn", "error"}
-        for level in request.levels:
-            if level.lower() not in valid_levels:
-                raise HTTPException(status_code=400, detail=f"Invalid log level: {level}. Must be one of: {', '.join(valid_levels)}")
-
-        # Update user preferences
-        user.enable_frontend_logging = request.enabled
-        user.frontend_log_levels = ",".join(request.levels)
-        user.frontend_log_components = ",".join(request.components)
-
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-
-        logger.info(
-            f"Updated frontend logging config for user {user.username}: "
-            f"enabled={request.enabled}, levels={request.levels}, components={request.components}"
-        )
-
-        return LoggingConfig(
-            enabled=request.enabled,
-            levels=request.levels,
-            components=request.components,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to update logging config: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update logging configuration")

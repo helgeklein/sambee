@@ -20,7 +20,7 @@ from app.core.exceptions import ConfigurationError, SambeeError
 from app.core.logging import log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
-from app.db.database import engine, init_db
+from app.db.database import DATABASE_FILE_PATH, engine, init_db
 from app.models.user import User
 from app.storage.smb_pool import shutdown_connection_pool
 
@@ -37,13 +37,16 @@ if IS_DEVELOPMENT:
 
 # Configure logging (no timestamp - Docker adds them automatically)
 log_format = "%(name)s - %(levelname)s - %(message)s"
-logging.basicConfig(level=logging.INFO, format=log_format, handlers=handlers)
+# Convert log level string (e.g., "INFO") to Python logging constant (e.g., logging.INFO = 20)
+# This allows config.toml to use human-readable strings like "DEBUG" or "ERROR"
+log_level = getattr(logging, settings.log_level)
+logging.basicConfig(level=log_level, format=log_format, handlers=handlers)
 
 # Configure Uvicorn's loggers to use our format and rename uvicorn.error -> uvicorn
 uvicorn_formatter = logging.Formatter(log_format)
 for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
     uvicorn_logger = logging.getLogger(logger_name)
-    uvicorn_logger.setLevel(logging.INFO)
+    uvicorn_logger.setLevel(log_level)
     # Replace handlers with our formatted ones
     uvicorn_logger.handlers.clear()
     for handler in handlers:
@@ -87,7 +90,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Starting Sambee application...")
 
         # Initialize database
-        logger.info("Initializing database...")
+        logger.info(f"Initializing database: {DATABASE_FILE_PATH.absolute()}")
         init_db()
         logger.info("Database initialized")
 

@@ -6,7 +6,7 @@
 #   cp config.example.toml config.toml
 
 [app]
-# Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Backend log level: DEBUG, INFO, WARNING, ERROR (case-insensitive)
 log_level = "INFO"
 
 [security]
@@ -28,16 +28,22 @@ username = "admin"
 
 [frontend_logging]
 # Enable frontend logging globally (default: false)
-# Individual users can override this in their profile
 # enabled = false
 
 # Delete frontend logs older than this many hours (default: 1)
 # log_retention_hours = 1
 
-# Default log levels for all users (comma-separated, case-insensitive)
-# Options: debug, info, warn, error
-# default_log_levels = "error,warn,info,debug"
+# Frontend log level: DEBUG, INFO, WARNING, ERROR (case-insensitive)
+# log_level = "ERROR"
 
-# Default log components for all users (comma-separated, empty = all components)
+# Log components (comma-separated, empty = all components)
 # Examples: ImageViewer, ImageLoader, Swiper
-# default_log_components = ""
+# log_components = ""
+
+# Username regex filter - only log for users matching this regex (default: empty = all users)
+# Examples:
+#   username_regex = "^admin$"           # Only admin user
+#   username_regex = "^(admin|developer)$"  # admin or developer
+#   username_regex = "^test"             # Any username starting with "test"
+#   username_regex = ""                  # All users (when enabled = true)
+# username_regex = ""

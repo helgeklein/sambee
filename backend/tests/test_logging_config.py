@@ -3,15 +3,12 @@ Tests for frontend logging configuration API
 """
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session, select
-
-from app.models.user import User
 
 
 #
 # test_get_logging_config_default
 #
-def test_get_logging_config_default(client: TestClient, auth_headers_admin: dict[str, str], session: Session) -> None:
+def test_get_logging_config_default(client: TestClient, auth_headers_admin: dict[str, str]) -> None:
     """Test getting default logging configuration"""
 
     response = client.get("/api/logs/config", headers=auth_headers_admin)
@@ -19,110 +16,115 @@ def test_get_logging_config_default(client: TestClient, auth_headers_admin: dict
 
     data = response.json()
     assert "enabled" in data
-    assert "levels" in data
+    assert "log_level" in data
     assert "components" in data
     assert isinstance(data["enabled"], bool)
-    assert isinstance(data["levels"], list)
+    assert isinstance(data["log_level"], str)
     assert isinstance(data["components"], list)
 
-    # Default should have all levels
-    assert set(data["levels"]) == {"error", "warn", "info", "debug"}
+    # Default should be disabled
+    assert data["enabled"] is False
+    # Default log level is "ERROR"
+    assert data["log_level"] == "ERROR"
     # Default should have all components (empty list)
     assert data["components"] == []
 
 
 #
-# test_update_logging_config
+# test_get_logging_config_with_regex_match
 #
-def test_update_logging_config(client: TestClient, auth_headers_admin: dict[str, str], session: Session) -> None:
-    """Test updating logging configuration"""
+def test_get_logging_config_with_regex_match(client: TestClient, auth_headers_admin: dict[str, str], monkeypatch) -> None:
+    """Test that logging is enabled when username matches regex"""
 
-    # Update config
-    new_config = {
-        "enabled": True,
-        "levels": ["error", "warn"],
-        "components": ["Swiper", "ImageLoader"],
-    }
+    from app.api import logs
 
-    response = client.put("/api/logs/config", headers=auth_headers_admin, json=new_config)
+    monkeypatch.setattr(logs.settings, "frontend_logging_enabled", True)
+    monkeypatch.setattr(logs.settings, "frontend_logging_username_regex", "^testadmin$")
+    monkeypatch.setattr(logs.settings, "frontend_log_level", "WARNING")  # WARNING and ERROR
+    monkeypatch.setattr(logs.settings, "frontend_log_components", "Swiper")
+
+    response = client.get("/api/logs/config", headers=auth_headers_admin)
     assert response.status_code == 200
 
     data = response.json()
     assert data["enabled"] is True
-    assert set(data["levels"]) == {"error", "warn"}
-    assert set(data["components"]) == {"Swiper", "ImageLoader"}
-
-    # Verify the user object was updated
-    statement = select(User).where(User.username == "testadmin")
-    user = session.exec(statement).first()
-    assert user is not None, "User should exist in the database"
-    assert user.enable_frontend_logging is True
-    assert "error" in user.frontend_log_levels
-    assert "warn" in user.frontend_log_levels
-    assert "Swiper" in user.frontend_log_components
+    assert data["log_level"] == "WARNING"
+    assert data["components"] == ["Swiper"]
 
 
 #
-# test_update_logging_config_invalid_level
+# test_get_logging_config_with_regex_no_match
 #
-def test_update_logging_config_invalid_level(client: TestClient, auth_headers_admin: dict[str, str]) -> None:
-    """Test updating logging configuration with invalid level"""
+def test_get_logging_config_with_regex_no_match(client: TestClient, auth_headers_admin: dict[str, str], monkeypatch) -> None:
+    """Test that logging is disabled when username doesn't match regex"""
 
-    invalid_config = {
-        "enabled": True,
-        "levels": ["invalid_level"],
-        "components": [],
-    }
+    from app.api import logs
 
-    response = client.put("/api/logs/config", headers=auth_headers_admin, json=invalid_config)
-    assert response.status_code == 400
-    assert "Invalid log level" in response.json()["detail"]
+    monkeypatch.setattr(logs.settings, "frontend_logging_enabled", True)
+    monkeypatch.setattr(logs.settings, "frontend_logging_username_regex", "^other_user$")
+    monkeypatch.setattr(logs.settings, "frontend_log_level", "DEBUG")
+    monkeypatch.setattr(logs.settings, "frontend_log_components", "")
 
-
-#
-# test_get_logging_config_after_update
-#
-def test_get_logging_config_after_update(client: TestClient, auth_headers_admin: dict[str, str]) -> None:
-    """Test that configuration persists after update"""
-
-    # Update config
-    new_config = {
-        "enabled": False,
-        "levels": ["error"],
-        "components": ["TestComponent"],
-    }
-
-    client.put("/api/logs/config", headers=auth_headers_admin, json=new_config)
-
-    # Get config again
     response = client.get("/api/logs/config", headers=auth_headers_admin)
     assert response.status_code == 200
 
     data = response.json()
     assert data["enabled"] is False
-    assert data["levels"] == ["error"]
-    assert data["components"] == ["TestComponent"]
+
+
+#
+# test_get_logging_config_with_invalid_regex
+#
+def test_get_logging_config_with_invalid_regex(client: TestClient, auth_headers_admin: dict[str, str], monkeypatch) -> None:
+    """Test that invalid regex disables logging"""
+
+    from app.api import logs
+
+    monkeypatch.setattr(logs.settings, "frontend_logging_enabled", True)
+    monkeypatch.setattr(logs.settings, "frontend_logging_username_regex", "[invalid(regex")
+    monkeypatch.setattr(logs.settings, "frontend_log_level", "INFO")
+    monkeypatch.setattr(logs.settings, "frontend_log_components", "")
+
+    response = client.get("/api/logs/config", headers=auth_headers_admin)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["enabled"] is False
 
 
 #
 # test_logging_config_requires_auth
 #
 def test_logging_config_requires_auth(client: TestClient) -> None:
-    """Test that logging config endpoints require authentication"""
+    """Test that logging config endpoint requires authentication"""
 
-    # GET without auth
     response = client.get("/api/logs/config")
     assert response.status_code == 401
 
-    # PUT without auth
-    response = client.put("/api/logs/config", json={"enabled": True, "levels": [], "components": []})
-    assert response.status_code == 401
+
+#
+# test_log_level_returned
+#
+def test_log_level_returned(client: TestClient, auth_headers_admin: dict[str, str], monkeypatch) -> None:
+    """Test that log level is returned correctly"""
+
+    from app.api import logs
+
+    # Test each log level
+    for level in ["DEBUG", "INFO", "WARNING", "ERROR"]:
+        monkeypatch.setattr(logs.settings, "frontend_logging_enabled", True)
+        monkeypatch.setattr(logs.settings, "frontend_logging_username_regex", "^testadmin$")
+        monkeypatch.setattr(logs.settings, "frontend_log_level", level)
+
+        response = client.get("/api/logs/config", headers=auth_headers_admin)
+        assert response.status_code == 200
+        assert response.json()["log_level"] == level
 
 
 #
 # test_log_retention_config
 #
-def test_log_retention_config(session: Session) -> None:
+def test_log_retention_config() -> None:
     """Test that log retention configuration is loaded"""
 
     from app.core.config import settings

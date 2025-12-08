@@ -2,28 +2,23 @@
 
 ## Overview
 
-Frontend logging is now fully configurable per user with granular control over log levels and components. Logging is **disabled by default** to minimize server load and only enabled when explicitly configured.
+Frontend logging is configured via `config.toml` with support for username regex filtering. Logging is **disabled by default** to minimize server load and only enabled when explicitly configured by administrators.
 
 ## Architecture
 
 ### Backend Components
 
-1. **User Model** (`app/models/user.py`)
-   - `enable_frontend_logging: bool` - Per-user logging enable/disable
-   - `frontend_log_levels: str` - Comma-separated list of enabled levels (debug, info, warn, error)
-   - `frontend_log_components: str` - Comma-separated list of enabled components (empty = all)
-
-2. **Configuration** (`app/core/config.py`)
-   - `frontend_logging_enabled: bool` - Global default (default: False)
+1. **Configuration** (`app/core/config.py`)
+   - `frontend_logging_enabled: bool` - Enable/disable logging globally (default: False)
    - `frontend_log_retention_hours: int` - Log file retention period (default: 1 hour)
-   - `frontend_default_log_levels: str` - System-wide default log levels (default: "error,warn,info,debug")
-   - `frontend_default_log_components: str` - System-wide default log components (default: "" = all components)
+   - `frontend_log_level: str` - Minimum severity level to capture (default: "ERROR")
+   - `frontend_log_components: str` - Log components to capture (default: "" = all components)
+   - `frontend_logging_username_regex: str` - Regex pattern to match usernames (default: "" = all users when enabled)
 
-3. **API Endpoints** (`app/api/logs.py`)
-   - `GET /api/logs/config` - Get current user's logging configuration
-   - `PUT /api/logs/config` - Update current user's logging configuration
+2. **API Endpoints** (`app/api/logs.py`)
+   - `GET /api/logs/config` - Get logging configuration for current user (checks username against regex)
 
-4. **Log Manager** (`app/services/log_manager.py`)
+3. **Log Manager** (`app/services/log_manager.py`)
    - Uses configurable retention period for cleanup
    - Called automatically when logs are received
 
@@ -52,57 +47,79 @@ Frontend logging is now fully configurable per user with granular control over l
 ```toml
 [frontend_logging]
 # Enable frontend logging globally (default: false)
-# Individual users can override this in their profile
 enabled = false
 
 # Delete frontend logs older than this many hours (default: 1)
 log_retention_hours = 1
 
-# Default log levels for all users (comma-separated, case-insensitive)
-# Options: debug, info, warn, error
-default_log_levels = "error,warn,info,debug"
+# Minimum log level (case-insensitive)
+# Options: debug (logs everything), info, warn, error (logs errors only)
+# Each level includes all higher severity levels
+log_level = "error"
 
-# Default log components for all users (comma-separated, empty = all components)
+# Log components (comma-separated, empty = all components)
 # Examples: ImageViewer, ImageLoader, Swiper
-default_log_components = ""
+log_components = ""
+
+# Username regex filter - only log for users matching this regex (default: empty = all users)
+# Examples:
+#   username_regex = "^admin$"              # Only admin user
+#   username_regex = "^(admin|developer)$"  # admin or developer
+#   username_regex = "^test"                # Any username starting with "test"
+#   username_regex = ""                     # All users (when enabled = true)
+username_regex = ""
 ```
 
-Users inherit these system-wide defaults unless they override them via the API. This allows administrators to set baseline logging behavior for all users.
+### Username Filtering
 
-### Per-User Configuration
+The `username_regex` setting allows administrators to enable logging only for specific users:
 
-Users can configure their logging preferences via the API:
+```toml
+# Enable logging only for admin users
+[frontend_logging]
+enabled = true
+username_regex = "^admin$"
+
+# Enable logging for test users
+[frontend_logging]
+enabled = true
+username_regex = "^test"
+
+# Enable logging for admin or developers
+[frontend_logging]
+enabled = true
+username_regex = "^(admin|developer)$"
+```
+
+When `username_regex` is empty and `enabled = true`, logging is enabled for all users.
+
+### API Usage
+
+Check logging configuration for current user:
 
 ```bash
-# Get current configuration
 curl -H "Authorization: Bearer <token>" \
   http://localhost:8000/api/logs/config
-
-# Update configuration
-curl -X PUT \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "enabled": true,
-    "levels": ["error", "warn"],
-    "components": ["Swiper", "ImageLoader"]
-  }' \
-  http://localhost:8000/api/logs/config
 ```
+
+Response indicates whether logging is enabled for that specific user based on the regex match.
 
 ### Configuration Options
 
-**Levels** (case-insensitive):
-- `debug` - Detailed debugging information
-- `info` - General informational messages
-- `warn` - Warning messages
-- `error` - Error messages
+**Minimum Log Level** (case-insensitive):
+The `log_level` setting specifies the minimum severity to capture. Each level includes all higher severity levels:
+- `DEBUG` - Logs everything (DEBUG, INFO, WARNING, ERROR)
+- `INFO` - Logs informational messages and above (INFO, WARNING, ERROR)
+- `WARNING` - Logs warnings and errors (WARNING, ERROR)
+- `ERROR` - Logs errors only (ERROR)
+
+Invalid levels default to `ERROR` as a fail-safe.
 
 **Components**: Any string identifier used in logging calls. Common components:
 - `ImageViewer`
 - `ImageLoader`
 - `Swiper`
-- Leave empty array `[]` to log all components
+- Leave empty string to log all components
 
 ## Usage
 
@@ -120,8 +137,8 @@ logger.errorMobile("Failed to load", { error: err }, "ImageLoader");
 ```
 
 The logger automatically:
-1. Checks if logging is enabled
-2. Filters by configured log levels
+1. Checks if logging is enabled for the current user
+2. Checks if the log level meets the minimum threshold (e.g., `ERROR` logs only errors, `WARNING` logs warnings and errors)
 3. Filters by configured components
 4. Sends to backend if all checks pass
 
@@ -137,24 +154,11 @@ Log files are stored in `data/mobile_logs/` with format:
 mobile_logs_YYYYMMDD_HHMMSS_<session_id>.jsonl
 ```
 
-## Database Migration
-
-The system uses SQLModel with `create_all()`, so new columns are automatically added on first run. No manual migration needed.
-
-If you need to add the columns to an existing database:
-
-```sql
-ALTER TABLE user ADD COLUMN enable_frontend_logging BOOLEAN DEFAULT FALSE;
-ALTER TABLE user ADD COLUMN frontend_log_levels TEXT DEFAULT 'error,warn,info,debug';
-ALTER TABLE user ADD COLUMN frontend_log_components TEXT DEFAULT '';
-```
-
 ## Default Behavior
 
 - **Logging Disabled**: By default, no frontend logs are sent to reduce server load
-- **System-Wide Defaults**: Administrators can configure default log levels and components in `config.toml`
-- **User Overrides**: Individual users can override system defaults via the API
-- **Admin Control**: System administrators can enable logging per user for debugging
+- **Config-Based**: All settings are configured in `config.toml`, no database storage
+- **Username Filtering**: Regex-based username matching allows selective logging for specific users
 - **Automatic Cleanup**: Logs older than configured retention period are automatically deleted
 - **Fallback**: If config fetch fails, logging is disabled (fail-safe)
 
@@ -162,9 +166,10 @@ ALTER TABLE user ADD COLUMN frontend_log_components TEXT DEFAULT '';
 
 To enable logging for troubleshooting:
 
-1. Update user configuration via API (see above)
-2. Refresh the frontend page
-3. Configuration is cached for 5 minutes
+1. Edit `config.toml` to enable logging and optionally set username regex filter
+2. Restart the backend server
+3. Refresh the frontend page
+4. Configuration is cached for 5 minutes
 4. Check `data/mobile_logs/` for log files
 5. Download logs via `GET /api/logs/download/{filename}`
 

@@ -1,15 +1,16 @@
 import os
 from typing import Any, Generator
 
-from sqlalchemy import event, text
+from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.config import settings, static
 
-# Database URL
-DATABASE_URL = f"sqlite:///{static.data_dir}/sambee.db"
+# Database file path
+DATABASE_FILE_PATH = static.data_dir / "sambee.db"
+DATABASE_URL = f"sqlite:///{DATABASE_FILE_PATH}"
 
 # Detect if we're in a testing/CI environment
 # In these environments, use StaticPool or NullPool to avoid threading issues
@@ -78,32 +79,6 @@ def set_sqlite_pragma(dbapi_conn: Any, connection_record: Any) -> None:
 
 
 #
-# migrate_user_table
-#
-#
-# migrate_user_table
-#
-def migrate_user_table() -> None:
-    """Add new columns to user table if they don't exist"""
-
-    with Session(engine) as session:
-        # Check if columns exist by trying to query them
-        try:
-            session.exec(text("SELECT enable_frontend_logging FROM user LIMIT 1"))
-            # Columns exist, no migration needed
-            return
-        except Exception:
-            # Columns don't exist, add them
-            pass
-
-        # Add new columns for frontend logging configuration
-        session.exec(text("ALTER TABLE user ADD COLUMN enable_frontend_logging BOOLEAN DEFAULT 0"))
-        session.exec(text("ALTER TABLE user ADD COLUMN frontend_log_levels TEXT DEFAULT 'error,warn,info,debug'"))
-        session.exec(text("ALTER TABLE user ADD COLUMN frontend_log_components TEXT DEFAULT ''"))
-        session.commit()
-
-
-#
 # init_db
 #
 def init_db() -> None:
@@ -115,9 +90,6 @@ def init_db() -> None:
 
     # Create all tables
     SQLModel.metadata.create_all(engine)
-
-    # Run migrations for existing tables
-    migrate_user_table()
 
     # Load or generate app secrets
     with Session(engine) as session:

@@ -1,0 +1,581 @@
+/**
+ * Contract tests for Browse API
+ *
+ * Ensures frontend types match backend API responses for browse endpoints
+ */
+
+import type { AxiosResponse } from "axios";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { type DirectoryListing, type FileInfo, FileType } from "../../types";
+
+// Mock axios before importing services
+vi.mock("axios", () => {
+  const mockAxiosInstance = {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+    interceptors: {
+      request: {
+        use: vi.fn(),
+        eject: vi.fn(),
+      },
+      response: {
+        use: vi.fn(),
+        eject: vi.fn(),
+      },
+    },
+  };
+
+  return {
+    default: {
+      create: vi.fn(() => mockAxiosInstance),
+      isCancel: vi.fn(() => false),
+    },
+  };
+});
+
+import axios from "axios";
+import { apiService } from "../api";
+
+const mockedAxios = vi.mocked(axios);
+const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
+  get: ReturnType<typeof vi.fn>;
+};
+
+describe("Browse API Contract Tests", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  const testConnectionId = "123e4567-e89b-12d3-a456-426614174000";
+
+  describe("Contract Tests - GET /browse/{connection_id}/list", () => {
+    it("should return directory listing format", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/documents",
+        items: [
+          {
+            name: "file.txt",
+            path: "/documents/file.txt",
+            type: FileType.FILE,
+            size: 1024,
+            mime_type: "text/plain",
+            created_at: "2024-01-01T00:00:00Z",
+            modified_at: "2024-01-02T00:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/documents");
+
+      // Verify required fields
+      expect(result).toHaveProperty("path");
+      expect(result).toHaveProperty("items");
+      expect(result).toHaveProperty("total");
+
+      // Verify types
+      expect(typeof result.path).toBe("string");
+      expect(Array.isArray(result.items)).toBe(true);
+      expect(typeof result.total).toBe("number");
+
+      // Verify values
+      expect(result.path).toBe("/documents");
+      expect(result.total).toBe(1);
+    });
+
+    it("should have correct FileInfo structure", async () => {
+      const fileInfo: FileInfo = {
+        name: "document.pdf",
+        path: "/files/document.pdf",
+        type: FileType.FILE,
+        size: 2048,
+        mime_type: "application/pdf",
+        created_at: "2024-01-01T10:00:00Z",
+        modified_at: "2024-01-05T15:30:00Z",
+        is_readable: true,
+        is_hidden: false,
+      };
+
+      const backendResponse: DirectoryListing = {
+        path: "/files",
+        items: [fileInfo],
+        total: 1,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/files");
+      const item = result.items[0];
+
+      // Verify all FileInfo fields
+      expect(item).toHaveProperty("name");
+      expect(item).toHaveProperty("path");
+      expect(item).toHaveProperty("type");
+      expect(item).toHaveProperty("size");
+      expect(item).toHaveProperty("mime_type");
+      expect(item).toHaveProperty("created_at");
+      expect(item).toHaveProperty("modified_at");
+      expect(item).toHaveProperty("is_readable");
+      expect(item).toHaveProperty("is_hidden");
+
+      // Verify types
+      expect(typeof item.name).toBe("string");
+      expect(typeof item.path).toBe("string");
+      expect(typeof item.type).toBe("string");
+      expect(typeof item.size).toBe("number");
+      expect(typeof item.mime_type).toBe("string");
+      expect(typeof item.created_at).toBe("string");
+      expect(typeof item.modified_at).toBe("string");
+      expect(typeof item.is_readable).toBe("boolean");
+      expect(typeof item.is_hidden).toBe("boolean");
+    });
+
+    it("should handle file type enum values", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/",
+        items: [
+          {
+            name: "folder",
+            path: "/folder",
+            type: FileType.DIRECTORY,
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "file.txt",
+            path: "/file.txt",
+            type: FileType.FILE,
+            size: 100,
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 2,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/");
+
+      // Verify enum values
+      expect(result.items[0].type).toBe(FileType.DIRECTORY);
+      expect(result.items[0].type).toBe("directory");
+      expect(result.items[1].type).toBe(FileType.FILE);
+      expect(result.items[1].type).toBe("file");
+    });
+
+    it("should handle optional fields when available", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/",
+        items: [
+          {
+            name: "file.txt",
+            path: "/file.txt",
+            type: FileType.FILE,
+            size: 1024,
+            mime_type: "text/plain",
+            created_at: "2024-01-01T00:00:00Z",
+            modified_at: "2024-01-02T00:00:00Z",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/");
+      const item = result.items[0];
+
+      // Optional fields should be present when available
+      expect(item.size).toBe(1024);
+      expect(item.mime_type).toBe("text/plain");
+      expect(item.created_at).toBe("2024-01-01T00:00:00Z");
+      expect(item.modified_at).toBe("2024-01-02T00:00:00Z");
+    });
+
+    it("should handle optional fields when missing", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/",
+        items: [
+          {
+            name: "folder",
+            path: "/folder",
+            type: FileType.DIRECTORY,
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/");
+      const item = result.items[0];
+
+      // Directories may not have size or mime_type
+      // These fields are optional in the FileInfo interface
+      expect(item.name).toBe("folder");
+      expect(item.type).toBe(FileType.DIRECTORY);
+    });
+
+    it("should handle empty directories", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/empty",
+        items: [],
+        total: 0,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/empty");
+
+      expect(result.items).toHaveLength(0);
+      expect(result.total).toBe(0);
+      expect(Array.isArray(result.items)).toBe(true);
+    });
+
+    it("should handle hidden files flag", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/",
+        items: [
+          {
+            name: ".hidden",
+            path: "/.hidden",
+            type: FileType.FILE,
+            is_readable: true,
+            is_hidden: true,
+          },
+          {
+            name: "visible.txt",
+            path: "/visible.txt",
+            type: FileType.FILE,
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 2,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/");
+
+      expect(result.items[0].is_hidden).toBe(true);
+      expect(result.items[1].is_hidden).toBe(false);
+    });
+
+    it("should handle is_readable flag", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/",
+        items: [
+          {
+            name: "readable.txt",
+            path: "/readable.txt",
+            type: FileType.FILE,
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "unreadable.txt",
+            path: "/unreadable.txt",
+            type: FileType.FILE,
+            is_readable: false,
+            is_hidden: false,
+          },
+        ],
+        total: 2,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/");
+
+      expect(result.items[0].is_readable).toBe(true);
+      expect(result.items[1].is_readable).toBe(false);
+    });
+
+    it("should handle multiple items with mixed types", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "/mixed",
+        items: [
+          {
+            name: "folder1",
+            path: "/mixed/folder1",
+            type: FileType.DIRECTORY,
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "document.pdf",
+            path: "/mixed/document.pdf",
+            type: FileType.FILE,
+            size: 5120,
+            mime_type: "application/pdf",
+            is_readable: true,
+            is_hidden: false,
+          },
+          {
+            name: "image.jpg",
+            path: "/mixed/image.jpg",
+            type: FileType.FILE,
+            size: 204800,
+            mime_type: "image/jpeg",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 3,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "/mixed");
+
+      expect(result.items).toHaveLength(3);
+      expect(result.total).toBe(3);
+      expect(result.items[0].type).toBe(FileType.DIRECTORY);
+      expect(result.items[1].type).toBe(FileType.FILE);
+      expect(result.items[2].type).toBe(FileType.FILE);
+    });
+
+    it("should handle root path", async () => {
+      const backendResponse: DirectoryListing = {
+        path: "",
+        items: [
+          {
+            name: "folder",
+            path: "/folder",
+            type: FileType.DIRECTORY,
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, "");
+
+      expect(result.path).toBe("");
+      expect(result.items).toHaveLength(1);
+    });
+
+    it("should handle nested paths", async () => {
+      const nestedPath = "/documents/2024/january";
+      const backendResponse: DirectoryListing = {
+        path: nestedPath,
+        items: [
+          {
+            name: "report.pdf",
+            path: `${nestedPath}/report.pdf`,
+            type: FileType.FILE,
+            size: 1024,
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.listDirectory(testConnectionId, nestedPath);
+
+      expect(result.path).toBe(nestedPath);
+      expect(result.items[0].path).toBe(`${nestedPath}/report.pdf`);
+    });
+  });
+
+  describe("Contract Tests - GET /browse/{connection_id}/info", () => {
+    it("should return single FileInfo object", async () => {
+      const backendResponse: FileInfo = {
+        name: "document.pdf",
+        path: "/files/document.pdf",
+        type: FileType.FILE,
+        size: 2048,
+        mime_type: "application/pdf",
+        created_at: "2024-01-01T10:00:00Z",
+        modified_at: "2024-01-05T15:30:00Z",
+        is_readable: true,
+        is_hidden: false,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getFileInfo(testConnectionId, "/files/document.pdf");
+
+      // Verify it's a single FileInfo object, not an array
+      expect(Array.isArray(result)).toBe(false);
+      expect(result).toHaveProperty("name");
+      expect(result).toHaveProperty("path");
+      expect(result).toHaveProperty("type");
+
+      expect(result.name).toBe("document.pdf");
+      expect(result.path).toBe("/files/document.pdf");
+    });
+
+    it("should match FileInfo type from listing", async () => {
+      const fileInfo: FileInfo = {
+        name: "test.txt",
+        path: "/test.txt",
+        type: FileType.FILE,
+        size: 100,
+        mime_type: "text/plain",
+        created_at: "2024-01-01T00:00:00Z",
+        modified_at: "2024-01-02T00:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: fileInfo,
+      } as AxiosResponse);
+
+      const result = await apiService.getFileInfo(testConnectionId, "/test.txt");
+
+      // Should have same structure as items in DirectoryListing
+      expect(result).toHaveProperty("name");
+      expect(result).toHaveProperty("path");
+      expect(result).toHaveProperty("type");
+      expect(result).toHaveProperty("size");
+      expect(result).toHaveProperty("mime_type");
+      expect(result).toHaveProperty("created_at");
+      expect(result).toHaveProperty("modified_at");
+      expect(result).toHaveProperty("is_readable");
+      expect(result).toHaveProperty("is_hidden");
+    });
+
+    it("should handle directory info", async () => {
+      const backendResponse: FileInfo = {
+        name: "documents",
+        path: "/documents",
+        type: FileType.DIRECTORY,
+        is_readable: true,
+        is_hidden: false,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getFileInfo(testConnectionId, "/documents");
+
+      expect(result.type).toBe(FileType.DIRECTORY);
+      expect(result.name).toBe("documents");
+    });
+
+    it("should handle file info with all optional fields", async () => {
+      const backendResponse: FileInfo = {
+        name: "photo.jpg",
+        path: "/images/photo.jpg",
+        type: FileType.FILE,
+        size: 524288,
+        mime_type: "image/jpeg",
+        created_at: "2024-01-10T08:30:00Z",
+        modified_at: "2024-01-15T14:45:00Z",
+        is_readable: true,
+        is_hidden: false,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.getFileInfo(testConnectionId, "/images/photo.jpg");
+
+      expect(result.size).toBe(524288);
+      expect(result.mime_type).toBe("image/jpeg");
+      expect(result.created_at).toBe("2024-01-10T08:30:00Z");
+      expect(result.modified_at).toBe("2024-01-15T14:45:00Z");
+    });
+  });
+
+  describe("Error Handling", () => {
+    it("should handle 404 on non-existent path", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 404,
+          data: { detail: "Path not found" },
+        },
+      });
+
+      await expect(apiService.listDirectory(testConnectionId, "/nonexistent")).rejects.toMatchObject({
+        response: { status: 404 },
+      });
+    });
+
+    it("should handle 403 on access denied", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 403,
+          data: { detail: "Access denied" },
+        },
+      });
+
+      await expect(apiService.listDirectory(testConnectionId, "/restricted")).rejects.toMatchObject({
+        response: { status: 403 },
+      });
+    });
+
+    it("should handle invalid connection ID", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 404,
+          data: { detail: "Connection not found" },
+        },
+      });
+
+      await expect(apiService.listDirectory("invalid-uuid", "/")).rejects.toMatchObject({
+        response: { status: 404 },
+      });
+    });
+
+    it("should handle server errors", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 500,
+          data: { detail: "Internal server error" },
+        },
+      });
+
+      await expect(apiService.listDirectory(testConnectionId, "/")).rejects.toMatchObject({
+        response: { status: 500 },
+      });
+    });
+  });
+});

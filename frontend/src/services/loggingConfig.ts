@@ -13,7 +13,7 @@ const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface LoggingConfig {
   enabled: boolean;
-  levels: string[];
+  log_level: string; // Minimum log level: DEBUG, INFO, WARNING, ERROR
   components: string[];
   timestamp?: number;
 }
@@ -48,17 +48,31 @@ class LoggingConfigManager {
 
   /**
    * Check if a specific log level is enabled
+   *
+   * Uses threshold comparison: if config.log_level is "WARNING",
+   * then WARNING and ERROR are enabled, but DEBUG and INFO are not.
    */
   async isLevelEnabled(level: string): Promise<boolean> {
     const config = await this.getConfig();
     if (!config.enabled) {
       return false;
     }
-    // Empty levels array means all levels enabled
-    if (config.levels.length === 0) {
-      return true;
+
+    // Log level hierarchy (lower index = lower severity)
+    const hierarchy = ["DEBUG", "INFO", "WARNING", "ERROR"];
+    const normalizedLevel = level.toUpperCase();
+    const configLevel = config.log_level.toUpperCase();
+
+    const levelIndex = hierarchy.indexOf(normalizedLevel);
+    const configIndex = hierarchy.indexOf(configLevel);
+
+    // If either level is invalid, default to disabled
+    if (levelIndex === -1 || configIndex === -1) {
+      return false;
     }
-    return config.levels.includes(level.toLowerCase());
+
+    // Level is enabled if it's at or above the configured minimum
+    return levelIndex >= configIndex;
   }
 
   /**
@@ -74,24 +88,6 @@ class LoggingConfigManager {
       return true;
     }
     return config.components.includes(component);
-  }
-
-  /**
-   * Update logging configuration on server and in cache
-   */
-  async updateConfig(newConfig: { enabled: boolean; levels: string[]; components: string[] }): Promise<LoggingConfig> {
-    try {
-      const updated = await apiService.updateLoggingConfig(newConfig);
-      this.config = {
-        ...updated,
-        timestamp: Date.now(),
-      };
-      this.saveToLocalStorage();
-      return this.config;
-    } catch (error) {
-      logger.error("Failed to update logging configuration", { error });
-      throw error;
-    }
   }
 
   /**
@@ -128,7 +124,7 @@ class LoggingConfigManager {
       logger.warn("Failed to fetch logging config, using disabled state", { error });
       return {
         enabled: false,
-        levels: [],
+        log_level: "ERROR",
         components: [],
         timestamp: Date.now(),
       };

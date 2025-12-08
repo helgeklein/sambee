@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.core.auth_methods import AuthMethod
 from app.core.environment import IS_DEVELOPMENT
@@ -81,10 +81,12 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
             flat_config["frontend_logging_enabled"] = frontend_logging["enabled"]
         if "log_retention_hours" in frontend_logging:
             flat_config["frontend_log_retention_hours"] = frontend_logging["log_retention_hours"]
-        if "default_log_levels" in frontend_logging:
-            flat_config["frontend_default_log_levels"] = frontend_logging["default_log_levels"]
-        if "default_log_components" in frontend_logging:
-            flat_config["frontend_default_log_components"] = frontend_logging["default_log_components"]
+        if "log_level" in frontend_logging:
+            flat_config["frontend_log_level"] = frontend_logging["log_level"]
+        if "log_components" in frontend_logging:
+            flat_config["frontend_log_components"] = frontend_logging["log_components"]
+        if "username_regex" in frontend_logging:
+            flat_config["frontend_logging_username_regex"] = frontend_logging["username_regex"]
 
     return flat_config
 
@@ -107,16 +109,39 @@ class StaticSettings:
 class Settings(BaseModel):
     """Application settings with validation"""
 
-    model_config = {"extra": "allow"}
-
     # App settings
     log_level: str = "INFO"
 
     # Auth method - must be set via config or environment variable
     auth_method: AuthMethod = AuthMethod.PASSWORD
 
+    @field_validator("log_level", "frontend_log_level")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate and normalize log level to uppercase.
+
+        Args:
+            v: Log level string (case-insensitive)
+
+        Returns:
+            Normalized uppercase log level
+
+        Raises:
+            ValueError: If log level is invalid
+        """
+
+        valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR"}
+        normalized = v.upper()
+
+        if normalized not in valid_levels:
+            raise ValueError(f"Invalid log level: '{v}'. Must be one of: {', '.join(sorted(valid_levels))}")
+
+        return normalized
+
     # Security settings
     access_token_expire_minutes: int = 1440
+    secret_key: str = ""  # Set dynamically from database
+    encryption_key: str = ""  # Set dynamically from database
 
     # Admin settings
     admin_username: str = "admin"
@@ -127,8 +152,9 @@ class Settings(BaseModel):
     # Frontend logging settings
     frontend_logging_enabled: bool = False
     frontend_log_retention_hours: int = 1
-    frontend_default_log_levels: str = "error,warn,info,debug"
-    frontend_default_log_components: str = ""
+    frontend_log_level: str = "ERROR"  # Minimum severity: DEBUG, INFO, WARNING, ERROR
+    frontend_log_components: str = ""
+    frontend_logging_username_regex: str = ""
 
 
 #
@@ -160,8 +186,8 @@ static = StaticSettings()
 
 try:
     settings = load_settings()
-except ConfigurationError as e:
-    # Print clean error message and exit before uvicorn can show stack trace
+except Exception as e:
+    # Catch all config errors (TOML syntax, validation errors, etc.)
     from app.core.logging import setup_early_error_logging
 
     logger = setup_early_error_logging()
