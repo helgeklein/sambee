@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import HamburgerMenu from "../../../components/Mobile/HamburgerMenu";
 import type { Connection } from "../../../types";
 
+// Mock the version utility module
+vi.mock("../../../utils/version", () => ({
+  fetchVersionInfo: vi.fn(() => Promise.resolve({ version: "0.1.0", build_time: "2024-01-01T00:00:00Z", git_commit: "abc1234" })),
+  formatBuildTime: vi.fn(() => "Jan 1, 2024, 12:00 AM"),
+}));
+
 // Mock data
 const mockConnections: Connection[] = [
   {

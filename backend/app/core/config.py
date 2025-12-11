@@ -77,16 +77,22 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
     # Frontend logging settings
     if "frontend_logging" in toml_data:
         frontend_logging = toml_data["frontend_logging"]
-        if "enabled" in frontend_logging:
-            flat_config["frontend_logging_enabled"] = frontend_logging["enabled"]
-        if "log_retention_hours" in frontend_logging:
-            flat_config["frontend_log_retention_hours"] = frontend_logging["log_retention_hours"]
+        # Console logging settings
+        if "logging_enabled" in frontend_logging:
+            flat_config["frontend_logging_enabled"] = frontend_logging["logging_enabled"]
         if "log_level" in frontend_logging:
             flat_config["frontend_log_level"] = frontend_logging["log_level"]
-        if "log_components" in frontend_logging:
-            flat_config["frontend_log_components"] = frontend_logging["log_components"]
-        if "username_regex" in frontend_logging:
-            flat_config["frontend_logging_username_regex"] = frontend_logging["username_regex"]
+        # Backend tracing settings
+        if "tracing_enabled" in frontend_logging:
+            flat_config["frontend_tracing_enabled"] = frontend_logging["tracing_enabled"]
+        if "tracing_retention_hours" in frontend_logging:
+            flat_config["frontend_tracing_retention_hours"] = frontend_logging["tracing_retention_hours"]
+        if "tracing_level" in frontend_logging:
+            flat_config["frontend_tracing_level"] = frontend_logging["tracing_level"]
+        if "tracing_components" in frontend_logging:
+            flat_config["frontend_tracing_components"] = frontend_logging["tracing_components"]
+        if "tracing_username_regex" in frontend_logging:
+            flat_config["frontend_tracing_username_regex"] = frontend_logging["tracing_username_regex"]
 
     return flat_config
 
@@ -115,7 +121,7 @@ class Settings(BaseModel):
     # Auth method - must be set via config or environment variable
     auth_method: AuthMethod = AuthMethod.PASSWORD
 
-    @field_validator("log_level", "frontend_log_level")
+    @field_validator("log_level", "frontend_log_level", "frontend_tracing_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         """Validate and normalize log level to uppercase.
@@ -149,12 +155,16 @@ class Settings(BaseModel):
     # Image viewer settings
     image_viewer_conv_size_thresh: int = 512000
 
-    # Frontend logging settings
+    # Frontend console logging settings
     frontend_logging_enabled: bool = False
-    frontend_log_retention_hours: int = 1
-    frontend_log_level: str = "ERROR"  # Minimum severity: DEBUG, INFO, WARNING, ERROR
-    frontend_log_components: str = ""
-    frontend_logging_username_regex: str = ""
+    frontend_log_level: str = "WARNING"  # Console log level: DEBUG, INFO, WARNING, ERROR
+
+    # Frontend backend tracing settings
+    frontend_tracing_enabled: bool = False
+    frontend_tracing_retention_hours: int = 1
+    frontend_tracing_level: str = "ERROR"  # Tracing log level: DEBUG, INFO, WARNING, ERROR
+    frontend_tracing_components: str = ""
+    frontend_tracing_username_regex: str = ""
 
 
 #

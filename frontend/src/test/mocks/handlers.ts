@@ -3,6 +3,15 @@ import { HttpResponse, http } from "msw";
 const API_BASE = "http://localhost:3000/api";
 
 export const handlers = [
+  // Version endpoint
+  http.get(`${API_BASE}/version`, () => {
+    return HttpResponse.json({
+      version: "0.1.0-test",
+      build_time: "2024-01-01T00:00:00Z",
+      git_commit: "test-commit",
+    });
+  }),
+
   // Auth - Get auth config
   http.get(`${API_BASE}/auth/config`, () => {
     console.log("MSW: Auth config request received");

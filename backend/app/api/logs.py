@@ -59,7 +59,7 @@ async def receive_mobile_logs(
         filename = log_manager.write_log_batch(batch, metadata)
 
         # Cleanup old logs using configured retention period
-        log_manager.cleanup_old_logs(hours=settings.frontend_log_retention_hours)
+        log_manager.cleanup_old_logs(hours=settings.frontend_tracing_retention_hours)
 
         logger.info(f"Received mobile log batch: session_id={batch.session_id}, log_count={len(batch.logs)}")
 
@@ -151,11 +151,16 @@ async def download_log_file(
 # Logging configuration models
 #
 class LoggingConfig(BaseModel):
-    """Frontend logging configuration"""
+    """Frontend logging and tracing configuration"""
 
-    enabled: bool
-    log_level: str  # Log level: DEBUG, INFO, WARNING, ERROR
-    components: list[str]  # Empty list means all components
+    # Browser console logging settings
+    logging_enabled: bool
+    logging_level: str  # Log level: DEBUG, INFO, WARNING, ERROR
+
+    # Backend tracing settings
+    tracing_enabled: bool
+    tracing_level: str  # Log level: DEBUG, INFO, WARNING, ERROR
+    tracing_components: list[str]  # Empty list means all components
 
 
 #
@@ -177,25 +182,31 @@ async def get_logging_config(
 
     import re
 
-    # Check if logging is enabled globally
-    enabled = settings.frontend_logging_enabled
+    # Browser console logging settings
+    logging_enabled = settings.frontend_logging_enabled
+    logging_level = settings.frontend_log_level
+
+    # Check if tracing (backend logging) is enabled globally
+    tracing_enabled = settings.frontend_tracing_enabled
 
     # If username regex is configured, check if user matches
-    if enabled and settings.frontend_logging_username_regex:
+    if tracing_enabled and settings.frontend_tracing_username_regex:
         try:
-            pattern = re.compile(settings.frontend_logging_username_regex)
-            enabled = bool(pattern.match(user.username))
+            pattern = re.compile(settings.frontend_tracing_username_regex)
+            tracing_enabled = bool(pattern.match(user.username))
         except re.error as e:
-            logger.error(f"Invalid frontend_logging_username_regex: {e}")
-            enabled = False
+            logger.error(f"Invalid frontend_tracing_username_regex: {e}")
+            tracing_enabled = False
 
-    # Get log level from settings (already validated and normalized to uppercase)
-    log_level = settings.frontend_log_level
+    # Get tracing level from settings (already validated and normalized to uppercase)
+    tracing_level = settings.frontend_tracing_level
 
-    components = [comp.strip() for comp in settings.frontend_log_components.split(",") if comp.strip()]
+    tracing_components = [comp.strip() for comp in settings.frontend_tracing_components.split(",") if comp.strip()]
 
     return LoggingConfig(
-        enabled=enabled,
-        log_level=log_level,
-        components=components,
+        logging_enabled=logging_enabled,
+        logging_level=logging_level,
+        tracing_enabled=tracing_enabled,
+        tracing_level=tracing_level,
+        tracing_components=tracing_components,
     )

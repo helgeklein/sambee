@@ -15,7 +15,10 @@ import {
   Typography,
 } from "@mui/material";
 import type React from "react";
+import { useEffect, useState } from "react";
 import type { Connection } from "../../types";
+import type { VersionInfo } from "../../utils/version";
+import { fetchVersionInfo, formatBuildTime } from "../../utils/version";
 
 interface HamburgerMenuProps {
   open: boolean;
@@ -40,6 +43,17 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   onLogout,
   isAdmin,
 }) => {
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+
+  // Fetch version info on mount
+  useEffect(() => {
+    void fetchVersionInfo().then((info) => {
+      if (info) {
+        setVersionInfo(info);
+      }
+    });
+  }, []);
+
   const handleConnectionChange = (connectionId: string) => {
     onConnectionChange(connectionId);
     onClose();
@@ -54,6 +68,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         "& .MuiDrawer-paper": {
           width: 280,
           boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
         },
       }}
     >
@@ -137,6 +153,25 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           </ListItemButton>
         </ListItem>
       </List>
+
+      {/* Version Information */}
+      {versionInfo && (
+        <>
+          <Box sx={{ flexGrow: 1 }} />
+          <Divider />
+          <Box sx={{ p: 2, pt: 1 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Version: {versionInfo.version}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Built: {formatBuildTime(versionInfo.build_time)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              Commit: {versionInfo.git_commit}
+            </Typography>
+          </Box>
+        </>
+      )}
     </Drawer>
   );
 };

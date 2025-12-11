@@ -19,6 +19,9 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "complexity": {
+        "useLiteralKeys": "off"
+      },
       "style": {
         "noNonNullAssertion": "off"
       },

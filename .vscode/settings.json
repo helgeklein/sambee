@@ -89,11 +89,11 @@
     "uptime": true,
     "who": true,
     // Project-specific scripts
-    "./scripts/lint": true,
-    "./scripts/test": true,
-    "./scripts/format": true,
-    "./scripts/dev-start": true,
-    "./scripts/dev-stop": true,
+    "/(\\.\\/)?scripts\\/lint/": true,
+    "/(\\.\\/)?scripts\\/test/": true,
+    "/(\\.\\/)?scripts\\/format/": true,
+    "/(\\.\\/)?scripts\\/dev-start/": true,
+    "/(\\.\\/)?scripts\\/dev-stop/": true,
     // Node/npm commands
     "npm": true,
     "npx": true,

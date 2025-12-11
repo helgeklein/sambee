@@ -104,6 +104,11 @@ const ROW_HEIGHT_DESKTOP = 40;
 const ROW_HEIGHT_MOBILE = 56;
 const DIRECTORY_CACHE_TTL_MS = 30_000;
 
+const createViewerSessionId = (): string => {
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `${Date.now().toString(36)}-${randomPart}`;
+};
+
 // Formatting functions commented out - will be used when implementing view modes (list, detail, thumbnail)
 // const formatFileSize = (bytes?: number): string => {
 //   if (!bytes) return "";
@@ -175,6 +180,7 @@ const Browser: React.FC = () => {
     mimeType: string;
     images?: string[];
     currentIndex?: number;
+    sessionId: string;
   } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -328,7 +334,7 @@ const Browser: React.FC = () => {
       }
 
       // Initialize mobile logging if not already done (handles page refresh with existing token)
-      await logger.initializeMobileLogging();
+      await logger.initializeBackendTracing();
 
       const data = await api.getConnections();
       setConnections(data);
@@ -354,7 +360,7 @@ const Browser: React.FC = () => {
       if (savedConnectionId && data.find((c: Connection) => c.id === savedConnectionId)) {
         autoSelectedConnection = data.find((c: Connection) => c.id === savedConnectionId);
         setSelectedConnectionId(savedConnectionId);
-      } else if (data.length > 0) {
+      } else if (data.length > 0 && data[0]) {
         autoSelectedConnection = data[0];
         setSelectedConnectionId(data[0].id);
       }
@@ -796,6 +802,7 @@ const Browser: React.FC = () => {
         }
       } else {
         const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+        const viewerSessionId = createViewerSessionId();
 
         // Get MIME type from backend (provided via get_file_info API call)
         const mimeType = file.mime_type || "application/octet-stream";
@@ -827,6 +834,7 @@ const Browser: React.FC = () => {
             mimeType,
             images: imageFiles,
             currentIndex: effectiveIndex,
+            sessionId: viewerSessionId,
           });
         } else {
           currentViewIndexRef.current = null;
@@ -846,6 +854,7 @@ const Browser: React.FC = () => {
             setViewInfo({
               path: filePath,
               mimeType,
+              sessionId: viewerSessionId,
             });
           } else {
             logger.info("No viewer component available, file will not open", {
@@ -1908,18 +1917,22 @@ const Browser: React.FC = () => {
                           position: "relative",
                         }}
                       >
-                        {virtualItemsForRender.map((virtualItem: ReturnType<typeof rowVirtualizer.getVirtualItems>[number]) => (
-                          <FileRow
-                            ref={rowVirtualizer.measureElement}
-                            key={virtualItem.key}
-                            file={sortedAndFilteredFiles[virtualItem.index]}
-                            index={virtualItem.index}
-                            isSelected={virtualItem.index === focusedIndex}
-                            virtualStart={virtualItem.start}
-                            virtualSize={virtualItem.size}
-                            onClick={handleFileClick}
-                          />
-                        ))}
+                        {virtualItemsForRender.map((virtualItem: ReturnType<typeof rowVirtualizer.getVirtualItems>[number]) => {
+                          const file = sortedAndFilteredFiles[virtualItem.index];
+                          if (!file) return null;
+                          return (
+                            <FileRow
+                              ref={rowVirtualizer.measureElement}
+                              key={virtualItem.key}
+                              file={file}
+                              index={virtualItem.index}
+                              isSelected={virtualItem.index === focusedIndex}
+                              virtualStart={virtualItem.start}
+                              virtualSize={virtualItem.size}
+                              onClick={handleFileClick}
+                            />
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -1955,6 +1968,7 @@ const DynamicViewer: React.FC<{
     mimeType: string;
     images?: string[];
     currentIndex?: number;
+    sessionId: string;
   };
   onClose: () => void;
   onIndexChange?: (index: number) => void;
@@ -1965,7 +1979,7 @@ const DynamicViewer: React.FC<{
   onIndexChange,
 }: {
   connectionId: string;
-  viewInfo: { path: string; mimeType: string; images?: string[]; currentIndex?: number };
+  viewInfo: { path: string; mimeType: string; images?: string[]; currentIndex?: number; sessionId: string };
   onClose: () => void;
   onIndexChange?: (index: number) => void;
 }) => {
@@ -1976,6 +1990,7 @@ const DynamicViewer: React.FC<{
 
     logger.info("DynamicViewer: Loading viewer component", {
       mimeType: viewInfo.mimeType,
+      sessionId: viewInfo.sessionId,
     });
 
     getViewerComponent(viewInfo.mimeType).then((component) => {
@@ -1983,6 +1998,7 @@ const DynamicViewer: React.FC<{
         logger.info("DynamicViewer: Viewer component loaded", {
           mimeType: viewInfo.mimeType,
           componentFound: !!component,
+          sessionId: viewInfo.sessionId,
         });
         if (component) {
           setViewerComponent(() => component);
@@ -1993,18 +2009,28 @@ const DynamicViewer: React.FC<{
     return () => {
       mounted = false;
     };
-  }, [viewInfo.mimeType]); // Only reload component when MIME type changes, not path
+  }, [viewInfo.mimeType, viewInfo.sessionId]); // Only reload component when MIME type changes, not path
+
+  useEffect(() => {
+    if (!ViewerComponent) {
+      return;
+    }
+
+    logger.debug("DynamicViewer: Rendering viewer component", {
+      index: viewInfo.currentIndex,
+      path: viewInfo.path,
+      mimeType: viewInfo.mimeType,
+      sessionId: viewInfo.sessionId,
+    });
+  }, [ViewerComponent, viewInfo.mimeType, viewInfo.path, viewInfo.currentIndex, viewInfo.sessionId]);
 
   if (!ViewerComponent) {
     logger.debug("DynamicViewer: No viewer component yet", {
       mimeType: viewInfo.mimeType,
+      sessionId: viewInfo.sessionId,
     });
     return null;
   }
-
-  logger.debug("DynamicViewer: Rendering viewer component", {
-    mimeType: viewInfo.mimeType,
-  });
 
   return (
     <ViewerComponent
@@ -2014,6 +2040,7 @@ const DynamicViewer: React.FC<{
       images={viewInfo.images}
       currentIndex={viewInfo.currentIndex}
       onCurrentIndexChange={onIndexChange}
+      sessionId={viewInfo.sessionId}
     />
   );
 };

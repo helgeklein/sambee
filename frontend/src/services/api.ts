@@ -39,12 +39,12 @@ class ApiService {
     // Handle auth errors and log responses
     this.api.interceptors.response.use(
       (response) => {
-        // Extract request ID from response headers
+        // Extract request ID from response headers for logging
         const requestId = logger.extractRequestId(response.headers as Record<string, string>);
 
         logger.debug(`API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, {
           status: response.status,
-          requestId,
+          request_id: requestId, // Log as field, not as context.requestId to avoid prepending
           method: response.config.method,
           url: response.config.url,
         });
@@ -65,7 +65,7 @@ class ApiService {
           status: error.response?.status,
           statusText: error.response?.statusText,
           detail: (error.response?.data as { detail?: string })?.detail,
-          requestId,
+          request_id: requestId, // Log as field, not as context.requestId to avoid prepending
         });
 
         // Redirect to login on any 401 Unauthorized response
@@ -245,13 +245,13 @@ class ApiService {
 
       // Add viewport dimensions if provided (for server-side resizing)
       if (options.viewportWidth) {
-        params.viewport_width = Math.round(options.viewportWidth * window.devicePixelRatio);
+        params["viewport_width"] = Math.round(options.viewportWidth * window.devicePixelRatio);
       }
       if (options.viewportHeight) {
-        params.viewport_height = Math.round(options.viewportHeight * window.devicePixelRatio);
+        params["viewport_height"] = Math.round(options.viewportHeight * window.devicePixelRatio);
       }
       if (options.no_resizing) {
-        params.no_resizing = 1;
+        params["no_resizing"] = 1;
       }
 
       const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
@@ -381,9 +381,11 @@ class ApiService {
    */
   async getLoggingConfig() {
     const response = await this.api.get<{
-      enabled: boolean;
-      log_level: string;
-      components: string[];
+      logging_enabled: boolean;
+      logging_level: string;
+      tracing_enabled: boolean;
+      tracing_level: string;
+      tracing_components: string[];
     }>("/logs/config");
     return response.data;
   }
@@ -451,7 +453,7 @@ export const browseFiles = async (path: string, _token: string) => {
     if (connections.length === 0) {
       return [];
     }
-    const listing = await apiService.listDirectory(connections[0].id, path);
+    const listing = await apiService.listDirectory(connections[0]!.id, path);
     return listing.items;
   } catch (err) {
     logger.error("Error browsing files", { error: err });

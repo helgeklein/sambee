@@ -21,7 +21,7 @@ const Login: React.FC = () => {
         if (!authRequired) {
           logger.info("Auth method is 'none' - redirecting to browse");
           // Initialize mobile logging for no-auth mode
-          await logger.initializeMobileLogging();
+          await logger.initializeBackendTracing();
           navigate("/browse", { replace: true });
           return;
         }
@@ -44,7 +44,7 @@ const Login: React.FC = () => {
       localStorage.setItem("access_token", response.access_token);
 
       // Initialize mobile logging after successful login
-      await logger.initializeMobileLogging();
+      await logger.initializeBackendTracing();
 
       navigate("/browse");
     } catch (_err) {

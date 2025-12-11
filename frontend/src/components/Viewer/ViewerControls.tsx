@@ -28,8 +28,8 @@ export interface ViewerControlsConfig {
 export interface NavigationState {
   currentIndex: number;
   totalItems: number;
-  onNext: () => void;
-  onPrevious: () => void;
+  onNext?: () => void;
+  onPrevious?: () => void;
 }
 
 /**

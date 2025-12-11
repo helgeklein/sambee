@@ -22,6 +22,7 @@ export interface ViewerComponentProps {
   images?: string[];
   currentIndex?: number;
   onCurrentIndexChange?: (index: number) => void;
+  sessionId?: string;
 }
 
 export type ViewerComponent = React.ComponentType<ViewerComponentProps>;
@@ -46,6 +47,9 @@ interface FileTypeDefinition {
   description?: string;
 }
 
+// Image viewer component loader - uses YARL viewer
+const imageViewerComponentLoader = () => import("../components/Viewer/YarlImageViewer");
+
 // ============================================================================
 // Registry Data
 // ============================================================================
@@ -56,7 +60,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jpg", ".jpeg", ".jpe", ".jfif"],
     mimeTypes: ["image/jpeg"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#00b4d8",
     description: "JPEG Image",
@@ -65,7 +69,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".png"],
     mimeTypes: ["image/png"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#00b4d8",
     description: "PNG Image",
@@ -74,7 +78,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".gif"],
     mimeTypes: ["image/gif"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#00b4d8",
     description: "GIF Animation",
@@ -83,7 +87,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".webp"],
     mimeTypes: ["image/webp"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#00b4d8",
     description: "WebP Image",
@@ -92,7 +96,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".svg"],
     mimeTypes: ["image/svg+xml"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#ffb13b",
     description: "SVG Vector",
@@ -101,7 +105,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".avif"],
     mimeTypes: ["image/avif"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#90e0ef",
     description: "AVIF Image",
@@ -112,7 +116,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".tif", ".tiff"],
     mimeTypes: ["image/tiff", "image/x-tiff"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#0077b6",
     description: "TIFF Image",
@@ -121,7 +125,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".heic", ".heif"],
     mimeTypes: ["image/heic", "image/heif"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#0096c7",
     description: "HEIC/HEIF Image",
@@ -130,7 +134,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".bmp", ".dib"],
     mimeTypes: ["image/bmp", "image/x-ms-bmp"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#00b4d8",
     description: "Bitmap Image",
@@ -139,7 +143,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".ico"],
     mimeTypes: ["image/x-icon", "image/vnd.microsoft.icon"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#48cae4",
     description: "Icon File",
@@ -150,7 +154,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".psd", ".psb"],
     mimeTypes: ["image/vnd.adobe.photoshop", "image/x-photoshop"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#31A8FF", // Adobe Photoshop blue
     description: "Adobe Photoshop Document",
@@ -159,7 +163,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".eps"],
     mimeTypes: ["application/postscript", "image/x-eps"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#FF9A00", // PostScript orange
     description: "Encapsulated PostScript",
@@ -168,7 +172,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".ai"],
     mimeTypes: ["application/postscript", "application/illustrator"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#FF7C00", // Adobe Illustrator orange
     description: "Adobe Illustrator",
@@ -177,7 +181,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jp2", ".j2k", ".jpt", ".j2c", ".jpc"],
     mimeTypes: ["image/jp2", "image/jpx", "image/jpm"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#8b5cf6",
     description: "JPEG 2000",
@@ -186,7 +190,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".jxl"],
     mimeTypes: ["image/jxl"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#a855f7",
     description: "JPEG XL",
@@ -195,7 +199,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".exr"],
     mimeTypes: ["image/x-exr"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#ec4899",
     description: "OpenEXR HDR",
@@ -204,7 +208,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".hdr"],
     mimeTypes: ["image/vnd.radiance"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#f97316",
     description: "Radiance HDR",
@@ -215,7 +219,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".fits", ".fit", ".fts"],
     mimeTypes: ["image/fits", "application/fits"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#06b6d4",
     description: "FITS Astronomy",
@@ -224,7 +228,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".svs", ".ndpi", ".scn", ".mrxs", ".vms", ".vmu", ".bif"],
     mimeTypes: ["image/x-whole-slide"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#14b8a6",
     description: "Whole-Slide Image",
@@ -233,7 +237,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".img"],
     mimeTypes: ["image/x-img", "application/x-analyze"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#0ea5e9",
     description: "Medical Imaging",
@@ -242,7 +246,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".mat"],
     mimeTypes: ["application/x-matlab-data"],
     category: "image",
-    viewerComponent: () => import("../components/Viewer/ImageViewer"),
+    viewerComponent: imageViewerComponentLoader,
     icon: "image",
     color: "#f59e0b",
     description: "MATLAB Image Data",

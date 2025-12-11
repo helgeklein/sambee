@@ -29,9 +29,11 @@ describe("LoggingConfig Service", () => {
     it("should handle backend API response format correctly", async () => {
       // This is the EXACT format the backend returns
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "WARNING",
-        components: ["ImageViewer", "Swiper"],
+        logging_enabled: true,
+        logging_level: "INFO",
+        tracing_enabled: true,
+        tracing_level: "WARNING",
+        tracing_components: ["ImageViewer", "Swiper"],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -39,19 +41,25 @@ describe("LoggingConfig Service", () => {
       const config = await loggingConfig.getConfig();
 
       // Verify all required fields are present
-      expect(config).toHaveProperty("enabled");
-      expect(config).toHaveProperty("log_level");
-      expect(config).toHaveProperty("components");
+      expect(config).toHaveProperty("logging_enabled");
+      expect(config).toHaveProperty("logging_level");
+      expect(config).toHaveProperty("tracing_enabled");
+      expect(config).toHaveProperty("tracing_level");
+      expect(config).toHaveProperty("tracing_components");
 
       // Verify types
-      expect(typeof config.enabled).toBe("boolean");
-      expect(typeof config.log_level).toBe("string");
-      expect(Array.isArray(config.components)).toBe(true);
+      expect(typeof config.logging_enabled).toBe("boolean");
+      expect(typeof config.logging_level).toBe("string");
+      expect(typeof config.tracing_enabled).toBe("boolean");
+      expect(typeof config.tracing_level).toBe("string");
+      expect(Array.isArray(config.tracing_components)).toBe(true);
 
       // Verify values
-      expect(config.enabled).toBe(true);
-      expect(config.log_level).toBe("WARNING");
-      expect(config.components).toEqual(["ImageViewer", "Swiper"]);
+      expect(config.logging_enabled).toBe(true);
+      expect(config.logging_level).toBe("INFO");
+      expect(config.tracing_enabled).toBe(true);
+      expect(config.tracing_level).toBe("WARNING");
+      expect(config.tracing_components).toEqual(["ImageViewer", "Swiper"]);
     });
 
     it("should handle all valid log levels from backend", async () => {
@@ -61,44 +69,50 @@ describe("LoggingConfig Service", () => {
         loggingConfig.clearCache();
 
         const backendResponse: LoggingConfig = {
-          enabled: true,
-          log_level: level,
-          components: [],
+          logging_enabled: false,
+          logging_level: "WARNING",
+          tracing_enabled: true,
+          tracing_level: level,
+          tracing_components: [],
         };
 
         vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
 
         const config = await loggingConfig.getConfig();
-        expect(config.log_level).toBe(level);
+        expect(config.tracing_level).toBe(level);
       }
     });
 
     it("should handle empty components array from backend", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: false,
-        log_level: "ERROR",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: false,
+        tracing_level: "ERROR",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
 
       const config = await loggingConfig.getConfig();
-      expect(config.components).toEqual([]);
+      expect(config.tracing_components).toEqual([]);
     });
 
     it("should handle disabled state from backend", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: false,
-        log_level: "ERROR",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: false,
+        tracing_level: "ERROR",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
 
       const config = await loggingConfig.getConfig();
-      expect(config.enabled).toBe(false);
+      expect(config.tracing_enabled).toBe(false);
 
-      // When disabled, level checking should return false
+      // When tracing disabled, level checking should return false
       expect(await loggingConfig.isLevelEnabled("DEBUG")).toBe(false);
       expect(await loggingConfig.isLevelEnabled("ERROR")).toBe(false);
     });
@@ -107,9 +121,11 @@ describe("LoggingConfig Service", () => {
   describe("Level Hierarchy Logic", () => {
     it("should correctly implement log level threshold (DEBUG)", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "DEBUG",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "DEBUG",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -125,9 +141,11 @@ describe("LoggingConfig Service", () => {
       loggingConfig.clearCache();
 
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "INFO",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "INFO",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -143,9 +161,11 @@ describe("LoggingConfig Service", () => {
       loggingConfig.clearCache();
 
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "WARNING",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "WARNING",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -161,9 +181,11 @@ describe("LoggingConfig Service", () => {
       loggingConfig.clearCache();
 
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "ERROR",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "ERROR",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -177,9 +199,11 @@ describe("LoggingConfig Service", () => {
 
     it("should handle case-insensitive level checking", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "WARNING",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "WARNING",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -192,9 +216,11 @@ describe("LoggingConfig Service", () => {
 
     it("should handle invalid log levels gracefully", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "INVALID",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "INVALID",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -208,9 +234,11 @@ describe("LoggingConfig Service", () => {
   describe("Component Filtering", () => {
     it("should enable all components when components array is empty", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "DEBUG",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "DEBUG",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -222,9 +250,11 @@ describe("LoggingConfig Service", () => {
 
     it("should filter components when list is provided", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "DEBUG",
-        components: ["ImageViewer", "Swiper"],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "DEBUG",
+        tracing_components: ["ImageViewer", "Swiper"],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -238,9 +268,11 @@ describe("LoggingConfig Service", () => {
   describe("Caching", () => {
     it("should cache configuration and not refetch within cache duration", async () => {
       const backendResponse: LoggingConfig = {
-        enabled: true,
-        log_level: "INFO",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: true,
+        tracing_level: "INFO",
+        tracing_components: [],
       };
 
       vi.mocked(apiService.getLoggingConfig).mockResolvedValue(backendResponse);
@@ -256,9 +288,11 @@ describe("LoggingConfig Service", () => {
 
     it("should use localStorage cache on initialization", async () => {
       const cachedConfig: LoggingConfig = {
-        enabled: true,
-        log_level: "WARNING",
-        components: ["Test"],
+        logging_enabled: true,
+        logging_level: "INFO",
+        tracing_enabled: true,
+        tracing_level: "WARNING",
+        tracing_components: ["Test"],
         timestamp: Date.now(),
       };
 
@@ -267,7 +301,7 @@ describe("LoggingConfig Service", () => {
       // Should load from cache without API call
       const config = await loggingConfig.getConfig();
       expect(apiService.getLoggingConfig).not.toHaveBeenCalled();
-      expect(config.log_level).toBe("WARNING");
+      expect(config.tracing_level).toBe("WARNING");
     });
   });
 
@@ -277,9 +311,11 @@ describe("LoggingConfig Service", () => {
 
       const config = await loggingConfig.getConfig();
 
-      expect(config.enabled).toBe(false);
-      expect(config.log_level).toBe("ERROR");
-      expect(config.components).toEqual([]);
+      expect(config.logging_enabled).toBe(false);
+      expect(config.logging_level).toBe("WARNING");
+      expect(config.tracing_enabled).toBe(false);
+      expect(config.tracing_level).toBe("ERROR");
+      expect(config.tracing_components).toEqual([]);
     });
   });
 });

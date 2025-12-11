@@ -42,11 +42,13 @@ cp config.example.toml config.toml
 
 Change settings in `config.toml` as needed.
 
-### 4. Deploy
+### 4. Build and Deploy
 
 ```bash
 docker compose up -d
 ```
+
+**Note:** The build process automatically captures the current git commit and build timestamp, which will be displayed in the application's hamburger menu and backend logs.
 
 The application will be available at:
 - **Frontend**: http://localhost:8000

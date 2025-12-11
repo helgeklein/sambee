@@ -32,6 +32,11 @@ def create_file_streamer(backend: SMBBackend, path: str) -> AsyncIterator[bytes]
         try:
             async for chunk in backend.read_file(path):
                 yield chunk
+        except TimeoutError as e:
+            logger.error(f"Timeout reading file during streaming: {path} - {e}")
+            # Can't raise HTTPException mid-stream, connection will be closed
+            # Client will see incomplete response
+            raise
         except FileNotFoundError as e:
             logger.warning(f"File not found during streaming: {path} - {e}")
             # Can't raise HTTPException mid-stream, connection will be closed
@@ -102,6 +107,14 @@ async def read_and_convert_image(
             headers={"Content-Disposition": f'inline; filename="{filename}"'},
         )
 
+    except TimeoutError as e:
+        logger.error(
+            f"Timeout reading file: connection_id={connection_id}, path='{path}', error={e}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Timeout reading file from network share",
+        )
     except ImportError as e:
         logger.error(
             f"Image conversion failed - missing dependency: {e}",

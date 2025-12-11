@@ -43,10 +43,12 @@ log_level = getattr(logging, settings.log_level)
 logging.basicConfig(level=log_level, format=log_format, handlers=handlers)
 
 # Configure Uvicorn's loggers to use our format and rename uvicorn.error -> uvicorn
+# Keep Uvicorn at INFO level to avoid verbose header logging even when app is in DEBUG mode
 uvicorn_formatter = logging.Formatter(log_format)
+uvicorn_log_level = max(log_level, logging.INFO)  # INFO or higher, never DEBUG
 for logger_name in ["uvicorn", "uvicorn.access", "uvicorn.error"]:
     uvicorn_logger = logging.getLogger(logger_name)
-    uvicorn_logger.setLevel(log_level)
+    uvicorn_logger.setLevel(uvicorn_log_level)
     # Replace handlers with our formatted ones
     uvicorn_logger.handlers.clear()
     for handler in handlers:
@@ -69,10 +71,29 @@ logging.getLogger("app.storage.smb_pool").setLevel(logging.WARNING)
 # Logger for this module
 logger = logging.getLogger(__name__)
 
-# Log startup time (skip during tests to reduce noise)
+# Log startup info (skip during tests to reduce noise)
 if "pytest" not in sys.modules:
+    # Read build metadata if available
+    build_time = "unknown"
+    build_time_file = Path("/BUILD_TIME")
+    if build_time_file.exists():
+        try:
+            build_time = build_time_file.read_text().strip()
+        except (OSError, ValueError):
+            pass
+
+    git_commit = "unknown"
+    git_commit_file = Path("/GIT_COMMIT")
+    if git_commit_file.exists():
+        try:
+            git_commit = git_commit_file.read_text().strip()
+        except (OSError, ValueError):
+            pass
+
     logger.info("=" * 80)
-    logger.info(f"Sambee Backend Starting - {datetime.now().isoformat()}")
+    logger.info("Sambee Backend Starting")
+    logger.info(f"Version: {__version__} (commit: {git_commit})")
+    logger.info(f"Built: {build_time}")
     logger.info(f"Environment: {'PRODUCTION' if IS_PRODUCTION else 'DEVELOPMENT'}")
     logger.info(f"Python: {sys.version}")
     logger.info(f"Working Directory: {Path.cwd()}")
@@ -262,6 +283,38 @@ async def health_check() -> dict[str, str]:
     """Health check endpoint"""
 
     return {"status": "healthy"}
+
+
+#
+# version_info
+#
+@app.get("/api/version")
+async def version_info() -> dict[str, str]:
+    """Return version and build information"""
+
+    # Read build time from file created during Docker build
+    build_time = "unknown"
+    build_time_file = Path("/BUILD_TIME")
+    if build_time_file.exists():
+        try:
+            build_time = build_time_file.read_text().strip()
+        except (OSError, ValueError):
+            pass
+
+    # Read git commit from file created during Docker build
+    git_commit = "unknown"
+    git_commit_file = Path("/GIT_COMMIT")
+    if git_commit_file.exists():
+        try:
+            git_commit = git_commit_file.read_text().strip()
+        except (OSError, ValueError):
+            pass
+
+    return {
+        "version": __version__,
+        "build_time": build_time,
+        "git_commit": git_commit,
+    }
 
 
 # Serve static files in production

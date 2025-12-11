@@ -27,23 +27,31 @@ username = "admin"
 # conv_size_thresh = 512000
 
 [frontend_logging]
-# Enable frontend logging globally (default: false)
-# enabled = false
+# Browser console logging (for development/debugging)
+# Enable frontend logging to browser console (default: false in production builds, true in development builds)
+# logging_enabled = false
 
-# Delete frontend logs older than this many hours (default: 1)
-# log_retention_hours = 1
+# Console log level: DEBUG, INFO, WARNING, ERROR (case-insensitive)
+# log_level = "WARNING"
 
-# Frontend log level: DEBUG, INFO, WARNING, ERROR (case-insensitive)
-# log_level = "ERROR"
+# Backend tracing (for production monitoring and debugging)
+# Enable frontend tracing to backend (default: false)
+# tracing_enabled = false
 
-# Log components (comma-separated, empty = all components)
+# Delete frontend trace logs older than this many hours (default: 1)
+# tracing_retention_hours = 1
+
+# Tracing log level: DEBUG, INFO, WARNING, ERROR (case-insensitive)
+# tracing_level = "ERROR"
+
+# Trace components (comma-separated, empty = all components)
 # Examples: ImageViewer, ImageLoader, Swiper
-# log_components = ""
+# tracing_components = ""
 
-# Username regex filter - only log for users matching this regex (default: empty = all users)
+# Username regex filter - only trace for users matching this regex (default: empty = all users)
 # Examples:
-#   username_regex = "^admin$"           # Only admin user
-#   username_regex = "^(admin|developer)$"  # admin or developer
-#   username_regex = "^test"             # Any username starting with "test"
-#   username_regex = ""                  # All users (when enabled = true)
-# username_regex = ""
+#   tracing_username_regex = "^admin$"           # Only admin user
+#   tracing_username_regex = "^(admin|developer)$"  # admin or developer
+#   tracing_username_regex = "^test"             # Any username starting with "test"
+#   tracing_username_regex = ""                  # All users (when tracing_enabled = true)
+# tracing_username_regex = ""

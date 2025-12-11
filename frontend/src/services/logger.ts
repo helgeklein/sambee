@@ -1,7 +1,16 @@
 /**
  * Centralized logging service for the frontend.
  *
- * Provides structured logging with context, log levels, and optional backend forwarding.
+ * Provides two separate logging mechanisms:
+ * 1. Console logging: Controlled by backend config (logging_enabled/logging_level)
+ *    - Development builds: Defaults to DEBUG level, can be overridden by backend config
+ *    - Production builds: Defaults to WARN level, can be overridden by backend config
+ *    - Backend config takes precedence once loaded via initializeBackendTracing()
+ *
+ * 2. Backend tracing: Optional server-side logging controlled by backend config
+ *    - Can be enabled/disabled per user via backend configuration
+ *    - Sends logs to backend for production monitoring and debugging
+ *    - Configured via [frontend_logging] section in config.toml
  */
 
 import { LogBuffer, type LogEntry as MobileLogEntry } from "./logBuffer";
@@ -35,26 +44,31 @@ class Logger {
   private minLevel: LogLevel;
   private isDevelopment: boolean;
   private isTest: boolean;
-  private mobileLogBuffer: LogBuffer | null = null;
-  private mobileLoggingEnabled = false;
+  private backendTraceBuffer: LogBuffer | null = null;
+  private backendTracingEnabled = false;
 
   constructor() {
     this.isDevelopment = import.meta.env.DEV;
     // Detect test environment - vitest sets this or we can check if vitest globals exist
     this.isTest =
-      import.meta.env.VITEST === true ||
-      (typeof process !== "undefined" && process.env?.VITEST === "true") ||
+      import.meta.env["VITEST"] === true ||
+      (typeof process !== "undefined" && process.env?.["VITEST"] === "true") ||
       // Alternative: check if vitest globals are available
       (typeof globalThis !== "undefined" && ("describe" in globalThis || "it" in globalThis || "test" in globalThis));
-    this.minLevel = this.isDevelopment ? LogLevel.DEBUG : LogLevel.INFO;
+    // In production, only show warnings and errors; in development, show all logs
+    this.minLevel = this.isDevelopment ? LogLevel.DEBUG : LogLevel.WARN;
   }
 
   /**
-   * Initialize mobile logging based on server configuration
+   * Initialize backend tracing based on server configuration
    *
-   * Should be called after user authentication to fetch user-specific logging config.
+   * Backend tracing (optional server-side logging) can be enabled/disabled
+   * per user via the backend config [frontend_logging] section.
+   * Should be called after user authentication to fetch user-specific tracing config.
+   *
+   * Also applies console logging settings from the backend config.
    */
-  async initializeMobileLogging(): Promise<void> {
+  async initializeBackendTracing(): Promise<void> {
     // Don't enable in test environment
     if (this.isTest) {
       return;
@@ -64,37 +78,58 @@ class Logger {
       const { loggingConfig } = await import("./loggingConfig");
       const config = await loggingConfig.getConfig();
 
-      if (config.enabled) {
-        this.enableMobileLogging();
-        this.info("Mobile logging initialized from server config", {
-          log_level: config.log_level,
-          components: config.components,
+      // Apply console logging settings from backend config
+      if (config.logging_enabled) {
+        const levelMap: Record<string, LogLevel> = {
+          DEBUG: LogLevel.DEBUG,
+          INFO: LogLevel.INFO,
+          WARNING: LogLevel.WARN,
+          ERROR: LogLevel.ERROR,
+        };
+        const level = levelMap[config.logging_level.toUpperCase()];
+        if (level !== undefined) {
+          this.setLevel(level);
+          this.info("Console logging level set from server config", {
+            logging_level: config.logging_level,
+          });
+        }
+      } else if (!this.isDevelopment) {
+        // In production, if logging is disabled, suppress all console output
+        this.setLevel(LogLevel.ERROR + 1); // Higher than ERROR to disable all
+      }
+
+      // Enable backend tracing if configured
+      if (config.tracing_enabled) {
+        this.enableBackendTracing();
+        this.info("Backend tracing initialized from server config", {
+          tracing_level: config.tracing_level,
+          tracing_components: config.tracing_components,
         });
       }
     } catch (error) {
-      // Silently fail - logging config is optional
-      console.warn("Failed to initialize mobile logging config:", error);
+      // Silently fail - backend config is optional
+      console.warn("Failed to initialize logging/tracing config:", error);
     }
   }
 
   /**
-   * Enable mobile logging to backend
+   * Enable backend tracing (server-side logging)
    *
    * @param maxLogs - Maximum number of logs to buffer before auto-flush (default: 50)
    * @param flushIntervalMs - Time interval for auto-flush in milliseconds (default: 30000 = 30s)
    */
-  enableMobileLogging(maxLogs = 50, flushIntervalMs = 30000): void {
+  enableBackendTracing(maxLogs = 50, flushIntervalMs = 30000): void {
     // Don't enable in test environment
     if (this.isTest) {
       return;
     }
 
-    if (this.mobileLoggingEnabled) {
+    if (this.backendTracingEnabled) {
       return;
     }
 
     const transport = new LogTransport();
-    this.mobileLogBuffer = new LogBuffer(
+    this.backendTraceBuffer = new LogBuffer(
       async (batch) => {
         await transport.send(batch);
       },
@@ -102,78 +137,46 @@ class Logger {
       flushIntervalMs
     );
 
-    this.mobileLogBuffer.enable();
-    this.mobileLoggingEnabled = true;
+    this.backendTraceBuffer.enable();
+    this.backendTracingEnabled = true;
 
-    this.info("Mobile logging enabled", {
-      sessionId: this.mobileLogBuffer.getSessionId(),
+    this.info("Backend tracing enabled", {
+      sessionId: this.backendTraceBuffer.getSessionId(),
       maxLogs,
       flushIntervalMs,
     });
   }
 
   /**
-   * Disable mobile logging to backend
+   * Disable backend tracing
    */
-  disableMobileLogging(): void {
-    if (!this.mobileLoggingEnabled || !this.mobileLogBuffer) {
+  disableBackendTracing(): void {
+    if (!this.backendTracingEnabled || !this.backendTraceBuffer) {
       return;
     }
 
-    this.info("Mobile logging disabled");
+    this.info("Backend tracing disabled");
 
     // Flush any remaining logs before disabling
-    void this.mobileLogBuffer.flush();
-    this.mobileLogBuffer.disable();
-    this.mobileLoggingEnabled = false;
+    void this.backendTraceBuffer.flush();
+    this.backendTraceBuffer.disable();
+    this.backendTracingEnabled = false;
   }
 
   /**
-   * Manually flush mobile logs to backend
+   * Manually flush backend traces
    */
-  async flushMobileLogs(): Promise<void> {
-    if (this.mobileLogBuffer) {
-      await this.mobileLogBuffer.flush();
+  async flushBackendTraces(): Promise<void> {
+    if (this.backendTraceBuffer) {
+      await this.backendTraceBuffer.flush();
     }
   }
 
   /**
-   * Log a debug message (also sends to mobile backend if enabled)
+   * Send a log entry to the backend trace buffer
    */
-  debugMobile(message: string, context?: LogContext, component?: string): void {
-    this.debug(message, context);
-    this.sendToMobileBackend(LogLevel.DEBUG, message, context, component);
-  }
-
-  /**
-   * Log an info message (also sends to mobile backend if enabled)
-   */
-  infoMobile(message: string, context?: LogContext, component?: string): void {
-    this.info(message, context);
-    this.sendToMobileBackend(LogLevel.INFO, message, context, component);
-  }
-
-  /**
-   * Log a warning message (also sends to mobile backend if enabled)
-   */
-  warnMobile(message: string, context?: LogContext, component?: string): void {
-    this.warn(message, context);
-    this.sendToMobileBackend(LogLevel.WARN, message, context, component);
-  }
-
-  /**
-   * Log an error message (also sends to mobile backend if enabled)
-   */
-  errorMobile(message: string, context?: LogContext, component?: string, error?: Error): void {
-    this.error(message, context, error);
-    this.sendToMobileBackend(LogLevel.ERROR, message, context, component);
-  }
-
-  /**
-   * Send a log entry to the mobile backend buffer
-   */
-  private async sendToMobileBackend(level: LogLevel, message: string, context?: LogContext, component?: string): Promise<void> {
-    if (!this.mobileLoggingEnabled || !this.mobileLogBuffer) {
+  private async sendToBackendTrace(level: LogLevel, message: string, context?: LogContext, component?: string): Promise<void> {
+    if (!this.backendTracingEnabled || !this.backendTraceBuffer) {
       return;
     }
 
@@ -206,7 +209,7 @@ class Logger {
       component,
     };
 
-    this.mobileLogBuffer.add(entry);
+    this.backendTraceBuffer.add(entry);
   }
 
   /**
@@ -217,30 +220,46 @@ class Logger {
   }
 
   /**
-   * Log a debug message
+   * Log a debug message (automatically forwards to backend tracing if enabled)
+   * @param message - Log message
+   * @param context - Additional context data
+   * @param component - Optional component name for backend tracing filtering
    */
-  debug(message: string, context?: LogContext): void {
+  debug(message: string, context?: LogContext, component?: string): void {
     this.log(LogLevel.DEBUG, message, context);
+    void this.sendToBackendTrace(LogLevel.DEBUG, message, context, component);
   }
 
   /**
-   * Log an info message
+   * Log an info message (automatically forwards to backend tracing if enabled)
+   * @param message - Log message
+   * @param context - Additional context data
+   * @param component - Optional component name for backend tracing filtering
    */
-  info(message: string, context?: LogContext): void {
+  info(message: string, context?: LogContext, component?: string): void {
     this.log(LogLevel.INFO, message, context);
+    void this.sendToBackendTrace(LogLevel.INFO, message, context, component);
   }
 
   /**
-   * Log a warning message
+   * Log a warning message (automatically forwards to backend tracing if enabled)
+   * @param message - Log message
+   * @param context - Additional context data
+   * @param component - Optional component name for backend tracing filtering
    */
-  warn(message: string, context?: LogContext): void {
+  warn(message: string, context?: LogContext, component?: string): void {
     this.log(LogLevel.WARN, message, context);
+    void this.sendToBackendTrace(LogLevel.WARN, message, context, component);
   }
 
   /**
-   * Log an error message
+   * Log an error message (automatically forwards to backend tracing if enabled)
+   * @param message - Log message
+   * @param context - Additional context data
+   * @param component - Optional component name for backend tracing filtering
+   * @param error - Optional Error object
    */
-  error(message: string, context?: LogContext, error?: Error): void {
+  error(message: string, context?: LogContext, component?: string, error?: Error): void {
     const errorContext = error
       ? {
           ...context,
@@ -252,6 +271,7 @@ class Logger {
         }
       : context;
     this.log(LogLevel.ERROR, message, errorContext);
+    void this.sendToBackendTrace(LogLevel.ERROR, message, errorContext, component);
   }
 
   /**
@@ -270,12 +290,14 @@ class Logger {
     };
 
     // Extract request ID from context if present
-    if (context?.requestId) {
-      entry.requestId = String(context.requestId);
+    if (context?.["requestId"]) {
+      entry.requestId = String(context["requestId"]);
     }
 
-    // Console output in development (but not during tests to keep output clean)
-    if (this.isDevelopment && !this.isTest) {
+    // Console output when not in tests
+    // In development: always enabled
+    // In production: controlled by backend config via setLevel()
+    if (!this.isTest) {
       this.consoleLog(level, entry);
     }
 
@@ -360,9 +382,10 @@ class Logger {
 export const logger = new Logger();
 
 // Export convenience functions
-export const debug = (message: string, context?: LogContext) => logger.debug(message, context);
-export const info = (message: string, context?: LogContext) => logger.info(message, context);
-export const warn = (message: string, context?: LogContext) => logger.warn(message, context);
-export const error = (message: string, context?: LogContext, err?: Error) => logger.error(message, context, err);
+export const debug = (message: string, context?: LogContext, component?: string) => logger.debug(message, context, component);
+export const info = (message: string, context?: LogContext, component?: string) => logger.info(message, context, component);
+export const warn = (message: string, context?: LogContext, component?: string) => logger.warn(message, context, component);
+export const error = (message: string, context?: LogContext, component?: string, err?: Error) =>
+  logger.error(message, context, component, err);
 
 export default logger;

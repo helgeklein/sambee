@@ -3,6 +3,10 @@
  *
  * Fetches and caches logging configuration from the backend.
  * Configuration is stored in localStorage for persistence across sessions.
+ *
+ * Supports two independent mechanisms:
+ * - Console logging: Browser console output controlled by logging_enabled/logging_level
+ * - Backend tracing: Server-side log collection controlled by tracing_enabled/tracing_level
  */
 
 import { apiService } from "./api";
@@ -12,9 +16,15 @@ const STORAGE_KEY = "frontend_logging_config";
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface LoggingConfig {
-  enabled: boolean;
-  log_level: string; // Minimum log level: DEBUG, INFO, WARNING, ERROR
-  components: string[];
+  // Browser console logging
+  logging_enabled: boolean;
+  logging_level: string; // DEBUG, INFO, WARNING, ERROR
+
+  // Backend tracing
+  tracing_enabled: boolean;
+  tracing_level: string; // DEBUG, INFO, WARNING, ERROR
+  tracing_components: string[];
+
   timestamp?: number;
 }
 
@@ -47,21 +57,21 @@ class LoggingConfigManager {
   }
 
   /**
-   * Check if a specific log level is enabled
+   * Check if a specific log level is enabled for backend tracing
    *
-   * Uses threshold comparison: if config.log_level is "WARNING",
+   * Uses threshold comparison: if config.tracing_level is "WARNING",
    * then WARNING and ERROR are enabled, but DEBUG and INFO are not.
    */
   async isLevelEnabled(level: string): Promise<boolean> {
     const config = await this.getConfig();
-    if (!config.enabled) {
+    if (!config.tracing_enabled) {
       return false;
     }
 
     // Log level hierarchy (lower index = lower severity)
     const hierarchy = ["DEBUG", "INFO", "WARNING", "ERROR"];
     const normalizedLevel = level.toUpperCase();
-    const configLevel = config.log_level.toUpperCase();
+    const configLevel = config.tracing_level.toUpperCase();
 
     const levelIndex = hierarchy.indexOf(normalizedLevel);
     const configIndex = hierarchy.indexOf(configLevel);
@@ -76,18 +86,18 @@ class LoggingConfigManager {
   }
 
   /**
-   * Check if a specific component is enabled for logging
+   * Check if a specific component is enabled for backend tracing
    */
   async isComponentEnabled(component: string): Promise<boolean> {
     const config = await this.getConfig();
-    if (!config.enabled) {
+    if (!config.tracing_enabled) {
       return false;
     }
     // Empty components array means all components enabled
-    if (config.components.length === 0) {
+    if (config.tracing_components.length === 0) {
       return true;
     }
-    return config.components.includes(component);
+    return config.tracing_components.includes(component);
   }
 
   /**
@@ -123,9 +133,11 @@ class LoggingConfigManager {
       // If fetch fails, return disabled config as fallback
       logger.warn("Failed to fetch logging config, using disabled state", { error });
       return {
-        enabled: false,
-        log_level: "ERROR",
-        components: [],
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: false,
+        tracing_level: "ERROR",
+        tracing_components: [],
         timestamp: Date.now(),
       };
     }

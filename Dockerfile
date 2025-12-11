@@ -24,6 +24,27 @@ COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 # Copy VERSION file
 COPY VERSION /VERSION
 
+# Build arguments for capturing build metadata (can be overridden at build time)
+ARG BUILD_TIME
+ARG GIT_COMMIT
+
+# Capture build metadata: use provided args or generate during build
+# Copy .git directory temporarily to extract commit if not provided
+COPY .git /tmp/.git
+RUN apt-get update && apt-get install -y --no-install-recommends git && \
+    if [ -z "$BUILD_TIME" ]; then \
+        date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME; \
+    else \
+        echo "$BUILD_TIME" > /BUILD_TIME; \
+    fi && \
+    if [ -z "$GIT_COMMIT" ]; then \
+        (cd /tmp && git rev-parse --short HEAD > /GIT_COMMIT 2>/dev/null || echo "unknown" > /GIT_COMMIT); \
+    else \
+        echo "$GIT_COMMIT" > /GIT_COMMIT; \
+    fi && \
+    rm -rf /tmp/.git && \
+    apt-get purge -y git && apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Copy and install backend dependencies
 COPY backend/requirements.txt .
 RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt

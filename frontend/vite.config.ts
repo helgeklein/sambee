@@ -4,6 +4,9 @@ import { defineConfig } from "vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   server: {
     host: "0.0.0.0",
     port: 3000,
@@ -16,6 +19,9 @@ export default defineConfig({
   },
   worker: {
     format: "es",
+  },
+  optimizeDeps: {
+    include: ["yet-another-react-lightbox", "yet-another-react-lightbox/plugins/zoom"],
   },
   build: {
     rollupOptions: {

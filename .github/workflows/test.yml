@@ -10,13 +10,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v5
+      id: setup-python
       with:
         python-version: '3.13'
         cache: 'pip'
@@ -34,9 +35,9 @@ jobs:
       id: python-cache
       with:
         path: backend/.venv
-        key: ${{ runner.os }}-python-3.13-venv-${{ hashFiles('backend/requirements*.txt') }}
+        key: ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('backend/requirements*.txt') }}
         restore-keys: |
-          ${{ runner.os }}-python-3.13-venv-
+          ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
 
     - name: Cache Node modules
       uses: actions/cache@v4
