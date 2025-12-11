@@ -1,11 +1,12 @@
 import { Box, CircularProgress } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Lightbox, { type RenderSlideProps, type Slide } from "yet-another-react-lightbox";
+import Lightbox, { type Slide } from "yet-another-react-lightbox";
+import Fullscreen from "yet-another-react-lightbox/plugins/fullscreen";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import "yet-another-react-lightbox/styles.css";
 
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
-import { useImageGalleryData } from "../../hooks/useImageGalleryData";
+import { useCachedImageGallery } from "../../hooks/useCachedImageGallery";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
@@ -14,6 +15,7 @@ import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
 type ZoomRef = import("yet-another-react-lightbox").ZoomRef;
+type FullscreenRef = import("yet-another-react-lightbox").FullscreenRef;
 interface LightboxImageSlide extends Slide {
   imageIndex: number;
   originalPath: string;
@@ -44,6 +46,10 @@ const PRELOAD_COUNT = 5;
 // Number of slides to cache in each direction (we cache aggressively)
 const CACHE_COUNT = 20;
 
+// Transparent 1x1 pixel PNG as placeholder to avoid broken image icon while loading
+const TRANSPARENT_PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
 const YarlImageViewer: React.FC<ViewerComponentProps> = ({
   connectionId,
   path,
@@ -53,12 +59,11 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
   onCurrentIndexChange,
   sessionId,
 }) => {
-  const touchDevice = isTouchDevice();
   const [rotate, setRotate] = useState(0);
-  const [zoomLevel, setZoomLevel] = useState(1);
   const [hideControls, setHideControls] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const zoomRef = useRef<ZoomRef | null>(null);
+  const fullscreenRef = useRef<FullscreenRef | null>(null);
   const portalRef = useRef<HTMLDivElement | null>(null);
 
   const {
@@ -71,12 +76,12 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
     errorStates,
     showLoadingSpinner,
     markCachedImagesAsLoaded,
-  } = useImageGalleryData({
+  } = useCachedImageGallery({
     connectionId,
     images,
     initialIndex,
     onIndexChange: onCurrentIndexChange,
-    isTouchDevice: touchDevice,
+    isTouchDevice: isTouchDevice(),
     preloadRange: PRELOAD_COUNT,
     cacheRange: CACHE_COUNT,
   });
@@ -99,7 +104,6 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
 
     setRotate(0);
     setHideControls(false);
-    setZoomLevel(1);
     zoomRef.current?.changeZoom(1, true);
   }, [currentIndex]);
 
@@ -135,15 +139,16 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
     };
   }, [sessionId]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: loadingStates/errorStates trigger re-render when images load (imageCacheRef is a ref)
   const slides = useMemo<LightboxImageSlide[]>(() => {
     return images.map((imagePath, index) => ({
       type: "image",
-      src: imageCacheRef.current.get(index) ?? "data:",
+      src: imageCacheRef.current.get(index) ?? TRANSPARENT_PIXEL,
       alt: imagePath.split("/").pop() ?? imagePath,
       imageIndex: index,
       originalPath: imagePath,
     }));
-  }, [images, imageCacheRef]);
+  }, [images, imageCacheRef, loadingStates, errorStates]);
 
   const handleClose = useCallback(() => {
     onClose();
@@ -160,17 +165,17 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
     [currentIndex, setCurrentIndex, markCachedImagesAsLoaded]
   );
 
-  const handleZoomChange = useCallback(
-    ({ zoom }: { zoom: number }) => {
-      setZoomLevel(zoom);
-      if (zoom <= 1.01) {
-        setHideControls(false);
-      } else if (!hideControls) {
-        setHideControls(true);
-      }
-    },
-    [hideControls]
-  );
+  const handleZoomChange = useCallback(({ zoom }: { zoom: number }) => {
+    // Auto-hide controls when zoomed in, but only if in fullscreen mode
+    // On desktop (non-fullscreen), keep controls visible so user can zoom out via toolbar
+    const isFullscreen = fullscreenRef.current?.fullscreen ?? false;
+
+    if (zoom > 1.01 && isFullscreen) {
+      setHideControls(true);
+    } else if (zoom <= 1.01) {
+      setHideControls(false);
+    }
+  }, []);
 
   const handleDownload = useCallback(async () => {
     try {
@@ -198,49 +203,57 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
 
   const handleZoomReset = useCallback(() => {
     zoomRef.current?.changeZoom(1, true);
-    setZoomLevel(1);
     setHideControls(false);
   }, []);
-
-  const handleEscape = useCallback(() => {
-    handleClose();
-  }, [handleClose]);
 
   const handleShowHelp = useCallback(() => {
     setShowHelp(true);
   }, []);
 
-  const handleSlideTap = useCallback(() => {
-    if (zoomLevel > 1.01) {
-      return;
+  const handleNavigateNext = useCallback(() => {
+    if (currentIndex < images.length - 1) {
+      setCurrentIndex(currentIndex + 1);
     }
-    setHideControls((value) => !value);
-  }, [zoomLevel]);
+  }, [currentIndex, images.length, setCurrentIndex]);
 
-  const renderSlide = useCallback(
-    ({ slide }: RenderSlideProps) => {
+  const handleNavigatePrevious = useCallback(() => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  }, [currentIndex, setCurrentIndex]);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (fullscreenRef.current?.fullscreen) {
+      fullscreenRef.current?.exit();
+    } else {
+      fullscreenRef.current?.enter();
+    }
+  }, []);
+
+  const renderSlideContainer = useCallback(
+    ({ children }: { children?: React.ReactNode }) => (
+      <Box
+        sx={{
+          width: "100%",
+          height: "100%",
+          transform: `rotate(${rotate}deg)`,
+        }}
+      >
+        {children}
+      </Box>
+    ),
+    [rotate]
+  );
+
+  const renderSlideHeader = useCallback(
+    ({ slide }: { slide: Slide }) => {
       const typedSlide = slide as LightboxImageSlide;
       const imageIndex = typedSlide.imageIndex;
-      const imageUrl = imageCacheRef.current.get(imageIndex);
       const isLoading = loadingStates.get(imageIndex);
       const error = errorStates.get(imageIndex);
-      const alt = typedSlide.alt ?? typedSlide.originalPath;
 
       return (
-        <Box
-          onClick={handleSlideTap}
-          sx={{
-            width: "100%",
-            height: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            position: "relative",
-            backgroundColor: "rgba(0,0,0,0.9)",
-            overflow: "hidden",
-            touchAction: "none",
-          }}
-        >
+        <>
           {isLoading && showLoadingSpinner && (
             <Box
               sx={{
@@ -251,6 +264,7 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
                 justifyContent: "center",
                 backgroundColor: "rgba(0,0,0,0.3)",
                 zIndex: 2,
+                pointerEvents: "none",
               }}
             >
               <CircularProgress />
@@ -258,29 +272,26 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
           )}
 
           {error && (
-            <Box color="error.main" textAlign="center" px={2}>
-              {error}
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 2,
+                pointerEvents: "none",
+              }}
+            >
+              <Box color="error.main" textAlign="center" px={2}>
+                {error}
+              </Box>
             </Box>
           )}
-
-          {!error && imageUrl && (
-            <Box
-              component="img"
-              src={imageUrl}
-              alt={alt}
-              decoding="async"
-              sx={{
-                maxWidth: "100%",
-                maxHeight: "100%",
-                objectFit: "contain",
-                transform: `rotate(${rotate}deg)`,
-              }}
-            />
-          )}
-        </Box>
+        </>
       );
     },
-    [errorStates, handleSlideTap, imageCacheRef, loadingStates, rotate, showLoadingSpinner]
+    [errorStates, loadingStates, showLoadingSpinner]
   );
 
   const imageShortcuts = useMemo(
@@ -311,11 +322,11 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
       },
       {
         ...VIEWER_SHORTCUTS.FULLSCREEN,
-        handler: () => setHideControls((value) => !value),
+        handler: handleToggleFullscreen,
       },
       {
         ...COMMON_SHORTCUTS.CLOSE,
-        handler: handleEscape,
+        handler: handleClose,
       },
       {
         id: "show-help",
@@ -325,7 +336,17 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
         handler: handleShowHelp,
       },
     ],
-    [handleDownload, handleEscape, handleRotateLeft, handleRotateRight, handleShowHelp, handleZoomIn, handleZoomOut, handleZoomReset]
+    [
+      handleClose,
+      handleDownload,
+      handleRotateLeft,
+      handleRotateRight,
+      handleShowHelp,
+      handleToggleFullscreen,
+      handleZoomIn,
+      handleZoomOut,
+      handleZoomReset,
+    ]
   );
 
   useKeyboardShortcuts({
@@ -367,6 +388,8 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
                   ? {
                       currentIndex,
                       totalItems: images.length,
+                      onNext: handleNavigateNext,
+                      onPrevious: handleNavigatePrevious,
                     }
                   : undefined
               }
@@ -398,7 +421,8 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
             slides={slides}
             portal={{ root: portalRef.current }}
             render={{
-              slide: renderSlide,
+              slideContainer: renderSlideContainer,
+              slideHeader: renderSlideHeader,
               buttonPrev: () => null,
               buttonNext: () => null,
               buttonClose: () => null,
@@ -414,6 +438,12 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
               spacing: SLIDE_GAP_PX,
               imageFit: "contain",
               preload: PRELOAD_COUNT,
+              imageProps: {
+                style: {
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                },
+              },
             }}
             animation={{
               fade: 0,
@@ -431,16 +461,25 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
               toolbar: {
                 display: "none", // Hide YARL's toolbar completely
               },
+              slide: {
+                // Allow images to scale up to fill viewport (removes YARL's max-width/max-height limits)
+                maxWidth: "100% !important",
+                maxHeight: "100% !important",
+              },
             }}
             on={{
               view: handleViewChange,
               zoom: handleZoomChange,
             }}
-            plugins={[Zoom]}
+            plugins={[Fullscreen, Zoom]}
+            fullscreen={{
+              ref: fullscreenRef,
+            }}
             zoom={{
               ref: zoomRef,
-              scrollToZoom: true,
+              scrollToZoom: true, // Allow scroll wheel to zoom
               pinchZoomV4: true,
+              maxZoomPixelRatio: 3, // Allow up to 3x upscaling for closer inspection
             }}
           />
         </Box>

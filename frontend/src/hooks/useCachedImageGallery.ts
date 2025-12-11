@@ -80,7 +80,10 @@ export interface UseImageGalleryDataResult {
   abortControllersRef: React.MutableRefObject<Map<number, AbortController>>;
 }
 
-export const useImageGalleryData = ({
+//
+// useCachedImageGallery
+//
+export const useCachedImageGallery = ({
   connectionId,
   images,
   initialIndex = 0,
@@ -240,6 +243,7 @@ export const useImageGalleryData = ({
         }
 
         // Pass viewport dimensions for server-side image optimization
+        // Use actual viewport size for efficiency - YARL will upscale if needed for fullscreen
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
 

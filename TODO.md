@@ -1,18 +1,5 @@
 # TODO
 
-## Image Viewer
-
-### Mobile
-
-- Swiping between images:
-   - Sometimes, swiping starts OK, but then there's a "hiccup" where the animation is stuck for a moment.
--In fullscreen view I can use pinch to zoom. Afterwards, the UI is blocked and I cannot get back to the normal non-zoomed view.
-
-### Desktop
-
-- Zooming doesn't work in the regular view at all.
-   - In fullscreen view it only works a tiny little bit.
-
 ### Apply improvements to other viewers
 
 - Once all has been fixed.
