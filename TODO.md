@@ -1,6 +1,14 @@
 # TODO
 
-### Apply improvements to other viewers
+## Next steps
+
+- PWA
+- Frontend: friendlier message when the backend is unreachable (currently: something went wrong)
+- Admin UI
+- Authentication system
+   - OAuth/OIDC
+
+### Apply improvements from image to other viewers
 
 - Once all has been fixed.
 
@@ -9,11 +17,6 @@
 - Download: currently error
 - Tests on mobile
 - Test coverage
-
-## Markdown viewer
-
-- Migrate to the same view using the full browser window as the image and PDF viewers.
-- Fullscreen view (similar to the other viewers).
 
 ## Image viewer
 

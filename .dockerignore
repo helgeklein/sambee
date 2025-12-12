@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Development
+.devcontainer
+.vscode
+node_modules
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Documentation
+README.md
+TODO.md
+documentation/
+documentation_developers/
+developer_docs/
+
+# Build artifacts (generated before build)
+# These files are created by scripts/generate-build-metadata
+# and must NOT be ignored so they can be copied into the image
+# BUILD_TIME
+# GIT_COMMIT
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Config examples
+config.example.toml
+
+# Test data
+**/test_*.py
+**/__tests__/
+*.test.ts
+*.test.tsx
+
+# Coverage
+htmlcov/
+coverage.xml
+coverage.json
+.coverage
+
+# IDE
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

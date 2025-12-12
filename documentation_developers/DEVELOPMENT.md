@@ -22,10 +22,18 @@ The project includes a complete dev container configuration for consistent devel
 1. Open the project in VS Code
 2. Reopen in Container when prompted
 3. The post-create script will automatically:
+   - Configure Git hooks for automatic commit tracking
    - Install Python dependencies
    - Install Node modules
    - Initialize the database
    - Create default `config.toml` file with secure keys
+
+**Note on Git Hooks:** The dev container automatically configures Git to use hooks from `.githooks/`. These hooks update the `GIT_COMMIT` file after commits and checkouts, ensuring Docker builds always have the current commit hash.
+
+If you're developing **outside the dev container**, run once:
+```bash
+./scripts/setup-git-hooks
+```
 
 ### Troubleshooting Initial Setup
 

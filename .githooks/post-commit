@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# pre-commit
+#
+# Git hook to automatically update GIT_COMMIT file before each commit
+# This ensures the file reflects the NEXT commit hash and is included in the commit
+
+# Get the current commit hash (this will be the parent of the new commit)
+# After commit completes, we'll have the new hash
+CURRENT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "initial")
+
+# Write to GIT_COMMIT file in repository root
+echo "$CURRENT_COMMIT" > GIT_COMMIT
+
+#!/usr/bin/env bash
+#
+# post-commit
+#
+# Git hook to automatically update GIT_COMMIT file after each commit
+# The file is NOT committed - it's a local build artifact (like BUILD_TIME)
+
+# Get the short commit hash of HEAD (the commit that just completed)
+GIT_COMMIT=$(git rev-parse --short HEAD)
+
+# Write to GIT_COMMIT file in repository root
+echo "$GIT_COMMIT" > GIT_COMMIT
+
+# Note: The hash in GIT_COMMIT will be the PREVIOUS commit's hash
+# This is intentional - it represents "last known commit" at build time

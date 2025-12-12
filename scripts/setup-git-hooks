@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+#
+# setup-git-hooks
+#
+# Configure Git to use hooks from .githooks/ directory
+# This allows hooks to be version controlled
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$ROOT_DIR"
+
+echo "Configuring Git hooks..."
+
+# Configure Git to use .githooks directory instead of .git/hooks
+git config core.hooksPath .githooks
+
+# Generate GIT_COMMIT file if it doesn't exist
+if [ ! -f GIT_COMMIT ]; then
+    echo "Generating GIT_COMMIT file..."
+    git rev-parse --short HEAD > GIT_COMMIT
+    echo "✓ Created GIT_COMMIT with current commit: $(cat GIT_COMMIT)"
+fi
+
+echo "✓ Git hooks configured to use .githooks/"
+echo ""
+echo "Active hooks:"
+ls -1 .githooks/ | grep -v "^\\." || echo "  (none)"
+echo ""
+echo "Git hooks will automatically update GIT_COMMIT file after commits and checkouts."

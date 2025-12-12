@@ -2,6 +2,11 @@
 
 echo "🚀 Setting up Sambee development environment..."
 
+# Setup Git hooks for automatic commit tracking
+echo "🔧 Configuring Git hooks..."
+git config core.hooksPath .githooks
+echo "✓ Git hooks configured"
+
 # Fix cache directory ownership if it exists and is owned by root
 if [ -d /home/vscode/.cache ]; then
     echo "🔧 Fixing cache permissions..."

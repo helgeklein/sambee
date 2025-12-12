@@ -44,11 +44,25 @@ Change settings in `config.toml` as needed.
 
 ### 4. Build and Deploy
 
+**First-time setup:** Configure Git hooks for automatic build metadata tracking:
+
+```bash
+./scripts/setup-git-hooks
+```
+
+This enables automatic updates to the `GIT_COMMIT` file after commits and checkouts, ensuring the displayed commit hash is always current.
+
+Build the Docker image:
+
+```bash
+docker build -t sambee:latest .
+```
+
+Then start the application:
+
 ```bash
 docker compose up -d
 ```
-
-**Note:** The build process automatically captures the current git commit and build timestamp, which will be displayed in the application's hamburger menu and backend logs.
 
 The application will be available at:
 - **Frontend**: http://localhost:8000

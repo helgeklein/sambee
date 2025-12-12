@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#
+# post-checkout
+#
+# Git hook that runs after git checkout
+# Updates GIT_COMMIT file with current HEAD
+
+# Get the short commit hash of HEAD
+GIT_COMMIT=$(git rev-parse --short HEAD)
+
+# Write to GIT_COMMIT file in repository root
+echo "$GIT_COMMIT" > GIT_COMMIT

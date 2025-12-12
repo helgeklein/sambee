@@ -14,57 +14,36 @@ WORKDIR /app
 # Set non-interactive mode for apt to avoid warnings
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies from centralized script
+# Install system dependencies and create user
 COPY scripts/install-system-deps /tmp/
-RUN bash /tmp/install-system-deps && rm /tmp/install-system-deps
+RUN bash /tmp/install-system-deps && \
+    rm /tmp/install-system-deps && \
+    useradd -m -u 1000 sambee && \
+    mkdir -p /app/data && \
+    chown sambee:sambee /app/data && \
+    date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME
 
-# Copy ImageMagick policy configuration (after ImageMagick is installed)
+# Copy ImageMagick policy and metadata files
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
-
-# Copy VERSION file
 COPY VERSION /VERSION
+COPY GIT_COMMIT /GIT_COMMIT
 
-# Build arguments for capturing build metadata (can be overridden at build time)
-ARG BUILD_TIME
-ARG GIT_COMMIT
-
-# Capture build metadata: use provided args or generate during build
-# Copy .git directory temporarily to extract commit if not provided
-COPY .git /tmp/.git
-RUN apt-get update && apt-get install -y --no-install-recommends git && \
-    if [ -z "$BUILD_TIME" ]; then \
-        date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME; \
-    else \
-        echo "$BUILD_TIME" > /BUILD_TIME; \
-    fi && \
-    if [ -z "$GIT_COMMIT" ]; then \
-        (cd /tmp && git rev-parse --short HEAD > /GIT_COMMIT 2>/dev/null || echo "unknown" > /GIT_COMMIT); \
-    else \
-        echo "$GIT_COMMIT" > /GIT_COMMIT; \
-    fi && \
-    rm -rf /tmp/.git && \
-    apt-get purge -y git && apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Copy and install backend dependencies
-COPY backend/requirements.txt .
-RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt
-
-# Copy backend code
+# Copy backend code and built frontend
 COPY backend/ ./
-
-# Copy built frontend
 COPY --from=frontend-builder /app/dist ./static
 
-# Create non-root user and data directory with appropriate permissions
-RUN useradd -m -u 1000 sambee && \
-    mkdir -p /app/data && \
-    chown sambee:sambee /app/data
+# Install Python dependencies (requirements.txt has been copied in the previous step)
+RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt
 
 # Switch to non-root user
 USER sambee
 
 # Expose port
 EXPOSE 8000
+
+# Health check (curl is installed via install-system-deps script)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
