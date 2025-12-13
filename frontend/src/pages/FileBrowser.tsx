@@ -667,6 +667,8 @@ const Browser: React.FC = () => {
   // Load files when connection or path changes
   useEffect(() => {
     if (selectedConnectionId) {
+      // Clear search query when navigating to a different directory
+      setSearchQuery("");
       // Use ref to avoid dependency on loadFiles function
       loadFilesRef.current?.(currentPath);
     }

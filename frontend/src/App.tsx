@@ -29,7 +29,7 @@ function App() {
           <Suspense fallback={<div>Loading...</div>}>
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/browse/:connectionId/*" element={<Browser />} />
+              <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/" element={<Navigate to="/browse" replace />} />
             </Routes>
