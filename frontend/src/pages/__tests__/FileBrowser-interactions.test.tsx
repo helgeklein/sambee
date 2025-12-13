@@ -18,7 +18,7 @@ import {
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
 import { FileType } from "../../types";
-import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
+import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 // Mock the API module
 vi.mock("../../services/api");

@@ -1,12 +1,12 @@
 /**
- * Shared test utilities for Browser component tests
- * Used by: Browser-rendering.test.tsx, Browser-navigation.test.tsx,
- *          Browser-interactions.test.tsx, Browser-viewer.test.tsx
+ * Shared test utilities for FileBrowser component tests
+ * Used by: FileBrowser-rendering.test.tsx, FileBrowser-navigation.test.tsx,
+ *          FileBrowser-interactions.test.tsx, FileBrowser-viewer.test.tsx
  */
 
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import Browser from "../Browser";
+import FileBrowser from "../FileBrowser";
 
 // Re-export test fixtures from centralized location
 export {
@@ -18,13 +18,13 @@ export {
   mockNestedDirectory,
 } from "../../test/fixtures";
 
-// Helper function to render Browser component with routing
+// Helper function to render FileBrowser component with routing
 export const renderBrowser = (initialPath = "/browse") => {
   return render(
     <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
-        <Route path="/browse/:connectionId/*" element={<Browser />} />
-        <Route path="/browse" element={<Browser />} />
+        <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+        <Route path="/browse" element={<FileBrowser />} />
         <Route path="/login" element={<div>Login Page</div>} />
       </Routes>
     </MemoryRouter>

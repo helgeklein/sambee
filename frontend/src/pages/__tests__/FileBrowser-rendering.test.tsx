@@ -7,7 +7,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import api from "../../services/api";
 import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
-import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
+import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 // Mock the API module
 vi.mock("../../services/api");

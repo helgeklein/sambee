@@ -41,7 +41,7 @@ error("Quick error", { code: 500 });
 ### Initialization
 
 ```typescript
-// In your app startup (e.g., Browser.tsx, Login.tsx)
+// In your app startup (e.g., FileBrowser.tsx, Login.tsx)
 await logger.initializeBackendTracing();
 ```
 

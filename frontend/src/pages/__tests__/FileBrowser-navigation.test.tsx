@@ -10,7 +10,7 @@ import api from "../../services/api";
 import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupNavigationApiMocks } from "../../test/helpers";
 import type { FileInfo } from "../../types";
 import { FileType } from "../../types";
-import { mockDirectoryListing, renderBrowser } from "./Browser.test.utils";
+import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 // Mock the API module
 vi.mock("../../services/api");

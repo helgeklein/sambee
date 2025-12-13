@@ -4,7 +4,7 @@ import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../services/api";
 import { FileType } from "../../types";
-import Browser from "../Browser";
+import FileBrowser from "../FileBrowser";
 
 // Mock the API service
 vi.mock("../../services/api");
@@ -39,8 +39,8 @@ describe("Browser - Image View Integration", () => {
     return render(
       <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
-          <Route path="/browse/:connectionId/*" element={<Browser />} />
-          <Route path="/browse" element={<Browser />} />
+          <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+          <Route path="/browse" element={<FileBrowser />} />
           <Route path="/login" element={<div>Login Page</div>} />
         </Routes>
       </MemoryRouter>

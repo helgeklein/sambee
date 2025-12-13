@@ -14,7 +14,7 @@ import type { ReactElement } from "react";
 import { Suspense } from "react";
 import { MemoryRouter, Navigate, Route, Routes } from "react-router-dom";
 import { expect } from "vitest";
-import Browser from "../pages/Browser";
+import FileBrowser from "../pages/FileBrowser";
 import Login from "../pages/Login";
 import { server } from "./mocks/server";
 
@@ -42,7 +42,7 @@ export function renderApp(initialRoute = "/") {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/browse/:connectionId/*" element={<Browser />} />
-            <Route path="/browse" element={<Browser />} />
+            <Route path="/browse" element={<FileBrowser />} />
             <Route path="/" element={<Navigate to="/browse" replace />} />
           </Routes>
         </Suspense>

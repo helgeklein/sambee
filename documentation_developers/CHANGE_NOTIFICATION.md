@@ -15,7 +15,7 @@ Implemented real-time directory monitoring using SMB2/SMB3 `CHANGE_NOTIFY` proto
 ### 2. **Architecture**
 
 ```
-Frontend (Browser.tsx)
+Frontend (FileBrowser.tsx)
     ↓ WebSocket connection
 Backend (websocket.py)
     ↓ Start/Stop monitoring
@@ -32,7 +32,7 @@ SMB Server
   - Tracks subscriber counts per directory
   - Starts monitoring when first subscriber subscribes
   - Stops monitoring when last subscriber unsubscribes
-  
+
 - **MonitoredDirectory**: Represents one monitored directory
   - Opens dedicated SMB connection, session, tree, and directory handle
   - Runs background thread with `FileSystemWatcher`

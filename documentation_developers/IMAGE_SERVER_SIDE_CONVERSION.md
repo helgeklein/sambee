@@ -83,7 +83,7 @@ Added distinct colors for new image formats:
 - ICO: Light cyan `#48cae4`
 - AVIF: Light blue `#90e0ef`
 
-#### 3. Browser MIME Type Fallbacks (`frontend/src/pages/Browser.tsx`)
+#### 3. Browser MIME Type Fallbacks (`frontend/src/pages/FileBrowser.tsx`)
 
 Extended MIME type mapping for client-side detection:
 ```typescript

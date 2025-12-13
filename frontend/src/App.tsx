@@ -6,7 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 
 // Lazy load route components for better code splitting
 const Login = lazy(() => import("./pages/Login"));
-const Browser = lazy(() => import("./pages/Browser"));
+const FileBrowser = lazy(() => import("./pages/FileBrowser"));
 
 const theme = createTheme({
   palette: {
@@ -30,7 +30,7 @@ function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/browse/:connectionId/*" element={<Browser />} />
-              <Route path="/browse" element={<Browser />} />
+              <Route path="/browse" element={<FileBrowser />} />
               <Route path="/" element={<Navigate to="/browse" replace />} />
             </Routes>
           </Suspense>
