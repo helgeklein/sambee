@@ -109,6 +109,7 @@ export class LogBuffer {
     // Safety check: if buffer exceeds 2x max size (flush may have failed),
     // drop oldest logs to prevent memory issues
     if (this.logs.length > this.maxLogs * 2) {
+      // Use console.warn directly to avoid circular dependency (logBuffer is used by logger)
       console.warn(`LogBuffer exceeded ${this.maxLogs * 2} entries, dropping oldest logs`);
       this.logs = this.logs.slice(-this.maxLogs);
     }

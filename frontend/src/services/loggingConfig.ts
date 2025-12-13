@@ -131,7 +131,7 @@ class LoggingConfigManager {
       return configWithTimestamp;
     } catch (error) {
       // If fetch fails, return disabled config as fallback
-      logger.warn("Failed to fetch logging config, using disabled state", { error });
+      logger.warn("Failed to fetch logging config, using disabled state", { error }, "config");
       return {
         logging_enabled: false,
         logging_level: "WARNING",

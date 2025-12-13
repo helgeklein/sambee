@@ -54,45 +54,31 @@ import { getFileIcon } from "../utils/fileIcons";
 
 // Performance Profiling System
 // =============================
-// To enable detailed performance profiling, set PERF_TRACE_ENABLED to true:
+// Performance metrics are automatically sent to backend tracing when enabled.
+// Configure via backend config.toml [frontend_logging] section:
+//   - tracing_enabled = true
+//   - tracing_level = "debug"
+//   - tracing_components = ["browser-perf"]
 //
-// When PERF_TRACE_ENABLED is true, you'll see console output like:
-//   [PERF] scrollRAF: 5.67ms
-//   [PERF] fileRow_0: 2.34ms (per visible row)
-//   [PERF] fileRow_0_formatting: 0.12ms
-//   [PERF] fileRow_0_render: 1.89ms
-//   [PERF SCROLL] Scroll events: 45.2/s | RAF callbacks: 60.0/s | Renders: 12
-//
-// This helps identify which operations are consuming CPU during scrolling:
+// Performance traces help identify which operations are consuming CPU:
 //   - If fileRow times are high, rendering individual rows is slow
 //   - If scrollRAF is >10ms, the scroll handler RAF callback is slow
-//   - The aggregate SCROLL report shows overall event frequencies
 //
-// To use:
-//   1. Set PERF_TRACE_ENABLED = true below
-//   2. Open browser DevTools console
-//   3. Scroll through a long file list
-//   4. Observe timing measurements in console
-//   5. Identify bottlenecks (operations exceeding thresholds)
-//   6. Set flag back to false when done profiling
-
-const PERF_TRACE_ENABLED = false; // Enable to see performance metrics in console
+// View traces in backend logs when tracing is enabled.
 
 // Performance tracking utilities
 const perfMarkers = new Map<string, number>();
 
 const perfStart = (marker: string) => {
-  if (!PERF_TRACE_ENABLED) return;
   perfMarkers.set(marker, performance.now());
 };
 
 const perfEnd = (marker: string, threshold = 0) => {
-  if (!PERF_TRACE_ENABLED) return;
   const start = perfMarkers.get(marker);
   if (start) {
     const duration = performance.now() - start;
     if (duration > threshold) {
-      console.log(`[PERF] ${marker}: ${duration.toFixed(2)}ms`);
+      logger.debug(`Performance: ${marker}`, { duration_ms: duration.toFixed(2) }, "browser-perf");
     }
     perfMarkers.delete(marker);
   }
@@ -152,8 +138,8 @@ const Browser: React.FC = () => {
   const renderCountRef = React.useRef(0);
   React.useEffect(() => {
     renderCountRef.current++;
-    if (PERF_TRACE_ENABLED && renderCountRef.current % 10 === 0) {
-      console.log(`[PERF] Browser component renders: ${renderCountRef.current}`);
+    if (renderCountRef.current % 10 === 0) {
+      logger.debug("Browser component render count", { renders: renderCountRef.current }, "browser-perf");
     }
   });
 
@@ -313,7 +299,7 @@ const Browser: React.FC = () => {
       const user = await api.getCurrentUser();
       setIsAdmin(user.is_admin);
     } catch (err) {
-      logger.warn("Failed to verify admin status", { error: err });
+      logger.warn("Failed to verify admin status", { error: err }, "browser");
       setIsAdmin(false);
     }
   }, []);
@@ -371,7 +357,7 @@ const Browser: React.FC = () => {
         navigate(`/browse/${identifier}`, { replace: true });
       }
     } catch (err: unknown) {
-      logger.error("Error loading connections", { error: err });
+      logger.error("Error loading connections", { error: err }, "browser");
       if (isApiError(err)) {
         if (err.response?.status === 401) {
           navigate("/login");
@@ -418,11 +404,15 @@ const Browser: React.FC = () => {
         directoryCache.current.set(cacheKey, { items, timestamp: now });
         setFiles(items);
       } catch (err) {
-        logger.error("Error loading directory", {
-          error: err,
-          connectionId: selectedConnectionId,
-          path,
-        });
+        logger.error(
+          "Error loading directory",
+          {
+            error: err,
+            connectionId: selectedConnectionId,
+            path,
+          },
+          "browser"
+        );
 
         // Extract error message from API response if available
         let errorMessage = "Failed to load directory contents. Please try again.";
@@ -540,12 +530,16 @@ const Browser: React.FC = () => {
 
     // Only update if the path actually changed (using ref to avoid stale closure)
     if (currentPathRef.current !== decodedPath) {
-      logger.debug("[URL Navigation useEffect] Setting currentPath to:", {
-        path: decodedPath,
-      });
+      logger.debug(
+        "[URL Navigation useEffect] Setting currentPath to:",
+        {
+          path: decodedPath,
+        },
+        "browser"
+      );
       setCurrentPath(decodedPath);
     } else {
-      logger.debug("[URL Navigation useEffect] Path unchanged, skipping update");
+      logger.debug("[URL Navigation useEffect] Path unchanged, skipping update", {}, "browser");
     }
 
     // Reset flag after state updates have propagated
@@ -563,21 +557,25 @@ const Browser: React.FC = () => {
       const port = isDev ? "8000" : window.location.port;
       const wsUrl = port ? `${protocol}//${window.location.hostname}:${port}/api/ws` : `${protocol}//${window.location.hostname}/api/ws`;
 
-      logger.info("Connecting to WebSocket", { wsUrl });
+      logger.info("Connecting to WebSocket", { wsUrl }, "websocket");
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        logger.info("WebSocket connected", { wsUrl });
+        logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
 
         // Subscribe to current directory if we have one
         const connId = selectedConnectionIdRef.current;
         const path = currentPathRef.current;
         if (connId && path !== undefined) {
-          logger.debug("Subscribing to directory changes", {
-            connectionId: connId,
-            path,
-          });
+          logger.debug(
+            "Subscribing to directory changes",
+            {
+              connectionId: connId,
+              path,
+            },
+            "websocket"
+          );
           ws.send(
             JSON.stringify({
               action: "subscribe",
@@ -600,11 +598,15 @@ const Browser: React.FC = () => {
           const cacheKey = `${data.connection_id}:${data.path}`;
           directoryCache.current.delete(cacheKey);
 
-          logger.info("Directory changed notification received", {
-            connectionId: data.connection_id,
-            path: data.path,
-            isCurrentDirectory: data.connection_id === currentConnId && data.path === currentDir,
-          });
+          logger.info(
+            "Directory changed notification received",
+            {
+              connectionId: data.connection_id,
+              path: data.path,
+              isCurrentDirectory: data.connection_id === currentConnId && data.path === currentDir,
+            },
+            "websocket"
+          );
 
           // If we're currently viewing this directory, reload it
           if (data.connection_id === currentConnId && data.path === currentDir) {
@@ -614,11 +616,11 @@ const Browser: React.FC = () => {
       };
 
       ws.onerror = (error) => {
-        logger.error("WebSocket error", { wsUrl, error: String(error) });
+        logger.error("WebSocket error", { wsUrl, error: String(error) }, "websocket");
       };
 
       ws.onclose = () => {
-        logger.warn("WebSocket disconnected, will reconnect in 5s", { wsUrl });
+        logger.warn("WebSocket disconnected, will reconnect in 5s", { wsUrl }, "websocket");
         wsRef.current = null;
 
         // Reconnect after 5 seconds
@@ -788,11 +790,15 @@ const Browser: React.FC = () => {
 
         const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
 
-        logger.info("Navigating to directory", {
-          from: currentPath,
-          to: newPath,
-          directory: file.name,
-        });
+        logger.info(
+          "Navigating to directory",
+          {
+            from: currentPath,
+            to: newPath,
+            directory: file.name,
+          },
+          "browser"
+        );
 
         setCurrentPath(newPath);
         setViewInfo(null);
@@ -810,22 +816,30 @@ const Browser: React.FC = () => {
         // Check if it's an image for gallery mode
         const isImage = isImageFile(file.name);
 
-        logger.info("File selected for viewing", {
-          path: filePath,
-          fileName: file.name,
-          size: file.size,
-          mimeType,
-          isImage,
-          imageFilesCount: imageFiles.length,
-        });
+        logger.info(
+          "File selected for viewing",
+          {
+            path: filePath,
+            fileName: file.name,
+            size: file.size,
+            mimeType,
+            isImage,
+            imageFilesCount: imageFiles.length,
+          },
+          "viewer"
+        );
 
         if (isImage && imageFiles.length > 0) {
           // Gallery mode for images
           const imageIndex = imageFiles.indexOf(filePath);
-          logger.info("Opening image in gallery mode", {
-            imageIndex,
-            totalImages: imageFiles.length,
-          });
+          logger.info(
+            "Opening image in gallery mode",
+            {
+              imageIndex,
+              totalImages: imageFiles.length,
+            },
+            "viewer"
+          );
           const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
           currentViewIndexRef.current = effectiveIndex;
           currentViewImagesRef.current = imageFiles;
@@ -843,11 +857,15 @@ const Browser: React.FC = () => {
           // Check if viewer component is available for this MIME type
           const canView = hasViewerSupport(mimeType);
 
-          logger.info("Opening file in single viewer mode", {
-            isImage,
-            mimeType,
-            hasViewerSupport: canView,
-          });
+          logger.info(
+            "Opening file in single viewer mode",
+            {
+              isImage,
+              mimeType,
+              hasViewerSupport: canView,
+            },
+            "viewer"
+          );
 
           // Only open viewer if we have a component for it
           if (canView) {
@@ -857,9 +875,13 @@ const Browser: React.FC = () => {
               sessionId: viewerSessionId,
             });
           } else {
-            logger.info("No viewer component available, file will not open", {
-              mimeType,
-            });
+            logger.info(
+              "No viewer component available, file will not open",
+              {
+                mimeType,
+              },
+              "viewer"
+            );
           }
         }
 
@@ -1988,10 +2010,14 @@ const DynamicViewer: React.FC<{
   useEffect(() => {
     let mounted = true;
 
-    logger.info("DynamicViewer: Loading viewer component", {
-      mimeType: viewInfo.mimeType,
-      sessionId: viewInfo.sessionId,
-    });
+    logger.info(
+      "DynamicViewer: Loading viewer component",
+      {
+        mimeType: viewInfo.mimeType,
+        sessionId: viewInfo.sessionId,
+      },
+      "viewer"
+    );
 
     getViewerComponent(viewInfo.mimeType).then((component) => {
       if (mounted) {
@@ -2016,19 +2042,27 @@ const DynamicViewer: React.FC<{
       return;
     }
 
-    logger.debug("DynamicViewer: Rendering viewer component", {
-      index: viewInfo.currentIndex,
-      path: viewInfo.path,
-      mimeType: viewInfo.mimeType,
-      sessionId: viewInfo.sessionId,
-    });
+    logger.debug(
+      "DynamicViewer: Rendering viewer component",
+      {
+        index: viewInfo.currentIndex,
+        path: viewInfo.path,
+        mimeType: viewInfo.mimeType,
+        sessionId: viewInfo.sessionId,
+      },
+      "viewer"
+    );
   }, [ViewerComponent, viewInfo.mimeType, viewInfo.path, viewInfo.currentIndex, viewInfo.sessionId]);
 
   if (!ViewerComponent) {
-    logger.debug("DynamicViewer: No viewer component yet", {
-      mimeType: viewInfo.mimeType,
-      sessionId: viewInfo.sessionId,
-    });
+    logger.debug(
+      "DynamicViewer: No viewer component yet",
+      {
+        mimeType: viewInfo.mimeType,
+        sessionId: viewInfo.sessionId,
+      },
+      "viewer"
+    );
     return null;
   }
 

@@ -19,14 +19,14 @@ const Login: React.FC = () => {
       try {
         const authRequired = await isAuthRequired();
         if (!authRequired) {
-          logger.info("Auth method is 'none' - redirecting to browse");
+          logger.info("Auth method is 'none' - redirecting to browse", {}, "auth");
           // Initialize mobile logging for no-auth mode
           await logger.initializeBackendTracing();
           navigate("/browse", { replace: true });
           return;
         }
       } catch (error) {
-        logger.error("Failed to check auth config", { error });
+        logger.error("Failed to check auth config", { error }, "auth");
       } finally {
         setIsLoading(false);
       }

@@ -31,15 +31,19 @@ class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     // Log the error with full context
-    logger.error("React error boundary caught error", {
-      error: {
-        message: error.message,
-        stack: error.stack,
-        name: error.name,
+    logger.error(
+      "React error boundary caught error",
+      {
+        error: {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+        },
+        componentStack: errorInfo.componentStack,
+        location: window.location.href,
       },
-      componentStack: errorInfo.componentStack,
-      location: window.location.href,
-    });
+      "app"
+    );
 
     // Store error info in state for display
     this.setState({ errorInfo });

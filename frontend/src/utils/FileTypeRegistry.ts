@@ -9,6 +9,7 @@
  */
 
 import type React from "react";
+import { logger } from "../services/logger";
 
 // ============================================================================
 // Types
@@ -696,7 +697,7 @@ export const getViewerComponent = async (mimeType: string): Promise<ViewerCompon
     const module = await fileType.viewerComponent();
     return module.default;
   } catch (error) {
-    console.error(`Failed to load viewer component for ${mimeType}:`, error);
+    logger.error(`Failed to load viewer component for ${mimeType}`, { error, mimeType }, "viewer");
     return null;
   }
 };

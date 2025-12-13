@@ -107,6 +107,7 @@ class Logger {
         });
       }
     } catch (error) {
+      // Use console.warn directly during initialization to avoid circular dependency
       // Silently fail - backend config is optional
       console.warn("Failed to initialize logging/tracing config:", error);
     }
@@ -294,16 +295,9 @@ class Logger {
       entry.requestId = String(context["requestId"]);
     }
 
-    // Console output when not in tests
-    // In development: always enabled
-    // In production: controlled by backend config via setLevel()
+    // Console output (skipped in test environment)
     if (!this.isTest) {
       this.consoleLog(level, entry);
-    }
-
-    // Store critical errors for potential backend forwarding
-    if (level === LogLevel.ERROR) {
-      this.storeError(entry);
     }
   }
 
@@ -327,45 +321,6 @@ class Logger {
       case LogLevel.ERROR:
         console.error(`%c${entry.timestamp} ERROR`, "color: red", fullMessage, entry.context || "");
         break;
-    }
-  }
-
-  /**
-   * Store error in local storage for debugging
-   */
-  private storeError(entry: LogEntry): void {
-    try {
-      const errors = this.getStoredErrors();
-      errors.push(entry);
-
-      // Keep only last 50 errors
-      const recentErrors = errors.slice(-50);
-      localStorage.setItem("sambee_errors", JSON.stringify(recentErrors));
-    } catch {
-      // Ignore storage errors - console.warn would create circular logging
-    }
-  }
-
-  /**
-   * Get stored errors from local storage
-   */
-  getStoredErrors(): LogEntry[] {
-    try {
-      const stored = localStorage.getItem("sambee_errors");
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Clear stored errors
-   */
-  clearStoredErrors(): void {
-    try {
-      localStorage.removeItem("sambee_errors");
-    } catch {
-      // Ignore storage errors
     }
   }
 

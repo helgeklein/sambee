@@ -2,6 +2,8 @@
  * Version and build information utilities
  */
 
+import { logger } from "../services/logger";
+
 export interface VersionInfo {
   version: string;
   build_time: string;
@@ -17,12 +19,12 @@ export async function fetchVersionInfo(): Promise<VersionInfo | null> {
     const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === "test" ? "http://localhost:3000/api" : "/api");
     const response = await fetch(`${baseURL}/version`);
     if (!response.ok) {
-      console.warn("Failed to fetch version info:", response.statusText);
+      logger.warn("Failed to fetch version info", { status: response.statusText }, "api");
       return null;
     }
     return await response.json();
   } catch (error) {
-    console.warn("Error fetching version info:", error);
+    logger.warn("Error fetching version info", { error }, "api");
     return null;
   }
 }

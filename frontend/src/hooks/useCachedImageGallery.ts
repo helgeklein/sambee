@@ -238,7 +238,7 @@ export const useCachedImageGallery = ({
               index,
               timestamp: fetchStartTime,
             },
-            "ImageLoader"
+            "image-cache"
           );
         }
 
@@ -277,11 +277,14 @@ export const useCachedImageGallery = ({
           size: blob.size,
         });
 
-        logger.debug("Image cache updated (add)", {
-          cachedCount: imageCacheRef.current.size,
-          cachedIndexes: Array.from(imageCacheRef.current.keys()).sort((a, b) => a - b),
-        });
-
+        logger.debug(
+          "Image cache updated (add)",
+          {
+            cachedCount: imageCacheRef.current.size,
+            cachedIndexes: Array.from(imageCacheRef.current.keys()).sort((a, b) => a - b),
+          },
+          "image-cache"
+        );
         if (isTouchDevice) {
           logger.debug(
             "Image fetch completed",
@@ -291,7 +294,7 @@ export const useCachedImageGallery = ({
               size: blob.size,
               timestamp: Date.now(),
             },
-            "ImageLoader"
+            "image-cache"
           );
         }
 
@@ -423,11 +426,15 @@ export const useCachedImageGallery = ({
     });
 
     if (removedIndexes.length > 0) {
-      logger.debug("Image cache updated (remove)", {
-        cachedCount: imageCacheRef.current.size,
-        cachedIndexes: Array.from(imageCacheRef.current.keys()).sort((a, b) => a - b),
-        removedIndexes: removedIndexes.sort((a, b) => a - b),
-      });
+      logger.debug(
+        "Image cache updated (remove)",
+        {
+          cachedCount: imageCacheRef.current.size,
+          cachedIndexes: Array.from(imageCacheRef.current.keys()).sort((a, b) => a - b),
+          removedIndexes: removedIndexes.sort((a, b) => a - b),
+        },
+        "image-cache"
+      );
     }
   }, [currentIndex, images.length, cacheRange]);
 

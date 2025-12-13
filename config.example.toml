@@ -45,7 +45,16 @@ username = "admin"
 # tracing_level = "ERROR"
 
 # Trace components (comma-separated, empty = all components)
-# Examples: ImageViewer, ImageLoader, Swiper
+# Available components:
+#   - api: API calls, authentication, HTTP requests/responses
+#   - app: Application-level errors (ErrorBoundary)
+#   - auth: Authentication configuration and login flows
+#   - browser: File browser navigation, connections, directory loading
+#   - browser-perf: Performance profiling metrics
+#   - config: Configuration loading and management
+#   - image-cache: Image caching, preloading, and gallery optimization
+#   - viewer: File viewing and viewer component loading
+#   - websocket: WebSocket connections and real-time updates
 # tracing_components = ""
 
 # Username regex filter - only trace for users matching this regex (default: empty = all users)

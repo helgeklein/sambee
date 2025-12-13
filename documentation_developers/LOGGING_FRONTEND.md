@@ -23,8 +23,8 @@ logger.warn("Cache nearly full", { usage: 0.9 });
 logger.error("Failed to fetch data", { url: "/api/data" }, undefined, error);
 
 // With component tag for backend tracing filtering
-logger.debug("Cache updated", { count: 5 }, "ImageCache");
-logger.info("Image loaded", { index: 3 }, "ImageLoader");
+logger.debug("Cache updated", { count: 5 }, "image-cache");
+logger.info("Image loaded", { index: 3 }, "viewer");
 ```
 
 ### Convenience Functions
@@ -95,7 +95,7 @@ log_level = "DEBUG"  # DEBUG, INFO, WARNING, ERROR
 # Backend tracing (server-side collection)
 tracing_enabled = true
 tracing_level = "DEBUG"  # DEBUG, INFO, WARNING, ERROR
-tracing_components = []  # Empty = all components, or specific list: ["ImageCache", "ImageLoader"]
+tracing_components = []  # Empty = all components, or specific list: ["browser", "api", "viewer"]
 tracing_retention_hours = 24
 tracing_username_regex = ""  # Empty = all users, or regex pattern to filter users
 ```
@@ -152,7 +152,7 @@ Log a debug message. Useful for detailed diagnostic information.
 
 **Example**:
 ```typescript
-logger.debug("Preloading image", { index: 5, path: "/images/photo.jpg" }, "ImageLoader");
+logger.debug("Preloading image", { index: 5, path: "/images/photo.jpg" }, "image-cache");
 ```
 
 ##### `logger.info(message, context?, component?)`
@@ -189,7 +189,7 @@ Log an error message. Useful for actual failures.
 try {
   await fetchData();
 } catch (err) {
-  logger.error("Failed to fetch data", { url: "/api/data" }, "API", err);
+  logger.error("Failed to fetch data", { url: "/api/data" }, "api", err);
 }
 ```
 
@@ -322,7 +322,7 @@ Backend tracing supports component-based filtering to reduce noise:
 
 ```toml
 [frontend_logging]
-tracing_components = ["ImageCache", "ImageLoader", "TouchFailsafe"]
+tracing_components = ["browser", "api", "image-cache"]
 ```
 
 Empty array = all components enabled.
@@ -330,20 +330,24 @@ Empty array = all components enabled.
 ### Usage
 
 ```typescript
-// This will only be sent to backend if "ImageCache" is in tracing_components
-logger.debug("Cache updated", { count: 5 }, "ImageCache");
+// This will only be sent to backend if "image-cache" is in tracing_components
+logger.debug("Cache updated", { count: 5 }, "image-cache");
 
 // This will always be sent to backend (no component filter)
 logger.debug("Cache updated", { count: 5 });
 ```
 
-### Common Component Names
+### Available Component Names
 
-- `ImageCache` - Image cache management
-- `ImageLoader` - Image fetch and preload operations
-- `TouchFailsafe` - Touch interaction edge cases
-- `ImageViewer` - Viewer lifecycle events
-- `API` - API calls and responses
+- `api` - API calls, authentication, HTTP requests/responses
+- `app` - Application-level errors (ErrorBoundary)
+- `auth` - Authentication configuration and login flows
+- `browser` - File browser navigation, connections, directory loading
+- `browser-perf` - Performance profiling metrics
+- `config` - Configuration loading and management
+- `image-cache` - Image caching, preloading, and gallery optimization
+- `viewer` - File viewing and viewer component loading
+- `websocket` - WebSocket connections and real-time updates
 
 ## Console Output Format
 
@@ -361,20 +365,6 @@ Console messages include:
 ```
 
 ## Error Handling
-
-### Error Storage
-
-Critical errors (ERROR level) are automatically stored in `localStorage`:
-- Key: `sambee_errors`
-- Retention: Last 50 errors
-- Format: Array of LogEntry objects
-
-### Accessing Stored Errors
-
-```typescript
-const errors = logger.getStoredErrors();
-logger.clearStoredErrors();
-```
 
 ### Error Context
 
@@ -448,7 +438,7 @@ logger.error("Image fetch failed", {
   path: "/images/photo.jpg",
   status: 404,
   duration: 1523
-}, "ImageLoader", error);
+}, "image-cache", error);
 
 // ❌ Bad - vague, missing details
 logger.error("Fetch failed");
@@ -458,8 +448,8 @@ logger.error("Fetch failed");
 
 ```typescript
 // ✅ Good - enables targeted debugging in production
-logger.debug("Cache miss", { index: 7 }, "ImageCache");
-logger.info("Preload started", { range: [5, 10] }, "ImageLoader");
+logger.debug("Cache miss", { index: 7 }, "image-cache");
+logger.info("Preload started", { range: [5, 10] }, "image-cache");
 
 // ⚠️ Acceptable - but harder to filter in production
 logger.debug("Cache miss", { index: 7 });
@@ -564,7 +554,7 @@ tracing_components = []  # Empty = all components
 ```toml
 [frontend_logging]
 tracing_level = "INFO"  # Suppress DEBUG
-tracing_components = ["ImageCache", "API"]  # Only specific components
+tracing_components = ["image-cache", "api"]  # Only specific components
 ```
 
 ### Logs Missing Context

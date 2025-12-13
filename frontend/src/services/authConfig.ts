@@ -21,10 +21,10 @@ export async function getAuthConfig(): Promise<AuthConfig> {
     const baseURL = import.meta.env.VITE_API_URL || "/api";
     const response = await axios.get<AuthConfig>(`${baseURL}/auth/config`);
     authConfigCache = response.data;
-    logger.info(`Auth configuration loaded: ${authConfigCache.auth_method}`);
+    logger.info(`Auth configuration loaded: ${authConfigCache.auth_method}`, {}, "auth");
     return authConfigCache;
   } catch (error) {
-    logger.error("Failed to load auth configuration", { error });
+    logger.error("Failed to load auth configuration", { error }, "auth");
     // Default to password auth if we can't reach the backend
     return { auth_method: "password" };
   }

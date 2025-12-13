@@ -22,16 +22,18 @@ class ApiService {
         }
 
         // Log API request
-        logger.debug(`API Request: ${config.method?.toUpperCase()} ${config.url}`, {
-          method: config.method,
-          url: config.url,
-          params: config.params,
-        });
-
+        logger.debug(
+          `API Request: ${config.method?.toUpperCase()} ${config.url}`,
+          {
+            method: config.method,
+            url: config.url,
+          },
+          "api"
+        );
         return config;
       },
       (error) => {
-        logger.error("API request setup failed", { error: error.message });
+        logger.error("API request setup failed", { error: error.message }, "api");
         return Promise.reject(error);
       }
     );
@@ -39,16 +41,14 @@ class ApiService {
     // Handle auth errors and log responses
     this.api.interceptors.response.use(
       (response) => {
-        // Extract request ID from response headers for logging
-        const requestId = logger.extractRequestId(response.headers as Record<string, string>);
-
-        logger.debug(`API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`, {
-          status: response.status,
-          request_id: requestId, // Log as field, not as context.requestId to avoid prepending
-          method: response.config.method,
-          url: response.config.url,
-        });
-
+        logger.debug(
+          `API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`,
+          {
+            status: response.status,
+            statusText: response.statusText,
+          },
+          "api"
+        );
         return response;
       },
       (error: AxiosError) => {
@@ -59,16 +59,17 @@ class ApiService {
         const requestId = logger.extractRequestId(error.response?.headers as Record<string, string>);
 
         // Log the error with context
-        logger.error("API request failed", {
-          method: error.config?.method,
-          url: error.config?.url,
-          status: error.response?.status,
-          statusText: error.response?.statusText,
-          detail: (error.response?.data as { detail?: string })?.detail,
-          request_id: requestId, // Log as field, not as context.requestId to avoid prepending
-        });
-
-        // Redirect to login on any 401 Unauthorized response
+        logger.error(
+          "API request failed",
+          {
+            method: error.config?.method,
+            url: error.config?.url,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            message: error.message,
+          },
+          "api"
+        ); // Redirect to login on any 401 Unauthorized response
         // This includes expired tokens, invalid credentials, etc.
         if (error.response?.status === 401) {
           localStorage.removeItem("access_token");
@@ -76,7 +77,7 @@ class ApiService {
           // Skip redirect if we're validating token
           if (this.skipRedirectOnce) {
             this.skipRedirectOnce = false;
-            logger.debug("Skipping redirect during token validation");
+            logger.debug("Skipping redirect during token validation", {}, "api");
             return Promise.reject(error);
           }
 
@@ -85,10 +86,14 @@ class ApiService {
           import("./authConfig").then(({ isAuthRequired }) => {
             isAuthRequired().then((authRequired) => {
               if (authRequired && window.location.pathname !== "/login") {
-                logger.warn("Authentication failed (401), redirecting to login", {
-                  detail: (error.response?.data as { detail?: string })?.detail,
-                  requestId,
-                });
+                logger.warn(
+                  "Authentication failed (401), redirecting to login",
+                  {
+                    detail: (error.response?.data as { detail?: string })?.detail,
+                    requestId,
+                  },
+                  "api"
+                );
                 window.location.href = "/login";
               }
             });
@@ -101,7 +106,7 @@ class ApiService {
 
   // Auth endpoints
   async login(username: string, password: string): Promise<AuthToken> {
-    logger.info("Login attempt", { username });
+    logger.info("Login attempt", { username }, "api");
 
     const formData = new FormData();
     formData.append("username", username);
@@ -110,16 +115,20 @@ class ApiService {
     const response = await this.api.post<AuthToken>("/auth/token", formData);
     localStorage.setItem("access_token", response.data.access_token);
 
-    logger.info("Login successful", {
-      username: response.data.username,
-      isAdmin: response.data.is_admin,
-    });
-
+    logger.info(
+      "Login successful",
+      {
+        username: response.data.username,
+        hasToken: !!response.data.access_token,
+        isAdmin: response.data.is_admin,
+      },
+      "api"
+    );
     return response.data;
   }
 
   async getCurrentUser(): Promise<User> {
-    logger.debug("Fetching current user info");
+    logger.debug("Fetching current user info", {}, "api");
     const response = await this.api.get<User>("/auth/me");
     return response.data;
   }
@@ -456,7 +465,7 @@ export const browseFiles = async (path: string, _token: string) => {
     const listing = await apiService.listDirectory(connections[0]!.id, path);
     return listing.items;
   } catch (err) {
-    logger.error("Error browsing files", { error: err });
+    logger.error("Error browsing files", { error: err }, "api");
     return [];
   }
 };
