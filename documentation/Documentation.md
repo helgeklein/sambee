@@ -8,6 +8,7 @@ This is a collection of points and ideas for a future end-user facing documentat
    - Works on all screen sizes and device types
    - Excellent keyboard navigation
    - Fantastic UX on mobile platforms
+   - Can be added to the home screen as a PWA
 - File listing
    - Automatic refresh when a directory on the SMB share is updated
    - Smooth scrolling even through very large directories
@@ -28,3 +29,5 @@ This is a collection of points and ideas for a future end-user facing documentat
 - Efficiency
    - Low resource requirements on the server
    - No thumbnail generation, everything happens on the fly
+- Designed to work with a reverse proxy for speed and security (HTTPS)
+   - E.g., Caddy, nginx, Traefik

@@ -321,6 +321,7 @@ async def version_info() -> dict[str, str]:
 static_path = Path("/app/static")
 if static_path.exists():
     app.mount("/assets", StaticFiles(directory=static_path / "assets"), name="assets")
+    app.mount("/icons", StaticFiles(directory=static_path / "icons"), name="icons")
 
     #
     # serve_spa
@@ -328,6 +329,12 @@ if static_path.exists():
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str) -> FileResponse:
         """Serve React SPA for all non-API routes"""
+
+        # Serve manifest.json and other root-level files
+        if full_path in ["manifest.json", "robots.txt"]:
+            file_path = static_path / full_path
+            if file_path.exists():
+                return FileResponse(file_path)
 
         # Only serve for non-API routes (API routes are registered with higher priority)
         return FileResponse(static_path / "index.html")

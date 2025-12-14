@@ -2,8 +2,8 @@
 
 ## Next steps
 
-- PWA
-- Frontend: friendlier message when the backend is unreachable (currently: something went wrong)
+- Frontend: the UI should stay responsive even when the backend is temporarily unavailable
+   - Requires downloading all assets to the browser and keeping them there
 - Admin UI
 - Authentication system
    - OAuth/OIDC

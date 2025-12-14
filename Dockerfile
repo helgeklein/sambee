@@ -20,20 +20,27 @@ RUN bash /tmp/install-system-deps && \
     rm /tmp/install-system-deps && \
     useradd -m -u 1000 sambee && \
     mkdir -p /app/data && \
-    chown sambee:sambee /app/data && \
-    date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME
+    chown sambee:sambee /app/data
 
 # Copy ImageMagick policy and metadata files
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
+
+# Copy backend dependencies first for better caching (changes rarely)
+COPY backend/requirements.txt ./
+
+# Install Python dependencies before copying full backend (changes rarely - better layer caching)
+RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt
+
+# Copy version metadata (changes often)
 COPY VERSION /VERSION
 COPY GIT_COMMIT /GIT_COMMIT
 
-# Copy backend code and built frontend
+# Generate build timestamp (runs after GIT_COMMIT copy, so cache busts on every commit)
+RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME
+
+# Copy backend code and built frontend (change often)
 COPY backend/ ./
 COPY --from=frontend-builder /app/dist ./static
-
-# Install Python dependencies (requirements.txt has been copied in the previous step)
-RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt
 
 # Switch to non-root user
 USER sambee
