@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import HamburgerMenu from "../../../components/Mobile/HamburgerMenu";
+import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import type { Connection } from "../../../types";
 
 // Mock the version utility module
@@ -49,19 +50,21 @@ describe("HamburgerMenu", () => {
 
   test("renders menu when open", () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     expect(screen.getByText("Sambee")).toBeInTheDocument();
@@ -72,19 +75,21 @@ describe("HamburgerMenu", () => {
 
   test("does not render when closed", () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={false}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={false}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     expect(screen.queryByText("Sambee")).not.toBeInTheDocument();
@@ -92,19 +97,21 @@ describe("HamburgerMenu", () => {
 
   test("shows connection selector with connections", () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     expect(screen.getByText("Connection")).toBeInTheDocument();
@@ -113,19 +120,21 @@ describe("HamburgerMenu", () => {
 
   test("calls onNavigateToRoot when Root is clicked", async () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     const rootButton = screen.getByText("Root");
@@ -139,19 +148,21 @@ describe("HamburgerMenu", () => {
 
   test("calls onOpenSettings when Settings is clicked", async () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     const settingsButton = screen.getByText("Settings");
@@ -165,19 +176,21 @@ describe("HamburgerMenu", () => {
 
   test("calls onLogout when Logout is clicked", async () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     const logoutButton = screen.getByText("Logout");
@@ -190,19 +203,21 @@ describe("HamburgerMenu", () => {
 
   test("hides Settings when user is not admin", () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={false}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={false}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
@@ -212,19 +227,21 @@ describe("HamburgerMenu", () => {
 
   test("connection selector is present with connections", () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={mockConnections}
-          selectedConnectionId="1"
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={mockConnections}
+            selectedConnectionId="1"
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     // Connection label should be visible
@@ -236,19 +253,21 @@ describe("HamburgerMenu", () => {
 
   test("handles empty connections list", () => {
     render(
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <HamburgerMenu
-          open={true}
-          onClose={mockOnClose}
-          connections={[]}
-          selectedConnectionId=""
-          onConnectionChange={mockOnConnectionChange}
-          onNavigateToRoot={mockOnNavigateToRoot}
-          onOpenSettings={mockOnOpenSettings}
-          onLogout={mockOnLogout}
-          isAdmin={true}
-        />
-      </BrowserRouter>
+      <SambeeThemeProvider>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <HamburgerMenu
+            open={true}
+            onClose={mockOnClose}
+            connections={[]}
+            selectedConnectionId=""
+            onConnectionChange={mockOnConnectionChange}
+            onNavigateToRoot={mockOnNavigateToRoot}
+            onOpenSettings={mockOnOpenSettings}
+            onLogout={mockOnLogout}
+            isAdmin={true}
+          />
+        </BrowserRouter>
+      </SambeeThemeProvider>
     );
 
     // Connection selector should not be visible

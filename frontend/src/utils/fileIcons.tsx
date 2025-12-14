@@ -37,11 +37,16 @@ const iconComponents: Record<IconIdentifier, typeof FileIcon> = {
 /**
  * Get a colorful Material-UI icon for file types
  * Uses the centralized FileTypeRegistry for consistency
+ * Directories use the theme's primary color for theme awareness
  */
 export const getFileIcon = ({ filename, isDirectory, size = 24 }: FileIconProps) => {
   const iconSize = { fontSize: size };
   const iconInfo = getFileIconInfo({ filename, isDirectory });
 
   const IconComponent = iconComponents[iconInfo.icon];
-  return <IconComponent sx={{ ...iconSize, color: iconInfo.color }} />;
+
+  // Use theme primary color for directories, hardcoded colors for file types
+  const iconColor = isDirectory ? "primary.main" : iconInfo.color;
+
+  return <IconComponent sx={{ ...iconSize, color: iconColor }} />;
 };

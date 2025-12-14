@@ -6,6 +6,7 @@
 
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import FileBrowser from "../FileBrowser";
 
 // Re-export test fixtures from centralized location
@@ -21,12 +22,14 @@ export {
 // Helper function to render FileBrowser component with routing
 export const renderBrowser = (initialPath = "/browse") => {
   return render(
-    <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <Routes>
-        <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
-        <Route path="/browse" element={<FileBrowser />} />
-        <Route path="/login" element={<div>Login Page</div>} />
-      </Routes>
-    </MemoryRouter>
+    <SambeeThemeProvider>
+      <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Routes>
+          <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+          <Route path="/browse" element={<FileBrowser />} />
+          <Route path="/login" element={<div>Login Page</div>} />
+        </Routes>
+      </MemoryRouter>
+    </SambeeThemeProvider>
   );
 };

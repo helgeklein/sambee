@@ -1,5 +1,6 @@
 import {
   AccessTime as AccessTimeIcon,
+  ArrowDownward as ArrowDownwardIcon,
   ArrowUpward as ArrowUpwardIcon,
   Clear as ClearIcon,
   DataUsage as DataUsageIcon,
@@ -42,6 +43,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import SettingsDialog from "../components/Settings/SettingsDialog";
+import { ThemeSelector } from "../components/ThemeSelector";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
@@ -174,7 +176,7 @@ const Browser: React.FC = () => {
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("name");
-  const [sortDirection, _setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showHelp, setShowHelp] = useState(false);
@@ -1658,18 +1660,21 @@ const Browser: React.FC = () => {
                     onChange={(e) => handleConnectionChange(e.target.value)}
                     displayEmpty
                     sx={{
-                      color: "white",
+                      color: "primary.contrastText",
                       ".MuiOutlinedInput-notchedOutline": {
-                        borderColor: "rgba(255, 255, 255, 0.23)",
+                        borderColor: "primary.contrastText",
+                        opacity: 0.23,
                       },
                       "&:hover .MuiOutlinedInput-notchedOutline": {
-                        borderColor: "rgba(255, 255, 255, 0.4)",
+                        borderColor: "primary.contrastText",
+                        opacity: 0.4,
                       },
                       "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                        borderColor: "white",
+                        borderColor: "primary.contrastText",
+                        opacity: 1,
                       },
                       ".MuiSvgIcon-root": {
-                        color: "white",
+                        color: "primary.contrastText",
                       },
                     }}
                   >
@@ -1683,6 +1688,8 @@ const Browser: React.FC = () => {
               )}
 
               <Box sx={{ flexGrow: 1 }} />
+
+              <ThemeSelector />
 
               <IconButton color="inherit" onClick={() => setShowHelp(true)} sx={{ mr: 1 }} title="Keyboard Shortcuts (?)">
                 <KeyboardIcon />
@@ -1753,19 +1760,28 @@ const Browser: React.FC = () => {
                       },
                     }}
                   >
-                    <Link
-                      component="button"
-                      variant="body1"
-                      onClick={() => {
-                        setCurrentPath("");
-                        setViewInfo(null);
-                      }}
-                      sx={{ display: "flex", alignItems: "center" }}
-                      aria-label="Navigate to root directory"
-                    >
-                      <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-                      Root
-                    </Link>
+                    {pathParts.length === 0 ? (
+                      // Root is current directory - non-clickable
+                      <Typography variant="body1" color="text.primary" sx={{ display: "flex", alignItems: "center" }}>
+                        <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
+                        Root
+                      </Typography>
+                    ) : (
+                      // Root is clickable when in subdirectory
+                      <Link
+                        component="button"
+                        variant="body1"
+                        onClick={() => {
+                          setCurrentPath("");
+                          setViewInfo(null);
+                        }}
+                        sx={{ display: "flex", alignItems: "center" }}
+                        aria-label="Navigate to root directory"
+                      >
+                        <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
+                        Root
+                      </Link>
+                    )}
                     {/* Desktop: Show all segments */}
                     {pathParts.map((part: string, index: number) => {
                       const isLast = index === pathParts.length - 1;
@@ -1812,6 +1828,23 @@ const Browser: React.FC = () => {
                           if (newSort !== null) setSortBy(newSort);
                         }}
                         size="small"
+                        sx={{
+                          "& .MuiToggleButton-root": {
+                            color: "text.secondary",
+                            borderColor: "divider",
+                            "&.Mui-selected": {
+                              color: "primary.main",
+                              backgroundColor: "action.selected",
+                              borderColor: "primary.main",
+                              "&:hover": {
+                                backgroundColor: "action.hover",
+                              },
+                            },
+                            "&:hover": {
+                              backgroundColor: "action.hover",
+                            },
+                          },
+                        }}
                       >
                         <ToggleButton value="name" aria-label="sort by name">
                           <SortByAlphaIcon fontSize="small" />
@@ -1823,6 +1856,18 @@ const Browser: React.FC = () => {
                           <AccessTimeIcon fontSize="small" />
                         </ToggleButton>
                       </ToggleButtonGroup>
+
+                      <IconButton
+                        size="small"
+                        onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+                        title={sortDirection === "asc" ? "Sort ascending" : "Sort descending"}
+                        aria-label={`Toggle sort direction: currently ${sortDirection === "asc" ? "ascending" : "descending"}`}
+                        sx={{
+                          color: "primary.main",
+                        }}
+                      >
+                        {sortDirection === "asc" ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+                      </IconButton>
 
                       <Chip
                         label={`${sortedAndFilteredFiles.length}/${files.length} item${files.length !== 1 ? "s" : ""}`}

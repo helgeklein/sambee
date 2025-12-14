@@ -1,5 +1,6 @@
 import { Logout as LogoutIcon, Settings as SettingsIcon } from "@mui/icons-material";
 import HomeIcon from "@mui/icons-material/Home";
+import PaletteIcon from "@mui/icons-material/Palette";
 import {
   Box,
   Divider,
@@ -19,6 +20,7 @@ import { useEffect, useState } from "react";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo, formatBuildTime } from "../../utils/version";
+import { ThemeSelectorDialog } from "../ThemeSelector";
 
 interface HamburgerMenuProps {
   open: boolean;
@@ -44,6 +46,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   isAdmin,
 }) => {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
 
   // Fetch version info on mount
   useEffect(() => {
@@ -145,6 +148,20 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         )}
 
         <ListItem disablePadding>
+          <ListItemButton
+            onClick={() => {
+              setThemeSelectorOpen(true);
+            }}
+            aria-label="Change theme"
+          >
+            <ListItemIcon>
+              <PaletteIcon />
+            </ListItemIcon>
+            <ListItemText primary="Theme" />
+          </ListItemButton>
+        </ListItem>
+
+        <ListItem disablePadding>
           <ListItemButton onClick={onLogout} aria-label="Logout">
             <ListItemIcon>
               <LogoutIcon />
@@ -172,6 +189,9 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           </Box>
         </>
       )}
+
+      {/* Theme Selector Dialog */}
+      <ThemeSelectorDialog open={themeSelectorOpen} onClose={() => setThemeSelectorOpen(false)} />
     </Drawer>
   );
 };

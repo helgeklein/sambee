@@ -8,6 +8,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../services/api";
+import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { FileType } from "../../types";
 import FileBrowser from "../FileBrowser";
 
@@ -102,13 +103,15 @@ global.URL.revokeObjectURL = vi.fn();
 describe("Browser - PDF Viewer Integration", () => {
   const renderBrowser = (initialPath = "/browse/test-server") => {
     return render(
-      <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Routes>
-          <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
-          <Route path="/browse" element={<FileBrowser />} />
-          <Route path="/login" element={<div>Login Page</div>} />
-        </Routes>
-      </MemoryRouter>
+      <SambeeThemeProvider>
+        <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Routes>
+            <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+            <Route path="/browse" element={<FileBrowser />} />
+            <Route path="/login" element={<div>Login Page</div>} />
+          </Routes>
+        </MemoryRouter>
+      </SambeeThemeProvider>
     );
   };
 
