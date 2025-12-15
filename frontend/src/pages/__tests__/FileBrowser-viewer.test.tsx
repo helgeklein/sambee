@@ -130,13 +130,20 @@ describe("Browser Component - View and Advanced", () => {
             total: 1,
           });
         }
+        // Return root directory listing for initial load
         return Promise.resolve(mockDirectoryListing);
       });
 
       renderBrowser("/browse/test-server-1/Documents");
 
-      // Optimized: Use findByText
-      expect(await screen.findByText("shared.txt")).toBeInTheDocument();
+      // Wait for the Documents folder content to load
+      await waitFor(
+        () => {
+          const sharedTxtElements = screen.getAllByText("shared.txt");
+          expect(sharedTxtElements.length).toBeGreaterThan(0);
+        },
+        { timeout: 5000 }
+      );
 
       // Switch connection via dropdown
       const select = screen.getByRole("combobox");
@@ -199,8 +206,14 @@ describe("Browser Component - View and Advanced", () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");
 
-      // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      // Wait for Documents to appear - there may be multiple (breadcrumb + file list)
+      await waitFor(
+        () => {
+          const documentsElements = screen.getAllByText("Documents");
+          expect(documentsElements.length).toBeGreaterThan(0);
+        },
+        { timeout: 5000 }
+      );
 
       const documentsFolders = screen.getAllByRole("button", {
         name: /documents/i,

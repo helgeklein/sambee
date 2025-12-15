@@ -125,6 +125,14 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        MuiAppBar: {
+          styleOverrides: {
+            root: {
+              backgroundColor: currentTheme.mode === "dark" ? currentTheme.background?.paper : currentTheme.primary.main,
+              color: currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText,
+            },
+          },
+        },
       },
     });
   }, [currentTheme]);

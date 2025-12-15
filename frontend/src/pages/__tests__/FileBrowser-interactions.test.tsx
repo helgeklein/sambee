@@ -45,7 +45,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Find and click settings button
       const settingsButton = screen.getByTitle("Settings");
@@ -62,9 +65,15 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
       expect(screen.getByText("Pictures")).toBeInTheDocument();
-      expect(screen.getByText("readme.txt")).toBeInTheDocument();
+      await waitFor(() => {
+        const elements = screen.getAllByText("readme.txt");
+        expect(elements.length).toBeGreaterThan(0);
+      });
 
       // Type in search box
       const searchInput = screen.getByPlaceholderText(/search files/i);
@@ -72,7 +81,8 @@ describe("Browser Component - Interactions", () => {
 
       // Should filter to only show Documents
       await waitFor(() => {
-        expect(screen.getByText("Documents")).toBeInTheDocument();
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
         expect(screen.queryByText("Pictures")).not.toBeInTheDocument();
         expect(screen.queryByText("readme.txt")).not.toBeInTheDocument();
       });
@@ -83,7 +93,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Find and use search field
       const searchField = screen.getByPlaceholderText(/search/i);
@@ -91,7 +104,8 @@ describe("Browser Component - Interactions", () => {
 
       // Should show only matching files
       await waitFor(() => {
-        expect(screen.getByText("readme.txt")).toBeInTheDocument();
+        const elements = screen.getAllByText("readme.txt");
+        expect(elements.length).toBeGreaterThan(0);
         expect(screen.queryByText("Documents")).not.toBeInTheDocument();
       });
     });
@@ -101,7 +115,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       const searchField = screen.getByPlaceholderText(/search/i);
       await user.type(searchField, "nonexistent");
@@ -114,7 +131,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Search for something
       const searchField = screen.getByPlaceholderText(/search/i);
@@ -129,8 +149,10 @@ describe("Browser Component - Interactions", () => {
 
       // All files should be visible again
       await waitFor(() => {
-        expect(screen.getByText("Documents")).toBeInTheDocument();
-        expect(screen.getByText("readme.txt")).toBeInTheDocument();
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+        const txtElements = screen.getAllByText("readme.txt");
+        expect(txtElements.length).toBeGreaterThan(0);
       });
     });
   });
@@ -141,21 +163,28 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Click sort by size button
       const sortBySizeButton = screen.getByLabelText(/sort by size/i);
       await user.click(sortBySizeButton);
 
       // Files should be re-rendered (already sorted by component)
-      expect(screen.getByText("readme.txt")).toBeInTheDocument();
+      await waitFor(() => {
+        const elements = screen.getAllByText("readme.txt");
+        expect(elements.length).toBeGreaterThan(0);
+      });
 
       // Click sort by date button
-      const sortByDateButton = screen.getByLabelText(/sort by date/i);
+      const sortByDateButton = screen.getByLabelText(/sort by modified date/i);
       await user.click(sortByDateButton);
 
       // Files should be re-rendered
-      expect(screen.getByText("Documents")).toBeInTheDocument();
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
     });
 
     it("sorts files by name", async () => {
@@ -163,7 +192,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Click sort button to cycle through sort options
       const sortButtons = screen.getAllByRole("button", { name: /sort/i });
@@ -171,7 +203,8 @@ describe("Browser Component - Interactions", () => {
       await user.click(sortButton);
 
       // Files should still be displayed (sorting is applied)
-      expect(screen.getByText("Documents")).toBeInTheDocument();
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
     });
 
     it("maintains sort preference across navigation", async () => {
@@ -210,7 +243,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Set a sort preference (cycle through to size)
       const sortButtons = screen.getAllByRole("button", { name: /sort/i });
@@ -225,7 +261,10 @@ describe("Browser Component - Interactions", () => {
       await user.click(documentsFolder);
 
       // Optimized: Use findByText
-      expect(await screen.findByText("aaa.txt")).toBeInTheDocument();
+      await waitFor(() => {
+        const elements = screen.getAllByText("aaa.txt");
+        expect(elements.length).toBeGreaterThan(0);
+      });
 
       // Sort preference should still be applied
       expect(screen.getByText("zzz.txt")).toBeInTheDocument();
@@ -238,12 +277,15 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       const initialCallCount = (api.listDirectory as Mock).mock.calls.length;
 
       // Click refresh button
-      const refreshButton = screen.getByTitle(/refresh/i);
+      const refreshButton = screen.getByLabelText(/refresh files/i);
       await user.click(refreshButton);
 
       // Should call listDirectory again
@@ -259,7 +301,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       const listContainer = screen.getByTestId("virtual-list");
 
@@ -277,7 +322,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       const listContainer = screen.getByTestId("virtual-list");
 
@@ -293,7 +341,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Click on the Documents folder to focus it
       const documentsFolder = screen.getByRole("button", {
@@ -337,7 +388,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1/Documents");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("file.txt")).toBeInTheDocument();
+      await waitFor(() => {
+        const elements = screen.getAllByText("file.txt");
+        expect(elements.length).toBeGreaterThan(0);
+      });
 
       // Press Backspace to go to parent
       await user.keyboard("{Backspace}");
@@ -352,7 +406,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       // Press ? to open shortcuts dialog
       await user.keyboard("?");
@@ -370,7 +427,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Optimized: Use findByText
-      expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+      await waitFor(() => {
+        const elements = screen.getAllByText("readme.txt");
+        expect(elements.length).toBeGreaterThan(0);
+      });
 
       // Try keyboard navigation - component should not crash
       await user.keyboard("{ArrowDown}");
@@ -386,7 +446,10 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/test-server-1");
 
       // Wait for files to load
-      expect(await screen.findByText("Documents")).toBeInTheDocument();
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
 
       const listContainer = screen.getByTestId("virtual-list");
 
@@ -401,7 +464,8 @@ describe("Browser Component - Interactions", () => {
 
       // Verify component still renders correctly
       expect(screen.getByText("Sambee")).toBeInTheDocument();
-      expect(screen.getByText("Documents")).toBeInTheDocument();
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
     });
   });
 

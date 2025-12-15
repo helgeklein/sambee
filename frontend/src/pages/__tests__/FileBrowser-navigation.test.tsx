@@ -62,18 +62,24 @@ describe("Browser Component - Navigation", () => {
     const user = userEvent.setup();
     renderBrowser("/browse/test-server-1");
 
-    // Optimized: Use findByText
-    expect(await screen.findByText("Documents")).toBeInTheDocument();
+    // Wait for Documents to load (may appear multiple times in UI)
+    await waitFor(() => {
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
+    });
 
-    // Click on Documents folder
-    const documentsFolder = screen.getByText("Documents");
-    await user.click(documentsFolder);
+    // Click on Documents folder - get the button role to be more specific
+    const documentsFolders = screen.getAllByRole("button", { name: /documents/i });
+    await user.click(documentsFolders[0]);
 
     // Should load files from Documents directory
     await waitFor(() => {
       expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
     });
-    expect(await screen.findByText("file1.txt")).toBeInTheDocument();
+    await waitFor(() => {
+      const file1Elements = screen.getAllByText("file1.txt");
+      expect(file1Elements.length).toBeGreaterThan(0);
+    });
   });
 
   it("navigates using breadcrumb links", async () => {
@@ -181,8 +187,11 @@ describe("Browser Component - Navigation", () => {
     const user = userEvent.setup();
     renderBrowser("/browse/test-server-1");
 
-    // Optimized: Use findByText
-    expect(await screen.findByText("Documents")).toBeInTheDocument();
+    // Wait for Documents to load (may appear multiple times in UI)
+    await waitFor(() => {
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
+    });
 
     // Change connection
     vi.mocked(api.listDirectory).mockResolvedValueOnce({

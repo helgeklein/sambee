@@ -15,7 +15,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { useState } from "react";
-import { useSambeeTheme } from "../theme";
+import { getTextColor, useSambeeTheme } from "../theme";
 
 //
 // ThemeSelector
@@ -91,8 +91,8 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
                     </Typography>
                   </Box>
                   {theme.description && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      {theme.description}
+                    <Typography variant="body2" color={(theme) => getTextColor(theme, "secondary")} sx={{ mb: 2 }}>
+                      {currentTheme.description}
                     </Typography>
                   )}
                   <ThemePreview theme={theme} />
@@ -120,8 +120,8 @@ interface ThemePreviewProps {
 function ThemePreview({ theme }: ThemePreviewProps) {
   return (
     <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-      <Typography variant="caption" color="text.secondary" sx={{ minWidth: 60 }}>
-        {theme.mode === "light" ? "Light" : "Dark"}
+      <Typography variant="caption" color={(muiTheme) => getTextColor(muiTheme, "secondary")} sx={{ minWidth: 60 }}>
+        {theme.mode === "dark" ? "Dark" : "Light"}
       </Typography>
       <Box
         sx={{

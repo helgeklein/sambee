@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,7 +94,12 @@ describe("Browser - Image View Integration", () => {
     renderBrowser();
 
     // Wait for files to load
-    const imageFile = await screen.findByText("image1.jpg");
+    await waitFor(() => {
+      const elements = screen.getAllByText("image1.jpg");
+      expect(elements.length).toBeGreaterThan(0);
+    });
+    const imageButtons = screen.getAllByRole("button", { name: /image1\.jpg/i });
+    const imageFile = imageButtons[0];
 
     // Click on the image file
     fireEvent.click(imageFile);
@@ -186,7 +191,12 @@ describe("Browser - Image View Integration", () => {
     renderBrowser();
 
     // Wait for files to load
-    const imageFile = await screen.findByText("single-photo.jpg");
+    await waitFor(() => {
+      const elements = screen.getAllByText("single-photo.jpg");
+      expect(elements.length).toBeGreaterThan(0);
+    });
+    const imageButtons = screen.getAllByRole("button", { name: /single-photo\.jpg/i });
+    const imageFile = imageButtons[0];
 
     // Click on the image file
     fireEvent.click(imageFile);
@@ -217,7 +227,12 @@ describe("Browser - Image View Integration", () => {
     renderBrowser();
 
     // Wait for files to load and click image
-    const imageFile = await screen.findByText("photo.jpg");
+    await waitFor(() => {
+      const elements = screen.getAllByText("photo.jpg");
+      expect(elements.length).toBeGreaterThan(0);
+    });
+    const imageButtons = screen.getAllByRole("button", { name: /photo\.jpg/i });
+    const imageFile = imageButtons[0];
     fireEvent.click(imageFile);
 
     // Wait for view to open
@@ -246,7 +261,12 @@ describe("Browser - Image View Integration", () => {
     renderBrowser();
 
     // Wait for files to load
-    const markdownFile = await screen.findByText("readme.md");
+    await waitFor(() => {
+      const elements = screen.getAllByText("readme.md");
+      expect(elements.length).toBeGreaterThan(0);
+    });
+    const markdownButtons = screen.getAllByRole("button", { name: /readme\.md/i });
+    const markdownFile = markdownButtons[0];
 
     // Click on the markdown file
     fireEvent.click(markdownFile);

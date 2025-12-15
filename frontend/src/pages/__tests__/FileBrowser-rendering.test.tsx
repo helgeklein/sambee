@@ -56,8 +56,12 @@ describe("Browser Component - Rendering", () => {
       expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
     });
 
-    // Optimized: Use findByText instead of waitFor + getByText
-    expect(await screen.findByText("Documents")).toBeInTheDocument();
+    // Wait for directories and files to render
+    // Use getAllByText since "Documents" may appear multiple times (e.g., in status bar)
+    await waitFor(() => {
+      const documentsElements = screen.getAllByText("Documents");
+      expect(documentsElements.length).toBeGreaterThan(0);
+    });
     expect(screen.getByText("Pictures")).toBeInTheDocument();
     expect(screen.getByText("readme.txt")).toBeInTheDocument();
   });

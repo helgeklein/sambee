@@ -17,9 +17,10 @@ import {
 } from "@mui/material";
 import type React from "react";
 import { useEffect, useState } from "react";
+import { getTextColor } from "../../theme";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
-import { fetchVersionInfo, formatBuildTime } from "../../utils/version";
+import { fetchVersionInfo } from "../../utils/version";
 import { ThemeSelectorDialog } from "../ThemeSelector";
 
 interface HamburgerMenuProps {
@@ -62,6 +63,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
     onClose();
   };
 
+  const selectedConnection = connections.find((c) => c.id === selectedConnectionId);
+
   return (
     <Drawer
       anchor="left"
@@ -87,7 +90,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         {/* Connection Selector */}
         {connections.length > 0 && (
           <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
+            <Typography variant="caption" color={(theme) => getTextColor(theme, "secondary")} sx={{ mb: 1, display: "block" }}>
               Connection
             </Typography>
             <FormControl fullWidth size="small">
@@ -100,9 +103,11 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
                 {connections.map((conn) => (
                   <MenuItem key={conn.id} value={conn.id}>
                     {conn.name}
-                    <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                      ({conn.host}/{conn.share_name})
-                    </Typography>
+                    {selectedConnection && (
+                      <Typography variant="caption" color={(theme) => getTextColor(theme, "secondary")} sx={{ ml: 1 }}>
+                        ({conn.host}/{conn.share_name})
+                      </Typography>
+                    )}
                   </MenuItem>
                 ))}
               </Select>
@@ -177,14 +182,14 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           <Box sx={{ flexGrow: 1 }} />
           <Divider />
           <Box sx={{ p: 2, pt: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+            <Typography variant="caption" color={(theme) => getTextColor(theme, "secondary")} sx={{ display: "block", mb: 0.5 }}>
               Version: {versionInfo.version}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Built: {formatBuildTime(versionInfo.build_time)}
+            <Typography variant="caption" color={(theme) => getTextColor(theme, "secondary")} sx={{ display: "block", mb: 0.5 }}>
+              Build: {versionInfo.build_time}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              Commit: {versionInfo.git_commit}
+            <Typography variant="caption" color={(theme) => getTextColor(theme, "secondary")} sx={{ display: "block" }}>
+              Commit: {versionInfo.git_commit.substring(0, 7)}
             </Typography>
           </Box>
         </>

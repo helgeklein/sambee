@@ -60,6 +60,20 @@ vi.mock("react-pdf", () => ({
   pdfjs: { version: "3.11.174", GlobalWorkerOptions: { workerSrc: "" } },
 }));
 
+/**
+ * Helper: Get file button from file list
+ * Handles the case where filename appears in both file list and status bar
+ */
+async function getFileButton(filename: string): Promise<HTMLElement> {
+  await waitFor(() => {
+    const elements = screen.getAllByText(filename);
+    expect(elements.length).toBeGreaterThan(0);
+  });
+  // Get the button that contains the filename (file list, not status bar)
+  const buttons = screen.getAllByRole("button", { name: new RegExp(filename, "i") });
+  return buttons[0];
+}
+
 // Mock ResizeObserver
 global.ResizeObserver = class MockResizeObserver {
   callback: ResizeObserverCallback;
@@ -164,8 +178,8 @@ describe("Browser - PDF Viewer Integration", () => {
 
       renderBrowser();
 
-      // Wait for file to load
-      const pdfFile = await screen.findByText("document.pdf");
+      // Wait for file to load and get the button
+      const pdfFile = await getFileButton("document.pdf");
       expect(pdfFile).toBeInTheDocument();
 
       // Click on PDF file
@@ -197,11 +211,12 @@ describe("Browser - PDF Viewer Integration", () => {
 
       renderBrowser();
 
-      const pdfFile = await screen.findByText("report.pdf");
+      const pdfFile = await getFileButton("report.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
-        expect(screen.getByText("report.pdf")).toBeInTheDocument();
+        const elements = screen.getAllByText("report.pdf");
+        expect(elements.length).toBeGreaterThan(0);
       });
     });
 
@@ -225,7 +240,7 @@ describe("Browser - PDF Viewer Integration", () => {
 
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -258,7 +273,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("navigates to next page using button", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -276,7 +291,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("navigates to previous page using button", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -303,7 +318,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("jumps to specific page via input", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -322,7 +337,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("navigates using keyboard (ArrowLeft/Right)", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -347,7 +362,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("goes to first page (Home key)", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -374,7 +389,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("goes to last page (End key)", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -412,7 +427,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("closes on close button click", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -430,7 +445,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("closes on Escape key", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -447,7 +462,7 @@ describe("Browser - PDF Viewer Integration", () => {
     it("returns to file browser after closing", async () => {
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -460,7 +475,8 @@ describe("Browser - PDF Viewer Integration", () => {
       await waitFor(() => {
         expect(screen.queryByTestId("pdf-page")).not.toBeInTheDocument();
         // File should still be visible in browser
-        expect(screen.getByText("document.pdf")).toBeInTheDocument();
+        const elements = screen.getAllByText("document.pdf");
+        expect(elements.length).toBeGreaterThan(0);
       });
     });
   });
@@ -488,7 +504,7 @@ describe("Browser - PDF Viewer Integration", () => {
 
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       // Wait longer because network errors trigger retry with 1s delay
@@ -524,7 +540,7 @@ describe("Browser - PDF Viewer Integration", () => {
 
       renderBrowser();
 
-      const pdfFile = await screen.findByText("document.pdf");
+      const pdfFile = await getFileButton("document.pdf");
       fireEvent.click(pdfFile);
 
       await waitFor(() => {
@@ -567,7 +583,7 @@ describe("Browser - PDF Viewer Integration", () => {
       renderBrowser();
 
       // Open first PDF
-      const pdf1 = await screen.findByText("document1.pdf");
+      const pdf1 = await getFileButton("document1.pdf");
       fireEvent.click(pdf1);
 
       await waitFor(() => {
@@ -586,7 +602,7 @@ describe("Browser - PDF Viewer Integration", () => {
       expect(revokeObjectURLSpy).toHaveBeenCalled();
 
       // Open second PDF
-      const pdf2 = await screen.findByText("document2.pdf");
+      const pdf2 = await getFileButton("document2.pdf");
       fireEvent.click(pdf2);
 
       await waitFor(() => {

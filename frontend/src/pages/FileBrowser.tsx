@@ -1,139 +1,73 @@
-import {
-  AccessTime as AccessTimeIcon,
-  ArrowDownward as ArrowDownwardIcon,
-  ArrowUpward as ArrowUpwardIcon,
-  Clear as ClearIcon,
-  DataUsage as DataUsageIcon,
-  Home as HomeIcon,
-  KeyboardOutlined as KeyboardIcon,
-  Menu as MenuIcon,
-  Refresh as RefreshIcon,
-  Search as SearchIcon,
-  Settings as SettingsIcon,
-  SortByAlpha as SortByAlphaIcon,
-  Storage as StorageIcon,
-} from "@mui/icons-material";
-import {
-  Alert,
-  AppBar,
-  Box,
-  Breadcrumbs,
-  Button,
-  Chip,
-  CircularProgress,
-  Container,
-  FormControl,
-  IconButton,
-  InputAdornment,
-  Link,
-  MenuItem,
-  Paper,
-  Select,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
-  Toolbar,
-  Typography,
-  useMediaQuery,
-} from "@mui/material";
+/**
+ * FileBrowser Component
+ * =====================
+ *
+ * Main file browser interface providing SMB share navigation with:
+ * - Multi-connection management and selection
+ * - Directory navigation with breadcrumbs and back/forward support
+ * - Virtualized file listing for optimal performance with large directories
+ * - Real-time updates via WebSocket for directory change notifications
+ * - Comprehensive keyboard navigation with shortcuts
+ * - File preview with multiple viewer types (images, text, video, etc.)
+ * - Responsive desktop/mobile layouts
+ * - Search and sorting capabilities with caching
+ *
+ * Architecture:
+ * - State management: React hooks with refs for WebSocket/async callbacks
+ * - Virtualization: TanStack Virtual for rendering large file lists
+ * - URL synchronization: Browser history integration for bookmarking
+ * - Caching of directory listings to reduce API calls
+ * - Accessibility: Keyboard-first design with proper focus management
+ */
+
+import { AppBar, Box, CircularProgress, Container, Paper, Toolbar, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { BreadcrumbsNavigation } from "../components/FileBrowser/BreadcrumbsNavigation";
+import { BrowserAlerts } from "../components/FileBrowser/BrowserAlerts";
+import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
+import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
+import { FileList } from "../components/FileBrowser/FileList";
+import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
+import { SearchBar } from "../components/FileBrowser/SearchBar";
+import { SortControls } from "../components/FileBrowser/SortControls";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import SettingsDialog from "../components/Settings/SettingsDialog";
-import { ThemeSelector } from "../components/ThemeSelector";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
-import type { ViewerComponent } from "../utils/FileTypeRegistry";
-import { getViewerComponent, hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
-import { getFileIcon } from "../utils/fileIcons";
+import { hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
 
-// Performance Profiling System
-// =============================
-// Performance metrics are automatically sent to backend tracing when enabled.
-// Configure via backend config.toml [frontend_logging] section:
-//   - tracing_enabled = true
-//   - tracing_level = "debug"
-//   - tracing_components = ["browser-perf"]
-//
-// Performance traces help identify which operations are consuming CPU:
-//   - If fileRow times are high, rendering individual rows is slow
-//   - If scrollRAF is >10ms, the scroll handler RAF callback is slow
-//
-// View traces in backend logs when tracing is enabled.
-
-// Performance tracking utilities
-const perfMarkers = new Map<string, number>();
-
-const perfStart = (marker: string) => {
-  perfMarkers.set(marker, performance.now());
-};
-
-const perfEnd = (marker: string, threshold = 0) => {
-  const start = perfMarkers.get(marker);
-  if (start) {
-    const duration = performance.now() - start;
-    if (duration > threshold) {
-      logger.debug(`Performance: ${marker}`, { duration_ms: duration.toFixed(2) }, "browser-perf");
-    }
-    perfMarkers.delete(marker);
-  }
-};
+// ============================================================================
+// Type Definitions & Constants
+// ============================================================================
 
 type SortField = "name" | "size" | "modified";
 
-const ROW_HEIGHT_DESKTOP = 40;
-const ROW_HEIGHT_MOBILE = 56;
-const DIRECTORY_CACHE_TTL_MS = 30_000;
+const DIRECTORY_CACHE_TTL_MS = 30_000; // 30-second cache TTL to reduce API calls
 
+/**
+ * createViewerSessionId
+ *
+ * Generates unique session identifiers for file viewer instances.
+ * Used for tracking and logging viewer lifecycle events in backend traces.
+ *
+ * @returns Session ID in format: timestamp-random (e.g., "l8x9k2-a3b4c5d6")
+ */
 const createViewerSessionId = (): string => {
   const randomPart = Math.random().toString(36).slice(2, 10);
   return `${Date.now().toString(36)}-${randomPart}`;
 };
 
-// Formatting functions commented out - will be used when implementing view modes (list, detail, thumbnail)
-// const formatFileSize = (bytes?: number): string => {
-//   if (!bytes) return "";
-//   const units = ["B", "KB", "MB", "GB", "TB"];
-//   let size = bytes;
-//   let unitIndex = 0;
-//   while (size >= 1024 && unitIndex < units.length - 1) {
-//     size /= 1024;
-//     unitIndex++;
-//   }
-//   return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
-// };
-
-// const formatDate = (dateString?: string): string => {
-//   if (!dateString) return "";
-//   const date = new Date(dateString);
-//   const now = new Date();
-//   const diffMs = now.getTime() - date.getTime();
-//   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-//   if (diffDays === 0) {
-//     return `Today ${date.toLocaleTimeString(undefined, {
-//       hour: "2-digit",
-//       minute: "2-digit",
-//     })}`;
-//   } else if (diffDays === 1) {
-//     return "Yesterday";
-//   } else if (diffDays < 7) {
-//     return `${diffDays} days ago`;
-//   } else {
-//     return date.toLocaleDateString(undefined, {
-//       year: "numeric",
-//       month: "short",
-//       day: "numeric",
-//     });
-//   }
-// };
+// ============================================================================
+// Main Component
+// ============================================================================
 
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
@@ -149,15 +83,25 @@ const Browser: React.FC = () => {
   const params = useParams<{ connectionId: string; "*": string }>();
   const location = useLocation();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  // Detect touch capability for optimal row height
-  // Use pointer:coarse to detect touch devices (more reliable than hover)
-  const isTouchDevice = useMediaQuery("(pointer: coarse)");
-  const rowHeight = isTouchDevice ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP;
+  // ──────────────────────────────────────────────────────────────────────────
+  // Responsive Design
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Detect screen size and input method for responsive behavior
+  const useCompactLayout = useMediaQuery(theme.breakpoints.down("sm"));
+  const hasTouchInput = useMediaQuery("(pointer: coarse)");
+
+  // Set row height depending on input method (mouse vs. touch)
+  // Touch: larger touch targets (44px+ per WCAG guidelines)
+  const rowHeight = hasTouchInput ? 56 : 40;
 
   // Track if keyboard is being used for navigation (for proper focus styling)
   const [isUsingKeyboard, setIsUsingKeyboard] = useState(false);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // State Management
+  // ──────────────────────────────────────────────────────────────────────────
 
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
@@ -182,9 +126,23 @@ const Browser: React.FC = () => {
   const [showHelp, setShowHelp] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Refs for DOM Elements & Performance Optimization
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Focus management with RAF (RequestAnimationFrame) batching
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
 
+  /**
+   * updateFocus
+   *
+   * Updates focused file index with optional RAF batching for smooth performance.
+   * RAF batching prevents layout thrashing during rapid keyboard navigation (key repeat).
+   *
+   * @param next - Target file index to focus
+   * @param options.immediate - Skip RAF batching for instant updates (e.g., mouse clicks)
+   */
   const updateFocus = React.useCallback((next: number, options?: { immediate?: boolean }) => {
     const immediate = options?.immediate ?? false;
 
@@ -229,8 +187,8 @@ const Browser: React.FC = () => {
     };
   }, []);
 
-  // Ref for the parent scroll container element (used by TanStack Virtual)
-  const parentRef = React.useRef<HTMLDivElement>(null);
+  // DOM element refs
+  const parentRef = React.useRef<HTMLDivElement>(null); // Scroll container for TanStack Virtual
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const filesRef = React.useRef<FileEntry[]>([]);
   const currentViewIndexRef = React.useRef<number | null>(null);
@@ -248,12 +206,12 @@ const Browser: React.FC = () => {
   // Mirror of visibleRowCount to avoid capturing state in effects
   const visibleRowCountRef = React.useRef<number>(10);
 
-  // Refs to access current values in WebSocket callbacks (avoid closure issues)
+  // State tracking refs (avoid stale closures in WebSocket/async callbacks)
   const selectedConnectionIdRef = React.useRef<string>("");
   const currentPathRef = React.useRef<string>("");
   const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
 
-  // Incremental search for quick navigation
+  // Incremental search for quick navigation (type characters to jump to files)
   const searchBufferRef = React.useRef<string>("");
   const searchTimeoutRef = React.useRef<number | null>(null);
 
@@ -276,12 +234,20 @@ const Browser: React.FC = () => {
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
 
-  // Track if we're initializing from URL to avoid circular updates
-  const isInitializing = React.useRef<boolean>(true);
-  // Track if we're updating state from URL (back/forward) to avoid circular navigate
-  const isUpdatingFromUrl = React.useRef<boolean>(false);
+  // URL synchronization flags to prevent circular updates
+  const isInitializing = React.useRef<boolean>(true); // Avoid URL updates during initial mount
+  const isUpdatingFromUrl = React.useRef<boolean>(false); // Avoid navigate() during back/forward
 
-  // Helper functions for connection name/ID mapping
+  // ──────────────────────────────────────────────────────────────────────────
+  // Helper Functions
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * slugifyConnectionName
+   *
+   * Converts connection name to URL-safe slug for routing.
+   * Example: "My Server" -> "my-server"
+   */
   const slugifyConnectionName = useCallback((name: string): string => {
     return name
       .toLowerCase()
@@ -296,6 +262,16 @@ const Browser: React.FC = () => {
     [connections, slugifyConnectionName]
   );
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // API & Data Loading
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * checkAdminStatus
+   *
+   * Verifies current user's admin privileges.
+   * Admin users can manage connections and access system settings.
+   */
   const checkAdminStatus = useCallback(async () => {
     try {
       const user = await api.getCurrentUser();
@@ -306,6 +282,13 @@ const Browser: React.FC = () => {
     }
   }, []);
 
+  /**
+   * loadConnections
+   *
+   * Loads available SMB connections and handles auto-selection.
+   * Priority: URL param > localStorage > first connection
+   * Initializes mobile logging and handles authentication requirements.
+   */
   const loadConnections = useCallback(async () => {
     try {
       setLoadingConnections(true);
@@ -376,6 +359,15 @@ const Browser: React.FC = () => {
     }
   }, [navigate, params.connectionId, slugifyConnectionName]);
 
+  /**
+   * loadFiles
+   *
+   * Loads directory contents with intelligent caching.
+   * Implements cache invalidation for force refresh.
+   *
+   * @param path - Directory path to load
+   * @param forceRefresh - Bypass cache and fetch fresh data
+   */
   const loadFiles = useCallback(
     async (path: string, forceRefresh = false) => {
       if (!selectedConnectionId) {
@@ -478,7 +470,11 @@ const Browser: React.FC = () => {
     [connections, slugifyConnectionName, location.pathname, navigate]
   );
 
-  // Keep refs in sync with state for WebSocket callbacks
+  // ──────────────────────────────────────────────────────────────────────────
+  // Component Lifecycle Effects
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Keep refs in sync with state for WebSocket callbacks (avoids closure issues)
   useEffect(() => {
     selectedConnectionIdRef.current = selectedConnectionId;
   }, [selectedConnectionId]);
@@ -507,10 +503,13 @@ const Browser: React.FC = () => {
         setCurrentPath(decodeURIComponent(urlPath));
       }
     }
-    // Mark initialization complete after a brief delay
-    setTimeout(() => {
+
+    // Mark initialization complete after state updates have been flushed
+    // Using flushSync would be too aggressive, so we let React batch the updates
+    // and mark complete in the next microtask after this effect runs
+    Promise.resolve().then(() => {
       isInitializing.current = false;
-    }, 100);
+    });
   }, [connections.length, params.connectionId, params["*"]]);
 
   // Handle browser back/forward navigation
@@ -544,13 +543,23 @@ const Browser: React.FC = () => {
       logger.debug("[URL Navigation useEffect] Path unchanged, skipping update", {}, "browser");
     }
 
-    // Reset flag after state updates have propagated
-    setTimeout(() => {
+    // Reset flag after state updates have been flushed
+    Promise.resolve().then(() => {
       isUpdatingFromUrl.current = false;
-    }, 50);
+    });
   }, [connections.length, params.connectionId, params["*"]]);
 
-  // WebSocket connection and reconnection logic
+  // ──────────────────────────────────────────────────────────────────────────
+  // WebSocket Real-Time Updates
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * WebSocket connection for real-time directory change notifications.
+   * Features:
+   * - Automatic reconnection with 5-second delay on disconnect
+   * - Cache invalidation when remote changes detected
+   * - Selective directory subscription based on current path
+   */
   useEffect(() => {
     const connectWebSocket = () => {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -703,6 +712,10 @@ const Browser: React.FC = () => {
     };
   }, [listContainerEl, rowHeight]);
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Event Handlers
+  // ──────────────────────────────────────────────────────────────────────────
+
   const handleConnectionChange = (connectionId: string) => {
     setSelectedConnectionId(connectionId);
     setCurrentPath("");
@@ -721,6 +734,17 @@ const Browser: React.FC = () => {
     loadConnections();
   };
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Data Processing (Sort & Filter)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * sortedAndFilteredFiles
+   *
+   * Applies search filter and sorting to file list.
+   * Directories always shown first, then files.
+   * Single-pass algorithm for optimal performance.
+   */
   const sortedAndFilteredFiles = useMemo(() => {
     // Filter by search query first
     let filtered = files;
@@ -1054,7 +1078,11 @@ const Browser: React.FC = () => {
     }
   }, [focusedIndex, visibleRowCount, rowVirtualizer]);
 
-  // Keyboard shortcut handlers using centralized system
+  // ──────────────────────────────────────────────────────────────────────────
+  // Keyboard Navigation & Shortcuts
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Arrow key and navigation handlers
   const handleNavigateDown = useCallback(
     (e?: KeyboardEvent) => {
       if (focusedIndex < 0) return;
@@ -1171,7 +1199,12 @@ const Browser: React.FC = () => {
     loadFilesRef.current?.(currentPathRef.current, true);
   }, []);
 
-  // Use centralized keyboard shortcuts system
+  /**
+   * Keyboard shortcuts configuration
+   *
+   * Defines all browser shortcuts with handlers and enabled conditions.
+   * Integrates with centralized keyboard shortcut system.
+   */
   const browserShortcuts = useMemo(
     () => [
       // Navigation - Arrow keys
@@ -1270,8 +1303,14 @@ const Browser: React.FC = () => {
     shortcuts: browserShortcuts,
   });
 
-  // Manual keyboard handling for special cases (input focus exceptions and incremental search)
-  // This handler runs BEFORE useKeyboardShortcuts to handle special cases
+  /**
+   * Special keyboard handler for edge cases:
+   * 1. Arrow down from search box -> focus first file
+   * 2. Backspace in empty search -> navigate up directory
+   * 3. Incremental search: type characters to jump to matching files
+   *
+   * Runs in bubble phase after centralized shortcuts.
+   */
   useEffect(() => {
     const handleKeyDown = (e?: KeyboardEvent) => {
       if (!e) return;
@@ -1365,8 +1404,16 @@ const Browser: React.FC = () => {
     };
   }, [settingsOpen, showHelp, searchQuery, viewInfo, updateFocus, listContainerEl]);
 
-  // Track keyboard usage for proper focus styling
-  // Per accessibility best practices, focus indicators should only show for keyboard navigation
+  // ──────────────────────────────────────────────────────────────────────────
+  // Accessibility
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Keyboard vs Mouse/Touch focus tracking
+   *
+   * Shows focus indicators only during keyboard navigation per WCAG guidelines.
+   * Hides focus ring for mouse/touch to reduce visual clutter.
+   */
   useLayoutEffect(() => {
     const handleKeyDown = () => setIsUsingKeyboard(true);
     const handlePointerDown = () => setIsUsingKeyboard(false);
@@ -1381,17 +1428,9 @@ const Browser: React.FC = () => {
     };
   }, []);
 
-  const handleBreadcrumbClick = (index: number) => {
-    const pathParts = currentPath.split("/");
-    const newPath = pathParts.slice(0, index + 1).join("/");
-    setCurrentPath(newPath);
-    setViewInfo(null);
-    // Blur any focused input
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-    // Restoration will happen in useEffect after files are loaded
-  };
+  // ──────────────────────────────────────────────────────────────────────────
+  // Render Helpers
+  // ──────────────────────────────────────────────────────────────────────────
 
   const handleLogout = () => {
     localStorage.removeItem("access_token");
@@ -1399,7 +1438,7 @@ const Browser: React.FC = () => {
   };
 
   const pathParts = currentPath ? currentPath.split("/") : [];
-  const currentDirectoryName = pathParts.length > 0 ? pathParts[pathParts.length - 1] : "Root";
+  const currentDirectoryName = (pathParts.length > 0 && pathParts[pathParts.length - 1]) || "Root";
   const canNavigateUp = currentPath !== "";
 
   const handleNavigateUp = () => {
@@ -1476,105 +1515,9 @@ const Browser: React.FC = () => {
     [theme, isUsingKeyboard]
   );
 
-  type FileRowProps = {
-    file: FileEntry;
-    index: number;
-    isSelected: boolean;
-    virtualStart: number;
-    virtualSize: number;
-    onClick: (file: FileEntry, index: number) => void;
-  };
-
-  const FileRow = React.memo(
-    React.forwardRef<HTMLDivElement, FileRowProps>(
-      (
-        {
-          file,
-          index,
-          isSelected,
-          virtualStart,
-          virtualSize,
-          onClick,
-        }: {
-          file: FileEntry;
-          index: number;
-          isSelected: boolean;
-          virtualStart: number;
-          virtualSize: number;
-          onClick: (file: FileEntry, index: number) => void;
-        },
-        ref: React.ForwardedRef<HTMLDivElement>
-      ) => {
-        perfStart(`fileRow_${index}`);
-
-        perfStart(`fileRow_${index}_formatting`);
-        // Secondary info removed for cleaner, more compact display
-        // Will be added back when implementing multiple view modes (list, detail, thumbnail)
-        const secondaryText = "";
-        perfEnd(`fileRow_${index}_formatting`, 1);
-
-        perfStart(`fileRow_${index}_render`);
-        const result = (
-          <div
-            ref={ref}
-            data-index={index}
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              height: `${virtualSize}px`,
-              transform: `translateY(${virtualStart}px)`,
-              willChange: "transform", // GPU acceleration hint
-            }}
-          >
-            <Box
-              component="button"
-              tabIndex={-1}
-              onClick={() => onClick(file, index)}
-              sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
-              aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${secondaryText ? `, ${secondaryText}` : ""}`}
-            >
-              <Box sx={fileRowStyles.iconBox}>
-                {getFileIcon({
-                  filename: file.name,
-                  isDirectory: file.type === "directory",
-                  size: 24,
-                })}
-              </Box>
-              <Box sx={fileRowStyles.contentBox}>
-                <Typography variant="body2" noWrap title={file.name} color="text.primary">
-                  {file.name}
-                </Typography>
-                {secondaryText ? (
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {secondaryText}
-                  </Typography>
-                ) : null}
-              </Box>
-            </Box>
-          </div>
-        );
-        perfEnd(`fileRow_${index}_render`, 2);
-        perfEnd(`fileRow_${index}`, 5);
-
-        return result;
-      }
-    ),
-    // Custom comparison for optimal re-renders
-    (prev: FileRowProps, next: FileRowProps) =>
-      prev.index === next.index &&
-      prev.isSelected === next.isSelected &&
-      prev.file.name === next.file.name &&
-      prev.file.modified_at === next.file.modified_at &&
-      prev.file.size === next.file.size &&
-      prev.virtualStart === next.virtualStart &&
-      prev.virtualSize === next.virtualSize
-  );
-
-  // Get virtual items for rendering - this will be called during each render,
-  // but TanStack Virtual internally optimizes this call
-  const virtualItemsForRender = rowVirtualizer.getVirtualItems();
+  // ──────────────────────────────────────────────────────────────────────────
+  // Component Render
+  // ──────────────────────────────────────────────────────────────────────────
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -1596,114 +1539,23 @@ const Browser: React.FC = () => {
 
       <AppBar position="static">
         <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-          {/* Mobile: Hamburger + Current Directory + Up Button */}
-          {isMobile ? (
-            <>
-              <IconButton
-                color="inherit"
-                edge="start"
-                onClick={() => setDrawerOpen(true)}
-                sx={{
-                  mr: 1,
-                  minWidth: 44,
-                  minHeight: 44,
-                }}
-                aria-label="Open menu"
-              >
-                <MenuIcon />
-              </IconButton>
-              <Typography
-                variant="body1"
-                component="div"
-                sx={{
-                  flexGrow: 1,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  fontWeight: "bold",
-                }}
-              >
-                {currentDirectoryName}
-              </Typography>
-              <IconButton
-                color="inherit"
-                onClick={handleNavigateUp}
-                disabled={!canNavigateUp}
-                title="Navigate up"
-                aria-label="Navigate to parent directory"
-                sx={{
-                  minWidth: 44,
-                  minHeight: 44,
-                }}
-              >
-                <ArrowUpwardIcon />
-              </IconButton>
-            </>
+          {useCompactLayout ? (
+            <MobileToolbar
+              currentDirectoryName={currentDirectoryName}
+              onOpenMenu={() => setDrawerOpen(true)}
+              onNavigateUp={handleNavigateUp}
+              canNavigateUp={canNavigateUp}
+            />
           ) : (
-            /* Desktop: Original layout */
-            <>
-              <StorageIcon sx={{ mr: 2 }} />
-              <Typography variant="h6" component="div" sx={{ mr: 3 }}>
-                Sambee
-              </Typography>
-
-              {connections.length > 0 && (
-                <FormControl
-                  size="small"
-                  sx={{
-                    minWidth: 250,
-                    mr: 2,
-                  }}
-                >
-                  <Select
-                    value={selectedConnectionId}
-                    onChange={(e) => handleConnectionChange(e.target.value)}
-                    displayEmpty
-                    sx={{
-                      color: "primary.contrastText",
-                      ".MuiOutlinedInput-notchedOutline": {
-                        borderColor: "primary.contrastText",
-                        opacity: 0.23,
-                      },
-                      "&:hover .MuiOutlinedInput-notchedOutline": {
-                        borderColor: "primary.contrastText",
-                        opacity: 0.4,
-                      },
-                      "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                        borderColor: "primary.contrastText",
-                        opacity: 1,
-                      },
-                      ".MuiSvgIcon-root": {
-                        color: "primary.contrastText",
-                      },
-                    }}
-                  >
-                    {connections.map((conn: Connection) => (
-                      <MenuItem key={conn.id} value={conn.id}>
-                        {conn.name} ({conn.host}/{conn.share_name})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-
-              <Box sx={{ flexGrow: 1 }} />
-
-              <ThemeSelector />
-
-              <IconButton color="inherit" onClick={() => setShowHelp(true)} sx={{ mr: 1 }} title="Keyboard Shortcuts (?)">
-                <KeyboardIcon />
-              </IconButton>
-
-              {isAdmin && (
-                <IconButton color="inherit" onClick={() => setSettingsOpen(true)} sx={{ mr: 1 }} title="Settings">
-                  <SettingsIcon />
-                </IconButton>
-              )}
-              <Button color="inherit" onClick={handleLogout}>
-                Logout
-              </Button>
-            </>
+            <DesktopToolbar
+              connections={connections}
+              selectedConnectionId={selectedConnectionId}
+              isAdmin={isAdmin}
+              onConnectionChange={handleConnectionChange}
+              onShowHelp={() => setShowHelp(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onLogout={handleLogout}
+            />
           )}
         </Toolbar>
       </AppBar>
@@ -1718,30 +1570,12 @@ const Browser: React.FC = () => {
           overflow: "hidden",
         }}
       >
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-
-        {loadingConnections && !error && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Loading connections...
-          </Alert>
-        )}
-
-        {connections.length === 0 && !error && !loadingConnections && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            No SMB connections configured.
-            {isAdmin && " Click the settings icon to add a connection."}
-            {!isAdmin && " Please contact an administrator to configure connections."}
-          </Alert>
-        )}
+        <BrowserAlerts error={error} loadingConnections={loadingConnections} connectionsCount={connections.length} isAdmin={isAdmin} />
 
         {selectedConnectionId && (
           <>
             {/* Desktop: Breadcrumbs and controls header */}
-            {!isMobile && (
+            {!useCompactLayout && (
               <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
                 <Box
                   display="flex"
@@ -1750,188 +1584,33 @@ const Browser: React.FC = () => {
                   justifyContent="space-between"
                   alignItems={{ xs: "stretch", md: "center" }}
                 >
-                  <Breadcrumbs
-                    separator="/"
-                    sx={{
-                      flex: 1,
-                      minWidth: 0,
-                      "& .MuiBreadcrumbs-ol": {
-                        flexWrap: "wrap",
-                      },
-                    }}
-                  >
-                    {pathParts.length === 0 ? (
-                      // Root is current directory - non-clickable
-                      <Typography variant="body1" color="text.primary" sx={{ display: "flex", alignItems: "center" }}>
-                        <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Root
-                      </Typography>
-                    ) : (
-                      // Root is clickable when in subdirectory
-                      <Link
-                        component="button"
-                        variant="body1"
-                        onClick={() => {
-                          setCurrentPath("");
-                          setViewInfo(null);
-                        }}
-                        sx={{ display: "flex", alignItems: "center" }}
-                        aria-label="Navigate to root directory"
-                      >
-                        <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-                        Root
-                      </Link>
-                    )}
-                    {/* Desktop: Show all segments */}
-                    {pathParts.map((part: string, index: number) => {
-                      const isLast = index === pathParts.length - 1;
-                      if (isLast) {
-                        // Last segment is non-clickable
-                        return (
-                          <Typography key={pathParts.slice(0, index + 1).join("/")} variant="body1" color="text.primary">
-                            {part}
-                          </Typography>
-                        );
+                  <BreadcrumbsNavigation
+                    currentPath={currentPath}
+                    onNavigate={(path) => {
+                      setCurrentPath(path);
+                      setViewInfo(null);
+                      // Blur any focused element
+                      if (document.activeElement instanceof HTMLElement) {
+                        document.activeElement.blur();
                       }
-                      return (
-                        <Link
-                          key={pathParts.slice(0, index + 1).join("/")}
-                          component="button"
-                          variant="body1"
-                          onClick={() => handleBreadcrumbClick(index)}
-                          aria-label={`Navigate to ${part}`}
-                        >
-                          {part}
-                        </Link>
-                      );
-                    })}
-                  </Breadcrumbs>
+                    }}
+                  />
 
                   {files.length > 0 && (
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <IconButton
-                        size="small"
-                        onClick={() => loadFiles(currentPath, true)}
-                        title="Refresh (F5)"
-                        aria-label="Refresh file list"
-                      >
-                        <RefreshIcon fontSize="small" />
-                      </IconButton>
-
-                      <Typography variant="body2" color="text.secondary">
-                        Sort by:
-                      </Typography>
-                      <ToggleButtonGroup
-                        value={sortBy}
-                        exclusive
-                        onChange={(_: React.MouseEvent<HTMLElement>, newSort: SortField | null) => {
-                          if (newSort !== null) setSortBy(newSort);
-                        }}
-                        size="small"
-                        sx={{
-                          "& .MuiToggleButton-root": {
-                            color: "text.secondary",
-                            borderColor: "divider",
-                            "&.Mui-selected": {
-                              color: "primary.main",
-                              backgroundColor: "action.selected",
-                              borderColor: "primary.main",
-                              "&:hover": {
-                                backgroundColor: "action.hover",
-                              },
-                            },
-                            "&:hover": {
-                              backgroundColor: "action.hover",
-                            },
-                          },
-                        }}
-                      >
-                        <ToggleButton value="name" aria-label="sort by name">
-                          <SortByAlphaIcon fontSize="small" />
-                        </ToggleButton>
-                        <ToggleButton value="size" aria-label="sort by size">
-                          <DataUsageIcon fontSize="small" />
-                        </ToggleButton>
-                        <ToggleButton value="modified" aria-label="sort by date">
-                          <AccessTimeIcon fontSize="small" />
-                        </ToggleButton>
-                      </ToggleButtonGroup>
-
-                      <IconButton
-                        size="small"
-                        onClick={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
-                        title={sortDirection === "asc" ? "Sort ascending" : "Sort descending"}
-                        aria-label={`Toggle sort direction: currently ${sortDirection === "asc" ? "ascending" : "descending"}`}
-                        sx={{
-                          color: "primary.main",
-                        }}
-                      >
-                        {sortDirection === "asc" ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
-                      </IconButton>
-
-                      <Chip
-                        label={`${sortedAndFilteredFiles.length}/${files.length} item${files.length !== 1 ? "s" : ""}`}
-                        size="small"
-                        variant="outlined"
-                      />
-                    </Box>
+                    <SortControls
+                      sortBy={sortBy}
+                      onSortChange={setSortBy}
+                      sortDirection={sortDirection}
+                      onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+                      onRefresh={() => loadFiles(currentPath, true)}
+                    />
                   )}
                 </Box>
               </Paper>
             )}
 
             {files.length > 0 && (
-              <Paper
-                elevation={2}
-                sx={{
-                  p: { xs: 1.5, sm: 2 },
-                  mb: 2,
-                  position: "sticky",
-                  top: 0,
-                  zIndex: 10,
-                  backgroundColor: "background.paper",
-                }}
-              >
-                <TextField
-                  fullWidth
-                  size="small"
-                  placeholder={isMobile ? "Search..." : "Search files and folders... (press / to focus)"}
-                  value={searchQuery}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-                  inputRef={searchInputRef}
-                  sx={{
-                    "& .MuiInputBase-root": {
-                      fontSize: { xs: "16px", sm: "14px" }, // Prevent zoom on iOS
-                    },
-                    "& .MuiInputBase-input": {
-                      padding: { xs: "10px 14px", sm: "8.5px 14px" }, // Ensure min 44px touch target
-                    },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchIcon fontSize={isMobile ? "medium" : "small"} />
-                      </InputAdornment>
-                    ),
-                    endAdornment: searchQuery && (
-                      <InputAdornment position="end">
-                        <IconButton
-                          size="small"
-                          onClick={() => setSearchQuery("")}
-                          edge="end"
-                          sx={{
-                            minWidth: { xs: 44, sm: "auto" },
-                            minHeight: { xs: 44, sm: "auto" },
-                          }}
-                          aria-label="Clear search"
-                        >
-                          <ClearIcon fontSize={isMobile ? "medium" : "small"} />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Paper>
+              <SearchBar value={searchQuery} onChange={setSearchQuery} inputRef={searchInputRef} useCompactLayout={useCompactLayout} />
             )}
 
             {loading ? (
@@ -1939,73 +1618,19 @@ const Browser: React.FC = () => {
                 <CircularProgress />
               </Box>
             ) : (
-              <Box sx={{ display: "flex", gap: 2, flex: 1, minHeight: 0, mb: 0 }}>
-                <Paper
-                  ref={listContainerRef}
-                  elevation={2}
-                  tabIndex={0}
-                  sx={{
-                    flex: 1,
-                    minWidth: 300,
-                    minHeight: 0,
-                    height: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    overflow: "hidden",
-                    position: "relative",
-                    "&:focus": {
-                      outline: "none",
-                    },
-                  }}
-                >
-                  {sortedAndFilteredFiles.length === 0 ? (
-                    <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
-                      <Typography color="text.secondary">
-                        {searchQuery ? `No files matching "${searchQuery}"` : "This directory is empty"}
-                      </Typography>
-                      {searchQuery && (
-                        <Button size="small" onClick={() => setSearchQuery("")} sx={{ mt: 1 }}>
-                          Clear search
-                        </Button>
-                      )}
-                    </Box>
-                  ) : (
-                    <div
-                      ref={parentRef}
-                      data-testid="virtual-list"
-                      style={{
-                        height: "100%",
-                        overflow: "auto",
-                        WebkitOverflowScrolling: "touch", // Smooth scrolling on iOS
-                      }}
-                    >
-                      <div
-                        style={{
-                          height: `${rowVirtualizer.getTotalSize()}px`,
-                          width: "100%",
-                          position: "relative",
-                        }}
-                      >
-                        {virtualItemsForRender.map((virtualItem: ReturnType<typeof rowVirtualizer.getVirtualItems>[number]) => {
-                          const file = sortedAndFilteredFiles[virtualItem.index];
-                          if (!file) return null;
-                          return (
-                            <FileRow
-                              ref={rowVirtualizer.measureElement}
-                              key={virtualItem.key}
-                              file={file}
-                              index={virtualItem.index}
-                              isSelected={virtualItem.index === focusedIndex}
-                              virtualStart={virtualItem.start}
-                              virtualSize={virtualItem.size}
-                              onClick={handleFileClick}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </Paper>
+              <Box sx={{ display: "flex", gap: 2, flex: 1, minHeight: 0, mb: 0, flexDirection: "column" }}>
+                <FileList
+                  files={sortedAndFilteredFiles}
+                  focusedIndex={focusedIndex}
+                  searchQuery={searchQuery}
+                  onClearSearch={() => setSearchQuery("")}
+                  onFileClick={handleFileClick}
+                  rowVirtualizer={rowVirtualizer}
+                  parentRef={parentRef}
+                  listContainerRef={listContainerRef}
+                  fileRowStyles={fileRowStyles}
+                  useCompactLayout={useCompactLayout}
+                />
               </Box>
             )}
           </>
@@ -2025,104 +1650,6 @@ const Browser: React.FC = () => {
         />
       )}
     </Box>
-  );
-};
-
-// Dynamic Viewer Component
-// Loads the appropriate viewer component based on MIME type
-const DynamicViewer: React.FC<{
-  connectionId: string;
-  viewInfo: {
-    path: string;
-    mimeType: string;
-    images?: string[];
-    currentIndex?: number;
-    sessionId: string;
-  };
-  onClose: () => void;
-  onIndexChange?: (index: number) => void;
-}> = ({
-  connectionId,
-  viewInfo,
-  onClose,
-  onIndexChange,
-}: {
-  connectionId: string;
-  viewInfo: { path: string; mimeType: string; images?: string[]; currentIndex?: number; sessionId: string };
-  onClose: () => void;
-  onIndexChange?: (index: number) => void;
-}) => {
-  const [ViewerComponent, setViewerComponent] = useState<ViewerComponent | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    logger.info(
-      "DynamicViewer: Loading viewer component",
-      {
-        mimeType: viewInfo.mimeType,
-        sessionId: viewInfo.sessionId,
-      },
-      "viewer"
-    );
-
-    getViewerComponent(viewInfo.mimeType).then((component) => {
-      if (mounted) {
-        logger.info("DynamicViewer: Viewer component loaded", {
-          mimeType: viewInfo.mimeType,
-          componentFound: !!component,
-          sessionId: viewInfo.sessionId,
-        });
-        if (component) {
-          setViewerComponent(() => component);
-        }
-      }
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, [viewInfo.mimeType, viewInfo.sessionId]); // Only reload component when MIME type changes, not path
-
-  useEffect(() => {
-    if (!ViewerComponent) {
-      return;
-    }
-
-    logger.debug(
-      "DynamicViewer: Rendering viewer component",
-      {
-        index: viewInfo.currentIndex,
-        path: viewInfo.path,
-        mimeType: viewInfo.mimeType,
-        sessionId: viewInfo.sessionId,
-      },
-      "viewer"
-    );
-  }, [ViewerComponent, viewInfo.mimeType, viewInfo.path, viewInfo.currentIndex, viewInfo.sessionId]);
-
-  if (!ViewerComponent) {
-    logger.debug(
-      "DynamicViewer: No viewer component yet",
-      {
-        mimeType: viewInfo.mimeType,
-        sessionId: viewInfo.sessionId,
-      },
-      "viewer"
-    );
-    return null;
-  }
-
-  return (
-    <ViewerComponent
-      connectionId={connectionId}
-      path={viewInfo.path}
-      onClose={onClose}
-      images={viewInfo.images}
-      currentIndex={viewInfo.currentIndex}
-      onCurrentIndexChange={onIndexChange}
-      sessionId={viewInfo.sessionId}
-    />
   );
 };
 
