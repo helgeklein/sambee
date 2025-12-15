@@ -14,7 +14,6 @@ import {
   Typography,
 } from "@mui/material";
 import type React from "react";
-import { getTextColor } from "../../theme";
 import type { Connection } from "../../types";
 
 interface ConnectionListProps {
@@ -37,10 +36,10 @@ const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, on
   if (connections.length === 0) {
     return (
       <Box sx={{ p: 4, textAlign: "center" }}>
-        <Typography variant="h6" color={(theme) => getTextColor(theme, "secondary")}>
+        <Typography variant="h6" color="text.secondary">
           No connections configured
         </Typography>
-        <Typography variant="body2" color={(theme) => getTextColor(theme, "secondary")} sx={{ mt: 1 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           Click "Add Connection" to create your first SMB share connection
         </Typography>
       </Box>

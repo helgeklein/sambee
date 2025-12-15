@@ -1,6 +1,6 @@
-import StorageIcon from "@mui/icons-material/Storage";
 import { Box, Typography } from "@mui/material";
 import type { Connection } from "../../types";
+import { SambeeLogo } from "../SambeeLogo";
 import { ConnectionSelector } from "./ConnectionSelector";
 import { DesktopToolbarActions } from "./DesktopToolbarActions";
 
@@ -28,7 +28,7 @@ export function DesktopToolbar({
 }: DesktopToolbarProps) {
   return (
     <>
-      <StorageIcon sx={{ mr: 2 }} />
+      <SambeeLogo sx={{ mr: 2 }} />
 
       <Typography variant="h6" component="div" sx={{ mr: 3 }}>
         Sambee

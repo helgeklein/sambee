@@ -100,6 +100,11 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         ...(currentTheme.background && { background: currentTheme.background }),
         ...(currentTheme.text && { text: currentTheme.text }),
         ...(currentTheme.action && { action: currentTheme.action }),
+        // Add component semantic tokens to palette for direct access
+        ...(currentTheme.components && {
+          appBar: currentTheme.components.appBar,
+          statusBar: currentTheme.components.statusBar,
+        }),
       },
       typography: {
         fontFamily: ["-apple-system", "BlinkMacSystemFont", '"Segoe UI"', "Roboto", '"Helvetica Neue"', "Arial", "sans-serif"].join(","),
@@ -128,8 +133,29 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiAppBar: {
           styleOverrides: {
             root: {
-              backgroundColor: currentTheme.mode === "dark" ? currentTheme.background?.paper : currentTheme.primary.main,
-              color: currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText,
+              // Use semantic component tokens if available, otherwise fall back to mode-based logic
+              backgroundColor:
+                currentTheme.components?.appBar?.background ??
+                (currentTheme.mode === "dark" ? currentTheme.background?.paper : currentTheme.primary.main),
+              color:
+                currentTheme.components?.appBar?.text ??
+                (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              // Ensure Select components inside AppBar inherit the text color
+              "& .MuiSelect-select": {
+                color:
+                  currentTheme.components?.appBar?.text ??
+                  (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              },
+              "& .MuiSelect-icon": {
+                color:
+                  currentTheme.components?.appBar?.text ??
+                  (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              },
+              "& .MuiOutlinedInput-notchedOutline": {
+                borderColor:
+                  currentTheme.components?.appBar?.text ??
+                  (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              },
             },
           },
         },

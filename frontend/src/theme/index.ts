@@ -23,7 +23,6 @@
  * ```
  */
 
-export { getBarTextColor, getStatusBarStyles, getStatusBarTextColor, getTextColor } from "./componentStyles";
 export { SambeeThemeProvider, useSambeeTheme } from "./ThemeContext";
 export { builtInThemes, getDefaultTheme, getThemeById } from "./themes";
 export type { ThemeConfig, ThemeFieldSchema, ThemeFieldType } from "./types";

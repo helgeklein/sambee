@@ -45,6 +45,25 @@ export interface ThemeConfig {
     hover?: string;
     selected?: string;
   };
+  /** Component-specific semantic colors */
+  components?: {
+    /** App bar colors - adapts to theme mode */
+    appBar?: {
+      /** Background color for the app bar */
+      background: string;
+      /** Text color on the app bar */
+      text: string;
+    };
+    /** Status bar colors - adapts to theme mode */
+    statusBar?: {
+      /** Background color for the status bar */
+      background: string;
+      /** Text color on the status bar (primary) */
+      text: string;
+      /** Muted text color on the status bar (secondary) */
+      textSecondary: string;
+    };
+  };
 }
 
 //
@@ -225,6 +244,60 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
         description: "Background color for selected items in the file list",
         type: "color",
         required: false,
+      },
+    },
+  },
+  components: {
+    label: "Component Colors",
+    description: "Semantic colors for specific UI components that adapt to theme mode",
+    type: "color",
+    required: false,
+    fields: {
+      appBar: {
+        label: "App Bar",
+        description: "Colors for the top application bar",
+        type: "color",
+        required: false,
+        fields: {
+          background: {
+            label: "Background",
+            description: "App bar background color - typically primary color in light mode, paper in dark mode",
+            type: "color",
+            required: false,
+          },
+          text: {
+            label: "Text",
+            description: "Text color on app bar - must contrast with background",
+            type: "color",
+            required: false,
+          },
+        },
+      },
+      statusBar: {
+        label: "Status Bar",
+        description: "Colors for the bottom status bar",
+        type: "color",
+        required: false,
+        fields: {
+          background: {
+            label: "Background",
+            description: "Status bar background color - typically matches app bar styling",
+            type: "color",
+            required: false,
+          },
+          text: {
+            label: "Text",
+            description: "Primary text color on status bar",
+            type: "color",
+            required: false,
+          },
+          textSecondary: {
+            label: "Secondary Text",
+            description: "Muted text color on status bar for less important information",
+            type: "color",
+            required: false,
+          },
+        },
       },
     },
   },
