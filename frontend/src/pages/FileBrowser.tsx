@@ -20,7 +20,7 @@
  * - Accessibility: Keyboard-first design with proper focus management
  */
 
-import { AppBar, Box, CircularProgress, Container, Paper, Toolbar, useMediaQuery } from "@mui/material";
+import { AppBar, Box, CircularProgress, Container, Toolbar, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
@@ -33,7 +33,7 @@ import { FileList } from "../components/FileBrowser/FileList";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import { SearchBar } from "../components/FileBrowser/SearchBar";
 import { SortControls } from "../components/FileBrowser/SortControls";
-import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
+import { StatusBar } from "../components/FileBrowser/StatusBar";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
@@ -123,7 +123,6 @@ const Browser: React.FC = () => {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
-  const [showHelp, setShowHelp] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1191,10 +1190,6 @@ const Browser: React.FC = () => {
     searchInputRef.current?.focus();
   }, []);
 
-  const handleShowHelp = useCallback(() => {
-    setShowHelp(true);
-  }, []);
-
   const handleRefresh = useCallback(() => {
     loadFilesRef.current?.(currentPathRef.current, true);
   }, []);
@@ -1211,66 +1206,60 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.ARROW_DOWN,
         handler: handleNavigateDown,
-        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       {
         ...BROWSER_SHORTCUTS.ARROW_UP,
         handler: handleArrowUp,
-        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       // Navigation - Home/End
       {
         ...COMMON_SHORTCUTS.FIRST_PAGE,
         description: "First file",
         handler: handleHome,
-        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       {
         ...COMMON_SHORTCUTS.LAST_PAGE,
         description: "Last file",
         handler: handleEnd,
-        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       // Navigation - Page Up/Down
       {
         ...COMMON_SHORTCUTS.PAGE_DOWN,
         handler: handlePageDown,
-        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       {
         ...COMMON_SHORTCUTS.PAGE_UP,
         handler: handlePageUp,
-        enabled: !settingsOpen && !showHelp && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       // Open file/folder
       {
         ...COMMON_SHORTCUTS.OPEN,
         handler: handleOpenFile,
-        enabled: !settingsOpen && !showHelp && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex] !== undefined,
+        enabled: !settingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex] !== undefined,
       },
       // Navigate up directory
       {
         ...BROWSER_SHORTCUTS.NAVIGATE_UP,
         handler: handleNavigateUpDirectory,
-        enabled: !settingsOpen && !showHelp && !viewInfo && currentPathRef.current !== "",
+        enabled: !settingsOpen && !viewInfo && currentPathRef.current !== "",
       },
       // Clear selection and search (close action in browser context)
       {
         ...COMMON_SHORTCUTS.CLOSE,
         handler: handleClose,
-        enabled: !settingsOpen && !showHelp,
+        enabled: !settingsOpen,
       },
       // Focus search
       {
         ...BROWSER_SHORTCUTS.FOCUS_SEARCH,
         handler: handleFocusSearch,
-        enabled: !settingsOpen && !showHelp && !viewInfo,
-      },
-      // Show help
-      {
-        ...BROWSER_SHORTCUTS.SHOW_HELP,
-        handler: handleShowHelp,
-        enabled: !viewInfo,
+        enabled: !settingsOpen && !viewInfo,
       },
       // Refresh
       {
@@ -1282,7 +1271,6 @@ const Browser: React.FC = () => {
     [
       handleNavigateDown,
       settingsOpen,
-      showHelp,
       viewInfo,
       handleArrowUp,
       handleHome,
@@ -1294,7 +1282,6 @@ const Browser: React.FC = () => {
       handleNavigateUpDirectory,
       handleClose,
       handleFocusSearch,
-      handleShowHelp,
       handleRefresh,
     ]
   );
@@ -1361,7 +1348,7 @@ const Browser: React.FC = () => {
       }
 
       // Don't handle if dialogs are open or viewer is showing
-      if (settingsOpen || showHelp || viewInfo) {
+      if (settingsOpen || viewInfo) {
         return;
       }
 
@@ -1402,7 +1389,7 @@ const Browser: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [settingsOpen, showHelp, searchQuery, viewInfo, updateFocus, listContainerEl]);
+  }, [settingsOpen, searchQuery, viewInfo, updateFocus, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Accessibility
@@ -1550,23 +1537,25 @@ const Browser: React.FC = () => {
             <DesktopToolbar
               connections={connections}
               selectedConnectionId={selectedConnectionId}
-              isAdmin={isAdmin}
               onConnectionChange={handleConnectionChange}
-              onShowHelp={() => setShowHelp(true)}
               onOpenSettings={() => setSettingsOpen(true)}
-              onLogout={handleLogout}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchInputRef={searchInputRef}
+              showSearch={files.length > 0}
             />
           )}
         </Toolbar>
       </AppBar>
       <Container
-        maxWidth="lg"
+        maxWidth={false}
         sx={{
           flex: 1,
           display: "flex",
           flexDirection: "column",
           pt: 2,
           pb: 0,
+          px: { xs: 0, sm: 3, md: 4 },
           overflow: "hidden",
         }}
       >
@@ -1576,40 +1565,39 @@ const Browser: React.FC = () => {
           <>
             {/* Desktop: Breadcrumbs and controls header */}
             {!useCompactLayout && (
-              <Paper elevation={2} sx={{ p: 2, mb: 2 }}>
-                <Box
-                  display="flex"
-                  flexDirection={{ xs: "column", md: "row" }}
-                  gap={{ xs: 2, md: 0 }}
-                  justifyContent="space-between"
-                  alignItems={{ xs: "stretch", md: "center" }}
-                >
-                  <BreadcrumbsNavigation
-                    currentPath={currentPath}
-                    onNavigate={(path) => {
-                      setCurrentPath(path);
-                      setViewInfo(null);
-                      // Blur any focused element
-                      if (document.activeElement instanceof HTMLElement) {
-                        document.activeElement.blur();
-                      }
-                    }}
-                  />
+              <Box
+                display="flex"
+                flexDirection={{ xs: "column", md: "row" }}
+                gap={{ xs: 2, md: 0 }}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", md: "center" }}
+                sx={{ mb: 2 }}
+              >
+                <BreadcrumbsNavigation
+                  currentPath={currentPath}
+                  onNavigate={(path) => {
+                    setCurrentPath(path);
+                    setViewInfo(null);
+                    // Blur any focused element
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                />
 
-                  {files.length > 0 && (
-                    <SortControls
-                      sortBy={sortBy}
-                      onSortChange={setSortBy}
-                      sortDirection={sortDirection}
-                      onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
-                      onRefresh={() => loadFiles(currentPath, true)}
-                    />
-                  )}
-                </Box>
-              </Paper>
+                {files.length > 0 && (
+                  <SortControls
+                    sortBy={sortBy}
+                    onSortChange={setSortBy}
+                    sortDirection={sortDirection}
+                    onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+                    onRefresh={() => loadFiles(currentPath, true)}
+                  />
+                )}
+              </Box>
             )}
 
-            {files.length > 0 && (
+            {files.length > 0 && useCompactLayout && (
               <SearchBar value={searchQuery} onChange={setSearchQuery} inputRef={searchInputRef} useCompactLayout={useCompactLayout} />
             )}
 
@@ -1629,7 +1617,6 @@ const Browser: React.FC = () => {
                   parentRef={parentRef}
                   listContainerRef={listContainerRef}
                   fileRowStyles={fileRowStyles}
-                  useCompactLayout={useCompactLayout}
                 />
               </Box>
             )}
@@ -1637,10 +1624,17 @@ const Browser: React.FC = () => {
         )}
       </Container>
 
-      <SettingsDialog open={settingsOpen} onClose={handleSettingsClose} />
+      {!useCompactLayout && selectedConnectionId && sortedAndFilteredFiles.length > 0 && !loading && (
+        <StatusBar files={sortedAndFilteredFiles} focusedIndex={focusedIndex} />
+      )}
 
-      {/* Keyboard Shortcuts Help Dialog */}
-      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={browserShortcuts} />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={handleSettingsClose}
+        isAdmin={isAdmin}
+        shortcuts={browserShortcuts}
+        onLogout={handleLogout}
+      />
       {viewInfo && (
         <DynamicViewer
           connectionId={selectedConnectionId}

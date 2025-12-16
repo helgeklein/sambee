@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SambeeThemeProvider } from "../../../theme";
 import type { Connection } from "../../../types";
 import SettingsDialog from "../SettingsDialog";
 
@@ -42,15 +43,25 @@ const mockConnections: Connection[] = [
   },
 ];
 
+const mockShortcuts = [
+  { key: "ArrowDown", description: "Navigate down", enabled: true, handler: vi.fn(), label: "↓" },
+  { key: "Enter", description: "Open file/folder", enabled: true, handler: vi.fn(), label: "Enter" },
+];
+
 describe("SettingsDialog Component", () => {
   const mockOnClose = vi.fn();
+  const mockOnLogout = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
+  const renderWithTheme = (ui: React.ReactElement) => {
+    return render(<SambeeThemeProvider>{ui}</SambeeThemeProvider>);
+  };
+
   it("does not load connections when dialog is closed", () => {
-    render(<SettingsDialog open={false} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={false} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     expect(api.getConnections).not.toHaveBeenCalled();
   });
@@ -58,8 +69,9 @@ describe("SettingsDialog Component", () => {
   it("loads and displays connections when dialog is opened", async () => {
     vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
 
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
+    // Dialog should open with Connections tab selected for admins
     await waitFor(() => {
       expect(api.getConnections).toHaveBeenCalled();
     });
@@ -73,7 +85,7 @@ describe("SettingsDialog Component", () => {
     vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
 
     const user = userEvent.setup();
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText("Test Server 1")).toBeInTheDocument();
@@ -93,7 +105,7 @@ describe("SettingsDialog Component", () => {
     vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
 
     const user = userEvent.setup();
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText("Test Server 1")).toBeInTheDocument();
@@ -117,7 +129,7 @@ describe("SettingsDialog Component", () => {
     });
 
     const user = userEvent.setup();
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText("Test Server 1")).toBeInTheDocument();
@@ -140,7 +152,7 @@ describe("SettingsDialog Component", () => {
     });
 
     const user = userEvent.setup();
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText("Test Server 1")).toBeInTheDocument();
@@ -161,7 +173,7 @@ describe("SettingsDialog Component", () => {
     vi.mocked(api.deleteConnection).mockResolvedValueOnce(undefined);
 
     const user = userEvent.setup();
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText("Test Server 1")).toBeInTheDocument();
@@ -195,7 +207,7 @@ describe("SettingsDialog Component", () => {
       response: { data: { detail: "Server error" } },
     });
 
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText(/server error/i)).toBeInTheDocument();
@@ -206,7 +218,7 @@ describe("SettingsDialog Component", () => {
     vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections).mockResolvedValueOnce(mockConnections); // After save
 
     const user = userEvent.setup();
-    render(<SettingsDialog open={true} onClose={mockOnClose} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
 
     await waitFor(() => {
       expect(screen.getByText("Test Server 1")).toBeInTheDocument();

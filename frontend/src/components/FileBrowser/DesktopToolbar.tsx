@@ -1,17 +1,20 @@
 import { Box, Typography } from "@mui/material";
+import type React from "react";
 import type { Connection } from "../../types";
 import { SambeeLogo } from "../SambeeLogo";
 import { ConnectionSelector } from "./ConnectionSelector";
 import { DesktopToolbarActions } from "./DesktopToolbarActions";
+import { SearchBar } from "./SearchBar";
 
 interface DesktopToolbarProps {
   connections: Connection[];
   selectedConnectionId: string;
-  isAdmin: boolean;
   onConnectionChange: (connectionId: string) => void;
-  onShowHelp: () => void;
   onOpenSettings: () => void;
-  onLogout: () => void;
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+  searchInputRef?: React.RefObject<HTMLInputElement>;
+  showSearch: boolean;
 }
 
 //
@@ -20,25 +23,34 @@ interface DesktopToolbarProps {
 export function DesktopToolbar({
   connections,
   selectedConnectionId,
-  isAdmin,
   onConnectionChange,
-  onShowHelp,
   onOpenSettings,
-  onLogout,
+  searchQuery,
+  onSearchChange,
+  searchInputRef,
+  showSearch,
 }: DesktopToolbarProps) {
   return (
     <>
       <SambeeLogo sx={{ mr: 2 }} />
 
-      <Typography variant="h6" component="div" sx={{ mr: 3 }}>
+      <Typography variant="h6" component="div">
         Sambee
       </Typography>
 
-      <ConnectionSelector connections={connections} selectedConnectionId={selectedConnectionId} onConnectionChange={onConnectionChange} />
+      <Box sx={{ flexGrow: 1 }} />
+
+      {showSearch && (
+        <Box sx={{ flexGrow: 0, width: "100%", maxWidth: { sm: 400, md: 500, lg: 600 }, mx: 2 }}>
+          <SearchBar value={searchQuery} onChange={onSearchChange} inputRef={searchInputRef} useCompactLayout={false} />
+        </Box>
+      )}
 
       <Box sx={{ flexGrow: 1 }} />
 
-      <DesktopToolbarActions isAdmin={isAdmin} onShowHelp={onShowHelp} onOpenSettings={onOpenSettings} onLogout={onLogout} />
+      <ConnectionSelector connections={connections} selectedConnectionId={selectedConnectionId} onConnectionChange={onConnectionChange} />
+
+      <DesktopToolbarActions onOpenSettings={onOpenSettings} />
     </>
   );
 }

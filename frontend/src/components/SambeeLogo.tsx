@@ -1,11 +1,13 @@
 import type { SxProps, Theme } from "@mui/material";
-import { Box } from "@mui/material";
-import logoSvg from "./sambee-logo.svg";
+import { Box, useTheme } from "@mui/material";
+import logoSvg from "../../../images/icon/icon.svg";
+import logoReversedSvg from "../../../images/icon/icon-reversed.svg";
 
 /**
  * Sambee logo icon component
  *
  * Displays the Sambee application logo by importing the actual SVG file.
+ * Uses icon-reversed.svg in light mode and icon.svg in dark mode.
  */
 //
 // SambeeLogo
@@ -15,10 +17,13 @@ interface SambeeLogoProps {
 }
 
 export const SambeeLogo = ({ sx }: SambeeLogoProps) => {
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === "dark";
+
   return (
     <Box
       component="img"
-      src={logoSvg}
+      src={isDarkMode ? logoSvg : logoReversedSvg}
       alt="Sambee"
       sx={{
         width: 24,

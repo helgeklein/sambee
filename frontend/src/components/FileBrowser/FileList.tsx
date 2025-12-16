@@ -1,9 +1,8 @@
-import { Box, Button, Paper, Typography } from "@mui/material";
+import { Box, Button, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import React from "react";
 import type { FileEntry } from "../../types";
 import { FileRow } from "./FileRow";
-import { StatusBar } from "./StatusBar";
 
 interface FileListProps {
   files: FileEntry[];
@@ -20,7 +19,6 @@ interface FileListProps {
     buttonSelected: Record<string, unknown>;
     buttonNotSelected: Record<string, unknown>;
   };
-  useCompactLayout: boolean;
 } //
 // FileList
 //
@@ -35,14 +33,12 @@ export const FileList = React.memo(
     parentRef,
     listContainerRef,
     fileRowStyles,
-    useCompactLayout,
   }: FileListProps) => {
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
     return (
-      <Paper
+      <Box
         ref={listContainerRef}
-        elevation={2}
         tabIndex={0}
         sx={{
           flex: 1,
@@ -103,9 +99,7 @@ export const FileList = React.memo(
             </div>
           </div>
         )}
-
-        {!useCompactLayout && <StatusBar files={files} focusedIndex={focusedIndex} />}
-      </Paper>
+      </Box>
     );
   }
 );

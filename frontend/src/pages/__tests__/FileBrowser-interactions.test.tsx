@@ -76,7 +76,7 @@ describe("Browser Component - Interactions", () => {
       });
 
       // Type in search box
-      const searchInput = screen.getByPlaceholderText(/search files/i);
+      const searchInput = screen.getByPlaceholderText(/search/i);
       await user.type(searchInput, "doc");
 
       // Should filter to only show Documents

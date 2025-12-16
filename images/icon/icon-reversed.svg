@@ -31,14 +31,14 @@
 
   <!-- Middle bar -->
   <rect
-     x="0"
+     x="2.5"
      y="124.28427"
-     width="320"
+     width="315"
      height="72"
      rx="20"
      fill="#f4c430"
      stroke="#1f262b"
-     stroke-width="1" />
+     stroke-width="5" />
   <circle
      cx="40"
      cy="160.28427"

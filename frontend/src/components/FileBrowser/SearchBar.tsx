@@ -21,19 +21,21 @@ interface SearchBarProps {
 export function SearchBar({ value, onChange, inputRef, useCompactLayout = false }: SearchBarProps) {
   return (
     <Paper
-      elevation={1}
+      elevation={2}
       sx={{
-        mb: 2,
-        position: "sticky",
+        mb: useCompactLayout ? 2 : 0,
+        mt: useCompactLayout ? { xs: 1, sm: 0 } : 0,
+        mx: useCompactLayout ? { xs: 2, sm: 3, md: 4 } : 0,
+        position: useCompactLayout ? "sticky" : "relative",
         top: 0,
         zIndex: 10,
-        backgroundColor: "background.paper",
+        backgroundColor: useCompactLayout ? "background.paper" : "background.default",
       }}
     >
       <TextField
         fullWidth
         size="small"
-        placeholder={useCompactLayout ? "Search..." : "Search files and folders... (press / to focus)"}
+        placeholder={useCompactLayout ? "Search..." : "Search... (press / to focus)"}
         value={value}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
         inputRef={inputRef}
@@ -43,6 +45,15 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false 
           },
           "& .MuiInputBase-input": {
             padding: { xs: "10px 14px", sm: "8.5px 14px" }, // Ensure min 44px touch target
+          },
+          "& .MuiOutlinedInput-notchedOutline": {
+            border: "none",
+          },
+          "&:hover .MuiOutlinedInput-notchedOutline": {
+            border: "none",
+          },
+          "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
+            border: "none",
           },
         }}
         InputProps={{
