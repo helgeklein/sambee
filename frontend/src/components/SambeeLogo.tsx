@@ -1,7 +1,7 @@
 import type { SxProps, Theme } from "@mui/material";
 import { Box, useTheme } from "@mui/material";
-import logoSvg from "../../../images/icon/icon.svg";
-import logoReversedSvg from "../../../images/icon/icon-reversed.svg";
+import logoSvg from "./icon.svg";
+import logoReversedSvg from "./icon-reversed.svg";
 
 /**
  * Sambee logo icon component
