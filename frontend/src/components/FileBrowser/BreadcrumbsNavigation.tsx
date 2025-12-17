@@ -2,13 +2,13 @@
 // BreadcrumbsNavigation
 //
 
-import HomeIcon from "@mui/icons-material/Home";
 import { Breadcrumbs, Link, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 
 interface BreadcrumbsNavigationProps {
   currentPath: string;
   onNavigate: (path: string) => void;
+  connectionName: string;
 }
 
 /**
@@ -61,14 +61,20 @@ function calculateTruncation(pathParts: string[], availableWidth: number): strin
       if (i === truncateIndex) {
         spaceNeeded += minChars; // Reserve minimum for truncated segment
       } else {
-        spaceNeeded += pathParts[i].length; // Keep full
+        const part = pathParts[i];
+        if (part) {
+          spaceNeeded += part.length; // Keep full
+        }
       }
     }
 
     // If it fits with just this one segment truncated
     if (spaceNeeded <= availableChars) {
       const allowedChars = availableChars - (spaceNeeded - minChars);
-      truncated[truncateIndex] = truncateSegment(pathParts[truncateIndex], Math.max(minChars, allowedChars));
+      const partToTruncate = pathParts[truncateIndex];
+      if (partToTruncate) {
+        truncated[truncateIndex] = truncateSegment(partToTruncate, Math.max(minChars, allowedChars));
+      }
       return truncated;
     }
   }
@@ -76,9 +82,11 @@ function calculateTruncation(pathParts: string[], availableWidth: number): strin
   // If we still can't fit, truncate multiple segments starting from left
   let remaining = availableChars;
   for (let i = 0; i < pathParts.length; i++) {
-    const budget = Math.max(minChars, Math.min(pathParts[i].length, remaining));
-    if (pathParts[i].length > budget) {
-      truncated[i] = truncateSegment(pathParts[i], budget);
+    const part = pathParts[i];
+    if (!part) continue;
+    const budget = Math.max(minChars, Math.min(part.length, remaining));
+    if (part.length > budget) {
+      truncated[i] = truncateSegment(part, budget);
     }
     remaining -= budget;
     if (remaining <= 0) break;
@@ -93,7 +101,7 @@ function calculateTruncation(pathParts: string[], availableWidth: number): strin
  * Intelligently truncates segments when space is limited, prioritizing
  * the current directory (highest), parent (second), etc.
  */
-export function BreadcrumbsNavigation({ currentPath, onNavigate }: BreadcrumbsNavigationProps) {
+export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName }: BreadcrumbsNavigationProps) {
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(800);
@@ -130,6 +138,9 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate }: BreadcrumbsNa
       sx={{
         flex: 1,
         minWidth: 0,
+        "& .MuiBreadcrumbs-separator": {
+          color: "text.secondary",
+        },
         "& .MuiBreadcrumbs-ol": {
           flexWrap: "nowrap",
           overflow: "hidden",
@@ -143,9 +154,8 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate }: BreadcrumbsNa
     >
       {pathParts.length === 0 ? (
         // Root is current directory - non-clickable
-        <Typography variant="body1" color="text.primary" sx={{ display: "flex", alignItems: "center" }}>
-          <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-          Root
+        <Typography variant="body1" color="text.primary" sx={{ display: "flex", alignItems: "center", fontWeight: "bold" }}>
+          {connectionName}
         </Typography>
       ) : (
         // Root is clickable when in subdirectory
@@ -153,11 +163,10 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate }: BreadcrumbsNa
           component="button"
           variant="body1"
           onClick={handleRootClick}
-          sx={{ display: "flex", alignItems: "center" }}
+          sx={{ display: "flex", alignItems: "center", fontWeight: "regular" }}
           aria-label="Navigate to root directory"
         >
-          <HomeIcon sx={{ mr: 0.5 }} fontSize="small" />
-          Root
+          {connectionName}
         </Link>
       )}
       {/* Show path segments with intelligent truncation */}
@@ -178,6 +187,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate }: BreadcrumbsNa
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                fontWeight: "bold",
               }}
             >
               {part}
@@ -196,6 +206,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate }: BreadcrumbsNa
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
+              fontWeight: "regular",
             }}
           >
             {part}

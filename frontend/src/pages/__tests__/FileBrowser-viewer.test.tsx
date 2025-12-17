@@ -155,8 +155,9 @@ describe("Browser Component - View and Advanced", () => {
 
       // Should try to load same path on new connection
       await waitFor(() => {
-        // Check that the connection has switched by verifying the displayed text changed
-        expect(screen.getByText(/Test Server 2/)).toBeInTheDocument();
+        // Check that the connection has switched by verifying the combobox shows the new connection
+        const combobox = screen.getByRole("combobox");
+        expect(combobox).toHaveTextContent("Test Server 2");
       });
 
       // Component should still be functional

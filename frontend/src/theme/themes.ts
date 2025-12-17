@@ -20,12 +20,6 @@ export const builtInThemes: ThemeConfig[] = [
       dark: "#D4A020",
       contrastText: "#1F262B", // Dark text for contrast
     },
-    secondary: {
-      main: "#1F262B", // Dark charcoal
-      light: "#3A4550",
-      dark: "#0F1419",
-      contrastText: "#F6F1E8", // Light text for contrast
-    },
     background: {
       default: "#F6F1E8", // Cream/off-white
       paper: "#FFFFFF",
@@ -48,6 +42,10 @@ export const builtInThemes: ThemeConfig[] = [
         text: "#1F262B", // Primary text - dark on yellow
         textSecondary: "rgba(31, 38, 43, 0.7)", // Muted dark text
       },
+      link: {
+        main: "#D4A020", // Darker yellow
+        hover: "#F4C430", // Golden yellow on hover
+      },
     },
   },
   // Sambee default dark theme
@@ -60,12 +58,6 @@ export const builtInThemes: ThemeConfig[] = [
       main: "#F4C430", // Golden yellow
       light: "#F6E58D",
       dark: "#D4A020",
-      contrastText: "#1F262B",
-    },
-    secondary: {
-      main: "#F6F1E8", // Light cream
-      light: "#FFFFFF",
-      dark: "#D4CFC0",
       contrastText: "#1F262B",
     },
     background: {
@@ -89,6 +81,10 @@ export const builtInThemes: ThemeConfig[] = [
         background: "#2A3239", // Matches app bar in dark mode (paper color)
         text: "#F6F1E8", // Primary text - light on dark
         textSecondary: "rgba(246, 241, 232, 0.7)", // Muted light text
+      },
+      link: {
+        main: "#F4C430", // Golden yellow
+        hover: "#F6E58D", // Lighter yellow on hover
       },
     },
   },

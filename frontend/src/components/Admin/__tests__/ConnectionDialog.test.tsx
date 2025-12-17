@@ -40,11 +40,11 @@ describe("ConnectionDialog Component", () => {
   it("renders form fields for new connection", () => {
     render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
 
-    expect(screen.getByRole("heading", { name: /add new connection/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /add connection/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/connection name/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/host/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/share name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/user name/i)).toBeInTheDocument();
     // Password field - use getAllByLabelText and filter to get the input
     const passwordFields = screen.getAllByLabelText(/password/i);
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT");
@@ -59,7 +59,7 @@ describe("ConnectionDialog Component", () => {
     expect(screen.getByLabelText(/connection name/i)).toHaveValue("Test Server");
     expect(screen.getByLabelText(/host/i)).toHaveValue("192.168.1.100");
     expect(screen.getByLabelText(/share name/i)).toHaveValue("share1");
-    expect(screen.getByLabelText(/username/i)).toHaveValue("testuser");
+    expect(screen.getByLabelText(/user name/i)).toHaveValue("testuser");
     // Password should be empty for security - use getAllByLabelText and filter
     const passwordFields = screen.getAllByLabelText(/password/i);
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT") as HTMLInputElement;
@@ -104,7 +104,7 @@ describe("ConnectionDialog Component", () => {
     await user.click(screen.getByLabelText(/share name/i));
     await user.paste("newshare");
 
-    await user.click(screen.getByLabelText(/username/i));
+    await user.click(screen.getByLabelText(/user name/i));
     await user.paste("newuser");
 
     // Get password input using getAllByLabelText
@@ -177,7 +177,7 @@ describe("ConnectionDialog Component", () => {
     await user.click(screen.getByLabelText(/share name/i));
     await user.paste("share");
 
-    await user.click(screen.getByLabelText(/username/i));
+    await user.click(screen.getByLabelText(/user name/i));
     await user.paste("user");
 
     // Get password input using getAllByLabelText

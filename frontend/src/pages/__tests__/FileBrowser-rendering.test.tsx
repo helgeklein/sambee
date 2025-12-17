@@ -39,8 +39,11 @@ describe("Browser Component - Rendering", () => {
   it("shows breadcrumb navigation", async () => {
     renderBrowser("/browse/test-server-1");
 
-    // Optimized: Use findByText instead of waitFor + getByText
-    expect(await screen.findByText("Root")).toBeInTheDocument();
+    // Now shows connection name in breadcrumb instead of "Root"
+    // Use getAllByText and filter to avoid collision with connection selector combobox
+    const serverNameElements = await screen.findAllByText("Test Server 1");
+    const breadcrumbElement = serverNameElements.find((el) => el.tagName === "P" && el.className.includes("MuiTypography"));
+    expect(breadcrumbElement).toBeInTheDocument();
   });
 
   it("renders file and folder list", async () => {

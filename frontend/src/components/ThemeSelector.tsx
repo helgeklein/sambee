@@ -141,17 +141,6 @@ function ThemePreview({ theme }: ThemePreviewProps) {
           }}
           title="Primary color"
         />
-        <Box
-          sx={{
-            flex: 1,
-            height: 40,
-            backgroundColor: theme.secondary.main,
-            borderRadius: 1,
-            border: "1px solid",
-            borderColor: "divider",
-          }}
-          title="Secondary color"
-        />
       </Box>
     </Box>
   );

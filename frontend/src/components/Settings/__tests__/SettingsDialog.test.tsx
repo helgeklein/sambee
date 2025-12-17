@@ -2,93 +2,64 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
-import type { Connection } from "../../../types";
 import SettingsDialog from "../SettingsDialog";
 
 // Mock the API module
 vi.mock("../../../services/api", () => ({
   default: {
-    getConnections: vi.fn(),
-    testConnection: vi.fn(),
-    deleteConnection: vi.fn(),
+    getCurrentUser: vi.fn(),
   },
+}));
+
+// Mock the settings pages since they're rendered by the dialog
+vi.mock("../../../pages/AppearanceSettings", () => ({
+  AppearanceSettings: () => <div>Appearance Settings Content</div>,
+}));
+
+vi.mock("../../../pages/ConnectionSettings", () => ({
+  ConnectionSettings: () => <div>Connection Settings Content</div>,
 }));
 
 import api from "../../../services/api";
 
-const mockConnections: Connection[] = [
-  {
-    id: "1",
-    name: "Test Server 1",
-    type: "smb",
-    host: "192.168.1.100",
-    port: 445,
-    share_name: "share1",
-    username: "user1",
-    path_prefix: "/",
-    created_at: "2024-01-01T00:00:00",
-    updated_at: "2024-01-01T00:00:00",
-  },
-  {
-    id: "2",
-    name: "Test Server 2",
-    type: "smb",
-    host: "192.168.1.101",
-    port: 445,
-    share_name: "share2",
-    username: "user2",
-    path_prefix: "/",
-    created_at: "2024-01-02T00:00:00",
-    updated_at: "2024-01-02T00:00:00",
-  },
-];
-
-const mockShortcuts = [
-  { key: "ArrowDown", description: "Navigate down", enabled: true, handler: vi.fn(), label: "↓" },
-  { key: "Enter", description: "Open file/folder", enabled: true, handler: vi.fn(), label: "Enter" },
-];
-
 describe("SettingsDialog Component", () => {
   const mockOnClose = vi.fn();
-  const mockOnLogout = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Mock getCurrentUser to return non-admin user by default
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "testuser", is_admin: false });
   });
 
   const renderWithTheme = (ui: React.ReactElement) => {
     return render(<SambeeThemeProvider>{ui}</SambeeThemeProvider>);
   };
 
-  it("does not load connections when dialog is closed", () => {
-    renderWithTheme(<SettingsDialog open={false} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
+  it("does not check user status when dialog is closed", () => {
+    renderWithTheme(<SettingsDialog open={false} onClose={mockOnClose} />);
 
-    expect(api.getConnections).not.toHaveBeenCalled();
+    expect(api.getCurrentUser).not.toHaveBeenCalled();
   });
 
-  it("loads and displays connections when dialog is opened", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
+  it("checks user status and displays appearance settings when opened", async () => {
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
-
-    // Dialog should open with Connections tab selected for admins
+    // Dialog should check user status
     await waitFor(() => {
-      expect(api.getConnections).toHaveBeenCalled();
+      expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Check that connections are displayed
-    expect(screen.getByText("Test Server 1")).toBeInTheDocument();
-    expect(screen.getByText("Test Server 2")).toBeInTheDocument();
+    // Should show Appearance by default
+    expect(screen.getByText("Appearance")).toBeInTheDocument();
+    expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
   });
 
   it("closes dialog when close button is clicked", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
-
     const user = userEvent.setup();
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Test Server 1")).toBeInTheDocument();
+      expect(screen.getByText("Appearance")).toBeInTheDocument();
     });
 
     // Click close button (icon button with CloseIcon)
@@ -101,139 +72,61 @@ describe("SettingsDialog Component", () => {
     expect(mockOnClose).toHaveBeenCalled();
   });
 
-  it("opens add connection dialog when Add Connection is clicked", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
+  it("shows Connections tab for admin users", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "admin", is_admin: true });
 
-    const user = userEvent.setup();
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
+    // Wait for user status to load
     await waitFor(() => {
-      expect(screen.getByText("Test Server 1")).toBeInTheDocument();
+      expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Click Add Connection button
-    const addButton = screen.getByRole("button", { name: /add connection/i });
-    await user.click(addButton);
+    // Should show both Appearance and Connections in sidebar
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    const appearanceButton = screen.getByRole("button", { name: /appearance/i });
+    const connectionsButton = screen.getByRole("button", { name: /connections/i });
 
-    // Connection dialog should be open
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /add new connection/i })).toBeInTheDocument();
-    });
+    expect(appearanceButton).toBeInTheDocument();
+    expect(connectionsButton).toBeInTheDocument();
   });
 
-  it("handles connection test successfully", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
-    vi.mocked(api.testConnection).mockResolvedValueOnce({
-      status: "success",
-      message: "Connection test successful",
-    });
+  it("hides Connections tab for non-admin users", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "user", is_admin: false });
 
-    const user = userEvent.setup();
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
+    // Wait for user status to load
     await waitFor(() => {
-      expect(screen.getByText("Test Server 1")).toBeInTheDocument();
+      expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Find and click test button
-    const testButtons = screen.getAllByRole("button", { name: /test/i });
-    await user.click(testButtons[0]);
+    // Should show only Appearance
+    expect(screen.getByText("Appearance")).toBeInTheDocument();
 
-    // Should show success notification
-    await waitFor(() => {
-      expect(screen.getByText(/connection test successful/i)).toBeInTheDocument();
-    });
+    // Connections should not be in the sidebar
+    expect(screen.queryByRole("button", { name: /connections/i })).not.toBeInTheDocument();
   });
 
-  it("handles connection test failure", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections);
-    vi.mocked(api.testConnection).mockRejectedValueOnce({
-      response: { data: { detail: "Connection timeout" } },
-    });
+  it("switches to connections tab when admin clicks it", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "admin", is_admin: true });
 
     const user = userEvent.setup();
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
+    // Wait for user status to load
     await waitFor(() => {
-      expect(screen.getByText("Test Server 1")).toBeInTheDocument();
+      expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Find and click test button
-    const testButtons = screen.getAllByRole("button", { name: /test/i });
-    await user.click(testButtons[0]);
+    // Should start with Appearance
+    expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
 
-    // Should show error notification
-    await waitFor(() => {
-      expect(screen.getByText(/connection timeout/i)).toBeInTheDocument();
-    });
-  });
+    // Click Connections button
+    const connectionsButton = screen.getByRole("button", { name: /connections/i });
+    await user.click(connectionsButton);
 
-  it("handles connection deletion", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections).mockResolvedValueOnce([mockConnections[1]]); // After deletion
-    vi.mocked(api.deleteConnection).mockResolvedValueOnce(undefined);
-
-    const user = userEvent.setup();
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Test Server 1")).toBeInTheDocument();
-    });
-
-    // Click delete button
-    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
-    await user.click(deleteButtons[0]);
-
-    // Confirm deletion
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-
-    const confirmButton = screen.getByRole("button", {
-      name: /confirm|delete/i,
-    });
-    await user.click(confirmButton);
-
-    // Should show success notification
-    await waitFor(() => {
-      expect(screen.getByText(/connection deleted successfully/i)).toBeInTheDocument();
-    });
-
-    // Should reload connections
-    expect(api.getConnections).toHaveBeenCalledTimes(2);
-  });
-
-  it("displays error when loading connections fails", async () => {
-    vi.mocked(api.getConnections).mockRejectedValueOnce({
-      response: { data: { detail: "Server error" } },
-    });
-
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/server error/i)).toBeInTheDocument();
-    });
-  });
-
-  it("reloads connections after editing", async () => {
-    vi.mocked(api.getConnections).mockResolvedValueOnce(mockConnections).mockResolvedValueOnce(mockConnections); // After save
-
-    const user = userEvent.setup();
-    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} isAdmin={true} shortcuts={mockShortcuts} onLogout={mockOnLogout} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Test Server 1")).toBeInTheDocument();
-    });
-
-    // Click edit button
-    const editButtons = screen.getAllByRole("button", { name: /edit/i });
-    await user.click(editButtons[0]);
-
-    // Connection dialog should be open
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: /edit connection/i })).toBeInTheDocument();
-    });
-
-    // Note: Actual save interaction would require mocking updateConnection
-    // This test verifies the dialog opens in edit mode
+    // Should now show Connection Settings
+    expect(screen.getByText("Connection Settings Content")).toBeInTheDocument();
   });
 });

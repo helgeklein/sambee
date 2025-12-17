@@ -59,7 +59,6 @@ describe("Theme System - ThemeContext", () => {
       expect(result.current.muiTheme).toBeDefined();
       expect(result.current.muiTheme.palette).toBeDefined();
       expect(result.current.muiTheme.palette.primary).toBeDefined();
-      expect(result.current.muiTheme.palette.secondary).toBeDefined();
     });
 
     it("should restore theme from localStorage", () => {

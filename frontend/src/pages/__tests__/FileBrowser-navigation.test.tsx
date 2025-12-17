@@ -113,9 +113,12 @@ describe("Browser Component - Navigation", () => {
     // Optimized: Use findByText
     expect(await screen.findByText("Subfolder")).toBeInTheDocument();
 
-    // Click on "Root" breadcrumb
-    const rootLink = screen.getByText("Root");
-    await user.click(rootLink);
+    // Click on connection name breadcrumb (replaces "Root") - use getAllByText and filter to find the link, not the combobox
+    const rootLinks = screen.getAllByText("Test Server 1");
+    // The breadcrumb link should be in a button with component="button" (from MUI Link)
+    const rootLink = rootLinks.find((el) => el.tagName === "BUTTON" && el.getAttribute("role") !== "combobox");
+    expect(rootLink).toBeDefined();
+    await user.click(rootLink!);
 
     // Should navigate back to root
     await waitFor(() => {

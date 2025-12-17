@@ -8,6 +8,10 @@ import { SambeeThemeProvider, useSambeeTheme } from "./theme";
 // Lazy load route components for better code splitting
 const Login = lazy(() => import("./pages/Login"));
 const FileBrowser = lazy(() => import("./pages/FileBrowser"));
+const SettingsLayout = lazy(() => import("./components/Settings/SettingsLayout").then((m) => ({ default: m.SettingsLayout })));
+const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
+const ConnectionSettings = lazy(() => import("./pages/ConnectionSettings").then((m) => ({ default: m.ConnectionSettings })));
+const AppearanceSettings = lazy(() => import("./pages/AppearanceSettings").then((m) => ({ default: m.AppearanceSettings })));
 
 //
 // AppContent
@@ -28,6 +32,11 @@ function AppContent() {
             <Route path="/login" element={<Login />} />
             <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />
+            <Route path="/settings" element={<SettingsLayout />}>
+              <Route index element={<Settings />} />
+              <Route path="connections" element={<ConnectionSettings />} />
+              <Route path="appearance" element={<AppearanceSettings />} />
+            </Route>
             <Route path="/" element={<Navigate to="/browse" replace />} />
           </Routes>
         </Suspense>

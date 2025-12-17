@@ -23,13 +23,6 @@ export interface ThemeConfig {
     dark?: string;
     contrastText?: string;
   };
-  /** Secondary color palette */
-  secondary: {
-    main: string;
-    light?: string;
-    dark?: string;
-    contrastText?: string;
-  };
   /** Background colors */
   background?: {
     default?: string;
@@ -62,6 +55,13 @@ export interface ThemeConfig {
       text: string;
       /** Muted text color on the status bar (secondary) */
       textSecondary: string;
+    };
+    /** Link colors */
+    link?: {
+      /** Default link color */
+      main: string;
+      /** Link hover color */
+      hover?: string;
     };
   };
 }
@@ -150,38 +150,6 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
       contrastText: {
         label: "Contrast Text",
         description: "Text color on primary backgrounds - ensures readability on primary colored elements",
-        type: "color",
-        required: false,
-      },
-    },
-  },
-  secondary: {
-    label: "Secondary Color",
-    description: "Used for accents, secondary buttons, and complementary elements",
-    type: "color",
-    required: true,
-    fields: {
-      main: {
-        label: "Main",
-        description: "Complements the primary color for variety",
-        type: "color",
-        required: true,
-      },
-      light: {
-        label: "Light Variant",
-        description: "Used for hover states on secondary elements",
-        type: "color",
-        required: false,
-      },
-      dark: {
-        label: "Dark Variant",
-        description: "Used for pressed states on secondary elements",
-        type: "color",
-        required: false,
-      },
-      contrastText: {
-        label: "Contrast Text",
-        description: "Text color on secondary backgrounds - ensures readability on secondary colored elements",
         type: "color",
         required: false,
       },

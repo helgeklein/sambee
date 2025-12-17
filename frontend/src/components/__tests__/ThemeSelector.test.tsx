@@ -126,11 +126,11 @@ describe("ThemeSelector Component", () => {
       const mockOnClose = vi.fn();
       renderWithProvider(<ThemeSelectorDialog open={true} onClose={mockOnClose} />);
 
-      // Color preview boxes should be present (primary and secondary for each theme)
+      // Color preview boxes should be present (primary for each theme)
       const dialog = screen.getByRole("dialog");
       const colorBoxes = dialog.querySelectorAll("[title*='color' i]");
 
-      expect(colorBoxes.length).toBeGreaterThanOrEqual(4); // At least 2 themes × 2 colors
+      expect(colorBoxes.length).toBeGreaterThanOrEqual(2); // At least 2 themes × 1 color
     });
 
     it("should close dialog when theme is selected", async () => {

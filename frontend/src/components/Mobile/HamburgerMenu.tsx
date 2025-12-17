@@ -1,6 +1,5 @@
 import { Logout as LogoutIcon, Settings as SettingsIcon } from "@mui/icons-material";
 import HomeIcon from "@mui/icons-material/Home";
-import PaletteIcon from "@mui/icons-material/Palette";
 import {
   Box,
   Divider,
@@ -20,7 +19,6 @@ import { useEffect, useState } from "react";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
-import { ThemeSelectorDialog } from "../ThemeSelector";
 
 interface HamburgerMenuProps {
   open: boolean;
@@ -31,7 +29,6 @@ interface HamburgerMenuProps {
   onNavigateToRoot: () => void;
   onOpenSettings: () => void;
   onLogout: () => void;
-  isAdmin: boolean;
 }
 
 const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
@@ -43,10 +40,8 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   onNavigateToRoot,
   onOpenSettings,
   onLogout,
-  isAdmin,
 }) => {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
-  const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
 
   // Fetch version info on mount
   useEffect(() => {
@@ -75,6 +70,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
+          bgcolor: "background.default",
         },
       }}
     >
@@ -134,34 +130,18 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           </ListItemButton>
         </ListItem>
 
-        {isAdmin && (
-          <ListItem disablePadding>
-            <ListItemButton
-              onClick={() => {
-                onOpenSettings();
-                onClose();
-              }}
-              aria-label="Open settings"
-            >
-              <ListItemIcon>
-                <SettingsIcon />
-              </ListItemIcon>
-              <ListItemText primary="Settings" />
-            </ListItemButton>
-          </ListItem>
-        )}
-
         <ListItem disablePadding>
           <ListItemButton
             onClick={() => {
-              setThemeSelectorOpen(true);
+              onOpenSettings();
+              onClose();
             }}
-            aria-label="Change theme"
+            aria-label="Open settings"
           >
             <ListItemIcon>
-              <PaletteIcon />
+              <SettingsIcon />
             </ListItemIcon>
-            <ListItemText primary="Theme" />
+            <ListItemText primary="Settings" />
           </ListItemButton>
         </ListItem>
 
@@ -193,9 +173,6 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           </Box>
         </>
       )}
-
-      {/* Theme Selector Dialog */}
-      <ThemeSelectorDialog open={themeSelectorOpen} onClose={() => setThemeSelectorOpen(false)} />
     </Drawer>
   );
 };

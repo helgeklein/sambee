@@ -43,20 +43,6 @@ describe("Theme System - types.ts", () => {
       expect(THEME_SCHEMA["primary"]?.fields?.["main"]?.required).toBe(true);
     });
 
-    it("should define schema for secondary palette", () => {
-      expect(THEME_SCHEMA["secondary"]).toBeDefined();
-      expect(THEME_SCHEMA["secondary"]?.label).toBe("Secondary Color");
-      expect(THEME_SCHEMA["secondary"]?.type).toBe("color");
-      expect(THEME_SCHEMA["secondary"]?.required).toBe(true);
-    });
-
-    it("should define schema for secondary.main field", () => {
-      expect(THEME_SCHEMA["secondary"]?.fields?.["main"]).toBeDefined();
-      expect(THEME_SCHEMA["secondary"]?.fields?.["main"]?.label).toBe("Main");
-      expect(THEME_SCHEMA["secondary"]?.fields?.["main"]?.type).toBe("color");
-      expect(THEME_SCHEMA["secondary"]?.fields?.["main"]?.required).toBe(true);
-    });
-
     it("should define optional background schema", () => {
       expect(THEME_SCHEMA["background"]).toBeDefined();
       expect(THEME_SCHEMA["background"]?.required).toBe(false);
@@ -74,7 +60,6 @@ describe("Theme System - types.ts", () => {
       expect(THEME_SCHEMA["name"]?.description).toBeTruthy();
       expect(THEME_SCHEMA["mode"]?.description).toBeTruthy();
       expect(THEME_SCHEMA["primary"]?.description).toBeTruthy();
-      expect(THEME_SCHEMA["secondary"]?.description).toBeTruthy();
     });
 
     it("should use correct field types", () => {
@@ -90,7 +75,6 @@ describe("Theme System - types.ts", () => {
       expect(THEME_SCHEMA["name"]?.required).toBe(true);
       expect(THEME_SCHEMA["mode"]?.required).toBe(true);
       expect(THEME_SCHEMA["primary"]?.required).toBe(true);
-      expect(THEME_SCHEMA["secondary"]?.required).toBe(true);
     });
 
     it("should mark optional fields as not required", () => {

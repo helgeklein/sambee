@@ -5,6 +5,16 @@ import HamburgerMenu from "../../../components/Mobile/HamburgerMenu";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import type { Connection } from "../../../types";
 
+// Mock useNavigate
+const mockNavigate = vi.fn();
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
+
 // Mock the version utility module
 vi.mock("../../../utils/version", () => ({
   fetchVersionInfo: vi.fn(() => Promise.resolve({ version: "0.1.0", build_time: "2024-01-01T00:00:00Z", git_commit: "abc1234" })),
@@ -61,7 +71,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
@@ -86,7 +95,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
@@ -108,14 +116,16 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
     );
 
     expect(screen.getByText("Connection")).toBeInTheDocument();
-    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    // The Select dropdown renders the connection names - verify connections are available
+    // by checking for the select input
+    const selectInputs = screen.getAllByRole("combobox");
+    expect(selectInputs.length).toBeGreaterThan(0);
   });
 
   test("calls onNavigateToRoot when Root is clicked", async () => {
@@ -131,7 +141,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
@@ -159,7 +168,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
@@ -187,7 +195,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
@@ -201,7 +208,7 @@ describe("HamburgerMenu", () => {
     });
   });
 
-  test("hides Settings when user is not admin", () => {
+  test("shows Settings for all users", () => {
     render(
       <SambeeThemeProvider>
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -220,7 +227,7 @@ describe("HamburgerMenu", () => {
       </SambeeThemeProvider>
     );
 
-    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("Root")).toBeInTheDocument();
     expect(screen.getByText("Logout")).toBeInTheDocument();
   });
@@ -238,7 +245,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>
@@ -264,7 +270,6 @@ describe("HamburgerMenu", () => {
             onNavigateToRoot={mockOnNavigateToRoot}
             onOpenSettings={mockOnOpenSettings}
             onLogout={mockOnLogout}
-            isAdmin={true}
           />
         </BrowserRouter>
       </SambeeThemeProvider>

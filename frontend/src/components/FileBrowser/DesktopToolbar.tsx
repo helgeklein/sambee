@@ -10,11 +10,11 @@ interface DesktopToolbarProps {
   connections: Connection[];
   selectedConnectionId: string;
   onConnectionChange: (connectionId: string) => void;
-  onOpenSettings: () => void;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
+  onOpenSettings: () => void;
 }
 
 //
@@ -24,11 +24,11 @@ export function DesktopToolbar({
   connections,
   selectedConnectionId,
   onConnectionChange,
-  onOpenSettings,
   searchQuery,
   onSearchChange,
   searchInputRef,
   showSearch,
+  onOpenSettings,
 }: DesktopToolbarProps) {
   return (
     <>

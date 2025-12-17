@@ -33,9 +33,7 @@ describe("Theme System - themes.ts", () => {
         expect(theme).toHaveProperty("name");
         expect(theme).toHaveProperty("mode");
         expect(theme).toHaveProperty("primary");
-        expect(theme).toHaveProperty("secondary");
         expect(theme.primary).toHaveProperty("main");
-        expect(theme.secondary).toHaveProperty("main");
         expect(["light", "dark"]).toContain(theme.mode);
       });
     });
@@ -50,13 +48,6 @@ describe("Theme System - themes.ts", () => {
       const hexColorRegex = /^#[0-9A-F]{6}$/i;
       builtInThemes.forEach((theme) => {
         expect(theme.primary.main).toMatch(hexColorRegex);
-      });
-    });
-
-    it("should have valid hex colors for secondary.main", () => {
-      const hexColorRegex = /^#[0-9A-F]{6}$/i;
-      builtInThemes.forEach((theme) => {
-        expect(theme.secondary.main).toMatch(hexColorRegex);
       });
     });
   });
@@ -110,7 +101,6 @@ describe("Theme System - themes.ts", () => {
       expect(theme).toHaveProperty("name");
       expect(theme).toHaveProperty("mode");
       expect(theme).toHaveProperty("primary");
-      expect(theme).toHaveProperty("secondary");
     });
   });
 

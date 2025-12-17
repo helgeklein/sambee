@@ -35,6 +35,7 @@ import { SearchBar } from "../components/FileBrowser/SearchBar";
 import { SortControls } from "../components/FileBrowser/SortControls";
 import { StatusBar } from "../components/FileBrowser/StatusBar";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
+import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
@@ -115,7 +116,6 @@ const Browser: React.FC = () => {
     sessionId: string;
   } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +124,8 @@ const Browser: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Refs for DOM Elements & Performance Optimization
@@ -727,12 +729,6 @@ const Browser: React.FC = () => {
     localStorage.setItem("selectedConnectionId", connectionId);
   };
 
-  const handleSettingsClose = () => {
-    setSettingsOpen(false);
-    // Reload connections in case they were modified
-    loadConnections();
-  };
-
   // ──────────────────────────────────────────────────────────────────────────
   // Data Processing (Sort & Filter)
   // ──────────────────────────────────────────────────────────────────────────
@@ -1206,71 +1202,72 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.ARROW_DOWN,
         handler: handleNavigateDown,
-        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       {
         ...BROWSER_SHORTCUTS.ARROW_UP,
         handler: handleArrowUp,
-        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       // Navigation - Home/End
       {
         ...COMMON_SHORTCUTS.FIRST_PAGE,
         description: "First file",
         handler: handleHome,
-        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       {
         ...COMMON_SHORTCUTS.LAST_PAGE,
         description: "Last file",
         handler: handleEnd,
-        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       // Navigation - Page Up/Down
       {
         ...COMMON_SHORTCUTS.PAGE_DOWN,
         handler: handlePageDown,
-        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       {
         ...COMMON_SHORTCUTS.PAGE_UP,
         handler: handlePageUp,
-        enabled: !settingsOpen && !viewInfo && filesRef.current.length > 0,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
       // Open file/folder
       {
         ...COMMON_SHORTCUTS.OPEN,
         handler: handleOpenFile,
-        enabled: !settingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex] !== undefined,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex] !== undefined,
       },
       // Navigate up directory
       {
         ...BROWSER_SHORTCUTS.NAVIGATE_UP,
         handler: handleNavigateUpDirectory,
-        enabled: !settingsOpen && !viewInfo && currentPathRef.current !== "",
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && currentPathRef.current !== "",
       },
       // Clear selection and search (close action in browser context)
       {
         ...COMMON_SHORTCUTS.CLOSE,
         handler: handleClose,
-        enabled: !settingsOpen,
+        enabled: true,
       },
       // Focus search
       {
         ...BROWSER_SHORTCUTS.FOCUS_SEARCH,
         handler: handleFocusSearch,
-        enabled: !settingsOpen && !viewInfo,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
       },
       // Refresh
       {
         ...BROWSER_SHORTCUTS.REFRESH,
         handler: handleRefresh,
-        enabled: !viewInfo,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
       },
     ],
     [
       handleNavigateDown,
       settingsOpen,
+      mobileSettingsOpen,
       viewInfo,
       handleArrowUp,
       handleHome,
@@ -1301,6 +1298,9 @@ const Browser: React.FC = () => {
   useEffect(() => {
     const handleKeyDown = (e?: KeyboardEvent) => {
       if (!e) return;
+
+      // Don't handle if settings dialog/drawer is open or if viewer is open
+      if (settingsOpen || mobileSettingsOpen || viewInfo) return;
 
       // Don't handle if event already handled
       if (e.defaultPrevented) return;
@@ -1347,8 +1347,8 @@ const Browser: React.FC = () => {
         return;
       }
 
-      // Don't handle if dialogs are open or viewer is showing
-      if (settingsOpen || viewInfo) {
+      // Don't handle if viewer is showing
+      if (viewInfo) {
         return;
       }
 
@@ -1389,7 +1389,7 @@ const Browser: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [settingsOpen, searchQuery, viewInfo, updateFocus, listContainerEl]);
+  }, [searchQuery, settingsOpen, mobileSettingsOpen, viewInfo, updateFocus, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Accessibility
@@ -1422,6 +1422,10 @@ const Browser: React.FC = () => {
   const handleLogout = () => {
     localStorage.removeItem("access_token");
     navigate("/login");
+  };
+
+  const handleSettingsClose = () => {
+    setSettingsOpen(false);
   };
 
   const pathParts = currentPath ? currentPath.split("/") : [];
@@ -1519,9 +1523,8 @@ const Browser: React.FC = () => {
           setCurrentPath("");
           setViewInfo(null);
         }}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => setMobileSettingsOpen(true)}
         onLogout={handleLogout}
-        isAdmin={isAdmin}
       />
 
       <AppBar position="static">
@@ -1538,11 +1541,11 @@ const Browser: React.FC = () => {
               connections={connections}
               selectedConnectionId={selectedConnectionId}
               onConnectionChange={handleConnectionChange}
-              onOpenSettings={() => setSettingsOpen(true)}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               searchInputRef={searchInputRef}
               showSearch={files.length > 0}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           )}
         </Toolbar>
@@ -1575,6 +1578,7 @@ const Browser: React.FC = () => {
               >
                 <BreadcrumbsNavigation
                   currentPath={currentPath}
+                  connectionName={connections.find((c) => c.id === selectedConnectionId)?.name ?? ""}
                   onNavigate={(path) => {
                     setCurrentPath(path);
                     setViewInfo(null);
@@ -1628,13 +1632,12 @@ const Browser: React.FC = () => {
         <StatusBar files={sortedAndFilteredFiles} focusedIndex={focusedIndex} />
       )}
 
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={handleSettingsClose}
-        isAdmin={isAdmin}
-        shortcuts={browserShortcuts}
-        onLogout={handleLogout}
-      />
+      {/* Settings Dialog (Desktop only) */}
+      {!useCompactLayout && <SettingsDialog open={settingsOpen} onClose={handleSettingsClose} />}
+
+      {/* Settings Drawer (Mobile only) */}
+      {useCompactLayout && <MobileSettingsDrawer open={mobileSettingsOpen} onClose={() => setMobileSettingsOpen(false)} />}
+
       {viewInfo && (
         <DynamicViewer
           connectionId={selectedConnectionId}

@@ -1,6 +1,6 @@
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import MenuIcon from "@mui/icons-material/Menu";
 import { IconButton, Typography } from "@mui/material";
+import { SambeeLogo } from "../SambeeLogo";
 
 interface MobileToolbarProps {
   currentDirectoryName: string;
@@ -26,7 +26,7 @@ export function MobileToolbar({ currentDirectoryName, onOpenMenu, onNavigateUp, 
         }}
         aria-label="Open menu"
       >
-        <MenuIcon />
+        <SambeeLogo />
       </IconButton>
 
       <Typography

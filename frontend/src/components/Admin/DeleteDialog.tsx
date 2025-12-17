@@ -1,4 +1,4 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Typography } from "@mui/material";
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import type React from "react";
 import type { Connection } from "../../types";
 
@@ -13,18 +13,25 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({ open, onClose, onConfirm, c
   if (!connection) return null;
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      PaperProps={{
+        sx: {
+          bgcolor: "background.default",
+        },
+      }}
+    >
       <DialogTitle>Delete Connection</DialogTitle>
       <DialogContent>
-        <DialogContentText>
-          Are you sure you want to delete the connection <strong>"{connection.name}"</strong>?
+        <DialogContentText sx={{ color: "text.primary" }}>
+          Are you sure you want to delete the connection <strong>{connection.name}</strong>?
         </DialogContentText>
-        <Typography variant="body2" color="error" sx={{ mt: 2 }}>
-          This action cannot be undone.
-        </Typography>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose} sx={{ color: "warning.main" }}>
+          Cancel
+        </Button>
         <Button onClick={onConfirm} color="error" variant="contained">
           Delete
         </Button>

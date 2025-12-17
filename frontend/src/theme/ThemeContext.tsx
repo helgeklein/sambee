@@ -96,7 +96,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
       palette: {
         mode: currentTheme.mode,
         primary: currentTheme.primary,
-        secondary: currentTheme.secondary,
         ...(currentTheme.background && { background: currentTheme.background }),
         ...(currentTheme.text && { text: currentTheme.text }),
         ...(currentTheme.action && { action: currentTheme.action }),
@@ -155,6 +154,19 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                 borderColor:
                   currentTheme.components?.appBar?.text ??
                   (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              },
+            },
+          },
+        },
+        MuiLink: {
+          defaultProps: {
+            underline: "none",
+          },
+          styleOverrides: {
+            root: {
+              color: currentTheme.components?.link?.main ?? currentTheme.primary.main,
+              "&:hover": {
+                color: currentTheme.components?.link?.hover ?? currentTheme.primary.dark,
               },
             },
           },
