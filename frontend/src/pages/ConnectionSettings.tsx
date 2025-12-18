@@ -328,8 +328,8 @@ export function ConnectionSettings() {
           onClick={handleAddClick}
           sx={{
             position: "fixed",
-            bottom: 16,
-            right: 16,
+            bottom: "calc(16px + env(safe-area-inset-bottom))",
+            right: "calc(16px + env(safe-area-inset-right))",
           }}
         >
           <AddIcon />

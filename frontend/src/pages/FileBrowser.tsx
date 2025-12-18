@@ -1557,7 +1557,7 @@ const Browser: React.FC = () => {
           display: "flex",
           flexDirection: "column",
           pt: 2,
-          pb: 0,
+          pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
           px: { xs: 0, sm: 3, md: 4 },
           overflow: "hidden",
         }}

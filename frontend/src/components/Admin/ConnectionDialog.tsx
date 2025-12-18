@@ -365,7 +365,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               overflow: "auto",
               p: 2,
               bgcolor: "background.default",
-              pb: 10, // Extra padding for fixed footer
+              pb: "calc(80px + env(safe-area-inset-bottom))", // Extra padding for fixed footer + safe area
             }}
           >
             {formContent}
@@ -381,6 +381,9 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
               display: "flex",
               gap: 1,
               p: 2,
+              pb: "calc(16px + env(safe-area-inset-bottom))", // Bottom padding + safe area
+              pl: "calc(16px + env(safe-area-inset-left))", // Left padding + safe area
+              pr: "calc(16px + env(safe-area-inset-right))", // Right padding + safe area
               borderTop: 1,
               borderColor: "divider",
               bgcolor: "background.default",
