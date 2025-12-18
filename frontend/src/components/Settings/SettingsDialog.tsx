@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import { AppearanceSettings } from "../../pages/AppearanceSettings";
 import { ConnectionSettings } from "../../pages/ConnectionSettings";
 import api from "../../services/api";
+import type { VersionInfo } from "../../utils/version";
+import { fetchVersionInfo } from "../../utils/version";
 
 type SettingsCategory = "appearance" | "connections";
 
@@ -26,6 +28,7 @@ interface SettingsDialogProps {
 const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
   const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>("appearance");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
   useEffect(() => {
     // Check admin status when dialog opens
@@ -34,6 +37,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
         .getCurrentUser()
         .then((user) => setIsAdmin(user.is_admin))
         .catch(() => setIsAdmin(false));
+
+      // Fetch version info
+      void fetchVersionInfo().then((info) => {
+        if (info) {
+          setVersionInfo(info);
+        }
+      });
     }
   }, [open]);
 
@@ -111,6 +121,24 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
               </ListItem>
             )}
           </List>
+
+          {/* Version Information */}
+          {versionInfo && (
+            <>
+              <Divider />
+              <Box sx={{ p: 2, pt: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Version: {versionInfo.version}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Build: {versionInfo.build_time}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                  Commit: {versionInfo.git_commit.substring(0, 7)}
+                </Typography>
+              </Box>
+            </>
+          )}
         </Box>
 
         {/* Right Content Area */}

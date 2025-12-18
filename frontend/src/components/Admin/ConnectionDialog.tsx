@@ -103,20 +103,20 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     const newErrors: Record<string, string> = {};
 
     if (!formData.name.trim()) {
-      newErrors.name = CONNECTION_DIALOG_STRINGS.ERROR_NAME_REQUIRED;
+      newErrors["name"] = CONNECTION_DIALOG_STRINGS.ERROR_NAME_REQUIRED;
     }
     if (!formData.host.trim()) {
-      newErrors.host = CONNECTION_DIALOG_STRINGS.ERROR_HOST_REQUIRED;
+      newErrors["host"] = CONNECTION_DIALOG_STRINGS.ERROR_HOST_REQUIRED;
     }
     if (!formData.share_name.trim()) {
-      newErrors.share_name = CONNECTION_DIALOG_STRINGS.ERROR_SHARE_NAME_REQUIRED;
+      newErrors["share_name"] = CONNECTION_DIALOG_STRINGS.ERROR_SHARE_NAME_REQUIRED;
     }
     if (!formData.username.trim()) {
-      newErrors.username = CONNECTION_DIALOG_STRINGS.ERROR_USERNAME_REQUIRED;
+      newErrors["username"] = CONNECTION_DIALOG_STRINGS.ERROR_USERNAME_REQUIRED;
     }
     if (!connection && !formData.password.trim()) {
       // Password required for new connections
-      newErrors.password = CONNECTION_DIALOG_STRINGS.ERROR_PASSWORD_REQUIRED;
+      newErrors["password"] = CONNECTION_DIALOG_STRINGS.ERROR_PASSWORD_REQUIRED;
     }
 
     setErrors(newErrors);
@@ -198,15 +198,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         label={CONNECTION_DIALOG_STRINGS.LABEL_NAME}
         value={formData.name}
         onChange={(e) => handleChange("name", e.target.value)}
-        error={!!errors.name}
-        helperText={errors.name}
+        error={!!errors["name"]}
+        helperText={errors["name"]}
         fullWidth
         required
         variant="filled"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
         }}
       />
 
@@ -214,15 +212,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         label={CONNECTION_DIALOG_STRINGS.LABEL_HOST}
         value={formData.host}
         onChange={(e) => handleChange("host", e.target.value)}
-        error={!!errors.host}
-        helperText={errors.host || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
+        error={!!errors["host"]}
+        helperText={errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
         fullWidth
         required
         variant="filled"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
         }}
       />
 
@@ -230,15 +226,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         label={CONNECTION_DIALOG_STRINGS.LABEL_SHARE_NAME}
         value={formData.share_name}
         onChange={(e) => handleChange("share_name", e.target.value)}
-        error={!!errors.share_name}
-        helperText={errors.share_name || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
+        error={!!errors["share_name"]}
+        helperText={errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
         fullWidth
         required
         variant="filled"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
         }}
       />
 
@@ -246,15 +240,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         label={CONNECTION_DIALOG_STRINGS.LABEL_USERNAME}
         value={formData.username}
         onChange={(e) => handleChange("username", e.target.value)}
-        error={!!errors.username}
-        helperText={errors.username || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
+        error={!!errors["username"]}
+        helperText={errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
         fullWidth
         required
         variant="filled"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
         }}
       />
 
@@ -263,15 +255,13 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         type={showPassword ? "text" : "password"}
         value={formData.password}
         onChange={(e) => handleChange("password", e.target.value)}
-        error={!!errors.password}
-        helperText={errors.password || (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : "")}
+        error={!!errors["password"]}
+        helperText={errors["password"] || (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : "")}
         fullWidth
         required={!connection}
         variant="filled"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
         }}
         InputProps={{
           endAdornment: (
@@ -296,10 +286,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
         fullWidth
         variant="filled"
-        slotProps={{
-          formHelperText: {
-            sx: { fontSize: "0.875rem" },
-          },
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
         }}
       />
 

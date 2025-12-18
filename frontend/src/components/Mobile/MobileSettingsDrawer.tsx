@@ -107,6 +107,24 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({ open
           {currentView === "main" && (
             <Box sx={{ height: "100%", bgcolor: "background.default" }}>
               <List sx={{ py: 0 }}>
+                <ListItem disablePadding>
+                  <ListItemButton onClick={() => setCurrentView("appearance")} sx={{ py: 2 }}>
+                    <ListItemIcon>
+                      <PaletteIcon sx={{ color: "primary.main", fontSize: 28 }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Typography variant="h6" fontWeight="medium">
+                          Appearance
+                        </Typography>
+                      }
+                      secondary="Theme and display options"
+                    />
+                    <ChevronRightIcon sx={{ color: "text.secondary" }} />
+                  </ListItemButton>
+                </ListItem>
+                <Divider />
+
                 {isAdmin && (
                   <>
                     <ListItem disablePadding>
@@ -128,24 +146,6 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({ open
                     <Divider />
                   </>
                 )}
-
-                <ListItem disablePadding>
-                  <ListItemButton onClick={() => setCurrentView("appearance")} sx={{ py: 2 }}>
-                    <ListItemIcon>
-                      <PaletteIcon sx={{ color: "primary.main", fontSize: 28 }} />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={
-                        <Typography variant="h6" fontWeight="medium">
-                          Appearance
-                        </Typography>
-                      }
-                      secondary="Theme and display options"
-                    />
-                    <ChevronRightIcon sx={{ color: "text.secondary" }} />
-                  </ListItemButton>
-                </ListItem>
-                <Divider />
               </List>
             </Box>
           )}
