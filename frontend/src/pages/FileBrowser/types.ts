@@ -4,7 +4,7 @@
 
 import type { FileEntry } from "../../types";
 
-export type SortField = "name" | "size" | "modified";
+export type SortField = "name" | "size" | "modified" | "type";
 
 export interface ViewInfo {
   path: string;

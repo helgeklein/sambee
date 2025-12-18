@@ -28,11 +28,12 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
   const descriptionMap = new Map<string, string[]>();
 
   for (const shortcut of shortcuts) {
+    const label = shortcut.label || shortcut.keys.toString();
     const existing = descriptionMap.get(shortcut.description);
     if (existing) {
-      existing.push(shortcut.label);
+      existing.push(label);
     } else {
-      descriptionMap.set(shortcut.description, [shortcut.label]);
+      descriptionMap.set(shortcut.description, [label]);
     }
   }
 
@@ -49,11 +50,23 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          bgcolor: "background.default",
+        },
+      }}
+    >
       <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
+      <DialogContent sx={{ bgcolor: "background.default" }}>
         {groupedShortcuts.length === 0 ? (
-          <Box sx={{ py: 2, textAlign: "center", color: "text.secondary" }}>No keyboard shortcuts available</Box>
+          <Box sx={{ py: 2, textAlign: "center", backgroundColor: "background.default", color: "text.secondary" }}>
+            No keyboard shortcuts available
+          </Box>
         ) : (
           <Table size="small">
             <TableBody>

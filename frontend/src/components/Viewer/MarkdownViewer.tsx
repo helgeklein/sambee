@@ -24,8 +24,8 @@ const getErrorMessage = (err: unknown): string => {
   if (isApiError(err) && err.message) {
     if (err.response?.data) {
       const data = err.response.data as Record<string, unknown>;
-      if (typeof data.detail === "string") {
-        return data.detail;
+      if (typeof data["detail"] === "string") {
+        return data["detail"];
       }
     }
     return `Failed to load markdown: ${err.message}`;
@@ -402,7 +402,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         open={showHelp}
         onClose={() => setShowHelp(false)}
         shortcuts={markdownShortcuts}
-        title="Markdown Viewer Shortcuts"
+        title="Markdown viewer shortcuts"
       />
     </>
   );

@@ -167,9 +167,13 @@ describe("Browser Component - Interactions", () => {
         expect(documentsElements.length).toBeGreaterThan(0);
       });
 
-      // Click sort by size button
-      const sortBySizeButton = screen.getByLabelText(/sort by size/i);
-      await user.click(sortBySizeButton);
+      // Open sort menu
+      const sortButton = screen.getByLabelText(/sort options/i);
+      await user.click(sortButton);
+
+      // Click "Size" in the menu
+      const sizeOption = await screen.findByText("Size");
+      await user.click(sizeOption);
 
       // Files should be re-rendered (already sorted by component)
       await waitFor(() => {
@@ -177,9 +181,13 @@ describe("Browser Component - Interactions", () => {
         expect(elements.length).toBeGreaterThan(0);
       });
 
-      // Click sort by date button
-      const sortByDateButton = screen.getByLabelText(/sort by modified date/i);
-      await user.click(sortByDateButton);
+      // Open sort menu again
+      const sortButtonAgain = screen.getByLabelText(/sort options/i);
+      await user.click(sortButtonAgain);
+
+      // Click "Modified" in the menu
+      const modifiedOption = await screen.findByText("Modified");
+      await user.click(modifiedOption);
 
       // Files should be re-rendered
       const documentsElements = screen.getAllByText("Documents");
@@ -196,12 +204,11 @@ describe("Browser Component - Interactions", () => {
         expect(documentsElements.length).toBeGreaterThan(0);
       });
 
-      // Click sort button to cycle through sort options
-      const sortButtons = screen.getAllByRole("button", { name: /sort/i });
-      const sortButton = sortButtons[0]; // Use first sort button
+      // Open sort menu
+      const sortButton = screen.getByLabelText(/sort options/i);
       await user.click(sortButton);
 
-      // Files should still be displayed (sorting is applied)
+      // Files should still be displayed (sorting menu opened)
       const documentsElements = screen.getAllByText("Documents");
       expect(documentsElements.length).toBeGreaterThan(0);
     });
@@ -247,11 +254,13 @@ describe("Browser Component - Interactions", () => {
         expect(documentsElements.length).toBeGreaterThan(0);
       });
 
-      // Set a sort preference (cycle through to size)
-      const sortButtons = screen.getAllByRole("button", { name: /sort/i });
-      const sortButton = sortButtons[0]; // Use first sort button
+      // Open sort menu
+      const sortButton = screen.getByLabelText(/sort options/i);
       await user.click(sortButton);
-      await user.click(sortButton);
+
+      // Click Size in the menu
+      const sizeOption = await screen.findByText("Size");
+      await user.click(sizeOption);
 
       // Navigate into Documents folder
       const documentsFolder = screen.getByRole("button", {
@@ -266,12 +275,13 @@ describe("Browser Component - Interactions", () => {
       });
 
       // Sort preference should still be applied
-      expect(screen.getByText("zzz.txt")).toBeInTheDocument();
+      const zzzElements = screen.getAllByText("zzz.txt");
+      expect(zzzElements.length).toBeGreaterThan(0);
     });
   });
 
   describe("Refresh", () => {
-    it("refreshes file list when refresh button clicked", async () => {
+    it("refreshes file list when F5 key pressed", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");
 
@@ -283,9 +293,8 @@ describe("Browser Component - Interactions", () => {
 
       const initialCallCount = (api.listDirectory as Mock).mock.calls.length;
 
-      // Click refresh button
-      const refreshButton = screen.getByLabelText(/refresh files/i);
-      await user.click(refreshButton);
+      // Press F5 to refresh
+      await user.keyboard("{F5}");
 
       // Should call listDirectory again
       await waitFor(() => {
@@ -415,7 +424,6 @@ describe("Browser Component - Interactions", () => {
 
       // The shortcuts dialog should appear
       await waitFor(() => {
-        const _dialog = screen.queryByRole("dialog");
         // Dialog may or may not be implemented, so we just verify no crash
         expect(true).toBe(true);
       });

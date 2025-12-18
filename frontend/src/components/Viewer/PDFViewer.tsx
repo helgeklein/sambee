@@ -59,8 +59,8 @@ const getErrorMessage = (err: unknown): string => {
   if (isApiError(err) && err.message) {
     if (err.response?.data) {
       const data = err.response.data as Record<string, unknown>;
-      if (typeof data.detail === "string") {
-        return data.detail;
+      if (typeof data["detail"] === "string") {
+        return data["detail"];
       }
     }
     return `Failed to load PDF: ${err.message}`;
@@ -94,8 +94,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
   const [pageTextItems, setPageTextItems] = useState<Map<number, TextItemData[]>>(new Map());
-  // biome-ignore lint/correctness/noUnusedVariables: May be needed for future features
-  const [pageViewports, setPageViewports] = useState<Map<number, PDFViewport>>(new Map());
+  const [_pageViewports, setPageViewports] = useState<Map<number, PDFViewport>>(new Map());
   const [matchLocations, setMatchLocations] = useState<MatchLocation[]>([]);
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -373,10 +372,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       try {
         await apiService.downloadFile(connectionId, path, filename);
       } catch (err) {
-        error("Failed to download file", { error: err, path, connectionId });
+        logError("Failed to download file", { error: err, path, connectionId });
       }
     },
-    [connectionId, path, filename, error]
+    [connectionId, path, filename]
   );
 
   /**
@@ -427,7 +426,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       // Navigate to first match if any found
       if (matches.length > 0) {
         setCurrentMatch(1);
-        setCurrentPage(matches[0].page);
+        if (matches[0]) {
+          setCurrentPage(matches[0].page);
+        }
       } else {
         setCurrentMatch(0);
       }
@@ -464,7 +465,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       const nextMatch = currentMatch >= matchLocations.length ? 1 : currentMatch + 1;
       setCurrentMatch(nextMatch);
-      setCurrentPage(matchLocations[nextMatch - 1].page);
+      const nextLocation = matchLocations[nextMatch - 1];
+      if (nextLocation) {
+        setCurrentPage(nextLocation.page);
+      }
     },
     [matchLocations, currentMatch]
   );
@@ -475,7 +479,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
       const prevMatch = currentMatch <= 1 ? matchLocations.length : currentMatch - 1;
       setCurrentMatch(prevMatch);
-      setCurrentPage(matchLocations[prevMatch - 1].page);
+      const prevLocation = matchLocations[prevMatch - 1];
+      if (prevLocation) {
+        setCurrentPage(prevLocation.page);
+      }
     },
     [matchLocations, currentMatch]
   );
@@ -568,9 +575,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         }
 
         // If all candidates used, reuse the first one
-        if (!textSpan) {
+        if (!textSpan && candidates[0]) {
           textSpan = candidates[0];
         }
+
+        // Skip if no textSpan found
+        if (!textSpan) continue;
 
         // Get the span's actual position and size
         const spanRect = textSpan.getBoundingClientRect();
@@ -1058,7 +1068,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
         </Box>
       </Box>
-      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={pdfShortcuts} title="PDF Viewer Shortcuts" />
+      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={pdfShortcuts} title="PDF viewer shortcuts" />
     </Dialog>
   );
 };

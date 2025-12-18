@@ -171,6 +171,32 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        MuiMenu: {
+          defaultProps: {
+            variant: "menu",
+          },
+          styleOverrides: {
+            paper: {
+              backgroundColor: currentTheme.background?.default,
+            },
+          },
+        },
+        MuiMenuItem: {
+          styleOverrides: {
+            root: {
+              "&.Mui-focusVisible": {
+                backgroundColor: currentTheme.action?.hover,
+              },
+              "&.Mui-selected": {
+                fontWeight: 600,
+                backgroundColor: currentTheme.background?.default,
+                "&.Mui-focusVisible": {
+                  backgroundColor: currentTheme.action?.hover,
+                },
+              },
+            },
+          },
+        },
       },
     });
   }, [currentTheme]);

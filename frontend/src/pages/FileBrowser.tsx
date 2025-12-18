@@ -34,6 +34,7 @@ import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import { SearchBar } from "../components/FileBrowser/SearchBar";
 import { SortControls } from "../components/FileBrowser/SortControls";
 import { StatusBar } from "../components/FileBrowser/StatusBar";
+import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog from "../components/Settings/SettingsDialog";
@@ -44,12 +45,11 @@ import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
 import { hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
+import type { SortField } from "./FileBrowser/types";
 
 // ============================================================================
 // Type Definitions & Constants
 // ============================================================================
-
-type SortField = "name" | "size" | "modified";
 
 const DIRECTORY_CACHE_TTL_MS = 30_000; // 30-second cache TTL to reduce API calls
 
@@ -126,6 +126,7 @@ const Browser: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Refs for DOM Elements & Performance Optimization
@@ -776,6 +777,17 @@ const Browser: React.FC = () => {
           comparison = dateA - dateB;
           break;
         }
+        case "type": {
+          // Extract file extensions (empty string for files without extension)
+          const extA = a.name.includes(".") ? a.name.split(".").pop()?.toLowerCase() || "" : "";
+          const extB = b.name.includes(".") ? b.name.split(".").pop()?.toLowerCase() || "" : "";
+          comparison = extA.localeCompare(extB);
+          // If extensions are the same, sort by name as secondary criterion
+          if (comparison === 0) {
+            comparison = a.name.localeCompare(b.name);
+          }
+          break;
+        }
         default:
           comparison = 0;
       }
@@ -1263,6 +1275,12 @@ const Browser: React.FC = () => {
         handler: handleRefresh,
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
       },
+      // Show help
+      {
+        ...BROWSER_SHORTCUTS.SHOW_HELP,
+        handler: () => setShowHelp(true),
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
+      },
     ],
     [
       handleNavigateDown,
@@ -1592,10 +1610,9 @@ const Browser: React.FC = () => {
                 {files.length > 0 && (
                   <SortControls
                     sortBy={sortBy}
-                    onSortChange={setSortBy}
+                    onSortChange={(field) => setSortBy(field)}
                     sortDirection={sortDirection}
                     onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
-                    onRefresh={() => loadFiles(currentPath, true)}
                   />
                 )}
               </Box>
@@ -1646,6 +1663,14 @@ const Browser: React.FC = () => {
           onIndexChange={handleViewIndexChange}
         />
       )}
+
+      {/* Keyboard Shortcuts Help */}
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={browserShortcuts}
+        title="File browser shortcuts"
+      />
     </Box>
   );
 };
