@@ -1076,6 +1076,7 @@ const Browser: React.FC = () => {
 
       if (skipNextLayoutScrollRef.current || lastRestoredPathRef.current === currentPathRef.current) {
         skipNextLayoutScrollRef.current = false;
+        lastRestoredPathRef.current = null;
         prevFocusedIndexRef.current = focusedIndex;
         return;
       }
