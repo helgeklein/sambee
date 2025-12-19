@@ -6,6 +6,8 @@ import type { FileEntry } from "../../types";
 
 export type SortField = "name" | "size" | "modified" | "type";
 
+export type ViewMode = "list" | "details";
+
 export interface ViewInfo {
   path: string;
   mimeType: string;

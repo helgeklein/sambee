@@ -14,7 +14,7 @@ export const formatFileSize = (bytes?: number): string => {
     size /= 1024;
     unitIndex++;
   }
-  return `${size.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 };
 
 /**
@@ -25,8 +25,8 @@ export const formatDate = (dateString?: string): string => {
   const date = new Date(dateString);
   return date.toLocaleString(undefined, {
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
   });

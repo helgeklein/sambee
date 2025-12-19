@@ -199,14 +199,13 @@ describe("ViewerControls", () => {
     );
 
     // Search panel should not be visible initially
-    expect(screen.queryByPlaceholderText("Search...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
 
     // Click search button to show panel
     fireEvent.click(screen.getByLabelText("Search"));
-    expect(screen.getByPlaceholderText("Search...")).toBeInTheDocument();
-
+    expect(screen.getByPlaceholderText("Search")).toBeInTheDocument();
     // Click again to hide
     fireEvent.click(screen.getByLabelText("Search"));
-    expect(screen.queryByPlaceholderText("Search...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
   });
 });

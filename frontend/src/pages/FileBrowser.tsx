@@ -34,6 +34,7 @@ import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import { SearchBar } from "../components/FileBrowser/SearchBar";
 import { SortControls } from "../components/FileBrowser/SortControls";
 import { StatusBar } from "../components/FileBrowser/StatusBar";
+import { ViewModeSelector } from "../components/FileBrowser/ViewModeSelector";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
@@ -45,7 +46,7 @@ import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
 import { isApiError } from "../types";
 import { hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
-import type { SortField } from "./FileBrowser/types";
+import type { SortField, ViewMode } from "./FileBrowser/types";
 
 // ============================================================================
 // Type Definitions & Constants
@@ -98,7 +99,8 @@ const Browser: React.FC = () => {
   const rowHeight = hasTouchInput ? 56 : 40;
 
   // Track if keyboard is being used for navigation (for proper focus styling)
-  const [isUsingKeyboard, setIsUsingKeyboard] = useState(false);
+  // Touch devices start without focus indicator; desktop shows focus on load
+  const [isUsingKeyboard, setIsUsingKeyboard] = useState(!hasTouchInput);
 
   // ──────────────────────────────────────────────────────────────────────────
   // State Management
@@ -121,6 +123,10 @@ const Browser: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem("file-browser-view-mode");
+    return saved === "list" || saved === "details" ? saved : "list";
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -485,6 +491,11 @@ const Browser: React.FC = () => {
     currentPathRef.current = currentPath;
   }, [currentPath]);
 
+  // Persist view mode preference
+  useEffect(() => {
+    localStorage.setItem("file-browser-view-mode", viewMode);
+  }, [viewMode]);
+
   // Initial load - run once on mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only once on mount to avoid aborting requests
   useEffect(() => {
@@ -713,6 +724,13 @@ const Browser: React.FC = () => {
       observer.disconnect();
     };
   }, [listContainerEl, rowHeight]);
+
+  // Focus the list container when it first mounts and has files
+  useEffect(() => {
+    if (listContainerEl && files.length > 0 && !viewInfo) {
+      listContainerEl.focus();
+    }
+  }, [listContainerEl, files.length, viewInfo]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Event Handlers
@@ -1017,12 +1035,13 @@ const Browser: React.FC = () => {
       // Find the index of the previously selected item
       const restoredIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName);
       if (restoredIndex >= 0) {
+        lastRestoredPathRef.current = currentPath;
         updateFocus(restoredIndex, { immediate: true });
-        // Restore scroll position in next frame to ensure list is rendered
+        // Restore exact scroll position in next frame to ensure list is rendered
         requestAnimationFrame(() => {
-          rowVirtualizer.scrollToIndex(restoredIndex, {
-            align: "auto",
-          });
+          if (parentRef.current) {
+            parentRef.current.scrollTop = savedState.scrollOffset;
+          }
         });
         // Clear the saved state after restoring
         navigationHistory.current.delete(currentPath);
@@ -1032,9 +1051,11 @@ const Browser: React.FC = () => {
       // This prevents flickering when files are still loading
       return;
     }
-    // Default: reset to top (only if no saved state exists)
-    updateFocus(0, { immediate: true });
-  }, [sortedAndFilteredFiles, currentPath, updateFocus, rowVirtualizer]);
+    // Default: reset to top (only if no saved state exists AND we haven't just restored this path)
+    if (lastRestoredPathRef.current !== currentPath) {
+      updateFocus(0, { immediate: true });
+    }
+  }, [sortedAndFilteredFiles, currentPath, updateFocus]);
 
   // Scroll focused item into view using VirtualList API
   // Use useLayoutEffect to run synchronously BEFORE React renders components
@@ -1044,13 +1065,16 @@ const Browser: React.FC = () => {
   // Skip the layout effect scroll if we already handled it synchronously in the keyboard handler
   const skipNextLayoutScrollRef = React.useRef<boolean>(false);
 
+  // Track the last path we restored to prevent resetting focus during restoration
+  const lastRestoredPathRef = React.useRef<string | null>(null);
+
   // Update focused index when files change or search query changes
   useLayoutEffect(() => {
     if (focusedIndex >= 0) {
       const prev = prevFocusedIndexRef.current;
       const diff = focusedIndex - prev;
 
-      if (skipNextLayoutScrollRef.current) {
+      if (skipNextLayoutScrollRef.current || lastRestoredPathRef.current === currentPathRef.current) {
         skipNextLayoutScrollRef.current = false;
         prevFocusedIndexRef.current = focusedIndex;
         return;
@@ -1092,6 +1116,11 @@ const Browser: React.FC = () => {
   // Arrow key and navigation handlers
   const handleNavigateDown = useCallback(
     (e?: KeyboardEvent) => {
+      // Check focus at keypress time, not render time
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
       if (focusedIndex < 0) return;
       const fileCount = filesRef.current.length;
       const next = Math.min(focusedIndex + 1, fileCount - 1);
@@ -1104,18 +1133,17 @@ const Browser: React.FC = () => {
         updateFocus(next);
       }
     },
-    [focusedIndex, updateFocus]
+    [focusedIndex, updateFocus, listContainerEl]
   );
 
   const handleArrowUp = useCallback(
     (e?: KeyboardEvent) => {
-      if (focusedIndex < 0) return;
+      // Check focus at keypress time, not render time
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
 
-      // If at first item (index 0), move focus to search box
-      if (focusedIndex === 0 && searchInputRef.current) {
-        searchInputRef.current.focus();
-        return;
-      }
+      if (focusedIndex < 0) return;
 
       const next = Math.max(focusedIndex - 1, 0);
       if (next === focusedIndex) return;
@@ -1127,20 +1155,35 @@ const Browser: React.FC = () => {
         updateFocus(next);
       }
     },
-    [focusedIndex, updateFocus]
+    [focusedIndex, updateFocus, listContainerEl]
   );
 
   const handleHome = useCallback(() => {
+    // Check focus at keypress time, not render time
+    if (!listContainerEl) return;
+    const activeElement = document.activeElement;
+    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
     updateFocus(0);
-  }, [updateFocus]);
+  }, [updateFocus, listContainerEl]);
 
   const handleEnd = useCallback(() => {
+    // Check focus at keypress time, not render time
+    if (!listContainerEl) return;
+    const activeElement = document.activeElement;
+    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
     const fileCount = filesRef.current.length;
     updateFocus(fileCount - 1);
-  }, [updateFocus]);
+  }, [updateFocus, listContainerEl]);
 
   const handlePageDown = useCallback(
     (e?: KeyboardEvent) => {
+      // Check focus at keypress time, not render time
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
       const fileCount = filesRef.current.length;
       const pageSize = visibleRowCount;
       const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
@@ -1153,11 +1196,16 @@ const Browser: React.FC = () => {
         updateFocus(newIndex, { immediate: true });
       }
     },
-    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer]
+    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer, listContainerEl]
   );
 
   const handlePageUp = useCallback(
     (e?: KeyboardEvent) => {
+      // Check focus at keypress time, not render time
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
       const pageSize = visibleRowCount;
       const newIndex = Math.max(focusedIndex - pageSize, 0);
 
@@ -1169,16 +1217,21 @@ const Browser: React.FC = () => {
         updateFocus(newIndex, { immediate: true });
       }
     },
-    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer]
+    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer, listContainerEl]
   );
 
   const handleOpenFile = useCallback(() => {
+    // Check focus at keypress time, not render time
+    if (!listContainerEl) return;
+    const activeElement = document.activeElement;
+    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
     const files = filesRef.current;
     const file = files[focusedIndex];
     if (file) {
       handleFileClick(file, focusedIndex);
     }
-  }, [focusedIndex, handleFileClick]);
+  }, [focusedIndex, handleFileClick, listContainerEl]);
 
   const handleNavigateUpDirectory = useCallback(() => {
     if (currentPathRef.current) {
@@ -1210,7 +1263,7 @@ const Browser: React.FC = () => {
    */
   const browserShortcuts = useMemo(
     () => [
-      // Navigation - Arrow keys
+      // Navigation - Arrow keys (focus checked inside handlers)
       {
         ...BROWSER_SHORTCUTS.ARROW_DOWN,
         handler: handleNavigateDown,
@@ -1221,7 +1274,7 @@ const Browser: React.FC = () => {
         handler: handleArrowUp,
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
-      // Navigation - Home/End
+      // Navigation - Home/End (focus checked inside handlers)
       {
         ...COMMON_SHORTCUTS.FIRST_PAGE,
         description: "First file",
@@ -1234,7 +1287,7 @@ const Browser: React.FC = () => {
         handler: handleEnd,
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
-      // Navigation - Page Up/Down
+      // Navigation - Page Up/Down (focus checked inside handlers)
       {
         ...COMMON_SHORTCUTS.PAGE_DOWN,
         handler: handlePageDown,
@@ -1245,7 +1298,7 @@ const Browser: React.FC = () => {
         handler: handlePageUp,
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
       },
-      // Open file/folder
+      // Open file/folder (focus checked inside handler)
       {
         ...COMMON_SHORTCUTS.OPEN,
         handler: handleOpenFile,
@@ -1307,9 +1360,8 @@ const Browser: React.FC = () => {
 
   /**
    * Special keyboard handler for edge cases:
-   * 1. Arrow down from search box -> focus first file
-   * 2. Backspace in empty search -> navigate up directory
-   * 3. Incremental search: type characters to jump to matching files
+   * 1. Backspace in empty search -> navigate up directory
+   * 2. Incremental search: type characters to jump to matching files (only when file list has focus)
    *
    * Runs in bubble phase after centralized shortcuts.
    */
@@ -1328,17 +1380,6 @@ const Browser: React.FC = () => {
 
       // Handle special transitions when in input fields
       if (isInInput) {
-        // Exception: Allow ArrowDown in search box to move to first file in list
-        if (e.key === "ArrowDown" && target === searchInputRef.current) {
-          e.preventDefault();
-          // Blur the search input
-          searchInputRef.current?.blur();
-          // Focus on the list container
-          listContainerEl?.focus();
-          // Set focus to first item
-          updateFocus(0, { immediate: true });
-          return;
-        }
         // Exception: Allow Backspace for navigation when search is empty and in search input
         if (e.key === "Backspace" && (searchQuery === "" || (target as HTMLInputElement).value === "") && currentPathRef.current) {
           // Check if cursor is at the beginning of input (no text to delete)
@@ -1370,10 +1411,15 @@ const Browser: React.FC = () => {
         return;
       }
 
+      // Incremental search - only when file list has focus
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
       const files = filesRef.current;
       const fileCount = files.length;
 
-      // Incremental search - accumulate keystrokes to match file names (only when NOT in input)
+      // Incremental search - accumulate keystrokes to match file names
       // Match any printable character, excluding special shortcut keys
       const shortcutKeys = ["/", "?", "Escape"];
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && e.key !== " " && !shortcutKeys.includes(e.key) && fileCount > 0) {
@@ -1564,19 +1610,20 @@ const Browser: React.FC = () => {
               searchInputRef={searchInputRef}
               showSearch={files.length > 0}
               onOpenSettings={() => setSettingsOpen(true)}
+              onAfterMenuClose={() => listContainerEl?.focus()}
             />
           )}
         </Toolbar>
       </AppBar>
       <Container
         maxWidth={false}
+        disableGutters
         sx={{
           flex: 1,
           display: "flex",
           flexDirection: "column",
           pt: 2,
           pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
-          px: { xs: 0, sm: 3, md: 4 },
           overflow: "hidden",
         }}
       >
@@ -1592,7 +1639,7 @@ const Browser: React.FC = () => {
                 gap={{ xs: 2, md: 0 }}
                 justifyContent="space-between"
                 alignItems={{ xs: "stretch", md: "center" }}
-                sx={{ mb: 2 }}
+                sx={{ mb: 2, px: 2 }}
               >
                 <BreadcrumbsNavigation
                   currentPath={currentPath}
@@ -1608,12 +1655,16 @@ const Browser: React.FC = () => {
                 />
 
                 {files.length > 0 && (
-                  <SortControls
-                    sortBy={sortBy}
-                    onSortChange={(field) => setSortBy(field)}
-                    sortDirection={sortDirection}
-                    onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
-                  />
+                  <Box display="flex" gap={1}>
+                    <ViewModeSelector viewMode={viewMode} onViewModeChange={setViewMode} onAfterChange={() => listContainerEl?.focus()} />
+                    <SortControls
+                      sortBy={sortBy}
+                      onSortChange={(field) => setSortBy(field)}
+                      sortDirection={sortDirection}
+                      onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
+                      onAfterChange={() => listContainerEl?.focus()}
+                    />
+                  </Box>
                 )}
               </Box>
             )}
@@ -1638,6 +1689,7 @@ const Browser: React.FC = () => {
                   parentRef={parentRef}
                   listContainerRef={listContainerRef}
                   fileRowStyles={fileRowStyles}
+                  viewMode={viewMode}
                 />
               </Box>
             )}

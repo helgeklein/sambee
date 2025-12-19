@@ -140,21 +140,26 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName 
         minWidth: 0,
         "& .MuiBreadcrumbs-separator": {
           color: "text.secondary",
+          display: "flex",
+          alignItems: "center",
         },
         "& .MuiBreadcrumbs-ol": {
           flexWrap: "nowrap",
           overflow: "hidden",
+          alignItems: "center",
         },
         "& .MuiBreadcrumbs-li": {
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          display: "flex",
+          alignItems: "center",
         },
       }}
     >
       {pathParts.length === 0 ? (
         // Root is current directory - non-clickable
-        <Typography variant="body1" color="text.primary" sx={{ display: "flex", alignItems: "center", fontWeight: "bold" }}>
+        <Typography variant="body1" color="text.primary" sx={{ fontWeight: "bold" }}>
           {connectionName}
         </Typography>
       ) : (
@@ -163,7 +168,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName 
           component="button"
           variant="body1"
           onClick={handleRootClick}
-          sx={{ display: "flex", alignItems: "center", fontWeight: "regular" }}
+          sx={{ fontWeight: "regular" }}
           aria-label="Navigate to root directory"
         >
           {connectionName}

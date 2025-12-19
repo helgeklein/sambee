@@ -1,15 +1,16 @@
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { Box, Button, Divider, Menu, MenuItem, Typography, useMediaQuery, useTheme } from "@mui/material";
-import { useState } from "react";
+import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { SortField } from "../../pages/FileBrowser/types";
+import { pillButtonStyle } from "../../theme/commonStyles";
 
 interface SortControlsProps {
   sortBy: SortField;
   onSortChange: (field: SortField) => void;
   sortDirection: "asc" | "desc";
   onDirectionChange: () => void;
+  onAfterChange?: () => void;
 }
 
 const SORT_LABELS: Record<SortField, string> = {
@@ -22,19 +23,10 @@ const SORT_LABELS: Record<SortField, string> = {
 //
 // SortControls
 //
-export function SortControls({ sortBy, onSortChange, sortDirection, onDirectionChange }: SortControlsProps) {
+export function SortControls({ sortBy, onSortChange, sortDirection, onDirectionChange, onAfterChange }: SortControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const open = Boolean(anchorEl);
-
-  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleClose = () => {
-    setAnchorEl(null);
-  };
+  const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
 
   const handleCriterionChange = (field: SortField) => {
     if (field !== sortBy) {
@@ -55,16 +47,12 @@ export function SortControls({ sortBy, onSortChange, sortDirection, onDirectionC
     <Box display="flex" alignItems="center" gap={1}>
       <Button
         onClick={handleClick}
-        endIcon={<ExpandMoreIcon />}
         size="small"
         sx={{
-          textTransform: "none",
+          ...pillButtonStyle,
           color: "text.secondary",
           minHeight: isMobile ? "44px" : undefined,
           px: 2,
-          "&:hover": {
-            bgcolor: "action.hover",
-          },
         }}
         aria-label="Sort options"
         aria-controls={open ? "sort-menu" : undefined}

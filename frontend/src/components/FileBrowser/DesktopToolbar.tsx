@@ -15,6 +15,7 @@ interface DesktopToolbarProps {
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
   onOpenSettings: () => void;
+  onAfterMenuClose?: () => void;
 }
 
 //
@@ -29,6 +30,7 @@ export function DesktopToolbar({
   searchInputRef,
   showSearch,
   onOpenSettings,
+  onAfterMenuClose,
 }: DesktopToolbarProps) {
   return (
     <>
@@ -48,7 +50,12 @@ export function DesktopToolbar({
 
       <Box sx={{ flexGrow: 1 }} />
 
-      <ConnectionSelector connections={connections} selectedConnectionId={selectedConnectionId} onConnectionChange={onConnectionChange} />
+      <ConnectionSelector
+        connections={connections}
+        selectedConnectionId={selectedConnectionId}
+        onConnectionChange={onConnectionChange}
+        onAfterChange={onAfterMenuClose}
+      />
 
       <DesktopToolbarActions onOpenSettings={onOpenSettings} />
     </>

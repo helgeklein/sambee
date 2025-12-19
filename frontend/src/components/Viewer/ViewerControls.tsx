@@ -442,7 +442,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 search.onSearchChange("");
               }
             }}
-            placeholder="Search..."
+            placeholder="Search"
             size="small"
             autoFocus
             sx={{

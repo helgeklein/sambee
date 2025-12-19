@@ -657,7 +657,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     setSearchPanelOpen(true);
     // Focus search input after a brief delay to allow panel to render
     setTimeout(() => {
-      const searchInput = document.querySelector('input[placeholder="Search..."]') as HTMLInputElement;
+      const searchInput = document.querySelector('input[placeholder="Search"]') as HTMLInputElement;
       if (searchInput) {
         searchInput.focus();
         searchInput.select();
@@ -846,7 +846,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
   useKeyboardShortcuts({
     shortcuts: pdfShortcuts,
-    inputSelector: 'input[placeholder="Search..."]',
+    inputSelector: 'input[placeholder="Search"]',
   });
 
   return (

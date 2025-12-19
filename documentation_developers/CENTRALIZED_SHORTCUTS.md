@@ -107,7 +107,7 @@ import { COMMON_SHORTCUTS, PDF_SHORTCUTS } from "../../config/keyboardShortcuts"
 
 const PDFViewer = () => {
   // ... component state and handlers
-  
+
   useKeyboardShortcuts({
     shortcuts: [
       // Spread shortcut config and add handler
@@ -130,9 +130,9 @@ const PDFViewer = () => {
       },
       // ... more shortcuts
     ],
-    inputSelector: 'input[placeholder="Search..."]', // Optional custom selector
+    inputSelector: 'input[placeholder="Search"]', // Optional custom selector
   });
-  
+
   return <div>...</div>;
 };
 ```
@@ -288,11 +288,11 @@ useKeyboardShortcuts({
 
 **Why This Pattern?**
 
-✅ **Single responsibility**: One shortcut registration, one handler  
-✅ **Clear logic**: Behavior determined by component state  
-✅ **No conflicts**: Avoids overlapping shortcut registrations  
-✅ **Easy to extend**: Add more conditions as needed  
-✅ **Maintainable**: All context logic in one place  
+✅ **Single responsibility**: One shortcut registration, one handler
+✅ **Clear logic**: Behavior determined by component state
+✅ **No conflicts**: Avoids overlapping shortcut registrations
+✅ **Easy to extend**: Add more conditions as needed
+✅ **Maintainable**: All context logic in one place
 
 **Anti-pattern to avoid:**
 ```typescript
@@ -374,12 +374,12 @@ Example:
 ```typescript
 it("downloads on Ctrl+S", () => {
   render(<PDFViewer {...props} />);
-  
+
   fireEvent.keyDown(window, {
     key: "s",
     ctrlKey: true,
   });
-  
+
   expect(mockDownloadHandler).toHaveBeenCalled();
 });
 ```
@@ -423,7 +423,7 @@ For components using old keyboard shortcut patterns:
      window.addEventListener('keydown', handleKeyDown);
      return () => window.removeEventListener('keydown', handleKeyDown);
    }, [dependencies]);
-   
+
    // NEW:
    useKeyboardShortcuts({
      shortcuts: [
@@ -436,7 +436,7 @@ For components using old keyboard shortcut patterns:
    ```typescript
    // OLD:
    title="Download (Ctrl+S)"
-   
+
    // NEW:
    title={withShortcut(COMMON_SHORTCUTS.DOWNLOAD)}
    ```

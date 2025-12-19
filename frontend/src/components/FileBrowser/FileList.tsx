@@ -1,6 +1,7 @@
 import { Box, Button, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import React from "react";
+import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { FileRow } from "./FileRow";
 
@@ -19,6 +20,7 @@ interface FileListProps {
     buttonSelected: Record<string, unknown>;
     buttonNotSelected: Record<string, unknown>;
   };
+  viewMode: ViewMode;
 } //
 // FileList
 //
@@ -33,6 +35,7 @@ export const FileList = React.memo(
     parentRef,
     listContainerRef,
     fileRowStyles,
+    viewMode,
   }: FileListProps) => {
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
@@ -93,6 +96,7 @@ export const FileList = React.memo(
                     virtualSize={virtualItem.size}
                     onClick={onFileClick}
                     fileRowStyles={fileRowStyles}
+                    viewMode={viewMode}
                   />
                 );
               })}

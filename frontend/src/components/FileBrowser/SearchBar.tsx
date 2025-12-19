@@ -35,7 +35,7 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false 
       <TextField
         fullWidth
         size="small"
-        placeholder={useCompactLayout ? "Search..." : "Search... (press / to focus)"}
+        placeholder="Search"
         value={value}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
         inputRef={inputRef}

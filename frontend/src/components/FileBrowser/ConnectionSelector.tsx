@@ -1,33 +1,26 @@
 import { Button, Menu, MenuItem } from "@mui/material";
-import { useState } from "react";
+import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
+import { pillButtonStyle } from "../../theme/commonStyles";
 import type { Connection } from "../../types";
 
 interface ConnectionSelectorProps {
   connections: Connection[];
   selectedConnectionId: string;
   onConnectionChange: (connectionId: string) => void;
+  onAfterChange?: () => void;
 }
 
 //
 // ConnectionSelector
 //
-export function ConnectionSelector({ connections, selectedConnectionId, onConnectionChange }: ConnectionSelectorProps) {
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const open = Boolean(anchorEl);
+export function ConnectionSelector({ connections, selectedConnectionId, onConnectionChange, onAfterChange }: ConnectionSelectorProps) {
+  const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
 
   if (connections.length === 0) {
     return null;
   }
 
   const selectedConnection = connections.find((conn) => conn.id === selectedConnectionId);
-
-  const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleClose = () => {
-    setAnchorEl(null);
-  };
 
   const handleSelect = (connectionId: string) => {
     onConnectionChange(connectionId);
@@ -43,14 +36,11 @@ export function ConnectionSelector({ connections, selectedConnectionId, onConnec
         aria-haspopup="listbox"
         aria-controls={open ? "connection-menu" : undefined}
         sx={{
+          ...pillButtonStyle,
           color: "inherit",
-          textTransform: "none",
           fontSize: "0.9375rem",
           fontWeight: 400,
           mr: 0,
-          "&:hover": {
-            backgroundColor: (theme) => (theme.palette.mode === "dark" ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.08)"),
-          },
         }}
       >
         {selectedConnection?.name || "Select Connection"}

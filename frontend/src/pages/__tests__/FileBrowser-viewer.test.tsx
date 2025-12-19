@@ -103,7 +103,8 @@ describe("Browser Component - View and Advanced", () => {
       await user.keyboard("{Escape}");
 
       // Verify component is still functional (no crash)
-      expect(screen.getByText("test-image.jpg")).toBeInTheDocument();
+      // Use getAllByText since the filename appears in multiple places (list and viewer)
+      expect(screen.getAllByText("test-image.jpg").length).toBeGreaterThanOrEqual(1);
     });
   });
 
