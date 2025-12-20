@@ -139,6 +139,8 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
               color:
                 currentTheme.components?.appBar?.text ??
                 (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              // Remove default dark mode overlay gradient
+              backgroundImage: "none",
               // Ensure Select components inside AppBar inherit the text color
               "& .MuiSelect-select": {
                 color:

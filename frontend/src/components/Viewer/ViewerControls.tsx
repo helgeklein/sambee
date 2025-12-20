@@ -1,6 +1,6 @@
 import { ArrowBack, ArrowForward, Close, Download, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 
@@ -91,6 +91,10 @@ export interface ViewerControlsProps {
   search?: SearchState;
   /** Download handler (optional) */
   onDownload?: () => void;
+  /** Toolbar background color from theme */
+  toolbarBackground?: string;
+  /** Toolbar text color from theme */
+  toolbarText?: string;
 }
 
 /**
@@ -107,11 +111,14 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   rotation,
   search,
   onDownload,
+  toolbarBackground = "rgba(0,0,0,0.8)",
+  toolbarText = "white",
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [pageInput, setPageInput] = useState(pageNavigation ? pageNavigation.currentPage.toString() : "");
   const [localShowSearch, setLocalShowSearch] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Use controlled search panel state if provided, otherwise use local state
   const showSearch = search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
@@ -129,6 +136,17 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
       setPageInput(pageNavigation.currentPage.toString());
     }
   }, [pageNavigation]);
+
+  // Focus search input when panel opens
+  useEffect(() => {
+    if (showSearch && searchInputRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      });
+    }
+  }, [showSearch]);
 
   const handlePageInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setPageInput(event.target.value);
@@ -170,14 +188,15 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
       sx={{
         position: "relative",
         width: "100%",
-        bgcolor: "rgba(0,0,0,0.8)",
-        color: "white",
+        bgcolor: toolbarBackground,
+        color: toolbarText,
         display: "flex",
         flexDirection: isMobile && showSearch ? "column" : "row",
         alignItems: isMobile && showSearch ? "stretch" : "center",
         gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
-        paddingTop: isMobile ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))` : theme.spacing(2),
-        paddingBottom: isMobile ? theme.spacing(1) : theme.spacing(2),
+        minHeight: isMobile ? 56 : 64, // Match MUI Toolbar height
+        paddingTop: isMobile ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))` : 0,
+        paddingBottom: isMobile ? theme.spacing(1) : 0,
         paddingLeft: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingRight: isMobile ? theme.spacing(1) : theme.spacing(2),
         zIndex: 9999,
@@ -232,6 +251,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               title="Previous (Left arrow)"
               aria-label="Previous"
               size={isMobile ? "small" : "medium"}
+              sx={{
+                "&.Mui-disabled": {
+                  color: toolbarBackground,
+                },
+              }}
             >
               <ArrowBack fontSize={isMobile ? "small" : "medium"} />
             </IconButton>
@@ -243,6 +267,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               title="Next (Right arrow)"
               aria-label="Next"
               size={isMobile ? "small" : "medium"}
+              sx={{
+                "&.Mui-disabled": {
+                  color: toolbarBackground,
+                },
+              }}
             >
               <ArrowForward fontSize={isMobile ? "small" : "medium"} />
             </IconButton>
@@ -265,6 +294,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               title="Previous page (Left arrow, Page Up)"
               aria-label="Previous page"
               size={isMobile ? "small" : "medium"}
+              sx={{
+                "&.Mui-disabled": {
+                  color: toolbarBackground,
+                },
+              }}
             >
               <ArrowBack fontSize={isMobile ? "small" : "medium"} />
             </IconButton>
@@ -278,14 +312,14 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               sx={{
                 width: isMobile ? "40px" : "60px",
                 "& .MuiInputBase-root": {
-                  color: "white",
+                  color: toolbarText,
                   fontSize: isMobile ? "0.75rem" : "0.875rem",
                 },
                 "& .MuiOutlinedInput-notchedOutline": {
-                  borderColor: "rgba(255,255,255,0.3)",
+                  borderColor: `${toolbarText}4D`,
                 },
                 "&:hover .MuiOutlinedInput-notchedOutline": {
-                  borderColor: "rgba(255,255,255,0.5)",
+                  borderColor: `${toolbarText}80`,
                 },
                 "& .MuiInputBase-input": {
                   textAlign: "center",
@@ -309,6 +343,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               title="Next page (Right arrow, Page Down)"
               aria-label="Next page"
               size={isMobile ? "small" : "medium"}
+              sx={{
+                "&.Mui-disabled": {
+                  color: toolbarBackground,
+                },
+              }}
             >
               <ArrowForward fontSize={isMobile ? "small" : "medium"} />
             </IconButton>
@@ -444,22 +483,22 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             }}
             placeholder="Search"
             size="small"
-            autoFocus
+            inputRef={searchInputRef}
             sx={{
               flex: 1,
               minWidth: 0,
               "& .MuiInputBase-root": {
-                color: "white",
+                color: toolbarText,
                 fontSize: "0.875rem",
               },
               "& .MuiOutlinedInput-notchedOutline": {
-                borderColor: "rgba(255,255,255,0.3)",
+                borderColor: `${toolbarText}4D`,
               },
               "&:hover .MuiOutlinedInput-notchedOutline": {
-                borderColor: "rgba(255,255,255,0.5)",
+                borderColor: `${toolbarText}80`,
               },
               "& .MuiInputBase-input::placeholder": {
-                color: "rgba(255,255,255,0.5)",
+                color: `${toolbarText}80`,
                 opacity: 1,
               },
             }}
@@ -479,6 +518,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               title="Previous match"
               aria-label="Previous match"
               size="small"
+              sx={{
+                "&.Mui-disabled": {
+                  color: toolbarBackground,
+                },
+              }}
             >
               <ArrowBack fontSize="small" />
             </IconButton>
@@ -492,6 +536,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               title="Next match"
               aria-label="Next match"
               size="small"
+              sx={{
+                "&.Mui-disabled": {
+                  color: toolbarBackground,
+                },
+              }}
             >
               <ArrowForward fontSize="small" />
             </IconButton>

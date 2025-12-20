@@ -4,12 +4,14 @@ import Lightbox, { type Slide } from "yet-another-react-lightbox";
 import Fullscreen from "yet-another-react-lightbox/plugins/fullscreen";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import "yet-another-react-lightbox/styles.css";
+import "./ImageViewer.css";
 
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useCachedImageGallery } from "../../hooks/useCachedImageGallery";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
+import { useSambeeTheme } from "../../theme";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
@@ -50,7 +52,7 @@ const CACHE_COUNT = 20;
 const TRANSPARENT_PIXEL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
-const YarlImageViewer: React.FC<ViewerComponentProps> = ({
+const ImageViewer: React.FC<ViewerComponentProps> = ({
   connectionId,
   path,
   onClose,
@@ -65,6 +67,11 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
   const zoomRef = useRef<ZoomRef | null>(null);
   const fullscreenRef = useRef<FullscreenRef | null>(null);
   const portalRef = useRef<HTMLDivElement | null>(null);
+
+  const { currentTheme } = useSambeeTheme();
+  const viewerBg = currentTheme.components?.imageViewer?.viewerBackground || "#000000";
+  const toolbarBg = currentTheme.components?.imageViewer?.toolbarBackground || "rgba(0,0,0,0.8)";
+  const toolbarText = currentTheme.components?.imageViewer?.toolbarText || "#ffffff";
 
   const {
     currentIndex,
@@ -119,22 +126,22 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
 
       if (!activeViewerSessions.has(sessionId)) {
         activeViewerSessions.add(sessionId);
-        logInfo("YARL image viewer opened", meta);
+        logInfo("Image viewer opened", meta);
       }
     } else {
-      logInfo("YARL image viewer opened", meta);
+      logInfo("Image viewer opened", meta);
     }
 
     return () => {
       if (sessionId) {
         const timer = setTimeout(() => {
-          logInfo("YARL image viewer closed");
+          logInfo("Image viewer closed");
           viewerSessionCloseTimers.delete(sessionId);
           activeViewerSessions.delete(sessionId);
         }, 0);
         viewerSessionCloseTimers.set(sessionId, timer);
       } else {
-        logInfo("YARL image viewer closed");
+        logInfo("Image viewer closed");
       }
     };
   }, [sessionId]);
@@ -262,12 +269,11 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "rgba(0,0,0,0.3)",
                 zIndex: 2,
                 pointerEvents: "none",
               }}
             >
-              <CircularProgress />
+              <CircularProgress sx={{ color: toolbarText }} />
             </Box>
           )}
 
@@ -291,7 +297,7 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
         </>
       );
     },
-    [errorStates, loadingStates, showLoadingSpinner]
+    [errorStates, loadingStates, showLoadingSpinner, toolbarText]
   );
 
   const imageShortcuts = useMemo(
@@ -360,7 +366,7 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
         sx={{
           position: "fixed",
           inset: 0,
-          backgroundColor: "rgba(0, 0, 0, 0.95)",
+          backgroundColor: viewerBg,
           zIndex: 1300, // MUI Dialog z-index
           display: "flex",
           flexDirection: "column",
@@ -376,6 +382,8 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
           >
             <ViewerControls
               filename={filename}
+              toolbarBackground={toolbarBg}
+              toolbarText={toolbarText}
               config={{
                 navigation: images.length > 1,
                 zoom: true,
@@ -406,7 +414,7 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
           </Box>
         )}
 
-        {/* YARL container - fills remaining space below toolbar */}
+        {/* Lightbox container - fills remaining space below toolbar */}
         <Box
           ref={portalRef}
           sx={{
@@ -428,7 +436,7 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
               buttonClose: () => null,
               iconPrev: () => null,
               iconNext: () => null,
-              controls: () => null, // Controls rendered outside YARL now
+              controls: () => null, // Controls rendered in our custom toolbar
             }}
             toolbar={{ buttons: [] }}
             controller={{}}
@@ -451,18 +459,24 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
             }}
             styles={{
               root: {
-                backgroundColor: "transparent", // Parent handles background
+                backgroundColor: `${viewerBg} !important`,
                 position: "absolute",
                 top: 0,
                 bottom: 0,
                 left: 0,
                 right: 0,
               },
+              navigationPrev: {
+                backgroundColor: `${viewerBg} !important`,
+              },
+              navigationNext: {
+                backgroundColor: `${viewerBg} !important`,
+              },
               toolbar: {
-                display: "none", // Hide YARL's toolbar completely
+                display: "none", // Hide library's default toolbar
               },
               slide: {
-                // Allow images to scale up to fill viewport (removes YARL's max-width/max-height limits)
+                // Allow images to scale up to fill viewport (removes library's default max-width/max-height limits)
                 maxWidth: "100% !important",
                 maxHeight: "100% !important",
               },
@@ -489,4 +503,4 @@ const YarlImageViewer: React.FC<ViewerComponentProps> = ({
     </>
   );
 };
-export default YarlImageViewer;
+export default ImageViewer;

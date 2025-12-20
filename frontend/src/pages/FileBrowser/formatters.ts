@@ -6,7 +6,8 @@
  * Format file size in human-readable format
  */
 export const formatFileSize = (bytes?: number): string => {
-  if (!bytes) return "";
+  if (bytes === undefined || bytes === null) return "";
+  if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
   let size = bytes;
   let unitIndex = 0;

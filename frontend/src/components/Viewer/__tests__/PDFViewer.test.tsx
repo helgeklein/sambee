@@ -3,6 +3,7 @@ import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
 import * as logger from "../../../services/logger";
+import { SambeeThemeProvider } from "../../../theme";
 import PDFViewer from "../PDFViewer";
 
 // Mock react-pdf components
@@ -129,14 +130,22 @@ describe("PDFViewer", () => {
     } as unknown as typeof AbortController;
   });
 
+  const renderPDFViewer = (props = defaultProps) => {
+    return render(
+      <SambeeThemeProvider>
+        <PDFViewer {...props} />
+      </SambeeThemeProvider>
+    );
+  };
+
   describe("Rendering States", () => {
     it("renders loading state initially", () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
       expect(screen.getByRole("progressbar")).toBeInTheDocument();
     });
 
     it("renders PDF document when loaded successfully", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
@@ -146,7 +155,7 @@ describe("PDFViewer", () => {
     it("renders error state when fetch fails", async () => {
       (apiService.getPdfBlob as Mock).mockRejectedValue(new Error("Network error"));
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       // Wait longer because network errors trigger retry with 1s delay
       await waitFor(
@@ -158,14 +167,14 @@ describe("PDFViewer", () => {
     });
 
     it("shows CircularProgress while loading", () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
       expect(screen.getByRole("progressbar")).toBeInTheDocument();
     });
   });
 
   describe("API Integration", () => {
     it("calls getPdfBlob with correct connectionId and path", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(apiService.getPdfBlob).toHaveBeenCalledWith(
@@ -177,7 +186,7 @@ describe("PDFViewer", () => {
     });
 
     it("creates blob URL from received blob", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(mockCreateObjectURL).toHaveBeenCalled();
@@ -185,7 +194,7 @@ describe("PDFViewer", () => {
     });
 
     it("passes blob URL to react-pdf Document component", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         const doc = screen.getByTestId("pdf-document");
@@ -200,7 +209,7 @@ describe("PDFViewer", () => {
       };
       (apiService.getPdfBlob as Mock).mockRejectedValue(error);
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(
         () => {
@@ -213,7 +222,7 @@ describe("PDFViewer", () => {
 
   describe("Blob URL Lifecycle Management", () => {
     it("creates blob URL after successful fetch", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(mockCreateObjectURL).toHaveBeenCalledWith(expect.any(Blob));
@@ -221,7 +230,7 @@ describe("PDFViewer", () => {
     });
 
     it("revokes blob URL on component unmount", async () => {
-      const { unmount } = render(<PDFViewer {...defaultProps} />);
+      const { unmount } = renderPDFViewer();
 
       await waitFor(() => {
         expect(mockCreateObjectURL).toHaveBeenCalled();
@@ -233,7 +242,7 @@ describe("PDFViewer", () => {
     });
 
     it("revokes old blob URL when path changes", async () => {
-      const { rerender } = render(<PDFViewer {...defaultProps} />);
+      const { rerender } = renderPDFViewer();
 
       await waitFor(() => {
         expect(mockCreateObjectURL).toHaveBeenCalled();
@@ -241,7 +250,11 @@ describe("PDFViewer", () => {
 
       mockCreateObjectURL.mockReturnValue("blob:new-mock-url");
 
-      rerender(<PDFViewer {...defaultProps} path="/test/new-document.pdf" />);
+      rerender(
+        <SambeeThemeProvider>
+          <PDFViewer {...defaultProps} path="/test/new-document.pdf" />
+        </SambeeThemeProvider>
+      );
 
       await waitFor(() => {
         expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
@@ -258,7 +271,7 @@ describe("PDFViewer", () => {
 
       global.AbortController = TestAbortController as unknown as typeof AbortController;
 
-      const { unmount } = render(<PDFViewer {...defaultProps} />);
+      const { unmount } = renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -272,7 +285,7 @@ describe("PDFViewer", () => {
 
   describe("Document Loading", () => {
     it("updates numPages state on load success", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByText("/ 5")).toBeInTheDocument();
@@ -280,7 +293,7 @@ describe("PDFViewer", () => {
     });
 
     it("resets to page 1 on new document", async () => {
-      const { rerender } = render(<PDFViewer {...defaultProps} />);
+      const { rerender } = renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -296,7 +309,11 @@ describe("PDFViewer", () => {
       });
 
       // Load new document
-      rerender(<PDFViewer {...defaultProps} path="/test/another.pdf" />);
+      rerender(
+        <SambeeThemeProvider>
+          <PDFViewer {...defaultProps} path="/test/another.pdf" />
+        </SambeeThemeProvider>
+      );
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -306,7 +323,7 @@ describe("PDFViewer", () => {
     it("handles onLoadError callback", async () => {
       mockCreateObjectURL.mockReturnValue("blob:error-url");
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(logger.error).toHaveBeenCalledWith("PDF load error", expect.objectContaining({ error: expect.any(String) }));
@@ -316,7 +333,7 @@ describe("PDFViewer", () => {
 
   describe("Page Navigation", () => {
     it("increments page on next button", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -331,7 +348,7 @@ describe("PDFViewer", () => {
     });
 
     it("decrements page on previous button", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -355,7 +372,7 @@ describe("PDFViewer", () => {
     });
 
     it("respects page boundaries (1 to numPages)", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -386,7 +403,7 @@ describe("PDFViewer", () => {
     });
 
     it("handles direct page number input", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -404,7 +421,7 @@ describe("PDFViewer", () => {
 
   describe("Keyboard Shortcuts", () => {
     it("navigates to next page on ArrowRight", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -418,7 +435,7 @@ describe("PDFViewer", () => {
     });
 
     it("navigates to previous page on ArrowLeft", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -440,7 +457,7 @@ describe("PDFViewer", () => {
     });
 
     it("goes to first page on Home", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -463,7 +480,7 @@ describe("PDFViewer", () => {
     });
 
     it("goes to last page on End", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -477,7 +494,7 @@ describe("PDFViewer", () => {
     });
 
     it("closes viewer on Escape", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -489,7 +506,7 @@ describe("PDFViewer", () => {
     });
 
     it("zooms in on Plus/Equals", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -506,7 +523,7 @@ describe("PDFViewer", () => {
     });
 
     it("zooms out on Minus/Underscore", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -533,7 +550,7 @@ describe("PDFViewer", () => {
 
   describe("Zoom Functionality", () => {
     it("defaults to fit-page mode", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -545,7 +562,7 @@ describe("PDFViewer", () => {
     });
 
     it("handles fit-width mode", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -557,7 +574,7 @@ describe("PDFViewer", () => {
     });
 
     it("handles numeric zoom values", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -573,7 +590,7 @@ describe("PDFViewer", () => {
     });
 
     it("updates scale when zoom buttons clicked", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -598,7 +615,7 @@ describe("PDFViewer", () => {
       };
       (apiService.getPdfBlob as Mock).mockRejectedValue(error);
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(
         () => {
@@ -615,7 +632,7 @@ describe("PDFViewer", () => {
       };
       (apiService.getPdfBlob as Mock).mockRejectedValue(error);
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(
         () => {
@@ -628,7 +645,7 @@ describe("PDFViewer", () => {
     it("shows generic error for unknown errors", async () => {
       (apiService.getPdfBlob as Mock).mockRejectedValue(new Error("Unknown error"));
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       // Plain Error objects without response are treated as transient/network errors
       await waitFor(
@@ -643,7 +660,7 @@ describe("PDFViewer", () => {
       const error = new Error("Test error");
       (apiService.getPdfBlob as Mock).mockRejectedValue(error);
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(
         () => {
@@ -662,7 +679,7 @@ describe("PDFViewer", () => {
 
   describe("Auto-focus Behavior", () => {
     it("focuses container after successful load", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -678,7 +695,7 @@ describe("PDFViewer", () => {
     it("does not focus on error state", async () => {
       (apiService.getPdfBlob as Mock).mockRejectedValue(new Error("Load failed"));
 
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       // Plain Error objects without response are treated as transient/network errors
       await waitFor(
@@ -698,7 +715,7 @@ describe("PDFViewer", () => {
 
   describe("Rotation", () => {
     it("rotates page right using keyboard shortcut (R)", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -716,7 +733,7 @@ describe("PDFViewer", () => {
     });
 
     it("rotates page left using keyboard shortcut (Shift+R)", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -732,7 +749,7 @@ describe("PDFViewer", () => {
     });
 
     it("rotates using rotation buttons", async () => {
-      render(<PDFViewer {...defaultProps} />);
+      renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();

@@ -243,7 +243,7 @@ export const useCachedImageGallery = ({
         }
 
         // Pass viewport dimensions for server-side image optimization
-        // Use actual viewport size for efficiency - YARL will upscale if needed for fullscreen
+        // Use actual viewport size for efficiency - library will upscale if needed for fullscreen
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
 

@@ -48,8 +48,8 @@ interface FileTypeDefinition {
   description?: string;
 }
 
-// Image viewer component loader - uses YARL viewer
-const imageViewerComponentLoader = () => import("../components/Viewer/YarlImageViewer");
+// Image viewer component loader
+const imageViewerComponentLoader = () => import("../components/Viewer/ImageViewer");
 
 // ============================================================================
 // Registry Data

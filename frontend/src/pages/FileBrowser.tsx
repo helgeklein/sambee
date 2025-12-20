@@ -1054,8 +1054,10 @@ const Browser: React.FC = () => {
     // Default: reset to top (only if no saved state exists AND we haven't just restored this path)
     if (lastRestoredPathRef.current !== currentPath) {
       updateFocus(0, { immediate: true });
+      // Ensure scroll to top even if focusedIndex is already 0
+      rowVirtualizer.scrollToIndex(0, { align: "start" });
     }
-  }, [sortedAndFilteredFiles, currentPath, updateFocus]);
+  }, [sortedAndFilteredFiles, currentPath, updateFocus, rowVirtualizer]);
 
   // Scroll focused item into view using VirtualList API
   // Use useLayoutEffect to run synchronously BEFORE React renders components
@@ -1491,6 +1493,11 @@ const Browser: React.FC = () => {
 
   const handleSettingsClose = () => {
     setSettingsOpen(false);
+    // Return focus to file list after closing settings, similar to other dialogs
+    // Use setTimeout to ensure focus happens after Dialog's focus restoration
+    setTimeout(() => {
+      listContainerEl?.focus();
+    }, 0);
   };
 
   const pathParts = currentPath ? currentPath.split("/") : [];

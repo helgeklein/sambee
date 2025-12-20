@@ -2,6 +2,9 @@
 
 ## Next steps
 
+- Theme:
+   - import/export, e.g., as JSON
+   - Apparently, the selected theme is only stored locally in the browser. Store it in the backend DB per user instead.
 - Frontend: the UI should stay responsive even when the backend is temporarily unavailable
    - Requires downloading all assets to the browser and keeping them there
 - Admin UI
@@ -24,6 +27,10 @@
   - TIFF
   - ICO (test with uberAgent icon)
 
+## Markdown viewer
+
+- Add search
+
 ## Configuration system
 
 - Configuration system that reads settings from the following locations (decreasing priority):
@@ -33,7 +40,7 @@
 
 ## Docker
 
-- Add a healthcheck to the prod Dockerfile
+- The healthcheck doesn't seem to be working
 
 ## Settings
 
@@ -52,5 +59,4 @@
 
 ## Code & infrastructure
 
-- Apply the Python formatting rules (incl. tab width) from Smart Cover Automation
 - Dependabot as GitHub Action to ensure our packages are kept on the latest versions

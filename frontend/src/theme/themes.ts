@@ -46,6 +46,22 @@ export const builtInThemes: ThemeConfig[] = [
         main: "#D4A020", // Darker yellow
         hover: "#F4C430", // Golden yellow on hover
       },
+      pdfViewer: {
+        viewerBackground: "#F6F1E8", // Default background
+        toolbarBackground: "#F6F1E8", // Default background
+        toolbarText: "#1F262B", // Primary text
+      },
+      imageViewer: {
+        viewerBackground: "#1F262B", // Dark mode background
+        toolbarBackground: "#1F262B", // Dark mode background
+        toolbarText: "#F6F1E8", // Dark mode primary text
+      },
+      markdownViewer: {
+        viewerText: "#1F262B", // Primary text
+        viewerBackground: "#F6F1E8", // Default background
+        toolbarBackground: "#1F262B", // Dark mode background
+        toolbarText: "#F6F1E8", // Dark mode primary text
+      },
     },
   },
   // Sambee default dark theme
@@ -85,6 +101,22 @@ export const builtInThemes: ThemeConfig[] = [
       link: {
         main: "#F4C430", // Golden yellow
         hover: "#F6E58D", // Lighter yellow on hover
+      },
+      pdfViewer: {
+        viewerBackground: "#1F262B", // Default background
+        toolbarBackground: "#1F262B", // Default background
+        toolbarText: "#F6F1E8", // Primary text
+      },
+      imageViewer: {
+        viewerBackground: "#1F262B", // Default background
+        toolbarBackground: "#1F262B", // Default background
+        toolbarText: "#F6F1E8", // Primary text
+      },
+      markdownViewer: {
+        viewerText: "#F6F1E8", // Primary text
+        viewerBackground: "#1F262B", // Default background
+        toolbarBackground: "#2A3239", // App bar background
+        toolbarText: "#F6F1E8", // Primary text
       },
     },
   },

@@ -141,16 +141,15 @@ export const VIEWER_SHORTCUTS = {
   //
   ROTATE_RIGHT: {
     id: "rotate-right",
-    keys: ["r", "R"],
+    keys: "r",
     description: "Rotate right",
     label: "R",
   },
   ROTATE_LEFT: {
     id: "rotate-left",
-    keys: ["r", "R"],
+    keys: "R",
     description: "Rotate left",
     label: "Shift+R",
-    shift: true,
   },
 
   //

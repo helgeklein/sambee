@@ -38,6 +38,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MarkdownViewer from "../../components/Viewer/MarkdownViewer";
 import apiService from "../../services/api";
+import { SambeeThemeProvider } from "../../theme";
 
 describe("Browse → View Flow", () => {
   beforeEach(() => {
@@ -46,6 +47,14 @@ describe("Browse → View Flow", () => {
     // Set up auth token for API requests
     localStorage.setItem("access_token", "mock-token");
   });
+
+  const renderMarkdownViewer = (props: { connectionId: string; path: string; onClose: () => void }) => {
+    return render(
+      <SambeeThemeProvider>
+        <MarkdownViewer {...props} />
+      </SambeeThemeProvider>
+    );
+  };
 
   describe("Error Handling", () => {
     it("should show error when file view fails", async () => {
@@ -56,7 +65,7 @@ describe("Browse → View Flow", () => {
         message: "Request failed with status code 500",
       });
 
-      render(<MarkdownViewer connectionId="test-conn" path="/broken.md" onClose={() => {}} />);
+      renderMarkdownViewer({ connectionId: "test-conn", path: "/broken.md", onClose: () => {} });
 
       // Wait for error message (longer timeout in case of retry)
       await waitFor(
@@ -80,7 +89,7 @@ describe("Browse → View Flow", () => {
         message: "Request failed with status code 401",
       });
 
-      render(<MarkdownViewer connectionId="test-conn" path="/secure.md" onClose={() => {}} />);
+      renderMarkdownViewer({ connectionId: "test-conn", path: "/secure.md", onClose: () => {} });
 
       // Wait for error message (longer timeout in case of retry)
       await waitFor(
@@ -101,7 +110,7 @@ describe("Browse → View Flow", () => {
         message: "Network Error",
       });
 
-      render(<MarkdownViewer connectionId="test-conn" path="/test.md" onClose={() => {}} />);
+      renderMarkdownViewer({ connectionId: "test-conn", path: "/test.md", onClose: () => {} });
 
       // Network errors trigger retry, so wait longer and expect "Server is busy" message
       await waitFor(

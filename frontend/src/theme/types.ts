@@ -63,6 +63,35 @@ export interface ThemeConfig {
       /** Link hover color */
       hover?: string;
     };
+    /** PDF viewer colors */
+    pdfViewer?: {
+      /** Background color for PDF viewer */
+      viewerBackground: string;
+      /** Background color for top toolbar */
+      toolbarBackground: string;
+      /** Text color in top toolbar */
+      toolbarText: string;
+    };
+    /** Image viewer colors */
+    imageViewer?: {
+      /** Background color for image viewer */
+      viewerBackground: string;
+      /** Background color for top toolbar */
+      toolbarBackground: string;
+      /** Text color in top toolbar */
+      toolbarText: string;
+    };
+    /** Markdown viewer colors */
+    markdownViewer?: {
+      /** Background color for markdown viewer */
+      viewerBackground: string;
+      /** Background color for top toolbar */
+      toolbarBackground: string;
+      /** Text color in top toolbar */
+      toolbarText: string;
+      /** Text color for markdown content */
+      viewerText: string;
+    };
   };
 }
 
@@ -262,6 +291,90 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
           textSecondary: {
             label: "Secondary Text",
             description: "Muted text color on status bar for less important information",
+            type: "color",
+            required: false,
+          },
+        },
+      },
+      pdfViewer: {
+        label: "PDF Viewer",
+        description: "Colors for PDF viewer",
+        type: "color",
+        required: false,
+        fields: {
+          viewerBackground: {
+            label: "Viewer Background",
+            description: "Background color for PDF viewer",
+            type: "color",
+            required: false,
+          },
+          toolbarBackground: {
+            label: "Top Bar Background",
+            description: "Background color for top toolbar",
+            type: "color",
+            required: false,
+          },
+          toolbarText: {
+            label: "Top Bar Text",
+            description: "Text color in top toolbar",
+            type: "color",
+            required: false,
+          },
+        },
+      },
+      imageViewer: {
+        label: "Image Viewer",
+        description: "Colors for image viewer",
+        type: "color",
+        required: false,
+        fields: {
+          viewerBackground: {
+            label: "Viewer Background",
+            description: "Background color for image viewer",
+            type: "color",
+            required: false,
+          },
+          toolbarBackground: {
+            label: "Top Bar Background",
+            description: "Background color for top toolbar",
+            type: "color",
+            required: false,
+          },
+          toolbarText: {
+            label: "Top Bar Text",
+            description: "Text color in top toolbar",
+            type: "color",
+            required: false,
+          },
+        },
+      },
+      markdownViewer: {
+        label: "Markdown Viewer",
+        description: "Colors for markdown viewer",
+        type: "color",
+        required: false,
+        fields: {
+          viewerBackground: {
+            label: "Viewer Background",
+            description: "Background color for markdown viewer",
+            type: "color",
+            required: false,
+          },
+          toolbarBackground: {
+            label: "Top Bar Background",
+            description: "Background color for top toolbar",
+            type: "color",
+            required: false,
+          },
+          toolbarText: {
+            label: "Top Bar Text",
+            description: "Text color in top toolbar",
+            type: "color",
+            required: false,
+          },
+          viewerText: {
+            label: "Viewer Text",
+            description: "Text color for markdown content",
             type: "color",
             required: false,
           },

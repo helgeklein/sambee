@@ -8,6 +8,7 @@ import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "..
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
+import { useSambeeTheme } from "../../theme";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
@@ -102,6 +103,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [showHelp, setShowHelp] = useState(false);
   const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
   const fetchWithRetry = useApiRetry();
+
+  const { currentTheme } = useSambeeTheme();
+  const viewerBg = currentTheme.components?.pdfViewer?.viewerBackground || "#525252";
+  const toolbarBg = currentTheme.components?.pdfViewer?.toolbarBackground || "rgba(0,0,0,0.8)";
+  const toolbarText = currentTheme.components?.pdfViewer?.toolbarText || "#ffffff";
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -203,13 +209,14 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, [pdfUrl]);
 
   // Auto-focus content area after load for keyboard navigation
+  // Skip if search panel is open to avoid stealing focus from search input
   useEffect(() => {
-    if (!loading && !error && containerRef.current) {
+    if (!loading && !error && !searchPanelOpen && containerRef.current) {
       setTimeout(() => {
         containerRef.current?.focus();
       }, 100);
     }
-  }, [loading, error]);
+  }, [loading, error, searchPanelOpen]);
 
   // Calculate page scale based on zoom mode
   const { pageScale, pageWidth } = useMemo(() => {
@@ -655,14 +662,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Keyboard shortcuts - centralized configuration
   const handleOpenSearch = useCallback((_event?: KeyboardEvent) => {
     setSearchPanelOpen(true);
-    // Focus search input after a brief delay to allow panel to render
-    setTimeout(() => {
-      const searchInput = document.querySelector('input[placeholder="Search"]') as HTMLInputElement;
-      if (searchInput) {
-        searchInput.focus();
-        searchInput.select();
-      }
-    }, 100);
+    // Focus will be handled by ViewerControls via ref
   }, []);
 
   const handleZoomIn = useCallback(
@@ -864,7 +864,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }}
       PaperProps={{
         sx: {
-          backgroundColor: "#525252",
+          backgroundColor: viewerBg,
           boxShadow: "none",
           margin: 0,
           width: "100dvw",
@@ -895,6 +895,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         >
           <ViewerControls
             filename={filename}
+            toolbarBackground={toolbarBg}
+            toolbarText={toolbarText}
             config={{
               pageNavigation: true,
               zoom: true,
@@ -954,7 +956,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             justifyContent: "center",
             overflow: "auto",
             minHeight: 0,
-            backgroundColor: "#525252",
+            backgroundColor: viewerBg,
             "&:focus": {
               outline: "none",
             },

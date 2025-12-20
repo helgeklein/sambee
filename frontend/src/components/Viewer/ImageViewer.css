@@ -1,0 +1,4 @@
+/* Override yet-another-react-lightbox default styles */
+.yarl__container {
+  background-color: transparent;
+}

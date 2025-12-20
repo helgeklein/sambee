@@ -8,6 +8,7 @@ import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "..
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
+import { useSambeeTheme } from "../../theme";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
@@ -46,6 +47,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const contentRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const fetchWithRetry = useApiRetry();
+
+  const { currentTheme } = useSambeeTheme();
+  const viewerBg = currentTheme.components?.markdownViewer?.viewerBackground || "#ffffff";
+  const viewerText = currentTheme.components?.markdownViewer?.viewerText || "#000000";
+  const toolbarBg = currentTheme.components?.markdownViewer?.toolbarBackground || "rgba(0,0,0,0.8)";
+  const toolbarText = currentTheme.components?.markdownViewer?.toolbarText || "#ffffff";
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -216,7 +223,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
             maxHeight: "100dvh",
             display: "flex",
             flexDirection: "column",
-            backgroundColor: "#fff",
+            backgroundColor: viewerBg,
           },
         }}
       >
@@ -240,6 +247,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           >
             <ViewerControls
               filename={filename}
+              toolbarBackground={toolbarBg}
+              toolbarText={toolbarText}
               config={{
                 download: true,
               }}
@@ -259,6 +268,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               minHeight: 0,
               width: "100%",
               paddingBottom: "env(safe-area-inset-bottom, 0px)",
+              backgroundColor: viewerBg,
               "&:focus": {
                 outline: "none",
               },
@@ -281,6 +291,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   width: "100%",
                   maxWidth: "100%",
                   p: { xs: 2, sm: 4 },
+                  color: viewerText,
 
                   // Ensure all children respect container width
                   "& *": {

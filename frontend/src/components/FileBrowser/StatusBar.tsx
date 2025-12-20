@@ -56,7 +56,7 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
           const parts = [];
           parts.push(selectedFile.name);
 
-          if (selectedFile.type === "file" && selectedFile.size) {
+          if (selectedFile.type === "file" && selectedFile.size !== undefined && selectedFile.size !== null) {
             parts.push(formatFileSize(selectedFile.size));
           }
 
@@ -69,7 +69,7 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
               <Typography variant="caption" noWrap>
                 {selectedFile.name}
               </Typography>
-              {selectedFile.type === "file" && selectedFile.size && (
+              {selectedFile.type === "file" && selectedFile.size !== undefined && selectedFile.size !== null && (
                 <Typography variant="caption" noWrap>
                   {formatFileSize(selectedFile.size)}
                 </Typography>
