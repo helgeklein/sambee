@@ -12,6 +12,11 @@ from app.models.connection import Connection
 from app.models.file import FileType
 from app.models.user import User
 from app.services.image_converter import convert_image_for_viewer
+from app.services.pdf_normalizer import (
+    is_pdf_normalization_available,
+    needs_pdf_normalization,
+    normalize_pdf,
+)
 from app.storage.smb import SMBBackend
 from app.utils.file_type_registry import needs_processing
 
@@ -154,6 +159,78 @@ async def read_and_convert_image(
 
 
 #
+# read_and_normalize_pdf
+#
+async def read_and_normalize_pdf(
+    backend: SMBBackend,
+    path: str,
+    filename: str,
+    connection_id: uuid.UUID,
+) -> Response:
+    """Read a PDF file from SMB backend and normalize it for browser compatibility.
+
+    Some PDF files fail to load in PDF.js with "Invalid PDF structure" errors
+    due to non-standard or malformed PDF structures. This function uses
+    Ghostscript to rewrite the PDF in a clean, compatible format.
+
+    Args:
+        backend: Connected SMB backend
+        path: Path to the PDF file
+        filename: Original filename
+        connection_id: Connection UUID for logging
+
+    Returns:
+        Response with normalized PDF bytes
+    """
+
+    try:
+        # Read file into memory
+        chunks = []
+        async for chunk in backend.read_file(path):
+            chunks.append(chunk)
+        pdf_bytes = b"".join(chunks)
+
+        await backend.disconnect()
+
+        # Normalize the PDF using Ghostscript
+        normalized_bytes, was_modified, duration_ms = normalize_pdf(
+            pdf_bytes,
+            filename=filename,
+        )
+
+        if was_modified:
+            logger.info(
+                f"PDF normalized: {filename} ({len(pdf_bytes) / 1024:.0f} → {len(normalized_bytes) / 1024:.0f} KB) in {duration_ms:.0f} ms"
+            )
+        else:
+            logger.debug(f"PDF served without normalization: {filename}")
+
+        return Response(
+            content=normalized_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        )
+
+    except TimeoutError as e:
+        logger.error(
+            f"Timeout reading PDF: connection_id={connection_id}, path='{path}', error={e}",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Timeout reading file from network share",
+        )
+    except Exception as e:
+        logger.error(
+            f"PDF normalization failed: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process PDF",
+        )
+
+
+#
 # validate_connection
 #
 def validate_connection(connection: Connection) -> None:
@@ -233,14 +310,25 @@ async def view_file(
                 max_height=viewport_height,
                 no_resizing=no_resizing,
             )
-        else:
-            # Stream the file (browser-native format or non-image)
-            logger.info(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}")
-            return StreamingResponse(
-                create_file_streamer(backend, path),
-                media_type=file_info.mime_type,
-                headers={"Content-Disposition": f'inline; filename="{file_info.name}"'},
+
+        # Check if PDF needs normalization for browser compatibility
+        if needs_pdf_normalization(file_info.name) and is_pdf_normalization_available():
+            size_string = f"{file_info.size / 1024:.0f} KB" if file_info.size else "unknown"
+            logger.info(f"PDF normalization: connection_id={connection_id}, path='{path}', size={size_string}")
+            return await read_and_normalize_pdf(
+                backend=backend,
+                path=path,
+                filename=file_info.name,
+                connection_id=connection_id,
             )
+
+        # Stream the file (browser-native format or non-image/non-PDF)
+        logger.info(f"Streaming file for viewing: connection_id={connection_id}, path='{path}', mime_type={file_info.mime_type}")
+        return StreamingResponse(
+            create_file_streamer(backend, path),
+            media_type=file_info.mime_type,
+            headers={"Content-Disposition": f'inline; filename="{file_info.name}"'},
+        )
 
     except HTTPException:
         raise

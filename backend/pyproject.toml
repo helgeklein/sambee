@@ -27,7 +27,8 @@ markers = [
 ]
 filterwarnings = [
     # Ignore third-party deprecation warnings we can't fix
-    "ignore:Accessing argon2.__version__:DeprecationWarning:passlib",
+    # python-jose uses datetime.utcnow() which is deprecated in Python 3.12+
+    "ignore:datetime.datetime.utcnow:DeprecationWarning:jose",
     # Ignore resource warnings from test cleanup (handled in fixtures)
     "ignore::ResourceWarning",
 ]

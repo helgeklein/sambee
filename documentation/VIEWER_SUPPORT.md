@@ -107,7 +107,6 @@ Files with unsupported MIME types will show a download prompt instead of an in-b
 ## Future Enhancements
 
 The viewer system is extensible. Planned additions include:
-- PDF documents (`application/pdf`)
 - Plain text files (`text/plain`)
 - Video files (`video/*`)
 - Audio files (`audio/*`)

@@ -483,10 +483,16 @@ def needs_processing(filename: str, size: Optional[int] = None) -> bool:
 
     # Check file type
     file_type = get_file_type_by_extension(filename)
-    if file_type is not None and file_type.requires_conversion:
+
+    # Only process images - skip PDFs and other non-image files
+    if file_type is None or file_type.category != FileCategory.IMAGE:
+        return False
+
+    # Image formats that require conversion (e.g., TIFF, HEIC)
+    if file_type.requires_conversion:
         return True
 
-    # Check file size against configured threshold
+    # Check file size against configured threshold (only for images)
     if size is not None and size > settings.image_viewer_conv_size_thresh:
         return True
 

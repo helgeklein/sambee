@@ -19,6 +19,7 @@ This is a collection of points and ideas for a future end-user facing documentat
    - Superfast viewing & browsing with smooth animations
 - PDF viewer
    - Search functionality
+   - PDF normalization with Ghostscript for maximum compatibility
 - Markdown viewer
 - Backend
    - SMB protocol support optimized for speed

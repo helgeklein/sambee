@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlmodel import Session, select
 
 from app.core.auth_methods import AuthMethod
@@ -17,7 +18,8 @@ from app.models.user import User
 
 logger = get_logger(__name__)
 
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+# Use argon2-cffi directly instead of passlib to avoid deprecation warnings
+_password_hasher = PasswordHasher()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 # OAuth2 scheme that doesn't auto-error on missing tokens
@@ -49,18 +51,22 @@ def get_fernet() -> Fernet:
 # verify_password
 #
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against a hashed password"""
+    """Verify a plain password against a hashed password."""
 
-    return bool(pwd_context.verify(plain_password, hashed_password))
+    try:
+        _password_hasher.verify(hashed_password, plain_password)
+        return True
+    except VerifyMismatchError:
+        return False
 
 
 #
 # get_password_hash
 #
 def get_password_hash(password: str) -> str:
-    """Hash a password for storage"""
+    """Hash a password for storage."""
 
-    return str(pwd_context.hash(password))
+    return _password_hasher.hash(password)
 
 
 #
