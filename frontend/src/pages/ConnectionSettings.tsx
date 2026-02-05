@@ -46,11 +46,19 @@ import { isApiError } from "../types";
 interface ConnectionSettingsProps {
   /** Callback when connections are added, updated, or deleted */
   onConnectionsChanged?: () => void;
+  /**
+   * Force desktop layout regardless of screen size.
+   * Used when rendered inside SettingsDialog where the mobile 3-dot menu
+   * would overlap with the dialog's close button.
+   */
+  forceDesktopLayout?: boolean;
 }
 
-export function ConnectionSettings({ onConnectionsChanged }: ConnectionSettingsProps) {
+export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = false }: ConnectionSettingsProps) {
   const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+  const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
+  // Use desktop layout if forced or on large screens
+  const isDesktop = forceDesktopLayout || isLargeScreen;
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(false);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);

@@ -73,7 +73,7 @@ function ThemePreview({
 export function AppearanceSettings() {
   const { currentTheme, availableThemes, setThemeById } = useSambeeTheme();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const handleSelect = (themeId: string) => {
     setThemeById(themeId);

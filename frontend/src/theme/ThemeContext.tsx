@@ -125,6 +125,16 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     };
 
     return createTheme({
+      // Custom breakpoints: 768px is the mobile/desktop threshold
+      breakpoints: {
+        values: {
+          xs: 0,
+          sm: 768, // Mobile/desktop threshold (default: 600)
+          md: 960,
+          lg: 1280,
+          xl: 1920,
+        },
+      },
       palette: {
         mode: currentTheme.mode,
         primary: currentTheme.primary,

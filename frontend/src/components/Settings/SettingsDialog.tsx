@@ -247,7 +247,9 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
           }}
         >
           {selectedCategory === "appearance" && <AppearanceSettings />}
-          {selectedCategory === "connections" && isAdmin && <ConnectionSettings onConnectionsChanged={onConnectionsChanged} />}
+          {selectedCategory === "connections" && isAdmin && (
+            <ConnectionSettings onConnectionsChanged={onConnectionsChanged} forceDesktopLayout />
+          )}
         </Box>
       </Box>
     </Dialog>

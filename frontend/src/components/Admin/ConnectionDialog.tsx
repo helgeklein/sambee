@@ -35,7 +35,7 @@ interface ConnectionDialogProps {
 
 const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSave, connection }) => {
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [formData, setFormData] = useState<ConnectionCreate>({
     name: "",
     type: "smb",
@@ -338,6 +338,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         anchor="right"
         open={open}
         onClose={onClose}
+        // Higher z-index to stack above SettingsDialog when nested
+        sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
         PaperProps={{
           sx: {
             width: "100%",
@@ -404,6 +406,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       onClose={onClose}
       maxWidth="sm"
       fullWidth
+      // Higher z-index to stack above SettingsDialog when nested
+      sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
       PaperProps={{
         sx: {
           bgcolor: "background.default",

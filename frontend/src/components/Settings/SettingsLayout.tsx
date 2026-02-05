@@ -17,7 +17,7 @@ import { SettingsSidebar } from "./SettingsSidebar";
  */
 export function SettingsLayout() {
   const theme = useTheme();
-  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+  const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const navigate = useNavigate();
   const location = useLocation();
 
