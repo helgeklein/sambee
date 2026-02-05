@@ -98,7 +98,7 @@ describe("Browser Component - Rendering", () => {
     renderBrowser();
 
     // Optimized: Use findByText instead of waitFor + getByText
-    expect(await screen.findByText(/No SMB connections configured/i)).toBeInTheDocument();
+    expect(await screen.findByText(/adding your first SMB network share/i)).toBeInTheDocument();
   });
 
   it("displays empty directory message when folder is empty", async () => {

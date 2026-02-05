@@ -92,6 +92,27 @@ export interface ThemeConfig {
       /** Text color for markdown content */
       viewerText: string;
     };
+    /** Alert message styles for info/warning/error states */
+    alert?: {
+      /** Info alert colors */
+      info: {
+        background: string;
+        text: string;
+        icon: string;
+      };
+      /** Warning alert colors */
+      warning: {
+        background: string;
+        text: string;
+        icon: string;
+      };
+      /** Error alert colors */
+      error: {
+        background: string;
+        text: string;
+        icon: string;
+      };
+    };
   };
 }
 

@@ -42,7 +42,13 @@ import { isApiError } from "../types";
  * Used within SettingsLayout (no AppBar needed).
  * Responsive design: table on desktop, cards on mobile.
  */
-export function ConnectionSettings() {
+
+interface ConnectionSettingsProps {
+  /** Callback when connections are added, updated, or deleted */
+  onConnectionsChanged?: () => void;
+}
+
+export function ConnectionSettings({ onConnectionsChanged }: ConnectionSettingsProps) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -50,7 +56,10 @@ export function ConnectionSettings() {
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<{ element: HTMLElement; connection: Connection } | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{
+    element: HTMLElement;
+    connection: Connection;
+  } | null>(null);
   const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
@@ -106,6 +115,7 @@ export function ConnectionSettings() {
     loadConnections();
     showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
     handleConnectionDialogClose();
+    onConnectionsChanged?.();
   };
 
   const handleDeleteConfirm = async () => {
@@ -117,6 +127,7 @@ export function ConnectionSettings() {
       await loadConnections();
       setDeleteDialogOpen(false);
       setSelectedConnection(null);
+      onConnectionsChanged?.();
     } catch (error: unknown) {
       const message = isApiError(error) ? error.response?.data?.detail || "Failed to delete connection" : "Failed to delete connection";
       showNotification(message, "error");
@@ -174,7 +185,15 @@ export function ConnectionSettings() {
     >
       {/* Desktop: Header with button */}
       {isDesktop && (
-        <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, py: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 3, md: 4 },
+            py: 2,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
           <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Typography variant="h5" fontWeight="medium">
               Connections
@@ -216,7 +235,14 @@ export function ConnectionSettings() {
                   }}
                 >
                   {/* Connection Name and Type */}
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1.5 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      mb: 1.5,
+                    }}
+                  >
                     <Typography variant="h6" fontWeight="medium">
                       {connection.name}
                     </Typography>
@@ -234,7 +260,13 @@ export function ConnectionSettings() {
                   </Box>
 
                   {/* UNC Path and Action Buttons */}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <Box sx={{ display: "flex" }}>
                       <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
                         Path:
@@ -281,8 +313,22 @@ export function ConnectionSettings() {
                   }}
                 >
                   {/* Connection Name, Type, and Menu */}
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1.5 }}>
-                    <Box sx={{ flex: 1, display: "flex", alignItems: "center", gap: 2 }}>
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      mb: 1.5,
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        flex: 1,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 2,
+                      }}
+                    >
                       <Typography variant="h6" fontWeight="medium">
                         {connection.name}
                       </Typography>

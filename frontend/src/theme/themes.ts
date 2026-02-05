@@ -62,6 +62,23 @@ export const builtInThemes: ThemeConfig[] = [
         toolbarBackground: "#1F262B", // Dark mode background
         toolbarText: "#F6F1E8", // Dark mode primary text
       },
+      alert: {
+        info: {
+          background: "#E3F2FD", // Light blue
+          text: "#1565C0", // Dark blue
+          icon: "#1976D2", // Blue
+        },
+        warning: {
+          background: "#FFF3E0", // Light orange
+          text: "#E65100", // Dark orange
+          icon: "#F57C00", // Orange
+        },
+        error: {
+          background: "#FFEBEE", // Light red
+          text: "#C62828", // Dark red
+          icon: "#D32F2F", // Red
+        },
+      },
     },
   },
   // Sambee default dark theme
@@ -118,6 +135,23 @@ export const builtInThemes: ThemeConfig[] = [
         toolbarBackground: "#2A3239", // App bar background
         toolbarText: "#F6F1E8", // Primary text
       },
+      alert: {
+        info: {
+          background: "#0D47A1", // Deep blue
+          text: "#BBDEFB", // Light blue text
+          icon: "#64B5F6", // Light blue icon
+        },
+        warning: {
+          background: "#E65100", // Deep orange
+          text: "#FFE0B2", // Light orange text
+          icon: "#FFB74D", // Light orange icon
+        },
+        error: {
+          background: "#B71C1C", // Deep red
+          text: "#FFCDD2", // Light red text
+          icon: "#EF9A9A", // Light red icon
+        },
+      },
     },
   },
 ];
@@ -147,5 +181,10 @@ export const getDefaultTheme = (mode?: "light" | "dark"): ThemeConfig => {
   void _assertLightTheme;
   void _assertDarkTheme;
 
-  return builtInThemes[themeIndex]!;
+  // The compile-time assertions above guarantee this access is safe
+  const theme = builtInThemes[themeIndex];
+  if (!theme) {
+    throw new Error(`Default theme at index ${themeIndex} not found`);
+  }
+  return theme;
 };

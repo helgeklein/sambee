@@ -26,9 +26,9 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { BreadcrumbsNavigation } from "../components/FileBrowser/BreadcrumbsNavigation";
-import { BrowserAlerts } from "../components/FileBrowser/BrowserAlerts";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
+import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileList } from "../components/FileBrowser/FileList";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import { SearchBar } from "../components/FileBrowser/SearchBar";
@@ -38,7 +38,7 @@ import { ViewModeSelector } from "../components/FileBrowser/ViewModeSelector";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
-import SettingsDialog from "../components/Settings/SettingsDialog";
+import SettingsDialog, { type SettingsCategory } from "../components/Settings/SettingsDialog";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
@@ -131,7 +131,9 @@ const Browser: React.FC = () => {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("appearance");
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
+  const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<"main" | "appearance" | "connections">("main");
   const [showHelp, setShowHelp] = useState(false);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1500,6 +1502,50 @@ const Browser: React.FC = () => {
     }, 0);
   };
 
+  /**
+   * handleConnectionsChanged
+   *
+   * Called when connections are added, updated, or deleted in settings.
+   * Re-fetches connections and applies selection logic:
+   * - If current connection still exists: keep it selected
+   * - If current connection was removed: select first alphabetically
+   * - If no connections remain: show welcome screen
+   */
+  const handleConnectionsChanged = useCallback(async () => {
+    try {
+      const data = await api.getConnections();
+      setConnections(data);
+
+      // Check if current selection still exists
+      if (selectedConnectionId && data.find((c: Connection) => c.id === selectedConnectionId)) {
+        // Current connection still exists, keep selection
+        return;
+      }
+
+      // Current connection removed or no selection - select first alphabetically
+      if (data.length > 0) {
+        const sortedByName = [...data].sort((a, b) => a.name.localeCompare(b.name));
+        const firstConnection = sortedByName[0];
+        if (firstConnection) {
+          setSelectedConnectionId(firstConnection.id);
+          localStorage.setItem("selectedConnectionId", firstConnection.id);
+          const identifier = slugifyConnectionName(firstConnection.name);
+          navigate(`/browse/${identifier}`, { replace: true });
+          setCurrentPath("");
+        }
+      } else {
+        // No connections remaining - show welcome screen
+        setSelectedConnectionId("");
+        localStorage.removeItem("selectedConnectionId");
+        navigate("/browse", { replace: true });
+        setCurrentPath("");
+        setFiles([]);
+      }
+    } catch (err) {
+      logger.error("Error refreshing connections", { error: err }, "browser");
+    }
+  }, [selectedConnectionId, slugifyConnectionName, navigate]);
+
   const pathParts = currentPath ? currentPath.split("/") : [];
   const currentDirectoryName = (pathParts.length > 0 && pathParts[pathParts.length - 1]) || "Root";
   const canNavigateUp = currentPath !== "";
@@ -1617,7 +1663,10 @@ const Browser: React.FC = () => {
               onSearchChange={setSearchQuery}
               searchInputRef={searchInputRef}
               showSearch={files.length > 0}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenSettings={() => {
+                setSettingsInitialCategory("appearance");
+                setSettingsOpen(true);
+              }}
               onBlurToFileList={() => listContainerEl?.focus()}
             />
           )}
@@ -1635,7 +1684,23 @@ const Browser: React.FC = () => {
           overflow: "hidden",
         }}
       >
-        <BrowserAlerts error={error} loadingConnections={loadingConnections} connectionsCount={connections.length} isAdmin={isAdmin} />
+        <FileBrowserAlerts
+          error={error}
+          loadingConnections={loadingConnections}
+          connectionsCount={connections.length}
+          isAdmin={isAdmin}
+          onOpenConnectionsSettings={() => {
+            if (useCompactLayout) {
+              // Mobile: open mobile settings drawer directly to connections
+              setMobileSettingsInitialView("connections");
+              setMobileSettingsOpen(true);
+            } else {
+              // Desktop: open settings dialog with connections tab
+              setSettingsInitialCategory("connections");
+              setSettingsOpen(true);
+            }
+          }}
+        />
 
         {selectedConnectionId && (
           <>
@@ -1693,7 +1758,16 @@ const Browser: React.FC = () => {
                 <CircularProgress />
               </Box>
             ) : (
-              <Box sx={{ display: "flex", gap: 2, flex: 1, minHeight: 0, mb: 0, flexDirection: "column" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 2,
+                  flex: 1,
+                  minHeight: 0,
+                  mb: 0,
+                  flexDirection: "column",
+                }}
+              >
                 <FileList
                   files={sortedAndFilteredFiles}
                   focusedIndex={focusedIndex}
@@ -1717,10 +1791,27 @@ const Browser: React.FC = () => {
       )}
 
       {/* Settings Dialog (Desktop only) */}
-      {!useCompactLayout && <SettingsDialog open={settingsOpen} onClose={handleSettingsClose} />}
+      {!useCompactLayout && (
+        <SettingsDialog
+          open={settingsOpen}
+          onClose={handleSettingsClose}
+          initialCategory={settingsInitialCategory}
+          onConnectionsChanged={handleConnectionsChanged}
+        />
+      )}
 
       {/* Settings Drawer (Mobile only) */}
-      {useCompactLayout && <MobileSettingsDrawer open={mobileSettingsOpen} onClose={() => setMobileSettingsOpen(false)} />}
+      {useCompactLayout && (
+        <MobileSettingsDrawer
+          open={mobileSettingsOpen}
+          onClose={() => {
+            setMobileSettingsOpen(false);
+            setMobileSettingsInitialView("main");
+          }}
+          onConnectionsChanged={handleConnectionsChanged}
+          initialView={mobileSettingsInitialView}
+        />
+      )}
 
       {viewInfo && (
         <DynamicViewer

@@ -27,6 +27,10 @@ import api from "../../services/api";
 interface MobileSettingsDrawerProps {
   open: boolean;
   onClose: () => void;
+  /** Callback when connections are added, updated, or deleted */
+  onConnectionsChanged?: () => void;
+  /** Initial view to show when drawer opens */
+  initialView?: SettingsView;
 }
 
 type SettingsView = "main" | "appearance" | "connections";
@@ -37,8 +41,13 @@ type SettingsView = "main" | "appearance" | "connections";
  * Full-screen drawer for mobile settings.
  * Preserves underlying page state by using drawer instead of routing.
  */
-export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({ open, onClose }) => {
-  const [currentView, setCurrentView] = useState<SettingsView>("main");
+export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
+  open,
+  onClose,
+  onConnectionsChanged,
+  initialView = "main",
+}) => {
+  const [currentView, setCurrentView] = useState<SettingsView>(initialView);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -51,12 +60,12 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({ open
     }
   }, [open]);
 
-  // Reset to main view when drawer closes
+  // Set view to initialView when drawer opens, reset when closes
   useEffect(() => {
-    if (!open) {
-      setCurrentView("main");
+    if (open) {
+      setCurrentView(initialView);
     }
-  }, [open]);
+  }, [open, initialView]);
 
   const handleBack = () => {
     if (currentView === "main") {
@@ -152,7 +161,7 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({ open
 
           {currentView === "appearance" && <AppearanceSettings />}
 
-          {currentView === "connections" && <ConnectionSettings />}
+          {currentView === "connections" && <ConnectionSettings onConnectionsChanged={onConnectionsChanged} />}
         </Box>
       </Box>
     </Drawer>

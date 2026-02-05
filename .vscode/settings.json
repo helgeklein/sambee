@@ -1,15 +1,51 @@
 {
-  // Biome formatter (already configured)
-  "biome.lsp.bin": "/workspace/frontend/node_modules/@biomejs/cli-linux-x64/biome",
-
+  // ============================================================================
+  // Formatting Configuration
+  // ============================================================================
+  // IMPORTANT: Disable format-on-save globally to prevent unwanted reformatting.
+  // Use explicit commands (npm run format, scripts/format) when formatting is needed.
+  "editor.formatOnSave": false,
+  "editor.formatOnPaste": false,
+  "editor.formatOnType": false,
+  // ============================================================================
+  // Biome Configuration
+  // ============================================================================
+  // Biome is used for FORMATTING only (via manual commands), NOT for real-time linting.
+  // Real-time linting comes from TypeScript language service (built-in).
+  // Run `npm run lint` in frontend/ for Biome linting before commits.
+  "biome.enabled": false,
+  // Language-specific formatter settings (for manual format commands only)
+  "[typescript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "[json]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff"
+  },
   // Python Testing
-  "python.testing.pytestArgs": ["tests", "-v"],
+  "python.testing.pytestArgs": [
+    "tests",
+    "-v"
+  ],
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "python.testing.autoTestDiscoverOnSaveEnabled": false,
   "python.testing.pytestPath": "pytest",
   "python.testing.cwd": "${workspaceFolder}/backend",
-
   // Python Analysis Performance (Pylance)
   "python.analysis.packageIndexDepths": [
     {
@@ -27,12 +63,10 @@
   "python.analysis.inlayHints.functionReturnTypes": false,
   "python.analysis.inlayHints.variableTypes": false,
   "python.analysis.completeFunctionParens": false,
-
   // File Visibility
   "files.exclude": {
     "**/.vscode": false
   },
-
   // File Watching Optimizations
   "files.watcherExclude": {
     "**/__pycache__/**": true,
@@ -48,7 +82,6 @@
     "**/squashfs-root/**": true,
     "**/.vite/**": true
   },
-
   // Editor Performance
   "editor.quickSuggestions": {
     "strings": false,
@@ -59,12 +92,10 @@
   "editor.suggest.shareSuggestSelections": false,
   "editor.codeLens": false,
   "editor.hover.delay": 1000,
-
   // TypeScript/JavaScript Settings
   "typescript.tsdk": "frontend/node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "javascript.suggestionActions.enabled": false,
-
   // GitHub Copilot Auto-Approve Commands
   "chat.tools.terminal.autoApprove": {
     // Safe read-only commands

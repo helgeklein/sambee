@@ -12,11 +12,15 @@ import api from "../../services/api";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
 
-type SettingsCategory = "appearance" | "connections";
+export type SettingsCategory = "appearance" | "connections";
 
 interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
+  /** Initial category to show when dialog opens */
+  initialCategory?: SettingsCategory;
+  /** Callback when connections are added, updated, or deleted */
+  onConnectionsChanged?: () => void;
 }
 
 /**
@@ -25,8 +29,8 @@ interface SettingsDialogProps {
  * Modal dialog for settings on desktop.
  * Contains sidebar navigation and content area showing Appearance or Connections settings.
  */
-const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
-  const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>("appearance");
+const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialCategory = "appearance", onConnectionsChanged }) => {
+  const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>(initialCategory);
   const [isAdmin, setIsAdmin] = useState(false);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
@@ -47,12 +51,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
     }
   }, [open]);
 
-  // Reset to appearance when dialog opens
+  // Set category when dialog opens (use initialCategory prop)
   useEffect(() => {
     if (open) {
-      setSelectedCategory("appearance");
+      setSelectedCategory(initialCategory);
     }
-  }, [open]);
+  }, [open, initialCategory]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { height: "80vh", bgcolor: "background.default" } }}>
@@ -92,7 +96,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
           <List sx={{ flex: 1, py: 0 }}>
             <ListItem disablePadding>
               <ListItemButton onClick={() => setSelectedCategory("appearance")} sx={{ py: 1.5, px: 2 }}>
-                <ListItemIcon sx={{ minWidth: 40, color: selectedCategory === "appearance" ? "primary.main" : "text.secondary" }}>
+                <ListItemIcon
+                  sx={{
+                    minWidth: 40,
+                    color: selectedCategory === "appearance" ? "primary.main" : "text.secondary",
+                  }}
+                >
                   <PaletteIcon sx={{ fontSize: 28 }} />
                 </ListItemIcon>
                 <ListItemText
@@ -107,7 +116,12 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
             {isAdmin && (
               <ListItem disablePadding>
                 <ListItemButton onClick={() => setSelectedCategory("connections")} sx={{ py: 1.5, px: 2 }}>
-                  <ListItemIcon sx={{ minWidth: 40, color: selectedCategory === "connections" ? "primary.main" : "text.secondary" }}>
+                  <ListItemIcon
+                    sx={{
+                      minWidth: 40,
+                      color: selectedCategory === "connections" ? "primary.main" : "text.secondary",
+                    }}
+                  >
                     <StorageIcon sx={{ fontSize: 28 }} />
                   </ListItemIcon>
                   <ListItemText
@@ -142,9 +156,17 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose }) => {
         </Box>
 
         {/* Right Content Area */}
-        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", bgcolor: "background.default" }}>
+        <Box
+          sx={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            bgcolor: "background.default",
+          }}
+        >
           {selectedCategory === "appearance" && <AppearanceSettings />}
-          {selectedCategory === "connections" && isAdmin && <ConnectionSettings />}
+          {selectedCategory === "connections" && isAdmin && <ConnectionSettings onConnectionsChanged={onConnectionsChanged} />}
         </Box>
       </Box>
     </Dialog>
