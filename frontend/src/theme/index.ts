@@ -23,7 +23,27 @@
  * ```
  */
 
+// Styling constants
+export {
+  FOCUS_OUTLINE_OFFSET_PX,
+  FOCUS_OUTLINE_WIDTH_PX,
+  PAGE_INPUT,
+  RESPONSIVE_FONT_SIZE,
+  SCROLLBAR,
+  SEARCH_HIGHLIGHT,
+  TOOLBAR_HEIGHT,
+  TOUCH_TARGET_MIN_SIZE_PX,
+  Z_INDEX,
+} from "./constants";
 export { SambeeThemeProvider, useSambeeTheme } from "./ThemeContext";
 export { builtInThemes, getDefaultTheme, getThemeById } from "./themes";
 export type { ThemeConfig, ThemeFieldSchema, ThemeFieldType } from "./types";
 export { THEME_SCHEMA } from "./types";
+export type { MarkdownViewerColors, ViewerColors } from "./viewerStyles";
+// Viewer styling utilities
+export {
+  getMarkdownContentStyles,
+  getViewerColors,
+  MARKDOWN_COLORS,
+  VIEWER_DEFAULTS,
+} from "./viewerStyles";

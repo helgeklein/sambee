@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
+import { getMarkdownContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
@@ -49,10 +50,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
-  const viewerBg = currentTheme.components?.markdownViewer?.viewerBackground || "#ffffff";
-  const viewerText = currentTheme.components?.markdownViewer?.viewerText || "#000000";
-  const toolbarBg = currentTheme.components?.markdownViewer?.toolbarBackground || "rgba(0,0,0,0.8)";
-  const toolbarText = currentTheme.components?.markdownViewer?.toolbarText || "#ffffff";
+  const { viewerBg, toolbarBg, toolbarText, viewerText } = getViewerColors(currentTheme, "markdown");
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -283,116 +281,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 <Alert severity="error">{error}</Alert>
               </Box>
             ) : (
-              <Box
-                sx={{
-                  // Layout
-                  minHeight: 0,
-                  minWidth: 0,
-                  width: "100%",
-                  maxWidth: "100%",
-                  p: { xs: 2, sm: 4 },
-                  color: viewerText,
-
-                  // Ensure all children respect container width
-                  "& *": {
-                    boxSizing: "border-box",
-                    minWidth: 0,
-                    maxWidth: "100%",
-                  },
-
-                  // Code blocks: fixed width with internal scrolling
-                  "& pre": {
-                    backgroundColor: "#f6f8fa",
-                    borderRadius: 1,
-                    p: { xs: 1, sm: 2 },
-                    overflow: "auto",
-                    width: "100%",
-                  },
-
-                  // Inline code: break long words
-                  "& code": {
-                    backgroundColor: "#f6f8fa",
-                    padding: "0.2em 0.4em",
-                    borderRadius: "3px",
-                    fontSize: "0.9em",
-                    overflowWrap: "break-word",
-                  },
-
-                  // Code inside pre: preserve formatting (don't break)
-                  "& pre code": {
-                    padding: 0,
-                    backgroundColor: "transparent",
-                    overflowWrap: "normal",
-                  },
-
-                  // Images: scale to fit
-                  "& img": {
-                    maxWidth: "100%",
-                    height: "auto",
-                    display: "block",
-                  },
-
-                  // Tables: horizontal scroll if too wide
-                  "& table": {
-                    borderCollapse: "collapse",
-                    width: "100%",
-                    marginBottom: "16px",
-                    display: "block",
-                    overflowX: "auto",
-                  },
-                  "& table td, & table th": {
-                    border: "1px solid #dfe2e5",
-                    padding: "6px 13px",
-                  },
-                  "& table tr": {
-                    backgroundColor: "#fff",
-                    borderTop: "1px solid #c6cbd1",
-                  },
-                  "& table tr:nth-of-type(even)": {
-                    backgroundColor: "#f6f8fa",
-                  },
-
-                  // Blockquotes
-                  "& blockquote": {
-                    borderLeft: "4px solid #dfe2e5",
-                    margin: "0",
-                    paddingLeft: "16px",
-                    color: "#6a737d",
-                  },
-
-                  // Headings: break long words
-                  "& h1, & h2, & h3, & h4, & h5, & h6": {
-                    marginTop: "24px",
-                    marginBottom: "16px",
-                    fontWeight: 600,
-                    lineHeight: 1.25,
-                    overflowWrap: "break-word",
-                  },
-                  "& h1": {
-                    paddingBottom: "0.3em",
-                    fontSize: "2em",
-                    borderBottom: "1px solid #eaecef",
-                  },
-                  "& h2": {
-                    paddingBottom: "0.3em",
-                    fontSize: "1.5em",
-                    borderBottom: "1px solid #eaecef",
-                  },
-                  "& h3": {
-                    fontSize: "1.25em",
-                  },
-
-                  // Links
-                  "& a": {
-                    color: "#0366d6",
-                    textDecoration: "none",
-                    overflowWrap: "break-word",
-                    "&:hover": {
-                      textDecoration: "underline",
-                    },
-                  },
-                }}
-              >
+              <Box sx={getMarkdownContentStyles(viewerText)}>
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}

@@ -12,6 +12,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
+import { getViewerColors } from "../../theme/viewerStyles";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
@@ -69,9 +70,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const portalRef = useRef<HTMLDivElement | null>(null);
 
   const { currentTheme } = useSambeeTheme();
-  const viewerBg = currentTheme.components?.imageViewer?.viewerBackground || "#000000";
-  const toolbarBg = currentTheme.components?.imageViewer?.toolbarBackground || "rgba(0,0,0,0.8)";
-  const toolbarText = currentTheme.components?.imageViewer?.toolbarText || "#ffffff";
+  const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "image");
 
   const {
     currentIndex,

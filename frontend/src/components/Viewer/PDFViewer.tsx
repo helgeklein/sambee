@@ -9,6 +9,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { error as logError } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
+import { getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
@@ -105,9 +106,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
-  const viewerBg = currentTheme.components?.pdfViewer?.viewerBackground || "#525252";
-  const toolbarBg = currentTheme.components?.pdfViewer?.toolbarBackground || "rgba(0,0,0,0.8)";
-  const toolbarText = currentTheme.components?.pdfViewer?.toolbarText || "#ffffff";
+  const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;

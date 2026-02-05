@@ -11,6 +11,14 @@ const THEME_ID_STORAGE_KEY = "theme-id-current";
 const BUILTIN_THEMES_STORAGE_KEY = "themes-builtin";
 const CUSTOM_THEMES_STORAGE_KEY = "themes-custom";
 
+// Styling constants
+const FOCUS_OUTLINE_WIDTH_PX = 3;
+const FOCUS_OUTLINE_OFFSET_PX = 0;
+const SCROLLBAR_WIDTH_PX = 12;
+const SCROLLBAR_THUMB_BORDER_RADIUS_PX = 8;
+const SCROLLBAR_THUMB_MIN_HEIGHT_PX = 24;
+const SCROLLBAR_THUMB_BORDER_PX = 3;
+
 interface ThemeContextValue {
   /** Current theme configuration */
   currentTheme: ThemeConfig;
@@ -92,6 +100,30 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
 
   // Material-UI theme object
   const muiTheme = useMemo(() => {
+    // Derive colors once to avoid repetition
+    const isDark = currentTheme.mode === "dark";
+
+    // App bar derived colors
+    const appBarBackground =
+      currentTheme.components?.appBar?.background ?? (isDark ? currentTheme.background?.paper : currentTheme.primary.main);
+    const appBarText = currentTheme.components?.appBar?.text ?? (isDark ? currentTheme.text?.primary : currentTheme.primary.contrastText);
+    const appBarFocus = currentTheme.components?.appBar?.focus ?? appBarText ?? currentTheme.primary.contrastText;
+
+    // Focus color for general use
+    const focusColor = currentTheme.action?.focus ?? currentTheme.primary.main;
+
+    // Scrollbar colors derived from theme
+    const scrollbarThumb = isDark ? "#6b6b6b" : "#c1c1c1";
+    const scrollbarTrack = isDark ? "#2b2b2b" : "#f1f1f1";
+
+    // Shared focus outline style for buttons
+    const buttonFocusStyle = {
+      outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${focusColor}`,
+      outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
+      backgroundColor: "transparent",
+      boxShadow: "none",
+    };
+
     return createTheme({
       palette: {
         mode: currentTheme.mode,
@@ -112,19 +144,19 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiCssBaseline: {
           styleOverrides: {
             body: {
-              scrollbarColor: currentTheme.mode === "dark" ? "#6b6b6b #2b2b2b" : "#c1c1c1 #f1f1f1",
+              scrollbarColor: `${scrollbarThumb} ${scrollbarTrack}`,
               "&::-webkit-scrollbar, & *::-webkit-scrollbar": {
-                width: 12,
-                height: 12,
+                width: SCROLLBAR_WIDTH_PX,
+                height: SCROLLBAR_WIDTH_PX,
               },
               "&::-webkit-scrollbar-thumb, & *::-webkit-scrollbar-thumb": {
-                borderRadius: 8,
-                backgroundColor: currentTheme.mode === "dark" ? "#6b6b6b" : "#c1c1c1",
-                minHeight: 24,
-                border: currentTheme.mode === "dark" ? "3px solid #2b2b2b" : "3px solid #f1f1f1",
+                borderRadius: SCROLLBAR_THUMB_BORDER_RADIUS_PX,
+                backgroundColor: scrollbarThumb,
+                minHeight: SCROLLBAR_THUMB_MIN_HEIGHT_PX,
+                border: `${SCROLLBAR_THUMB_BORDER_PX}px solid ${scrollbarTrack}`,
               },
               "&::-webkit-scrollbar-corner, & *::-webkit-scrollbar-corner": {
-                backgroundColor: currentTheme.mode === "dark" ? "#2b2b2b" : "#f1f1f1",
+                backgroundColor: scrollbarTrack,
               },
             },
           },
@@ -132,35 +164,18 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiAppBar: {
           styleOverrides: {
             root: {
-              // Use semantic component tokens if available, otherwise fall back to mode-based logic
-              backgroundColor:
-                currentTheme.components?.appBar?.background ??
-                (currentTheme.mode === "dark" ? currentTheme.background?.paper : currentTheme.primary.main),
-              color:
-                currentTheme.components?.appBar?.text ??
-                (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
+              backgroundColor: appBarBackground,
+              color: appBarText,
               // Remove default dark mode overlay gradient
               backgroundImage: "none",
               // Ensure Select components inside AppBar inherit the text color
-              "& .MuiSelect-select": {
-                color:
-                  currentTheme.components?.appBar?.text ??
-                  (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
-              },
-              "& .MuiSelect-icon": {
-                color:
-                  currentTheme.components?.appBar?.text ??
-                  (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
-              },
-              "& .MuiOutlinedInput-notchedOutline": {
-                borderColor:
-                  currentTheme.components?.appBar?.text ??
-                  (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
-              },
-              // Focus outline for buttons inside AppBar - use contrasting focus color
+              "& .MuiSelect-select": { color: appBarText },
+              "& .MuiSelect-icon": { color: appBarText },
+              "& .MuiOutlinedInput-notchedOutline": { borderColor: appBarText },
+              // Focus outline for buttons inside AppBar
               "& .MuiButtonBase-root.Mui-focusVisible": {
-                outline: `3px solid ${currentTheme.components?.appBar?.focus ?? currentTheme.components?.appBar?.text ?? currentTheme.primary.contrastText}`,
-                outlineOffset: "0px",
+                outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${appBarFocus}`,
+                outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
               },
             },
           },
@@ -179,7 +194,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                 textDecoration: "underline",
                 textDecorationThickness: "2px",
                 textUnderlineOffset: "3px",
-                textDecorationColor: currentTheme.action?.focus ?? currentTheme.primary.main,
+                textDecorationColor: focusColor,
               },
             },
           },
@@ -219,12 +234,9 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             root: {
               textTransform: "none",
               "&.Mui-focusVisible": {
-                outline: `3px solid ${currentTheme.action?.focus ?? currentTheme.primary.main}`,
-                outlineOffset: "0px",
-                backgroundColor: "transparent",
+                ...buttonFocusStyle,
                 // In dark mode, use primary color for text visibility on transparent background
-                ...(currentTheme.mode === "dark" && { color: currentTheme.primary.main }),
-                boxShadow: "none",
+                ...(isDark && { color: currentTheme.primary.main }),
               },
             },
           },
@@ -236,12 +248,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           },
           styleOverrides: {
             root: {
-              "&.Mui-focusVisible": {
-                outline: `3px solid ${currentTheme.action?.focus ?? currentTheme.primary.main}`,
-                outlineOffset: "0px",
-                backgroundColor: "transparent",
-                boxShadow: "none",
-              },
+              "&.Mui-focusVisible": buttonFocusStyle,
             },
           },
         },

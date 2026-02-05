@@ -3,6 +3,8 @@ import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from 
 import React, { useEffect, useRef, useState } from "react";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { PAGE_INPUT, RESPONSIVE_FONT_SIZE, TOOLBAR_HEIGHT, Z_INDEX } from "../../theme/constants";
+import { VIEWER_DEFAULTS } from "../../theme/viewerStyles";
 
 /**
  * Configuration for which controls to display
@@ -111,8 +113,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   rotation,
   search,
   onDownload,
-  toolbarBackground = "rgba(0,0,0,0.8)",
-  toolbarText = "white",
+  toolbarBackground = VIEWER_DEFAULTS.TOOLBAR_BG,
+  toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -194,12 +196,12 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         flexDirection: isMobile && showSearch ? "column" : "row",
         alignItems: isMobile && showSearch ? "stretch" : "center",
         gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
-        minHeight: isMobile ? 56 : 64, // Match MUI Toolbar height
+        minHeight: isMobile ? `${TOOLBAR_HEIGHT.MOBILE_PX}px` : `${TOOLBAR_HEIGHT.DESKTOP_PX}px`,
         paddingTop: isMobile ? `calc(${theme.spacing(1)} + env(safe-area-inset-top, 0px))` : 0,
         paddingBottom: isMobile ? theme.spacing(1) : 0,
         paddingLeft: isMobile ? theme.spacing(1) : theme.spacing(2),
         paddingRight: isMobile ? theme.spacing(1) : theme.spacing(2),
-        zIndex: 9999,
+        zIndex: Z_INDEX.VIEWER_TOOLBAR,
         boxSizing: "border-box",
       }}
     >
@@ -220,7 +222,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
-            fontSize: { xs: "0.875rem", sm: "1.25rem" },
+            fontSize: RESPONSIVE_FONT_SIZE.BODY,
             minWidth: 0,
           }}
         >
@@ -232,7 +234,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               sx={{
                 ml: { xs: 0.5, sm: 2 },
                 opacity: 0.7,
-                fontSize: { xs: "0.7rem", sm: "0.875rem" },
+                fontSize: RESPONSIVE_FONT_SIZE.CAPTION,
                 display: { xs: "block", sm: "inline" },
               }}
             >
@@ -310,7 +312,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               onKeyDown={handlePageInputKeyDown}
               size="small"
               sx={{
-                width: isMobile ? "40px" : "60px",
+                width: isMobile ? `${PAGE_INPUT.WIDTH_MOBILE_PX}px` : `${PAGE_INPUT.WIDTH_DESKTOP_PX}px`,
                 "& .MuiInputBase-root": {
                   color: toolbarText,
                   fontSize: isMobile ? "0.75rem" : "0.875rem",
@@ -321,9 +323,12 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 "&:hover .MuiOutlinedInput-notchedOutline": {
                   borderColor: `${toolbarText}80`,
                 },
+                "& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                  borderColor: "primary.main",
+                },
                 "& .MuiInputBase-input": {
                   textAlign: "center",
-                  padding: isMobile ? "4px" : "6px",
+                  padding: isMobile ? `${PAGE_INPUT.PADDING_MOBILE_PX}px` : `${PAGE_INPUT.PADDING_DESKTOP_PX}px`,
                 },
               }}
               inputProps={{
