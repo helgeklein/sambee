@@ -1618,7 +1618,7 @@ const Browser: React.FC = () => {
               searchInputRef={searchInputRef}
               showSearch={files.length > 0}
               onOpenSettings={() => setSettingsOpen(true)}
-              onAfterMenuClose={() => listContainerEl?.focus()}
+              onBlurToFileList={() => listContainerEl?.focus()}
             />
           )}
         </Toolbar>
@@ -1660,6 +1660,7 @@ const Browser: React.FC = () => {
                       document.activeElement.blur();
                     }
                   }}
+                  onEscape={() => listContainerEl?.focus()}
                 />
 
                 {files.length > 0 && (
@@ -1678,7 +1679,13 @@ const Browser: React.FC = () => {
             )}
 
             {files.length > 0 && useCompactLayout && (
-              <SearchBar value={searchQuery} onChange={setSearchQuery} inputRef={searchInputRef} useCompactLayout={useCompactLayout} />
+              <SearchBar
+                value={searchQuery}
+                onChange={setSearchQuery}
+                inputRef={searchInputRef}
+                useCompactLayout={useCompactLayout}
+                onBlurToFileList={() => listContainerEl?.focus()}
+              />
             )}
 
             {loading ? (

@@ -15,7 +15,8 @@ interface DesktopToolbarProps {
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
   onOpenSettings: () => void;
-  onAfterMenuClose?: () => void;
+  /** Called when ESC is pressed on controls or when menus close, to focus file list */
+  onBlurToFileList?: () => void;
 }
 
 //
@@ -30,7 +31,7 @@ export function DesktopToolbar({
   searchInputRef,
   showSearch,
   onOpenSettings,
-  onAfterMenuClose,
+  onBlurToFileList,
 }: DesktopToolbarProps) {
   return (
     <>
@@ -44,7 +45,13 @@ export function DesktopToolbar({
 
       {showSearch && (
         <Box sx={{ flexGrow: 0, width: "100%", maxWidth: { sm: 400, md: 500, lg: 600 }, mx: 2 }}>
-          <SearchBar value={searchQuery} onChange={onSearchChange} inputRef={searchInputRef} useCompactLayout={false} />
+          <SearchBar
+            value={searchQuery}
+            onChange={onSearchChange}
+            inputRef={searchInputRef}
+            useCompactLayout={false}
+            onBlurToFileList={onBlurToFileList}
+          />
         </Box>
       )}
 
@@ -54,10 +61,10 @@ export function DesktopToolbar({
         connections={connections}
         selectedConnectionId={selectedConnectionId}
         onConnectionChange={onConnectionChange}
-        onAfterChange={onAfterMenuClose}
+        onAfterChange={onBlurToFileList}
       />
 
-      <DesktopToolbarActions onOpenSettings={onOpenSettings} />
+      <DesktopToolbarActions onOpenSettings={onOpenSettings} onEscape={onBlurToFileList} />
     </>
   );
 }

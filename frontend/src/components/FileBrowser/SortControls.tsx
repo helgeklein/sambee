@@ -4,6 +4,7 @@ import { Box, Button, Divider, Menu, MenuItem, Typography, useMediaQuery, useThe
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { SortField } from "../../pages/FileBrowser/types";
 import { pillButtonStyle } from "../../theme/commonStyles";
+import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 interface SortControlsProps {
   sortBy: SortField;
@@ -47,6 +48,7 @@ export function SortControls({ sortBy, onSortChange, sortDirection, onDirectionC
     <Box display="flex" alignItems="center" gap={1}>
       <Button
         onClick={handleClick}
+        onKeyDown={createEscapeHandler(onAfterChange)}
         size="small"
         sx={{
           ...pillButtonStyle,

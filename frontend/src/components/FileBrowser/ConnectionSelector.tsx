@@ -2,11 +2,13 @@ import { Button, Menu, MenuItem } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { pillButtonStyle } from "../../theme/commonStyles";
 import type { Connection } from "../../types";
+import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 interface ConnectionSelectorProps {
   connections: Connection[];
   selectedConnectionId: string;
   onConnectionChange: (connectionId: string) => void;
+  /** Called when menu closes or ESC is pressed on button */
   onAfterChange?: () => void;
 }
 
@@ -31,6 +33,7 @@ export function ConnectionSelector({ connections, selectedConnectionId, onConnec
     <>
       <Button
         onClick={handleClick}
+        onKeyDown={createEscapeHandler(onAfterChange)}
         role="combobox"
         aria-expanded={open}
         aria-haspopup="listbox"

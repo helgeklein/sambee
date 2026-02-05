@@ -4,6 +4,7 @@ import { Box, Button, Divider, Menu, MenuItem, Typography } from "@mui/material"
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import { pillButtonStyle } from "../../theme/commonStyles";
+import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 interface ViewModeSelectorProps {
   viewMode: ViewMode;
@@ -37,6 +38,7 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange }: 
     <Box display="flex" alignItems="center" gap={1}>
       <Button
         onClick={handleClick}
+        onKeyDown={createEscapeHandler(onAfterChange)}
         size="small"
         sx={{
           ...pillButtonStyle,

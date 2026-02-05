@@ -4,11 +4,14 @@
 
 import { Breadcrumbs, Link, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
+import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 interface BreadcrumbsNavigationProps {
   currentPath: string;
   onNavigate: (path: string) => void;
   connectionName: string;
+  /** Called when ESC is pressed on a breadcrumb link */
+  onEscape?: () => void;
 }
 
 /**
@@ -101,7 +104,7 @@ function calculateTruncation(pathParts: string[], availableWidth: number): strin
  * Intelligently truncates segments when space is limited, prioritizing
  * the current directory (highest), parent (second), etc.
  */
-export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName }: BreadcrumbsNavigationProps) {
+export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName, onEscape }: BreadcrumbsNavigationProps) {
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(800);
@@ -168,6 +171,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName 
           component="button"
           variant="body1"
           onClick={handleRootClick}
+          onKeyDown={createEscapeHandler(onEscape)}
           sx={{ fontWeight: "regular" }}
           aria-label="Navigate to root directory"
         >
@@ -205,6 +209,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName 
             component="button"
             variant="body1"
             onClick={() => handleBreadcrumbClick(index)}
+            onKeyDown={createEscapeHandler(onEscape)}
             aria-label={`Navigate to ${fullSegmentName}`}
             title={fullSegmentName}
             sx={{

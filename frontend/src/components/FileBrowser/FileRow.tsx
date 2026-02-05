@@ -77,7 +77,7 @@ export const FileRow = React.memo(
                 sx={{
                   display: "grid",
                   gridTemplateColumns: "24px 1fr auto auto",
-                  gap: 2,
+                  columnGap: 1,
                   alignItems: "center",
                   width: "100%",
                 }}
@@ -94,7 +94,7 @@ export const FileRow = React.memo(
                     {file.name}
                   </Typography>
                 </Box>
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "right", minWidth: "80px", mr: 3 }} noWrap>
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3 }} noWrap>
                   {file.type === "directory" ? "" : formatFileSize(file.size)}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" noWrap>

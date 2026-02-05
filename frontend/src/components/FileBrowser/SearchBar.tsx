@@ -12,13 +12,34 @@ interface SearchBarProps {
   onChange: (value: string) => void;
   inputRef?: React.RefObject<HTMLInputElement>;
   useCompactLayout?: boolean;
+  /** Called when ESC is pressed on an empty search field */
+  onBlurToFileList?: () => void;
 }
 
 /**
  * Search bar component for filtering files
  * Shows clear button when there's text, with mobile-optimized touch targets
+ *
+ * ESC key behavior:
+ * - If the field has content, ESC clears it
+ * - If the field is empty, ESC moves focus to the file list
  */
-export function SearchBar({ value, onChange, inputRef, useCompactLayout = false }: SearchBarProps) {
+export function SearchBar({ value, onChange, inputRef, useCompactLayout = false, onBlurToFileList }: SearchBarProps) {
+  //
+  // handleKeyDown
+  //
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      if (value) {
+        // Clear the search field if it has content
+        onChange("");
+      } else if (onBlurToFileList) {
+        // Move focus to file list if field is already empty
+        onBlurToFileList();
+      }
+      e.preventDefault();
+    }
+  };
   return (
     <Paper
       elevation={2}
@@ -38,6 +59,7 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false 
         placeholder="Search"
         value={value}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
         inputRef={inputRef}
         sx={{
           "& .MuiInputBase-root": {
