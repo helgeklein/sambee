@@ -128,7 +128,11 @@ def normalize_pdf(
         # - Using RAM-backed temp dir when available
         # Quality settings:
         # - dCompatibilityLevel=1.4 ensures wide browser compatibility
-        # - dPDFSETTINGS=/ebook: Medium quality (150 dpi images), balanced size and quality.
+        # - Available quality presets:
+        #   - dPDFSETTINGS=/ebook: Medium quality (150 dpi images), balanced size and quality.
+        #   - dPDFSETTINGS=/printer: Higher quality (300 dpi images), larger file size. Use if quality is a concern.
+        #   - Notes:
+        #     - ebook "should" be good enough, but Helge noticed serious aliasing and moiré patterns with certain images.
         # Note: GHOSTSCRIPT_PATH is guaranteed to be non-None here (checked above)
         gs_path: str = GHOSTSCRIPT_PATH  # type: ignore[assignment]
         cmd = [
@@ -139,7 +143,7 @@ def normalize_pdf(
             "-dSAFER",  # Restrict file operations for security
             "-sDEVICE=pdfwrite",
             "-dCompatibilityLevel=1.4",
-            "-dPDFSETTINGS=/ebook",
+            "-dPDFSETTINGS=/printer",
             "-dAutoRotatePages=/None",  # Preserve page orientation
             f"-sOutputFile={output_path}",
             str(input_path),
