@@ -24,6 +24,9 @@ interface SearchBarProps {
  * - If the field has content, ESC clears it
  * - If the field is empty, ESC moves focus to the file list
  */
+//
+// SearchBar
+//
 export function SearchBar({ value, onChange, inputRef, useCompactLayout = false, onBlurToFileList }: SearchBarProps) {
   //
   // handleKeyDown
@@ -64,6 +67,10 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false,
         sx={{
           "& .MuiInputBase-root": {
             fontSize: { xs: "16px", sm: "14px" }, // Prevent zoom on iOS
+          },
+          "& .MuiInputBase-root.Mui-focused": {
+            outline: (theme) => `3px solid ${theme.palette.appBar?.focus}`,
+            outlineOffset: `0`,
           },
           "& .MuiInputBase-input": {
             padding: { xs: "10px 14px", sm: "8.5px 14px" }, // Ensure min 44px touch target

@@ -5,7 +5,7 @@
 import { Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
 import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppearanceSettings } from "../../pages/AppearanceSettings";
 import { ConnectionSettings } from "../../pages/ConnectionSettings";
 import api from "../../services/api";
@@ -34,6 +34,54 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
   const [isAdmin, setIsAdmin] = useState(false);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
+  // Refs for category list items (for arrow key navigation and initial focus)
+  const appearanceRef = useRef<HTMLDivElement>(null);
+  const connectionsRef = useRef<HTMLDivElement>(null);
+
+  // Build list of available categories based on admin status
+  const availableCategories = useMemo(() => {
+    const categories: SettingsCategory[] = ["appearance"];
+    if (isAdmin) {
+      categories.push("connections");
+    }
+    return categories;
+  }, [isAdmin]);
+
+  //
+  // handleCategoryKeyDown
+  //
+  const handleCategoryKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") {
+        return;
+      }
+
+      e.preventDefault();
+      const currentIndex = availableCategories.indexOf(selectedCategory);
+      let newIndex = currentIndex;
+
+      if (e.key === "ArrowDown") {
+        newIndex = Math.min(currentIndex + 1, availableCategories.length - 1);
+      } else if (e.key === "ArrowUp") {
+        newIndex = Math.max(currentIndex - 1, 0);
+      }
+
+      if (newIndex !== currentIndex) {
+        const newCategory = availableCategories[newIndex];
+        if (newCategory) {
+          setSelectedCategory(newCategory);
+          // Focus the new category button
+          if (newCategory === "appearance") {
+            appearanceRef.current?.focus();
+          } else if (newCategory === "connections") {
+            connectionsRef.current?.focus();
+          }
+        }
+      }
+    },
+    [availableCategories, selectedCategory]
+  );
+
   useEffect(() => {
     // Check admin status when dialog opens
     if (open) {
@@ -55,6 +103,21 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
   useEffect(() => {
     if (open) {
       setSelectedCategory(initialCategory);
+    }
+  }, [open, initialCategory]);
+
+  // Focus the initial category button when dialog opens
+  useEffect(() => {
+    if (open) {
+      // Use setTimeout to ensure the dialog is fully rendered
+      const timeoutId = setTimeout(() => {
+        if (initialCategory === "appearance") {
+          appearanceRef.current?.focus();
+        } else if (initialCategory === "connections") {
+          connectionsRef.current?.focus();
+        }
+      }, 0);
+      return () => clearTimeout(timeoutId);
     }
   }, [open, initialCategory]);
 
@@ -93,9 +156,18 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
             </Typography>
           </Box>
           <Divider sx={{ mb: 2 }} />
-          <List sx={{ flex: 1, py: 0 }}>
+          <List sx={{ flex: 1, py: 0 }} role="listbox" aria-label="Settings categories">
             <ListItem disablePadding>
-              <ListItemButton onClick={() => setSelectedCategory("appearance")} sx={{ py: 1.5, px: 2 }}>
+              <ListItemButton
+                ref={appearanceRef}
+                onClick={() => setSelectedCategory("appearance")}
+                onKeyDown={handleCategoryKeyDown}
+                selected={selectedCategory === "appearance"}
+                tabIndex={selectedCategory === "appearance" ? 0 : -1}
+                role="option"
+                aria-selected={selectedCategory === "appearance"}
+                sx={{ py: 1.5, px: 2 }}
+              >
                 <ListItemIcon
                   sx={{
                     minWidth: 40,
@@ -115,7 +187,16 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
             </ListItem>
             {isAdmin && (
               <ListItem disablePadding>
-                <ListItemButton onClick={() => setSelectedCategory("connections")} sx={{ py: 1.5, px: 2 }}>
+                <ListItemButton
+                  ref={connectionsRef}
+                  onClick={() => setSelectedCategory("connections")}
+                  onKeyDown={handleCategoryKeyDown}
+                  selected={selectedCategory === "connections"}
+                  tabIndex={selectedCategory === "connections" ? 0 : -1}
+                  role="option"
+                  aria-selected={selectedCategory === "connections"}
+                  sx={{ py: 1.5, px: 2 }}
+                >
                   <ListItemIcon
                     sx={{
                       minWidth: 40,

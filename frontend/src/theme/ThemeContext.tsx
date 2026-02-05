@@ -157,6 +157,11 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                   currentTheme.components?.appBar?.text ??
                   (currentTheme.mode === "dark" ? currentTheme.text?.primary : currentTheme.primary.contrastText),
               },
+              // Focus outline for buttons inside AppBar - use contrasting focus color
+              "& .MuiButtonBase-root.Mui-focusVisible": {
+                outline: `3px solid ${currentTheme.components?.appBar?.focus ?? currentTheme.components?.appBar?.text ?? currentTheme.primary.contrastText}`,
+                outlineOffset: "0px",
+              },
             },
           },
         },
@@ -169,6 +174,12 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
               color: currentTheme.components?.link?.main ?? currentTheme.primary.main,
               "&:hover": {
                 color: currentTheme.components?.link?.hover ?? currentTheme.primary.dark,
+              },
+              "&.Mui-focusVisible": {
+                textDecoration: "underline",
+                textDecorationThickness: "2px",
+                textUnderlineOffset: "3px",
+                textDecorationColor: currentTheme.action?.focus ?? currentTheme.primary.main,
               },
             },
           },
@@ -196,6 +207,59 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                   backgroundColor: currentTheme.action?.hover,
                 },
               },
+            },
+          },
+        },
+        // Focus styles for Button - clean outline ring (keyboard nav only)
+        MuiButton: {
+          defaultProps: {
+            disableFocusRipple: true,
+          },
+          styleOverrides: {
+            root: {
+              textTransform: "none",
+              "&.Mui-focusVisible": {
+                outline: `3px solid ${currentTheme.action?.focus ?? currentTheme.primary.main}`,
+                outlineOffset: "0px",
+                backgroundColor: "transparent",
+                // In dark mode, use primary color for text visibility on transparent background
+                ...(currentTheme.mode === "dark" && { color: currentTheme.primary.main }),
+                boxShadow: "none",
+              },
+            },
+          },
+        },
+        // Focus styles for IconButton - clean outline ring (keyboard nav only)
+        MuiIconButton: {
+          defaultProps: {
+            disableFocusRipple: true,
+          },
+          styleOverrides: {
+            root: {
+              "&.Mui-focusVisible": {
+                outline: `3px solid ${currentTheme.action?.focus ?? currentTheme.primary.main}`,
+                outlineOffset: "0px",
+                backgroundColor: "transparent",
+                boxShadow: "none",
+              },
+            },
+          },
+        },
+        // Keep form labels readable when focused (don't use primary yellow color)
+        MuiInputLabel: {
+          styleOverrides: {
+            root: {
+              "&.Mui-focused": {
+                color: currentTheme.text?.primary,
+              },
+            },
+          },
+        },
+        // Keep helper text readable when input is focused
+        MuiFormHelperText: {
+          styleOverrides: {
+            root: {
+              color: currentTheme.text?.secondary,
             },
           },
         },

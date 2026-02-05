@@ -64,7 +64,9 @@ export function DesktopToolbar({
         onAfterChange={onBlurToFileList}
       />
 
-      <DesktopToolbarActions onOpenSettings={onOpenSettings} onEscape={onBlurToFileList} />
+      <Box sx={{ ml: 1 }}>
+        <DesktopToolbarActions onOpenSettings={onOpenSettings} onEscape={onBlurToFileList} />
+      </Box>
     </>
   );
 }

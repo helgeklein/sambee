@@ -37,6 +37,8 @@ export interface ThemeConfig {
   action?: {
     hover?: string;
     selected?: string;
+    /** Focus outline color for keyboard navigation */
+    focus?: string;
   };
   /** Component-specific semantic colors */
   components?: {
@@ -46,6 +48,8 @@ export interface ThemeConfig {
       background: string;
       /** Text color on the app bar */
       text: string;
+      /** Focus outline color for buttons in the app bar */
+      focus?: string;
     };
     /** Status bar colors - adapts to theme mode */
     statusBar?: {

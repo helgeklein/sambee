@@ -9,6 +9,7 @@ declare module "@mui/material/styles" {
     appBar?: {
       background: string;
       text: string;
+      focus?: string;
     };
     statusBar?: {
       background: string;
@@ -21,6 +22,7 @@ declare module "@mui/material/styles" {
     appBar?: {
       background: string;
       text: string;
+      focus?: string;
     };
     statusBar?: {
       background: string;

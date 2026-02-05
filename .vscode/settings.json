@@ -142,5 +142,25 @@
     "chown": false,
     "/^git\\s+(push|reset|revert|clean)\\b/": false,
     "/^npm\\s+(uninstall|remove)\\b/": false
-  }
+  },
+  "workbench.colorCustomizations": {
+    "activityBar.activeBackground": "#f7d260",
+    "activityBar.background": "#f7d260",
+    "activityBar.foreground": "#15202b",
+    "activityBar.inactiveForeground": "#15202b99",
+    "activityBarBadge.background": "#089874",
+    "activityBarBadge.foreground": "#e7e7e7",
+    "commandCenter.border": "#15202b99",
+    "sash.hoverBorder": "#f7d260",
+    "statusBar.background": "#f4c430",
+    "statusBar.foreground": "#15202b",
+    "statusBarItem.hoverBackground": "#e5b00c",
+    "statusBarItem.remoteBackground": "#f4c430",
+    "statusBarItem.remoteForeground": "#15202b",
+    "titleBar.activeBackground": "#f4c430",
+    "titleBar.activeForeground": "#15202b",
+    "titleBar.inactiveBackground": "#f4c43099",
+    "titleBar.inactiveForeground": "#15202b99"
+  },
+  "peacock.remoteColor": "#F4C430"
 }

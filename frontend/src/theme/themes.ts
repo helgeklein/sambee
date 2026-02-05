@@ -26,21 +26,23 @@ export const builtInThemes: ThemeConfig[] = [
     },
     text: {
       primary: "#1F262B",
-      secondary: "rgba(31, 38, 43, 0.7)",
+      secondary: "#1F262BB3", // 70% opacity
     },
     action: {
-      hover: "rgba(244, 196, 48, 0.08)", // Golden yellow with low opacity
-      selected: "rgba(244, 196, 48, 0.16)", // Golden yellow with higher opacity
+      hover: "#F4C43014", // 8% opacity
+      selected: "#F4C43029", // 16% opacity
+      focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },
     components: {
       appBar: {
         background: "#F4C430", // Golden yellow - primary color in light mode
         text: "#1F262B", // Dark text for contrast on yellow background
+        focus: "#1F262BB3", // Dark outline for contrast on yellow background
       },
       statusBar: {
         background: "#F4C430", // Matches app bar in light mode
         text: "#1F262B", // Primary text - dark on yellow
-        textSecondary: "rgba(31, 38, 43, 0.7)", // Muted dark text
+        textSecondary: "#1F262BB3", // 70% opacity
       },
       link: {
         main: "#D4A020", // Darker yellow
@@ -99,21 +101,23 @@ export const builtInThemes: ThemeConfig[] = [
     },
     text: {
       primary: "#F6F1E8",
-      secondary: "rgba(246, 241, 232, 0.7)",
+      secondary: "#F6F1E8B3", // 70% opacity
     },
     action: {
-      hover: "rgba(244, 196, 48, 0.08)", // Golden yellow with low opacity
-      selected: "rgba(244, 196, 48, 0.16)", // Golden yellow with higher opacity
+      hover: "#F4C43014", // 8% opacity
+      selected: "#F4C43029", // 16% opacity
+      focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },
     components: {
       appBar: {
         background: "#2A3239", // Dark paper color - not primary in dark mode
         text: "#F6F1E8", // Light text for contrast on dark background
+        focus: "#F4C430", // Golden yellow for focus outlines on dark background
       },
       statusBar: {
         background: "#2A3239", // Matches app bar in dark mode (paper color)
         text: "#F6F1E8", // Primary text - light on dark
-        textSecondary: "rgba(246, 241, 232, 0.7)", // Muted light text
+        textSecondary: "#F6F1E8B3", // 70% opacity
       },
       link: {
         main: "#F4C430", // Golden yellow
