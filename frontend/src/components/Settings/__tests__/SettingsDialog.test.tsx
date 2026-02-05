@@ -84,11 +84,11 @@ describe("SettingsDialog Component", () => {
 
     // Should show both Appearance and Connections in sidebar
     expect(screen.getByText("Settings")).toBeInTheDocument();
-    const appearanceButton = screen.getByRole("button", { name: /appearance/i });
-    const connectionsButton = screen.getByRole("button", { name: /connections/i });
+    const appearanceOption = screen.getByRole("option", { name: /appearance/i });
+    const connectionsOption = screen.getByRole("option", { name: /connections/i });
 
-    expect(appearanceButton).toBeInTheDocument();
-    expect(connectionsButton).toBeInTheDocument();
+    expect(appearanceOption).toBeInTheDocument();
+    expect(connectionsOption).toBeInTheDocument();
   });
 
   it("hides Connections tab for non-admin users", async () => {
@@ -105,7 +105,7 @@ describe("SettingsDialog Component", () => {
     expect(screen.getByText("Appearance")).toBeInTheDocument();
 
     // Connections should not be in the sidebar
-    expect(screen.queryByRole("button", { name: /connections/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /connections/i })).not.toBeInTheDocument();
   });
 
   it("switches to connections tab when admin clicks it", async () => {
@@ -122,9 +122,9 @@ describe("SettingsDialog Component", () => {
     // Should start with Appearance
     expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
 
-    // Click Connections button
-    const connectionsButton = screen.getByRole("button", { name: /connections/i });
-    await user.click(connectionsButton);
+    // Click Connections option
+    const connectionsOption = screen.getByRole("option", { name: /connections/i });
+    await user.click(connectionsOption);
 
     // Should now show Connection Settings
     expect(screen.getByText("Connection Settings Content")).toBeInTheDocument();
