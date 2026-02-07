@@ -1,5 +1,7 @@
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
+from functools import partial
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
@@ -92,12 +94,19 @@ async def read_and_convert_image(
         max_width = None if no_resizing else max_width
         max_height = None if no_resizing else max_height
 
-        converted_bytes, converted_mime, converter_name, duration_ms = convert_image_for_viewer(
-            image_bytes,
-            filename,
-            max_width=max_width,
-            max_height=max_height,
-            output_format="auto",  # Auto-select WebP/PNG/JPEG
+        # Run CPU-intensive image conversion in a thread pool to avoid
+        # blocking the async event loop (which would stall all other requests).
+        loop = asyncio.get_event_loop()
+        converted_bytes, converted_mime, converter_name, duration_ms = await loop.run_in_executor(
+            None,
+            partial(
+                convert_image_for_viewer,
+                image_bytes,
+                filename,
+                max_width=max_width,
+                max_height=max_height,
+                output_format="auto",  # Auto-select WebP/PNG/JPEG
+            ),
         )
 
         logger.info(
@@ -192,10 +201,12 @@ async def read_and_normalize_pdf(
 
         await backend.disconnect()
 
-        # Normalize the PDF using Ghostscript
-        normalized_bytes, was_modified, duration_ms = normalize_pdf(
-            pdf_bytes,
-            filename=filename,
+        # Run Ghostscript PDF normalization in a thread pool to avoid
+        # blocking the async event loop (which would stall all other requests).
+        loop = asyncio.get_event_loop()
+        normalized_bytes, was_modified, duration_ms = await loop.run_in_executor(
+            None,
+            partial(normalize_pdf, pdf_bytes, filename=filename),
         )
 
         if was_modified:
