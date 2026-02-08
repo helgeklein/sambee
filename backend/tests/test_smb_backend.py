@@ -11,6 +11,7 @@ Tests cover:
 - Error handling and edge cases
 """
 
+import stat as stat_module
 from contextlib import asynccontextmanager
 from datetime import datetime
 from unittest.mock import MagicMock, patch
@@ -503,16 +504,15 @@ class TestFileInfoRetrieval:
     """Test getting file information."""
 
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.path.isdir")
     @patch("app.storage.smb.smbclient.stat")
-    async def test_get_file_info_for_file(self, mock_stat, mock_isdir):
+    async def test_get_file_info_for_file(self, mock_stat):
         """Test getting info for a file."""
         mock_stat.return_value = MagicMock(
             st_size=1024,
+            st_mode=stat_module.S_IFREG | 0o644,
             st_mtime=datetime(2024, 1, 15, 10, 30).timestamp(),
             st_ctime=datetime(2024, 1, 10, 9, 0).timestamp(),
         )
-        mock_isdir.return_value = False
 
         backend = SMBBackend(
             host="server.local",
@@ -531,16 +531,15 @@ class TestFileInfoRetrieval:
         assert result.is_hidden is False
 
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.path.isdir")
     @patch("app.storage.smb.smbclient.stat")
-    async def test_get_file_info_for_directory(self, mock_stat, mock_isdir):
+    async def test_get_file_info_for_directory(self, mock_stat):
         """Test getting info for a directory."""
         mock_stat.return_value = MagicMock(
             st_size=0,
+            st_mode=stat_module.S_IFDIR | 0o755,
             st_mtime=datetime(2024, 1, 15, 10, 30).timestamp(),
             st_ctime=datetime(2024, 1, 10, 9, 0).timestamp(),
         )
-        mock_isdir.return_value = True
 
         backend = SMBBackend(
             host="server.local",
@@ -557,16 +556,15 @@ class TestFileInfoRetrieval:
         assert result.mime_type is None
 
     @pytest.mark.asyncio
-    @patch("app.storage.smb.smbclient.path.isdir")
     @patch("app.storage.smb.smbclient.stat")
-    async def test_get_file_info_hidden_file(self, mock_stat, mock_isdir):
+    async def test_get_file_info_hidden_file(self, mock_stat):
         """Test that hidden files are detected."""
         mock_stat.return_value = MagicMock(
             st_size=100,
+            st_mode=stat_module.S_IFREG | 0o644,
             st_mtime=datetime(2024, 1, 15, 10, 30).timestamp(),
             st_ctime=datetime(2024, 1, 10, 9, 0).timestamp(),
         )
-        mock_isdir.return_value = False
 
         backend = SMBBackend(
             host="server.local",

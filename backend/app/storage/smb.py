@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import stat
 from datetime import datetime
 from pathlib import PurePosixPath
 from typing import AsyncIterator
@@ -187,9 +188,10 @@ class SMBBackend(StorageBackend):
                 loop = asyncio.get_event_loop()
                 stat_info = await asyncio.wait_for(loop.run_in_executor(None, lambda: smbclient.stat(smb_path)), timeout=10.0)
 
-                is_dir = smbclient.path.isdir(  # pyright: ignore[reportAttributeAccessIssue]
-                    smb_path
-                )
+                # Derive directory status from stat_info.st_mode (already fetched above)
+                # instead of calling smbclient.path.isdir() which would make a redundant
+                # blocking SMB round-trip on the event loop.
+                is_dir = stat.S_ISDIR(stat_info.st_mode)
                 filename = PurePosixPath(path).name
 
                 return FileInfo(

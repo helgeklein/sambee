@@ -18,6 +18,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Optional
 
 import smbclient
@@ -197,9 +198,13 @@ class SMBConnectionPool:
                     f"(idle for {(now - conn.last_used).total_seconds():.0f}s)"
                 )
 
-                # Delete session from smbclient pool
+                # Delete session from smbclient pool (run in executor to avoid
+                # blocking the event loop during the SMB disconnect handshake)
                 try:
-                    smbclient.delete_session(conn.host, port=conn.port)
+                    await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        partial(smbclient.delete_session, conn.host, port=conn.port),
+                    )
                 except Exception as e:
                     logger.warning(f"Error deleting session for {conn.host}:{conn.port}: {e}")
 
@@ -253,10 +258,16 @@ class SMBConnectionPool:
         """Close all pooled connections (for shutdown)."""
 
         async with self._lock:
+            loop = asyncio.get_event_loop()
             for pool_key, conn in self._connections.items():
                 try:
                     logger.info(f"Closing connection: {conn.host}:{conn.port}/{conn.share_name}")
-                    smbclient.delete_session(conn.host, port=conn.port)
+                    # Run in executor to avoid blocking the event loop during
+                    # the SMB disconnect handshake.
+                    await loop.run_in_executor(
+                        None,
+                        partial(smbclient.delete_session, conn.host, port=conn.port),
+                    )
                 except Exception as e:
                     logger.warning(f"Error closing connection {conn.host}:{conn.port}: {e}")
 
