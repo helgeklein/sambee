@@ -62,8 +62,8 @@ describe("Browser Component - View and Advanced", () => {
       const fileButton = screen.getByRole("button", { name: /image\.png/i });
       await user.click(fileButton);
 
-      // View dialog should open
-      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      // View dialog should open (multiple dialog roles: MUI Dialog + yarl lightbox)
+      expect((await screen.findAllByRole("dialog")).length).toBeGreaterThanOrEqual(1);
     });
 
     it("handles Escape key press without crashing", async () => {
@@ -96,8 +96,8 @@ describe("Browser Component - View and Advanced", () => {
       const fileButton = screen.getByRole("button", { name: /test-image\.jpg/i });
       await user.click(fileButton);
 
-      // View dialog should open
-      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      // View dialog should open (multiple dialog roles: MUI Dialog + yarl lightbox)
+      expect((await screen.findAllByRole("dialog")).length).toBeGreaterThanOrEqual(1);
 
       // Press Escape - dialog closing behavior may vary
       await user.keyboard("{Escape}");

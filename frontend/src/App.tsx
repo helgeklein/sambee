@@ -1,8 +1,9 @@
 import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider } from "@mui/material/styles";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useRef } from "react";
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 import { SambeeThemeProvider, useSambeeTheme } from "./theme";
 
 // Lazy load route components for better code splitting
@@ -22,25 +23,29 @@ const AppearanceSettings = lazy(() => import("./pages/AppearanceSettings").then(
  */
 function AppContent() {
   const { muiTheme } = useSambeeTheme();
+  const appRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(appRef);
 
   return (
     <ThemeProvider theme={muiTheme}>
       <CssBaseline />
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Suspense fallback={<div>Loading...</div>}>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
-            <Route path="/browse" element={<FileBrowser />} />
-            <Route path="/settings" element={<SettingsLayout />}>
-              <Route index element={<Settings />} />
-              <Route path="connections" element={<ConnectionSettings />} />
-              <Route path="appearance" element={<AppearanceSettings />} />
-            </Route>
-            <Route path="/" element={<Navigate to="/browse" replace />} />
-          </Routes>
-        </Suspense>
-      </Router>
+      <div ref={appRef}>
+        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Suspense fallback={<div>Loading...</div>}>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+              <Route path="/browse" element={<FileBrowser />} />
+              <Route path="/settings" element={<SettingsLayout />}>
+                <Route index element={<Settings />} />
+                <Route path="connections" element={<ConnectionSettings />} />
+                <Route path="appearance" element={<AppearanceSettings />} />
+              </Route>
+              <Route path="/" element={<Navigate to="/browse" replace />} />
+            </Routes>
+          </Suspense>
+        </Router>
+      </div>
     </ThemeProvider>
   );
 }

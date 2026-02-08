@@ -12,6 +12,7 @@ import { useSambeeTheme } from "../../theme";
 import { getMarkdownContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 import "highlight.js/styles/github.css";
@@ -132,7 +133,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     }
   }, []);
 
-  // Context-aware Escape handler
+  // Context-aware Escape handler (window-level via useKeyboardShortcuts)
+  // Blur-first logic lives on the Dialog Paper's onKeyDown instead,
+  // because it must fire before the parent FileBrowser's window listener.
+  // - If in fullscreen: exit fullscreen
+  // - Otherwise: close the viewer
   const handleEscape = useCallback(
     (_event?: KeyboardEvent) => {
       if (document.fullscreenElement) {
@@ -142,6 +147,25 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       }
     },
     [onClose]
+  );
+
+  /**
+   * Paper-level keydown handler — single authority for all Escape logic.
+   * MUI Dialogs render in a portal at document.body (outside the React root),
+   * so native events may not reliably reach window listeners. Handling
+   * everything here and calling preventDefault() makes close robust.
+   * 1. If a toolbar button/input has focus → blur it (hide focus ring)
+   * 2. If in fullscreen → exit fullscreen
+   * 3. Otherwise → close the viewer
+   */
+  const handlePaperKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (blurActiveToolbarControl(contentRef)) return;
+      handleEscape();
+    },
+    [handleEscape]
   );
 
   const handleShowHelp = useCallback(() => {
@@ -205,6 +229,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         onClose={onClose}
         maxWidth={false}
         fullScreen
+        disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
         ref={dialogRef}
         sx={{
           "& .MuiDialog-container": {
@@ -213,6 +238,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           },
         }}
         PaperProps={{
+          onKeyDown: handlePaperKeyDown,
           sx: {
             margin: 0,
             width: "100dvw",

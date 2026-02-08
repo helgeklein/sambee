@@ -12,6 +12,7 @@ import { useSambeeTheme } from "../../theme";
 import { getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
@@ -705,11 +706,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, []);
 
   /**
-   * Context-aware Escape handler
+   * Context-aware Escape handler (window-level via useKeyboardShortcuts).
+   * Blur-first logic lives on the Dialog Paper's onKeyDown instead,
+   * because it must fire before the parent FileBrowser's window listener.
    * Pattern: Single handler checks state to determine appropriate action
    * - If search panel is open: close search and clear results
    * - Otherwise: close the entire viewer
-   * This eliminates the need for multiple overlapping shortcuts
    */
   const handleEscape = useCallback(
     (_event?: KeyboardEvent) => {
@@ -724,6 +726,25 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
     },
     [searchPanelOpen, onClose]
+  );
+
+  /**
+   * Paper-level keydown handler — single authority for all Escape logic.
+   * MUI Dialogs render in a portal at document.body (outside the React root),
+   * so native events may not reliably reach window listeners. Handling
+   * everything here and calling preventDefault() makes close robust.
+   * 1. If a toolbar button/input has focus → blur it (hide focus ring)
+   * 2. If search panel is open → close search and clear results
+   * 3. Otherwise → close the viewer
+   */
+  const handlePaperKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (blurActiveToolbarControl(containerRef)) return;
+      handleEscape();
+    },
+    [handleEscape]
   );
 
   const handleShowHelp = useCallback(() => {
@@ -854,6 +875,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       onClose={onClose}
       maxWidth={false}
       fullScreen
+      disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
       ref={dialogRef}
       sx={{
         "& .MuiDialog-container": {
@@ -862,6 +884,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         },
       }}
       PaperProps={{
+        onKeyDown: handlePaperKeyDown,
         sx: {
           backgroundColor: viewerBg,
           boxShadow: "none",

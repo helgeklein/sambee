@@ -1,4 +1,4 @@
-import { Box, CircularProgress } from "@mui/material";
+import { Box, CircularProgress, Dialog } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Lightbox, { type Slide } from "yet-another-react-lightbox";
 import Fullscreen from "yet-another-react-lightbox/plugins/fullscreen";
@@ -14,6 +14,7 @@ import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getViewerColors } from "../../theme/viewerStyles";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
+import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
@@ -67,7 +68,16 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const [showHelp, setShowHelp] = useState(false);
   const zoomRef = useRef<ZoomRef | null>(null);
   const fullscreenRef = useRef<FullscreenRef | null>(null);
-  const portalRef = useRef<HTMLDivElement | null>(null);
+
+  // Callback-ref + state ensures the Lightbox only renders once the portal
+  // container is mounted.  Without this, portalRef.current is null on the
+  // first render and yarl falls back to document.body, setting "inert" on
+  // siblings — including the MUI Dialog root — which disables our toolbar
+  // and keyboard handling until a re-render moves the portal.
+  const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
+  const portalRef = useCallback((node: HTMLDivElement | null) => {
+    setPortalElement(node);
+  }, []);
 
   const { currentTheme } = useSambeeTheme();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "image");
@@ -159,6 +169,36 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const handleClose = useCallback(() => {
     onClose();
   }, [onClose]);
+
+  /**
+   * Escape handler for useKeyboardShortcuts (window-level).
+   * Blur-first logic lives on the Dialog Paper's onKeyDown instead,
+   * because it must fire before the parent FileBrowser's window listener.
+   */
+  const handleEscape = useCallback(
+    (_event?: KeyboardEvent) => {
+      onClose();
+    },
+    [onClose]
+  );
+
+  /**
+   * Paper-level keydown handler — single authority for all Escape logic.
+   * MUI Dialogs render in a portal at document.body (outside the React root),
+   * so native events may not reliably reach window listeners. Handling
+   * everything here and calling preventDefault() makes close robust.
+   * 1. If a toolbar button/input has focus → blur it (hide focus ring)
+   * 2. Otherwise → close the viewer
+   */
+  const handlePaperKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      if (blurActiveToolbarControl()) return;
+      onClose();
+    },
+    [onClose]
+  );
 
   const handleViewChange = useCallback(
     ({ index }: { index: number }) => {
@@ -331,7 +371,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       },
       {
         ...COMMON_SHORTCUTS.CLOSE,
-        handler: handleClose,
+        handler: handleEscape,
       },
       {
         id: "show-help",
@@ -342,8 +382,8 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
       },
     ],
     [
-      handleClose,
       handleDownload,
+      handleEscape,
       handleRotateLeft,
       handleRotateRight,
       handleShowHelp,
@@ -360,15 +400,35 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
 
   return (
     <>
-      {/* Full viewport overlay to hide browser UI */}
-      <Box
+      {/* Full-screen dialog overlay — consistent with PDFViewer and MarkdownViewer.
+          Provides built-in focus trapping, aria-modal, and portal isolation. */}
+      <Dialog
+        open={true}
+        onClose={handleClose}
+        maxWidth={false}
+        fullScreen
+        disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
+        disableEnforceFocus // yarl lightbox manages its own focus
         sx={{
-          position: "fixed",
-          inset: 0,
-          backgroundColor: viewerBg,
-          zIndex: 1300, // MUI Dialog z-index
-          display: "flex",
-          flexDirection: "column",
+          "& .MuiDialog-container": {
+            alignItems: "stretch",
+            justifyContent: "stretch",
+          },
+        }}
+        PaperProps={{
+          onKeyDown: handlePaperKeyDown,
+          sx: {
+            backgroundColor: viewerBg,
+            boxShadow: "none",
+            margin: 0,
+            width: "100dvw",
+            maxWidth: "100dvw",
+            height: "100dvh",
+            maxHeight: "100dvh",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+          },
         }}
       >
         {/* Our toolbar at top */}
@@ -421,82 +481,85 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             position: "relative",
           }}
         >
-          <Lightbox
-            open={true}
-            close={handleClose}
-            index={currentIndex}
-            slides={slides}
-            portal={{ root: portalRef.current }}
-            render={{
-              slideContainer: renderSlideContainer,
-              slideHeader: renderSlideHeader,
-              buttonPrev: () => null,
-              buttonNext: () => null,
-              buttonClose: () => null,
-              iconPrev: () => null,
-              iconNext: () => null,
-              controls: () => null, // Controls rendered in our custom toolbar
-            }}
-            toolbar={{ buttons: [] }}
-            controller={{}}
-            carousel={{
-              finite: true,
-              padding: 0,
-              spacing: SLIDE_GAP_PX,
-              imageFit: "contain",
-              preload: PRELOAD_COUNT,
-              imageProps: {
-                style: {
-                  maxWidth: "100%",
-                  maxHeight: "100%",
+          {portalElement && (
+            <Lightbox
+              open={true}
+              close={handleClose}
+              index={currentIndex}
+              slides={slides}
+              portal={{ root: portalElement }}
+              noScroll={{ disabled: true }} // Dialog handles scroll lock
+              render={{
+                slideContainer: renderSlideContainer,
+                slideHeader: renderSlideHeader,
+                buttonPrev: () => null,
+                buttonNext: () => null,
+                buttonClose: () => null,
+                iconPrev: () => null,
+                iconNext: () => null,
+                controls: () => null, // Controls rendered in our custom toolbar
+              }}
+              toolbar={{ buttons: [] }}
+              controller={{ focus: true }} // Auto-focus yarl container on mount for keyboard nav
+              carousel={{
+                finite: true,
+                padding: 0,
+                spacing: SLIDE_GAP_PX,
+                imageFit: "contain",
+                preload: PRELOAD_COUNT,
+                imageProps: {
+                  style: {
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                  },
                 },
-              },
-            }}
-            animation={{
-              fade: 0,
-              swipe: 400,
-            }}
-            styles={{
-              root: {
-                backgroundColor: `${viewerBg} !important`,
-                position: "absolute",
-                top: 0,
-                bottom: 0,
-                left: 0,
-                right: 0,
-              },
-              navigationPrev: {
-                backgroundColor: `${viewerBg} !important`,
-              },
-              navigationNext: {
-                backgroundColor: `${viewerBg} !important`,
-              },
-              toolbar: {
-                display: "none", // Hide library's default toolbar
-              },
-              slide: {
-                // Allow images to scale up to fill viewport (removes library's default max-width/max-height limits)
-                maxWidth: "100% !important",
-                maxHeight: "100% !important",
-              },
-            }}
-            on={{
-              view: handleViewChange,
-              zoom: handleZoomChange,
-            }}
-            plugins={[Fullscreen, Zoom]}
-            fullscreen={{
-              ref: fullscreenRef,
-            }}
-            zoom={{
-              ref: zoomRef,
-              scrollToZoom: true, // Allow scroll wheel to zoom
-              pinchZoomV4: true,
-              maxZoomPixelRatio: 3, // Allow up to 3x upscaling for closer inspection
-            }}
-          />
+              }}
+              animation={{
+                fade: 0,
+                swipe: 400,
+              }}
+              styles={{
+                root: {
+                  backgroundColor: `${viewerBg} !important`,
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                },
+                navigationPrev: {
+                  backgroundColor: `${viewerBg} !important`,
+                },
+                navigationNext: {
+                  backgroundColor: `${viewerBg} !important`,
+                },
+                toolbar: {
+                  display: "none", // Hide library's default toolbar
+                },
+                slide: {
+                  // Allow images to scale up to fill viewport (removes library's default max-width/max-height limits)
+                  maxWidth: "100% !important",
+                  maxHeight: "100% !important",
+                },
+              }}
+              on={{
+                view: handleViewChange,
+                zoom: handleZoomChange,
+              }}
+              plugins={[Fullscreen, Zoom]}
+              fullscreen={{
+                ref: fullscreenRef,
+              }}
+              zoom={{
+                ref: zoomRef,
+                scrollToZoom: true, // Allow scroll wheel to zoom
+                pinchZoomV4: true,
+                maxZoomPixelRatio: 3, // Allow up to 3x upscaling for closer inspection
+              }}
+            />
+          )}
         </Box>
-      </Box>
+      </Dialog>
 
       <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={imageShortcuts} title="Image viewer shortcuts" />
     </>
