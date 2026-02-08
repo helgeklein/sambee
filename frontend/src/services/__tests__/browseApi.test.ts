@@ -6,7 +6,7 @@
 
 import type { AxiosResponse } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type DirectoryListing, type FileInfo, FileType } from "../../types";
+import { type DirectoryListing, type DirectorySearchResult, type FileInfo, FileType } from "../../types";
 
 // Mock axios before importing services
 vi.mock("axios", () => {
@@ -574,6 +574,135 @@ describe("Browse API Contract Tests", () => {
       });
 
       await expect(apiService.listDirectory(testConnectionId, "/")).rejects.toMatchObject({
+        response: { status: 500 },
+      });
+    });
+  });
+
+  // ==========================================================================
+  // Contract Tests — GET /browse/{connection_id}/directories
+  // ==========================================================================
+
+  describe("Contract Tests - GET /browse/{connection_id}/directories", () => {
+    it("should return directory search result format", async () => {
+      const backendResponse: DirectorySearchResult = {
+        results: ["documents", "documents/work", "documents/personal"],
+        total_matches: 3,
+        cache_state: "ready",
+        directory_count: 150,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.searchDirectories(testConnectionId, "doc");
+
+      // Verify required fields
+      expect(result).toHaveProperty("results");
+      expect(result).toHaveProperty("total_matches");
+      expect(result).toHaveProperty("cache_state");
+      expect(result).toHaveProperty("directory_count");
+
+      // Verify types
+      expect(Array.isArray(result.results)).toBe(true);
+      expect(typeof result.total_matches).toBe("number");
+      expect(typeof result.cache_state).toBe("string");
+      expect(typeof result.directory_count).toBe("number");
+
+      // Verify API call
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        `/browse/${testConnectionId}/directories`,
+        expect.objectContaining({
+          params: { q: "doc" },
+        })
+      );
+    });
+
+    it("should handle empty search query", async () => {
+      const backendResponse: DirectorySearchResult = {
+        results: [],
+        total_matches: 0,
+        cache_state: "ready",
+        directory_count: 100,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const result = await apiService.searchDirectories(testConnectionId, "");
+
+      expect(result.results).toEqual([]);
+      expect(result.total_matches).toBe(0);
+      expect(result.cache_state).toBe("ready");
+    });
+
+    it("should accept all valid cache states", async () => {
+      const cacheStates = ["empty", "building", "ready", "updating"] as const;
+
+      for (const state of cacheStates) {
+        const backendResponse: DirectorySearchResult = {
+          results: [],
+          total_matches: 0,
+          cache_state: state,
+          directory_count: 0,
+        };
+
+        mockAxiosInstance.get.mockResolvedValueOnce({
+          data: backendResponse,
+        } as AxiosResponse);
+
+        const result = await apiService.searchDirectories(testConnectionId, "test");
+        expect(result.cache_state).toBe(state);
+      }
+    });
+
+    it("should pass abort signal to request", async () => {
+      const backendResponse: DirectorySearchResult = {
+        results: [],
+        total_matches: 0,
+        cache_state: "ready",
+        directory_count: 0,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      const controller = new AbortController();
+      await apiService.searchDirectories(testConnectionId, "test", controller.signal);
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        `/browse/${testConnectionId}/directories`,
+        expect.objectContaining({
+          signal: controller.signal,
+        })
+      );
+    });
+
+    it("should handle 404 for non-existent connection", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 404,
+          data: { detail: "Connection not found" },
+        },
+      });
+
+      await expect(apiService.searchDirectories("non-existent-id", "test")).rejects.toMatchObject({
+        response: { status: 404 },
+      });
+    });
+
+    it("should handle server errors", async () => {
+      mockAxiosInstance.get.mockRejectedValueOnce({
+        response: {
+          status: 500,
+          data: { detail: "Internal server error" },
+        },
+      });
+
+      await expect(apiService.searchDirectories(testConnectionId, "test")).rejects.toMatchObject({
         response: { status: 500 },
       });
     });

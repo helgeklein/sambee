@@ -1,5 +1,5 @@
 import axios, { type AxiosError, type AxiosInstance } from "axios";
-import type { AuthToken, Connection, ConnectionCreate, DirectoryListing, FileInfo, User } from "../types";
+import type { AuthToken, Connection, ConnectionCreate, DirectoryListing, DirectorySearchResult, FileInfo, User } from "../types";
 import { logger } from "./logger";
 
 class ApiService {
@@ -186,6 +186,18 @@ class ApiService {
   async getFileInfo(connectionId: string, path: string): Promise<FileInfo> {
     const response = await this.api.get<FileInfo>(`/browse/${connectionId}/info`, {
       params: { path },
+    });
+    return response.data;
+  }
+
+  /**
+   * Search for directories across an entire connection.
+   * Returns matching directory paths from the server-side cache.
+   */
+  async searchDirectories(connectionId: string, query: string, signal?: AbortSignal): Promise<DirectorySearchResult> {
+    const response = await this.api.get<DirectorySearchResult>(`/browse/${connectionId}/directories`, {
+      params: { q: query },
+      signal,
     });
     return response.data;
   }

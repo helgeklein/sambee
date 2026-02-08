@@ -20,6 +20,7 @@ export interface ApiMock {
   updateConnection: Mock;
   deleteConnection: Mock;
   getImageBlob: Mock;
+  searchDirectories: Mock;
 }
 
 /**
@@ -45,6 +46,14 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
 
   // Mock getImageBlob to return a fake blob
   api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));
+
+  // Mock searchDirectories for directory cache search
+  api.searchDirectories.mockResolvedValue({
+    results: [],
+    total_matches: 0,
+    cache_state: "ready",
+    directory_count: 0,
+  });
 }
 
 /**

@@ -31,9 +31,10 @@ import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileList } from "../components/FileBrowser/FileList";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
-import { SearchBar } from "../components/FileBrowser/SearchBar";
 import { SortControls } from "../components/FileBrowser/SortControls";
 import { StatusBar } from "../components/FileBrowser/StatusBar";
+import { useDirectorySearchProvider } from "../components/FileBrowser/search";
+import { UnifiedSearchBar } from "../components/FileBrowser/UnifiedSearchBar";
 import { ViewModeSelector } from "../components/FileBrowser/ViewModeSelector";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
@@ -127,7 +128,6 @@ const Browser: React.FC = () => {
     const saved = localStorage.getItem("file-browser-view-mode");
     return saved === "list" || saved === "details" ? saved : "list";
   });
-  const [searchQuery, setSearchQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -135,6 +135,12 @@ const Browser: React.FC = () => {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<"main" | "appearance" | "connections">("main");
   const [showHelp, setShowHelp] = useState(false);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Search Provider
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const directorySearchProvider = useDirectorySearchProvider(selectedConnectionId, (path) => setCurrentPath(path));
 
   // ──────────────────────────────────────────────────────────────────────────
   // Refs for DOM Elements & Performance Optimization
@@ -693,8 +699,6 @@ const Browser: React.FC = () => {
   // Load files when connection or path changes
   useEffect(() => {
     if (selectedConnectionId) {
-      // Clear search query when navigating to a different directory
-      setSearchQuery("");
       // Use ref to avoid dependency on loadFiles function
       loadFilesRef.current?.(currentPath);
     }
@@ -762,18 +766,11 @@ const Browser: React.FC = () => {
    * Single-pass algorithm for optimal performance.
    */
   const sortedAndFilteredFiles = useMemo(() => {
-    // Filter by search query first
-    let filtered = files;
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = files.filter((f: FileEntry) => f.name.toLowerCase().includes(query));
-    }
-
     // Single-pass separation and sorting
     const directories: FileEntry[] = [];
     const regularFiles: FileEntry[] = [];
 
-    for (const file of filtered) {
+    for (const file of files) {
       if (file.type === "directory") {
         directories.push(file);
       } else {
@@ -818,7 +815,7 @@ const Browser: React.FC = () => {
     regularFiles.sort(sortFunction);
 
     return [...directories, ...regularFiles];
-  }, [files, sortBy, sortDirection, searchQuery]);
+  }, [files, sortBy, sortDirection]);
 
   // Get all image files in current directory for gallery mode
   // Use sortedAndFilteredFiles to match the display order
@@ -1249,7 +1246,6 @@ const Browser: React.FC = () => {
 
   const handleClose = useCallback(() => {
     setViewInfo(null);
-    setSearchQuery("");
   }, []);
 
   const handleFocusSearch = useCallback(() => {
@@ -1333,6 +1329,12 @@ const Browser: React.FC = () => {
         handler: handleRefresh,
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
       },
+      // Quick navigate (Ctrl+K) — also focuses the search bar
+      {
+        ...BROWSER_SHORTCUTS.QUICK_NAVIGATE,
+        handler: handleFocusSearch,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
+      },
       // Show help
       {
         ...BROWSER_SHORTCUTS.SHOW_HELP,
@@ -1385,8 +1387,8 @@ const Browser: React.FC = () => {
 
       // Handle special transitions when in input fields
       if (isInInput) {
-        // Exception: Allow Backspace for navigation when search is empty and in search input
-        if (e.key === "Backspace" && (searchQuery === "" || (target as HTMLInputElement).value === "") && currentPathRef.current) {
+        // Exception: Allow Backspace for navigation when search input is empty
+        if (e.key === "Backspace" && (target as HTMLInputElement).value === "" && currentPathRef.current) {
           // Check if cursor is at the beginning of input (no text to delete)
           const input = target as HTMLInputElement;
           if (input.selectionStart === 0 && input.selectionEnd === 0) {
@@ -1458,7 +1460,7 @@ const Browser: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [searchQuery, settingsOpen, mobileSettingsOpen, viewInfo, updateFocus, listContainerEl]);
+  }, [settingsOpen, mobileSettingsOpen, viewInfo, updateFocus, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Accessibility
@@ -1659,10 +1661,9 @@ const Browser: React.FC = () => {
               connections={connections}
               selectedConnectionId={selectedConnectionId}
               onConnectionChange={handleConnectionChange}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
+              searchProvider={directorySearchProvider}
               searchInputRef={searchInputRef}
-              showSearch={files.length > 0}
+              showSearch={selectedConnectionId !== ""}
               onOpenSettings={() => {
                 setSettingsInitialCategory("appearance");
                 setSettingsOpen(true);
@@ -1743,10 +1744,9 @@ const Browser: React.FC = () => {
               </Box>
             )}
 
-            {files.length > 0 && useCompactLayout && (
-              <SearchBar
-                value={searchQuery}
-                onChange={setSearchQuery}
+            {selectedConnectionId && useCompactLayout && (
+              <UnifiedSearchBar
+                provider={directorySearchProvider}
                 inputRef={searchInputRef}
                 useCompactLayout={useCompactLayout}
                 onBlurToFileList={() => listContainerEl?.focus()}
@@ -1771,8 +1771,6 @@ const Browser: React.FC = () => {
                 <FileList
                   files={sortedAndFilteredFiles}
                   focusedIndex={focusedIndex}
-                  searchQuery={searchQuery}
-                  onClearSearch={() => setSearchQuery("")}
                   onFileClick={handleFileClick}
                   rowVirtualizer={rowVirtualizer}
                   parentRef={parentRef}

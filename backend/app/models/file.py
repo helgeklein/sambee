@@ -26,3 +26,12 @@ class DirectoryListing(BaseModel):
     path: str
     items: List[FileInfo]
     total: int
+
+
+class DirectorySearchResult(BaseModel):
+    """Response model for directory search (quick navigate)."""
+
+    results: List[str]
+    total_matches: int
+    cache_state: str
+    directory_count: int

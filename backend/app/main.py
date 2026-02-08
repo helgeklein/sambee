@@ -164,6 +164,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown
     logger.info("Shutting down Sambee application...")
 
+    # Stop directory caches (CHANGE_NOTIFY watchers + rescan tasks)
+    try:
+        from app.services.directory_cache import shutdown_directory_cache
+
+        logger.info("Stopping directory caches...")
+        shutdown_directory_cache()
+        logger.info("Directory caches stopped")
+    except Exception as e:
+        log_error(logger, f"Error stopping directory caches: {e}")
+
     # Close all SMB connection pool connections
     logger.info("Closing SMB connection pool...")
     await shutdown_connection_pool()

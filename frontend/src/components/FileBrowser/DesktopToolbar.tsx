@@ -4,14 +4,14 @@ import type { Connection } from "../../types";
 import { SambeeLogo } from "../SambeeLogo";
 import { ConnectionSelector } from "./ConnectionSelector";
 import { DesktopToolbarActions } from "./DesktopToolbarActions";
-import { SearchBar } from "./SearchBar";
+import type { SearchProvider } from "./search/types";
+import { UnifiedSearchBar } from "./UnifiedSearchBar";
 
 interface DesktopToolbarProps {
   connections: Connection[];
   selectedConnectionId: string;
   onConnectionChange: (connectionId: string) => void;
-  searchQuery: string;
-  onSearchChange: (value: string) => void;
+  searchProvider: SearchProvider;
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
   onOpenSettings: () => void;
@@ -26,8 +26,7 @@ export function DesktopToolbar({
   connections,
   selectedConnectionId,
   onConnectionChange,
-  searchQuery,
-  onSearchChange,
+  searchProvider,
   searchInputRef,
   showSearch,
   onOpenSettings,
@@ -45,9 +44,8 @@ export function DesktopToolbar({
 
       {showSearch && (
         <Box sx={{ flexGrow: 0, width: "100%", maxWidth: { sm: 400, md: 500, lg: 600 }, mx: 2 }}>
-          <SearchBar
-            value={searchQuery}
-            onChange={onSearchChange}
+          <UnifiedSearchBar
+            provider={searchProvider}
             inputRef={searchInputRef}
             useCompactLayout={false}
             onBlurToFileList={onBlurToFileList}

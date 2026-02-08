@@ -1,4 +1,4 @@
-import { Box, Button, Typography } from "@mui/material";
+import { Box, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import React from "react";
 import type { ViewMode } from "../../pages/FileBrowser/types";
@@ -8,8 +8,6 @@ import { FileRow } from "./FileRow";
 interface FileListProps {
   files: FileEntry[];
   focusedIndex: number;
-  searchQuery: string;
-  onClearSearch: () => void;
   onFileClick: (file: FileEntry, index?: number) => void;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   parentRef: React.RefObject<HTMLDivElement>;
@@ -25,18 +23,7 @@ interface FileListProps {
 // FileList
 //
 export const FileList = React.memo(
-  ({
-    files,
-    focusedIndex,
-    searchQuery,
-    onClearSearch,
-    onFileClick,
-    rowVirtualizer,
-    parentRef,
-    listContainerRef,
-    fileRowStyles,
-    viewMode,
-  }: FileListProps) => {
+  ({ files, focusedIndex, onFileClick, rowVirtualizer, parentRef, listContainerRef, fileRowStyles, viewMode }: FileListProps) => {
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
     return (
@@ -58,12 +45,7 @@ export const FileList = React.memo(
       >
         {files.length === 0 ? (
           <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
-            <Typography color="text.secondary">{searchQuery ? `No files matching "${searchQuery}"` : "This directory is empty"}</Typography>
-            {searchQuery && (
-              <Button size="small" onClick={onClearSearch} sx={{ mt: 1 }}>
-                Clear search
-              </Button>
-            )}
+            <Typography color="text.secondary">This directory is empty</Typography>
           </Box>
         ) : (
           <div

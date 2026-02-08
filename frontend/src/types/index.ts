@@ -51,6 +51,13 @@ export interface DirectoryListing {
   total: number;
 }
 
+export interface DirectorySearchResult {
+  results: string[];
+  total_matches: number;
+  cache_state: "empty" | "building" | "ready" | "updating";
+  directory_count: number;
+}
+
 export interface AuthToken {
   access_token: string;
   token_type: string;

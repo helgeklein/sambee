@@ -11,16 +11,6 @@
 - Authentication system
    - OAuth/OIDC
 
-### Apply improvements from image to other viewers
-
-- Once all has been fixed.
-
-## PDF viewer
-
-- Download: currently error
-- Tests on mobile
-- Test coverage
-
 ## Image viewer
 
 - Support multi-page image files:

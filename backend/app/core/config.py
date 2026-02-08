@@ -94,6 +94,16 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         if "tracing_username_regex" in frontend_logging:
             flat_config["frontend_tracing_username_regex"] = frontend_logging["tracing_username_regex"]
 
+    # Directory cache persistence settings
+    if "directory_cache" in toml_data:
+        dc = toml_data["directory_cache"]
+        if "location" in dc:
+            flat_config["directory_cache_location"] = dc["location"]
+        if "coalesce_interval_seconds" in dc:
+            flat_config["directory_cache_coalesce_interval_seconds"] = dc["coalesce_interval_seconds"]
+        if "max_staleness_minutes" in dc:
+            flat_config["directory_cache_max_staleness_minutes"] = dc["max_staleness_minutes"]
+
     return flat_config
 
 
@@ -165,6 +175,11 @@ class Settings(BaseModel):
     frontend_tracing_level: str = "ERROR"  # Tracing log level: DEBUG, INFO, WARNING, ERROR
     frontend_tracing_components: str = ""
     frontend_tracing_username_regex: str = ""
+
+    # Directory cache persistence settings
+    directory_cache_location: str = ""  # Empty = default (data_dir / directory_cache)
+    directory_cache_coalesce_interval_seconds: int = 30  # Min time between disk writes
+    directory_cache_max_staleness_minutes: int = 43200  # 30 days — ignore snapshots older than this
 
 
 #

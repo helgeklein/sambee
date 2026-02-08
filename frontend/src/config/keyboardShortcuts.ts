@@ -192,6 +192,13 @@ export const BROWSER_SHORTCUTS = {
   //
   // Actions
   //
+  QUICK_NAVIGATE: {
+    id: "quick-navigate",
+    keys: "k",
+    description: "Quick navigate to directory",
+    label: "Ctrl+K",
+    ctrl: true,
+  },
   FOCUS_SEARCH: {
     id: "focus-search",
     keys: "/",
