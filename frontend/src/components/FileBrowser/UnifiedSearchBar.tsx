@@ -95,8 +95,13 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
   const anchorRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingQueryRef = useRef<string>("");
+  const providerRef = useRef(provider);
   const internalInputRef = useRef<HTMLInputElement>(null);
   const activatedRef = useRef(false);
+
+  // Always keep providerRef current so stable callbacks use the latest provider
+  providerRef.current = provider;
 
   // Use external inputRef if provided, otherwise internal
   const effectiveInputRef = inputRef ?? internalInputRef;
@@ -150,7 +155,7 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
       try {
         setIsSearchPending(false);
         setIsLoading(true);
-        const fetchedResults = await provider.fetchResults(searchQuery, controller.signal);
+        const fetchedResults = await providerRef.current.fetchResults(searchQuery, controller.signal);
 
         if (!controller.signal.aborted) {
           setResults(fetchedResults);
@@ -168,7 +173,8 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
         }
       }
     },
-    [provider]
+    // providerRef is stable — no dependency on provider object identity
+    []
   );
 
   // ── Input handling ─────────────────────────────────────────────────────
@@ -188,8 +194,9 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
 
       if (newQuery.length >= provider.minQueryLength) {
         setIsSearchPending(true);
+        pendingQueryRef.current = newQuery;
         debounceTimerRef.current = setTimeout(() => {
-          executeSearch(newQuery);
+          executeSearch(pendingQueryRef.current);
         }, provider.debounceMs);
       } else {
         setIsSearchPending(false);
@@ -214,7 +221,7 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
   //
   const handleSelect = useCallback(
     (value: string) => {
-      provider.onSelect(value);
+      providerRef.current.onSelect(value);
       setQuery("");
       setResults([]);
       setIsDropdownOpen(false);
@@ -225,7 +232,7 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
         onBlurToFileList();
       }
     },
-    [provider, onBlurToFileList]
+    [onBlurToFileList]
   );
 
   // ── Keyboard navigation ────────────────────────────────────────────────
@@ -331,9 +338,9 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
   const handleFocus = useCallback(() => {
     if (!activatedRef.current) {
       activatedRef.current = true;
-      provider.onActivate?.();
+      providerRef.current.onActivate?.();
     }
-  }, [provider]);
+  }, []);
 
   // ── Click-away dismissal ───────────────────────────────────────────────
 
@@ -370,9 +377,9 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      provider.onDeactivate?.();
+      providerRef.current.onDeactivate?.();
     };
-  }, [provider]);
+  }, []);
 
   // ── Reset when provider changes (e.g., connection switch) ──────────────
   // biome-ignore lint/correctness/useExhaustiveDependencies: Reset only when provider identity changes, not on every object reference change
@@ -386,12 +393,8 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
 
   // ── Derived state ──────────────────────────────────────────────────────
   const statusInfo = provider.getStatusInfo();
-  const showNoResults = hasSearched && query.length >= provider.minQueryLength && !isLoading && results.length === 0;
-  const isQueryBelowMinimum = query.length > 0 && query.length < provider.minQueryLength && !!provider.belowMinimumMessage;
-  // Keep showing the hint while a search is pending/loading and we have no results yet,
-  // so the popper content transitions smoothly instead of collapsing then refilling.
-  const showBelowMinimum =
-    isQueryBelowMinimum || (!!provider.belowMinimumMessage && (isSearchPending || isLoading) && results.length === 0);
+  const showNoResults = hasSearched && query.length >= provider.minQueryLength && !isLoading && !isSearchPending && results.length === 0;
+  const showBelowMinimum = query.length > 0 && query.length < provider.minQueryLength && !!provider.belowMinimumMessage;
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
