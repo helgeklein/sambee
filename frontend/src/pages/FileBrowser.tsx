@@ -26,6 +26,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { BreadcrumbsNavigation } from "../components/FileBrowser/BreadcrumbsNavigation";
+import ConfirmDeleteDialog from "../components/FileBrowser/ConfirmDeleteDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
@@ -45,7 +46,7 @@ import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
 import type { Connection, FileEntry } from "../types";
-import { isApiError } from "../types";
+import { FileType, isApiError } from "../types";
 import { hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
 import type { SortField, ViewMode } from "./FileBrowser/types";
 
@@ -135,6 +136,11 @@ const Browser: React.FC = () => {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<"main" | "appearance" | "connections">("main");
   const [showHelp, setShowHelp] = useState(false);
+
+  // Delete confirmation dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Search Provider
@@ -249,6 +255,11 @@ const Browser: React.FC = () => {
   // WebSocket for real-time directory updates
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
+
+  // Timestamp of the last explicit forced reload (e.g. after delete).
+  // Used to suppress redundant WebSocket-triggered reloads.
+  const RELOAD_DEDUP_WINDOW_MS = 2_000;
+  const lastForceReloadRef = React.useRef<number>(0);
 
   // URL synchronization flags to prevent circular updates
   const isInitializing = React.useRef<boolean>(true); // Avoid URL updates during initial mount
@@ -642,7 +653,12 @@ const Browser: React.FC = () => {
 
           // If we're currently viewing this directory, reload it
           if (data.connection_id === currentConnId && data.path === currentDir) {
-            loadFilesRef.current?.(currentDir, true); // Force reload
+            // Skip if a forced reload was already triggered recently (e.g. after a delete)
+            if (Date.now() - lastForceReloadRef.current < RELOAD_DEDUP_WINDOW_MS) {
+              logger.info("Skipping redundant WebSocket reload (recent forced reload)", undefined, "websocket");
+            } else {
+              loadFilesRef.current?.(currentDir, true); // Force reload
+            }
           }
         }
       };
@@ -1256,6 +1272,69 @@ const Browser: React.FC = () => {
     loadFilesRef.current?.(currentPathRef.current, true);
   }, []);
 
+  //
+  // handleDeleteRequest
+  //
+  const handleDeleteRequest = useCallback(() => {
+    /**
+     * Opens the delete confirmation dialog for the currently focused item.
+     * Only fires when the file list container has focus.
+     */
+
+    if (!listContainerEl) return;
+    const activeElement = document.activeElement;
+    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
+    const file = filesRef.current[focusedIndex];
+    if (!file) return;
+
+    setDeleteTarget(file);
+    setDeleteDialogOpen(true);
+  }, [focusedIndex, listContainerEl]);
+
+  //
+  // handleDeleteConfirm
+  //
+  const handleDeleteConfirm = useCallback(async () => {
+    /**
+     * Executes deletion via the API, refreshes the file list, and closes the
+     * dialog. Adjusts focusedIndex if the deleted item was at the end of the
+     * list. Shows an error alert on failure.
+     */
+
+    if (!deleteTarget || !selectedConnectionId) return;
+
+    setIsDeleting(true);
+    try {
+      await api.deleteItem(selectedConnectionId, deleteTarget.path);
+
+      // Close dialog and clear target
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+
+      // Refresh the file list
+      lastForceReloadRef.current = Date.now();
+      loadFilesRef.current?.(currentPathRef.current, true);
+
+      // Adjust focus so it doesn't point beyond the list
+      const newLength = filesRef.current.length - 1;
+      if (focusedIndex >= newLength && newLength > 0) {
+        setFocusedIndex(newLength - 1);
+      }
+
+      logger.info(`Deleted: ${deleteTarget.path}`, undefined, "file-browser");
+    } catch (err: unknown) {
+      let detail = "Failed to delete item.";
+      if (isApiError(err) && err.response?.data?.detail) {
+        detail = err.response.data.detail;
+      }
+      setError(detail);
+      logger.error(`Delete failed: ${deleteTarget.path}`, { error: err }, "file-browser");
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [deleteTarget, selectedConnectionId, focusedIndex]);
+
   /**
    * Keyboard shortcuts configuration
    *
@@ -1317,12 +1396,6 @@ const Browser: React.FC = () => {
         handler: handleClose,
         enabled: true,
       },
-      // Focus search
-      {
-        ...BROWSER_SHORTCUTS.FOCUS_SEARCH,
-        handler: handleFocusSearch,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
-      },
       // Refresh
       {
         ...BROWSER_SHORTCUTS.REFRESH,
@@ -1341,6 +1414,18 @@ const Browser: React.FC = () => {
         handler: () => setShowHelp(true),
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
       },
+      // Delete file/directory (focus checked inside handler)
+      {
+        ...BROWSER_SHORTCUTS.DELETE_ITEM,
+        handler: handleDeleteRequest,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !viewInfo &&
+          !deleteDialogOpen &&
+          focusedIndex >= 0 &&
+          filesRef.current[focusedIndex] !== undefined,
+      },
     ],
     [
       handleNavigateDown,
@@ -1358,6 +1443,8 @@ const Browser: React.FC = () => {
       handleClose,
       handleFocusSearch,
       handleRefresh,
+      handleDeleteRequest,
+      deleteDialogOpen,
     ]
   );
 
@@ -1403,7 +1490,7 @@ const Browser: React.FC = () => {
 
         // Allow certain special keys to pass through to useKeyboardShortcuts
         // These keys have allowInInput: true and will be handled there
-        const allowedKeysInInput = ["/", "?", "Escape"];
+        const allowedKeysInInput = ["?", "Escape"];
         if (allowedKeysInInput.includes(e.key)) {
           // Don't interfere - let these pass through to useKeyboardShortcuts
           return;
@@ -1428,7 +1515,7 @@ const Browser: React.FC = () => {
 
       // Incremental search - accumulate keystrokes to match file names
       // Match any printable character, excluding special shortcut keys
-      const shortcutKeys = ["/", "?", "Escape"];
+      const shortcutKeys = ["?", "Escape"];
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && e.key !== " " && !shortcutKeys.includes(e.key) && fileCount > 0) {
         e.preventDefault();
 
@@ -1826,6 +1913,19 @@ const Browser: React.FC = () => {
         onClose={() => setShowHelp(false)}
         shortcuts={browserShortcuts}
         title="File browser shortcuts"
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDeleteDialog
+        open={deleteDialogOpen}
+        itemName={deleteTarget?.name ?? ""}
+        itemType={deleteTarget?.type ?? FileType.FILE}
+        isDeleting={isDeleting}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setDeleteTarget(null);
+        }}
+        onConfirm={handleDeleteConfirm}
       />
     </Box>
   );

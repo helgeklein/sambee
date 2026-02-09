@@ -202,6 +202,15 @@ class ApiService {
     return response.data;
   }
 
+  /**
+   * Delete a file or empty directory on the remote share.
+   */
+  async deleteItem(connectionId: string, path: string): Promise<void> {
+    await this.api.delete(`/browse/${connectionId}/item`, {
+      params: { path },
+    });
+  }
+
   // Viewer endpoints
   getViewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");

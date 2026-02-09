@@ -43,8 +43,30 @@ const DIRECTORY_MIN_QUERY_LENGTH = 2;
 
 const PATH_SEPARATOR = "/";
 
+/** Windows-style backslash separator (normalised to forward slash) */
+const BACKSLASH_SEPARATOR = "\\";
+
 /** Ellipsis prefix used when the path is truncated */
 const ELLIPSIS_PREFIX = "…/";
+
+// ============================================================================
+// normalizeQuerySeparators — replace backslashes with forward slashes
+// ============================================================================
+
+/**
+ * Normalises path separators in a search query so that both ``/`` and ``\``
+ * work for cross-directory matching.
+ */
+//
+// normalizeQuerySeparators
+//
+export function normalizeQuerySeparators(query: string): string {
+  /**
+   * Replace all backslash occurrences with forward slashes.
+   */
+
+  return query.replaceAll(BACKSLASH_SEPARATOR, PATH_SEPARATOR);
+}
 
 // ============================================================================
 // splitPathSegments — splits a path into segments preserving separators
@@ -314,10 +336,12 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
   //
   const fetchResults = useCallback(
     async (query: string, signal: AbortSignal): Promise<SearchResult[]> => {
-      lastQueryRef.current = query;
+      // Normalise backslashes to forward slashes for cross-directory search
+      const normalizedQuery = normalizeQuerySeparators(query);
+      lastQueryRef.current = normalizedQuery;
 
       try {
-        const result: DirectorySearchResult = await api.searchDirectories(connectionId, query, signal);
+        const result: DirectorySearchResult = await api.searchDirectories(connectionId, normalizedQuery, signal);
 
         if (!signal.aborted) {
           setCacheState(result.cache_state);
@@ -328,7 +352,7 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
         return result.results.map((path) => ({
           id: path,
           value: path,
-          display: <ResultRow path={path} query={query} />,
+          display: <ResultRow path={path} query={normalizedQuery} />,
         }));
       } catch (error: unknown) {
         if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ERR_CANCELED") {

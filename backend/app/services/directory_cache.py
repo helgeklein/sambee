@@ -230,8 +230,12 @@ class ConnectionDirectoryCache:
     def search(self, query: str, max_results: int = MAX_SEARCH_RESULTS) -> tuple[list[str], int]:
         """Search for directories matching query (case-insensitive substring).
 
+        Supports path separators in the query: both ``/`` and ``\\`` are
+        normalised to ``/`` so that queries like ``abc/def`` or ``abc\\def``
+        match across directory levels.
+
         Args:
-            query: Search term (substring match)
+            query: Search term (substring match, may contain path separators)
             max_results: Maximum results to return (server-side cap)
 
         Returns:
@@ -243,7 +247,8 @@ class ConnectionDirectoryCache:
         if not query:
             return [], 0
 
-        query_lower = query.lower()
+        # Normalise backslashes to forward slashes so users can type either
+        query_lower = query.replace("\\", "/").lower()
 
         with self._lock:
             # Substring match on all cached paths

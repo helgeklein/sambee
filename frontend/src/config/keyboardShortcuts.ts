@@ -199,13 +199,6 @@ export const BROWSER_SHORTCUTS = {
     label: "Ctrl+K",
     ctrl: true,
   },
-  FOCUS_SEARCH: {
-    id: "focus-search",
-    keys: "/",
-    description: "Focus search box",
-    label: "/",
-    allowInInput: true,
-  },
   SHOW_HELP: {
     id: "show-help",
     keys: "?",
@@ -217,5 +210,11 @@ export const BROWSER_SHORTCUTS = {
     keys: "F5",
     description: "Refresh file list",
     label: "F5",
+  },
+  DELETE_ITEM: {
+    id: "delete-item",
+    keys: "Delete",
+    description: "Delete file or directory",
+    label: "Del",
   },
 } as const satisfies Record<string, ShortcutDefinition>;

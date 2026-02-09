@@ -421,4 +421,83 @@ describe("Browser Component - Interactions", () => {
       expect(await screen.findByText(/Failed to load directory contents. Please try again/i)).toBeInTheDocument();
     });
   });
+
+  describe("Delete", () => {
+    it("opens confirm dialog when Delete key pressed on focused file", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+
+      // Focus on the list and ensure first item is focused
+      await user.click(listContainer);
+
+      // Press Delete key
+      await user.keyboard("{Delete}");
+
+      // Confirm dialog should appear with the item name
+      await waitFor(() => {
+        expect(screen.getByText(/are you sure you want to delete/i)).toBeInTheDocument();
+      });
+    });
+
+    it("calls deleteItem API when confirmed", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      // Navigate down to select a file (third item = readme.txt)
+      await user.keyboard("{ArrowDown}");
+      await user.keyboard("{ArrowDown}");
+
+      // Press Delete
+      await user.keyboard("{Delete}");
+
+      // Confirm dialog should appear
+      const deleteButton = await screen.findByRole("button", { name: "Delete" });
+      await user.click(deleteButton);
+
+      // deleteItem should have been called
+      await waitFor(() => {
+        expect(api.deleteItem).toHaveBeenCalled();
+      });
+    });
+
+    it("closes dialog when Cancel is clicked", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      // Press Delete to open dialog
+      await user.keyboard("{Delete}");
+
+      // Wait for dialog
+      const cancelButton = await screen.findByRole("button", { name: "Cancel" });
+      await user.click(cancelButton);
+
+      // Dialog should close
+      await waitFor(() => {
+        expect(screen.queryByText(/are you sure you want to delete/i)).not.toBeInTheDocument();
+      });
+    });
+  });
 });

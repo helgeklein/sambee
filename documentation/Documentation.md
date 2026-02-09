@@ -13,6 +13,8 @@ This is a collection of points and ideas for a future end-user facing documentat
 - File listing
    - Automatic refresh when a directory on the SMB share is updated
    - Smooth scrolling even through very large directories
+- Naviation
+   - Instant navigation to any directory
 - Image viewer
    - Supports a great range of image types, including PSD, HEIF, EPS
    - Automatic CMYK→RGB color conversion

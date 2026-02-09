@@ -60,3 +60,22 @@ class StorageBackend(ABC):
         """Check if a file or directory exists"""
 
         pass
+
+    #
+    # delete_item
+    #
+    @abstractmethod
+    async def delete_item(self, path: str) -> None:
+        """Delete a file or directory.
+
+        Directories are deleted recursively — all contents are removed first.
+
+        Args:
+            path: Relative path to the file or directory.
+
+        Raises:
+            FileNotFoundError: If the path does not exist.
+            OSError: If the operation fails.
+        """
+
+        pass

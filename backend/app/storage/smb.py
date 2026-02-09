@@ -342,3 +342,73 @@ class SMBBackend(StorageBackend):
                 return bool(exists)
         except Exception:
             return False
+
+    #
+    # delete_item
+    #
+    async def delete_item(self, path: str) -> None:
+        """Delete a file or directory via SMB.
+
+        Directories are deleted recursively — every file and sub-directory
+        is removed depth-first before the directory itself is deleted.
+
+        Args:
+            path: Relative path within the share.
+
+        Raises:
+            FileNotFoundError: If the path does not exist.
+            OSError: If the operation fails.
+        """
+
+        smb_path = self._build_smb_path(path)
+        logger.info(f"Deleting item: path='{path}' -> smb_path='{smb_path}'")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+
+                def _delete_recursive(target: str) -> None:
+                    """Depth-first removal of *target* (file or directory)."""
+
+                    stat_info = smbclient.stat(target)
+                    if stat.S_ISDIR(stat_info.st_mode):
+                        for entry in smbclient.scandir(target):
+                            _delete_recursive(entry.path)
+                        smbclient.rmdir(target)
+                    else:
+                        smbclient.remove(target)
+
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, _delete_recursive, smb_path),
+                    timeout=120.0,
+                )
+
+                logger.info(f"Successfully deleted: path='{path}'")
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout deleting '{path}' after 15 seconds")
+            raise TimeoutError(f"SMB operation timed out while deleting: {path}")
+        except OSError as e:
+            error_str = str(e)
+            # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Path not found: {path}") from e
+            logger.error(
+                f"Failed to delete '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to delete '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise

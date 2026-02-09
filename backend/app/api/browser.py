@@ -199,6 +199,90 @@ async def search_directories(
 
 
 # ============================================================================
+# Delete file or empty directory
+# ============================================================================
+
+
+#
+# delete_item
+#
+@router.delete("/{connection_id}/item", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_item(
+    connection_id: uuid.UUID,
+    path: str = Query(..., description="Path to the file or directory to delete"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> None:
+    """Delete a file or directory.
+
+    Directories are deleted recursively — all contents are removed first.
+    """
+
+    # Set user context for logging
+    set_user(current_user.username)
+
+    connection = session.get(Connection, connection_id)
+    if not connection:
+        logger.warning(f"Connection not found: connection_id={connection_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+
+    if not connection.share_name:
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection has no share name configured",
+        )
+
+    if not path or path.strip("/") == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the share root",
+        )
+
+    try:
+        backend = SMBBackend(
+            host=connection.host,
+            share_name=connection.share_name,
+            username=connection.username,
+            password=decrypt_password(connection.password_encrypted),
+            port=connection.port,
+        )
+
+        await backend.connect()
+        await backend.delete_item(path)
+        await backend.disconnect()
+
+        # Remove from directory cache if it was a directory
+        _remove_from_directory_cache(str(connection_id), path)
+
+        logger.info(f"Deleted item: connection_id={connection_id}, path='{path}', user={current_user.username}")
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item not found: {path}",
+        )
+    except OSError as e:
+        logger.error(
+            f"Failed to delete item: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete item: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to delete item: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete item: {str(e)}",
+        )
+
+
+# ============================================================================
 # Helper: feed directory cache from existing operations
 # ============================================================================
 
@@ -233,4 +317,26 @@ def _update_directory_cache_from_listing(connection_id: str, listing: DirectoryL
             cache.add_directories(dir_paths)
     except Exception:
         # Never let cache updates break the main flow
+        pass
+
+
+#
+# _remove_from_directory_cache
+#
+def _remove_from_directory_cache(connection_id: str, path: str) -> None:
+    """Remove a deleted directory from the directory cache, if it exists.
+
+    Silently ignores errors — cache updates must never break the main flow.
+    """
+
+    from app.services.directory_cache import get_directory_cache_manager
+
+    try:
+        cache_manager = get_directory_cache_manager()
+        cache = cache_manager.get_cache(connection_id)
+        if cache is None:
+            return
+
+        cache.remove_directory(path)
+    except Exception:
         pass

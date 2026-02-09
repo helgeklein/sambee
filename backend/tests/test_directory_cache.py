@@ -335,6 +335,28 @@ class TestSearch:
         results, _ = populated_cache.search("music/rock")
         assert "music/rock" in results
 
+    def test_search_backslash_normalized_to_forward_slash(self, populated_cache: ConnectionDirectoryCache):
+        """Query containing \\ should be normalised to / and match across directories."""
+
+        results, _ = populated_cache.search("music\\rock")
+        assert "music/rock" in results
+
+    def test_search_mixed_separators_normalized(self):
+        """Query with mixed / and \\ should normalise all to /."""
+
+        cache = ConnectionDirectoryCache(
+            connection_id="test",
+            host="h",
+            share_name="s",
+            username="u",
+            password="p",
+        )
+        cache.add_directories(["a/b/c/d"])
+
+        results, total = cache.search("a\\b/c")
+        assert results == ["a/b/c/d"]
+        assert total == 1
+
 
 # ============================================================================
 # ConnectionDirectoryCache — add_directory

@@ -24,7 +24,7 @@ import type React from "react";
 // ============================================================================
 
 /** Shared placeholder text for directory search inputs */
-export const DIRECTORY_SEARCH_PLACEHOLDER = "Search directories...";
+export const DIRECTORY_SEARCH_PLACEHOLDER = "Search directories… (use / to match paths)";
 
 // ============================================================================
 // Result types

@@ -19,6 +19,7 @@ export interface ApiMock {
   createConnection: Mock;
   updateConnection: Mock;
   deleteConnection: Mock;
+  deleteItem: Mock;
   getImageBlob: Mock;
   searchDirectories: Mock;
 }
@@ -43,6 +44,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
     Promise.resolve({ id: "conn-1", ...data } as Connection)
   );
   api.deleteConnection.mockResolvedValue(undefined);
+  api.deleteItem.mockResolvedValue(undefined);
 
   // Mock getImageBlob to return a fake blob
   api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));

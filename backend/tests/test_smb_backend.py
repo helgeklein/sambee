@@ -884,3 +884,122 @@ class TestBackendInitialization:
         assert backend.share_name == "share$"
         assert backend.password == "p@ssw0rd!"
         assert backend._base_path == r"\\server.local\share$"
+
+
+class TestDeleteItem:
+    """Test file and directory deletion."""
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.remove")
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_file(self, mock_stat, mock_remove):
+        """Test deleting a regular file calls smbclient.remove."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100644  # regular file mode
+        mock_stat.return_value = stat_result
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        await backend.delete_item("/docs/readme.txt")
+
+        mock_stat.assert_called_once_with(r"\\server.local\share\docs\readme.txt")
+        mock_remove.assert_called_once_with(r"\\server.local\share\docs\readme.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rmdir")
+    @patch("app.storage.smb.smbclient.scandir")
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_empty_directory(self, mock_stat, mock_scandir, mock_rmdir):
+        """Test deleting an empty directory calls smbclient.rmdir."""
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o40755  # directory mode
+        mock_stat.return_value = stat_result
+        mock_scandir.return_value = []  # empty directory
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        await backend.delete_item("/empty-folder")
+
+        mock_stat.assert_called_once_with(r"\\server.local\share\empty-folder")
+        mock_scandir.assert_called_once_with(r"\\server.local\share\empty-folder")
+        mock_rmdir.assert_called_once_with(r"\\server.local\share\empty-folder")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_not_found_raises(self, mock_stat):
+        """Test deleting a non-existent path raises FileNotFoundError."""
+        mock_stat.side_effect = OSError("(0xc0000034) STATUS_OBJECT_NAME_NOT_FOUND")
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        with pytest.raises(FileNotFoundError, match="Path not found"):
+            await backend.delete_item("/ghost.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.remove")
+    @patch("app.storage.smb.smbclient.rmdir")
+    @patch("app.storage.smb.smbclient.scandir")
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_directory_recursive(self, mock_stat, mock_scandir, mock_rmdir, mock_remove):
+        """Test deleting a non-empty directory removes children first."""
+        dir_stat = MagicMock()
+        dir_stat.st_mode = 0o40755  # directory mode
+
+        file_stat = MagicMock()
+        file_stat.st_mode = 0o100644  # regular file mode
+
+        # stat returns dir for the root, file for children
+        mock_stat.side_effect = lambda p: dir_stat if p == r"\\server.local\share\folder" else file_stat
+
+        # scandir returns two file entries inside the directory
+        child_a = MagicMock()
+        child_a.path = r"\\server.local\share\folder\a.txt"
+        child_b = MagicMock()
+        child_b.path = r"\\server.local\share\folder\b.txt"
+        mock_scandir.return_value = [child_a, child_b]
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        await backend.delete_item("/folder")
+
+        # Both children removed, then the directory itself
+        assert mock_remove.call_count == 2
+        mock_rmdir.assert_called_once_with(r"\\server.local\share\folder")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_timeout_raises(self, mock_stat):
+        """Test that a slow delete operation raises TimeoutError."""
+        import asyncio
+
+        async def slow_executor(*args, **kwargs):
+            await asyncio.sleep(20)
+
+        mock_stat.side_effect = lambda *a, **k: asyncio.sleep(20)  # will be cancelled
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+
+        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            with pytest.raises(TimeoutError, match="timed out"):
+                await backend.delete_item("/big-file.zip")
