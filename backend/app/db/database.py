@@ -87,6 +87,7 @@ def init_db() -> None:
     # Import here to avoid circular dependency
     from app.core.secrets import get_or_create_app_secrets
     from app.models.app_secret import AppSecret  # noqa: F401 - Required for table creation
+    from app.models.edit_lock import EditLock  # noqa: F401 - Required for table creation
 
     # Create all tables
     SQLModel.metadata.create_all(engine)

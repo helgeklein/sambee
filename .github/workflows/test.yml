@@ -28,7 +28,9 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+        cache-dependency-path: |
+          frontend/package-lock.json
+          companion/package-lock.json
 
     - name: Cache Python virtual environment
       uses: actions/cache@v4
@@ -39,14 +41,23 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
 
-    - name: Cache Node modules
+    - name: Cache Node modules (frontend)
       uses: actions/cache@v4
       id: node-cache
       with:
         path: frontend/node_modules
-        key: ${{ runner.os }}-node-20-modules-${{ hashFiles('frontend/package-lock.json') }}
+        key: ${{ runner.os }}-node-20-frontend-${{ hashFiles('frontend/package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-node-20-modules-
+          ${{ runner.os }}-node-20-frontend-
+
+    - name: Cache Node modules (companion)
+      uses: actions/cache@v4
+      id: companion-node-cache
+      with:
+        path: companion/node_modules
+        key: ${{ runner.os }}-node-20-companion-${{ hashFiles('companion/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-20-companion-
 
     - name: Cache mypy
       uses: actions/cache@v4
@@ -67,9 +78,25 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-imagemagick-
 
-    - name: Install system dependencies for image processing
+    - name: Install system dependencies (image processing + Tauri)
       run: |
-        sudo bash scripts/install-system-deps
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libsoup-3.0-dev \
+          libjavascriptcoregtk-4.1-dev
+        sudo SKIP_APT_UPDATE=1 bash scripts/install-system-deps
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: companion/src-tauri -> target
 
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
@@ -101,6 +128,10 @@ jobs:
         cd frontend
         echo "✓ Node dependencies restored from cache"
         npm list --depth=0
+
+    - name: Install companion Node.js dependencies
+      if: steps.companion-node-cache.outputs.cache-hit != 'true'
+      run: cd companion && npm ci --prefer-offline
 
     - name: Run test script
       env:

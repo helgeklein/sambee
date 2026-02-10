@@ -12,6 +12,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Re-include companion/src/lib/ (TypeScript utility modules, not Python build artifacts)
+!companion/src/lib/
 parts/
 sdist/
 var/
@@ -86,6 +88,9 @@ logs/
 
 # Docker
 .docker/
+
+# Rust
+target/
 
 # ImageMagick AppImage extraction
 squashfs-root/

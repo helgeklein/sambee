@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from app import __version__
-from app.api import admin, auth, browser, logs, viewer, websocket
+from app.api import admin, auth, browser, companion, logs, viewer, websocket
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -150,6 +150,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Sambee application startup complete!")
         logger.info("API Documentation: http://localhost:8000/docs")
 
+        # Start background lock monitor for orphaned edit locks
+        from app.services.lock_manager import start_lock_monitor
+
+        start_lock_monitor()
+        logger.info("Lock monitor started")
+
     except ConfigurationError as e:
         log_error(logger, f"Configuration error: {e}")
         log_error(logger, "Application startup failed. Exiting.")
@@ -163,6 +169,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Shutdown
     logger.info("Shutting down Sambee application...")
+
+    # Stop lock monitor background task
+    try:
+        from app.services.lock_manager import stop_lock_monitor
+
+        logger.info("Stopping lock monitor...")
+        stop_lock_monitor()
+        logger.info("Lock monitor stopped")
+    except Exception as e:
+        log_error(logger, f"Error stopping lock monitor: {e}")
 
     # Stop directory caches (CHANGE_NOTIFY watchers + rescan tasks)
     try:
@@ -281,6 +297,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
+app.include_router(companion.router, prefix="/api/companion", tags=["companion"])
 app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
 

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from typing import BinaryIO
 
 from app.models.file import DirectoryListing, FileInfo
 
@@ -49,6 +50,23 @@ class StorageBackend(ABC):
     @abstractmethod
     def read_file(self, path: str) -> AsyncIterator[bytes]:
         """Read file contents as chunks"""
+
+        pass
+
+    #
+    # write_file
+    #
+    @abstractmethod
+    async def write_file(self, path: str, data: BinaryIO) -> int:
+        """Write a file to storage, overwriting if it exists.
+
+        Args:
+            path: Relative path within the share.
+            data: File-like object to read content from.
+
+        Returns:
+            Number of bytes written.
+        """
 
         pass
 

@@ -12,7 +12,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}Running linters for backend and frontend...${NC}\n"
+echo -e "${YELLOW}Running linters for backend, frontend, and companion...${NC}\n"
 
 # Backend: Ruff
 echo -e "${YELLOW}=== Backend: Ruff ===${NC}"
@@ -44,6 +44,42 @@ if npm run lint; then
 else
     echo -e "${RED}✗ Biome check failed${NC}\n"
     exit 1
+fi
+
+# Companion: Rust (clippy + fmt check)
+if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
+    echo -e "${YELLOW}=== Companion: Rust (clippy + fmt) ===${NC}"
+    cd "$REPO_ROOT/companion/src-tauri" || exit 1
+
+    echo "Checking Rust code with clippy..."
+    if cargo clippy --lib --tests -- -D warnings 2>&1; then
+        echo -e "${GREEN}✓ Clippy check passed${NC}\n"
+    else
+        echo -e "${RED}✗ Clippy check failed${NC}\n"
+        exit 1
+    fi
+
+    echo "Checking Rust formatting..."
+    if cargo fmt --check 2>&1; then
+        echo -e "${GREEN}✓ Rust format check passed${NC}\n"
+    else
+        echo -e "${RED}✗ Rust format check failed${NC}\n"
+        exit 1
+    fi
+fi
+
+# Companion: TypeScript/CSS (Biome)
+if [ -d "$REPO_ROOT/companion/src" ]; then
+    echo -e "${YELLOW}=== Companion: Biome ===${NC}"
+    cd "$REPO_ROOT/companion" || exit 1
+
+    echo "Checking companion TypeScript/CSS with Biome..."
+    if npm run lint; then
+        echo -e "${GREEN}✓ Companion Biome check passed${NC}\n"
+    else
+        echo -e "${RED}✗ Companion Biome check failed${NC}\n"
+        exit 1
+    fi
 fi
 
 echo -e "${GREEN}All lint checks passed!${NC}"

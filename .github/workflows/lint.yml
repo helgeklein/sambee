@@ -8,9 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  lint:
+  # ─────────────────────────────────────────────────────────────────────
+  # Backend: Python (ruff check + ruff format --check)
+  # ─────────────────────────────────────────────────────────────────────
+  lint-backend:
     runs-on: ubuntu-latest
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -20,24 +22,97 @@ jobs:
       with:
         python-version: '3.13'
         cache: 'pip'
+        cache-dependency-path: 'backend/requirements-dev.txt'
+
+    # Only install ruff — no need for the full dependency tree just to lint
+    - name: Install ruff
+      run: pip install $(grep '^ruff==' backend/requirements-dev.txt)
+
+    - name: Ruff check
+      run: cd backend && ruff check app
+
+    - name: Ruff format check
+      run: cd backend && ruff format --check app
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Frontend: TypeScript/JavaScript (biome check)
+  # ─────────────────────────────────────────────────────────────────────
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
 
-    - name: Install Python dependencies
-      run: |
-        cd backend
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
+    - name: Cache node_modules
+      uses: actions/cache@v4
+      id: node-cache
+      with:
+        path: frontend/node_modules
+        key: ${{ runner.os }}-node-20-frontend-${{ hashFiles('frontend/package-lock.json') }}
 
     - name: Install Node.js dependencies
-      run: |
-        cd frontend
-        npm ci
+      if: steps.node-cache.outputs.cache-hit != 'true'
+      run: cd frontend && npm ci
 
-    - name: Run lint script
-      run: ./scripts/lint
+    - name: Biome check
+      run: cd frontend && npm run lint
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Companion: Rust (clippy + rustfmt) + TypeScript/CSS (biome)
+  # ─────────────────────────────────────────────────────────────────────
+  lint-companion:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Tauri system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libsoup-3.0-dev \
+          libjavascriptcoregtk-4.1-dev
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy, rustfmt
+
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: companion/src-tauri -> target
+
+    - name: Clippy check
+      run: cd companion/src-tauri && cargo clippy --lib --tests -- -D warnings
+
+    - name: Rustfmt check
+      run: cd companion/src-tauri && cargo fmt --check
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Cache node_modules
+      uses: actions/cache@v4
+      id: companion-node-cache
+      with:
+        path: companion/node_modules
+        key: ${{ runner.os }}-node-20-companion-${{ hashFiles('companion/package-lock.json') }}
+
+    - name: Install companion Node.js dependencies
+      if: steps.companion-node-cache.outputs.cache-hit != 'true'
+      run: cd companion && npm ci
+
+    - name: Biome check
+      run: cd companion && npm run lint

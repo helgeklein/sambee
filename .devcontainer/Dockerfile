@@ -17,6 +17,13 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         sqlite3 \
         zsh \
         tmux \
+        # Tauri v2 Linux system dependencies
+        libwebkit2gtk-4.1-dev \
+        libxdo-dev \
+        libssl-dev \
+        libayatana-appindicator3-dev \
+        librsvg2-dev \
+        file \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
 # Install oh-my-zsh for better terminal experience

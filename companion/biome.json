@@ -1,0 +1,6 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.3.4/schema.json",
+  "extends": [
+    "../frontend/biome.json"
+  ]
+}

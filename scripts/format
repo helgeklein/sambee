@@ -1,17 +1,22 @@
 #!/bin/bash
 set -e
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Get the repository root (parent of scripts directory)
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}Auto-formatting backend and frontend...${NC}\n"
+echo -e "${YELLOW}Auto-formatting backend, frontend, and companion...${NC}\n"
 
 # Backend: Ruff
 echo -e "${YELLOW}=== Backend: Ruff ===${NC}"
-cd /workspace/backend || exit 1
+cd "$REPO_ROOT/backend" || exit 1
 
 echo "Fixing Python code with Ruff..."
 ruff check --fix app
@@ -23,7 +28,7 @@ echo -e "${GREEN}✓ Ruff formatting applied${NC}\n"
 
 # Frontend: Biome
 echo -e "${YELLOW}=== Frontend: Biome ===${NC}"
-cd /workspace/frontend || exit 1
+cd "$REPO_ROOT/frontend" || exit 1
 
 echo "Auto-fixing TypeScript/JavaScript with Biome..."
 npm run lint:fix
@@ -32,5 +37,29 @@ echo -e "${GREEN}✓ Biome auto-fixes applied${NC}"
 echo "Formatting TypeScript/JavaScript with Biome..."
 npm run format
 echo -e "${GREEN}✓ Biome formatting applied${NC}\n"
+
+# Companion: Rust
+if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
+    echo -e "${YELLOW}=== Companion: Rust ===${NC}"
+    cd "$REPO_ROOT/companion/src-tauri" || exit 1
+
+    echo "Formatting Rust code with rustfmt..."
+    cargo fmt
+    echo -e "${GREEN}✓ Rust formatting applied${NC}\n"
+fi
+
+# Companion: TypeScript/CSS (Biome)
+if [ -d "$REPO_ROOT/companion/src" ]; then
+    echo -e "${YELLOW}=== Companion: Biome ===${NC}"
+    cd "$REPO_ROOT/companion" || exit 1
+
+    echo "Auto-fixing companion TypeScript/CSS with Biome..."
+    npm run lint:fix
+    echo -e "${GREEN}✓ Companion Biome auto-fixes applied${NC}"
+
+    echo "Formatting companion TypeScript/CSS with Biome..."
+    npm run format
+    echo -e "${GREEN}✓ Companion Biome formatting applied${NC}\n"
+fi
 
 echo -e "${GREEN}All formatting complete!${NC}"

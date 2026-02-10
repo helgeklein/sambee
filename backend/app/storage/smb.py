@@ -3,7 +3,7 @@ import logging
 import stat
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import AsyncIterator
+from typing import AsyncIterator, BinaryIO
 
 import smbclient
 from smbclient._os import FileAttributes
@@ -306,6 +306,77 @@ class SMBBackend(StorageBackend):
 
         except Exception as e:
             logger.error(f"Failed to read file {path}: {e}")
+            raise
+
+    #
+    # write_file
+    #
+    async def write_file(self, path: str, data: BinaryIO) -> int:
+        """Write a file to the SMB share, overwriting if it exists.
+
+        Reads from *data* in chunks and writes them to the remote path.
+        Parent directories must already exist.
+
+        Args:
+            path: Relative path within the share.
+            data: File-like object to read content from.
+
+        Returns:
+            Number of bytes written.
+
+        Raises:
+            TimeoutError: If the operation takes longer than 120 seconds.
+            OSError: If the SMB write operation fails.
+        """
+
+        # Write chunk size — 4 MB matches read_file for consistency
+        write_chunk_size: int = 4 * 1024 * 1024
+        smb_path = self._build_smb_path(path)
+        logger.info(f"Writing file: path='{path}' -> smb_path='{smb_path}'")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+
+                def _write() -> int:
+                    bytes_written = 0
+                    with smbclient.open_file(smb_path, mode="wb", share_access="r") as f:
+                        while True:
+                            chunk = data.read(write_chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            bytes_written += len(chunk)
+                    return bytes_written
+
+                bytes_written = await asyncio.wait_for(
+                    loop.run_in_executor(None, _write),
+                    timeout=120.0,
+                )
+
+                logger.info(f"Successfully wrote {bytes_written} bytes: path='{path}'")
+                return bytes_written
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout writing '{path}' after 120 seconds")
+            raise TimeoutError(f"SMB operation timed out while writing: {path}")
+        except OSError as e:
+            error_str = str(e)
+            if "0xc0000043" in error_str or "being used by another process" in error_str:
+                logger.warning(f"File locked during write: path='{path}'")
+                raise IOError(f"File is locked and cannot be written: {path}") from e
+            logger.error(f"Failed to write '{path}': {type(e).__name__}: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Failed to write '{path}': {type(e).__name__}: {e}", exc_info=True)
             raise
 
     #

@@ -3,13 +3,15 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "devcontainer",
   "workspaceFolder": "/workspace",
-
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "20"
+    },
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "latest",
+      "profile": "default"
     }
   },
-
   "customizations": {
     "vscode": {
       "extensions": [
@@ -18,21 +20,23 @@
         "charliermarsh.ruff",
         "biomejs.biome",
         "mtxr.sqltools",
-        "mtxr.sqltools-driver-sqlite"
+        "mtxr.sqltools-driver-sqlite",
+        "rust-lang.rust-analyzer",
+        "tauri-apps.tauri-vscode"
       ],
       "settings": {
         // Python Testing
-        "python.testing.pytestArgs": ["tests"],
+        "python.testing.pytestArgs": [
+          "tests"
+        ],
         "python.testing.unittestEnabled": false,
         "python.testing.pytestEnabled": true,
         "python.testing.autoTestDiscoverOnSaveEnabled": false,
         "python.testing.pytestPath": "pytest",
         "python.testing.cwd": "${workspaceFolder}/backend",
-
         // Python Configuration
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "python.analysis.typeCheckingMode": "basic",
-
         // File Handling
         "files.eol": "\n",
         "editor.formatOnPaste": true,
@@ -40,7 +44,6 @@
         "editor.formatOnType": false,
         "files.trimTrailingWhitespace": true,
         "editor.detectIndentation": false,
-
         // File Watching Optimizations
         "files.watcherExclude": {
           "**/__pycache__/**": true,
@@ -54,9 +57,9 @@
           "**/.pytest_cache/**": true,
           "**/.ruff_cache/**": true,
           "**/squashfs-root/**": true,
-          "**/.vite/**": true
+          "**/.vite/**": true,
+          "**/target/**": true
         },
-
         // Copilot Performance Optimization
         "copilot.exclude": {
           "**/__pycache__/**": true,
@@ -69,9 +72,9 @@
           "**/build/**": true,
           "**/dist/**": true,
           "**/squashfs-root/**": true,
-          "**/.vite/**": true
+          "**/.vite/**": true,
+          "**/target/**": true
         },
-
         // Language-specific Formatters
         "[python]": {
           "editor.tabSize": 4,
@@ -132,8 +135,10 @@
       }
     }
   },
-
-  "forwardPorts": [3000, 8000],
+  "forwardPorts": [
+    3000,
+    8000
+  ],
   "portsAttributes": {
     "3000": {
       "label": "Frontend (Vite)",
@@ -146,7 +151,6 @@
   },
   "postCreateCommand": "bash .devcontainer/post-create",
   "postStartCommand": "bash .devcontainer/post-start",
-
   "remoteUser": "vscode",
   "updateRemoteUserUID": true
 }

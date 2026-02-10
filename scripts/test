@@ -113,6 +113,34 @@ if grep -q '"test"' package.json; then
 fi
 
 # ============================================
+# COMPANION TESTS
+# ============================================
+if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
+    echo -e "${YELLOW}=== Companion: Static Analysis ===${NC}"
+    cd "$REPO_ROOT/companion" || exit 1
+
+    # TypeScript - Type checking
+    echo -e "${BLUE}Running TypeScript compiler (companion type checking)...${NC}"
+    if npx tsc --noEmit; then
+        echo -e "${GREEN}✓ Companion TypeScript type check passed${NC}\n"
+    else
+        echo -e "${RED}✗ Companion TypeScript type check failed${NC}\n"
+        OVERALL_STATUS=1
+    fi
+
+    echo -e "${YELLOW}=== Companion: Rust Tests ===${NC}"
+    cd "$REPO_ROOT/companion/src-tauri" || exit 1
+
+    echo -e "${BLUE}Running cargo test...${NC}"
+    if cargo test 2>&1; then
+        echo -e "${GREEN}✓ Companion Rust tests passed${NC}\n"
+    else
+        echo -e "${RED}✗ Companion Rust tests failed${NC}\n"
+        OVERALL_STATUS=1
+    fi
+fi
+
+# ============================================
 # SUMMARY
 # ============================================
 echo -e "${BLUE}======================================${NC}"

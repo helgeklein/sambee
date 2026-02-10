@@ -1,0 +1,223 @@
+/**
+ * Styles for the App Picker dialog.
+ *
+ * All colors use CSS custom properties from the companion theme system,
+ * so the picker matches the user's chosen Sambee theme. No @media
+ * prefers-color-scheme blocks needed — the theme is applied programmatically.
+ */
+
+.app-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  min-width: 400px;
+  max-width: 500px;
+  min-height: 0;
+}
+
+/* ─── Header ─── */
+
+.app-picker__header {
+  font-size: 1rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.app-picker__extension {
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--accent-color, #f4c430);
+}
+
+/* ─── App list ─── */
+
+.app-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  padding: 0.25rem;
+}
+
+.app-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition:
+    background-color 0.1s,
+    border-color 0.1s;
+}
+
+.app-picker__item:hover {
+  background-color: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.app-picker__item--selected {
+  border-color: var(--accent-color, #f4c430);
+  background-color: var(--surface-selected, rgba(244, 196, 48, 0.08));
+}
+
+/* ─── App icon ─── */
+
+.app-picker__icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.app-picker__icon-placeholder {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background-color: var(--border-color, #d1d5db);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  color: var(--text-secondary, #1f262bb3);
+}
+
+/* ─── App info ─── */
+
+.app-picker__info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.app-picker__name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-picker__default-badge {
+  font-size: 0.75rem;
+  color: var(--accent-color, #f4c430);
+  font-weight: 600;
+}
+
+.app-picker__path {
+  font-size: 0.6875rem;
+  color: var(--text-secondary, #1f262bb3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+}
+
+/* ─── Always-use checkbox ─── */
+
+.app-picker__always-use {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #1f262bb3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.app-picker__always-use input[type="checkbox"] {
+  accent-color: var(--accent-color, #f4c430);
+}
+
+/* ─── Actions ─── */
+
+.app-picker__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.app-picker__browse-btn {
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #1f262bb3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0.25rem 0;
+}
+
+.app-picker__browse-btn:hover {
+  color: var(--text-primary, #1f262b);
+}
+
+.app-picker__btn-group {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.app-picker__btn {
+  padding: 0.4375rem 1rem;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border-color, #d1d5db);
+  background-color: var(--btn-bg, #f3f4f6);
+  color: inherit;
+  transition:
+    background-color 0.1s,
+    border-color 0.1s;
+}
+
+.app-picker__btn:hover {
+  background-color: var(--btn-bg-hover, #e5e7eb);
+}
+
+.app-picker__btn--primary {
+  background-color: var(--accent-color, #f4c430);
+  border-color: var(--accent-color, #f4c430);
+  color: var(--primary-contrast, #1f262b);
+}
+
+.app-picker__btn--primary:hover {
+  background-color: var(--accent-dark, #d4a020);
+  border-color: var(--accent-dark, #d4a020);
+}
+
+.app-picker__btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ─── States ─── */
+
+.app-picker__loading,
+.app-picker__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  color: var(--text-secondary, #1f262bb3);
+  font-size: 0.875rem;
+}
+
+.app-picker__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  color: var(--danger-text, #dc2626);
+  font-size: 0.875rem;
+  background-color: var(--danger-bg, rgba(220, 38, 38, 0.06));
+  border-radius: 4px;
+}

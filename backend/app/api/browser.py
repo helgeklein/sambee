@@ -1,7 +1,8 @@
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
 from sqlmodel import Session
 
 from app.core.logging import get_logger, set_user
@@ -195,6 +196,93 @@ async def search_directories(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to search directories: {str(e)}",
+        )
+
+
+# ============================================================================
+# Upload file
+# ============================================================================
+
+
+class UploadResponse(BaseModel):
+    """Response for successful file upload."""
+
+    status: str
+    path: str
+    size: int
+    last_modified: str | None
+
+
+#
+# upload_file
+#
+@router.post("/{connection_id}/upload", response_model=UploadResponse)
+async def upload_file(
+    connection_id: uuid.UUID,
+    path: str = Query(..., description="Destination path on the share"),
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> UploadResponse:
+    """Upload a file to the SMB share.
+
+    Accepts a multipart file upload and writes it to the specified path,
+    overwriting the existing file.  Used by both the companion app (writing
+    back edited files) and the web UI (future upload feature).
+    """
+
+    set_user(current_user.username)
+    logger.info(f"Upload file: connection_id={connection_id}, path='{path}'")
+
+    connection = session.get(Connection, connection_id)
+    if not connection:
+        logger.warning(f"Connection not found: connection_id={connection_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+
+    if not connection.share_name:
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection has no share name configured",
+        )
+
+    try:
+        backend = SMBBackend(
+            host=connection.host,
+            share_name=connection.share_name,
+            username=connection.username,
+            password=decrypt_password(connection.password_encrypted),
+            port=connection.port,
+        )
+
+        await backend.connect()
+        bytes_written = await backend.write_file(path, file.file)
+
+        # Re-read metadata after write for the response
+        updated_info = await backend.get_file_info(path)
+        await backend.disconnect()
+
+        logger.info(f"Upload complete: connection_id={connection_id}, path='{path}', size={bytes_written}")
+        return UploadResponse(
+            status="ok",
+            path=path,
+            size=bytes_written,
+            last_modified=updated_info.modified_at.isoformat() if updated_info.modified_at else None,
+        )
+    except IOError as e:
+        logger.warning(f"Upload blocked (file locked): connection_id={connection_id}, path='{path}'")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to upload file: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload file: {e}",
         )
 
 

@@ -1,0 +1,174 @@
+/**
+ * Styles for the "Done Editing" secondary window.
+ *
+ * The window is a compact (340×260px), always-on-top overlay.
+ * All colors use CSS custom properties from the companion theme system,
+ * so the window matches the user's chosen Sambee theme. No @media
+ * prefers-color-scheme blocks needed — the theme is applied programmatically.
+ */
+
+/* ── Window container ──────────────────────────────────────────────────── */
+
+.done-editing-window {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 8px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--text-color, #1f262b);
+  background: var(--bg-color, #f6f1e8);
+  height: 100vh;
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.done-editing-window--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Title and metadata ────────────────────────────────────────────────── */
+
+.done-editing-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.done-editing-app {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-color, #1f262bb3);
+}
+
+/* ── File status ───────────────────────────────────────────────────────── */
+
+.file-status {
+  margin: 4px 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.file-status--unchanged {
+  color: var(--muted-color, #1f262bb3);
+}
+
+.file-status--modified {
+  color: var(--accent-color, #f4c430);
+}
+
+/* ── Error message ─────────────────────────────────────────────────────── */
+
+.done-editing-error {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--danger-text, #dc2626);
+  background: var(--danger-bg, rgba(220, 38, 38, 0.06));
+  border-radius: 4px;
+  border: 1px solid var(--danger-border, rgba(220, 38, 38, 0.2));
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+
+.btn-primary {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--primary-contrast, #1f262b);
+  background: var(--accent-color, #f4c430);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: center;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-dark, #d4a020);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  display: block;
+  width: auto;
+  margin: 4px auto 0;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-color, #1f262b);
+  background: transparent;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+  text-align: center;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--danger-bg, rgba(220, 38, 38, 0.06));
+  border-color: var(--danger-border, rgba(220, 38, 38, 0.2));
+}
+
+.btn-small {
+  font-size: 11px;
+  padding: 4px 12px;
+}
+
+/* ── Progress tracks ───────────────────────────────────────────────────── */
+
+.hold-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--track-color, #e5e7eb);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.hold-progress-track--small {
+  width: 60%;
+  margin: 0 auto;
+  height: 3px;
+}
+
+.hold-progress-fill {
+  height: 100%;
+  background: var(--accent-color, #f4c430);
+  border-radius: 2px;
+  transition: width 0.05s linear;
+}
+
+.hold-progress-fill--danger {
+  background: var(--danger-color, #dc2626);
+}
+
+/* ── Upload progress ───────────────────────────────────────────────────── */
+
+.upload-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--track-color, #e5e7eb);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  background: var(--success-color, #16a34a);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+}

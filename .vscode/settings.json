@@ -98,7 +98,6 @@
   "javascript.suggestionActions.enabled": false,
   // GitHub Copilot Auto-Approve Commands
   "chat.tools.terminal.autoApprove": {
-    // Safe read-only commands
     "awk": true,
     "curl": true,
     "echo": true,
@@ -119,21 +118,18 @@
     "time": true,
     "uptime": true,
     "who": true,
-    // Project-specific scripts
     "/(\\.\\/)?scripts\\/lint/": true,
     "/(\\.\\/)?scripts\\/test/": true,
     "/(\\.\\/)?scripts\\/format/": true,
     "/(\\.\\/)?scripts\\/dev-start/": true,
     "/(\\.\\/)?scripts\\/dev-stop/": true,
-    // Node/npm commands
     "npm": true,
     "npx": true,
-    // Safe git commands
     "/^git\\s+(status|diff|log|show|branch)\\b/": true,
     "/^grep (-A|-E|-i)\\b/": true,
     "/^python(3)? -m (mypy|py_compile|pytest|ruff)\\b/": true,
     "/^time\\b/": true,
-    // Dangerous commands - explicit deny
+    "/^cargo\\s+(build|check|clean|doc|new|init|run|test|bench|update|search|install|uninstall|publish|login|logout|package|metadata|fix|clippy|fmt|tree|verify|watch)\\b/": true,
     "rm": false,
     "rmdir": false,
     "del": false,
@@ -141,7 +137,8 @@
     "chmod": false,
     "chown": false,
     "/^git\\s+(push|reset|revert|clean)\\b/": false,
-    "/^npm\\s+(uninstall|remove)\\b/": false
+    "/^npm\\s+(uninstall|remove)\\b/": false,
+    "/workspace/frontend/node_modules/.bin/biome": true
   },
   "workbench.colorCustomizations": {
     "activityBar.activeBackground": "#f7d260",

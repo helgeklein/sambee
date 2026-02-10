@@ -1,0 +1,208 @@
+/**
+ * Shared styles for companion dialog overlays.
+ *
+ * Used by ConflictDialog, RecoveryDialog, and LargeFileWarning.
+ * All colors use CSS custom properties from the companion theme system.
+ */
+
+/* ── Dialog overlay (full-screen backdrop) ─────────────────────────────── */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  padding: 16px;
+}
+
+/* ── Dialog panel ──────────────────────────────────────────────────────── */
+
+.dialog-panel {
+  background: var(--bg-color, #f6f1e8);
+  color: var(--text-color, #1f262b);
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  font-family: system-ui, -apple-system, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.dialog-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dialog-title--warning {
+  color: var(--accent-color, #f4c430);
+}
+
+.dialog-title--danger {
+  color: var(--danger-text, #dc2626);
+}
+
+.dialog-subtitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted-color, #1f262bb3);
+}
+
+/* ── Body text ─────────────────────────────────────────────────────────── */
+
+.dialog-body {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dialog-body strong {
+  font-weight: 600;
+}
+
+.dialog-filename {
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.dialog-detail {
+  margin: 8px 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--track-color, #e5e7eb);
+  border-radius: 4px;
+  line-height: 1.6;
+}
+
+/* ── Button row ────────────────────────────────────────────────────────── */
+
+.dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dialog-actions--row {
+  flex-direction: row;
+  justify-content: flex-end;
+}
+
+/* ── Dialog buttons ────────────────────────────────────────────────────── */
+
+.dialog-btn {
+  display: block;
+  width: 100%;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.dialog-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dialog-btn--primary {
+  color: var(--primary-contrast, #1f262b);
+  background: var(--accent-color, #f4c430);
+  border-color: var(--accent-color, #f4c430);
+  font-weight: 600;
+}
+
+.dialog-btn--primary:hover:not(:disabled) {
+  background: var(--accent-dark, #d4a020);
+  border-color: var(--accent-dark, #d4a020);
+}
+
+.dialog-btn--danger {
+  color: #fff;
+  background: var(--danger-color, #dc2626);
+  border-color: var(--danger-color, #dc2626);
+}
+
+.dialog-btn--danger:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+.dialog-btn--ghost {
+  color: var(--text-color, #1f262b);
+  background: transparent;
+  border-color: var(--border-color, #d1d5db);
+}
+
+.dialog-btn--ghost:hover:not(:disabled) {
+  background: var(--track-color, #e5e7eb);
+}
+
+/* ── Error in dialog ───────────────────────────────────────────────────── */
+
+.dialog-error {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--danger-text, #dc2626);
+  background: var(--danger-bg, rgba(220, 38, 38, 0.06));
+  border-radius: 4px;
+  border: 1px solid var(--danger-border, rgba(220, 38, 38, 0.2));
+}
+
+/* ── Recovery list ─────────────────────────────────────────────────────── */
+
+.recovery-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.recovery-item {
+  background: var(--bg-color, #f6f1e8);
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.recovery-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.recovery-item-filename {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.recovery-item-detail {
+  font-size: 12px;
+  color: var(--muted-color, #1f262bb3);
+  margin-bottom: 8px;
+}
+
+.recovery-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.recovery-item-actions .dialog-btn {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+}

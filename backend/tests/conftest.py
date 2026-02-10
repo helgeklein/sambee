@@ -57,6 +57,7 @@ def reload_config():
     import sys
 
     import app.api.auth
+    import app.api.companion
     import app.core.config as config_module
     import app.core.security
     import app.db.database
@@ -71,6 +72,7 @@ def reload_config():
     # all modules see the updated values
     app.main.settings = new_settings
     app.api.auth.settings = new_settings
+    app.api.companion.settings = new_settings
     app.core.security.settings = new_settings
     app.db.database.settings = new_settings
 

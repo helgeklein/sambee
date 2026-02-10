@@ -36,14 +36,14 @@ from typing import Optional
 
 import smbclient
 from smbclient._os import FileAttributes
-from smbprotocol.change_notify import (
+from smbprotocol.change_notify import (  # type: ignore[import-untyped]
     ChangeNotifyFlags,
     CompletionFilter,
     FileAction,
     FileSystemWatcher,
 )
-from smbprotocol.connection import Connection
-from smbprotocol.open import (
+from smbprotocol.connection import Connection  # type: ignore[import-untyped]
+from smbprotocol.open import (  # type: ignore[import-untyped]
     CreateDisposition,
     CreateOptions,
     DirectoryAccessMask,
@@ -54,8 +54,8 @@ from smbprotocol.open import (
 from smbprotocol.open import (
     FileAttributes as SMBFileAttributes,
 )
-from smbprotocol.session import Session
-from smbprotocol.tree import TreeConnect
+from smbprotocol.session import Session  # type: ignore[import-untyped]
+from smbprotocol.tree import TreeConnect  # type: ignore[import-untyped]
 
 from app.core.config import settings, static
 from app.storage.smb_pool import get_connection_pool

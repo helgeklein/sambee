@@ -59,5 +59,15 @@ else
     echo "✅ Node dependencies installed successfully"
 fi
 
+# Companion app setup (Tauri v2)
+if [ -d /workspace/companion ]; then
+    echo "📦 Installing companion app dependencies..."
+    cd /workspace/companion
+    npm install
+    echo "🦀 Fetching Rust dependencies..."
+    cd src-tauri && cargo fetch && cd ..
+    echo "✅ Companion app dependencies installed"
+fi
+
 echo "✅ Development environment setup complete!"
 echo ""

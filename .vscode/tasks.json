@@ -68,7 +68,10 @@
       "problemMatcher": {
         "owner": "mypy",
         "source": "mypy",
-        "fileLocation": ["relative", "${workspaceFolder}/backend"],
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}/backend"
+        ],
         "pattern": {
           "regexp": "^(.+?):(\\d+):(\\d+:)? (error|warning|note): (.+?)\\s*\\[(.+?)\\]$",
           "file": 1,
@@ -84,6 +87,45 @@
       "type": "npm",
       "script": "test",
       "path": "frontend/",
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Companion: Run Rust Tests",
+      "type": "shell",
+      "command": "cargo test",
+      "options": {
+        "cwd": "${workspaceFolder}/companion/src-tauri"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Companion: Type Check (tsc)",
+      "type": "shell",
+      "command": "npx tsc --noEmit",
+      "options": {
+        "cwd": "${workspaceFolder}/companion"
+      },
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Companion: Lint (clippy + biome)",
+      "type": "shell",
+      "command": "cd src-tauri && cargo clippy --lib --tests -- -D warnings && cargo fmt --check && cd .. && npm run lint",
+      "options": {
+        "cwd": "${workspaceFolder}/companion"
+      },
       "group": "test",
       "presentation": {
         "reveal": "always",

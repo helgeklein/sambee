@@ -3,6 +3,7 @@ Tests for file browsing functionality.
 Uses mocked SMB backend to avoid dependency on real SMB server.
 """
 
+import uuid
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
@@ -410,4 +411,137 @@ class TestDeleteItem:
             headers=auth_headers_user,
             params={"path": "/document.txt"},
         )
+        assert response.status_code == 500
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Upload file
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestUploadFile:
+    """Tests for POST /api/browse/{connection_id}/upload"""
+
+    #
+    # test_upload_success
+    #
+    def test_upload_success(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+    ):
+        """Upload writes file to SMB share and returns metadata."""
+
+        mock_info = FileInfo(
+            name="report.docx",
+            path="/docs/report.docx",
+            type=FileType.FILE,
+            size=100,
+            modified_at=datetime(2026, 2, 9, 14, 0, 0),
+        )
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            instance = AsyncMock()
+            instance.write_file = AsyncMock(return_value=100)
+            instance.get_file_info = AsyncMock(return_value=mock_info)
+            MockBackend.return_value = instance
+
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                params={"path": "/docs/report.docx"},
+                files={"file": ("report.docx", b"file content here", "application/octet-stream")},
+                headers=auth_headers_admin,
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["path"] == "/docs/report.docx"
+        assert data["size"] == 100
+
+    #
+    # test_upload_file_locked
+    #
+    def test_upload_file_locked(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+    ):
+        """Upload returns 409 when the target file is locked on the SMB share."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            instance = AsyncMock()
+            instance.write_file = AsyncMock(side_effect=IOError("File is locked and cannot be written"))
+            MockBackend.return_value = instance
+
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                params={"path": "/docs/report.docx"},
+                files={"file": ("report.docx", b"content", "application/octet-stream")},
+                headers=auth_headers_admin,
+            )
+
+        assert response.status_code == 409
+
+    #
+    # test_upload_connection_not_found
+    #
+    def test_upload_connection_not_found(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+    ):
+        """Upload returns 404 for nonexistent connection."""
+
+        response = client.post(
+            f"/api/browse/{uuid.uuid4()}/upload",
+            params={"path": "/docs/report.docx"},
+            files={"file": ("report.docx", b"content", "application/octet-stream")},
+            headers=auth_headers_admin,
+        )
+        assert response.status_code == 404
+
+    #
+    # test_upload_requires_auth
+    #
+    def test_upload_requires_auth(
+        self,
+        client: TestClient,
+        test_connection: Connection,
+    ):
+        """Upload endpoint requires authentication."""
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/upload",
+            params={"path": "/docs/report.docx"},
+            files={"file": ("report.docx", b"content", "application/octet-stream")},
+        )
+        assert response.status_code == 401
+
+    #
+    # test_upload_server_error
+    #
+    def test_upload_server_error(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+    ):
+        """Upload returns 500 on unexpected SMB errors."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            instance = AsyncMock()
+            instance.write_file = AsyncMock(side_effect=Exception("Connection lost"))
+            MockBackend.return_value = instance
+
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                params={"path": "/docs/report.docx"},
+                files={"file": ("report.docx", b"content", "application/octet-stream")},
+                headers=auth_headers_admin,
+            )
+
         assert response.status_code == 500
