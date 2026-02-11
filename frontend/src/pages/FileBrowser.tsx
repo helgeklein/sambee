@@ -20,7 +20,7 @@
  * - Accessibility: Keyboard-first design with proper focus management
  */
 
-import { AppBar, Box, CircularProgress, Container, Toolbar, useMediaQuery } from "@mui/material";
+import { AppBar, Box, CircularProgress, Container, Snackbar, Toolbar, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
@@ -45,6 +45,7 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
+import { useSambeeTheme } from "../theme";
 import type { Connection, FileEntry } from "../types";
 import { FileType, isApiError } from "../types";
 import { hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
@@ -141,6 +142,11 @@ const Browser: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Companion app state
+  const [openInAppLoading, setOpenInAppLoading] = useState(false);
+  const [companionHintOpen, setCompanionHintOpen] = useState(false);
+  const { currentTheme } = useSambeeTheme();
 
   // ──────────────────────────────────────────────────────────────────────────
   // Search Provider
@@ -1335,6 +1341,86 @@ const Browser: React.FC = () => {
     }
   }, [deleteTarget, selectedConnectionId, focusedIndex]);
 
+  //
+  // handleOpenInApp
+  //
+  const handleOpenInApp = useCallback(async () => {
+    /**
+     * Generates a sambee:// URI for the focused file and opens it,
+     * triggering the companion app via the OS custom protocol handler.
+     */
+    if (!selectedConnectionId) return;
+
+    const file = filesRef.current[focusedIndex];
+    if (!file || file.type === "directory") return;
+
+    const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+
+    setOpenInAppLoading(true);
+    try {
+      const themeJson = JSON.stringify({
+        id: currentTheme.id,
+        mode: currentTheme.mode,
+        primary: currentTheme.primary.main,
+      });
+      const uri = await api.getCompanionUri(selectedConnectionId, filePath, themeJson);
+
+      logger.info("Opening file in companion app", { path: filePath }, "companion");
+
+      // Trigger the custom protocol handler
+      window.location.href = uri;
+
+      // Show guidance hint in case companion is not installed
+      setCompanionHintOpen(true);
+    } catch (err: unknown) {
+      let detail = "Failed to generate companion URI.";
+      if (isApiError(err) && err.response?.data?.detail) {
+        detail = err.response.data.detail;
+      }
+      setError(detail);
+      logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
+    } finally {
+      setOpenInAppLoading(false);
+    }
+  }, [selectedConnectionId, focusedIndex, currentTheme]);
+
+  /**
+   * Open a specific file in the companion app (used by context menu).
+   * Unlike handleOpenInApp which uses focusedIndex, this takes explicit file + index.
+   */
+  const handleOpenInAppForFile = useCallback(
+    async (file: FileEntry, _index: number) => {
+      if (!selectedConnectionId || file.type === "directory") return;
+
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+
+      setOpenInAppLoading(true);
+      try {
+        const themeJson = JSON.stringify({
+          id: currentTheme.id,
+          mode: currentTheme.mode,
+          primary: currentTheme.primary.main,
+        });
+        const uri = await api.getCompanionUri(selectedConnectionId, filePath, themeJson);
+        logger.info("Opening file in companion app (context menu)", { path: filePath }, "companion");
+        window.location.href = uri;
+
+        // Show guidance hint in case companion is not installed
+        setCompanionHintOpen(true);
+      } catch (err: unknown) {
+        let detail = "Failed to generate companion URI.";
+        if (isApiError(err) && err.response?.data?.detail) {
+          detail = err.response.data.detail;
+        }
+        setError(detail);
+        logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
+      } finally {
+        setOpenInAppLoading(false);
+      }
+    },
+    [selectedConnectionId, currentTheme]
+  );
+
   /**
    * Keyboard shortcuts configuration
    *
@@ -1426,6 +1512,12 @@ const Browser: React.FC = () => {
           focusedIndex >= 0 &&
           filesRef.current[focusedIndex] !== undefined,
       },
+      // Open in companion app (Ctrl+Enter)
+      {
+        ...BROWSER_SHORTCUTS.OPEN_IN_APP,
+        handler: handleOpenInApp,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex]?.type === "file",
+      },
     ],
     [
       handleNavigateDown,
@@ -1445,6 +1537,7 @@ const Browser: React.FC = () => {
       handleRefresh,
       handleDeleteRequest,
       deleteDialogOpen,
+      handleOpenInApp,
     ]
   );
 
@@ -1756,6 +1849,9 @@ const Browser: React.FC = () => {
                 setSettingsOpen(true);
               }}
               onBlurToFileList={() => listContainerEl?.focus()}
+              showOpenInApp={focusedIndex >= 0 && filesRef.current[focusedIndex]?.type === "file"}
+              onOpenInApp={handleOpenInApp}
+              openInAppLoading={openInAppLoading}
             />
           )}
         </Toolbar>
@@ -1864,6 +1960,7 @@ const Browser: React.FC = () => {
                   listContainerRef={listContainerRef}
                   fileRowStyles={fileRowStyles}
                   viewMode={viewMode}
+                  onOpenInApp={handleOpenInAppForFile}
                 />
               </Box>
             )}
@@ -1926,6 +2023,15 @@ const Browser: React.FC = () => {
           setDeleteTarget(null);
         }}
         onConfirm={handleDeleteConfirm}
+      />
+
+      {/* Companion app guidance hint */}
+      <Snackbar
+        open={companionHintOpen}
+        autoHideDuration={6000}
+        onClose={() => setCompanionHintOpen(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        message="Opening in Sambee Companion… If nothing happened, make sure the companion app is installed."
       />
     </Box>
   );

@@ -3,6 +3,7 @@ import { render } from "preact";
 import { App } from "./App";
 import { DoneEditingWindow } from "./components/DoneEditingWindow";
 import { applyFallbackTheme, applyThemeFromBase64 } from "./lib/theme";
+import { scheduleUpdateCheck } from "./lib/updateCheck";
 import "./styles/global.css";
 
 /**
@@ -31,5 +32,7 @@ if (root) {
     render(<DoneEditingWindow />, root);
   } else {
     render(<App />, root);
+    // Check for updates shortly after main UI renders
+    scheduleUpdateCheck();
   }
 }

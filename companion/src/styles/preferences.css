@@ -1,0 +1,255 @@
+/**
+ * Styles for the Preferences panel.
+ *
+ * All colors use CSS custom properties from the companion theme system,
+ * consistent with the dialog and app-picker styles. Provides a scrollable
+ * form layout with grouped settings sections.
+ */
+
+/* ── Panel container ───────────────────────────────────────────────────── */
+
+.preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  min-width: 420px;
+  max-width: 520px;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--text-color, #1f262b);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.preferences__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.preferences__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.preferences__close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.25rem;
+  color: var(--text-secondary, #1f262bb3);
+  padding: 0.25rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.preferences__close-btn:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────── */
+
+.preferences__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preferences__section-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary, #1f262bb3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Form field rows ───────────────────────────────────────────────────── */
+
+.preferences__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.preferences__label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-color, #1f262b);
+}
+
+.preferences__hint {
+  font-size: 0.6875rem;
+  color: var(--text-secondary, #1f262bb3);
+}
+
+/* ── Checkbox row ──────────────────────────────────────────────────────── */
+
+.preferences__checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.preferences__checkbox-row input[type="checkbox"] {
+  accent-color: var(--accent-color, #f4c430);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+/* ── Select ────────────────────────────────────────────────────────────── */
+
+.preferences__select {
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 4px;
+  background: var(--bg-color, #f6f1e8);
+  color: var(--text-color, #1f262b);
+  cursor: pointer;
+}
+
+.preferences__select:focus {
+  outline: 2px solid var(--accent-color, #f4c430);
+  outline-offset: -1px;
+}
+
+/* ── Number input ──────────────────────────────────────────────────────── */
+
+.preferences__number-input {
+  width: 5rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 4px;
+  background: var(--bg-color, #f6f1e8);
+  color: var(--text-color, #1f262b);
+}
+
+.preferences__number-input:focus {
+  outline: 2px solid var(--accent-color, #f4c430);
+  outline-offset: -1px;
+}
+
+/* ── Server list ───────────────────────────────────────────────────────── */
+
+.preferences__server-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.preferences__server-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  font-family: monospace;
+  background: var(--track-color, #e5e7eb);
+  border-radius: 4px;
+}
+
+.preferences__server-url {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preferences__server-remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--danger-text, #dc2626);
+  padding: 0 0.25rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.preferences__server-remove-btn:hover {
+  color: #b91c1c;
+}
+
+.preferences__server-empty {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #1f262bb3);
+  font-style: italic;
+  padding: 0.25rem 0;
+}
+
+/* ── Server add row ────────────────────────────────────────────────────── */
+
+.preferences__server-add {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.preferences__server-input {
+  flex: 1;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.8125rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 4px;
+  background: var(--bg-color, #f6f1e8);
+  color: var(--text-color, #1f262b);
+  font-family: monospace;
+}
+
+.preferences__server-input:focus {
+  outline: 2px solid var(--accent-color, #f4c430);
+  outline-offset: -1px;
+}
+
+.preferences__server-add-btn {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 4px;
+  background: var(--btn-bg, #f3f4f6);
+  color: var(--text-color, #1f262b);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.preferences__server-add-btn:hover {
+  background: var(--btn-bg-hover, #e5e7eb);
+}
+
+.preferences__server-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Divider ───────────────────────────────────────────────────────────── */
+
+.preferences__divider {
+  border: none;
+  border-top: 1px solid var(--border-color, #d1d5db);
+  margin: 0.25rem 0;
+}
+
+/* ── Footer / save bar ─────────────────────────────────────────────────── */
+
+.preferences__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.25rem;
+}
+
+.preferences__saved-indicator {
+  font-size: 0.75rem;
+  color: var(--accent-color, #f4c430);
+  font-weight: 500;
+}

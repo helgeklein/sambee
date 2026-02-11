@@ -217,4 +217,11 @@ export const BROWSER_SHORTCUTS = {
     description: "Delete file or directory",
     label: "Del",
   },
+  OPEN_IN_APP: {
+    id: "open-in-app",
+    keys: "Enter",
+    description: "Open in companion app",
+    label: "Ctrl+Enter",
+    ctrl: true,
+  },
 } as const satisfies Record<string, ShortcutDefinition>;

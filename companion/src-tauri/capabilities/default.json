@@ -13,6 +13,7 @@
     "http:default",
     "notification:default",
     "dialog:default",
+    "updater:default",
     {
       "identifier": "http:default",
       "allow": [

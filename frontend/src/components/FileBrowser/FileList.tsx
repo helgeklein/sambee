@@ -19,11 +19,23 @@ interface FileListProps {
     buttonNotSelected: Record<string, unknown>;
   };
   viewMode: ViewMode;
+  /** Called when "Open in app" is chosen from a file's context menu */
+  onOpenInApp?: (file: FileEntry, index: number) => void;
 } //
 // FileList
 //
 export const FileList = React.memo(
-  ({ files, focusedIndex, onFileClick, rowVirtualizer, parentRef, listContainerRef, fileRowStyles, viewMode }: FileListProps) => {
+  ({
+    files,
+    focusedIndex,
+    onFileClick,
+    rowVirtualizer,
+    parentRef,
+    listContainerRef,
+    fileRowStyles,
+    viewMode,
+    onOpenInApp,
+  }: FileListProps) => {
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
     return (
@@ -79,6 +91,7 @@ export const FileList = React.memo(
                     onClick={onFileClick}
                     fileRowStyles={fileRowStyles}
                     viewMode={viewMode}
+                    onOpenInApp={onOpenInApp}
                   />
                 );
               })}

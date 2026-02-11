@@ -2,8 +2,9 @@
 // FileRow
 //
 
-import { Box, Typography } from "@mui/material";
-import React from "react";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
+import React, { useCallback, useState } from "react";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
@@ -23,6 +24,8 @@ interface FileRowProps {
     contentBox: Record<string, unknown>;
   };
   viewMode: ViewMode;
+  /** Called when "Open in app" is chosen from the context menu */
+  onOpenInApp?: (file: FileEntry, index: number) => void;
 }
 
 /**
@@ -31,8 +34,31 @@ interface FileRowProps {
  */
 export const FileRow = React.memo(
   React.forwardRef<HTMLDivElement, FileRowProps>(
-    ({ file, index, isSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode }, ref) => {
+    ({ file, index, isSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp }, ref) => {
       const isListMode = viewMode === "list";
+      const isFile = file.type !== "directory";
+
+      // Context menu state
+      const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
+
+      const handleContextMenu = useCallback(
+        (e: React.MouseEvent) => {
+          // Only show context menu for files (not directories) when handler is provided
+          if (!isFile || !onOpenInApp) return;
+          e.preventDefault();
+          setContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
+        },
+        [isFile, onOpenInApp]
+      );
+
+      const handleContextMenuClose = useCallback(() => {
+        setContextMenu(null);
+      }, []);
+
+      const handleOpenInAppClick = useCallback(() => {
+        setContextMenu(null);
+        onOpenInApp?.(file, index);
+      }, [onOpenInApp, file, index]);
 
       return (
         <div
@@ -52,6 +78,7 @@ export const FileRow = React.memo(
             component="button"
             tabIndex={-1}
             onClick={() => onClick(file, index)}
+            onContextMenu={handleContextMenu}
             sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
             aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}`}
           >
@@ -103,6 +130,23 @@ export const FileRow = React.memo(
               </Box>
             )}
           </Box>
+
+          {/* Context menu for files */}
+          {isFile && onOpenInApp && (
+            <Menu
+              open={contextMenu !== null}
+              onClose={handleContextMenuClose}
+              anchorReference="anchorPosition"
+              anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
+            >
+              <MenuItem onClick={handleOpenInAppClick}>
+                <ListItemIcon>
+                  <OpenInNewIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>Open in companion app</ListItemText>
+              </MenuItem>
+            </Menu>
+          )}
         </div>
       );
     }
@@ -116,7 +160,8 @@ export const FileRow = React.memo(
     prev.file.size === next.file.size &&
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
-    prev.viewMode === next.viewMode
+    prev.viewMode === next.viewMode &&
+    prev.onOpenInApp === next.onOpenInApp
 );
 
 FileRow.displayName = "FileRow";

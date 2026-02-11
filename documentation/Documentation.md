@@ -13,7 +13,7 @@ This is a collection of points and ideas for a future end-user facing documentat
 - File listing
    - Automatic refresh when a directory on the SMB share is updated
    - Smooth scrolling even through very large directories
-- Naviation
+- Navigation
    - Instant navigation to any directory
 - Image viewer
    - Supports a great range of image types, including PSD, HEIF, EPS
@@ -23,6 +23,8 @@ This is a collection of points and ideas for a future end-user facing documentat
    - Search functionality
    - PDF normalization with Ghostscript for maximum compatibility
 - Markdown viewer
+- Native editing
+  - Smooth opening, editing and saving experience in all natively installed apps
 - Backend
    - SMB protocol support optimized for speed
 - Deployment

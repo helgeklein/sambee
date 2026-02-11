@@ -31,6 +31,9 @@
       ],
       "@tauri-apps/plugin-dialog": [
         "./node_modules/@tauri-apps/plugin-dialog/dist-js/index.d.ts"
+      ],
+      "@tauri-apps/plugin-updater": [
+        "./node_modules/@tauri-apps/plugin-updater/dist-js/index.d.ts"
       ]
     },
     /* Linting */

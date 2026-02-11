@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "preact/hooks";
 import { AppPicker } from "./components/AppPicker";
 import type { LargeFileInfo } from "./components/LargeFileWarning";
 import { LargeFileWarning } from "./components/LargeFileWarning";
+import { Preferences } from "./components/Preferences";
 import type { LeftoverInfo } from "./components/RecoveryDialog";
 import { RecoveryDialog } from "./components/RecoveryDialog";
 import type { NativeApp } from "./types";
@@ -31,7 +32,7 @@ interface AppPickerEventPayload {
 }
 
 /** Possible view states for the companion webview. */
-type ViewState = { kind: "idle" } | { kind: "app-picker"; extension: string; requestId: string };
+type ViewState = { kind: "idle" } | { kind: "app-picker"; extension: string; requestId: string } | { kind: "preferences" };
 
 //
 // App
@@ -64,10 +65,15 @@ export function App() {
       setLargeFile(event.payload);
     });
 
+    const unlistenPreferences = listen("show-preferences", () => {
+      setView({ kind: "preferences" });
+    });
+
     return () => {
       unlistenPicker.then((fn) => fn());
       unlistenRecovery.then((fn) => fn());
       unlistenLargeFile.then((fn) => fn());
+      unlistenPreferences.then((fn) => fn());
     };
   }, []);
 
@@ -106,6 +112,14 @@ export function App() {
     setLargeFile(null);
   }, []);
 
+  //
+  // handlePreferencesClose
+  //
+  /** Called when the user closes the preferences panel. */
+  const handlePreferencesClose = useCallback(() => {
+    setView({ kind: "idle" });
+  }, []);
+
   // ── Render overlays (recovery + large file) ───────────────────────────
 
   // Large-file warning takes priority (it blocks a lifecycle)
@@ -122,6 +136,8 @@ export function App() {
   switch (view.kind) {
     case "app-picker":
       return <AppPicker extension={view.extension} onSelect={handleAppSelected} onCancel={handleCancel} />;
+    case "preferences":
+      return <Preferences onClose={handlePreferencesClose} />;
     default:
       return (
         <div class="app">

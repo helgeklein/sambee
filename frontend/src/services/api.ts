@@ -442,6 +442,35 @@ class ApiService {
     return response.data;
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Companion App
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Request a short-lived URI token and build a sambee:// URI for the companion app.
+   *
+   * The returned URI encodes the server origin, token, connection, path,
+   * and (optionally) the current UI theme so the companion can match it.
+   */
+  async getCompanionUri(connectionId: string, path: string, themeJson?: string): Promise<string> {
+    const response = await this.api.post<{ uri_token: string; expires_in: number }>("/companion/uri-token", {
+      connection_id: connectionId,
+      path,
+    });
+
+    const { uri_token } = response.data;
+    const serverUrl = encodeURIComponent(window.location.origin);
+    const encodedPath = encodeURIComponent(path);
+
+    let uri = `sambee://open?server=${serverUrl}&token=${uri_token}&connId=${connectionId}&path=${encodedPath}`;
+
+    if (themeJson) {
+      uri += `&theme=${btoa(themeJson)}`;
+    }
+
+    return uri;
+  }
+
   /**
    * List available mobile log files
    */

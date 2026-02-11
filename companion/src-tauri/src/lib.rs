@@ -27,6 +27,21 @@ use crate::uri::SambeeUri;
 /// ID used for the system tray icon, allowing retrieval via `app.tray_by_id()`.
 const TRAY_ICON_ID: &str = "sambee-main";
 
+/// Tray menu item ID for the "Preferences…" item.
+const TRAY_MENU_PREFERENCES: &str = "preferences";
+
+/// Tray menu item ID for the "Quit" item.
+const TRAY_MENU_QUIT: &str = "quit";
+
+/// Label of the webview window created for the preferences / app-picker UI.
+const MAIN_WINDOW_LABEL: &str = "main";
+
+/// Width (logical pixels) of the preferences window.
+const PREFERENCES_WIDTH: f64 = 520.0;
+
+/// Height (logical pixels) of the preferences window.
+const PREFERENCES_HEIGHT: f64 = 560.0;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme state — stores the latest theme received from the web app
 // ─────────────────────────────────────────────────────────────────────────────
@@ -297,8 +312,21 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 /// Assigns the tray ID [`TRAY_ICON_ID`] so it can be retrieved later
 /// via `app.tray_by_id()` for dynamic menu rebuilds.
 fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let quit = MenuItem::with_id(app, "quit", "Quit Sambee Companion", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&quit])?;
+    let prefs = MenuItem::with_id(
+        app,
+        TRAY_MENU_PREFERENCES,
+        "Preferences…",
+        true,
+        None::<&str>,
+    )?;
+    let quit = MenuItem::with_id(
+        app,
+        TRAY_MENU_QUIT,
+        "Quit Sambee Companion",
+        true,
+        None::<&str>,
+    )?;
+    let menu = Menu::with_items(app, &[&prefs, &quit])?;
 
     TrayIconBuilder::with_id(TRAY_ICON_ID)
         .icon(
@@ -309,14 +337,64 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
         .tooltip("Sambee Companion")
         .menu(&menu)
         .on_menu_event(|app, event| {
-            if event.id() == "quit" {
+            if event.id() == TRAY_MENU_QUIT {
                 info!("Quit requested from system tray");
                 app.exit(0);
+            } else if event.id() == TRAY_MENU_PREFERENCES {
+                info!("Preferences requested from system tray");
+                show_preferences_window(app);
             }
         })
         .build(app)?;
 
     Ok(())
+}
+
+//
+// show_preferences_window
+//
+/// Create (or focus) the main webview window and emit "show-preferences"
+/// so the Preact frontend switches to the Preferences view.
+fn show_preferences_window(app: &tauri::AppHandle) {
+    // Re-use the existing main window if it is already open
+    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = win.show();
+        let _ = win.set_focus();
+        let _ = app.emit("show-preferences", ());
+        return;
+    }
+
+    // Create a new window for the preferences panel
+    match tauri::WebviewWindowBuilder::new(
+        app,
+        MAIN_WINDOW_LABEL,
+        tauri::WebviewUrl::App("/".into()),
+    )
+    .title("Sambee Companion — Preferences")
+    .inner_size(PREFERENCES_WIDTH, PREFERENCES_HEIGHT)
+    .resizable(true)
+    .center()
+    .build()
+    {
+        Ok(_win) => {
+            // Emit after a short delay so the webview is ready to receive events
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                let _ = app_handle.emit("show-preferences", ());
+
+                // Also send the current theme
+                if let Some(theme_state) = app_handle.try_state::<ThemeState>() {
+                    if let Some(theme) = theme_state.get() {
+                        let _ = app_handle.emit("apply-theme", &theme);
+                    }
+                }
+            });
+        }
+        Err(e) => {
+            error!("Failed to create preferences window: {e}");
+        }
+    }
 }
 
 //
@@ -373,8 +451,23 @@ fn refresh_tray_menu(app: &tauri::AppHandle) {
         }
     }
 
-    // Build the final menu with a Quit action at the end
-    if let Ok(quit) = MenuItem::with_id(app, "quit", "Quit Sambee Companion", true, None::<&str>) {
+    // Build the final menu with Preferences + Quit at the end
+    if let Ok(prefs) = MenuItem::with_id(
+        app,
+        TRAY_MENU_PREFERENCES,
+        "Preferences…",
+        true,
+        None::<&str>,
+    ) {
+        items.push(prefs);
+    }
+    if let Ok(quit) = MenuItem::with_id(
+        app,
+        TRAY_MENU_QUIT,
+        "Quit Sambee Companion",
+        true,
+        None::<&str>,
+    ) {
         items.push(quit);
     }
 
@@ -522,6 +615,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(OperationStore::new())
         .manage(ThemeState::default())
         .manage(PendingConfirmations::default())
