@@ -8,9 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  # ──────────────────────────────────────────────
+  # Backend: Python + mypy + pytest
+  # ──────────────────────────────────────────────
+  backend:
     runs-on: ubuntu-latest
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -23,15 +25,6 @@ jobs:
         cache: 'pip'
         cache-dependency-path: 'backend/requirements*.txt'
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
-        cache-dependency-path: |
-          frontend/package-lock.json
-          companion/package-lock.json
-
     - name: Cache Python virtual environment
       uses: actions/cache@v4
       id: python-cache
@@ -40,24 +33,6 @@ jobs:
         key: ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('backend/requirements*.txt') }}
         restore-keys: |
           ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
-
-    - name: Cache Node modules (frontend)
-      uses: actions/cache@v4
-      id: node-cache
-      with:
-        path: frontend/node_modules
-        key: ${{ runner.os }}-node-20-frontend-${{ hashFiles('frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-20-frontend-
-
-    - name: Cache Node modules (companion)
-      uses: actions/cache@v4
-      id: companion-node-cache
-      with:
-        path: companion/node_modules
-        key: ${{ runner.os }}-node-20-companion-${{ hashFiles('companion/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-20-companion-
 
     - name: Cache mypy
       uses: actions/cache@v4
@@ -75,28 +50,9 @@ jobs:
           /tmp/imagemagick-appimage
           /opt/imagemagick
         key: ${{ runner.os }}-imagemagick-7.1.2-7
-        restore-keys: |
-          ${{ runner.os }}-imagemagick-
 
-    - name: Install system dependencies (image processing + Tauri)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libwebkit2gtk-4.1-dev \
-          libgtk-3-dev \
-          libayatana-appindicator3-dev \
-          librsvg2-dev \
-          libsoup-3.0-dev \
-          libjavascriptcoregtk-4.1-dev
-        sudo SKIP_APT_UPDATE=1 bash scripts/install-system-deps
-
-    - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - name: Cache Rust build artifacts
-      uses: Swatinem/rust-cache@v2
-      with:
-        workspaces: companion/src-tauri -> target
+    - name: Install system dependencies (image processing)
+      run: sudo bash scripts/install-system-deps
 
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
@@ -108,37 +64,23 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
 
-    - name: Verify Python environment
-      if: steps.python-cache.outputs.cache-hit == 'true'
+    - name: Generate test images
+      run: QUIET=1 scripts/setup-test-images
+
+    - name: Run mypy
       run: |
         cd backend
-        echo "✓ Python dependencies restored from cache"
         source .venv/bin/activate
-        pip list | grep -E "pytest|coverage"
+        mypy app
 
-    - name: Install Node.js dependencies
-      if: steps.node-cache.outputs.cache-hit != 'true'
-      run: |
-        cd frontend
-        npm ci --prefer-offline
-
-    - name: Verify Node environment
-      if: steps.node-cache.outputs.cache-hit == 'true'
-      run: |
-        cd frontend
-        echo "✓ Node dependencies restored from cache"
-        npm list --depth=0
-
-    - name: Install companion Node.js dependencies
-      if: steps.companion-node-cache.outputs.cache-hit != 'true'
-      run: cd companion && npm ci --prefer-offline
-
-    - name: Run test script
+    - name: Run pytest
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
-        COVERAGE: '1'
-      run: ./scripts/test
+      run: |
+        cd backend
+        source .venv/bin/activate
+        pytest -n auto --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml
 
     - name: Upload coverage reports
       if: always()
@@ -148,3 +90,82 @@ jobs:
         path: backend/coverage.xml
         retention-days: 7
         compression-level: 6
+
+  # ──────────────────────────────────────────────
+  # Frontend: Node.js + tsc + vitest
+  # ──────────────────────────────────────────────
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Cache Node modules
+      uses: actions/cache@v4
+      id: node-cache
+      with:
+        path: frontend/node_modules
+        key: ${{ runner.os }}-node-20-frontend-${{ hashFiles('frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-20-frontend-
+
+    - name: Install dependencies
+      if: steps.node-cache.outputs.cache-hit != 'true'
+      run: cd frontend && npm ci --prefer-offline
+
+    - name: TypeScript type check
+      run: cd frontend && npx tsc --noEmit
+
+    - name: Run tests
+      run: cd frontend && npm test -- --run
+
+  # ──────────────────────────────────────────────
+  # Companion: Node.js + Rust + Tauri tests
+  # ──────────────────────────────────────────────
+  companion:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: companion/package-lock.json
+
+    - name: Install Tauri system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libsoup-3.0-dev \
+          libjavascriptcoregtk-4.1-dev
+
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache Rust build artifacts
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: companion/src-tauri -> target
+
+    - name: Install dependencies
+      run: cd companion && npm ci --prefer-offline
+
+    - name: TypeScript type check
+      run: cd companion && npx tsc --noEmit
+
+    - name: Run Rust tests
+      run: cd companion/src-tauri && cargo test
