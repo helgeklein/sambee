@@ -5,6 +5,17 @@ on:
     tags:
       - 'companion-v*'
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: 'Platforms to build'
+        type: choice
+        options:
+          - all
+          - linux-x64
+          - macos-arm64
+          - windows-x64
+          - windows-arm64
+        default: 'all'
 
 # Cancel any in-progress builds for the same ref
 concurrency:
@@ -13,21 +24,37 @@ concurrency:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────
+  # Compute build matrix (filter by selected platform for manual runs)
+  # ─────────────────────────────────────────────────────────────────────
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          ALL='[
+            {"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64"},
+            {"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64"},
+            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64"},
+            {"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64"}
+          ]'
+          SELECTED="${{ github.event.inputs.platforms }}"
+          if [[ -z "$SELECTED" || "$SELECTED" == "all" ]]; then
+            echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
+          else
+            FILTERED=$(echo "$ALL" | jq -c "[.[] | select(.label == \"$SELECTED\")]")
+            echo "matrix={\"include\":$FILTERED}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────
   # Cross-platform build matrix (Windows, macOS, Linux)
   # ─────────────────────────────────────────────────────────────────────
   build:
+    needs: prepare
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     runs-on: ${{ matrix.platform }}
 

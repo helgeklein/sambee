@@ -776,9 +776,10 @@ The companion uses `tauri-plugin-updater` with a static JSON endpoint:
 {
     "version": "0.2.0",
     "platforms": {
-        "windows-x86_64": { "url": "https://.../companion-0.2.0-x64.msi.zip", "signature": "..." },
-        "linux-x86_64":   { "url": "https://.../companion-0.2.0-amd64.AppImage.tar.gz", "signature": "..." },
-        "darwin-aarch64":  { "url": "https://.../companion-0.2.0-aarch64.dmg", "signature": "..." }
+        "windows-x86_64":  { "url": "https://.../companion-0.2.0-x64.msi.zip", "signature": "..." },
+        "windows-aarch64": { "url": "https://.../companion-0.2.0-arm64.msi.zip", "signature": "..." },
+        "linux-x86_64":    { "url": "https://.../companion-0.2.0-amd64.AppImage.tar.gz", "signature": "..." },
+        "darwin-aarch64":   { "url": "https://.../companion-0.2.0-aarch64.dmg", "signature": "..." }
     }
 }
 ```
@@ -799,7 +800,8 @@ cd companion && npm run tauri build
 
 | Platform | Artifact |
 |----------|----------|
-| Windows  | `target/release/bundle/msi/Sambee Companion_0.1.0_x64.msi` |
+| Windows x64  | `target/release/bundle/msi/Sambee Companion_0.1.0_x64.msi` |
+| Windows ARM64 | `target/release/bundle/msi/Sambee Companion_0.1.0_arm64.msi` |
 | macOS    | `target/release/bundle/dmg/Sambee Companion_0.1.0_aarch64.dmg` |
 | Linux    | `target/release/bundle/deb/sambee-companion_0.1.0_amd64.deb` |
 | Linux    | `target/release/bundle/appimage/sambee-companion_0.1.0_amd64.AppImage` |
@@ -826,8 +828,8 @@ A GitHub Actions workflow (`build-companion.yml`) builds the companion for all s
 |-------------------|------------------|
 | Linux x86_64      | `ubuntu-latest`  |
 | macOS ARM64       | `macos-latest`   |
-| macOS x86_64      | `macos-13`       |
 | Windows x86_64    | `windows-latest` |
+| Windows ARM64     | `windows-latest` |
 
 The workflow runs on pushes to `main` and on tags matching `companion-v*`.
 
@@ -1121,7 +1123,7 @@ When the companion is not installed and "Open in app" is clicked:
 
 ### 19.5 Cross-platform testing
 
-- CI builds for Windows (x86_64), macOS (aarch64, x86_64), Linux (x86_64).
+- CI builds for Windows (x86_64, aarch64), macOS (aarch64), Linux (x86_64).
 - Manual testing checklist for deep-link registration on each OS.
 - Test both cold-start and warm (tray) scenarios.
 
