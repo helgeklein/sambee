@@ -9,9 +9,41 @@ on:
 
 jobs:
   # ──────────────────────────────────────────────
+  # Detect which components changed
+  # ──────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      companion: ${{ steps.filter.outputs.companion }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Detect changed paths
+      uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+            - 'scripts/install-system-deps'
+            - 'scripts/setup-test-images'
+          frontend:
+            - 'frontend/**'
+          companion:
+            - 'companion/**'
+
+  # ──────────────────────────────────────────────
   # Backend: Python + mypy + pytest
   # ──────────────────────────────────────────────
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -95,6 +127,8 @@ jobs:
   # Frontend: Node.js + tsc + vitest
   # ──────────────────────────────────────────────
   frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -130,6 +164,8 @@ jobs:
   # Companion: Node.js + Rust + Tauri tests
   # ──────────────────────────────────────────────
   companion:
+    needs: changes
+    if: needs.changes.outputs.companion == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code

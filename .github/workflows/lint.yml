@@ -9,9 +9,39 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────
+  # Detect which components changed
+  # ─────────────────────────────────────────────────────────────────────
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      companion: ${{ steps.filter.outputs.companion }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Detect changed paths
+      uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+          frontend:
+            - 'frontend/**'
+          companion:
+            - 'companion/**'
+
+  # ─────────────────────────────────────────────────────────────────────
   # Backend: Python (ruff check + ruff format --check)
   # ─────────────────────────────────────────────────────────────────────
   lint-backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -38,6 +68,8 @@ jobs:
   # Frontend: TypeScript/JavaScript (biome check)
   # ─────────────────────────────────────────────────────────────────────
   lint-frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -66,6 +98,8 @@ jobs:
   # Companion: Rust (clippy + rustfmt) + TypeScript/CSS (biome)
   # ─────────────────────────────────────────────────────────────────────
   lint-companion:
+    needs: changes
+    if: needs.changes.outputs.companion == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
