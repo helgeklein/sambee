@@ -10,6 +10,7 @@
 use super::{AppRegistry, NativeApp};
 
 /// macOS-specific app registry using Launch Services.
+#[allow(dead_code)]
 pub struct MacosAppRegistry;
 
 impl MacosAppRegistry {
@@ -17,6 +18,7 @@ impl MacosAppRegistry {
     // new
     //
     /// Create a new macOS app registry.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }

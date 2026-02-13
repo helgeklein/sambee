@@ -10,6 +10,7 @@
 use super::{AppRegistry, NativeApp};
 
 /// Windows-specific app registry using COM and Registry APIs.
+#[allow(dead_code)]
 pub struct WindowsAppRegistry;
 
 impl WindowsAppRegistry {
@@ -17,6 +18,7 @@ impl WindowsAppRegistry {
     // new
     //
     /// Create a new Windows app registry.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self
     }

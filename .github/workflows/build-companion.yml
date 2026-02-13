@@ -22,6 +22,9 @@ concurrency:
   group: build-companion-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   # ─────────────────────────────────────────────────────────────────────
   # Compute build matrix (filter by selected platform for manual runs)
@@ -106,6 +109,7 @@ jobs:
       # ── Build with tauri-action ──
       - name: Build Tauri application
         uses: tauri-apps/tauri-action@v0
+        id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Code signing for macOS
@@ -126,3 +130,11 @@ jobs:
           releaseBody: 'See the assets below to download and install.'
           releaseDraft: true
           prerelease: false
+
+      # ── Upload build artifacts ──
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-${{ matrix.label }}
+          path: companion/src-tauri/target/${{ matrix.target }}/release/bundle/
+          retention-days: 14
