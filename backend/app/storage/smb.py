@@ -19,10 +19,27 @@ logger = logging.getLogger(__name__)
 class SMBBackend(StorageBackend):
     """SMB storage backend using smbprotocol"""
 
+    # Sentinel for no prefix (share root)
+    _NO_PREFIX = ""
+
     #
     # __init__
     #
-    def __init__(self, host: str, share_name: str, username: str, password: str, port: int = 445):
+    def __init__(self, host: str, share_name: str, username: str, password: str, port: int = 445, path_prefix: str = "/"):
+        """Initialize SMB storage backend.
+
+        Args:
+            host: SMB server hostname or IP.
+            share_name: Name of the SMB share.
+            username: SMB authentication username.
+            password: SMB authentication password.
+            port: SMB port (default 445).
+            path_prefix: Base path within the share. When set to a
+                non-root value (e.g. "/photos"), all operations are
+                scoped to that sub-directory — the frontend never
+                sees the prefix in returned paths.
+        """
+
         self.host = host
         self.share_name = share_name
         self.username = username
@@ -30,6 +47,9 @@ class SMBBackend(StorageBackend):
         self.port = port
         self._base_path = f"\\\\{host}\\{share_name}"
         self._pool_connection = None  # Track current pool connection context
+
+        # Normalize path_prefix: strip slashes, collapse to empty string for root
+        self._path_prefix = self._normalize_prefix(path_prefix)
 
     #
     # connect
@@ -65,15 +85,47 @@ class SMBBackend(StorageBackend):
         logger.debug(f"SMB backend released (connection remains in pool): //{self.host}/{self.share_name}")
 
     #
+    # _normalize_prefix
+    #
+    @staticmethod
+    def _normalize_prefix(prefix: str | None) -> str:
+        """Normalize a path prefix to a clean relative form.
+
+        "/"  -> ""  (share root)
+        None -> ""  (share root)
+        ""   -> ""  (share root)
+        "/photos"  -> "photos"
+        "/a/b/c/"  -> "a/b/c"
+        """
+
+        if not prefix:
+            return SMBBackend._NO_PREFIX
+        cleaned = prefix.replace("\\", "/").strip("/")
+        return cleaned if cleaned else SMBBackend._NO_PREFIX
+
+    #
     # _build_smb_path
     #
     def _build_smb_path(self, path: str) -> str:
-        """Build full SMB path from relative path"""
+        """Build full SMB path from relative path.
+
+        The path_prefix is prepended automatically so the caller only
+        needs to supply paths relative to the application root.
+        """
 
         # Ensure path uses forward slashes and doesn't start with slash
         path = path.replace("\\", "/").lstrip("/")
-        if path:
-            return f"{self._base_path}\\{path.replace('/', '\\')}"
+
+        # Combine prefix and path
+        if self._path_prefix and path:
+            full_rel = f"{self._path_prefix}/{path}"
+        elif self._path_prefix:
+            full_rel = self._path_prefix
+        else:
+            full_rel = path
+
+        if full_rel:
+            return f"{self._base_path}\\{full_rel.replace('/', '\\')}"
         return self._base_path
 
     #

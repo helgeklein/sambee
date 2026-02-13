@@ -64,8 +64,11 @@ async def create_connection(
             username=connection_data.username,
             password=connection_data.password,
             port=connection_data.port,
+            path_prefix=connection_data.path_prefix or "/",
         )
         await backend.connect()
+        # Verify the path_prefix directory is accessible
+        await backend.list_directory("")
         await backend.disconnect()
         logger.info(f"Connection test successful: name={connection_data.name}")
     except Exception as e:
@@ -145,7 +148,7 @@ async def update_connection(
     test_password = update_dict.get("password")
     test_port = update_dict.get("port", connection.port)
 
-    if any(k in update_dict for k in ["host", "share_name", "username", "password", "port"]):
+    if any(k in update_dict for k in ["host", "share_name", "username", "password", "port", "path_prefix"]):
         if not test_share:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -162,8 +165,11 @@ async def update_connection(
                 username=test_username,
                 password=password_to_test,
                 port=test_port,
+                path_prefix=update_dict.get("path_prefix", connection.path_prefix) or "/",
             )
             await backend.connect()
+            # Verify the path_prefix directory is accessible
+            await backend.list_directory("")
             await backend.disconnect()
         except Exception as e:
             raise HTTPException(
@@ -249,9 +255,10 @@ async def test_connection(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
         await backend.connect()
-        # Try to list root directory
+        # Try to list root directory (respects path_prefix)
         listing = await backend.list_directory("")
         await backend.disconnect()
 

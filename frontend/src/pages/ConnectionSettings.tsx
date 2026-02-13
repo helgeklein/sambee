@@ -281,6 +281,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
                         \\{connection.host}\{connection.share_name}
+                        {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
                       </Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 1, ml: 2 }}>
@@ -364,6 +365,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       \\{connection.host}\{connection.share_name}
+                      {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
                     </Typography>
                   </Box>
                 </ListItem>

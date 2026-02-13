@@ -36,18 +36,22 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "wix": {
+        "template": "wix/main.wxs",
+        "bannerPath": "wix/banner.bmp",
+        "dialogImagePath": "wix/dialog.bmp"
+      }
+    }
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/32x32.png",
-      "tooltip": "Sambee Companion"
     }
   }
 }

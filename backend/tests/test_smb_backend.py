@@ -151,6 +151,138 @@ class TestPathConstruction:
         assert path == r"\\server.local\share\documents\file (1).txt"
 
 
+class TestNormalizePrefix:
+    """Test the static _normalize_prefix helper."""
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            # Root / empty → no prefix
+            ("/", ""),
+            ("", ""),
+            (None, ""),
+            # Simple paths
+            ("/photos", "photos"),
+            ("photos", "photos"),
+            # Nested paths
+            ("/a/b/c", "a/b/c"),
+            ("/a/b/c/", "a/b/c"),
+            # Backslashes converted
+            ("\\photos\\sub", "photos/sub"),
+            ("/photos\\sub/", "photos/sub"),
+            # Multiple / only slashes
+            ("///", ""),
+            ("//photos//sub//", "photos//sub"),
+        ],
+    )
+    def test_normalize_prefix(self, raw: str | None, expected: str):
+        """Verify _normalize_prefix produces clean relative forms."""
+
+        assert SMBBackend._normalize_prefix(raw) == expected
+
+
+class TestPathConstructionWithPrefix:
+    """Test _build_smb_path when a path_prefix is configured."""
+
+    def test_prefix_root_path(self):
+        """Prefix only — browsing the application root."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        path = backend._build_smb_path("")
+        assert path == r"\\server.local\share\photos"
+
+    def test_prefix_with_relative_path(self):
+        """Prefix combined with a relative sub-path."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        path = backend._build_smb_path("vacation/img.jpg")
+        assert path == r"\\server.local\share\photos\vacation\img.jpg"
+
+    def test_nested_prefix(self):
+        """Multi-level prefix."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/data/year/2025",
+        )
+
+        path = backend._build_smb_path("report.pdf")
+        assert path == r"\\server.local\share\data\year\2025\report.pdf"
+
+    def test_no_prefix_still_works(self):
+        """Default prefix ('/') should behave like no prefix."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/",
+        )
+
+        path = backend._build_smb_path("documents")
+        assert path == r"\\server.local\share\documents"
+
+    def test_prefix_with_leading_slash_in_path(self):
+        """Leading slash in the relative path should be stripped."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        path = backend._build_smb_path("/vacation")
+        assert path == r"\\server.local\share\photos\vacation"
+
+    def test_prefix_with_backslash_input(self):
+        """Backslash prefix from user input normalizes correctly."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="\\photos\\sub",
+        )
+
+        path = backend._build_smb_path("img.jpg")
+        assert path == r"\\server.local\share\photos\sub\img.jpg"
+
+    def test_prefix_trailing_slash_ignored(self):
+        """Trailing slash in prefix is stripped."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos/",
+        )
+
+        path = backend._build_smb_path("img.jpg")
+        assert path == r"\\server.local\share\photos\img.jpg"
+
+
 class TestMimeTypeDetection:
     """Test MIME type detection for various file types."""
 
@@ -884,6 +1016,183 @@ class TestBackendInitialization:
         assert backend.share_name == "share$"
         assert backend.password == "p@ssw0rd!"
         assert backend._base_path == r"\\server.local\share$"
+
+    def test_backend_initialization_default_prefix(self):
+        """Default path_prefix '/' normalizes to empty string (share root)."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+
+        assert backend._path_prefix == ""
+
+    def test_backend_initialization_custom_prefix(self):
+        """Custom path_prefix is cleaned and stored."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos/vacation",
+        )
+
+        assert backend._path_prefix == "photos/vacation"
+
+    def test_backend_initialization_none_prefix(self):
+        """None path_prefix normalizes to empty string."""
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix=None,
+        )
+
+        assert backend._path_prefix == ""
+
+
+class TestPathPrefixIntegration:
+    """Integration tests verifying path_prefix reaches smbclient calls."""
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.scandir")
+    async def test_list_directory_uses_prefix(self, mock_scandir):
+        """list_directory('') with prefix scans the prefixed path."""
+
+        mock_scandir.return_value = []
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        await backend.list_directory("")
+
+        mock_scandir.assert_called_once_with(r"\\server.local\share\photos")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.scandir")
+    async def test_list_subdirectory_uses_prefix(self, mock_scandir):
+        """list_directory('vacation') with prefix scans prefix/vacation."""
+
+        mock_scandir.return_value = []
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        await backend.list_directory("vacation")
+
+        mock_scandir.assert_called_once_with(r"\\server.local\share\photos\vacation")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_get_file_info_uses_prefix(self, mock_stat):
+        """get_file_info with prefix builds the correct UNC path."""
+
+        stat_result = MagicMock()
+        stat_result.st_size = 1024
+        stat_result.st_mode = 0o100644
+        stat_result.st_mtime = 1700000000.0
+        stat_result.st_ctime = 1700000000.0
+        mock_stat.return_value = stat_result
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        await backend.get_file_info("vacation/img.jpg")
+
+        mock_stat.assert_called_once_with(r"\\server.local\share\photos\vacation\img.jpg")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.remove")
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_file_uses_prefix(self, mock_stat, mock_remove):
+        """delete_item with prefix targets the correct prefixed path."""
+
+        stat_result = MagicMock()
+        stat_result.st_mode = 0o100644  # regular file
+        mock_stat.return_value = stat_result
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        await backend.delete_item("vacation/img.jpg")
+
+        expected_path = r"\\server.local\share\photos\vacation\img.jpg"
+        mock_stat.assert_called_once_with(expected_path)
+        mock_remove.assert_called_once_with(expected_path)
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.open_file")
+    async def test_read_file_uses_prefix(self, mock_open):
+        """read_file with prefix opens the correct prefixed path."""
+
+        mock_file = MagicMock()
+        mock_file.read.side_effect = [b"data", b""]
+        mock_file.__enter__ = MagicMock(return_value=mock_file)
+        mock_file.__exit__ = MagicMock(return_value=False)
+        mock_open.return_value = mock_file
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        chunks = []
+        async for chunk in backend.read_file("vacation/img.jpg"):
+            chunks.append(chunk)
+
+        mock_open.assert_called_once_with(
+            r"\\server.local\share\photos\vacation\img.jpg",
+            mode="rb",
+            share_access="rwd",
+        )
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.path.exists")
+    async def test_file_exists_uses_prefix(self, mock_exists):
+        """file_exists with prefix checks the correct prefixed path."""
+
+        mock_exists.return_value = True
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        result = await backend.file_exists("vacation/img.jpg")
+
+        assert result is True
+        mock_exists.assert_called_once_with(r"\\server.local\share\photos\vacation\img.jpg")
 
 
 class TestDeleteItem:

@@ -130,6 +130,7 @@ class ConnectionDirectoryCache:
         username: str,
         password: str,
         port: int = 445,
+        path_prefix: str = "/",
     ) -> None:
         """Initialize a per-connection directory cache.
 
@@ -140,6 +141,7 @@ class ConnectionDirectoryCache:
             username: SMB username
             password: SMB password
             port: SMB port (default 445)
+            path_prefix: Base path within the share (e.g. "/photos")
         """
 
         self.connection_id = connection_id
@@ -148,6 +150,16 @@ class ConnectionDirectoryCache:
         self.username = username
         self.password = password
         self.port = port
+
+        # Normalize path_prefix: strip slashes so "" means share root
+        cleaned = (path_prefix or "/").replace("\\", "/").strip("/")
+        self._path_prefix = cleaned  # e.g. "photos" or ""
+        # Pre-compute the SMB base path (share root + prefix)
+        share_base = f"\\\\{host}\\{share_name}"
+        if cleaned:
+            self._smb_base_path = f"{share_base}\\{cleaned.replace('/', '\\')}"
+        else:
+            self._smb_base_path = share_base
 
         # The cache: a set of all directory paths (relative to share root)
         # Root is represented as ""
@@ -644,7 +656,7 @@ class ConnectionDirectoryCache:
 
         try:
             pool = await get_connection_pool()
-            base_path = f"\\\\{self.host}\\{self.share_name}"
+            base_path = self._smb_base_path
 
             async with pool.get_connection(
                 host=self.host,
@@ -667,7 +679,7 @@ class ConnectionDirectoryCache:
                             logger.info(f"Scan cancelled for connection {self.connection_id}")
                             return
 
-                        # Build SMB path
+                        # Build SMB path (relative to the prefix-adjusted base)
                         if rel_path:
                             smb_path = f"{base_path}\\{rel_path.replace('/', '\\')}"
                         else:
@@ -798,7 +810,7 @@ class ConnectionDirectoryCache:
 
         try:
             pool = await get_connection_pool()
-            base_path = f"\\\\{self.host}\\{self.share_name}"
+            base_path = self._smb_base_path
 
             # Build a new set — don't modify the live one yet
             new_directories: set[str] = set()
@@ -978,8 +990,9 @@ class ConnectionDirectoryCache:
         )
         self._watcher_tree.connect()
 
-        # Open share root for watching
-        self._watcher_open = Open(self._watcher_tree, "")
+        # Open the prefix directory for watching (or share root if no prefix)
+        watch_path = self._path_prefix.replace("/", "\\") if self._path_prefix else ""
+        self._watcher_open = Open(self._watcher_tree, watch_path)
         self._watcher_open.create(
             impersonation_level=ImpersonationLevel.Impersonation,
             desired_access=(DirectoryAccessMask.FILE_LIST_DIRECTORY | DirectoryAccessMask.SYNCHRONIZE),
@@ -1237,6 +1250,7 @@ class DirectoryCacheManager:
         username: str,
         password: str,
         port: int = 445,
+        path_prefix: str = "/",
     ) -> ConnectionDirectoryCache:
         """Get or create a directory cache for a connection.
 
@@ -1251,6 +1265,7 @@ class DirectoryCacheManager:
             username: SMB username
             password: SMB password
             port: SMB port
+            path_prefix: Base path within the share
 
         Returns:
             The cache instance (may still be building)
@@ -1267,6 +1282,7 @@ class DirectoryCacheManager:
                 username=username,
                 password=password,
                 port=port,
+                path_prefix=path_prefix,
             )
             self._caches[connection_id] = cache
 

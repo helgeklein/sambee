@@ -291,6 +291,7 @@ async def view_file(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
         # ...and connect
         await backend.connect()
@@ -390,6 +391,7 @@ async def download_file(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
 
         await backend.connect()

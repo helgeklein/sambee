@@ -51,6 +51,7 @@ async def list_directory(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
 
         await backend.connect()
@@ -112,6 +113,7 @@ async def get_file_info(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
 
         await backend.connect()
@@ -177,6 +179,7 @@ async def search_directories(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port or 445,
+            path_prefix=connection.path_prefix or "/",
         )
 
         results, total_matches = cache.search(q) if q else ([], 0)
@@ -253,6 +256,7 @@ async def upload_file(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
 
         await backend.connect()
@@ -334,6 +338,7 @@ async def delete_item(
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
+            path_prefix=connection.path_prefix or "/",
         )
 
         await backend.connect()
