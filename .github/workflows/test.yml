@@ -1,8 +1,6 @@
 name: Test
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -205,3 +203,22 @@ jobs:
 
     - name: Run Rust tests
       run: cd companion/src-tauri && cargo test
+
+  # ──────────────────────────────────────────────
+  # Gate: single required check for branch protection
+  # ──────────────────────────────────────────────
+  test-gate:
+    if: always()
+    needs: [backend, frontend, companion]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check results
+      run: |
+        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }}"
+        for r in $results; do
+          if [[ "$r" != "success" && "$r" != "skipped" ]]; then
+            echo "Job failed or was cancelled: $r"
+            exit 1
+          fi
+        done
+        echo "All tests passed or were skipped."

@@ -1,8 +1,6 @@
 name: Lint
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -150,3 +148,22 @@ jobs:
 
     - name: Biome check
       run: cd companion && npm run lint
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Gate: single required check for branch protection
+  # ─────────────────────────────────────────────────────────────────────
+  lint-gate:
+    if: always()
+    needs: [lint-backend, lint-frontend, lint-companion]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check results
+      run: |
+        results="${{ needs.lint-backend.result }} ${{ needs.lint-frontend.result }} ${{ needs.lint-companion.result }}"
+        for r in $results; do
+          if [[ "$r" != "success" && "$r" != "skipped" ]]; then
+            echo "Job failed or was cancelled: $r"
+            exit 1
+          fi
+        done
+        echo "All lint checks passed or were skipped."
