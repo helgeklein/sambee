@@ -41,7 +41,6 @@
     ],
     "windows": {
       "wix": {
-        "template": "wix/main.wxs",
         "bannerPath": "wix/banner.bmp",
         "dialogImagePath": "wix/dialog.bmp"
       }

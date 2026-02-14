@@ -480,6 +480,170 @@ class TestChangeNotifications:
             assert ping_response["type"] == "pong"
 
 
+class TestPathPrefixMonitoring:
+    """Test that path_prefix is correctly applied to directory monitoring.
+
+    When a connection has a path_prefix (e.g. "/photos"), the SMB monitor
+    must watch the resolved path (prefix + user path) on the share, but
+    notifications sent to the frontend must use the user-facing path so
+    they match the subscription key and the frontend's currentPath.
+    """
+
+    @staticmethod
+    def _mock_db_session_for(mock_db_session, connection):
+        """Helper to wire up the mock DB session to return a connection."""
+
+        mock_session_instance = MagicMock()
+        mock_session_instance.__enter__ = MagicMock(return_value=mock_session_instance)
+        mock_session_instance.__exit__ = MagicMock(return_value=None)
+        mock_session_instance.exec.return_value.first.return_value = connection
+        mock_db_session.return_value = mock_session_instance
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_subscribe_resolves_prefix_for_monitor(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Monitor receives the resolved path (prefix + user path)."""
+
+        # Give the connection a path prefix
+        test_connection.path_prefix = "/photos"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect("/api/ws") as websocket:
+            ws_client = WebSocketClient(websocket)
+            ws_client.subscribe(str(test_connection.id), "vacation")
+
+            mock_monitor.start_monitoring.assert_called_once()
+            call_kwargs = mock_monitor.start_monitoring.call_args[1]
+
+            # Monitor should watch the resolved path, not the user path
+            assert call_kwargs["path"] == "photos/vacation"
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_subscribe_root_with_prefix(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Subscribing to root ('') with prefix monitors the prefix directory."""
+
+        test_connection.path_prefix = "/photos"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect("/api/ws") as websocket:
+            ws_client = WebSocketClient(websocket)
+            ws_client.subscribe(str(test_connection.id), "")
+
+            call_kwargs = mock_monitor.start_monitoring.call_args[1]
+            assert call_kwargs["path"] == "photos"
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_subscribe_no_prefix_passes_path_unchanged(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Without prefix, monitor receives the user path as-is."""
+
+        test_connection.path_prefix = "/"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect("/api/ws") as websocket:
+            ws_client = WebSocketClient(websocket)
+            ws_client.subscribe(str(test_connection.id), "documents")
+
+            call_kwargs = mock_monitor.start_monitoring.call_args[1]
+            assert call_kwargs["path"] == "documents"
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_callback_sends_user_path_not_resolved(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Change callback notifies with user-facing path, not resolved path."""
+
+        test_connection.path_prefix = "/photos"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect("/api/ws") as websocket:
+            ws_client = WebSocketClient(websocket)
+            ws_client.subscribe(str(test_connection.id), "vacation")
+
+            # Grab the callback that was passed to start_monitoring
+            call_kwargs = mock_monitor.start_monitoring.call_args[1]
+            change_callback = call_kwargs["on_change_callback"]
+
+            # Simulate a change detected by the monitor (passes resolved path)
+            import asyncio
+
+            asyncio.run(change_callback(str(test_connection.id), "photos/vacation"))
+
+            # The notification should arrive with the user-facing path
+            notification = ws_client.receive_json()
+            assert notification["type"] == "directory_changed"
+            assert notification["path"] == "vacation"
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_unsubscribe_stops_monitor_with_resolved_path(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Unsubscribe passes the resolved path to stop_monitoring."""
+
+        test_connection.path_prefix = "/photos"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect("/api/ws") as websocket:
+            ws_client = WebSocketClient(websocket)
+            ws_client.subscribe(str(test_connection.id), "vacation")
+            ws_client.unsubscribe(str(test_connection.id), "vacation")
+
+            mock_monitor.stop_monitoring.assert_called_once_with(str(test_connection.id), "photos/vacation")
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_disconnect_stops_monitor_with_resolved_path(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Disconnect cleanup uses the resolved path for stop_monitoring."""
+
+        test_connection.path_prefix = "/photos"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        ws_context = client.websocket_connect("/api/ws")
+        websocket = ws_context.__enter__()
+        ws_client = WebSocketClient(websocket)
+        ws_client.subscribe(str(test_connection.id), "vacation")
+
+        # Disconnect triggers cleanup
+        ws_context.__exit__(None, None, None)
+
+        mock_monitor.stop_monitoring.assert_called_once_with(str(test_connection.id), "photos/vacation")
+
+    @patch("app.api.websocket.get_monitor")
+    @patch("sqlmodel.Session")
+    def test_nested_prefix_resolves_correctly(self, mock_db_session, mock_get_monitor, client, test_connection):
+        """Multi-level prefix resolves correctly."""
+
+        test_connection.path_prefix = "/data/year/2025"
+        self._mock_db_session_for(mock_db_session, test_connection)
+
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect("/api/ws") as websocket:
+            ws_client = WebSocketClient(websocket)
+            ws_client.subscribe(str(test_connection.id), "reports")
+
+            call_kwargs = mock_monitor.start_monitoring.call_args[1]
+            assert call_kwargs["path"] == "data/year/2025/reports"
+
+
 class TestErrorHandling:
     """Test error handling and edge cases."""
 

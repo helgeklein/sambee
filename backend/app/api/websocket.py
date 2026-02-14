@@ -1,11 +1,13 @@
 """WebSocket endpoints for real-time directory updates"""
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Dict, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.directory_monitor import get_monitor
+from app.storage.smb import SMBBackend
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,8 @@ class ConnectionManager:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         # Map: WebSocket -> set of subscribed directory paths
         self.subscriptions: Dict[WebSocket, Set[str]] = {}
+        # Map: subscription key -> resolved SMB path (with path_prefix applied)
+        self._resolved_paths: Dict[str, str] = {}
 
     #
     # connect
@@ -56,8 +60,9 @@ class ConnectionManager:
                     # Stop SMB monitoring
                     try:
                         connection_id, path = key.split(":", 1)
+                        resolved = self._resolved_paths.pop(key, path)
                         monitor = get_monitor()
-                        monitor.stop_monitoring(connection_id, path)
+                        monitor.stop_monitoring(connection_id, resolved)
                         logger.info(f"Stopped SMB monitoring for {key} (last subscriber disconnected)")
                     except Exception as e:
                         logger.error(
@@ -110,19 +115,35 @@ class ConnectionManager:
                     conn = session.exec(select(SMBConnection).where(SMBConnection.id == conn_uuid)).first()
 
                     if conn and conn.share_name:
+                        # Resolve the monitoring path by applying path_prefix.
+                        # The user-facing path is relative to the prefix, but
+                        # the SMB monitor must watch the real directory on the
+                        # share (prefix + user path).
+                        prefix = SMBBackend._normalize_prefix(conn.path_prefix)
+                        if prefix and path:
+                            resolved_path = f"{prefix}/{path}"
+                        elif prefix:
+                            resolved_path = prefix
+                        else:
+                            resolved_path = path
+
+                        # Remember the resolved path so unsubscribe can stop
+                        # the correct monitor.
+                        self._resolved_paths[key] = resolved_path
+
                         # Start monitoring with callback to notify WebSocket clients
                         monitor = get_monitor()
                         monitor.start_monitoring(
                             connection_id=connection_id,
-                            path=path,
+                            path=resolved_path,
                             host=conn.host,
                             share_name=conn.share_name,
                             username=conn.username,
                             password=decrypt_password(conn.password_encrypted),
                             port=conn.port or 445,
-                            on_change_callback=self.notify_directory_change,
+                            on_change_callback=self._make_change_callback(connection_id, path),
                         )
-                        logger.info(f"Started SMB monitoring for {key}")
+                        logger.info(f"Started SMB monitoring for {key} (resolved: {resolved_path})")
                     else:
                         logger.warning(f"Connection {connection_id} not found or invalid")
             except Exception as e:
@@ -147,12 +168,30 @@ class ConnectionManager:
                 del self.active_connections[key]
                 try:
                     monitor = get_monitor()
-                    monitor.stop_monitoring(connection_id, path)
+                    resolved = self._resolved_paths.pop(key, path)
+                    monitor.stop_monitoring(connection_id, resolved)
                     logger.info(f"Stopped SMB monitoring for {key}")
                 except Exception as e:
                     logger.error(f"Failed to stop SMB monitoring for {key}: {e}", exc_info=True)
 
         logger.info(f"WebSocket {id(websocket)} unsubscribed from {key}")
+
+    #
+    # _make_change_callback
+    #
+    def _make_change_callback(self, connection_id: str, user_path: str) -> "Callable[[str, str], Awaitable[None]]":
+        """Create a change callback that maps the resolved path back to the user-facing path.
+
+        The SMB monitor watches the resolved path (with path_prefix applied),
+        but subscribers are keyed by the user-facing path. This closure ensures
+        the notification is sent with the user-facing path so it matches the
+        subscription key and the frontend's current path.
+        """
+
+        async def _callback(_conn_id: str, _resolved_path: str) -> None:
+            await self.notify_directory_change(connection_id, user_path)
+
+        return _callback
 
     #
     # notify_directory_change

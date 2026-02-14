@@ -124,7 +124,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: companion
-          args: --target ${{ matrix.target }}
+          # -v enables debug logging so WiX candle.exe/light.exe errors are visible.
+          # Tauri's bundler logs candle.exe stderr at debug level only; without -v the
+          # error message is just "failed to run candle.exe" with no detail (see
+          # https://github.com/tauri-apps/tauri/issues/12148).
+          args: --target ${{ matrix.target }} --bundles ${{ runner.os == 'Windows' && 'msi' || (runner.os == 'Linux' && 'deb,appimage' || 'dmg') }} -v
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
           releaseBody: 'See the assets below to download and install.'
@@ -138,3 +142,4 @@ jobs:
           name: companion-${{ matrix.label }}
           path: companion/src-tauri/target/${{ matrix.target }}/release/bundle/
           retention-days: 14
+
