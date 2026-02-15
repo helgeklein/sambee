@@ -66,6 +66,16 @@ if [ -d /workspace/companion ]; then
     npm install
     echo "🦀 Fetching Rust dependencies..."
     cd src-tauri && cargo fetch && cd ..
+
+    # Install Windows cross-check toolchain (mingw-w64 for type-checking
+    # Windows-specific Rust code without needing MSVC or a Windows machine)
+    echo "🪟 Setting up Windows cross-check target..."
+    if ! rustup target list --installed | grep -q x86_64-pc-windows-gnu; then
+        rustup target add x86_64-pc-windows-gnu
+    fi
+    if ! dpkg -s gcc-mingw-w64-x86-64 &>/dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64
+    fi
     echo "✅ Companion app dependencies installed"
 fi
 

@@ -12,6 +12,7 @@
  * - "confirm-large-file" → displays a large-file warning dialog
  */
 
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "preact/hooks";
 
@@ -81,20 +82,44 @@ export function App() {
   // handleAppSelected
   //
   /** Called when the user picks an app in the AppPicker. */
-  const handleAppSelected = useCallback((app: NativeApp, _alwaysUse: boolean) => {
-    // TODO (Phase 4): emit result event back to Rust with app.executable
-    //   and view.requestId so the backend can proceed with opening the file.
-    console.info(`App selected: ${app.name} (${app.executable}), always-use: ${_alwaysUse}`);
-    setView({ kind: "idle" });
-  }, []);
+  const handleAppSelected = useCallback(
+    async (app: NativeApp, _alwaysUse: boolean) => {
+      if (view.kind !== "app-picker") return;
+
+      try {
+        await invoke("respond_app_selection", {
+          requestId: view.requestId,
+          executable: app.executable,
+          appName: app.name,
+        });
+      } catch (err) {
+        console.error("Failed to send app selection:", err);
+      }
+
+      setView({ kind: "idle" });
+    },
+    [view]
+  );
 
   //
   // handleCancel
   //
   /** Called when the user cancels the AppPicker. */
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
+    if (view.kind === "app-picker") {
+      try {
+        await invoke("respond_app_selection", {
+          requestId: view.requestId,
+          executable: "",
+          appName: "",
+        });
+      } catch (err) {
+        console.error("Failed to send app picker cancellation:", err);
+      }
+    }
+
     setView({ kind: "idle" });
-  }, []);
+  }, [view]);
 
   //
   // handleRecoveryDone

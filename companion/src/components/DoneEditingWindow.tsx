@@ -59,7 +59,7 @@ export function DoneEditingWindow() {
   });
   const [holdProgress, setHoldProgress] = useState(0);
   const [discardHoldProgress, setDiscardHoldProgress] = useState(0);
-  const [uploading, setUploading] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
@@ -99,7 +99,7 @@ export function DoneEditingWindow() {
   //
   const startHold = useCallback(
     (setter: (v: number) => void, startRef: { current: number | null }, onComplete: () => void) => {
-      if (uploading) return;
+      if (processing) return;
       startRef.current = performance.now();
 
       const tick = () => {
@@ -117,7 +117,7 @@ export function DoneEditingWindow() {
       };
       tick();
     },
-    [uploading]
+    [processing]
   );
 
   //
@@ -136,7 +136,7 @@ export function DoneEditingWindow() {
   //
   const confirmDone = useCallback(async () => {
     if (!context) return;
-    setUploading(true);
+    setProcessing(true);
     setError(null);
     try {
       const result = await invoke<string>("finish_editing", {
@@ -149,17 +149,17 @@ export function DoneEditingWindow() {
         try {
           const info: ConflictInfo = JSON.parse(conflictJson);
           setConflict(info);
-          setUploading(false);
+          setProcessing(false);
         } catch {
           setError("Failed to parse conflict info");
-          setUploading(false);
+          setProcessing(false);
         }
         return;
       }
       // Normal success — window will be closed by Rust
     } catch (e) {
       setError(String(e));
-      setUploading(false);
+      setProcessing(false);
     }
   }, [context]);
 
@@ -168,7 +168,7 @@ export function DoneEditingWindow() {
   //
   const confirmDiscard = useCallback(async () => {
     if (!context) return;
-    setUploading(true);
+    setProcessing(true);
     setError(null);
     try {
       await invoke("discard_editing", {
@@ -176,7 +176,7 @@ export function DoneEditingWindow() {
       });
     } catch (e) {
       setError(String(e));
-      setUploading(false);
+      setProcessing(false);
     }
   }, [context]);
 
@@ -211,7 +211,13 @@ export function DoneEditingWindow() {
 
   // ── Button label ─────────────────────────────────────────────────────
 
-  const doneButtonLabel = uploading ? "✓ Uploading…" : isModified ? "✓ Done Editing — Hold to Upload" : "✓ Done Editing — Hold to Close";
+  const doneButtonLabel = processing
+    ? isModified
+      ? "✓ Uploading…"
+      : "✓ Closing…"
+    : isModified
+      ? "✓ Done Editing — Hold to Upload"
+      : "✓ Done Editing — Hold to Close";
 
   // ── Render ───────────────────────────────────────────────────────────
 
@@ -230,7 +236,7 @@ export function DoneEditingWindow() {
         conflict={conflict}
         onResolved={() => {
           setConflict(null);
-          setUploading(false);
+          setProcessing(false);
         }}
       />
     );
@@ -253,17 +259,19 @@ export function DoneEditingWindow() {
       <button
         class="btn-primary"
         {...doneHandlers}
-        disabled={uploading}
+        disabled={processing}
         aria-label={isModified ? "Hold for 1.5 seconds to confirm upload" : "Hold for 1.5 seconds to close and release lock"}
       >
         {doneButtonLabel}
       </button>
-      <div class="hold-progress-track" role="progressbar" aria-valuenow={Math.round(holdProgress * 100)} aria-valuemax={100}>
-        <div class="hold-progress-fill" style={{ width: `${holdProgress * 100}%` }} />
-      </div>
+      {holdProgress > 0 && (
+        <div class="hold-progress-track" role="progressbar" aria-valuenow={Math.round(holdProgress * 100)} aria-valuemax={100}>
+          <div class="hold-progress-fill" style={{ width: `${holdProgress * 100}%` }} />
+        </div>
+      )}
 
       {/* Upload progress (visible only while uploading a modified file) */}
-      {uploading && isModified && (
+      {processing && isModified && (
         <div
           class="upload-progress-track"
           role="progressbar"
@@ -276,24 +284,26 @@ export function DoneEditingWindow() {
       )}
 
       {/* Secondary: Discard Changes (only visible when file is modified) */}
-      {isModified && !uploading && (
+      {isModified && !processing && (
         <>
           <button
             class="btn-secondary btn-small"
             {...discardHandlers}
-            disabled={uploading}
+            disabled={processing}
             aria-label="Hold for 1.5 seconds to discard changes"
           >
             Discard Changes — Hold
           </button>
-          <div
-            class="hold-progress-track hold-progress-track--small"
-            role="progressbar"
-            aria-valuenow={Math.round(discardHoldProgress * 100)}
-            aria-valuemax={100}
-          >
-            <div class="hold-progress-fill hold-progress-fill--danger" style={{ width: `${discardHoldProgress * 100}%` }} />
-          </div>
+          {discardHoldProgress > 0 && (
+            <div
+              class="hold-progress-track hold-progress-track--small"
+              role="progressbar"
+              aria-valuenow={Math.round(discardHoldProgress * 100)}
+              aria-valuemax={100}
+            >
+              <div class="hold-progress-fill hold-progress-fill--danger" style={{ width: `${discardHoldProgress * 100}%` }} />
+            </div>
+          )}
         </>
       )}
     </div>

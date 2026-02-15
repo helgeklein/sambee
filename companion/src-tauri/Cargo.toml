@@ -34,6 +34,17 @@ env_logger = "0.11"
 thiserror = "2"
 mime_guess = "2"
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+windows = { version = "0.61", features = [
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+] }
+png = "0.17"
+base64 = "0.22"
+
 [profile.release]
 strip = true
 lto = true

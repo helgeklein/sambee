@@ -42,7 +42,16 @@ pub struct EditContext {
 const DONE_EDITING_WIDTH: f64 = 340.0;
 
 /// Height of the Done Editing window in logical pixels.
-const DONE_EDITING_HEIGHT: f64 = 260.0;
+const DONE_EDITING_HEIGHT: f64 = 200.0;
+
+/// Margin from the top-left screen edge for the first window (logical pixels).
+const DONE_EDITING_MARGIN: f64 = 24.0;
+
+/// Vertical offset between cascaded windows (logical pixels).
+const DONE_EDITING_CASCADE_STEP: f64 = 32.0;
+
+/// Label prefix for Done Editing windows (used to count open instances).
+const DONE_EDITING_LABEL_PREFIX: &str = "done-editing-";
 
 /// Prefix used to distinguish a conflict result from a normal success in
 /// `finish_editing`. The frontend checks for this prefix to show the
@@ -103,7 +112,17 @@ pub fn spawn_done_editing_window(
     operation: &FileOperation,
     app_display_name: &str,
 ) -> Result<String, String> {
-    let window_label = format!("done-editing-{}", operation.id);
+    let window_label = format!("{}{}", DONE_EDITING_LABEL_PREFIX, operation.id);
+
+    // Count existing Done Editing windows for cascade positioning
+    let existing_count = app
+        .webview_windows()
+        .keys()
+        .filter(|label| label.starts_with(DONE_EDITING_LABEL_PREFIX))
+        .count() as f64;
+
+    let pos_x = DONE_EDITING_MARGIN;
+    let pos_y = DONE_EDITING_MARGIN + existing_count * DONE_EDITING_CASCADE_STEP;
 
     let _window = tauri::WebviewWindowBuilder::new(
         app,
@@ -112,11 +131,13 @@ pub fn spawn_done_editing_window(
     )
     .title("Sambee — Editing")
     .inner_size(DONE_EDITING_WIDTH, DONE_EDITING_HEIGHT)
+    .position(pos_x, pos_y)
     .resizable(false)
+    .maximizable(false)
+    .fullscreen(false)
     .always_on_top(true)
     .closable(false)
     .minimizable(false)
-    .center()
     .build()
     .map_err(|e| format!("Failed to create Done Editing window: {e}"))?;
 
@@ -602,6 +623,47 @@ pub fn confirm_large_download(
     } else {
         warn!("No pending confirmation found for {}", confirm_id);
         Err(format!("No pending confirmation: {confirm_id}"))
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// App picker response
+// ─────────────────────────────────────────────────────────────────────────────
+
+//
+// respond_app_selection
+//
+/// Tauri command: user selected an app (or cancelled) in the app picker dialog.
+///
+/// When the user picks an app, `executable` and `app_name` are provided.
+/// When the user cancels, `executable` is an empty string, which signals
+/// cancellation to the waiting lifecycle.
+#[tauri::command]
+pub fn respond_app_selection(
+    app: AppHandle,
+    request_id: String,
+    executable: String,
+    app_name: String,
+) -> Result<(), String> {
+    let pending = app
+        .try_state::<crate::sync::operations::PendingAppSelections>()
+        .ok_or_else(|| "PendingAppSelections not available".to_string())?;
+
+    let selection = if executable.is_empty() {
+        None
+    } else {
+        Some(crate::sync::operations::SelectedApp {
+            executable,
+            name: app_name,
+        })
+    };
+
+    if pending.respond(&request_id, selection) {
+        info!("App selection received for request {}", request_id);
+        Ok(())
+    } else {
+        warn!("No pending app selection found for {}", request_id);
+        Err(format!("No pending app selection: {request_id}"))
     }
 }
 

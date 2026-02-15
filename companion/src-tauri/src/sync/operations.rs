@@ -230,6 +230,17 @@ impl OperationStore {
         let mut ops = self.inner.write().expect("OperationStore lock poisoned");
         ops.retain(|o| o.id != id);
     }
+
+    //
+    // update_app
+    //
+    /// Update the `opened_with_app` field for the operation with the given ID.
+    pub fn update_app(&self, id: &Uuid, app_name: &str) {
+        let mut ops = self.inner.write().expect("OperationStore lock poisoned");
+        if let Some(op) = ops.iter_mut().find(|o| &o.id == id) {
+            op.opened_with_app = Some(app_name.to_string());
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -269,6 +280,64 @@ impl PendingConfirmations {
             .inner
             .write()
             .expect("PendingConfirmations lock poisoned");
+        if let Some(tx) = map.remove(key) {
+            let _ = tx.send(value);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pending app selections
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Selected application info returned from the app picker dialog.
+///
+/// Contains the executable path and display name of the chosen application.
+#[derive(Debug, Clone)]
+pub struct SelectedApp {
+    /// Path to the application executable (e.g. "/usr/bin/libreoffice").
+    pub executable: String,
+
+    /// Human-readable display name (e.g. "LibreOffice Writer").
+    pub name: String,
+}
+
+/// Thread-safe store for pending app picker selections.
+///
+/// Used when the edit lifecycle pauses to let the user pick a native
+/// application. The lifecycle stores a `tokio::sync::oneshot::Sender` here
+/// and awaits the receiver; a Tauri command from the frontend calls
+/// `respond()` to unblock with the selection (or `None` for cancellation).
+#[derive(Debug, Default, Clone)]
+pub struct PendingAppSelections {
+    inner: Arc<RwLock<HashMap<String, tokio::sync::oneshot::Sender<Option<SelectedApp>>>>>,
+}
+
+impl PendingAppSelections {
+    //
+    // insert
+    //
+    /// Store a sender under the given request ID.
+    pub fn insert(&self, key: String, tx: tokio::sync::oneshot::Sender<Option<SelectedApp>>) {
+        let mut map = self
+            .inner
+            .write()
+            .expect("PendingAppSelections lock poisoned");
+        map.insert(key, tx);
+    }
+
+    //
+    // respond
+    //
+    /// Send a selection response and remove the entry. Returns `true` if found.
+    pub fn respond(&self, key: &str, value: Option<SelectedApp>) -> bool {
+        let mut map = self
+            .inner
+            .write()
+            .expect("PendingAppSelections lock poisoned");
         if let Some(tx) = map.remove(key) {
             let _ = tx.send(value);
             true
@@ -321,6 +390,26 @@ pub fn save_operation_sidecar(op: &FileOperation) -> Result<(), String> {
 
     std::fs::write(&sidecar_path, json)
         .map_err(|e| format!("Failed to write sidecar {}: {e}", sidecar_path.display()))?;
+
+    Ok(())
+}
+
+//
+// remove_operation_sidecar
+//
+/// Remove the operation's temp directory (containing the sidecar and temp file).
+///
+/// Used when the user cancels the app picker before opening the file.
+pub fn remove_operation_sidecar(op: &FileOperation) -> Result<(), String> {
+    let dir = op
+        .local_path
+        .parent()
+        .ok_or_else(|| "Cannot determine parent directory of temp file".to_string())?;
+
+    if dir.exists() {
+        std::fs::remove_dir_all(dir)
+            .map_err(|e| format!("Failed to remove operation dir {}: {e}", dir.display()))?;
+    }
 
     Ok(())
 }

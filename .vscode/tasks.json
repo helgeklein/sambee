@@ -107,22 +107,9 @@
       }
     },
     {
-      "label": "Companion: Type Check (tsc)",
+      "label": "Companion: Type Check + Lint",
       "type": "shell",
-      "command": "npx tsc --noEmit",
-      "options": {
-        "cwd": "${workspaceFolder}/companion"
-      },
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      }
-    },
-    {
-      "label": "Companion: Lint (clippy + biome)",
-      "type": "shell",
-      "command": "cd src-tauri && cargo clippy --lib --tests -- -D warnings && cargo fmt --check && cd .. && npm run lint",
+      "command": "npx tsc --noEmit 2>&1 && echo '✓ TypeScript type check passed' && cd src-tauri && cargo clippy --lib --tests -- -D warnings 2>&1 && echo '✓ Clippy passed' && RUSTFLAGS='-A dead_code' cargo check --target x86_64-pc-windows-gnu 2>&1 && echo '✓ Windows cross-check passed' && cargo fmt --check 2>&1 && echo '✓ Rust formatting OK' && cd .. && npm run lint 2>&1 && echo '✓ Biome lint passed' && echo '' && echo '══════════════════════════════════' && echo '  All companion checks passed ✓' && echo '══════════════════════════════════'",
       "options": {
         "cwd": "${workspaceFolder}/companion"
       },

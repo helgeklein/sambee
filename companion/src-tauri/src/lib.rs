@@ -20,7 +20,8 @@ use tauri::{
 use tauri_plugin_deep_link::DeepLinkExt;
 
 use crate::sync::operations::{
-    OperationStatus, OperationStore, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB,
+    OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations,
+    DEFAULT_MAX_FILE_SIZE_MB,
 };
 use crate::uri::SambeeUri;
 
@@ -41,6 +42,12 @@ const PREFERENCES_WIDTH: f64 = 520.0;
 
 /// Height (logical pixels) of the preferences window.
 const PREFERENCES_HEIGHT: f64 = 560.0;
+
+/// Width (logical pixels) of the app picker window.
+const APP_PICKER_WIDTH: f64 = 420.0;
+
+/// Height (logical pixels) of the app picker window.
+const APP_PICKER_HEIGHT: f64 = 480.0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme state — stores the latest theme received from the web app
@@ -247,21 +254,102 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     // Refresh tray menu to show the new operation
     refresh_tray_menu(&app);
 
-    // 5. For now, open with system default (app picker integration comes later)
-    //    In the full flow, the main window emits "show-app-picker", the user picks
-    //    an app, and then we open with that. For now we use xdg-open.
-    info!("Step 5: Opening file in native app...");
-    commands::open_file::open_in_native_app(
+    // 5. Show app picker, then open file in the selected native app
+    info!("Step 5: Showing app picker...");
+
+    // Extract file extension from the remote path (without leading dot)
+    let file_extension = std::path::Path::new(&uri.path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_string();
+
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<sync::operations::SelectedApp>>();
+
+    // Register the pending selection
+    if let Some(pending) = app.try_state::<PendingAppSelections>() {
+        pending.insert(request_id.clone(), tx);
+    }
+
+    // Ensure the main window exists so the app picker can be displayed
+    let newly_created = ensure_main_window(
         &app,
-        &download_result.local_path,
-        "", // system default
+        "Sambee Companion — Choose Application",
+        APP_PICKER_WIDTH,
+        APP_PICKER_HEIGHT,
     )
-    .await?;
+    .unwrap_or(false);
+
+    // Delay event emission if the window was just created
+    let delay_ms = if newly_created { 400 } else { 50 };
+    let app_for_emit = app.clone();
+    let req_id_for_emit = request_id.clone();
+    let ext_for_emit = file_extension.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        let _ = app_for_emit.emit(
+            "show-app-picker",
+            serde_json::json!({
+                "extension": ext_for_emit,
+                "request_id": req_id_for_emit,
+            }),
+        );
+
+        // Also send the current theme to the window
+        if let Some(theme_state) = app_for_emit.try_state::<ThemeState>() {
+            if let Some(theme) = theme_state.get() {
+                let _ = app_for_emit.emit("apply-theme", &theme);
+            }
+        }
+    });
+
+    // Wait for user selection (blocks lifecycle until picker answered)
+    let selection = rx.await.unwrap_or(None);
+
+    // Hide the main window after selection
+    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = win.hide();
+    }
+
+    let (app_executable, app_display_name) = match selection {
+        Some(selected) => {
+            info!(
+                "User selected app: {} ({})",
+                selected.name, selected.executable
+            );
+            (selected.executable, selected.name)
+        }
+        None => {
+            // User cancelled — release lock and clean up
+            info!("User cancelled app picker — aborting edit lifecycle");
+            let _ = commands::upload::release_lock(
+                &uri.server,
+                &uri.conn_id,
+                &uri.path,
+                &session_token,
+            )
+            .await;
+            store.remove(operation.id);
+            refresh_tray_menu(&app);
+            if let Err(e) = sync::operations::remove_operation_sidecar(&operation) {
+                warn!("Failed to remove sidecar after cancel: {e}");
+            }
+            return Ok(());
+        }
+    };
+
+    info!("Step 5b: Opening file in {}...", app_display_name);
+    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable)
+        .await?;
+
+    // Update the operation with the selected app
+    store.update_app(&operation.id, &app_display_name);
 
     // 6. Spawn Done Editing window
     info!("Step 6: Spawning Done Editing window...");
     let window_label =
-        commands::open_file::spawn_done_editing_window(&app, &operation, "Default Application")?;
+        commands::open_file::spawn_done_editing_window(&app, &operation, &app_display_name)?;
 
     // Send the current theme to the new Done Editing window
     if let Some(theme_state) = app.try_state::<ThemeState>() {
@@ -351,6 +439,41 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
 }
 
 //
+// ensure_main_window
+//
+/// Ensure the main webview window exists, creating it if needed.
+///
+/// Returns `true` if the window was newly created (caller should delay
+/// event emission to let the webview initialize), `false` if it already
+/// existed.
+fn ensure_main_window(
+    app: &tauri::AppHandle,
+    title: &str,
+    width: f64,
+    height: f64,
+) -> Result<bool, String> {
+    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = win.set_title(title);
+        let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+        let _ = win.show();
+        let _ = win.set_focus();
+        return Ok(false);
+    }
+
+    tauri::WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, tauri::WebviewUrl::App("/".into()))
+        .title(title)
+        .inner_size(width, height)
+        .resizable(false)
+        .maximizable(false)
+        .fullscreen(false)
+        .center()
+        .build()
+        .map_err(|e| format!("Failed to create main window: {e}"))?;
+
+    Ok(true)
+}
+
+//
 // show_preferences_window
 //
 /// Create (or focus) the main webview window and emit "show-preferences"
@@ -372,7 +495,9 @@ fn show_preferences_window(app: &tauri::AppHandle) {
     )
     .title("Sambee Companion — Preferences")
     .inner_size(PREFERENCES_WIDTH, PREFERENCES_HEIGHT)
-    .resizable(true)
+    .resizable(false)
+    .maximizable(false)
+    .fullscreen(false)
     .center()
     .build()
     {
@@ -619,6 +744,7 @@ pub fn run() {
         .manage(OperationStore::new())
         .manage(ThemeState::default())
         .manage(PendingConfirmations::default())
+        .manage(PendingAppSelections::default())
         .invoke_handler(tauri::generate_handler![
             commands::app_picker::get_apps_for_file,
             commands::open_file::finish_editing,
@@ -626,6 +752,7 @@ pub fn run() {
             commands::open_file::resolve_conflict_overwrite,
             commands::open_file::resolve_conflict_save_copy,
             commands::open_file::confirm_large_download,
+            commands::open_file::respond_app_selection,
             commands::open_file::recovery_upload,
             commands::open_file::recovery_discard,
             commands::open_file::recovery_dismiss,
@@ -670,6 +797,17 @@ pub fn run() {
             }
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Intercept close on the main window (preferences / app picker):
+            // hide instead of quitting so the tray app keeps running.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == MAIN_WINDOW_LABEL {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    info!("Main window close intercepted — hidden to tray");
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running Sambee Companion");

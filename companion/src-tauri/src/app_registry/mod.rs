@@ -51,6 +51,18 @@ pub trait AppRegistry {
 //
 /// Returns the platform-appropriate `AppRegistry` implementation.
 pub fn get_registry() -> Box<dyn AppRegistry> {
-    // Linux is implemented; Windows and macOS return stubs until Phase 3 platform work.
-    Box::new(linux::LinuxAppRegistry::new())
+    #[cfg(target_os = "windows")]
+    {
+        Box::new(windows::WindowsAppRegistry::new())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Box::new(macos::MacosAppRegistry::new())
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Box::new(linux::LinuxAppRegistry::new())
+    }
 }

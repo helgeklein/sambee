@@ -37,10 +37,10 @@ jobs:
       - id: set-matrix
         run: |
           ALL='[
-            {"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64"},
-            {"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64"},
-            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64"},
-            {"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64"}
+            {"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64","bundles":"deb,appimage"},
+            {"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"},
+            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"msi"},
+            {"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"msi"}
           ]'
           SELECTED="${{ github.event.inputs.platforms }}"
           if [[ -z "$SELECTED" || "$SELECTED" == "all" ]]; then
@@ -124,11 +124,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: companion
-          # -v enables debug logging so WiX candle.exe/light.exe errors are visible.
-          # Tauri's bundler logs candle.exe stderr at debug level only; without -v the
-          # error message is just "failed to run candle.exe" with no detail (see
-          # https://github.com/tauri-apps/tauri/issues/12148).
-          args: --target ${{ matrix.target }} --bundles ${{ runner.os == 'Windows' && 'msi' || (runner.os == 'Linux' && 'deb,appimage' || 'dmg') }} -v
+          # -v enables verbose bundler logging for easier CI debugging.
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
           releaseBody: 'See the assets below to download and install.'
