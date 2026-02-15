@@ -1091,7 +1091,15 @@ class ConnectionDirectoryCache:
     # _cleanup_watcher
     #
     def _cleanup_watcher(self) -> None:
-        """Clean up CHANGE_NOTIFY SMB resources in proper order."""
+        """Clean up CHANGE_NOTIFY SMB resources in proper order.
+
+        Each resource is closed individually so that a failure on one
+        does not prevent the others from being released.  We also guard
+        against the smbprotocol bug where ``connection.disconnect()``
+        raises ``RuntimeError('cannot join current thread')`` when
+        called from the library's own message-worker thread after a
+        timeout.
+        """
 
         if self._watcher_open:
             try:
@@ -1120,6 +1128,10 @@ class ConnectionDirectoryCache:
         if self._watcher_connection:
             try:
                 self._watcher_connection.disconnect()
+            except RuntimeError as e:
+                # smbprotocol bug: disconnect() tries to join the current
+                # thread when called from the message-worker after a timeout.
+                logger.debug(f"Ignored RuntimeError during watcher connection disconnect: {e}")
             except Exception as e:
                 logger.debug(f"Error disconnecting watcher connection: {e}")
             finally:

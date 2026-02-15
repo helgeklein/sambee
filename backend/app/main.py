@@ -1,5 +1,6 @@
 import logging
 import sys
+import threading
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -70,6 +71,42 @@ logging.getLogger("app.storage.smb_pool").setLevel(logging.WARNING)
 
 # Logger for this module
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Work around a known smbprotocol bug: when an SMB connection times out, the
+# library's internal message-worker thread calls self.disconnect() which tries
+# to join the *current* thread, raising RuntimeError("cannot join current
+# thread"). Since this happens inside a daemon thread we cannot catch it
+# directly — but we can suppress the noisy traceback via threading.excepthook.
+# ---------------------------------------------------------------------------
+_default_excepthook = threading.excepthook
+
+SMB_WORKER_THREAD_PREFIX = "msg_worker-"
+
+
+#
+# _smb_threading_excepthook
+#
+def _smb_threading_excepthook(args: threading.ExceptHookArgs) -> None:
+    """Custom threading excepthook that suppresses the known smbprotocol
+    RuntimeError('cannot join current thread') from its internal worker
+    threads and logs a clean warning instead."""
+
+    thread_name = args.thread.name if args.thread else ""
+    is_smb_worker = thread_name.startswith(SMB_WORKER_THREAD_PREFIX)
+    is_join_error = args.exc_type is RuntimeError and args.exc_value is not None and "cannot join current thread" in str(args.exc_value)
+
+    if is_smb_worker and is_join_error:
+        # Extract the server name from the thread name (e.g. "msg_worker-fs1.ad.internal:445")
+        server = thread_name[len(SMB_WORKER_THREAD_PREFIX) :]
+        logger.warning(f"SMB connection timed out for {server} — the watcher will reconnect automatically")
+        return
+
+    # Fall through to default handler for all other thread exceptions
+    _default_excepthook(args)
+
+
+threading.excepthook = _smb_threading_excepthook
 
 # Log startup info (skip during tests to reduce noise)
 if "pytest" not in sys.modules:

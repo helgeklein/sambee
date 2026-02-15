@@ -39,8 +39,8 @@ RETRY_BACKOFF_MULTIPLIER = 2.0
 RETRY_JITTER_FACTOR = 0.1  # 10% jitter
 
 # Timeout configuration
-SMB_CONNECT_TIMEOUT = 30.0  # seconds for initial connection
-SMB_OPERATION_TIMEOUT = 60.0  # seconds for SMB operations
+SMB_CONNECT_TIMEOUT = 30  # seconds for initial connection
+SMB_OPERATION_TIMEOUT = 60  # seconds for SMB operations
 
 
 class DirectoryMonitor:
@@ -533,6 +533,10 @@ class MonitoredDirectory:
             try:
                 self._connection.disconnect()
                 logger.debug(f"Disconnected connection for {self.connection_id}:{self.path}")
+            except RuntimeError as e:
+                # smbprotocol bug: disconnect() tries to join the current
+                # thread when called from the message-worker after a timeout.
+                logger.debug(f"Ignored RuntimeError during connection disconnect for {self.connection_id}:{self.path}: {e}")
             except Exception as e:
                 logger.warning(f"Error disconnecting connection: {e}")
             finally:
