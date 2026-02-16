@@ -62,15 +62,9 @@ pub async fn exchange_uri_token(server_url: &str, uri_token: &str) -> Result<Str
         return Err(format!("Token exchange failed (HTTP {status}): {body}"));
     }
 
-    let body: CompanionTokenResponse = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse token response: {e}"))?;
+    let body: CompanionTokenResponse = response.json().await.map_err(|e| format!("Failed to parse token response: {e}"))?;
 
-    info!(
-        "Token exchange successful, session expires in {}s",
-        body.expires_in
-    );
+    info!("Token exchange successful, session expires in {}s", body.expires_in);
     Ok(body.token)
 }
 

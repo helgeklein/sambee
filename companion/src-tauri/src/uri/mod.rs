@@ -62,10 +62,7 @@ impl SambeeUri {
         }
 
         // Extract required query parameters
-        let params: std::collections::HashMap<String, String> = url
-            .query_pairs()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
+        let params: std::collections::HashMap<String, String> = url.query_pairs().map(|(k, v)| (k.to_string(), v.to_string())).collect();
 
         let server = params
             .get("server")
@@ -204,15 +201,12 @@ mod tests {
     #[test]
     fn test_parse_theme_param() {
         // With theme
-        let url = Url::parse(
-            "sambee://open?server=https://example.com&token=t&connId=c&path=/f&theme=eyJtb2RlIjoiZGFyayJ9"
-        ).unwrap();
+        let url = Url::parse("sambee://open?server=https://example.com&token=t&connId=c&path=/f&theme=eyJtb2RlIjoiZGFyayJ9").unwrap();
         let parsed = SambeeUri::parse(&url).unwrap();
         assert_eq!(parsed.theme.as_deref(), Some("eyJtb2RlIjoiZGFyayJ9"));
 
         // Without theme
-        let url2 = Url::parse("sambee://open?server=https://example.com&token=t&connId=c&path=/f")
-            .unwrap();
+        let url2 = Url::parse("sambee://open?server=https://example.com&token=t&connId=c&path=/f").unwrap();
         let parsed2 = SambeeUri::parse(&url2).unwrap();
         assert!(parsed2.theme.is_none());
     }
@@ -222,9 +216,7 @@ mod tests {
     //
     #[test]
     fn test_parse_url_encoded_path() {
-        let url = Url::parse(
-            "sambee://open?server=https://example.com&token=t&connId=c&path=%2Fdocs%2Fmy%20file.docx"
-        ).unwrap();
+        let url = Url::parse("sambee://open?server=https://example.com&token=t&connId=c&path=%2Fdocs%2Fmy%20file.docx").unwrap();
 
         let parsed = SambeeUri::parse(&url).unwrap();
         assert_eq!(parsed.path, "/docs/my file.docx");

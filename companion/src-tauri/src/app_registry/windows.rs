@@ -18,12 +18,9 @@ use base64::Engine;
 use log::debug;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
-    BITMAPINFOHEADER, DIB_RGB_COLORS, HDC, HGDIOBJ,
+    CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC, HGDIOBJ,
 };
-use windows::Win32::System::Com::{
-    CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED,
-};
+use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{ExtractIconExW, IAssocHandler, SHAssocEnumHandlers, ASSOC_FILTER};
 use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
 use winreg::enums::*;
@@ -247,11 +244,7 @@ impl WindowsAppRegistry {
         }
 
         // 4. Fall back to executable filename stem
-        executable
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown")
-            .to_string()
+        executable.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string()
     }
 
     //
@@ -264,11 +257,7 @@ impl WindowsAppRegistry {
         let user_choice = Self::get_user_choice_progid(dotted_ext);
         let progids = Self::get_progids_for_extension(dotted_ext);
 
-        debug!(
-            "Registry fallback: {} ProgIds, user choice: {:?}",
-            progids.len(),
-            user_choice
-        );
+        debug!("Registry fallback: {} ProgIds, user choice: {:?}", progids.len(), user_choice);
 
         let mut seen: HashMap<PathBuf, usize> = HashMap::new();
         let mut apps: Vec<NativeApp> = Vec::new();
@@ -316,11 +305,7 @@ impl AppRegistry for WindowsAppRegistry {
         // Primary: use Shell association handlers (matches OS "Open with" dialog)
         if let Some(apps) = enumerate_assoc_handlers(&dotted_ext) {
             if !apps.is_empty() {
-                debug!(
-                    "Resolved {} app(s) for {} via Shell handlers",
-                    apps.len(),
-                    dotted_ext
-                );
+                debug!("Resolved {} app(s) for {} via Shell handlers", apps.len(), dotted_ext);
                 return apps;
             }
         }
@@ -331,11 +316,7 @@ impl AppRegistry for WindowsAppRegistry {
             dotted_ext
         );
         let apps = self.enumerate_via_registry(&dotted_ext);
-        debug!(
-            "Resolved {} app(s) for {} via registry",
-            apps.len(),
-            dotted_ext
-        );
+        debug!("Resolved {} app(s) for {} via registry", apps.len(), dotted_ext);
         apps
     }
 
@@ -375,10 +356,7 @@ impl AppRegistry for WindowsAppRegistry {
 fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
     let _com = ComInit::new();
 
-    let wide: Vec<u16> = OsStr::new(extension)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide: Vec<u16> = OsStr::new(extension).encode_wide().chain(std::iter::once(0)).collect();
 
     let enumerator = unsafe { SHAssocEnumHandlers(PCWSTR(wide.as_ptr()), ASSOC_FILTER_ALL).ok()? };
 
@@ -460,11 +438,7 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
         apps[default_idx].is_default = true;
     }
 
-    debug!(
-        "SHAssocEnumHandlers returned {} handler(s) for {}",
-        apps.len(),
-        extension
-    );
+    debug!("SHAssocEnumHandlers returned {} handler(s) for {}", apps.len(), extension);
 
     Some(apps)
 }
@@ -479,25 +453,84 @@ unsafe fn extract_handler_icon(handler: &IAssocHandler, exe_path: &Path) -> Opti
     let mut icon_path_ptr = PWSTR::null();
     let mut icon_index = 0i32;
 
-    if handler
-        .GetIconLocation(&mut icon_path_ptr, &mut icon_index)
-        .is_ok()
-        && !icon_path_ptr.is_null()
-    {
+    if handler.GetIconLocation(&mut icon_path_ptr, &mut icon_index).is_ok() && !icon_path_ptr.is_null() {
         let icon_path_str = pwstr_to_string(icon_path_ptr);
         CoTaskMemFree(Some(icon_path_ptr.0 as *const std::ffi::c_void));
 
-        // Skip resource references (UWP/Store apps use @{...} notation)
-        if !icon_path_str.is_empty() && !icon_path_str.starts_with('@') {
-            let icon_source = PathBuf::from(&icon_path_str);
-            if let result @ Some(_) = extract_icon_from_resource(&icon_source, icon_index) {
-                return result;
+        if !icon_path_str.is_empty() {
+            if icon_path_str.starts_with('@') {
+                // UWP/Store apps use @{PackageFullName?resource} notation —
+                // resolve via SHLoadIndirectString to get the actual icon path.
+                if let result @ Some(_) = resolve_indirect_icon(&icon_path_str) {
+                    return result;
+                }
+            } else {
+                let icon_source = PathBuf::from(&icon_path_str);
+                if let result @ Some(_) = extract_icon_from_resource(&icon_source, icon_index) {
+                    return result;
+                }
             }
         }
     }
 
     // Fall back to extracting from the executable itself
     extract_icon_from_resource(exe_path, 0)
+}
+
+//
+// resolve_indirect_icon
+//
+/// Resolve an indirect icon reference (`@{...}` notation used by
+/// UWP/Store apps) to a Base64-encoded PNG.
+///
+/// Uses `SHLoadIndirectString` to turn the indirect resource string into
+/// an actual filesystem path, then reads the resulting file.  UWP icon
+/// assets are typically PNGs that can be encoded directly.
+unsafe fn resolve_indirect_icon(indirect_path: &str) -> Option<String> {
+    use windows::Win32::UI::Shell::SHLoadIndirectString;
+
+    let wide_input: Vec<u16> = OsStr::new(indirect_path).encode_wide().chain(std::iter::once(0)).collect();
+
+    let mut output_buf = vec![0u16; 1024];
+
+    SHLoadIndirectString(PCWSTR(wide_input.as_ptr()), &mut output_buf, None).ok()?;
+
+    // Find the null terminator and convert to a Rust string.
+    let len = output_buf.iter().position(|&c| c == 0).unwrap_or(output_buf.len());
+    let resolved = String::from_utf16_lossy(&output_buf[..len]);
+
+    if resolved.is_empty() {
+        return None;
+    }
+
+    debug!("Resolved indirect icon path: {resolved}");
+
+    let resolved_path = PathBuf::from(&resolved);
+
+    // UWP icon assets are usually PNGs — read them directly.
+    if let Some(ext) = resolved_path.extension() {
+        let ext_lower = ext.to_string_lossy().to_lowercase();
+        if ext_lower == "png" {
+            return read_png_as_base64(&resolved_path);
+        }
+    }
+
+    // For other file types (.ico, .exe, .dll) fall back to ExtractIconExW.
+    extract_icon_from_resource(&resolved_path, 0)
+}
+
+//
+// read_png_as_base64
+//
+/// Read a PNG file from disk and return its contents as a Base64-encoded
+/// string.  The file is sent verbatim — no re-encoding is needed since
+/// the frontend already expects PNG data.
+fn read_png_as_base64(path: &Path) -> Option<String> {
+    let data = std::fs::read(path).ok()?;
+    if data.is_empty() {
+        return None;
+    }
+    Some(base64::engine::general_purpose::STANDARD.encode(&data))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -515,20 +548,11 @@ unsafe fn extract_handler_icon(handler: &IAssocHandler, exe_path: &Path) -> Opti
 ///
 /// Returns `None` if the icon could not be extracted for any reason.
 fn extract_icon_from_resource(icon_path: &Path, icon_index: i32) -> Option<String> {
-    let wide: Vec<u16> = OsStr::new(icon_path)
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
+    let wide: Vec<u16> = OsStr::new(icon_path).encode_wide().chain(std::iter::once(0)).collect();
 
     unsafe {
         let mut large_icon = HICON::default();
-        let count = ExtractIconExW(
-            PCWSTR(wide.as_ptr()),
-            icon_index,
-            Some(&mut large_icon),
-            None,
-            1,
-        );
+        let count = ExtractIconExW(PCWSTR(wide.as_ptr()), icon_index, Some(&mut large_icon), None, 1);
 
         if count == 0 || large_icon.is_invalid() {
             return None;

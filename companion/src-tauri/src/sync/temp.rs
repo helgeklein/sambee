@@ -31,12 +31,7 @@ const COMPANION_TEMP_DIR: &str = "sambee-companion";
 /// Creates the directory if it doesn't exist.
 pub fn companion_temp_root() -> Result<PathBuf, String> {
     let root = std::env::temp_dir().join(COMPANION_TEMP_DIR);
-    fs::create_dir_all(&root).map_err(|e| {
-        format!(
-            "Failed to create companion temp root {}: {e}",
-            root.display()
-        )
-    })?;
+    fs::create_dir_all(&root).map_err(|e| format!("Failed to create companion temp root {}: {e}", root.display()))?;
     Ok(root)
 }
 
@@ -49,8 +44,7 @@ pub fn companion_temp_root() -> Result<PathBuf, String> {
 pub fn create_operation_dir(operation_id: &uuid::Uuid) -> Result<PathBuf, String> {
     let root = companion_temp_root()?;
     let dir = root.join(operation_id.to_string());
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create operation dir {}: {e}", dir.display()))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create operation dir {}: {e}", dir.display()))?;
     debug!("Created operation dir: {}", dir.display());
     Ok(dir)
 }
@@ -189,10 +183,7 @@ mod tests {
     fn test_temp_file_path() {
         let dir = PathBuf::from("/tmp/sambee-companion/abc-123");
         let path = temp_file_path(&dir, "/docs/report.docx");
-        assert_eq!(
-            path,
-            PathBuf::from("/tmp/sambee-companion/abc-123/report-copy.docx")
-        );
+        assert_eq!(path, PathBuf::from("/tmp/sambee-companion/abc-123/report-copy.docx"));
     }
 
     //
@@ -202,10 +193,7 @@ mod tests {
     fn test_temp_file_path_nested() {
         let dir = PathBuf::from("/tmp/sambee-companion/abc-123");
         let path = temp_file_path(&dir, "/deep/nested/folder/data.csv");
-        assert_eq!(
-            path,
-            PathBuf::from("/tmp/sambee-companion/abc-123/data-copy.csv")
-        );
+        assert_eq!(path, PathBuf::from("/tmp/sambee-companion/abc-123/data-copy.csv"));
     }
 
     //

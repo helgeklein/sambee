@@ -58,11 +58,7 @@ pub async fn download_file(
     let local_path = temp::temp_file_path(&op_dir, remote_path);
 
     // Build download URL
-    let url = format!(
-        "{}/api/viewer/{}/download",
-        server_url.trim_end_matches('/'),
-        connection_id
-    );
+    let url = format!("{}/api/viewer/{}/download", server_url.trim_end_matches('/'), connection_id);
 
     info!(
         "Downloading: server={}, conn_id={}, path='{}' → {}",
@@ -113,11 +109,7 @@ pub async fn download_file(
         .and_then(|m| m.modified())
         .unwrap_or_else(|_| SystemTime::now());
 
-    info!(
-        "Download complete: {} bytes → {}",
-        bytes.len(),
-        local_path.display()
-    );
+    info!("Download complete: {} bytes → {}", bytes.len(), local_path.display());
 
     Ok(DownloadResult {
         local_path,
@@ -139,13 +131,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_download_bad_server() {
-        let result = download_file(
-            "http://127.0.0.1:1",
-            "test-conn",
-            "/docs/test.txt",
-            "fake-token",
-        )
-        .await;
+        let result = download_file("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
         assert!(result.is_err());
     }
 
@@ -159,10 +145,7 @@ mod tests {
             original_mtime: SystemTime::now(),
             operation_id: uuid::Uuid::new_v4(),
         };
-        assert!(result
-            .local_path
-            .to_string_lossy()
-            .contains("file-copy.txt"));
+        assert!(result.local_path.to_string_lossy().contains("file-copy.txt"));
         assert!(!result.operation_id.is_nil());
     }
 }

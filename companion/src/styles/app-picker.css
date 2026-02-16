@@ -14,6 +14,10 @@
   min-width: 400px;
   max-width: 500px;
   min-height: 0;
+  /* Borderless window: add subtle outline so edges are visible */
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 /* ─── Header ─── */
@@ -27,7 +31,7 @@
 .app-picker__extension {
   font-family: monospace;
   font-weight: 700;
-  color: var(--accent-color, #f4c430);
+  color: var(--accent-dark, #d4a020);
 }
 
 /* ─── App list ─── */
@@ -41,6 +45,14 @@
   border: 1px solid var(--border-color, #d1d5db);
   border-radius: 6px;
   padding: 0.25rem;
+}
+
+.app-picker__list:focus-visible {
+  outline: none;
+}
+
+.app-picker__list:focus:not(:focus-visible) {
+  outline: none;
 }
 
 .app-picker__item {
@@ -103,12 +115,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.app-picker__default-badge {
-  font-size: 0.75rem;
-  color: var(--accent-color, #f4c430);
-  font-weight: 600;
 }
 
 .app-picker__path {

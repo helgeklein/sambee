@@ -14,10 +14,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
-use crate::sync::operations::{
-    FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS,
-    HEARTBEAT_INTERVAL_SECS,
-};
+use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit context (sent to the Done Editing window)
@@ -69,14 +66,8 @@ const CONFLICT_PREFIX: &str = "conflict:";
 ///
 /// Uses `tauri_plugin_shell` `open()` API. Falls back to the system default
 /// if `app_executable` is empty.
-pub async fn open_in_native_app(
-    app: &AppHandle,
-    local_path: &Path,
-    app_executable: &str,
-) -> Result<(), String> {
-    let path_str = local_path
-        .to_str()
-        .ok_or_else(|| "Invalid file path encoding".to_string())?;
+pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str) -> Result<(), String> {
+    let path_str = local_path.to_str().ok_or_else(|| "Invalid file path encoding".to_string())?;
 
     if app_executable.is_empty() {
         // Use system default via xdg-open / open / start
@@ -107,11 +98,7 @@ pub async fn open_in_native_app(
 ///
 /// The window is always-on-top, non-resizable, non-closable, and non-minimizable.
 /// It emits an `edit-context` event so the frontend knows which file is being edited.
-pub fn spawn_done_editing_window(
-    app: &AppHandle,
-    operation: &FileOperation,
-    app_display_name: &str,
-) -> Result<String, String> {
+pub fn spawn_done_editing_window(app: &AppHandle, operation: &FileOperation, app_display_name: &str) -> Result<String, String> {
     let window_label = format!("{}{}", DONE_EDITING_LABEL_PREFIX, operation.id);
 
     // Count existing Done Editing windows for cascade positioning
@@ -124,22 +111,18 @@ pub fn spawn_done_editing_window(
     let pos_x = DONE_EDITING_MARGIN;
     let pos_y = DONE_EDITING_MARGIN + existing_count * DONE_EDITING_CASCADE_STEP;
 
-    let _window = tauri::WebviewWindowBuilder::new(
-        app,
-        &window_label,
-        tauri::WebviewUrl::App("/done-editing".into()),
-    )
-    .title("Sambee — Editing")
-    .inner_size(DONE_EDITING_WIDTH, DONE_EDITING_HEIGHT)
-    .position(pos_x, pos_y)
-    .resizable(false)
-    .maximizable(false)
-    .fullscreen(false)
-    .always_on_top(true)
-    .closable(false)
-    .minimizable(false)
-    .build()
-    .map_err(|e| format!("Failed to create Done Editing window: {e}"))?;
+    let _window = tauri::WebviewWindowBuilder::new(app, &window_label, tauri::WebviewUrl::App("/done-editing".into()))
+        .title("Sambee — Editing")
+        .inner_size(DONE_EDITING_WIDTH, DONE_EDITING_HEIGHT)
+        .position(pos_x, pos_y)
+        .resizable(false)
+        .maximizable(false)
+        .fullscreen(false)
+        .always_on_top(true)
+        .closable(false)
+        .minimizable(false)
+        .build()
+        .map_err(|e| format!("Failed to create Done Editing window: {e}"))?;
 
     // Send edit context to the window
     let context = EditContext {
@@ -158,11 +141,7 @@ pub fn spawn_done_editing_window(
         }
     });
 
-    info!(
-        "Spawned Done Editing window: {} for {}",
-        window_label,
-        operation.filename()
-    );
+    info!("Spawned Done Editing window: {} for {}", window_label, operation.filename());
 
     Ok(window_label)
 }
@@ -172,12 +151,7 @@ pub fn spawn_done_editing_window(
 //
 /// Start a background task that polls the temp file's mtime every 2 seconds
 /// and emits `file-status` events to the Done Editing window.
-pub fn start_file_status_polling(
-    app: &AppHandle,
-    window_label: String,
-    local_path: std::path::PathBuf,
-    original_mtime: SystemTime,
-) {
+pub fn start_file_status_polling(app: &AppHandle, window_label: String, local_path: std::path::PathBuf, original_mtime: SystemTime) {
     let app_clone = app.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -188,10 +162,7 @@ pub fn start_file_status_polling(
 
             // Check if the window still exists
             if app_clone.get_webview_window(&window_label).is_none() {
-                info!(
-                    "File status polling stopped: window {} closed",
-                    window_label
-                );
+                info!("File status polling stopped: window {} closed", window_label);
                 break;
             }
 
@@ -242,14 +213,7 @@ pub fn start_heartbeat_task(
                 break;
             }
 
-            match super::upload::send_heartbeat(
-                &server_url,
-                &connection_id,
-                &remote_path,
-                &session_token,
-            )
-            .await
-            {
+            match super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token).await {
                 Ok(()) => {}
                 Err(e) => {
                     warn!("Heartbeat failed (will retry next interval): {e}");
@@ -272,17 +236,13 @@ pub fn start_heartbeat_task(
 /// If unchanged → release lock, recycle, close window.
 #[tauri::command]
 pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<String, String> {
-    let op_id: uuid::Uuid = operation_id
-        .parse()
-        .map_err(|_| "Invalid operation ID".to_string())?;
+    let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
         .try_state::<OperationStore>()
         .ok_or_else(|| "Operation store not available".to_string())?;
 
-    let operation = store
-        .get(op_id)
-        .ok_or_else(|| format!("Operation {op_id} not found"))?;
+    let operation = store.get(op_id).ok_or_else(|| format!("Operation {op_id} not found"))?;
 
     let window_label = format!("done-editing-{}", operation.id);
     let local_path = operation.local_path.clone();
@@ -294,9 +254,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     let filename = operation.filename();
 
     // Check if file was modified
-    let current_mtime = fs::metadata(&local_path)
-        .and_then(|m| m.modified())
-        .unwrap_or(original_mtime);
+    let current_mtime = fs::metadata(&local_path).and_then(|m| m.modified()).unwrap_or(original_mtime);
 
     let is_modified = current_mtime != original_mtime;
 
@@ -305,9 +263,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         // Before uploading, check if the server-side file was modified
         // by another user while we held our lock.
         if let Some(ref download_modified_at) = operation.server_last_modified {
-            match super::file_info::get_file_info(&server_url, &connection_id, &remote_path, &token)
-                .await
-            {
+            match super::file_info::get_file_info(&server_url, &connection_id, &remote_path, &token).await {
                 Ok(current_info) => {
                     if let Some(ref current_modified) = current_info.modified_at {
                         if current_modified != download_modified_at {
@@ -337,17 +293,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         info!("Uploading modified file: {}", local_path.display());
         store.update_status(op_id, OperationStatus::Uploading(0.0));
 
-        match super::upload::upload_file(
-            &app,
-            &window_label,
-            &server_url,
-            &connection_id,
-            &remote_path,
-            &local_path,
-            &token,
-        )
-        .await
-        {
+        match super::upload::upload_file(&app, &window_label, &server_url, &connection_id, &remote_path, &local_path, &token).await {
             Ok(_resp) => {
                 info!("Upload successful for {}", filename);
             }
@@ -394,17 +340,13 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
 /// Releases lock, moves temp file to recycle bin, closes window.
 #[tauri::command]
 pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<String, String> {
-    let op_id: uuid::Uuid = operation_id
-        .parse()
-        .map_err(|_| "Invalid operation ID".to_string())?;
+    let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
         .try_state::<OperationStore>()
         .ok_or_else(|| "Operation store not available".to_string())?;
 
-    let operation = store
-        .get(op_id)
-        .ok_or_else(|| format!("Operation {op_id} not found"))?;
+    let operation = store.get(op_id).ok_or_else(|| format!("Operation {op_id} not found"))?;
 
     let window_label = format!("done-editing-{}", operation.id);
     let local_path = operation.local_path.clone();
@@ -446,10 +388,7 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
 ///
 /// Skips the conflict check and force-uploads the local file.
 #[tauri::command]
-pub async fn resolve_conflict_overwrite(
-    app: AppHandle,
-    operation_id: String,
-) -> Result<String, String> {
+pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) -> Result<String, String> {
     upload_and_finish(&app, &operation_id, None).await
 }
 
@@ -462,27 +401,17 @@ pub async fn resolve_conflict_overwrite(
 /// both the current server version and the user's local edits.
 /// Copy path: `{stem} (conflict copy).{ext}` or `{name} (conflict copy)`.
 #[tauri::command]
-pub async fn resolve_conflict_save_copy(
-    app: AppHandle,
-    operation_id: String,
-) -> Result<String, String> {
-    let op_id: uuid::Uuid = operation_id
-        .parse()
-        .map_err(|_| "Invalid operation ID".to_string())?;
+pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) -> Result<String, String> {
+    let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
         .try_state::<OperationStore>()
         .ok_or_else(|| "Operation store not available".to_string())?;
 
-    let operation = store
-        .get(op_id)
-        .ok_or_else(|| format!("Operation {op_id} not found"))?;
+    let operation = store.get(op_id).ok_or_else(|| format!("Operation {op_id} not found"))?;
 
     let copy_path = make_conflict_copy_path(&operation.remote_path);
-    info!(
-        "Saving conflict copy: {} → {}",
-        operation.remote_path, copy_path
-    );
+    info!("Saving conflict copy: {} → {}", operation.remote_path, copy_path);
 
     upload_and_finish(&app, &operation_id, Some(&copy_path)).await
 }
@@ -492,22 +421,14 @@ pub async fn resolve_conflict_save_copy(
 //
 /// Shared helper: upload a file (optionally to a different path) then
 /// release lock, recycle, close window, notify.
-async fn upload_and_finish(
-    app: &AppHandle,
-    operation_id: &str,
-    upload_path_override: Option<&str>,
-) -> Result<String, String> {
-    let op_id: uuid::Uuid = operation_id
-        .parse()
-        .map_err(|_| "Invalid operation ID".to_string())?;
+async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_override: Option<&str>) -> Result<String, String> {
+    let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
         .try_state::<OperationStore>()
         .ok_or_else(|| "Operation store not available".to_string())?;
 
-    let operation = store
-        .get(op_id)
-        .ok_or_else(|| format!("Operation {op_id} not found"))?;
+    let operation = store.get(op_id).ok_or_else(|| format!("Operation {op_id} not found"))?;
 
     let window_label = format!("done-editing-{}", operation.id);
     let local_path = operation.local_path.clone();
@@ -519,17 +440,7 @@ async fn upload_and_finish(
 
     // Upload
     store.update_status(op_id, OperationStatus::Uploading(0.0));
-    match super::upload::upload_file(
-        app,
-        &window_label,
-        &server_url,
-        &connection_id,
-        remote_path,
-        &local_path,
-        &token,
-    )
-    .await
-    {
+    match super::upload::upload_file(app, &window_label, &server_url, &connection_id, remote_path, &local_path, &token).await {
         Ok(_) => {
             info!("Upload successful (conflict resolved) for {}", filename);
         }
@@ -605,20 +516,13 @@ fn make_conflict_copy_path(remote_path: &str) -> String {
 ///
 /// Signals the pending lifecycle to proceed (`true`) or abort (`false`).
 #[tauri::command]
-pub fn confirm_large_download(
-    app: AppHandle,
-    confirm_id: String,
-    proceed: bool,
-) -> Result<(), String> {
+pub fn confirm_large_download(app: AppHandle, confirm_id: String, proceed: bool) -> Result<(), String> {
     let pending = app
         .try_state::<crate::sync::operations::PendingConfirmations>()
         .ok_or_else(|| "PendingConfirmations not available".to_string())?;
 
     if pending.respond(&confirm_id, proceed) {
-        info!(
-            "Large download confirmation {}: proceed={}",
-            confirm_id, proceed
-        );
+        info!("Large download confirmation {}: proceed={}", confirm_id, proceed);
         Ok(())
     } else {
         warn!("No pending confirmation found for {}", confirm_id);
@@ -639,12 +543,7 @@ pub fn confirm_large_download(
 /// When the user cancels, `executable` is an empty string, which signals
 /// cancellation to the waiting lifecycle.
 #[tauri::command]
-pub fn respond_app_selection(
-    app: AppHandle,
-    request_id: String,
-    executable: String,
-    app_name: String,
-) -> Result<(), String> {
+pub fn respond_app_selection(app: AppHandle, request_id: String, executable: String, app_name: String) -> Result<(), String> {
     let pending = app
         .try_state::<crate::sync::operations::PendingAppSelections>()
         .ok_or_else(|| "PendingAppSelections not available".to_string())?;
@@ -696,8 +595,7 @@ pub struct LeftoverInfo {
 /// Re-exchanges a session (or uses existing token), uploads, then recycles.
 #[tauri::command]
 pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<String, String> {
-    let sidecar_path =
-        std::path::PathBuf::from(&operation_dir).join(crate::sync::operations::SIDECAR_FILENAME);
+    let sidecar_path = std::path::PathBuf::from(&operation_dir).join(crate::sync::operations::SIDECAR_FILENAME);
 
     let op = crate::sync::operations::load_operation_sidecar(&sidecar_path)?;
     let filename = op.filename().to_string();
@@ -738,8 +636,7 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<St
 /// Moves the temp file to the recycle bin.
 #[tauri::command]
 pub async fn recovery_discard(_app: AppHandle, operation_dir: String) -> Result<String, String> {
-    let sidecar_path =
-        std::path::PathBuf::from(&operation_dir).join(crate::sync::operations::SIDECAR_FILENAME);
+    let sidecar_path = std::path::PathBuf::from(&operation_dir).join(crate::sync::operations::SIDECAR_FILENAME);
 
     let op = crate::sync::operations::load_operation_sidecar(&sidecar_path)?;
     let filename = op.filename().to_string();
@@ -747,10 +644,7 @@ pub async fn recovery_discard(_app: AppHandle, operation_dir: String) -> Result<
     let _ = crate::sync::recycle::recycle_file(&op.local_path);
     info!("Recovery discard: {}", filename);
 
-    Ok(format!(
-        "{} — discarded (recoverable for 7 days).",
-        filename
-    ))
+    Ok(format!("{} — discarded (recoverable for 7 days).", filename))
 }
 
 //
@@ -776,10 +670,7 @@ pub async fn recovery_dismiss(_app: AppHandle, operation_dir: String) -> Result<
 fn format_system_time(time: SystemTime) -> String {
     use std::time::UNIX_EPOCH;
 
-    let secs = time
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let secs = time.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
     let time_of_day = secs % 86400;
     let hours = time_of_day / 3600;
@@ -787,6 +678,21 @@ fn format_system_time(time: SystemTime) -> String {
     let seconds = time_of_day % 60;
 
     format!("{hours:02}:{minutes:02}:{seconds:02}")
+}
+
+//
+// has_active_operations
+//
+/// Returns `true` if any file-editing operation is currently active.
+///
+/// Used by the frontend auto-updater to avoid installing an update while
+/// the user is in the middle of editing a file.
+#[tauri::command]
+pub fn has_active_operations(app: AppHandle) -> bool {
+    let Some(store) = app.try_state::<OperationStore>() else {
+        return false;
+    };
+    !store.active_operations().is_empty()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -840,10 +746,7 @@ mod tests {
     //
     #[test]
     fn test_conflict_copy_path_with_extension() {
-        assert_eq!(
-            make_conflict_copy_path("/docs/report.docx"),
-            "/docs/report (conflict copy).docx"
-        );
+        assert_eq!(make_conflict_copy_path("/docs/report.docx"), "/docs/report (conflict copy).docx");
     }
 
     //
@@ -851,10 +754,7 @@ mod tests {
     //
     #[test]
     fn test_conflict_copy_path_no_extension() {
-        assert_eq!(
-            make_conflict_copy_path("/docs/Makefile"),
-            "/docs/Makefile (conflict copy)"
-        );
+        assert_eq!(make_conflict_copy_path("/docs/Makefile"), "/docs/Makefile (conflict copy)");
     }
 
     //

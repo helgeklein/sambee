@@ -64,8 +64,7 @@ pub async fn upload_file(
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| "file".to_string());
 
-    let file_bytes = fs::read(local_path)
-        .map_err(|e| format!("Failed to read local file {}: {e}", local_path.display()))?;
+    let file_bytes = fs::read(local_path).map_err(|e| format!("Failed to read local file {}: {e}", local_path.display()))?;
 
     let _total_size = file_bytes.len() as f32;
 
@@ -77,11 +76,7 @@ pub async fn upload_file(
         remote_path
     );
 
-    let url = format!(
-        "{}/api/viewer/{}/upload",
-        server_url.trim_end_matches('/'),
-        connection_id
-    );
+    let url = format!("{}/api/viewer/{}/upload", server_url.trim_end_matches('/'), connection_id);
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(UPLOAD_TIMEOUT_SECS))
@@ -93,16 +88,10 @@ pub async fn upload_file(
     for attempt in 1..=UPLOAD_MAX_RETRIES {
         // Emit progress: start of attempt
         let progress = if attempt == 1 { 0.0 } else { 0.05 }; // Small offset for retries
-        let _ = app.emit_to(
-            window_label,
-            "upload-progress",
-            serde_json::json!({ "progress": progress }),
-        );
+        let _ = app.emit_to(window_label, "upload-progress", serde_json::json!({ "progress": progress }));
 
         // Guess MIME type from filename
-        let mime_type = mime_guess::from_path(local_path)
-            .first_or_octet_stream()
-            .to_string();
+        let mime_type = mime_guess::from_path(local_path).first_or_octet_stream().to_string();
 
         let file_part = multipart::Part::bytes(file_bytes.clone())
             .file_name(filename.clone())
@@ -123,23 +112,11 @@ pub async fn upload_file(
                 let status = response.status();
                 if status.is_success() {
                     // Emit 100% progress
-                    let _ = app.emit_to(
-                        window_label,
-                        "upload-progress",
-                        serde_json::json!({ "progress": 1.0 }),
-                    );
+                    let _ = app.emit_to(window_label, "upload-progress", serde_json::json!({ "progress": 1.0 }));
 
-                    let body: UploadResponse = response
-                        .json()
-                        .await
-                        .map_err(|e| format!("Failed to parse upload response: {e}"))?;
+                    let body: UploadResponse = response.json().await.map_err(|e| format!("Failed to parse upload response: {e}"))?;
 
-                    info!(
-                        "Upload complete: {} → {}, size={}",
-                        local_path.display(),
-                        body.path,
-                        body.size
-                    );
+                    info!("Upload complete: {} → {}, size={}", local_path.display(), body.path, body.size);
                     return Ok(body);
                 }
 
@@ -168,18 +145,12 @@ pub async fn upload_file(
 
             // Emit a small progress bump to show we're retrying
             let retry_progress = (attempt as f32 / UPLOAD_MAX_RETRIES as f32) * 0.1;
-            let _ = app.emit_to(
-                window_label,
-                "upload-progress",
-                serde_json::json!({ "progress": retry_progress }),
-            );
+            let _ = app.emit_to(window_label, "upload-progress", serde_json::json!({ "progress": retry_progress }));
         }
     }
 
     error!("Upload failed after {UPLOAD_MAX_RETRIES} attempts: {last_error}");
-    Err(format!(
-        "Upload failed after {UPLOAD_MAX_RETRIES} attempts: {last_error}"
-    ))
+    Err(format!("Upload failed after {UPLOAD_MAX_RETRIES} attempts: {last_error}"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,17 +163,8 @@ pub async fn upload_file(
 /// Acquire an edit lock on a file.
 ///
 /// `POST /api/companion/{connId}/lock?path={remote_path}`
-pub async fn acquire_lock(
-    server_url: &str,
-    connection_id: &str,
-    remote_path: &str,
-    session_token: &str,
-) -> Result<String, String> {
-    let url = format!(
-        "{}/api/companion/{}/lock",
-        server_url.trim_end_matches('/'),
-        connection_id
-    );
+pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<String, String> {
+    let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
     let client = Client::new();
     let response = client
@@ -225,10 +187,7 @@ pub async fn acquire_lock(
         lock_id: String,
     }
 
-    let body: LockResp = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse lock response: {e}"))?;
+    let body: LockResp = response.json().await.map_err(|e| format!("Failed to parse lock response: {e}"))?;
 
     info!("Lock acquired: lock_id={}", body.lock_id);
     Ok(body.lock_id)
@@ -240,17 +199,8 @@ pub async fn acquire_lock(
 /// Release an edit lock on a file.
 ///
 /// `DELETE /api/companion/{connId}/lock?path={remote_path}`
-pub async fn release_lock(
-    server_url: &str,
-    connection_id: &str,
-    remote_path: &str,
-    session_token: &str,
-) -> Result<(), String> {
-    let url = format!(
-        "{}/api/companion/{}/lock",
-        server_url.trim_end_matches('/'),
-        connection_id
-    );
+pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+    let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
     let client = Client::new();
     let response = client
@@ -269,10 +219,7 @@ pub async fn release_lock(
         return Err(format!("Lock release failed (HTTP {status}): {body}"));
     }
 
-    info!(
-        "Lock released: conn_id={}, path={}",
-        connection_id, remote_path
-    );
+    info!("Lock released: conn_id={}, path={}", connection_id, remote_path);
     Ok(())
 }
 
@@ -282,12 +229,7 @@ pub async fn release_lock(
 /// Send a heartbeat to keep an edit lock alive.
 ///
 /// `POST /api/companion/{connId}/lock/heartbeat?path={remote_path}`
-pub async fn send_heartbeat(
-    server_url: &str,
-    connection_id: &str,
-    remote_path: &str,
-    session_token: &str,
-) -> Result<(), String> {
+pub async fn send_heartbeat(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
     let url = format!(
         "{}/api/companion/{}/lock/heartbeat",
         server_url.trim_end_matches('/'),
@@ -352,13 +294,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_acquire_lock_bad_server() {
-        let result = acquire_lock(
-            "http://127.0.0.1:1",
-            "test-conn",
-            "/docs/test.txt",
-            "fake-token",
-        )
-        .await;
+        let result = acquire_lock("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
         assert!(result.is_err());
     }
 
@@ -367,13 +303,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_release_lock_bad_server() {
-        let result = release_lock(
-            "http://127.0.0.1:1",
-            "test-conn",
-            "/docs/test.txt",
-            "fake-token",
-        )
-        .await;
+        let result = release_lock("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
         assert!(result.is_err());
     }
 
@@ -382,13 +312,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_send_heartbeat_bad_server() {
-        let result = send_heartbeat(
-            "http://127.0.0.1:1",
-            "test-conn",
-            "/docs/test.txt",
-            "fake-token",
-        )
-        .await;
+        let result = send_heartbeat("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
         assert!(result.is_err());
     }
 }

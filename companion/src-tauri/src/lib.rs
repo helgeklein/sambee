@@ -6,6 +6,7 @@
 
 mod app_registry;
 mod commands;
+mod shutdown_event;
 mod sync;
 mod token;
 mod uri;
@@ -19,10 +20,7 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
-use crate::sync::operations::{
-    OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations,
-    DEFAULT_MAX_FILE_SIZE_MB,
-};
+use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
 use crate::uri::SambeeUri;
 
 /// ID used for the system tray icon, allowing retrieval via `app.tray_by_id()`.
@@ -151,22 +149,15 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 1.5. Fetch file info for size check and conflict detection baseline
     info!("Step 1.5: Fetching file info...");
-    let file_info =
-        commands::file_info::get_file_info(&uri.server, &uri.conn_id, &uri.path, &session_token)
-            .await;
+    let file_info = commands::file_info::get_file_info(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
 
     // Store server-side modified_at for later conflict detection
-    let server_last_modified = file_info
-        .as_ref()
-        .ok()
-        .and_then(|info| info.modified_at.clone());
+    let server_last_modified = file_info.as_ref().ok().and_then(|info| info.modified_at.clone());
 
     // Check file size against threshold
     if let Ok(ref info) = file_info {
         if let Some(size_bytes) = info.size {
-            if let Some(size_mb) =
-                sync::operations::exceeds_size_limit(size_bytes, DEFAULT_MAX_FILE_SIZE_MB)
-            {
+            if let Some(size_mb) = sync::operations::exceeds_size_limit(size_bytes, DEFAULT_MAX_FILE_SIZE_MB) {
                 info!(
                     "File {} is {} MB (limit {} MB) — requesting confirmation",
                     info.name, size_mb, DEFAULT_MAX_FILE_SIZE_MB
@@ -204,25 +195,22 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 2. Acquire edit lock
     info!("Step 2: Acquiring edit lock...");
-    let lock_id =
-        commands::upload::acquire_lock(&uri.server, &uri.conn_id, &uri.path, &session_token)
-            .await?;
+    let lock_id = commands::upload::acquire_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await?;
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
-    let download_result =
-        commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token)
-            .await
-            .inspect_err(|_e| {
-                // Release lock on download failure (best-effort)
-                let srv = uri.server.clone();
-                let cid = uri.conn_id.clone();
-                let p = uri.path.clone();
-                let tok = session_token.clone();
-                tauri::async_runtime::spawn(async move {
-                    let _ = commands::upload::release_lock(&srv, &cid, &p, &tok).await;
-                });
-            })?;
+    let download_result = commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token)
+        .await
+        .inspect_err(|_e| {
+            // Release lock on download failure (best-effort)
+            let srv = uri.server.clone();
+            let cid = uri.conn_id.clone();
+            let p = uri.path.clone();
+            let tok = session_token.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = commands::upload::release_lock(&srv, &cid, &p, &tok).await;
+            });
+        })?;
 
     // 4. Create FileOperation and persist
     let operation = sync::operations::FileOperation {
@@ -273,13 +261,8 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     }
 
     // Ensure the main window exists so the app picker can be displayed
-    let newly_created = ensure_main_window(
-        &app,
-        "Sambee Companion — Choose Application",
-        APP_PICKER_WIDTH,
-        APP_PICKER_HEIGHT,
-    )
-    .unwrap_or(false);
+    let newly_created =
+        ensure_main_window(&app, "Sambee Companion — Choose Application", APP_PICKER_WIDTH, APP_PICKER_HEIGHT).unwrap_or(false);
 
     // Delay event emission if the window was just created
     let delay_ms = if newly_created { 400 } else { 50 };
@@ -314,22 +297,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     let (app_executable, app_display_name) = match selection {
         Some(selected) => {
-            info!(
-                "User selected app: {} ({})",
-                selected.name, selected.executable
-            );
+            info!("User selected app: {} ({})", selected.name, selected.executable);
             (selected.executable, selected.name)
         }
         None => {
             // User cancelled — release lock and clean up
             info!("User cancelled app picker — aborting edit lifecycle");
-            let _ = commands::upload::release_lock(
-                &uri.server,
-                &uri.conn_id,
-                &uri.path,
-                &session_token,
-            )
-            .await;
+            let _ = commands::upload::release_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
             store.remove(operation.id);
             refresh_tray_menu(&app);
             if let Err(e) = sync::operations::remove_operation_sidecar(&operation) {
@@ -340,16 +314,14 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     };
 
     info!("Step 5b: Opening file in {}...", app_display_name);
-    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable)
-        .await?;
+    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable).await?;
 
     // Update the operation with the selected app
     store.update_app(&operation.id, &app_display_name);
 
     // 6. Spawn Done Editing window
     info!("Step 6: Spawning Done Editing window...");
-    let window_label =
-        commands::open_file::spawn_done_editing_window(&app, &operation, &app_display_name)?;
+    let window_label = commands::open_file::spawn_done_editing_window(&app, &operation, &app_display_name)?;
 
     // Send the current theme to the new Done Editing window
     if let Some(theme_state) = app.try_state::<ThemeState>() {
@@ -372,19 +344,9 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         download_result.original_mtime,
     );
 
-    commands::open_file::start_heartbeat_task(
-        &app,
-        window_label,
-        uri.server,
-        uri.conn_id,
-        uri.path,
-        session_token,
-    );
+    commands::open_file::start_heartbeat_task(&app, window_label, uri.server, uri.conn_id, uri.path, session_token);
 
-    info!(
-        "Edit lifecycle started successfully for operation {}",
-        operation.id
-    );
+    info!("Edit lifecycle started successfully for operation {}", operation.id);
     Ok(())
 }
 
@@ -400,20 +362,8 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 /// Assigns the tray ID [`TRAY_ICON_ID`] so it can be retrieved later
 /// via `app.tray_by_id()` for dynamic menu rebuilds.
 fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let prefs = MenuItem::with_id(
-        app,
-        TRAY_MENU_PREFERENCES,
-        "Preferences…",
-        true,
-        None::<&str>,
-    )?;
-    let quit = MenuItem::with_id(
-        app,
-        TRAY_MENU_QUIT,
-        "Quit Sambee Companion",
-        true,
-        None::<&str>,
-    )?;
+    let prefs = MenuItem::with_id(app, TRAY_MENU_PREFERENCES, "Preferences…", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_MENU_QUIT, "Quit Sambee Companion", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&prefs, &quit])?;
 
     TrayIconBuilder::with_id(TRAY_ICON_ID)
@@ -446,15 +396,14 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
 /// Returns `true` if the window was newly created (caller should delay
 /// event emission to let the webview initialize), `false` if it already
 /// existed.
-fn ensure_main_window(
-    app: &tauri::AppHandle,
-    title: &str,
-    width: f64,
-    height: f64,
-) -> Result<bool, String> {
+fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f64) -> Result<bool, String> {
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = win.set_title(title);
         let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
+        // App picker uses a borderless floating panel style
+        let _ = win.set_decorations(false);
+        let _ = win.set_always_on_top(true);
+        let _ = win.center();
         let _ = win.show();
         let _ = win.set_focus();
         return Ok(false);
@@ -466,6 +415,9 @@ fn ensure_main_window(
         .resizable(false)
         .maximizable(false)
         .fullscreen(false)
+        .decorations(false)
+        .shadow(true)
+        .always_on_top(true)
         .center()
         .build()
         .map_err(|e| format!("Failed to create main window: {e}"))?;
@@ -481,6 +433,15 @@ fn ensure_main_window(
 fn show_preferences_window(app: &tauri::AppHandle) {
     // Re-use the existing main window if it is already open
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        // Restore normal window chrome (may have been hidden for app picker)
+        let _ = win.set_decorations(true);
+        let _ = win.set_always_on_top(false);
+        let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: PREFERENCES_WIDTH,
+            height: PREFERENCES_HEIGHT,
+        }));
+        let _ = win.set_title("Sambee Companion \u{2014} Preferences");
+        let _ = win.center();
         let _ = win.show();
         let _ = win.set_focus();
         let _ = app.emit("show-preferences", ());
@@ -488,18 +449,14 @@ fn show_preferences_window(app: &tauri::AppHandle) {
     }
 
     // Create a new window for the preferences panel
-    match tauri::WebviewWindowBuilder::new(
-        app,
-        MAIN_WINDOW_LABEL,
-        tauri::WebviewUrl::App("/".into()),
-    )
-    .title("Sambee Companion — Preferences")
-    .inner_size(PREFERENCES_WIDTH, PREFERENCES_HEIGHT)
-    .resizable(false)
-    .maximizable(false)
-    .fullscreen(false)
-    .center()
-    .build()
+    match tauri::WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, tauri::WebviewUrl::App("/".into()))
+        .title("Sambee Companion — Preferences")
+        .inner_size(PREFERENCES_WIDTH, PREFERENCES_HEIGHT)
+        .resizable(false)
+        .maximizable(false)
+        .fullscreen(false)
+        .center()
+        .build()
     {
         Ok(_win) => {
             // Emit after a short delay so the webview is ready to receive events
@@ -549,9 +506,7 @@ fn refresh_tray_menu(app: &tauri::AppHandle) {
     let mut items: Vec<MenuItem<tauri::Wry>> = Vec::new();
 
     if active.is_empty() {
-        if let Ok(item) =
-            MenuItem::with_id(app, "no-ops", "No active operations", false, None::<&str>)
-        {
+        if let Ok(item) = MenuItem::with_id(app, "no-ops", "No active operations", false, None::<&str>) {
             items.push(item);
         }
     } else {
@@ -569,38 +524,22 @@ fn refresh_tray_menu(app: &tauri::AppHandle) {
             };
 
             // Use the operation id as the menu item id (display-only, no action)
-            if let Ok(item) = MenuItem::with_id(app, op.id.to_string(), &label, false, None::<&str>)
-            {
+            if let Ok(item) = MenuItem::with_id(app, op.id.to_string(), &label, false, None::<&str>) {
                 items.push(item);
             }
         }
     }
 
     // Build the final menu with Preferences + Quit at the end
-    if let Ok(prefs) = MenuItem::with_id(
-        app,
-        TRAY_MENU_PREFERENCES,
-        "Preferences…",
-        true,
-        None::<&str>,
-    ) {
+    if let Ok(prefs) = MenuItem::with_id(app, TRAY_MENU_PREFERENCES, "Preferences…", true, None::<&str>) {
         items.push(prefs);
     }
-    if let Ok(quit) = MenuItem::with_id(
-        app,
-        TRAY_MENU_QUIT,
-        "Quit Sambee Companion",
-        true,
-        None::<&str>,
-    ) {
+    if let Ok(quit) = MenuItem::with_id(app, TRAY_MENU_QUIT, "Quit Sambee Companion", true, None::<&str>) {
         items.push(quit);
     }
 
     // Collect references for Menu::with_items
-    let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = items
-        .iter()
-        .map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>)
-        .collect();
+    let refs: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = items.iter().map(|i| i as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
 
     match Menu::with_items(app, &refs) {
         Ok(menu) => {
@@ -617,10 +556,7 @@ fn refresh_tray_menu(app: &tauri::AppHandle) {
 //
 /// Load sidecars for leftover operations and emit a "leftover-operations"
 /// event to the main window so the frontend can show recovery dialogs.
-fn emit_leftover_operations(
-    app: &tauri::AppHandle,
-    leftovers: Vec<(std::path::PathBuf, std::path::PathBuf)>,
-) {
+fn emit_leftover_operations(app: &tauri::AppHandle, leftovers: Vec<(std::path::PathBuf, std::path::PathBuf)>) {
     let mut infos: Vec<commands::open_file::LeftoverInfo> = Vec::new();
 
     for (op_dir, sidecar_path) in &leftovers {
@@ -661,10 +597,7 @@ fn emit_leftover_operations(
 //
 /// Format a `SystemTime` as an ISO 8601-ish string (UTC).
 fn format_system_time_iso(time: std::time::SystemTime) -> String {
-    let secs = time
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+    let secs = time.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 
     let days = secs / 86400;
     let time_of_day = secs % 86400;
@@ -756,6 +689,7 @@ pub fn run() {
             commands::open_file::recovery_upload,
             commands::open_file::recovery_discard,
             commands::open_file::recovery_dismiss,
+            commands::open_file::has_active_operations,
         ])
         .setup(|app| {
             // Register deep-link scheme at runtime (Linux + Windows dev mode)
@@ -769,6 +703,9 @@ pub fn run() {
                 error!("Failed to set up system tray: {e}");
             }
 
+            // Listen for the installer's shutdown event (Windows only)
+            shutdown_event::spawn_shutdown_listener(app);
+
             // Run recycle bin cleanup on startup
             let cleaned = sync::recycle::cleanup_expired();
             if cleaned > 0 {
@@ -778,10 +715,7 @@ pub fn run() {
             // Scan for leftover operations from previous sessions
             let leftovers = sync::temp::scan_leftover_operations();
             if !leftovers.is_empty() {
-                info!(
-                    "Startup: found {} leftover operation(s) from previous sessions",
-                    leftovers.len()
-                );
+                info!("Startup: found {} leftover operation(s) from previous sessions", leftovers.len());
                 // Emit recovery info to the main window after a short delay
                 // (window must be ready to receive events)
                 let app_handle = app.handle().clone();

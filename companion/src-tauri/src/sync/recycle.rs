@@ -34,8 +34,7 @@ const RECYCLE_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60); // 7 days
 pub fn recycle_bin_dir() -> Result<PathBuf, String> {
     let root = super::temp::companion_temp_root()?;
     let dir = root.join(RECYCLE_DIR);
-    fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create recycle bin {}: {e}", dir.display()))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create recycle bin {}: {e}", dir.display()))?;
     Ok(dir)
 }
 
@@ -58,8 +57,7 @@ pub fn recycle_file(source: &Path) -> Result<PathBuf, String> {
 
     // Move (rename if same filesystem, copy+delete otherwise)
     if fs::rename(source, &dest).is_err() {
-        fs::copy(source, &dest)
-            .map_err(|e| format!("Failed to copy {} to recycle bin: {e}", source.display()))?;
+        fs::copy(source, &dest).map_err(|e| format!("Failed to copy {} to recycle bin: {e}", source.display()))?;
         let _ = fs::remove_file(source);
     }
 
@@ -158,10 +156,7 @@ fn make_recycled_name(filename: &str) -> String {
 fn chrono_timestamp() -> String {
     use std::time::UNIX_EPOCH;
 
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_secs();
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::ZERO).as_secs();
 
     // Convert epoch seconds to date/time components
     let days = secs / 86400;

@@ -84,11 +84,7 @@ impl LinuxAppRegistry {
         let entries = Self::load_desktop_entries();
         let (defaults, added) = Self::load_mimeapps_lists();
 
-        Self {
-            entries,
-            defaults,
-            added,
-        }
+        Self { entries, defaults, added }
     }
 
     //
@@ -186,11 +182,7 @@ impl LinuxAppRegistry {
                     "NoDisplay" => no_display = value.eq_ignore_ascii_case("true"),
                     "Hidden" => hidden = value.eq_ignore_ascii_case("true"),
                     "MimeType" => {
-                        mime_types = value
-                            .split(';')
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty())
-                            .collect();
+                        mime_types = value.split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
                     }
                     _ => {}
                 }
@@ -396,8 +388,8 @@ impl AppRegistry for LinuxAppRegistry {
         // If mime_guess found nothing, try a broad text/* fallback for known text extensions
         if result.is_empty() {
             let text_extensions = [
-                "txt", "md", "csv", "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf",
-                "log", "sh", "bash", "py", "rs", "js", "ts", "html", "css", "sql",
+                "txt", "md", "csv", "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "sh", "bash", "py", "rs", "js",
+                "ts", "html", "css", "sql",
             ];
             if text_extensions.contains(&extension.to_lowercase().as_str()) {
                 result = self.apps_for_mime_type("text/plain");
@@ -425,11 +417,7 @@ mod tests {
     use std::io::Write;
 
     /// Grouped result from `create_test_env`: desktop entries, default associations, MIME-type lists.
-    type TestEnvResult = (
-        HashMap<String, DesktopEntry>,
-        HashMap<String, String>,
-        HashMap<String, Vec<String>>,
-    );
+    type TestEnvResult = (HashMap<String, DesktopEntry>, HashMap<String, String>, HashMap<String, Vec<String>>);
 
     //
     // create_test_desktop_files
@@ -647,12 +635,10 @@ mod tests {
         assert_eq!(writer.exec, "/usr/bin/libreoffice --writer %U");
         assert_eq!(writer.icon.as_deref(), Some("libreoffice-writer"));
         assert!(!writer.terminal);
+        assert!(writer.mime_types.contains(&"application/msword".to_string()));
         assert!(writer
             .mime_types
-            .contains(&"application/msword".to_string()));
-        assert!(writer.mime_types.contains(
-            &"application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()
-        ));
+            .contains(&"application/vnd.openxmlformats-officedocument.wordprocessingml.document".to_string()));
     }
 
     //
@@ -684,17 +670,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (entries, defaults, added) = create_test_env(dir.path());
 
-        let registry = LinuxAppRegistry {
-            entries,
-            defaults,
-            added,
-        };
+        let registry = LinuxAppRegistry { entries, defaults, added };
 
         let apps = registry.apps_for_mime("image/png");
-        assert!(
-            !apps.is_empty(),
-            "Should find at least one app for image/png"
-        );
+        assert!(!apps.is_empty(), "Should find at least one app for image/png");
 
         // GIMP should be default and first
         let gimp = &apps[0];
@@ -711,11 +690,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (entries, defaults, added) = create_test_env(dir.path());
 
-        let registry = LinuxAppRegistry {
-            entries,
-            defaults,
-            added,
-        };
+        let registry = LinuxAppRegistry { entries, defaults, added };
 
         let apps = registry.apps_for_mime("image/png");
         let names: Vec<&str> = apps.iter().map(|a| a.name.as_str()).collect();
@@ -731,11 +706,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (entries, defaults, added) = create_test_env(dir.path());
 
-        let registry = LinuxAppRegistry {
-            entries,
-            defaults,
-            added,
-        };
+        let registry = LinuxAppRegistry { entries, defaults, added };
 
         let apps = registry.apps_for_mime("application/x-totally-unknown-type");
         assert!(apps.is_empty(), "Unknown MIME type should return no apps");
@@ -754,10 +725,7 @@ mod tests {
             LinuxAppRegistry::extract_executable("/usr/bin/gimp %U"),
             PathBuf::from("/usr/bin/gimp")
         );
-        assert_eq!(
-            LinuxAppRegistry::extract_executable("vim"),
-            PathBuf::from("vim")
-        );
+        assert_eq!(LinuxAppRegistry::extract_executable("vim"), PathBuf::from("vim"));
     }
 
     //
@@ -791,18 +759,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (entries, defaults, added) = create_test_env(dir.path());
 
-        let registry = LinuxAppRegistry {
-            entries,
-            defaults,
-            added,
-        };
+        let registry = LinuxAppRegistry { entries, defaults, added };
 
         let apps = registry.apps_for_mime("text/plain");
         let default_count = apps.iter().filter(|a| a.is_default).count();
-        assert!(
-            default_count <= 1,
-            "At most one app should be marked default, got {default_count}"
-        );
+        assert!(default_count <= 1, "At most one app should be marked default, got {default_count}");
 
         if let Some(first) = apps.first() {
             if first.name == "Text Editor" {

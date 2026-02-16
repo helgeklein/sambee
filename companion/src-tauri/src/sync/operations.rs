@@ -122,10 +122,7 @@ impl FileOperation {
     //
     /// Returns just the file name portion of the remote path.
     pub fn filename(&self) -> &str {
-        self.remote_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(&self.remote_path)
+        self.remote_path.rsplit('/').next().unwrap_or(&self.remote_path)
     }
 
     //
@@ -135,10 +132,7 @@ impl FileOperation {
     pub fn is_active(&self) -> bool {
         matches!(
             self.status,
-            OperationStatus::Downloading
-                | OperationStatus::Editing
-                | OperationStatus::Uploading(_)
-                | OperationStatus::UploadFailed(_)
+            OperationStatus::Downloading | OperationStatus::Editing | OperationStatus::Uploading(_) | OperationStatus::UploadFailed(_)
         )
     }
 }
@@ -264,10 +258,7 @@ impl PendingConfirmations {
     //
     /// Store a sender under the given key.
     pub fn insert(&self, key: String, tx: tokio::sync::oneshot::Sender<bool>) {
-        let mut map = self
-            .inner
-            .write()
-            .expect("PendingConfirmations lock poisoned");
+        let mut map = self.inner.write().expect("PendingConfirmations lock poisoned");
         map.insert(key, tx);
     }
 
@@ -276,10 +267,7 @@ impl PendingConfirmations {
     //
     /// Send a response and remove the entry. Returns `true` if found.
     pub fn respond(&self, key: &str, value: bool) -> bool {
-        let mut map = self
-            .inner
-            .write()
-            .expect("PendingConfirmations lock poisoned");
+        let mut map = self.inner.write().expect("PendingConfirmations lock poisoned");
         if let Some(tx) = map.remove(key) {
             let _ = tx.send(value);
             true
@@ -322,10 +310,7 @@ impl PendingAppSelections {
     //
     /// Store a sender under the given request ID.
     pub fn insert(&self, key: String, tx: tokio::sync::oneshot::Sender<Option<SelectedApp>>) {
-        let mut map = self
-            .inner
-            .write()
-            .expect("PendingAppSelections lock poisoned");
+        let mut map = self.inner.write().expect("PendingAppSelections lock poisoned");
         map.insert(key, tx);
     }
 
@@ -334,10 +319,7 @@ impl PendingAppSelections {
     //
     /// Send a selection response and remove the entry. Returns `true` if found.
     pub fn respond(&self, key: &str, value: Option<SelectedApp>) -> bool {
-        let mut map = self
-            .inner
-            .write()
-            .expect("PendingAppSelections lock poisoned");
+        let mut map = self.inner.write().expect("PendingAppSelections lock poisoned");
         if let Some(tx) = map.remove(key) {
             let _ = tx.send(value);
             true
@@ -385,11 +367,9 @@ pub fn save_operation_sidecar(op: &FileOperation) -> Result<(), String> {
         .ok_or_else(|| "Cannot determine parent directory of temp file".to_string())?;
 
     let sidecar_path = dir.join(SIDECAR_FILENAME);
-    let json = serde_json::to_string_pretty(op)
-        .map_err(|e| format!("Failed to serialize operation: {e}"))?;
+    let json = serde_json::to_string_pretty(op).map_err(|e| format!("Failed to serialize operation: {e}"))?;
 
-    std::fs::write(&sidecar_path, json)
-        .map_err(|e| format!("Failed to write sidecar {}: {e}", sidecar_path.display()))?;
+    std::fs::write(&sidecar_path, json).map_err(|e| format!("Failed to write sidecar {}: {e}", sidecar_path.display()))?;
 
     Ok(())
 }
@@ -407,8 +387,7 @@ pub fn remove_operation_sidecar(op: &FileOperation) -> Result<(), String> {
         .ok_or_else(|| "Cannot determine parent directory of temp file".to_string())?;
 
     if dir.exists() {
-        std::fs::remove_dir_all(dir)
-            .map_err(|e| format!("Failed to remove operation dir {}: {e}", dir.display()))?;
+        std::fs::remove_dir_all(dir).map_err(|e| format!("Failed to remove operation dir {}: {e}", dir.display()))?;
     }
 
     Ok(())
@@ -419,11 +398,9 @@ pub fn remove_operation_sidecar(op: &FileOperation) -> Result<(), String> {
 //
 /// Load a `FileOperation` from a JSON sidecar file.
 pub fn load_operation_sidecar(sidecar_path: &std::path::Path) -> Result<FileOperation, String> {
-    let content = std::fs::read_to_string(sidecar_path)
-        .map_err(|e| format!("Failed to read sidecar {}: {e}", sidecar_path.display()))?;
+    let content = std::fs::read_to_string(sidecar_path).map_err(|e| format!("Failed to read sidecar {}: {e}", sidecar_path.display()))?;
 
-    serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse sidecar {}: {e}", sidecar_path.display()))
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse sidecar {}: {e}", sidecar_path.display()))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
 import type { NativeApp } from "../types";
 import "../styles/app-picker.css";
@@ -49,13 +49,24 @@ type PickerState = { kind: "loading" } | { kind: "loaded"; apps: NativeApp[] } |
  * Dialog for choosing a native application to open a file type.
  *
  * Fetches available apps from the Rust backend via the `get_apps_for_file`
- * Tauri command. Shows the default handler first (marked with a star).
+ * Tauri command. Shows the default handler first (labelled "(default)").
  * Supports "Always use" persistence and a "Browse" fallback.
  */
 export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
   const [state, setState] = useState<PickerState>({ kind: "loading" });
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [alwaysUse, setAlwaysUse] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Keep the listbox focused and scroll the selected item into view
+  useEffect(() => {
+    if (selectedIndex < 0 || !listRef.current) return;
+    const item = listRef.current.children[selectedIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest" });
+    // Focus the listbox container (not individual items) so Tab
+    // navigates between the list and the other dialog controls.
+    listRef.current.focus({ preventScroll: true });
+  }, [selectedIndex]);
 
   // Fetch available apps and check for a saved preference
   useEffect(() => {
@@ -174,10 +185,10 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
   }, [state]);
 
   //
-  // handleKeyDown
+  // handleListKeyDown
   //
-  /** Keyboard navigation for the app list. */
-  const handleKeyDown = useCallback(
+  /** Keyboard navigation within the app listbox. */
+  const handleListKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (state.kind !== "loaded") return;
       const count = state.apps.length;
@@ -192,23 +203,42 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
           e.preventDefault();
           setSelectedIndex((i) => Math.max(i - 1, 0));
           break;
+        case "Home":
+          e.preventDefault();
+          setSelectedIndex(0);
+          break;
+        case "End":
+          e.preventDefault();
+          setSelectedIndex(count - 1);
+          break;
         case "Enter":
+        case " ":
           e.preventDefault();
           handleOpen();
           break;
-        case "Escape":
-          e.preventDefault();
-          onCancel();
-          break;
       }
     },
-    [state, handleOpen, onCancel]
+    [state, handleOpen]
+  );
+
+  //
+  // handleDialogKeyDown
+  //
+  /** Dialog-level keyboard handler (Escape to close). */
+  const handleDialogKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    },
+    [onCancel]
   );
 
   return (
-    <div class="app-picker" role="dialog" aria-label="Application picker" onKeyDown={handleKeyDown}>
+    <div class="app-picker" role="dialog" aria-label="Application picker" onKeyDown={handleDialogKeyDown}>
       <h2 class="app-picker__header">
-        Choose an application for <span class="app-picker__extension">.{extension}</span> files
+        Choose an app to open this <span class="app-picker__extension">.{extension}</span> file
       </h2>
 
       {state.kind === "loading" && <div class="app-picker__loading">Loading available applications…</div>}
@@ -221,22 +251,28 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
       {state.kind === "loaded" && state.apps.length > 0 && (
         <>
-          <div class="app-picker__list" role="listbox">
+          <div
+            class="app-picker__list"
+            role="listbox"
+            ref={listRef}
+            tabIndex={0}
+            aria-activedescendant={selectedIndex >= 0 ? `app-picker-item-${selectedIndex}` : undefined}
+            onKeyDown={handleListKeyDown}
+          >
             {state.apps.map((app, index) => (
               <div
                 key={app.executable}
+                id={`app-picker-item-${index}`}
                 class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
                 role="option"
-                tabIndex={0}
+                tabIndex={-1}
                 aria-selected={index === selectedIndex}
-                onClick={() => setSelectedIndex(index)}
-                onKeyDown={(e: KeyboardEvent) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setSelectedIndex(index);
-                    handleOpen();
-                  }
+                onClick={() => {
+                  setSelectedIndex(index);
+                  listRef.current?.focus();
                 }}
+                // Keyboard events bubble up to the listbox container's onKeyDown.
+                onKeyDown={() => {}}
                 onDblClick={() => {
                   setSelectedIndex(index);
                   handleOpen();
@@ -249,7 +285,6 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
                 )}
                 <div class="app-picker__info">
                   <span class="app-picker__name">
-                    {app.is_default && <span class="app-picker__default-badge">★ </span>}
                     {app.name}
                     {app.is_default && " (default)"}
                   </span>

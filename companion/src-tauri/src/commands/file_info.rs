@@ -55,16 +55,9 @@ pub async fn get_file_info(
     remote_path: &str,
     session_token: &str,
 ) -> Result<FileInfoResponse, String> {
-    let url = format!(
-        "{}/api/browse/{}/info",
-        server_url.trim_end_matches('/'),
-        connection_id
-    );
+    let url = format!("{}/api/browse/{}/info", server_url.trim_end_matches('/'), connection_id);
 
-    info!(
-        "Fetching file info: conn_id={}, path='{}'",
-        connection_id, remote_path
-    );
+    info!("Fetching file info: conn_id={}, path='{}'", connection_id, remote_path);
 
     let client = Client::new();
     let response = client
@@ -149,13 +142,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_get_file_info_bad_server() {
-        let result = get_file_info(
-            "http://127.0.0.1:1",
-            "test-conn",
-            "/docs/test.txt",
-            "fake-token",
-        )
-        .await;
+        let result = get_file_info("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
         assert!(result.is_err());
     }
 }
