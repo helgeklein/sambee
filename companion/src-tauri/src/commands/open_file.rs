@@ -69,13 +69,22 @@ const CONFLICT_PREFIX: &str = "conflict:";
 pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str) -> Result<(), String> {
     let path_str = local_path.to_str().ok_or_else(|| "Invalid file path encoding".to_string())?;
 
+    info!(
+        "open_in_native_app: executable={:?}, path={:?}, exists={}",
+        app_executable,
+        path_str,
+        local_path.exists()
+    );
+
     if app_executable.is_empty() {
         // Use system default via xdg-open / open / start
         info!("Opening with system default: {}", local_path.display());
         #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
-        app.shell()
-            .open(path_str, None)
-            .map_err(|e| format!("Failed to open file with system default: {e}"))?;
+        app.shell().open(path_str, None).map_err(|e| {
+            error!("shell.open() failed for {}: {e}", local_path.display());
+            format!("Failed to open file with system default: {e}")
+        })?;
+        info!("shell.open() succeeded for {}", local_path.display());
     } else {
         info!("Opening with {}: {}", app_executable, local_path.display());
 
@@ -87,16 +96,29 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         {
             let extension = local_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
+            info!("Windows: attempting IAssocHandler::Invoke() for extension={:?}", extension);
+
             match crate::app_registry::windows::invoke_assoc_handler(extension, app_executable, path_str) {
-                Ok(()) => {}
+                Ok(()) => {
+                    info!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
+                }
                 Err(handler_err) => {
-                    warn!("IAssocHandler invocation failed ({}), falling back to direct spawn", handler_err);
-                    let _child = app
-                        .shell()
-                        .command(app_executable)
-                        .arg(path_str)
-                        .spawn()
-                        .map_err(|e| format!("Failed to launch {app_executable}: {e}"))?;
+                    warn!("IAssocHandler invocation failed ({}), falling back to shell open", handler_err);
+
+                    // Fall back to shell().open() which uses ShellExecuteEx
+                    // internally. This properly delegates to the OS default
+                    // handler and works for all handler types (EXE, DLL-based
+                    // like Windows Photo Viewer, UWP/Store apps).
+                    //
+                    // Note: this opens with the system default rather than
+                    // the user-selected app, but it's better than failing.
+                    info!("Fallback: opening {:?} via system default (shell open)", path_str);
+                    #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
+                    app.shell().open(path_str, None).map_err(|e| {
+                        error!("Fallback shell.open() also failed for {}: {e}", local_path.display());
+                        format!("Failed to open file: {e}")
+                    })?;
+                    info!("Fallback shell.open() succeeded for {}", local_path.display());
                 }
             }
         }
@@ -104,12 +126,11 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         // On non-Windows platforms, spawn the application directly
         #[cfg(not(target_os = "windows"))]
         {
-            let _child = app
-                .shell()
-                .command(app_executable)
-                .arg(path_str)
-                .spawn()
-                .map_err(|e| format!("Failed to launch {app_executable}: {e}"))?;
+            let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
+                error!("Failed to launch {}: {e}", app_executable);
+                format!("Failed to launch {app_executable}: {e}")
+            })?;
+            info!("Process spawned successfully for {}", app_executable);
         }
     }
 

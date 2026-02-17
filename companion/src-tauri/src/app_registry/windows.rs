@@ -723,16 +723,29 @@ fn extract_executable_from_command(command: &str) -> Option<PathBuf> {
 /// (e.g. Windows Photos) cannot be launched via direct process creation —
 /// they require activation through the Windows Shell infrastructure.
 pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: &str) -> Result<(), String> {
-    use windows::core::Interface;
+    use log::info;
     use windows::Win32::System::Com::IDataObject;
-    use windows::Win32::UI::Shell::{IShellItem, IShellItemArray, SHCreateItemFromParsingName, SHCreateShellItemArrayFromShellItem};
+    use windows::Win32::UI::Shell::{IShellItem, SHCreateItemFromParsingName};
 
-    debug!(
-        "Invoking association handler for .{} (exe: {}, file: {})",
+    /// BHID_DataObject (Windows 8+) — binds an `IShellItem` to `IDataObject`
+    /// via `BindToHandler`. This is the MSDN-documented way to obtain the
+    /// `IDataObject` that `IAssocHandler::Invoke()` requires.
+    ///
+    /// See: <https://learn.microsoft.com/en-us/windows/win32/shell/bhid-constants>
+    const BHID_DATA_OBJECT: windows::core::GUID = windows::core::GUID {
+        data1: 0xB8C0BD9F,
+        data2: 0xED24,
+        data3: 0x455C,
+        data4: [0x83, 0xE6, 0xD5, 0x39, 0x0C, 0x4F, 0xE8, 0xC4],
+    };
+
+    info!(
+        "invoke_assoc_handler: extension={:?}, handler_exe={:?}, file={:?}",
         extension, handler_exe_path, file_path
     );
 
     let _com = ComInit::new();
+    debug!("COM initialized for handler invocation");
 
     let dotted_ext = if extension.starts_with('.') {
         extension.to_string()
@@ -744,12 +757,17 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
 
     // Re-enumerate handlers to find the one matching the selected executable
     let enumerator = unsafe {
-        SHAssocEnumHandlers(PCWSTR(wide_ext.as_ptr()), ASSOC_FILTER_ALL)
-            .map_err(|e| format!("Failed to enumerate association handlers: {e}"))?
+        SHAssocEnumHandlers(PCWSTR(wide_ext.as_ptr()), ASSOC_FILTER_ALL).map_err(|e| {
+            let msg = format!("SHAssocEnumHandlers failed for {dotted_ext}: {e}");
+            log::error!("{msg}");
+            msg
+        })?
     };
+    debug!("SHAssocEnumHandlers succeeded for {dotted_ext}");
 
     let target_exe = PathBuf::from(handler_exe_path);
     let mut matched_handler: Option<IAssocHandler> = None;
+    let mut handler_count: usize = 0;
 
     loop {
         let mut handlers: [Option<IAssocHandler>; 1] = [None];
@@ -768,45 +786,87 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
             None => break,
         };
 
-        unsafe {
-            if let Ok(name_ptr) = handler.GetName() {
-                let name = pwstr_to_string(name_ptr);
-                CoTaskMemFree(Some(name_ptr.0 as *const std::ffi::c_void));
+        handler_count += 1;
 
-                if PathBuf::from(&name) == target_exe {
-                    matched_handler = Some(handler);
-                    break;
+        unsafe {
+            // Log both the handler name (exe path) and UI name for diagnostics
+            let handler_name = match handler.GetName() {
+                Ok(p) => {
+                    let s = pwstr_to_string(p);
+                    CoTaskMemFree(Some(p.0 as *const std::ffi::c_void));
+                    s
                 }
+                Err(e) => {
+                    debug!("Handler #{handler_count}: GetName() failed: {e}");
+                    continue;
+                }
+            };
+
+            let ui_name = match handler.GetUIName() {
+                Ok(p) => {
+                    let s = pwstr_to_string(p);
+                    CoTaskMemFree(Some(p.0 as *const std::ffi::c_void));
+                    s
+                }
+                Err(_) => "<unknown>".to_string(),
+            };
+
+            debug!("Handler #{handler_count}: name={:?}, ui_name={:?}", handler_name, ui_name);
+
+            if PathBuf::from(&handler_name) == target_exe {
+                info!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
+                matched_handler = Some(handler);
+                break;
             }
         }
     }
 
-    let handler = matched_handler.ok_or_else(|| format!("No association handler found matching: {}", handler_exe_path))?;
+    if matched_handler.is_none() {
+        let msg = format!(
+            "No association handler found matching {:?} after checking {handler_count} handler(s) for {dotted_ext}",
+            handler_exe_path
+        );
+        log::error!("{msg}");
+        return Err(msg);
+    }
+    let handler = matched_handler.unwrap();
 
-    // Create a shell data object from the file path for IAssocHandler::Invoke().
+    // Create IDataObject from the file path for IAssocHandler::Invoke().
     //
-    // The chain is: file path → IShellItem → IShellItemArray → IDataObject.
-    // The shell's IShellItemArray implementation natively supports IDataObject
-    // via QueryInterface (Windows 7+), which IAssocHandler::Invoke() requires.
+    // Uses IShellItem::BindToHandler with BHID_DataObject to obtain a proper
+    // IDataObject. This is the MSDN-documented approach and works for all
+    // handler types: Win32 EXE, legacy DLL-based handlers (e.g. Windows Photo
+    // Viewer), and UWP/Store apps.
+    //
+    // Previous approach of IShellItemArray → QueryInterface<IDataObject> failed
+    // with E_NOINTERFACE (0x80004002) because those are unrelated interfaces.
+    info!("Creating IDataObject for file: {file_path}");
     let wide_file: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
 
     unsafe {
-        let shell_item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide_file.as_ptr()), None)
-            .map_err(|e| format!("Failed to create shell item for file: {e}"))?;
+        let shell_item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide_file.as_ptr()), None).map_err(|e| {
+            let msg = format!("SHCreateItemFromParsingName failed for {file_path}: {e}");
+            log::error!("{msg}");
+            msg
+        })?;
+        debug!("IShellItem created successfully");
 
-        let item_array: IShellItemArray =
-            SHCreateShellItemArrayFromShellItem(&shell_item).map_err(|e| format!("Failed to create shell item array: {e}"))?;
+        let data_object: IDataObject = shell_item.BindToHandler(None, &BHID_DATA_OBJECT).map_err(|e| {
+            let msg = format!("BindToHandler(BHID_DataObject) failed for {file_path}: {e}");
+            log::error!("{msg}");
+            msg
+        })?;
+        debug!("IDataObject obtained via BindToHandler(BHID_DataObject)");
 
-        let data_object: IDataObject = item_array
-            .cast()
-            .map_err(|e| format!("Failed to obtain IDataObject from shell item array: {e}"))?;
-
-        handler
-            .Invoke(&data_object)
-            .map_err(|e| format!("IAssocHandler::Invoke failed: {e}"))?;
+        info!("Calling IAssocHandler::Invoke()...");
+        handler.Invoke(&data_object).map_err(|e| {
+            let msg = format!("IAssocHandler::Invoke failed: {e} (the target app may not support this activation method)");
+            log::error!("{msg}");
+            msg
+        })?;
     }
 
-    debug!("Successfully invoked handler for {}", file_path);
+    info!("Successfully opened file via IAssocHandler::Invoke(): {file_path}");
     Ok(())
 }
 

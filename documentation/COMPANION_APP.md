@@ -156,6 +156,18 @@ Preferences are stored in your OS-specific app data directory:
 
 Delete the `user-preferences.json` and `app-preferences.json` files to reset all settings.
 
+### Log files
+
+The Companion writes log files to:
+
+- **Windows:** `%LOCALAPPDATA%\Sambee\Companion\logs\sambee-companion.log`
+- **macOS:** `~/Library/Application Support/app.sambee.companion/logs/sambee-companion.log`
+- **Linux:** `~/.local/share/sambee-companion/logs/sambee-companion.log`
+
+### WebView2 data (Windows only)
+
+On Windows, the embedded Edge WebView2 browser engine stores its runtime data (GPU cache, local storage, etc.) in `%LOCALAPPDATA%\app.sambee.companion\EBWebView\`. This directory is managed automatically by the WebView2 runtime and can be safely deleted — it will be recreated on next launch.
+
 ## Uninstalling
 
 ### Windows
