@@ -271,6 +271,14 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     let ext_for_emit = file_extension.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
+        // Re-assert focus after the delay so the picker receives input
+        // immediately — focus may have been lost between window creation
+        // and the webview becoming ready.
+        if let Some(win) = app_for_emit.get_webview_window(MAIN_WINDOW_LABEL) {
+            let _ = win.set_focus();
+        }
+
         let _ = app_for_emit.emit(
             "show-app-picker",
             serde_json::json!({
@@ -419,6 +427,7 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
         .shadow(true)
         .always_on_top(true)
         .center()
+        .focused(true)
         .build()
         .map_err(|e| format!("Failed to create main window: {e}"))?;
 
