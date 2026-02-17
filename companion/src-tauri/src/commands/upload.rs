@@ -1,6 +1,6 @@
 //! Tauri command for uploading edited files back to the Sambee server.
 //!
-//! Uploads via `POST /api/viewer/{connId}/upload?path=...` (multipart).
+//! Uploads via `POST /api/browse/{connId}/upload?path=...` (multipart).
 //! Includes retry logic (3 attempts, exponential backoff) and progress events.
 
 use std::fs;
@@ -44,7 +44,7 @@ pub struct UploadResponse {
 //
 /// Upload a local file to the Sambee server with retry and progress reporting.
 ///
-/// Calls `POST /api/viewer/{connId}/upload?path={remote_path}` with a
+/// Calls `POST /api/browse/{connId}/upload?path={remote_path}` with a
 /// multipart form body. Retries up to 3 times with exponential backoff
 /// on transient failures.
 ///
@@ -76,7 +76,7 @@ pub async fn upload_file(
         remote_path
     );
 
-    let url = format!("{}/api/viewer/{}/upload", server_url.trim_end_matches('/'), connection_id);
+    let url = format!("{}/api/browse/{}/upload", server_url.trim_end_matches('/'), connection_id);
 
     let client = Client::builder()
         .timeout(std::time::Duration::from_secs(UPLOAD_TIMEOUT_SECS))

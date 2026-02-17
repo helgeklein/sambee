@@ -39,8 +39,8 @@ jobs:
           ALL='[
             {"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64","bundles":"deb,appimage"},
             {"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"},
-            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"msi"},
-            {"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"msi"}
+            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis"},
+            {"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"nsis"}
           ]'
           SELECTED="${{ github.event.inputs.platforms }}"
           if [[ -z "$SELECTED" || "$SELECTED" == "all" ]]; then
@@ -78,6 +78,10 @@ jobs:
             libsoup-3.0-dev \
             libjavascriptcoregtk-4.1-dev
 
+      # ── Git auth for CI (prevents "terminal prompts disabled" errors) ──
+      - name: Configure git auth for CI
+        run: git config --global url."https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       # ── Rust toolchain ──
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -112,6 +116,8 @@ jobs:
         id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Force sparse protocol for crates.io index (avoids git auth issues)
+          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
           # Code signing for macOS
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -126,6 +132,7 @@ jobs:
           projectPath: companion
           # -v enables verbose bundler logging for easier CI debugging.
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
+          updaterJsonPreferNsis: true
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
           releaseBody: 'See the assets below to download and install.'

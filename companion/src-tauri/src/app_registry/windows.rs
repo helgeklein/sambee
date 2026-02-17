@@ -706,6 +706,111 @@ fn extract_executable_from_command(command: &str) -> Option<PathBuf> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Handler invocation (supports UWP/Store apps)
+// ─────────────────────────────────────────────────────────────────────────────
+
+//
+// invoke_assoc_handler
+//
+/// Open a file using its associated handler, properly supporting both
+/// traditional Win32 applications and UWP/Store apps.
+///
+/// Re-enumerates handlers for the file extension via `SHAssocEnumHandlers`,
+/// finds the handler matching `handler_exe_path`, creates a shell data object
+/// for the file, and invokes the handler with `IAssocHandler::Invoke()`.
+///
+/// This is preferred over `CreateProcess` on Windows because UWP/Store apps
+/// (e.g. Windows Photos) cannot be launched via direct process creation —
+/// they require activation through the Windows Shell infrastructure.
+pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: &str) -> Result<(), String> {
+    use windows::core::Interface;
+    use windows::Win32::System::Com::IDataObject;
+    use windows::Win32::UI::Shell::{IShellItem, IShellItemArray, SHCreateItemFromParsingName, SHCreateShellItemArrayFromShellItem};
+
+    debug!(
+        "Invoking association handler for .{} (exe: {}, file: {})",
+        extension, handler_exe_path, file_path
+    );
+
+    let _com = ComInit::new();
+
+    let dotted_ext = if extension.starts_with('.') {
+        extension.to_string()
+    } else {
+        format!(".{}", extension)
+    };
+
+    let wide_ext: Vec<u16> = OsStr::new(&dotted_ext).encode_wide().chain(std::iter::once(0)).collect();
+
+    // Re-enumerate handlers to find the one matching the selected executable
+    let enumerator = unsafe {
+        SHAssocEnumHandlers(PCWSTR(wide_ext.as_ptr()), ASSOC_FILTER_ALL)
+            .map_err(|e| format!("Failed to enumerate association handlers: {e}"))?
+    };
+
+    let target_exe = PathBuf::from(handler_exe_path);
+    let mut matched_handler: Option<IAssocHandler> = None;
+
+    loop {
+        let mut handlers: [Option<IAssocHandler>; 1] = [None];
+        let mut fetched = 0u32;
+
+        unsafe {
+            let _ = enumerator.Next(&mut handlers, Some(&mut fetched));
+        }
+
+        if fetched == 0 {
+            break;
+        }
+
+        let handler = match handlers[0].take() {
+            Some(h) => h,
+            None => break,
+        };
+
+        unsafe {
+            if let Ok(name_ptr) = handler.GetName() {
+                let name = pwstr_to_string(name_ptr);
+                CoTaskMemFree(Some(name_ptr.0 as *const std::ffi::c_void));
+
+                if PathBuf::from(&name) == target_exe {
+                    matched_handler = Some(handler);
+                    break;
+                }
+            }
+        }
+    }
+
+    let handler = matched_handler.ok_or_else(|| format!("No association handler found matching: {}", handler_exe_path))?;
+
+    // Create a shell data object from the file path for IAssocHandler::Invoke().
+    //
+    // The chain is: file path → IShellItem → IShellItemArray → IDataObject.
+    // The shell's IShellItemArray implementation natively supports IDataObject
+    // via QueryInterface (Windows 7+), which IAssocHandler::Invoke() requires.
+    let wide_file: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        let shell_item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide_file.as_ptr()), None)
+            .map_err(|e| format!("Failed to create shell item for file: {e}"))?;
+
+        let item_array: IShellItemArray =
+            SHCreateShellItemArrayFromShellItem(&shell_item).map_err(|e| format!("Failed to create shell item array: {e}"))?;
+
+        let data_object: IDataObject = item_array
+            .cast()
+            .map_err(|e| format!("Failed to obtain IDataObject from shell item array: {e}"))?;
+
+        handler
+            .Invoke(&data_object)
+            .map_err(|e| format!("IAssocHandler::Invoke failed: {e}"))?;
+    }
+
+    debug!("Successfully invoked handler for {}", file_path);
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 

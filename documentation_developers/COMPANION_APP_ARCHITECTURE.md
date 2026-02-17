@@ -776,8 +776,8 @@ The companion uses `tauri-plugin-updater` with a static JSON endpoint:
 {
     "version": "0.2.0",
     "platforms": {
-        "windows-x86_64":  { "url": "https://.../companion-0.2.0-x64.msi.zip", "signature": "..." },
-        "windows-aarch64": { "url": "https://.../companion-0.2.0-arm64.msi.zip", "signature": "..." },
+        "windows-x86_64":  { "url": "https://.../companion-0.2.0-x64-setup.nsis.zip", "signature": "..." },
+        "windows-aarch64": { "url": "https://.../companion-0.2.0-arm64-setup.nsis.zip", "signature": "..." },
         "linux-x86_64":    { "url": "https://.../companion-0.2.0-amd64.AppImage.tar.gz", "signature": "..." },
         "darwin-aarch64":   { "url": "https://.../companion-0.2.0-aarch64.dmg", "signature": "..." }
     }
@@ -800,8 +800,8 @@ cd companion && npm run tauri build
 
 | Platform | Artifact |
 |----------|----------|
-| Windows x64  | `target/release/bundle/msi/Sambee Companion_0.1.0_x64.msi` |
-| Windows ARM64 | `target/release/bundle/msi/Sambee Companion_0.1.0_arm64.msi` |
+| Windows x64  | `target/release/bundle/nsis/Sambee Companion_0.1.0_x64-setup.exe` |
+| Windows ARM64 | `target/release/bundle/nsis/Sambee Companion_0.1.0_arm64-setup.exe` |
 | macOS    | `target/release/bundle/dmg/Sambee Companion_0.1.0_aarch64.dmg` |
 | Linux    | `target/release/bundle/deb/sambee-companion_0.1.0_amd64.deb` |
 | Linux    | `target/release/bundle/appimage/sambee-companion_0.1.0_amd64.AppImage` |

@@ -79,13 +79,38 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
     } else {
         info!("Opening with {}: {}", app_executable, local_path.display());
 
-        // Spawn the application with the file as an argument
-        let _child = app
-            .shell()
-            .command(app_executable)
-            .arg(path_str)
-            .spawn()
-            .map_err(|e| format!("Failed to launch {app_executable}: {e}"))?;
+        // On Windows, use IAssocHandler::Invoke() which properly handles both
+        // traditional Win32 applications and UWP/Store apps (e.g. Windows
+        // Photos). UWP apps cannot be launched via CreateProcess — they
+        // require activation through the Windows Shell infrastructure.
+        #[cfg(target_os = "windows")]
+        {
+            let extension = local_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            match crate::app_registry::windows::invoke_assoc_handler(extension, app_executable, path_str) {
+                Ok(()) => {}
+                Err(handler_err) => {
+                    warn!("IAssocHandler invocation failed ({}), falling back to direct spawn", handler_err);
+                    let _child = app
+                        .shell()
+                        .command(app_executable)
+                        .arg(path_str)
+                        .spawn()
+                        .map_err(|e| format!("Failed to launch {app_executable}: {e}"))?;
+                }
+            }
+        }
+
+        // On non-Windows platforms, spawn the application directly
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _child = app
+                .shell()
+                .command(app_executable)
+                .arg(path_str)
+                .spawn()
+                .map_err(|e| format!("Failed to launch {app_executable}: {e}"))?;
+        }
     }
 
     Ok(())

@@ -6,7 +6,6 @@
 
 mod app_registry;
 mod commands;
-mod shutdown_event;
 mod sync;
 mod token;
 mod uri;
@@ -702,9 +701,6 @@ pub fn run() {
             if let Err(e) = setup_system_tray(app) {
                 error!("Failed to set up system tray: {e}");
             }
-
-            // Listen for the installer's shutdown event (Windows only)
-            shutdown_event::spawn_shutdown_listener(app);
 
             // Run recycle bin cleanup on startup
             let cleaned = sync::recycle::cleanup_expired();

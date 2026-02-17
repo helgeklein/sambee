@@ -16,7 +16,7 @@ The Companion runs quietly in your system tray. No browser extensions or manual 
 
 ### Windows
 
-1. Download the `.msi` installer from the [Releases](https://github.com/helgeklein/sambee/releases) page
+1. Download the installer from the [Releases](https://github.com/helgeklein/sambee/releases) page
 2. Run the installer and follow the prompts
 3. The Companion starts automatically and appears in the system tray
 
