@@ -6,6 +6,7 @@
 
 mod app_registry;
 mod commands;
+mod logging;
 mod sync;
 mod token;
 mod uri;
@@ -641,7 +642,10 @@ fn epoch_days_to_ymd(epoch_days: u64) -> (u64, u64, u64) {
 /// Build and launch the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    if let Err(e) = logging::init() {
+        eprintln!("Warning: file logging unavailable ({e}), falling back to stderr");
+        env_logger::init();
+    }
 
     let mut builder = tauri::Builder::default();
 
@@ -689,6 +693,7 @@ pub fn run() {
             commands::open_file::recovery_discard,
             commands::open_file::recovery_dismiss,
             commands::open_file::has_active_operations,
+            logging::log_from_frontend,
         ])
         .setup(|app| {
             // Register deep-link scheme at runtime (Linux + Windows dev mode)

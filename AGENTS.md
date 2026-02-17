@@ -23,20 +23,7 @@
 
 - **Comments:** add docstrings and comments for non-obvious code.
 - Don't use magic strings or magic numbers. Use centrally defined constants, enums, or similar instead.
-- Above each function definition, insert three comment lines with the function name, e.g.:
-  ```
-  #
-  # function_name
-  #
-  def function_name()
-  ```
-- Add a blank line for readability after the docstring in a function head. Example:
-  ```
-  def function_name()
-  """Function description"""
-                                # <<<<------- empty line
-                                # <<<<------- first line of code
-  ```
+
 ## Git Commits
 
 - Never commit your changes. That will be done manually.

@@ -12,6 +12,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
+import { log } from "./logger";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -76,7 +77,7 @@ function waitForIdle(): Promise<void> {
 export function scheduleUpdateCheck(): void {
   setTimeout(() => {
     checkForUpdate().catch((err) => {
-      console.warn("Auto-update check failed:", err);
+      log.warn("Auto-update check failed:", err);
     });
   }, INITIAL_CHECK_DELAY_MS);
 }
@@ -96,23 +97,23 @@ export async function checkForUpdate(): Promise<boolean> {
   try {
     const update = await check();
     if (!update) {
-      console.info("No companion update available.");
+      log.info("No companion update available.");
       return false;
     }
 
-    console.info(`Companion update available: ${update.version}`);
+    log.info(`Companion update available: ${update.version}`);
 
     // Wait for any active editing sessions to finish before installing.
     if (await isEditing()) {
-      console.info("Editing in progress — deferring update install until idle.");
+      log.info("Editing in progress — deferring update install until idle.");
       await waitForIdle();
-      console.info("Editing finished — proceeding with update install.");
+      log.info("Editing finished — proceeding with update install.");
     }
 
     await update.downloadAndInstall();
     return true;
   } catch (err) {
-    console.warn("Update check error:", err);
+    log.warn("Update check error:", err);
     return false;
   }
 }

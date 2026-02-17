@@ -15,13 +15,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "preact/hooks";
-
 import { AppPicker } from "./components/AppPicker";
 import type { LargeFileInfo } from "./components/LargeFileWarning";
 import { LargeFileWarning } from "./components/LargeFileWarning";
 import { Preferences } from "./components/Preferences";
 import type { LeftoverInfo } from "./components/RecoveryDialog";
 import { RecoveryDialog } from "./components/RecoveryDialog";
+import { log } from "./lib/logger";
 import type { NativeApp } from "./types";
 
 /** Payload sent with the "show-app-picker" Tauri event. */
@@ -93,7 +93,7 @@ export function App() {
           appName: app.name,
         });
       } catch (err) {
-        console.error("Failed to send app selection:", err);
+        log.error("Failed to send app selection:", err);
       }
 
       setView({ kind: "idle" });
@@ -114,7 +114,7 @@ export function App() {
           appName: "",
         });
       } catch (err) {
-        console.error("Failed to send app picker cancellation:", err);
+        log.error("Failed to send app picker cancellation:", err);
       }
     }
 

@@ -12,6 +12,8 @@
  *   4. This module decodes the payload and sets CSS custom properties on :root
  */
 
+import { log } from "./logger";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Companion theme type — the subset of ThemeConfig the companion needs
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,7 +200,7 @@ export function applyThemeFromBase64(encoded: string): boolean {
     const theme: CompanionTheme = JSON.parse(json);
 
     if (!theme.mode || !theme.primary?.main) {
-      console.warn("Invalid companion theme data, applying fallback");
+      log.warn("Invalid companion theme data, applying fallback");
       applyFallbackTheme();
       return false;
     }
@@ -206,7 +208,7 @@ export function applyThemeFromBase64(encoded: string): boolean {
     applyTheme(theme);
     return true;
   } catch (e) {
-    console.warn("Failed to decode companion theme, applying fallback:", e);
+    log.warn("Failed to decode companion theme, applying fallback:", e);
     applyFallbackTheme();
     return false;
   }

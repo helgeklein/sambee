@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { log } from "../lib/logger";
 import type { UploadConflictAction, UserPreferences } from "../stores/userPreferences";
 import { getUserPreferences, saveUserPreferences } from "../stores/userPreferences";
 import "../styles/preferences.css";
@@ -69,7 +70,7 @@ export function Preferences({ onClose }: PreferencesProps) {
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Failed to load preferences:", err);
+        log.error("Failed to load preferences:", err);
         setLoading(false);
       });
 
@@ -94,7 +95,7 @@ export function Preferences({ onClose }: PreferencesProps) {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       savedTimerRef.current = setTimeout(() => setShowSaved(false), SAVED_INDICATOR_MS);
     } catch (err) {
-      console.error("Failed to save preferences:", err);
+      log.error("Failed to save preferences:", err);
     }
   }, []);
 

@@ -18,6 +18,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { log } from "../lib/logger";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
 import type { NativeApp } from "../types";
 import "../styles/app-picker.css";
@@ -128,7 +129,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
         await setPreferredApp(extension, app.executable);
       } catch {
         // Non-critical: preference save failure shouldn't block opening
-        console.warn(`Failed to save app preference for .${extension}`);
+        log.warn(`Failed to save app preference for .${extension}`);
       }
     }
 
@@ -180,7 +181,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
         setSelectedIndex(updatedApps.length - 1);
       }
     } catch (err: unknown) {
-      console.warn("Browse dialog failed:", err);
+      log.warn("Browse dialog failed:", err);
     }
   }, [state]);
 
