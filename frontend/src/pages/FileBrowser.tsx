@@ -1700,7 +1700,15 @@ const Browser: React.FC = () => {
 
       // Check if current selection still exists
       if (selectedConnectionId && data.find((c: Connection) => c.id === selectedConnectionId)) {
-        // Current connection still exists, keep selection
+        // Current connection still exists, keep selection.
+        // Invalidate cache and reload files since connection properties
+        // (host, share, path_prefix, etc.) may have changed.
+        for (const key of directoryCache.current.keys()) {
+          if (key.startsWith(`${selectedConnectionId}:`)) {
+            directoryCache.current.delete(key);
+          }
+        }
+        loadFilesRef.current?.(currentPathRef.current, true);
         return;
       }
 

@@ -67,6 +67,8 @@ export function DoneEditingWindow() {
   const holdStart = useRef<number | null>(null);
   const discardHoldStart = useRef<number | null>(null);
   const animFrame = useRef<number>(0);
+  /** Stores the action callback when hold duration is met, fires on key/mouse release. */
+  const pendingAction = useRef<(() => void) | null>(null);
 
   const isModified = fileStatus.kind === "modified";
 
@@ -101,6 +103,7 @@ export function DoneEditingWindow() {
     (setter: (v: number) => void, startRef: { current: number | null }, onComplete: () => void) => {
       if (processing) return;
       startRef.current = performance.now();
+      pendingAction.current = null;
 
       const tick = () => {
         if (startRef.current === null) return;
@@ -109,8 +112,10 @@ export function DoneEditingWindow() {
         setter(progress);
 
         if (progress >= 1) {
+          // Hold duration met — wait for key/mouse release before firing
+          // to prevent the release event from leaking into the next focused window.
           startRef.current = null;
-          onComplete();
+          pendingAction.current = onComplete;
         } else {
           animFrame.current = requestAnimationFrame(tick);
         }
@@ -126,8 +131,27 @@ export function DoneEditingWindow() {
   const cancelHold = useCallback((setter: (v: number) => void, startRef: { current: number | null }) => {
     startRef.current = null;
     cancelAnimationFrame(animFrame.current);
+    pendingAction.current = null;
     setter(0);
   }, []);
+
+  //
+  // releaseHold
+  //
+  /** Fires the pending action on key/mouse release, or cancels if hold was incomplete. */
+  const releaseHold = useCallback(
+    (setter: (v: number) => void, startRef: { current: number | null }) => {
+      if (pendingAction.current) {
+        const action = pendingAction.current;
+        pendingAction.current = null;
+        setter(0);
+        action();
+      } else {
+        cancelHold(setter, startRef);
+      }
+    },
+    [cancelHold]
+  );
 
   // ── Actions ──────────────────────────────────────────────────────────
 
@@ -188,7 +212,7 @@ export function DoneEditingWindow() {
   const makeHandlers = useCallback(
     (setter: (v: number) => void, startRef: { current: number | null }, onComplete: () => void) => ({
       onMouseDown: () => startHold(setter, startRef, onComplete),
-      onMouseUp: () => cancelHold(setter, startRef),
+      onMouseUp: () => releaseHold(setter, startRef),
       onMouseLeave: () => cancelHold(setter, startRef),
       onKeyDown: (e: KeyboardEvent) => {
         if (e.repeat) return;
@@ -198,12 +222,14 @@ export function DoneEditingWindow() {
         }
       },
       onKeyUp: (e: KeyboardEvent) => {
-        if (e.key === "Enter" || e.key === " " || e.key === "Escape") {
+        if (e.key === "Enter" || e.key === " ") {
+          releaseHold(setter, startRef);
+        } else if (e.key === "Escape") {
           cancelHold(setter, startRef);
         }
       },
     }),
-    [startHold, cancelHold]
+    [startHold, cancelHold, releaseHold]
   );
 
   const doneHandlers = makeHandlers(setHoldProgress, holdStart, confirmDone);
