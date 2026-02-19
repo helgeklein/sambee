@@ -230,4 +230,17 @@ export const BROWSER_SHORTCUTS = {
     label: "Ctrl+Enter",
     ctrl: true,
   },
+  NEW_DIRECTORY: {
+    id: "new-directory",
+    keys: "F7",
+    description: "Create new directory",
+    label: "F7",
+  },
+  NEW_FILE: {
+    id: "new-file",
+    keys: "F7",
+    description: "Create new file",
+    label: "Shift+F7",
+    shift: true,
+  },
 } as const satisfies Record<string, ShortcutDefinition>;

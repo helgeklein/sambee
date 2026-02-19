@@ -35,6 +35,14 @@ class RenameRequest(BaseModel):
     new_name: str
 
 
+class CreateItemRequest(BaseModel):
+    """Request model for creating a new file or directory."""
+
+    parent_path: str
+    name: str
+    type: FileType
+
+
 class DirectorySearchResult(BaseModel):
     """Response model for directory search (quick navigate)."""
 

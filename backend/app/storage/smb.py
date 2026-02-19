@@ -517,19 +517,30 @@ class SMBBackend(StorageBackend):
                 logger.info(f"Successfully deleted: path='{path}'")
 
         except asyncio.TimeoutError:
-            logger.error(f"Timeout deleting '{path}' after 15 seconds")
+            logger.error(f"Timeout deleting '{path}' after 120 seconds")
             raise TimeoutError(f"SMB operation timed out while deleting: {path}")
         except OSError as e:
             error_str = str(e)
             # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND
             if "0xc0000034" in error_str or "No such file" in error_str:
                 raise FileNotFoundError(f"Path not found: {path}") from e
+            # 0xc0000056 = STATUS_DELETE_PENDING — item is already being
+            # deleted by the server.  Treat as success.
+            if "0xc0000056" in error_str:
+                logger.info(f"Item already being deleted (STATUS_DELETE_PENDING): path='{path}'")
+                return
             logger.error(
                 f"Failed to delete '{path}': {type(e).__name__}: {e}",
                 exc_info=True,
             )
             raise
         except Exception as e:
+            error_str = str(e)
+            # smbprotocol may raise non-OSError exceptions that still
+            # carry the NTSTATUS code in their message.
+            if "0xc0000056" in error_str or "DeletePending" in type(e).__name__:
+                logger.info(f"Item already being deleted (STATUS_DELETE_PENDING): path='{path}'")
+                return
             logger.error(
                 f"Failed to delete '{path}': {type(e).__name__}: {e}",
                 exc_info=True,
@@ -601,6 +612,131 @@ class SMBBackend(StorageBackend):
         except Exception as e:
             logger.error(
                 f"Failed to rename '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+
+    #
+    # create_directory
+    #
+    async def create_directory(self, path: str) -> None:
+        """Create a new directory via SMB.
+
+        Args:
+            path: Relative path for the new directory.
+
+        Raises:
+            FileExistsError: If an item with this name already exists.
+            FileNotFoundError: If the parent directory does not exist.
+            OSError: If the operation fails.
+        """
+
+        smb_path = self._build_smb_path(path)
+        logger.info(f"Creating directory: path='{path}' -> smb_path='{smb_path}'")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, smbclient.mkdir, smb_path),
+                    timeout=30.0,
+                )
+
+                logger.info(f"Successfully created directory: '{path}'")
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout creating directory '{path}' after 30 seconds")
+            raise TimeoutError(f"SMB operation timed out while creating directory: {path}")
+        except OSError as e:
+            error_str = str(e)
+            # 0xc0000035 = STATUS_OBJECT_NAME_COLLISION (already exists)
+            if "0xc0000035" in error_str:
+                raise FileExistsError(f"An item named '{path.rsplit('/', 1)[-1]}' already exists") from e
+            # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND (parent missing)
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Parent directory not found for: {path}") from e
+            logger.error(
+                f"Failed to create directory '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to create directory '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+
+    #
+    # create_file
+    #
+    async def create_file(self, path: str) -> None:
+        """Create a new empty file via SMB.
+
+        Uses exclusive-create mode ('x') to fail if the file already exists.
+
+        Args:
+            path: Relative path for the new file.
+
+        Raises:
+            FileExistsError: If an item with this name already exists.
+            FileNotFoundError: If the parent directory does not exist.
+            OSError: If the operation fails.
+        """
+
+        smb_path = self._build_smb_path(path)
+        logger.info(f"Creating file: path='{path}' -> smb_path='{smb_path}'")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+
+                def _create_empty_file() -> None:
+                    with smbclient.open_file(smb_path, mode="xb"):
+                        pass  # Create empty file and close immediately
+
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, _create_empty_file),
+                    timeout=30.0,
+                )
+
+                logger.info(f"Successfully created file: '{path}'")
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout creating file '{path}' after 30 seconds")
+            raise TimeoutError(f"SMB operation timed out while creating file: {path}")
+        except OSError as e:
+            error_str = str(e)
+            # 0xc0000035 = STATUS_OBJECT_NAME_COLLISION (already exists)
+            if "0xc0000035" in error_str:
+                raise FileExistsError(f"An item named '{path.rsplit('/', 1)[-1]}' already exists") from e
+            # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND (parent missing)
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Parent directory not found for: {path}") from e
+            logger.error(
+                f"Failed to create file '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to create file '{path}': {type(e).__name__}: {e}",
                 exc_info=True,
             )
             raise

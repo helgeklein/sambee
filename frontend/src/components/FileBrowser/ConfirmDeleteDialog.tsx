@@ -13,9 +13,10 @@
 
 import { Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import type React from "react";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { FileType } from "../../types";
 import { CONFIRM_DELETE_STRINGS } from "./confirmDeleteDialogStrings";
+import { NoTransition } from "./transitions";
 
 // ============================================================================
 // Props
@@ -46,6 +47,14 @@ interface ConfirmDeleteDialogProps {
 const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemName, itemType, isDeleting, onClose, onConfirm }) => {
   const isDirectory = itemType === FileType.DIRECTORY;
   const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Focus the Cancel button immediately when dialog opens (no transition delay)
+  useEffect(() => {
+    if (open) {
+      const frame = requestAnimationFrame(() => cancelRef.current?.focus());
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [open]);
 
   const title = isDirectory ? CONFIRM_DELETE_STRINGS.TITLE_DIRECTORY : CONFIRM_DELETE_STRINGS.TITLE_FILE;
 
@@ -85,9 +94,7 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemNam
     <Dialog
       open={open}
       onClose={isDeleting ? undefined : onClose}
-      TransitionProps={{
-        onEntered: () => cancelRef.current?.focus(),
-      }}
+      TransitionComponent={NoTransition}
       PaperProps={{
         sx: { bgcolor: "background.default" },
       }}

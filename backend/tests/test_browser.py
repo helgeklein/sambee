@@ -619,6 +619,366 @@ class TestRenameItem:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Create file or directory
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestCreateItem:
+    """Test create item endpoint."""
+
+    def test_create_directory_success(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test creating a directory returns 200 with FileInfo."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_directory.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(
+            name="new-folder",
+            path="/new-folder",
+            type=FileType.DIRECTORY,
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "new-folder", "type": "directory"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "new-folder"
+        assert data["type"] == "directory"
+        mock_instance.connect.assert_called_once()
+        mock_instance.create_directory.assert_called_once_with("new-folder")
+        mock_instance.disconnect.assert_called_once()
+
+    def test_create_file_success(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test creating a file returns 200 with FileInfo."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_file.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(
+            name="notes.txt",
+            path="/notes.txt",
+            type=FileType.FILE,
+            size=0,
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "notes.txt", "type": "file"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "notes.txt"
+        assert data["type"] == "file"
+        assert data["size"] == 0
+        mock_instance.create_file.assert_called_once_with("notes.txt")
+
+    def test_create_in_subdirectory(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test creating inside a subdirectory builds the correct path."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_directory.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(
+            name="sub",
+            path="/docs/sub",
+            type=FileType.DIRECTORY,
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/docs", "name": "sub", "type": "directory"},
+        )
+
+        assert response.status_code == 200
+        mock_instance.create_directory.assert_called_once_with("docs/sub")
+
+    def test_create_without_auth(self, client: TestClient, test_connection: Connection):
+        """Test that create requires authentication."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            json={"parent_path": "/", "name": "folder", "type": "directory"},
+        )
+        assert response.status_code == 401
+
+    def test_create_nonexistent_connection(self, client: TestClient, auth_headers_user: dict):
+        """Test create for a non-existent connection returns 404."""
+        fake_id = uuid.uuid4()
+        response = client.post(
+            f"/api/browse/{fake_id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "folder", "type": "directory"},
+        )
+        assert response.status_code == 404
+
+    def test_create_empty_name_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that an empty name is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "   ", "type": "directory"},
+        )
+        assert response.status_code == 400
+        assert "empty" in response.json()["detail"].lower()
+
+    def test_create_invalid_chars_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that invalid characters in name are rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "bad:name", "type": "directory"},
+        )
+        assert response.status_code == 400
+        assert "invalid characters" in response.json()["detail"].lower()
+
+    def test_create_dot_name_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that '.' and '..' are rejected as names."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "..", "type": "file"},
+        )
+        assert response.status_code == 400
+
+    def test_create_trailing_period_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that trailing period in name is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "folder.", "type": "directory"},
+        )
+        assert response.status_code == 400
+        assert "space or period" in response.json()["detail"].lower()
+
+    def test_create_name_collision(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test creating an item that already exists returns 409."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_directory.side_effect = FileExistsError("An item named 'folder' already exists")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "folder", "type": "directory"},
+        )
+        assert response.status_code == 409
+        assert "already exists" in response.json()["detail"].lower()
+
+    def test_create_parent_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test creating in a non-existent parent returns 404."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_file.side_effect = FileNotFoundError("Parent directory not found")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/nonexistent", "name": "file.txt", "type": "file"},
+        )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_create_server_error(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test generic SMB error returns 500."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_directory.side_effect = Exception("Connection lost")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "folder", "type": "directory"},
+        )
+        assert response.status_code == 500
+
+    def test_create_strips_whitespace_from_name(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that leading/trailing whitespace is stripped from the name."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_directory.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(
+            name="clean-name",
+            path="/clean-name",
+            type=FileType.DIRECTORY,
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "  clean-name  ", "type": "directory"},
+        )
+
+        assert response.status_code == 200
+        mock_instance.create_directory.assert_called_once_with("clean-name")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# _validate_item_name unit tests
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestValidateItemName:
+    """Unit tests for the _validate_item_name helper.
+
+    These test the function directly without going through HTTP,
+    verifying that it raises the correct HTTPException for each
+    validation rule.
+    """
+
+    def test_valid_name_returned_stripped(self):
+        """Valid names are returned after stripping whitespace."""
+        from app.api.browser import _validate_item_name
+
+        assert _validate_item_name("  hello.txt  ") == "hello.txt"
+
+    def test_simple_valid_name(self):
+        """Simple valid name is returned as-is."""
+        from app.api.browser import _validate_item_name
+
+        assert _validate_item_name("readme.md") == "readme.md"
+
+    def test_empty_name_raises(self):
+        """Empty or whitespace-only name raises 400."""
+        from fastapi import HTTPException
+
+        from app.api.browser import _validate_item_name
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name("   ")
+        assert exc_info.value.status_code == 400
+        assert "empty" in exc_info.value.detail.lower()
+
+    def test_dot_name_raises(self):
+        """'.' raises 400."""
+        from fastapi import HTTPException
+
+        from app.api.browser import _validate_item_name
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name(".")
+        assert exc_info.value.status_code == 400
+
+    def test_dotdot_name_raises(self):
+        """'..' raises 400."""
+        from fastapi import HTTPException
+
+        from app.api.browser import _validate_item_name
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name("..")
+        assert exc_info.value.status_code == 400
+
+    @pytest.mark.parametrize("char", list('\\/:*?"<>|'))
+    def test_invalid_char_raises(self, char):
+        """Each NTFS-forbidden character triggers 400."""
+        from fastapi import HTTPException
+
+        from app.api.browser import _validate_item_name
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name(f"file{char}name")
+        assert exc_info.value.status_code == 400
+        assert "invalid characters" in exc_info.value.detail.lower()
+
+    def test_trailing_space_stripped_by_strip(self):
+        """Trailing spaces are removed by strip(), so they don't reach the trailing check.
+
+        This means a raw value like "name " is actually valid:
+        strip("name ") → "name", which passes all checks.
+        """
+        from app.api.browser import _validate_item_name
+
+        # "name " gets stripped to "name" — which is valid
+        assert _validate_item_name("name ") == "name"
+
+    def test_trailing_period_raises(self):
+        """Name ending with a period raises 400."""
+        from fastapi import HTTPException
+
+        from app.api.browser import _validate_item_name
+
+        with pytest.raises(HTTPException) as exc_info:
+            _validate_item_name("myfile.")
+        assert exc_info.value.status_code == 400
+        assert "space or period" in exc_info.value.detail.lower()
+
+    def test_dotfile_valid(self):
+        """Dotfiles like .gitignore are valid."""
+        from app.api.browser import _validate_item_name
+
+        assert _validate_item_name(".gitignore") == ".gitignore"
+
+    def test_name_with_spaces_in_middle_valid(self):
+        """Names with spaces in the middle are valid."""
+        from app.api.browser import _validate_item_name
+
+        assert _validate_item_name("my document.txt") == "my document.txt"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Upload file
 # ──────────────────────────────────────────────────────────────────────────────
 

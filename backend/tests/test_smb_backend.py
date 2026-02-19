@@ -1313,6 +1313,55 @@ class TestDeleteItem:
             with pytest.raises(TimeoutError, match="timed out"):
                 await backend.delete_item("/big-file.zip")
 
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_pending_oserror_treated_as_success(self, mock_stat):
+        """Test that STATUS_DELETE_PENDING (0xc0000056) OSError is treated as success.
+
+        When the SMB server returns STATUS_DELETE_PENDING it means the item
+        is already being deleted — the operation should succeed silently.
+        """
+        mock_stat.side_effect = OSError(
+            "[Error 0] [NtStatus 0xc0000056] Unknown NtStatus error returned 'STATUS_DELETE_PENDING': '\\\\server\\share\\file.txt'"
+        )
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        # Should NOT raise — treated as successful deletion
+        await backend.delete_item("/file.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_delete_pending_non_oserror_treated_as_success(self, mock_stat):
+        """Test that STATUS_DELETE_PENDING from a non-OSError is also handled.
+
+        smbprotocol may raise custom exception types (e.g. SMBOSError or
+        DeletePending) that carry the NtStatus code in the message.
+        """
+
+        class FakeDeletePending(Exception):
+            """Simulates smbprotocol.exceptions.DeletePending."""
+
+        FakeDeletePending.__name__ = "DeletePending"
+
+        mock_stat.side_effect = FakeDeletePending(
+            "A non-close operation has been requested of a file object "
+            "that has a delete pending. (3221225558) STATUS_DELETE_PENDING: 0xc0000056"
+        )
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        # Should NOT raise
+        await backend.delete_item("/file.txt")
+
 
 class TestRenameItem:
     """Test file and directory renaming."""

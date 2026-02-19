@@ -97,6 +97,11 @@ describe("ConfirmDeleteDialog", () => {
     const user = userEvent.setup();
     render(<ConfirmDeleteDialog {...defaultProps} onConfirm={onConfirm} />);
 
+    // Wait for initial auto-focus on Cancel to settle before moving focus
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    });
+
     screen.getByRole("button", { name: "Delete" }).focus();
     await user.keyboard("{Enter}");
     expect(onConfirm).toHaveBeenCalledTimes(1);

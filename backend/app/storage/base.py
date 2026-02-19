@@ -116,3 +116,39 @@ class StorageBackend(ABC):
         """
 
         pass
+
+    #
+    # create_directory
+    #
+    @abstractmethod
+    async def create_directory(self, path: str) -> None:
+        """Create a new directory.
+
+        Args:
+            path: Relative path for the new directory.
+
+        Raises:
+            FileExistsError: If an item with this name already exists.
+            FileNotFoundError: If the parent directory does not exist.
+            OSError: If the operation fails.
+        """
+
+        pass
+
+    #
+    # create_file
+    #
+    @abstractmethod
+    async def create_file(self, path: str) -> None:
+        """Create a new empty file.
+
+        Args:
+            path: Relative path for the new file.
+
+        Raises:
+            FileExistsError: If an item with this name already exists.
+            FileNotFoundError: If the parent directory does not exist.
+            OSError: If the operation fails.
+        """
+
+        pass

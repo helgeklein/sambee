@@ -224,6 +224,20 @@ class ApiService {
     return response.data;
   }
 
+  /**
+   * Create a new file or directory on the remote share.
+   *
+   * Returns the FileInfo for the newly created item.
+   */
+  async createItem(connectionId: string, parentPath: string, name: string, type: "file" | "directory"): Promise<FileInfo> {
+    const response = await this.api.post<FileInfo>(`/browse/${connectionId}/create`, {
+      parent_path: parentPath,
+      name,
+      type,
+    });
+    return response.data;
+  }
+
   // Viewer endpoints
   getViewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");

@@ -9,7 +9,7 @@ from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
-from app.models.file import DirectoryListing, DirectorySearchResult, FileInfo, RenameRequest
+from app.models.file import CreateItemRequest, DirectoryListing, DirectorySearchResult, FileInfo, FileType, RenameRequest
 from app.models.user import User
 from app.storage.smb import SMBBackend
 
@@ -383,6 +383,46 @@ async def delete_item(
 _INVALID_NAME_CHARS = frozenset('\\/:*?"<>|')
 
 
+def _validate_item_name(raw_name: str) -> str:
+    """Validate and return stripped item name, or raise HTTPException.
+
+    Checks for empty names, reserved names (`.`, `..`), invalid NTFS
+    characters, and trailing spaces/periods.
+
+    Args:
+        raw_name: The raw name string to validate.
+
+    Returns:
+        The stripped, validated name.
+
+    Raises:
+        HTTPException: 400 if the name is invalid.
+    """
+
+    name = raw_name.strip()
+    if not name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name must not be empty",
+        )
+    if name in (".", ".."):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name must not be '.' or '..'",
+        )
+    if any(ch in _INVALID_NAME_CHARS for ch in name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name contains invalid characters",
+        )
+    if name.endswith(" ") or name.endswith("."):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Name must not end with a space or period",
+        )
+    return name
+
+
 #
 # rename_item
 #
@@ -402,27 +442,7 @@ async def rename_item(
     set_user(current_user.username)
 
     # --- Validate new_name ------------------------------------------------
-    new_name = body.new_name.strip()
-    if not new_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New name must not be empty",
-        )
-    if new_name in (".", ".."):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New name must not be '.' or '..'",
-        )
-    if any(ch in _INVALID_NAME_CHARS for ch in new_name):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New name contains invalid characters",
-        )
-    if new_name.endswith(" ") or new_name.endswith("."):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New name must not end with a space or period",
-        )
+    new_name = _validate_item_name(body.new_name)
 
     # --- Validate path ----------------------------------------------------
     path = body.path
@@ -508,6 +528,112 @@ async def rename_item(
 
 
 # ============================================================================
+# Create new file or directory
+# ============================================================================
+
+
+#
+# create_item
+#
+@router.post("/{connection_id}/create", response_model=FileInfo)
+async def create_item(
+    connection_id: uuid.UUID,
+    body: CreateItemRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> FileInfo:
+    """Create a new file or directory.
+
+    Creates the item inside the specified parent directory.
+    Returns the FileInfo for the newly created item.
+    """
+
+    set_user(current_user.username)
+
+    # --- Validate name ----------------------------------------------------
+    name = _validate_item_name(body.name)
+
+    # --- Build the full path for the new item -----------------------------
+    parent_path = body.parent_path.strip("/") if body.parent_path else ""
+    new_item_path = f"{parent_path}/{name}" if parent_path else name
+
+    # --- Look up connection -----------------------------------------------
+    connection = session.get(Connection, connection_id)
+    if not connection:
+        logger.warning(f"Connection not found: connection_id={connection_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+
+    if not connection.share_name:
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection has no share name configured",
+        )
+
+    try:
+        backend = SMBBackend(
+            host=connection.host,
+            share_name=connection.share_name,
+            username=connection.username,
+            password=decrypt_password(connection.password_encrypted),
+            port=connection.port,
+            path_prefix=connection.path_prefix or "/",
+        )
+
+        await backend.connect()
+
+        if body.type == FileType.DIRECTORY:
+            await backend.create_directory(new_item_path)
+        else:
+            await backend.create_file(new_item_path)
+
+        # Fetch file info for the response
+        file_info = await backend.get_file_info(new_item_path)
+        await backend.disconnect()
+
+        # Update directory cache if a new directory was created
+        if body.type == FileType.DIRECTORY:
+            _add_to_directory_cache(str(connection_id), new_item_path)
+
+        logger.info(f"Created {body.type}: connection_id={connection_id}, path='{new_item_path}', user={current_user.username}")
+        return file_info
+
+    except FileExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except OSError as e:
+        logger.error(
+            f"Failed to create item: connection_id={connection_id}, path='{new_item_path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create item: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to create item: connection_id={connection_id}, path='{new_item_path}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create item: {str(e)}",
+        )
+
+
+# ============================================================================
 # Helper: feed directory cache from existing operations
 # ============================================================================
 
@@ -585,5 +711,27 @@ def _rename_in_directory_cache(connection_id: str, old_path: str, new_path: str)
             return
 
         cache.rename_directory(old_path, new_path)
+    except Exception:
+        pass
+
+
+#
+# _add_to_directory_cache
+#
+def _add_to_directory_cache(connection_id: str, path: str) -> None:
+    """Add a newly created directory to the directory cache, if it exists.
+
+    Silently ignores errors — cache updates must never break the main flow.
+    """
+
+    from app.services.directory_cache import get_directory_cache_manager
+
+    try:
+        cache_manager = get_directory_cache_manager()
+        cache = cache_manager.get_cache(connection_id)
+        if cache is None:
+            return
+
+        cache.add_directories([path])
     except Exception:
         pass

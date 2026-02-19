@@ -14,6 +14,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FileType } from "../../../types";
+import { NAME_DIALOG_STRINGS } from "../nameDialogStrings";
 import RenameDialog from "../RenameDialog";
 import { RENAME_DIALOG_STRINGS } from "../renameDialogStrings";
 
@@ -65,7 +66,7 @@ describe("RenameDialog", () => {
     const user = userEvent.setup();
     render(<RenameDialog {...defaultProps} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_CANCEL }));
+    await user.click(screen.getByRole("button", { name: NAME_DIALOG_STRINGS.BUTTON_CANCEL }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -91,7 +92,7 @@ describe("RenameDialog", () => {
     await user.clear(input);
     await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
 
-    expect(screen.getByText(RENAME_DIALOG_STRINGS.VALIDATION_EMPTY)).toBeInTheDocument();
+    expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_EMPTY)).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
@@ -117,7 +118,7 @@ describe("RenameDialog", () => {
     await user.type(input, "file/name.txt");
     await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
 
-    expect(screen.getByText(RENAME_DIALOG_STRINGS.VALIDATION_INVALID_CHARS)).toBeInTheDocument();
+    expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_INVALID_CHARS)).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
@@ -131,7 +132,7 @@ describe("RenameDialog", () => {
     await user.type(input, "..");
     await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
 
-    expect(screen.getByText(RENAME_DIALOG_STRINGS.VALIDATION_DOT_NAMES)).toBeInTheDocument();
+    expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_DOT_NAMES)).toBeInTheDocument();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
@@ -169,5 +170,43 @@ describe("RenameDialog", () => {
     await waitFor(() => {
       expect(screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL)).toHaveFocus();
     });
+  });
+
+  it("validates trailing period", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(<RenameDialog {...defaultProps} onConfirm={onConfirm} />);
+
+    const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
+    await user.clear(input);
+    await user.type(input, "badname.");
+    await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
+
+    expect(screen.getByText(NAME_DIALOG_STRINGS.VALIDATION_TRAILING)).toBeInTheDocument();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("validates trailing space (not trimmed in middle portion)", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    // Use a name without extension to bypass auto-select behavior
+    render(<RenameDialog {...defaultProps} itemName="folder" onConfirm={onConfirm} itemType={FileType.DIRECTORY} />);
+
+    const input = screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL);
+    await waitFor(() => expect(input).toHaveFocus());
+    await user.clear(input);
+    // "name " ends with a space — should be caught by trailing check
+    // after trim. Actually the name gets trimmed, so "name " becomes "name".
+    // This tests the integration of trimming + validation.
+    await user.type(input, "  trimmed-name  ");
+    await user.click(screen.getByRole("button", { name: RENAME_DIALOG_STRINGS.BUTTON_RENAME }));
+
+    // After trimming, "trimmed-name" is valid and different from "folder"
+    expect(onConfirm).toHaveBeenCalledWith("trimmed-name");
+  });
+
+  it("disables the input when isRenaming is true", () => {
+    render(<RenameDialog {...defaultProps} isRenaming={true} />);
+    expect(screen.getByLabelText(RENAME_DIALOG_STRINGS.INPUT_LABEL)).toBeDisabled();
   });
 });

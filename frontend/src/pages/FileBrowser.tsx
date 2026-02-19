@@ -27,6 +27,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { BreadcrumbsNavigation } from "../components/FileBrowser/BreadcrumbsNavigation";
 import ConfirmDeleteDialog from "../components/FileBrowser/ConfirmDeleteDialog";
+import CreateItemDialog from "../components/FileBrowser/CreateItemDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
@@ -149,6 +150,12 @@ const Browser: React.FC = () => {
   const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+
+  // Create item dialog state
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createItemType, setCreateItemType] = useState<FileType>(FileType.DIRECTORY);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Companion app state
   const [openInAppLoading, setOpenInAppLoading] = useState(false);
@@ -764,9 +771,11 @@ const Browser: React.FC = () => {
     };
   }, [listContainerEl, rowHeight]);
 
-  // Focus the list container when it first mounts and has files
+  // Focus the list container when it first mounts or directory contents change.
+  // files.length is an intentional trigger: re-focus when navigating to a new directory.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: files.length is a deliberate trigger dependency
   useEffect(() => {
-    if (listContainerEl && files.length > 0 && !viewInfo) {
+    if (listContainerEl && !viewInfo) {
       listContainerEl.focus();
     }
   }, [listContainerEl, files.length, viewInfo]);
@@ -1496,6 +1505,80 @@ const Browser: React.FC = () => {
     setRenameDialogOpen(true);
   }, []);
 
+  //
+  // handleNewDirectoryRequest
+  //
+  const handleNewDirectoryRequest = useCallback(() => {
+    /**
+     * Opens the create dialog for a new directory.
+     * Works even in empty directories — no selected item required.
+     */
+
+    setCreateError(null);
+    setCreateItemType(FileType.DIRECTORY);
+    setCreateDialogOpen(true);
+  }, []);
+
+  //
+  // handleNewFileRequest
+  //
+  const handleNewFileRequest = useCallback(() => {
+    /**
+     * Opens the create dialog for a new file.
+     * Works even in empty directories — no selected item required.
+     */
+
+    setCreateError(null);
+    setCreateItemType(FileType.FILE);
+    setCreateDialogOpen(true);
+  }, []);
+
+  //
+  // handleCreateConfirm
+  //
+  const handleCreateConfirm = useCallback(
+    async (name: string) => {
+      /**
+       * Executes the create via the API, refreshes the file list, and closes
+       * the dialog. Shows an inline error in the dialog on failure.
+       */
+
+      if (!selectedConnectionId) return;
+
+      setIsCreating(true);
+      setCreateError(null);
+      try {
+        const parentPath = currentPathRef.current;
+        await api.createItem(selectedConnectionId, parentPath, name, createItemType === FileType.DIRECTORY ? "directory" : "file");
+
+        // Close dialog
+        setCreateDialogOpen(false);
+
+        // Tell the focus-restore effect to select the new item
+        pendingFocusNameRef.current = name;
+
+        // Refresh the file list
+        lastForceReloadRef.current = Date.now();
+        loadFilesRef.current?.(currentPathRef.current, true);
+
+        // Return keyboard focus to the file list
+        listContainerEl?.focus();
+
+        logger.info(`Created ${createItemType}: ${name}`, undefined, "file-browser");
+      } catch (err: unknown) {
+        let detail = "Failed to create item.";
+        if (isApiError(err) && err.response?.data?.detail) {
+          detail = err.response.data.detail;
+        }
+        setCreateError(detail);
+        logger.error(`Create failed: ${name}`, { error: err }, "file-browser");
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [selectedConnectionId, createItemType, listContainerEl]
+  );
+
   /**
    * Open a specific file in the companion app (used by context menu).
    * Unlike handleOpenInApp which uses focusedIndex, this takes explicit file + index.
@@ -1622,6 +1705,7 @@ const Browser: React.FC = () => {
           !viewInfo &&
           !deleteDialogOpen &&
           !renameDialogOpen &&
+          !createDialogOpen &&
           focusedIndex >= 0 &&
           filesRef.current[focusedIndex] !== undefined,
       },
@@ -1635,6 +1719,7 @@ const Browser: React.FC = () => {
           !viewInfo &&
           !deleteDialogOpen &&
           !renameDialogOpen &&
+          !createDialogOpen &&
           focusedIndex >= 0 &&
           filesRef.current[focusedIndex] !== undefined,
       },
@@ -1643,6 +1728,18 @@ const Browser: React.FC = () => {
         ...BROWSER_SHORTCUTS.OPEN_IN_APP,
         handler: handleOpenInApp,
         enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex]?.type === "file",
+      },
+      // Create new directory (F7)
+      {
+        ...BROWSER_SHORTCUTS.NEW_DIRECTORY,
+        handler: handleNewDirectoryRequest,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && !deleteDialogOpen && !renameDialogOpen && !createDialogOpen,
+      },
+      // Create new file (Shift+F7)
+      {
+        ...BROWSER_SHORTCUTS.NEW_FILE,
+        handler: handleNewFileRequest,
+        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && !deleteDialogOpen && !renameDialogOpen && !createDialogOpen,
       },
     ],
     [
@@ -1666,6 +1763,9 @@ const Browser: React.FC = () => {
       handleRenameRequest,
       renameDialogOpen,
       handleOpenInApp,
+      handleNewDirectoryRequest,
+      handleNewFileRequest,
+      createDialogOpen,
     ]
   );
 
@@ -2175,6 +2275,19 @@ const Browser: React.FC = () => {
           setRenameError(null);
         }}
         onConfirm={handleRenameConfirm}
+      />
+
+      {/* Create Item Dialog */}
+      <CreateItemDialog
+        open={createDialogOpen}
+        itemType={createItemType}
+        isCreating={isCreating}
+        apiError={createError}
+        onClose={() => {
+          setCreateDialogOpen(false);
+          setCreateError(null);
+        }}
+        onConfirm={handleCreateConfirm}
       />
 
       {/* Companion app guidance hint */}

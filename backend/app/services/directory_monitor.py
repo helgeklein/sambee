@@ -403,6 +403,14 @@ class MonitoredDirectory:
                         error_type = type(e).__name__
                         error_msg = str(e).lower()
 
+                        # STATUS_DELETE_PENDING (0xc0000056) means the
+                        # directory we are watching was deleted.  This is
+                        # normal — stop monitoring instead of retrying.
+                        is_delete_pending = "0xc0000056" in error_msg or "deletepending" in error_type.lower()
+                        if is_delete_pending:
+                            logger.info(f"Watched directory deleted, stopping monitor: {self.connection_id}:{self.path}")
+                            break
+
                         logger.error(
                             f"Error waiting for changes in {self.connection_id}:{self.path}: {error_type}: {e}",
                             exc_info=True,

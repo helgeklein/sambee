@@ -4,6 +4,7 @@
 
 /**
  * Centralized strings for the Rename Dialog.
+ * Shared validation strings live in nameDialogStrings.ts.
  * Kept in one place in preparation for future translation / i18n.
  */
 
@@ -15,15 +16,10 @@ export const RENAME_DIALOG_STRINGS = {
   // Input label
   INPUT_LABEL: "New name",
 
-  // Validation messages
-  VALIDATION_EMPTY: "Name must not be empty",
+  // Rename-specific validation
   VALIDATION_SAME: "Name is unchanged",
-  VALIDATION_INVALID_CHARS: "Name contains invalid characters",
-  VALIDATION_DOT_NAMES: "Name must not be '.' or '..'",
-  VALIDATION_TRAILING: "Name must not end with a space or period",
 
   // Button labels
-  BUTTON_CANCEL: "Cancel",
   BUTTON_RENAME: "Rename",
   BUTTON_RENAMING: "Renaming…",
 } as const;
