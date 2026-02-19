@@ -29,7 +29,6 @@ export const builtInThemes: ThemeConfig[] = [
       secondary: "#1F262BB3", // 70% opacity
     },
     action: {
-      hover: "#F4C43014", // 8% opacity
       selected: "#F4C43029", // 16% opacity
       focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },
@@ -104,7 +103,6 @@ export const builtInThemes: ThemeConfig[] = [
       secondary: "#F6F1E8B3", // 70% opacity
     },
     action: {
-      hover: "#F4C43014", // 8% opacity
       selected: "#F4C43029", // 16% opacity
       focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },

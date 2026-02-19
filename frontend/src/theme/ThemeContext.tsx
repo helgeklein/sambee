@@ -210,9 +210,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           },
         },
         MuiMenu: {
-          defaultProps: {
-            variant: "menu",
-          },
           styleOverrides: {
             paper: {
               backgroundColor: currentTheme.background?.default,
@@ -222,14 +219,20 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         MuiMenuItem: {
           styleOverrides: {
             root: {
+              "&:hover": {
+                backgroundColor: currentTheme.action?.selected,
+              },
               "&.Mui-focusVisible": {
-                backgroundColor: currentTheme.action?.hover,
+                backgroundColor: currentTheme.action?.selected,
               },
               "&.Mui-selected": {
                 fontWeight: 600,
-                backgroundColor: currentTheme.background?.default,
+                backgroundColor: "transparent",
+                "&:hover": {
+                  backgroundColor: currentTheme.action?.selected,
+                },
                 "&.Mui-focusVisible": {
-                  backgroundColor: currentTheme.action?.hover,
+                  backgroundColor: currentTheme.action?.selected,
                 },
               },
             },

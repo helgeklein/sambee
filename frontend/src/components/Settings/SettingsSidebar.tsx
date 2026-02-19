@@ -83,7 +83,7 @@ export function SettingsSidebar() {
                   "&.Mui-selected": {
                     bgcolor: "action.selected",
                     "&:hover": {
-                      bgcolor: "action.hover",
+                      bgcolor: "action.selected",
                     },
                   },
                 }}

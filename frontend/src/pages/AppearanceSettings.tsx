@@ -151,7 +151,7 @@ export function AppearanceSettings() {
               transition: "all 0.2s",
               "&:hover": {
                 borderColor: currentTheme.id === themeOption.id ? "primary.main" : "text.secondary",
-                bgcolor: "action.hover",
+                bgcolor: "action.selected",
               },
             }}
           >

@@ -765,6 +765,9 @@ const Browser: React.FC = () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleConnectionChange = (connectionId: string) => {
+    // Skip if the user re-selected the already-active connection
+    if (connectionId === selectedConnectionId) return;
+
     setSelectedConnectionId(connectionId);
     setCurrentPath("");
     setViewInfo(null);
@@ -1781,7 +1784,7 @@ const Browser: React.FC = () => {
         // Only show focus highlight when keyboard is being used
         background: isUsingKeyboard ? theme.palette.action.selected : "transparent",
         "&:hover": {
-          backgroundColor: isUsingKeyboard ? theme.palette.action.hover : "transparent",
+          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
         },
         "&:active": {
           backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
@@ -1804,7 +1807,7 @@ const Browser: React.FC = () => {
         textAlign: "left",
         WebkitTapHighlightColor: "transparent",
         "&:hover": {
-          backgroundColor: isUsingKeyboard ? theme.palette.action.hover : "transparent",
+          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
         },
         "&:active": {
           backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",

@@ -90,13 +90,6 @@ describe("Theme System - types.ts", () => {
       expect(THEME_SCHEMA["action"]?.type).toBe("color");
     });
 
-    it("should define schema for action.hover field", () => {
-      expect(THEME_SCHEMA["action"]?.fields?.["hover"]).toBeDefined();
-      expect(THEME_SCHEMA["action"]?.fields?.["hover"]?.label).toBe("Hover State");
-      expect(THEME_SCHEMA["action"]?.fields?.["hover"]?.type).toBe("color");
-      expect(THEME_SCHEMA["action"]?.fields?.["hover"]?.required).toBe(false);
-    });
-
     it("should define schema for action.selected field", () => {
       expect(THEME_SCHEMA["action"]?.fields?.["selected"]).toBeDefined();
       expect(THEME_SCHEMA["action"]?.fields?.["selected"]?.label).toBe("Selected State");

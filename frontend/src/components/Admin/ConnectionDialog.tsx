@@ -305,7 +305,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           textTransform: "none",
           color: "text.secondary",
           "&:hover": {
-            bgcolor: "action.hover",
+            bgcolor: "action.selected",
           },
         }}
       >
@@ -319,7 +319,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
           textTransform: "none",
           color: "text.secondary",
           "&:hover": {
-            bgcolor: "action.hover",
+            bgcolor: "action.selected",
           },
         }}
       >

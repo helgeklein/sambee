@@ -610,7 +610,7 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
                   borderColor: "divider",
                   display: "flex",
                   justifyContent: "space-between",
-                  backgroundColor: "action.hover",
+                  backgroundColor: "action.selected",
                 }}
               >
                 {provider.footerHint && (

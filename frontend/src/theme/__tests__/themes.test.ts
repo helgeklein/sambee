@@ -124,21 +124,18 @@ describe("Theme System - themes.ts", () => {
     it("sambee-light should have action colors defined", () => {
       const theme = getThemeById("sambee-light");
       expect(theme?.action).toBeDefined();
-      expect(theme?.action?.hover).toBeDefined();
       expect(theme?.action?.selected).toBeDefined();
     });
 
     it("sambee-dark should have action colors defined", () => {
       const theme = getThemeById("sambee-dark");
       expect(theme?.action).toBeDefined();
-      expect(theme?.action?.hover).toBeDefined();
       expect(theme?.action?.selected).toBeDefined();
     });
 
     it("sambee-light and sambee-dark should have same action colors", () => {
       const lightTheme = getThemeById("sambee-light");
       const darkTheme = getThemeById("sambee-dark");
-      expect(lightTheme?.action?.hover).toBe(darkTheme?.action?.hover);
       expect(lightTheme?.action?.selected).toBe(darkTheme?.action?.selected);
     });
   });

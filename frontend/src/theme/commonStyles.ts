@@ -21,7 +21,7 @@ export const pillButtonStyle: SxProps<Theme> = {
   border: 1,
   borderColor: "divider",
   borderRadius: 3,
-  bgcolor: "action.hover",
+  bgcolor: "action.selected",
   textTransform: "none",
   "&:hover": {
     bgcolor: "action.selected",

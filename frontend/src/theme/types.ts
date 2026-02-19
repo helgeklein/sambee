@@ -35,7 +35,6 @@ export interface ThemeConfig {
   };
   /** Action/interaction colors */
   action?: {
-    hover?: string;
     selected?: string;
     /** Focus outline color for keyboard navigation */
     focus?: string;
@@ -255,12 +254,6 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
     type: "color",
     required: false,
     fields: {
-      hover: {
-        label: "Hover State",
-        description: "Background color when hovering over interactive elements like file list items",
-        type: "color",
-        required: false,
-      },
       selected: {
         label: "Selected State",
         description: "Background color for selected items in the file list",

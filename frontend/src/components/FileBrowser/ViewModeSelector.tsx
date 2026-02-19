@@ -78,22 +78,14 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange }: 
           },
         }}
       >
-        <MenuItem onClick={() => handleModeChange("list")} selected={viewMode === "list"}>
-          <Box display="flex" alignItems="center" gap={1}>
-            <ViewList fontSize="small" sx={{ display: "flex" }} />
-            <Typography variant="body2" sx={{ lineHeight: 1.43 }}>
-              List
-            </Typography>
-          </Box>
+        <MenuItem onClick={() => handleModeChange("list")} selected={viewMode === "list"} sx={{ display: "flex", gap: 1 }}>
+          <ViewList fontSize="small" sx={{ display: "flex" }} />
+          List
         </MenuItem>
         <Divider />
-        <MenuItem onClick={() => handleModeChange("details")} selected={viewMode === "details"}>
-          <Box display="flex" alignItems="center" gap={1}>
-            <ViewModule fontSize="small" sx={{ display: "flex" }} />
-            <Typography variant="body2" sx={{ lineHeight: 1.43 }}>
-              Details
-            </Typography>
-          </Box>
+        <MenuItem onClick={() => handleModeChange("details")} selected={viewMode === "details"} sx={{ display: "flex", gap: 1 }}>
+          <ViewModule fontSize="small" sx={{ display: "flex" }} />
+          Details
         </MenuItem>
       </Menu>
     </Box>
