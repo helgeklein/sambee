@@ -32,6 +32,7 @@ import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileList } from "../components/FileBrowser/FileList";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
+import RenameDialog from "../components/FileBrowser/RenameDialog";
 import { SortControls } from "../components/FileBrowser/SortControls";
 import { StatusBar } from "../components/FileBrowser/StatusBar";
 import { useDirectorySearchProvider } from "../components/FileBrowser/search";
@@ -142,6 +143,12 @@ const Browser: React.FC = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Rename dialog state
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   // Companion app state
   const [openInAppLoading, setOpenInAppLoading] = useState(false);
@@ -261,6 +268,10 @@ const Browser: React.FC = () => {
   // WebSocket for real-time directory updates
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
+
+  // After rename, stores the new file name so the focus-restore effect can
+  // select the renamed item instead of resetting to index 0.
+  const pendingFocusNameRef = React.useRef<string | null>(null);
 
   // Timestamp of the last explicit forced reload (e.g. after delete).
   // Used to suppress redundant WebSocket-triggered reloads.
@@ -1050,8 +1061,15 @@ const Browser: React.FC = () => {
   });
 
   // Keep ref updated and restore or reset focused index when files change
+  const prevPathForFocusRef = React.useRef<string>(currentPath);
   useEffect(() => {
     filesRef.current = sortedAndFilteredFiles;
+
+    // Clear pending rename focus when navigating to a different directory
+    if (currentPath !== prevPathForFocusRef.current) {
+      prevPathForFocusRef.current = currentPath;
+      pendingFocusNameRef.current = null;
+    }
 
     // Check if we have saved state to restore for current path
     const savedState = navigationHistory.current.get(currentPath);
@@ -1075,6 +1093,20 @@ const Browser: React.FC = () => {
       // This prevents flickering when files are still loading
       return;
     }
+    // After rename: focus the item with the new name
+    // The ref is NOT cleared here — it is only cleared on path change (above).
+    // This ensures the focus survives React StrictMode's double effect invocation.
+    const pendingName = pendingFocusNameRef.current;
+    if (pendingName !== null) {
+      const idx = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === pendingName);
+      if (idx >= 0) {
+        updateFocus(idx, { immediate: true });
+        rowVirtualizer.scrollToIndex(idx, { align: "auto" });
+      }
+      // Whether found or not, skip the default reset-to-0
+      return;
+    }
+
     // Default: reset to top (only if no saved state exists AND we haven't just restored this path)
     if (lastRestoredPathRef.current !== currentPath) {
       updateFocus(0, { immediate: true });
@@ -1345,6 +1377,73 @@ const Browser: React.FC = () => {
   }, [deleteTarget, selectedConnectionId, focusedIndex]);
 
   //
+  // handleRenameRequest
+  //
+  const handleRenameRequest = useCallback(() => {
+    /**
+     * Opens the rename dialog for the currently focused item.
+     * Only fires when the file list container has focus.
+     */
+
+    if (!listContainerEl) return;
+    const activeElement = document.activeElement;
+    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
+    const file = filesRef.current[focusedIndex];
+    if (!file) return;
+
+    setRenameError(null);
+    setRenameTarget(file);
+    setRenameDialogOpen(true);
+  }, [focusedIndex, listContainerEl]);
+
+  //
+  // handleRenameConfirm
+  //
+  const handleRenameConfirm = useCallback(
+    async (newName: string) => {
+      /**
+       * Executes the rename via the API, refreshes the file list, and closes
+       * the dialog. Shows an inline error in the dialog on failure.
+       */
+
+      if (!renameTarget || !selectedConnectionId) return;
+
+      setIsRenaming(true);
+      setRenameError(null);
+      try {
+        await api.renameItem(selectedConnectionId, renameTarget.path, newName);
+
+        // Close dialog and clear target
+        setRenameDialogOpen(false);
+        setRenameTarget(null);
+
+        // Tell the focus-restore effect to select the renamed item
+        pendingFocusNameRef.current = newName;
+
+        // Refresh the file list
+        lastForceReloadRef.current = Date.now();
+        loadFilesRef.current?.(currentPathRef.current, true);
+
+        // Return keyboard focus to the file list so the focused row is visible
+        listContainerEl?.focus();
+
+        logger.info(`Renamed: ${renameTarget.path} -> ${newName}`, undefined, "file-browser");
+      } catch (err: unknown) {
+        let detail = "Failed to rename item.";
+        if (isApiError(err) && err.response?.data?.detail) {
+          detail = err.response.data.detail;
+        }
+        setRenameError(detail);
+        logger.error(`Rename failed: ${renameTarget.path}`, { error: err }, "file-browser");
+      } finally {
+        setIsRenaming(false);
+      }
+    },
+    [renameTarget, selectedConnectionId, listContainerEl]
+  );
+
+  //
   // handleOpenInApp
   //
   const handleOpenInApp = useCallback(async () => {
@@ -1386,6 +1485,16 @@ const Browser: React.FC = () => {
       setOpenInAppLoading(false);
     }
   }, [selectedConnectionId, focusedIndex, currentTheme]);
+
+  /**
+   * Open the rename dialog for a specific file (used by context menu).
+   * Unlike handleRenameRequest which uses focusedIndex, this takes an explicit file.
+   */
+  const handleRenameForFile = useCallback((file: FileEntry, _index: number) => {
+    setRenameError(null);
+    setRenameTarget(file);
+    setRenameDialogOpen(true);
+  }, []);
 
   /**
    * Open a specific file in the companion app (used by context menu).
@@ -1512,6 +1621,20 @@ const Browser: React.FC = () => {
           !mobileSettingsOpen &&
           !viewInfo &&
           !deleteDialogOpen &&
+          !renameDialogOpen &&
+          focusedIndex >= 0 &&
+          filesRef.current[focusedIndex] !== undefined,
+      },
+      // Rename file/directory (focus checked inside handler)
+      {
+        ...BROWSER_SHORTCUTS.RENAME_ITEM,
+        handler: handleRenameRequest,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !viewInfo &&
+          !deleteDialogOpen &&
+          !renameDialogOpen &&
           focusedIndex >= 0 &&
           filesRef.current[focusedIndex] !== undefined,
       },
@@ -1540,6 +1663,8 @@ const Browser: React.FC = () => {
       handleRefresh,
       handleDeleteRequest,
       deleteDialogOpen,
+      handleRenameRequest,
+      renameDialogOpen,
       handleOpenInApp,
     ]
   );
@@ -1972,6 +2097,7 @@ const Browser: React.FC = () => {
                   fileRowStyles={fileRowStyles}
                   viewMode={viewMode}
                   onOpenInApp={handleOpenInAppForFile}
+                  onRename={handleRenameForFile}
                 />
               </Box>
             )}
@@ -2034,6 +2160,21 @@ const Browser: React.FC = () => {
           setDeleteTarget(null);
         }}
         onConfirm={handleDeleteConfirm}
+      />
+
+      {/* Rename Dialog */}
+      <RenameDialog
+        open={renameDialogOpen}
+        itemName={renameTarget?.name ?? ""}
+        itemType={renameTarget?.type ?? FileType.FILE}
+        isRenaming={isRenaming}
+        apiError={renameError}
+        onClose={() => {
+          setRenameDialogOpen(false);
+          setRenameTarget(null);
+          setRenameError(null);
+        }}
+        onConfirm={handleRenameConfirm}
       />
 
       {/* Companion app guidance hint */}

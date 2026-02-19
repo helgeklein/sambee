@@ -9,7 +9,7 @@ from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
-from app.models.file import DirectoryListing, DirectorySearchResult, FileInfo
+from app.models.file import DirectoryListing, DirectorySearchResult, FileInfo, RenameRequest
 from app.models.user import User
 from app.storage.smb import SMBBackend
 
@@ -376,6 +376,138 @@ async def delete_item(
 
 
 # ============================================================================
+# Rename file or directory
+# ============================================================================
+
+# Characters forbidden in SMB/NTFS file names
+_INVALID_NAME_CHARS = frozenset('\\/:*?"<>|')
+
+
+#
+# rename_item
+#
+@router.post("/{connection_id}/rename", response_model=FileInfo)
+async def rename_item(
+    connection_id: uuid.UUID,
+    body: RenameRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> FileInfo:
+    """Rename a file or directory.
+
+    The item stays in its current parent directory — only the name changes.
+    Returns the updated FileInfo for the renamed item.
+    """
+
+    set_user(current_user.username)
+
+    # --- Validate new_name ------------------------------------------------
+    new_name = body.new_name.strip()
+    if not new_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New name must not be empty",
+        )
+    if new_name in (".", ".."):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New name must not be '.' or '..'",
+        )
+    if any(ch in _INVALID_NAME_CHARS for ch in new_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New name contains invalid characters",
+        )
+    if new_name.endswith(" ") or new_name.endswith("."):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New name must not end with a space or period",
+        )
+
+    # --- Validate path ----------------------------------------------------
+    path = body.path
+    if not path or path.strip("/") == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot rename the share root",
+        )
+
+    # --- Look up connection -----------------------------------------------
+    connection = session.get(Connection, connection_id)
+    if not connection:
+        logger.warning(f"Connection not found: connection_id={connection_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+
+    if not connection.share_name:
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection has no share name configured",
+        )
+
+    try:
+        backend = SMBBackend(
+            host=connection.host,
+            share_name=connection.share_name,
+            username=connection.username,
+            password=decrypt_password(connection.password_encrypted),
+            port=connection.port,
+            path_prefix=connection.path_prefix or "/",
+        )
+
+        await backend.connect()
+        await backend.rename_item(path, new_name)
+
+        # Build the new path (same parent, different leaf)
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        new_path = f"{parent}/{new_name}" if parent else new_name
+
+        # Fetch updated file info for the response
+        file_info = await backend.get_file_info(new_path)
+        await backend.disconnect()
+
+        # Update directory cache if renamed item was a directory
+        _rename_in_directory_cache(str(connection_id), path, new_path)
+
+        logger.info(f"Renamed item: connection_id={connection_id}, '{path}' -> '{new_name}', user={current_user.username}")
+        return file_info
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item not found: {path}",
+        )
+    except FileExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except OSError as e:
+        logger.error(
+            f"Failed to rename item: connection_id={connection_id}, path='{path}', new_name='{new_name}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rename item: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to rename item: connection_id={connection_id}, path='{path}', new_name='{new_name}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to rename item: {str(e)}",
+        )
+
+
+# ============================================================================
 # Helper: feed directory cache from existing operations
 # ============================================================================
 
@@ -431,5 +563,27 @@ def _remove_from_directory_cache(connection_id: str, path: str) -> None:
             return
 
         cache.remove_directory(path)
+    except Exception:
+        pass
+
+
+#
+# _rename_in_directory_cache
+#
+def _rename_in_directory_cache(connection_id: str, old_path: str, new_path: str) -> None:
+    """Update a renamed directory in the directory cache, if it exists.
+
+    Silently ignores errors — cache updates must never break the main flow.
+    """
+
+    from app.services.directory_cache import get_directory_cache_manager
+
+    try:
+        cache_manager = get_directory_cache_manager()
+        cache = cache_manager.get_cache(connection_id)
+        if cache is None:
+            return
+
+        cache.rename_directory(old_path, new_path)
     except Exception:
         pass

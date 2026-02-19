@@ -2,6 +2,7 @@
 // FileRow
 //
 
+import EditIcon from "@mui/icons-material/Edit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
 import React, { useCallback, useState } from "react";
@@ -26,6 +27,8 @@ interface FileRowProps {
   viewMode: ViewMode;
   /** Called when "Open in app" is chosen from the context menu */
   onOpenInApp?: (file: FileEntry, index: number) => void;
+  /** Called when "Rename" is chosen from the context menu */
+  onRename?: (file: FileEntry, index: number) => void;
 }
 
 /**
@@ -34,21 +37,21 @@ interface FileRowProps {
  */
 export const FileRow = React.memo(
   React.forwardRef<HTMLDivElement, FileRowProps>(
-    ({ file, index, isSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp }, ref) => {
+    ({ file, index, isSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp, onRename }, ref) => {
       const isListMode = viewMode === "list";
       const isFile = file.type !== "directory";
+      const hasContextMenu = !!(onRename || (isFile && onOpenInApp));
 
       // Context menu state
       const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
 
       const handleContextMenu = useCallback(
         (e: React.MouseEvent) => {
-          // Only show context menu for files (not directories) when handler is provided
-          if (!isFile || !onOpenInApp) return;
+          if (!hasContextMenu) return;
           e.preventDefault();
           setContextMenu({ mouseX: e.clientX, mouseY: e.clientY });
         },
-        [isFile, onOpenInApp]
+        [hasContextMenu]
       );
 
       const handleContextMenuClose = useCallback(() => {
@@ -59,6 +62,11 @@ export const FileRow = React.memo(
         setContextMenu(null);
         onOpenInApp?.(file, index);
       }, [onOpenInApp, file, index]);
+
+      const handleRenameClick = useCallback(() => {
+        setContextMenu(null);
+        onRename?.(file, index);
+      }, [onRename, file, index]);
 
       return (
         <div
@@ -131,20 +139,30 @@ export const FileRow = React.memo(
             )}
           </Box>
 
-          {/* Context menu for files */}
-          {isFile && onOpenInApp && (
+          {/* Context menu */}
+          {hasContextMenu && (
             <Menu
               open={contextMenu !== null}
               onClose={handleContextMenuClose}
               anchorReference="anchorPosition"
               anchorPosition={contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined}
             >
-              <MenuItem onClick={handleOpenInAppClick}>
-                <ListItemIcon>
-                  <OpenInNewIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText>Open in companion app</ListItemText>
-              </MenuItem>
+              {onRename && (
+                <MenuItem onClick={handleRenameClick}>
+                  <ListItemIcon>
+                    <EditIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Rename</ListItemText>
+                </MenuItem>
+              )}
+              {isFile && onOpenInApp && (
+                <MenuItem onClick={handleOpenInAppClick}>
+                  <ListItemIcon>
+                    <OpenInNewIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>Open in companion app</ListItemText>
+                </MenuItem>
+              )}
             </Menu>
           )}
         </div>
@@ -161,7 +179,8 @@ export const FileRow = React.memo(
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&
-    prev.onOpenInApp === next.onOpenInApp
+    prev.onOpenInApp === next.onOpenInApp &&
+    prev.onRename === next.onRename
 );
 
 FileRow.displayName = "FileRow";

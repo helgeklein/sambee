@@ -97,3 +97,22 @@ class StorageBackend(ABC):
         """
 
         pass
+
+    #
+    # rename_item
+    #
+    @abstractmethod
+    async def rename_item(self, path: str, new_name: str) -> None:
+        """Rename a file or directory in place (same parent directory).
+
+        Args:
+            path: Relative path to the file or directory.
+            new_name: New name for the item (filename only, no path separators).
+
+        Raises:
+            FileNotFoundError: If the path does not exist.
+            FileExistsError: If an item with the new name already exists.
+            OSError: If the operation fails.
+        """
+
+        pass

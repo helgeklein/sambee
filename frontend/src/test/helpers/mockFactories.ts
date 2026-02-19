@@ -20,6 +20,7 @@ export interface ApiMock {
   updateConnection: Mock;
   deleteConnection: Mock;
   deleteItem: Mock;
+  renameItem: Mock;
   getImageBlob: Mock;
   searchDirectories: Mock;
 }
@@ -45,6 +46,18 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
   );
   api.deleteConnection.mockResolvedValue(undefined);
   api.deleteItem.mockResolvedValue(undefined);
+
+  // Mock renameItem to return a renamed FileInfo
+  api.renameItem.mockImplementation((_connId: string, path: string, newName: string) =>
+    Promise.resolve({
+      name: newName,
+      path: path.replace(/[^/]+$/, newName),
+      type: "file",
+      size: 1024,
+      is_readable: true,
+      is_hidden: false,
+    })
+  );
 
   // Mock getImageBlob to return a fake blob
   api.getImageBlob.mockResolvedValue(new Blob(["fake-image-data"], { type: "image/png" }));
@@ -165,7 +178,10 @@ export function createMockApi(): ApiMock {
     createConnection: vi.fn(),
     updateConnection: vi.fn(),
     deleteConnection: vi.fn(),
+    deleteItem: vi.fn(),
+    renameItem: vi.fn(),
     getImageBlob: vi.fn(),
+    searchDirectories: vi.fn(),
   };
 }
 

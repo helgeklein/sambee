@@ -21,6 +21,8 @@ interface FileListProps {
   viewMode: ViewMode;
   /** Called when "Open in app" is chosen from a file's context menu */
   onOpenInApp?: (file: FileEntry, index: number) => void;
+  /** Called when "Rename" is chosen from the context menu */
+  onRename?: (file: FileEntry, index: number) => void;
 } //
 // FileList
 //
@@ -35,6 +37,7 @@ export const FileList = React.memo(
     fileRowStyles,
     viewMode,
     onOpenInApp,
+    onRename,
   }: FileListProps) => {
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
@@ -92,6 +95,7 @@ export const FileList = React.memo(
                     fileRowStyles={fileRowStyles}
                     viewMode={viewMode}
                     onOpenInApp={onOpenInApp}
+                    onRename={onRename}
                   />
                 );
               })}

@@ -28,6 +28,13 @@ class DirectoryListing(BaseModel):
     total: int
 
 
+class RenameRequest(BaseModel):
+    """Request model for renaming a file or directory."""
+
+    path: str
+    new_name: str
+
+
 class DirectorySearchResult(BaseModel):
     """Response model for directory search (quick navigate)."""
 

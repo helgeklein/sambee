@@ -415,6 +415,210 @@ class TestDeleteItem:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Rename file or directory
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestRenameItem:
+    """Test rename item endpoint."""
+
+    def test_rename_file_success(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test renaming a file returns 200 with updated FileInfo."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.rename_item.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(
+            name="renamed.txt",
+            path="/renamed.txt",
+            type=FileType.FILE,
+            size=1024,
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "renamed.txt"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "renamed.txt"
+        mock_instance.connect.assert_called_once()
+        mock_instance.rename_item.assert_called_once_with("/document.txt", "renamed.txt")
+        mock_instance.disconnect.assert_called_once()
+
+    def test_rename_directory_success(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test renaming a directory returns 200 with updated FileInfo."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.rename_item.return_value = None
+        mock_instance.get_file_info.return_value = FileInfo(
+            name="new-folder",
+            path="/new-folder",
+            type=FileType.DIRECTORY,
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_admin,
+            json={"path": "/folder", "new_name": "new-folder"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "new-folder"
+        assert data["type"] == "directory"
+
+    def test_rename_without_auth(self, client: TestClient, test_connection: Connection):
+        """Test that renaming requires authentication."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            json={"path": "/document.txt", "new_name": "renamed.txt"},
+        )
+        assert response.status_code == 401
+
+    def test_rename_nonexistent_connection(self, client: TestClient, auth_headers_user: dict):
+        """Test renaming for a non-existent connection returns 404."""
+        fake_id = uuid.uuid4()
+        response = client.post(
+            f"/api/browse/{fake_id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "renamed.txt"},
+        )
+        assert response.status_code == 404
+
+    def test_rename_share_root_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that renaming the share root is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/", "new_name": "something"},
+        )
+        assert response.status_code == 400
+        assert "share root" in response.json()["detail"].lower()
+
+    def test_rename_empty_new_name_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that an empty new name is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "   "},
+        )
+        assert response.status_code == 400
+        assert "empty" in response.json()["detail"].lower()
+
+    def test_rename_invalid_chars_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that invalid characters in new name are rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "file/name.txt"},
+        )
+        assert response.status_code == 400
+        assert "invalid characters" in response.json()["detail"].lower()
+
+    def test_rename_dot_name_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that '.' and '..' are rejected as new names."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": ".."},
+        )
+        assert response.status_code == 400
+
+    def test_rename_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test renaming a non-existent item returns 404."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.rename_item.side_effect = FileNotFoundError("Path not found")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/ghost.txt", "new_name": "renamed.txt"},
+        )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_rename_name_collision(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test renaming to an existing name returns 409."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.rename_item.side_effect = FileExistsError("An item named 'existing.txt' already exists")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "existing.txt"},
+        )
+        assert response.status_code == 409
+        assert "already exists" in response.json()["detail"].lower()
+
+    def test_rename_server_error(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test generic SMB error returns 500."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.rename_item.side_effect = Exception("Connection lost")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "renamed.txt"},
+        )
+        assert response.status_code == 500
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Upload file
 # ──────────────────────────────────────────────────────────────────────────────
 

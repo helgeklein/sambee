@@ -217,6 +217,12 @@ export const BROWSER_SHORTCUTS = {
     description: "Delete file or directory",
     label: "Del",
   },
+  RENAME_ITEM: {
+    id: "rename-item",
+    keys: "F2",
+    description: "Rename file or directory",
+    label: "F2",
+  },
   OPEN_IN_APP: {
     id: "open-in-app",
     keys: "Enter",

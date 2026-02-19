@@ -707,4 +707,85 @@ describe("Browse API Contract Tests", () => {
       });
     });
   });
+
+  describe("Contract Tests - POST /browse/{connection_id}/rename", () => {
+    it("should return renamed file info on success", async () => {
+      const renamedFileInfo: FileInfo = {
+        name: "renamed.txt",
+        path: "/renamed.txt",
+        type: FileType.FILE,
+        size: 1024,
+        is_readable: true,
+        is_hidden: false,
+      };
+
+      (mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post.mockResolvedValueOnce({
+        data: renamedFileInfo,
+        status: 200,
+      } as AxiosResponse);
+
+      const result = await apiService.renameItem(testConnectionId, "/document.txt", "renamed.txt");
+
+      expect(result).toEqual(renamedFileInfo);
+      expect(result.name).toBe("renamed.txt");
+      expect(result.type).toBe(FileType.FILE);
+
+      expect((mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post).toHaveBeenCalledWith(
+        `/browse/${testConnectionId}/rename`,
+        { path: "/document.txt", new_name: "renamed.txt" }
+      );
+    });
+
+    it("should handle 404 for non-existent item", async () => {
+      (mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post.mockRejectedValueOnce({
+        response: {
+          status: 404,
+          data: { detail: "Item not found: /ghost.txt" },
+        },
+      });
+
+      await expect(apiService.renameItem(testConnectionId, "/ghost.txt", "renamed.txt")).rejects.toMatchObject({
+        response: { status: 404 },
+      });
+    });
+
+    it("should handle 409 for name collision", async () => {
+      (mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post.mockRejectedValueOnce({
+        response: {
+          status: 409,
+          data: { detail: "An item named 'existing.txt' already exists" },
+        },
+      });
+
+      await expect(apiService.renameItem(testConnectionId, "/document.txt", "existing.txt")).rejects.toMatchObject({
+        response: { status: 409 },
+      });
+    });
+
+    it("should handle 400 for invalid name", async () => {
+      (mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post.mockRejectedValueOnce({
+        response: {
+          status: 400,
+          data: { detail: "New name contains invalid characters" },
+        },
+      });
+
+      await expect(apiService.renameItem(testConnectionId, "/document.txt", "file/name.txt")).rejects.toMatchObject({
+        response: { status: 400 },
+      });
+    });
+
+    it("should handle server errors", async () => {
+      (mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post.mockRejectedValueOnce({
+        response: {
+          status: 500,
+          data: { detail: "Internal server error" },
+        },
+      });
+
+      await expect(apiService.renameItem(testConnectionId, "/document.txt", "renamed.txt")).rejects.toMatchObject({
+        response: { status: 500 },
+      });
+    });
+  });
 });

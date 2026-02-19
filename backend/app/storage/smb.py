@@ -535,3 +535,72 @@ class SMBBackend(StorageBackend):
                 exc_info=True,
             )
             raise
+
+    #
+    # rename_item
+    #
+    async def rename_item(self, path: str, new_name: str) -> None:
+        """Rename a file or directory via SMB.
+
+        The item stays in its current parent directory — only the final
+        path component is changed.
+
+        Args:
+            path: Relative path within the share.
+            new_name: New name for the item (filename only).
+
+        Raises:
+            FileNotFoundError: If the source path does not exist.
+            FileExistsError: If an item with *new_name* already exists
+                in the same directory.
+            OSError: If the operation fails.
+        """
+
+        smb_src = self._build_smb_path(path)
+
+        # Derive destination: same parent directory, different leaf name.
+        parent = smb_src.rsplit("\\", 1)[0]
+        smb_dst = f"{parent}\\{new_name}"
+
+        logger.info(f"Renaming item: path='{path}' -> new_name='{new_name}' (smb: '{smb_src}' -> '{smb_dst}')")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, smbclient.rename, smb_src, smb_dst),
+                    timeout=30.0,
+                )
+
+                logger.info(f"Successfully renamed: '{path}' -> '{new_name}'")
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout renaming '{path}' after 30 seconds")
+            raise TimeoutError(f"SMB operation timed out while renaming: {path}")
+        except OSError as e:
+            error_str = str(e)
+            # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Path not found: {path}") from e
+            # 0xc0000035 = STATUS_OBJECT_NAME_COLLISION (target already exists)
+            if "0xc0000035" in error_str:
+                raise FileExistsError(f"An item named '{new_name}' already exists") from e
+            logger.error(
+                f"Failed to rename '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to rename '{path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise

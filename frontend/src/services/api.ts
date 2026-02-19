@@ -211,6 +211,19 @@ class ApiService {
     });
   }
 
+  /**
+   * Rename a file or directory on the remote share.
+   *
+   * Returns the updated FileInfo for the renamed item.
+   */
+  async renameItem(connectionId: string, path: string, newName: string): Promise<FileInfo> {
+    const response = await this.api.post<FileInfo>(`/browse/${connectionId}/rename`, {
+      path,
+      new_name: newName,
+    });
+    return response.data;
+  }
+
   // Viewer endpoints
   getViewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");

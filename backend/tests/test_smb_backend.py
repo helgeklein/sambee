@@ -1312,3 +1312,107 @@ class TestDeleteItem:
         with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
             with pytest.raises(TimeoutError, match="timed out"):
                 await backend.delete_item("/big-file.zip")
+
+
+class TestRenameItem:
+    """Test file and directory renaming."""
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rename")
+    async def test_rename_file(self, mock_rename):
+        """Test renaming a file calls smbclient.rename with correct paths."""
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        await backend.rename_item("/docs/readme.txt", "notes.txt")
+
+        mock_rename.assert_called_once_with(
+            r"\\server.local\share\docs\readme.txt",
+            r"\\server.local\share\docs\notes.txt",
+        )
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rename")
+    async def test_rename_directory(self, mock_rename):
+        """Test renaming a directory calls smbclient.rename with correct paths."""
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        await backend.rename_item("/photos/vacation", "holiday")
+
+        mock_rename.assert_called_once_with(
+            r"\\server.local\share\photos\vacation",
+            r"\\server.local\share\photos\holiday",
+        )
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rename")
+    async def test_rename_not_found_raises(self, mock_rename):
+        """Test renaming a non-existent path raises FileNotFoundError."""
+        mock_rename.side_effect = OSError("(0xc0000034) STATUS_OBJECT_NAME_NOT_FOUND")
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        with pytest.raises(FileNotFoundError, match="Path not found"):
+            await backend.rename_item("/ghost.txt", "renamed.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rename")
+    async def test_rename_collision_raises(self, mock_rename):
+        """Test renaming to an existing name raises FileExistsError."""
+        mock_rename.side_effect = OSError("(0xc0000035) STATUS_OBJECT_NAME_COLLISION")
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+        with pytest.raises(FileExistsError, match="already exists"):
+            await backend.rename_item("/document.txt", "existing.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rename")
+    async def test_rename_timeout_raises(self, mock_rename):
+        """Test that a slow rename operation raises TimeoutError."""
+        import asyncio
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+
+        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            with pytest.raises(TimeoutError, match="timed out"):
+                await backend.rename_item("/document.txt", "renamed.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.rename")
+    async def test_rename_file_uses_prefix(self, mock_rename):
+        """rename_item with path_prefix targets the correct prefixed path."""
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            path_prefix="/photos",
+        )
+
+        await backend.rename_item("vacation/img.jpg", "beach.jpg")
+
+        mock_rename.assert_called_once_with(
+            r"\\server.local\share\photos\vacation\img.jpg",
+            r"\\server.local\share\photos\vacation\beach.jpg",
+        )

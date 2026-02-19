@@ -500,4 +500,82 @@ describe("Browser Component - Interactions", () => {
       });
     });
   });
+
+  describe("Rename", () => {
+    it("opens rename dialog when F2 is pressed on focused file", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      // Press F2 key
+      await user.keyboard("{F2}");
+
+      // Rename dialog should appear
+      await waitFor(() => {
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+      });
+    });
+
+    it("calls renameItem API when confirmed", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      // Press F2 to open rename dialog
+      await user.keyboard("{F2}");
+
+      // Wait for the rename dialog input to appear
+      const input = await screen.findByLabelText(/new name/i);
+      await user.clear(input);
+      await user.type(input, "Renamed-Item");
+
+      // Click Rename button
+      const renameButton = await screen.findByRole("button", { name: /^rename$/i });
+      await user.click(renameButton);
+
+      // renameItem should have been called
+      await waitFor(() => {
+        expect(api.renameItem).toHaveBeenCalled();
+      });
+    });
+
+    it("closes dialog when Cancel is clicked", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      // Wait for files to load
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      // Press F2 to open rename dialog
+      await user.keyboard("{F2}");
+
+      // Wait for dialog and click Cancel
+      const cancelButton = await screen.findByRole("button", { name: /cancel/i });
+      await user.click(cancelButton);
+
+      // Dialog should close
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/new name/i)).not.toBeInTheDocument();
+      });
+    });
+  });
 });
