@@ -10,12 +10,20 @@ interface ConnectionSelectorProps {
   onConnectionChange: (connectionId: string) => void;
   /** Called when menu closes or ESC is pressed on button */
   onAfterChange?: () => void;
+  /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
+  disableTabFocus?: boolean;
 }
 
 //
 // ConnectionSelector
 //
-export function ConnectionSelector({ connections, selectedConnectionId, onConnectionChange, onAfterChange }: ConnectionSelectorProps) {
+export function ConnectionSelector({
+  connections,
+  selectedConnectionId,
+  onConnectionChange,
+  onAfterChange,
+  disableTabFocus,
+}: ConnectionSelectorProps) {
   const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
 
   if (connections.length === 0) {
@@ -38,6 +46,7 @@ export function ConnectionSelector({ connections, selectedConnectionId, onConnec
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-controls={open ? "connection-menu" : undefined}
+        tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
           ...pillButtonStyle,
           color: "inherit",

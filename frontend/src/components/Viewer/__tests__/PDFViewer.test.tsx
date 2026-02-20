@@ -427,7 +427,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      fireEvent.keyDown(window, { key: "ArrowRight" });
+      fireEvent.keyDown(document, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
@@ -442,14 +442,14 @@ describe("PDFViewer", () => {
       });
 
       // Go to page 2 first
-      fireEvent.keyDown(window, { key: "ArrowRight" });
+      fireEvent.keyDown(document, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
 
       // Go back
-      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      fireEvent.keyDown(document, { key: "ArrowLeft" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -464,15 +464,15 @@ describe("PDFViewer", () => {
       });
 
       // Go to page 3
-      fireEvent.keyDown(window, { key: "ArrowRight" });
-      fireEvent.keyDown(window, { key: "ArrowRight" });
+      fireEvent.keyDown(document, { key: "ArrowRight" });
+      fireEvent.keyDown(document, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
       });
 
       // Go to first page
-      fireEvent.keyDown(window, { key: "Home" });
+      fireEvent.keyDown(document, { key: "Home" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -486,7 +486,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      fireEvent.keyDown(window, { key: "End" });
+      fireEvent.keyDown(document, { key: "End" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "5");
@@ -500,7 +500,7 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent.keyDown(document, { key: "Escape" });
 
       expect(mockOnClose).toHaveBeenCalled();
     });
@@ -514,7 +514,7 @@ describe("PDFViewer", () => {
 
       const initialScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
 
-      fireEvent.keyDown(window, { key: "+" });
+      fireEvent.keyDown(document, { key: "+" });
 
       await waitFor(() => {
         const newScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
@@ -530,7 +530,7 @@ describe("PDFViewer", () => {
       });
 
       // Zoom in first
-      fireEvent.keyDown(window, { key: "+" });
+      fireEvent.keyDown(document, { key: "+" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
@@ -539,7 +539,7 @@ describe("PDFViewer", () => {
       const scaleAfterZoomIn = screen.getByTestId("pdf-page").getAttribute("data-scale");
 
       // Zoom out
-      fireEvent.keyDown(window, { key: "-" });
+      fireEvent.keyDown(document, { key: "-" });
 
       await waitFor(() => {
         const newScale = screen.getByTestId("pdf-page").getAttribute("data-scale");
@@ -722,7 +722,7 @@ describe("PDFViewer", () => {
       });
 
       // Press R key to rotate right
-      fireEvent.keyDown(window, { key: "r" });
+      fireEvent.keyDown(document, { key: "r" });
 
       // Rotation is applied to the Page component
       // Since we're mocking Page, we can't directly verify the rotate prop
@@ -740,7 +740,7 @@ describe("PDFViewer", () => {
       });
 
       // Press Shift+R to rotate left
-      fireEvent.keyDown(window, { key: "R", shiftKey: true });
+      fireEvent.keyDown(document, { key: "R", shiftKey: true });
 
       // Verify handler doesn't crash
       await waitFor(() => {

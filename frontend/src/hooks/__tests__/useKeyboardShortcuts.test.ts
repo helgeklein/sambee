@@ -30,7 +30,7 @@ describe("useKeyboardShortcuts", () => {
       bubbles: true,
       cancelable: true,
     });
-    window.dispatchEvent(event);
+    document.dispatchEvent(event);
     return event;
   };
 
@@ -420,7 +420,7 @@ describe("useKeyboardShortcuts", () => {
         cancelable: true,
       });
       const preventDefaultSpy = vi.spyOn(event, "preventDefault");
-      window.dispatchEvent(event);
+      document.dispatchEvent(event);
 
       expect(preventDefaultSpy).toHaveBeenCalled();
     });
@@ -443,7 +443,7 @@ describe("useKeyboardShortcuts", () => {
         cancelable: true,
       });
       event.preventDefault(); // Prevent before dispatching
-      window.dispatchEvent(event);
+      document.dispatchEvent(event);
 
       expect(mockHandler).not.toHaveBeenCalled();
     });
@@ -562,8 +562,8 @@ describe("useKeyboardShortcuts", () => {
     });
 
     it("should cleanup event listeners on unmount", () => {
-      const addEventListenerSpy = vi.spyOn(window, "addEventListener");
-      const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");
+      const addEventListenerSpy = vi.spyOn(document, "addEventListener");
+      const removeEventListenerSpy = vi.spyOn(document, "removeEventListener");
 
       const shortcuts: KeyboardShortcut[] = [
         {
@@ -576,11 +576,11 @@ describe("useKeyboardShortcuts", () => {
 
       const { unmount } = renderHook(() => useKeyboardShortcuts({ shortcuts }));
 
-      expect(addEventListenerSpy).toHaveBeenCalledWith("keydown", expect.any(Function));
+      expect(addEventListenerSpy).toHaveBeenCalledWith("keydown", expect.any(Function), true);
 
       unmount();
 
-      expect(removeEventListenerSpy).toHaveBeenCalledWith("keydown", expect.any(Function));
+      expect(removeEventListenerSpy).toHaveBeenCalledWith("keydown", expect.any(Function), true);
 
       addEventListenerSpy.mockRestore();
       removeEventListenerSpy.mockRestore();

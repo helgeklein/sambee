@@ -10,6 +10,8 @@ interface ViewModeSelectorProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   onAfterChange?: () => void;
+  /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
+  disableTabFocus?: boolean;
 }
 
 const VIEW_MODE_LABELS: Record<ViewMode, string> = {
@@ -20,7 +22,7 @@ const VIEW_MODE_LABELS: Record<ViewMode, string> = {
 //
 // ViewModeSelector
 //
-export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange }: ViewModeSelectorProps) {
+export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, disableTabFocus }: ViewModeSelectorProps) {
   const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
 
   const handleModeChange = (mode: ViewMode) => {
@@ -40,6 +42,7 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange }: 
         onClick={handleClick}
         onKeyDown={createEscapeHandler(onAfterChange)}
         size="small"
+        tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
           ...pillButtonStyle,
           color: "text.secondary",

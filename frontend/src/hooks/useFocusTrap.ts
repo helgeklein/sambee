@@ -50,6 +50,7 @@ export function useFocusTrap(containerRef: RefObject<HTMLElement | null>): void 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== "Tab") return;
+      if (event.defaultPrevented) return;
 
       const container = containerRef.current;
       if (!container) return;

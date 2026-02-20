@@ -244,3 +244,36 @@ export const BROWSER_SHORTCUTS = {
     shift: true,
   },
 } as const satisfies Record<string, ShortcutDefinition>;
+
+/**
+ * Dual-pane layout shortcuts (Norton Commander style)
+ */
+export const PANE_SHORTCUTS = {
+  TOGGLE_DUAL_PANE: {
+    id: "toggle-dual-pane",
+    keys: "b",
+    description: "Toggle dual-pane view",
+    label: "Ctrl+B",
+    ctrl: true,
+  },
+  FOCUS_LEFT_PANE: {
+    id: "focus-left-pane",
+    keys: "1",
+    description: "Focus left pane",
+    label: "Ctrl+1",
+    ctrl: true,
+  },
+  FOCUS_RIGHT_PANE: {
+    id: "focus-right-pane",
+    keys: "2",
+    description: "Focus right pane",
+    label: "Ctrl+2",
+    ctrl: true,
+  },
+  SWITCH_PANE: {
+    id: "switch-pane",
+    keys: "Tab",
+    description: "Switch active pane",
+    label: "Tab",
+  },
+} as const satisfies Record<string, ShortcutDefinition>;

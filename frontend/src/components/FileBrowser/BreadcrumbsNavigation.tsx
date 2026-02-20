@@ -8,8 +8,8 @@ import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Average character width in pixels for the breadcrumb font */
-const CHAR_WIDTH_PX = 8;
+/** Average character width in pixels for the breadcrumb font (body2 variant) */
+const CHAR_WIDTH_PX = 7;
 
 /** Pixel width of the " / " separator rendered between breadcrumb items */
 const SEPARATOR_WIDTH_PX = 24;
@@ -283,7 +283,7 @@ function calculateBreadcrumbSegments(pathParts: string[], containerWidth: number
  * when space is limited, prioritizing segments closest to the current
  * directory for maximum navigational context.
  */
-export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName, onEscape }: BreadcrumbsNavigationProps) {
+export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName, onEscape, disableTabFocus }: BreadcrumbsNavigationProps) {
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -360,15 +360,16 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
     >
       {/* Connection name: bold when at root, clickable link otherwise */}
       {pathParts.length === 0 ? (
-        <Typography variant="body1" color="text.primary" sx={{ fontWeight: "bold" }}>
+        <Typography variant="body2" color="text.primary" sx={{ fontWeight: "bold" }}>
           {connectionName}
         </Typography>
       ) : (
         <Link
           component="button"
-          variant="body1"
+          variant="body2"
           onClick={handleRootClick}
           onKeyDown={createEscapeHandler(onEscape)}
+          tabIndex={disableTabFocus ? -1 : undefined}
           sx={{ fontWeight: "regular" }}
           aria-label="Navigate to root directory"
         >
@@ -380,7 +381,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
       {displaySegments.map((segment) => {
         if (segment.type === "ellipsis") {
           return (
-            <Typography key="breadcrumb-ellipsis" variant="body1" color="text.secondary" sx={{ userSelect: "none" }}>
+            <Typography key="breadcrumb-ellipsis" variant="body2" color="text.secondary" sx={{ userSelect: "none" }}>
               …
             </Typography>
           );
@@ -393,7 +394,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
           return (
             <Typography
               key={fullPath}
-              variant="body1"
+              variant="body2"
               color="text.primary"
               title={segment.fullLabel}
               sx={{
@@ -412,9 +413,10 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
           <Link
             key={fullPath}
             component="button"
-            variant="body1"
+            variant="body2"
             onClick={() => handleBreadcrumbClick(segment.pathIndex)}
             onKeyDown={createEscapeHandler(onEscape)}
+            tabIndex={disableTabFocus ? -1 : undefined}
             aria-label={`Navigate to ${segment.fullLabel}`}
             title={segment.fullLabel}
             sx={{

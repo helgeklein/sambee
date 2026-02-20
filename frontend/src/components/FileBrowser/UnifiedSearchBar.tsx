@@ -65,6 +65,8 @@ interface UnifiedSearchBarProps {
   provider: SearchProvider;
   /** Ref forwarded to the underlying <input> element */
   inputRef?: React.RefObject<HTMLInputElement>;
+  /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
+  disableTabFocus?: boolean;
   /** Whether to use compact (mobile) layout styling */
   useCompactLayout?: boolean;
   /** Called when Escape is pressed with an empty query and closed dropdown */
@@ -78,7 +80,13 @@ interface UnifiedSearchBarProps {
 //
 // UnifiedSearchBar
 //
-export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false, onBlurToFileList }: UnifiedSearchBarProps) {
+export function UnifiedSearchBar({
+  provider,
+  inputRef,
+  useCompactLayout = false,
+  onBlurToFileList,
+  disableTabFocus,
+}: UnifiedSearchBarProps) {
   // ── State ──────────────────────────────────────────────────────────────
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -429,6 +437,7 @@ export function UnifiedSearchBar({ provider, inputRef, useCompactLayout = false,
             onFocus={handleInputFocus}
             onBlur={() => setIsFocused(false)}
             inputRef={effectiveInputRef}
+            inputProps={disableTabFocus ? { tabIndex: -1 } : undefined}
             sx={{
               "& .MuiInputBase-root": {
                 fontSize: { xs: "16px", sm: "14px" },

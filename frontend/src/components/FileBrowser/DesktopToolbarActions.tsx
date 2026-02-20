@@ -17,6 +17,8 @@ interface DesktopToolbarActionsProps {
   onOpenInApp?: () => void;
   /** Whether companion URI generation is in progress */
   openInAppLoading?: boolean;
+  /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
+  disableTabFocus?: boolean;
 }
 
 export function DesktopToolbarActions({
@@ -25,6 +27,7 @@ export function DesktopToolbarActions({
   showOpenInApp,
   onOpenInApp,
   openInAppLoading,
+  disableTabFocus,
 }: DesktopToolbarActionsProps) {
   return (
     <>
@@ -37,13 +40,20 @@ export function DesktopToolbarActions({
               disabled={openInAppLoading}
               onKeyDown={createEscapeHandler(onEscape)}
               aria-label="Open in companion app"
+              tabIndex={disableTabFocus ? -1 : undefined}
             >
               <OpenInNewIcon />
             </IconButton>
           </span>
         </Tooltip>
       )}
-      <IconButton color="inherit" onClick={onOpenSettings} onKeyDown={createEscapeHandler(onEscape)} title="Settings">
+      <IconButton
+        color="inherit"
+        onClick={onOpenSettings}
+        onKeyDown={createEscapeHandler(onEscape)}
+        title="Settings"
+        tabIndex={disableTabFocus ? -1 : undefined}
+      >
         <SettingsIcon />
       </IconButton>
     </>

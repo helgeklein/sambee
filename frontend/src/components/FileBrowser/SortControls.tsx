@@ -12,6 +12,8 @@ interface SortControlsProps {
   sortDirection: "asc" | "desc";
   onDirectionChange: () => void;
   onAfterChange?: () => void;
+  /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
+  disableTabFocus?: boolean;
 }
 
 const SORT_LABELS: Record<SortField, string> = {
@@ -24,7 +26,14 @@ const SORT_LABELS: Record<SortField, string> = {
 //
 // SortControls
 //
-export function SortControls({ sortBy, onSortChange, sortDirection, onDirectionChange, onAfterChange }: SortControlsProps) {
+export function SortControls({
+  sortBy,
+  onSortChange,
+  sortDirection,
+  onDirectionChange,
+  onAfterChange,
+  disableTabFocus,
+}: SortControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
@@ -50,6 +59,7 @@ export function SortControls({ sortBy, onSortChange, sortDirection, onDirectionC
         onClick={handleClick}
         onKeyDown={createEscapeHandler(onAfterChange)}
         size="small"
+        tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
           ...pillButtonStyle,
           color: "text.secondary",

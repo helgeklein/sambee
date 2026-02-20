@@ -345,14 +345,14 @@ describe("Browser - PDF Viewer Integration", () => {
       });
 
       // Navigate forward
-      fireEvent.keyDown(window, { key: "ArrowRight" });
+      fireEvent.keyDown(document, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
 
       // Navigate backward
-      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      fireEvent.keyDown(document, { key: "ArrowLeft" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -379,7 +379,7 @@ describe("Browser - PDF Viewer Integration", () => {
       });
 
       // Press Home
-      fireEvent.keyDown(window, { key: "Home" });
+      fireEvent.keyDown(document, { key: "Home" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -396,7 +396,7 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
-      fireEvent.keyDown(window, { key: "End" });
+      fireEvent.keyDown(document, { key: "End" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "10");
@@ -452,7 +452,7 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      fireEvent.keyDown(window, { key: "Escape" });
+      fireEvent.keyDown(document, { key: "Escape" });
 
       await waitFor(() => {
         expect(screen.queryByTestId("pdf-page")).not.toBeInTheDocument();

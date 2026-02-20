@@ -1,76 +1,47 @@
 /**
- * FileBrowser Component
- * =====================
+ * FileBrowser Component — Page-Level Orchestrator
+ * =================================================
  *
- * Main file browser interface providing SMB share navigation with:
- * - Multi-connection management and selection
- * - Directory navigation with breadcrumbs and back/forward support
- * - Virtualized file listing for optimal performance with large directories
- * - Real-time updates via WebSocket for directory change notifications
- * - Comprehensive keyboard navigation with shortcuts
- * - File preview with multiple viewer types (images, text, video, etc.)
- * - Responsive desktop/mobile layouts
- * - Search and sorting capabilities with caching
+ * Coordinates one or two file-browser panes with page-level concerns:
+ * - Connection management and loading
+ * - URL synchronisation (browser history, back/forward — left pane only)
+ * - WebSocket connection for real-time directory change notifications
+ * - Keyboard shortcut registration (routed to the active pane)
+ * - Global dialogs (settings, help)
+ * - Responsive layout decisions
+ * - Dual-pane layout toggle and pane focus management
  *
- * Architecture:
- * - State management: React hooks with refs for WebSocket/async callbacks
- * - Virtualization: TanStack Virtual for rendering large file lists
- * - URL synchronization: Browser history integration for bookmarking
- * - Caching of directory listings to reduce API calls
- * - Accessibility: Keyboard-first design with proper focus management
+ * All per-pane state (directory listing, sorting, focus, caching, viewer,
+ * virtualizer, CRUD dialogs, etc.) is delegated to `useFileBrowserPane`.
+ * Per-pane rendering is handled by `FileBrowserPane`.
+ *
+ * @see useFileBrowserPane — manages all per-pane state and logic
+ * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, CircularProgress, Container, Snackbar, Toolbar, useMediaQuery } from "@mui/material";
+import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { BreadcrumbsNavigation } from "../components/FileBrowser/BreadcrumbsNavigation";
-import ConfirmDeleteDialog from "../components/FileBrowser/ConfirmDeleteDialog";
-import CreateItemDialog from "../components/FileBrowser/CreateItemDialog";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
-import { FileList } from "../components/FileBrowser/FileList";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
-import RenameDialog from "../components/FileBrowser/RenameDialog";
-import { SortControls } from "../components/FileBrowser/SortControls";
-import { StatusBar } from "../components/FileBrowser/StatusBar";
-import { useDirectorySearchProvider } from "../components/FileBrowser/search";
-import { UnifiedSearchBar } from "../components/FileBrowser/UnifiedSearchBar";
-import { ViewModeSelector } from "../components/FileBrowser/ViewModeSelector";
+import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog, { type SettingsCategory } from "../components/Settings/SettingsDialog";
-import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../config/keyboardShortcuts";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, PANE_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
-import { useSambeeTheme } from "../theme";
-import type { Connection, FileEntry } from "../types";
-import { FileType, isApiError } from "../types";
-import { hasViewerSupport, isImageFile } from "../utils/FileTypeRegistry";
-import type { SortField, ViewMode } from "./FileBrowser/types";
-
-// ============================================================================
-// Type Definitions & Constants
-// ============================================================================
-
-const DIRECTORY_CACHE_TTL_MS = 30_000; // 30-second cache TTL to reduce API calls
-
-/**
- * createViewerSessionId
- *
- * Generates unique session identifiers for file viewer instances.
- * Used for tracking and logging viewer lifecycle events in backend traces.
- *
- * @returns Session ID in format: timestamp-random (e.g., "l8x9k2-a3b4c5d6")
- */
-const createViewerSessionId = (): string => {
-  const randomPart = Math.random().toString(36).slice(2, 10);
-  return `${Date.now().toString(36)}-${randomPart}`;
-};
+import type { Connection } from "../types";
+import { isApiError } from "../types";
+import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
+import type { PaneId, PaneMode } from "./FileBrowser/types";
+import { ACTIVE_PANE_QUERY_KEY, ACTIVE_PANE_STORAGE_KEY, DUAL_PANE_STORAGE_KEY, RIGHT_PANE_QUERY_KEY } from "./FileBrowser/types";
+import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 
 // ============================================================================
 // Main Component
@@ -89,6 +60,7 @@ const Browser: React.FC = () => {
   const navigate = useNavigate();
   const params = useParams<{ connectionId: string; "*": string }>();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const theme = useTheme();
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -108,186 +80,83 @@ const Browser: React.FC = () => {
   const [isUsingKeyboard, setIsUsingKeyboard] = useState(!hasTouchInput);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // State Management
+  // Global Page State
   // ──────────────────────────────────────────────────────────────────────────
 
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
-  const [currentPath, setCurrentPath] = useState("");
-  const [files, setFiles] = useState<FileEntry[]>([]);
-  const [viewInfo, setViewInfo] = useState<{
-    path: string;
-    mimeType: string;
-    images?: string[];
-    currentIndex?: number;
-    sessionId: string;
-  } | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [loadingConnections, setLoadingConnections] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<SortField>("name");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    const saved = localStorage.getItem("file-browser-view-mode");
-    return saved === "list" || saved === "details" ? saved : "list";
-  });
-  const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("appearance");
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<"main" | "appearance" | "connections">("main");
   const [showHelp, setShowHelp] = useState(false);
-
-  // Delete confirmation dialog state
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Rename dialog state
-  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
-
-  // Create item dialog state
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createItemType, setCreateItemType] = useState<FileType>(FileType.DIRECTORY);
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  // Companion app state
-  const [openInAppLoading, setOpenInAppLoading] = useState(false);
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
-  const { currentTheme } = useSambeeTheme();
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Search Provider
+  // Dual-Pane State
   // ──────────────────────────────────────────────────────────────────────────
 
-  const directorySearchProvider = useDirectorySearchProvider(selectedConnectionId, (path) => setCurrentPath(path));
+  /** Layout mode: single pane (default) or side-by-side dual pane. */
+  const [paneMode, setPaneMode] = useState<PaneMode>(() => {
+    // If the URL contains a p2 query parameter, activate dual mode automatically
+    const urlP2 = new URLSearchParams(window.location.search).get(RIGHT_PANE_QUERY_KEY);
+    if (urlP2) return "dual";
+    // Otherwise fall back to localStorage preference
+    const saved = localStorage.getItem(DUAL_PANE_STORAGE_KEY);
+    return saved === "dual" ? "dual" : "single";
+  });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Refs for DOM Elements & Performance Optimization
-  // ──────────────────────────────────────────────────────────────────────────
+  /** Which pane is currently active (receives keyboard input and toolbar actions). */
+  const [activePaneId, setActivePaneId] = useState<PaneId>(() => {
+    // If the URL specifies an active pane, use it
+    const urlActive = new URLSearchParams(window.location.search).get(ACTIVE_PANE_QUERY_KEY);
+    if (urlActive === "2") return "right";
+    if (urlActive === "1") return "left";
+    // Otherwise fall back to localStorage
+    const saved = localStorage.getItem(ACTIVE_PANE_STORAGE_KEY);
+    return saved === "right" ? "right" : "left";
+  });
 
-  // Focus management with RAF (RequestAnimationFrame) batching
-  const pendingFocusedIndexRef = React.useRef<number | null>(null);
-  const focusCommitRafRef = React.useRef<number | null>(null);
-
-  /**
-   * updateFocus
-   *
-   * Updates focused file index with optional RAF batching for smooth performance.
-   * RAF batching prevents layout thrashing during rapid keyboard navigation (key repeat).
-   *
-   * @param next - Target file index to focus
-   * @param options.immediate - Skip RAF batching for instant updates (e.g., mouse clicks)
-   */
-  const updateFocus = React.useCallback((next: number, options?: { immediate?: boolean }) => {
-    const immediate = options?.immediate ?? false;
-
-    const commit = () => {
-      setFocusedIndex((prev: number) => (prev === next ? prev : next));
-    };
-
-    if (immediate) {
-      // Cancel pending RAF batching and commit immediately
-      if (focusCommitRafRef.current !== null) {
-        cancelAnimationFrame(focusCommitRafRef.current);
-        focusCommitRafRef.current = null;
-      }
-      pendingFocusedIndexRef.current = null;
-      commit(); // Regular setState - React will batch automatically
-      return;
-    }
-
-    // RAF batching for smooth updates during key repeat
-    pendingFocusedIndexRef.current = next;
-
-    if (focusCommitRafRef.current !== null) {
-      return; // Already scheduled
-    }
-
-    focusCommitRafRef.current = requestAnimationFrame(() => {
-      focusCommitRafRef.current = null;
-      const target = pendingFocusedIndexRef.current;
-      pendingFocusedIndexRef.current = null;
-      if (target === null) {
-        return;
-      }
-      setFocusedIndex((prev: number) => (prev === target ? prev : target));
-    });
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (focusCommitRafRef.current !== null) {
-        cancelAnimationFrame(focusCommitRafRef.current);
-      }
-    };
-  }, []);
-
-  // DOM element refs
-  const parentRef = React.useRef<HTMLDivElement>(null); // Scroll container for TanStack Virtual
-  const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const filesRef = React.useRef<FileEntry[]>([]);
-  const currentViewIndexRef = React.useRef<number | null>(null);
-  const currentViewImagesRef = React.useRef<string[] | undefined>(undefined);
-  const [listContainerEl, setListContainerEl] = useState<HTMLDivElement | null>(null);
-  const listContainerRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      if (node !== listContainerEl) {
-        setListContainerEl(node);
-      }
-    },
-    [listContainerEl]
-  );
-  const [visibleRowCount, setVisibleRowCount] = React.useState(10);
-  // Mirror of visibleRowCount to avoid capturing state in effects
-  const visibleRowCountRef = React.useRef<number>(10);
-
-  // State tracking refs (avoid stale closures in WebSocket/async callbacks)
-  const selectedConnectionIdRef = React.useRef<string>("");
-  const currentPathRef = React.useRef<string>("");
-  const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
-
-  // Incremental search for quick navigation (type characters to jump to files)
-  const searchBufferRef = React.useRef<string>("");
-  const searchTimeoutRef = React.useRef<number | null>(null);
-
-  // Navigation history to restore scroll position and selection when going back
-  const navigationHistory = React.useRef<
-    Map<
-      string,
-      {
-        focusedIndex: number;
-        scrollOffset: number;
-        selectedFileName: string | null;
-      }
-    >
-  >(new Map());
-
-  // Directory listing cache for instant backward navigation
-  const directoryCache = React.useRef<Map<string, { items: FileEntry[]; timestamp: number }>>(new Map());
+  // URL synchronization flags to prevent circular updates
+  const isInitializing = React.useRef<boolean>(true); // Avoid URL updates during initial mount
+  const isUpdatingFromUrl = React.useRef<boolean>(false); // Avoid navigate() during back/forward
 
   // WebSocket for real-time directory updates
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
 
-  // After rename, stores the new file name so the focus-restore effect can
-  // select the renamed item instead of resetting to index 0.
-  const pendingFocusNameRef = React.useRef<string | null>(null);
+  // ──────────────────────────────────────────────────────────────────────────
+  // Pane Hooks — all per-pane state and logic
+  // ──────────────────────────────────────────────────────────────────────────
 
-  // Timestamp of the last explicit forced reload (e.g. after delete).
-  // Used to suppress redundant WebSocket-triggered reloads.
-  const RELOAD_DEDUP_WINDOW_MS = 2_000;
-  const lastForceReloadRef = React.useRef<number>(0);
+  // Left pane — always present, synced with URL
+  const leftPane = useFileBrowserPane({
+    rowHeight,
+    disabled: settingsOpen || mobileSettingsOpen,
+    isActive: activePaneId === "left",
+    onCompanionHint: () => setCompanionHintOpen(true),
+  });
 
-  // URL synchronization flags to prevent circular updates
-  const isInitializing = React.useRef<boolean>(true); // Avoid URL updates during initial mount
-  const isUpdatingFromUrl = React.useRef<boolean>(false); // Avoid navigate() during back/forward
+  // Right pane — always instantiated (React hooks rule: no conditional hooks),
+  // but only renders in dual mode. Disabled when not in dual mode.
+  const rightPane = useFileBrowserPane({
+    rowHeight,
+    disabled: settingsOpen || mobileSettingsOpen || paneMode === "single",
+    isActive: activePaneId === "right" && paneMode === "dual",
+    onCompanionHint: () => setCompanionHintOpen(true),
+  });
+
+  /**
+   * Active pane — the pane that receives keyboard input and toolbar actions.
+   * In single-pane mode, always the left pane. In dual mode, whichever has focus.
+   */
+  const isDualMode = paneMode === "dual" && !useCompactLayout;
+  const effectiveActivePaneId = isDualMode ? activePaneId : "left";
+  const effectiveActivePaneIdRef = React.useRef(effectiveActivePaneId);
+  effectiveActivePaneIdRef.current = effectiveActivePaneId;
+  const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
 
   // ──────────────────────────────────────────────────────────────────────────
   // Helper Functions
@@ -314,7 +183,7 @@ const Browser: React.FC = () => {
   );
 
   // ──────────────────────────────────────────────────────────────────────────
-  // API & Data Loading
+  // API & Data Loading (Global)
   // ──────────────────────────────────────────────────────────────────────────
 
   /**
@@ -340,6 +209,7 @@ const Browser: React.FC = () => {
    * Priority: URL param > localStorage > first connection
    * Initializes mobile logging and handles authentication requirements.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
   const loadConnections = useCallback(async () => {
     try {
       setLoadingConnections(true);
@@ -368,11 +238,10 @@ const Browser: React.FC = () => {
           // URL has valid connection, will be set in initialization useEffect
           // Don't override it here
           return;
-        } else {
-          // Invalid connection slug in URL - redirect to /browse
-          navigate("/browse", { replace: true });
-          return;
         }
+        // Invalid connection slug in URL - redirect to /browse
+        navigate("/browse", { replace: true });
+        return;
       }
 
       // No URL param, use localStorage or first
@@ -381,10 +250,10 @@ const Browser: React.FC = () => {
 
       if (savedConnectionId && data.find((c: Connection) => c.id === savedConnectionId)) {
         autoSelectedConnection = data.find((c: Connection) => c.id === savedConnectionId);
-        setSelectedConnectionId(savedConnectionId);
+        leftPane.setConnectionId(savedConnectionId);
       } else if (data.length > 0 && data[0]) {
         autoSelectedConnection = data[0];
-        setSelectedConnectionId(data[0].id);
+        leftPane.setConnectionId(data[0].id);
       }
 
       // Update URL to include the auto-selected connection
@@ -398,12 +267,12 @@ const Browser: React.FC = () => {
         if (err.response?.status === 401) {
           navigate("/login");
         } else if (err.response?.status === 403) {
-          setError("Access denied. Please contact an administrator to configure connections.");
+          leftPane.setError("Access denied. Please contact an administrator to configure connections.");
         } else {
-          setError("Failed to load connections. Please try again.");
+          leftPane.setError("Failed to load connections. Please try again.");
         }
       } else {
-        setError("Failed to load connections. Please try again.");
+        leftPane.setError("Failed to load connections. Please try again.");
       }
     } finally {
       setLoadingConnections(false);
@@ -411,139 +280,103 @@ const Browser: React.FC = () => {
   }, [navigate, params.connectionId, slugifyConnectionName]);
 
   /**
-   * loadFiles
+   * encodePath
    *
-   * Loads directory contents with intelligent caching.
-   * Implements cache invalidation for force refresh.
-   *
-   * @param path - Directory path to load
-   * @param forceRefresh - Bypass cache and fetch fresh data
+   * Encodes a file path for use in URLs — each segment is percent-encoded
+   * individually but slashes are kept as literal '/' for readability.
    */
-  const loadFiles = useCallback(
-    async (path: string, forceRefresh = false) => {
-      if (!selectedConnectionId) {
-        return;
-      }
+  const encodePath = useCallback((path: string): string => {
+    return path
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+  }, []);
 
-      const cacheKey = `${selectedConnectionId}:${path}`;
-      const now = Date.now();
+  /**
+   * updateUrl
+   *
+   * Builds the full URL from both panes' state and navigates to it.
+   * Left pane is encoded in the path segment (backward-compatible).
+   * Right pane is encoded as `?p2=connection-slug/path` query parameter.
+   * Active pane is encoded as `&active=2` when the right pane is focused.
+   *
+   * Single-pane mode produces a clean URL with no query string.
+   */
+  const updateUrl = useCallback(() => {
+    if (isInitializing.current) return;
+    if (isUpdatingFromUrl.current) return;
 
-      if (!forceRefresh) {
-        const cached = directoryCache.current.get(cacheKey);
-        if (cached && now - cached.timestamp < DIRECTORY_CACHE_TTL_MS) {
-          setFiles(cached.items);
-          setLoading(false);
-          setError(null);
-          return;
+    // ── Left pane (path segment) ──
+    const leftConnId = leftPane.connectionIdRef.current;
+    const leftPath = leftPane.currentPathRef.current;
+    const leftConnection = connections.find((c: Connection) => c.id === leftConnId);
+    if (!leftConnection) return;
+
+    const leftSlug = slugifyConnectionName(leftConnection.name);
+    const leftEncodedPath = encodePath(leftPath);
+    let newUrl = `/browse/${leftSlug}${leftEncodedPath ? `/${leftEncodedPath}` : ""}`;
+
+    // ── Right pane (query parameter) — only in dual mode ──
+    const rightConnId = rightPane.connectionIdRef.current;
+    const rightPath = rightPane.currentPathRef.current;
+    const currentIsDual = paneMode === "dual" && !useCompactLayout;
+
+    if (currentIsDual && rightConnId) {
+      const rightConnection = connections.find((c: Connection) => c.id === rightConnId);
+      if (rightConnection) {
+        const rightSlug = slugifyConnectionName(rightConnection.name);
+        const rightEncodedPath = encodePath(rightPath);
+        const p2Value = `${rightSlug}${rightEncodedPath ? `/${rightEncodedPath}` : ""}`;
+
+        const qp = new URLSearchParams();
+        qp.set(RIGHT_PANE_QUERY_KEY, p2Value);
+        if (activePaneId === "right") {
+          qp.set(ACTIVE_PANE_QUERY_KEY, "2");
         }
-      } else {
-        directoryCache.current.delete(cacheKey);
+        newUrl += `?${qp.toString()}`;
       }
+    }
 
-      setLoading(true);
-      setError(null);
-
-      try {
-        const listing = await api.listDirectory(selectedConnectionId, path);
-        const items = listing.items ?? [];
-        directoryCache.current.set(cacheKey, { items, timestamp: now });
-        setFiles(items);
-      } catch (err) {
-        logger.error(
-          "Error loading directory",
-          {
-            error: err,
-            connectionId: selectedConnectionId,
-            path,
-          },
-          "browser"
-        );
-
-        // Extract error message from API response if available
-        let errorMessage = "Failed to load directory contents. Please try again.";
-
-        // Check for network errors first (before API errors)
-        if (err && typeof err === "object" && "message" in err && !isApiError(err)) {
-          const error = err as Error & { code?: string };
-          const message = error.message;
-          if (message.includes("Network Error") || message.includes("ECONNREFUSED") || error.code === "ECONNREFUSED") {
-            errorMessage = "Failed to load files. Please check your connection settings.";
-          }
-        } else if (isApiError(err)) {
-          // API errors with response
-          if (err.response?.status === 404) {
-            // Check if there's a specific detail message
-            const detail = err.response?.data?.detail;
-            errorMessage = detail || "Directory not found. It may have been removed or renamed.";
-          } else if (err.response?.data?.detail) {
-            // Use the detail message from the API
-            errorMessage = err.response.data.detail;
-          }
-        }
-
-        setError(errorMessage);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [selectedConnectionId]
-  );
-
-  useEffect(() => {
-    loadFilesRef.current = loadFiles;
-  }, [loadFiles]);
-
-  // Helper to update URL when navigation changes
-  const updateUrl = useCallback(
-    (connectionId: string, path: string) => {
-      if (isInitializing.current) return; // Don't update URL during initialization
-      if (isUpdatingFromUrl.current) return; // Don't update URL when state is being set from URL
-
-      // Find connection and use its name as identifier
-      const connection = connections.find((c: Connection) => c.id === connectionId);
-      if (!connection) return;
-
-      const identifier = slugifyConnectionName(connection.name);
-
-      // Encode the path but keep slashes as slashes (not %2F)
-      const encodedPath = path
-        .split("/")
-        .map((segment) => encodeURIComponent(segment))
-        .join("/");
-
-      const newUrl = `/browse/${identifier}${encodedPath ? `/${encodedPath}` : ""}`;
-
-      // Only navigate if URL actually changed to avoid duplicate history entries
-      if (location.pathname !== newUrl) {
-        navigate(newUrl, { replace: false });
-      }
-    },
-    [connections, slugifyConnectionName, location.pathname, navigate]
-  );
+    // Only navigate if URL actually changed
+    const currentFull = location.pathname + location.search;
+    if (currentFull !== newUrl) {
+      navigate(newUrl, { replace: false });
+    }
+  }, [
+    connections,
+    slugifyConnectionName,
+    encodePath,
+    paneMode,
+    useCompactLayout,
+    activePaneId,
+    location.pathname,
+    location.search,
+    navigate,
+    leftPane,
+    rightPane,
+  ]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Lifecycle Effects
   // ──────────────────────────────────────────────────────────────────────────
 
-  // Keep refs in sync with state for WebSocket callbacks (avoids closure issues)
-  useEffect(() => {
-    selectedConnectionIdRef.current = selectedConnectionId;
-  }, [selectedConnectionId]);
-
-  useEffect(() => {
-    currentPathRef.current = currentPath;
-  }, [currentPath]);
-
-  // Persist view mode preference
-  useEffect(() => {
-    localStorage.setItem("file-browser-view-mode", viewMode);
-  }, [viewMode]);
-
-  // Initial load - run once on mount
+  // Initial load - run once on mount.
+  // The `cancelled` flag prevents the second StrictMode invocation (and HMR
+  // re-mounts) from issuing duplicate API calls.
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run only once on mount to avoid aborting requests
   useEffect(() => {
-    loadConnections();
-    checkAdminStatus();
+    let cancelled = false;
+
+    const init = async () => {
+      await loadConnections();
+      if (cancelled) return;
+      await checkAdminStatus();
+    };
+    init();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Initialize state from URL after connections are loaded
@@ -551,13 +384,36 @@ const Browser: React.FC = () => {
   useEffect(() => {
     if (connections.length === 0) return; // Wait for connections to load
 
+    // ── Left pane: restore from path params ──
     if (params.connectionId) {
       const connection = getConnectionByName(params.connectionId);
       if (connection) {
-        setSelectedConnectionId(connection.id);
+        leftPane.setConnectionId(connection.id);
         const urlPath = params["*"] || "";
-        setCurrentPath(decodeURIComponent(urlPath));
+        leftPane.setCurrentPath(decodeURIComponent(urlPath));
       }
+    }
+
+    // ── Right pane: restore from ?p2= query parameter ──
+    const p2 = searchParams.get(RIGHT_PANE_QUERY_KEY);
+    if (p2) {
+      const slashIdx = p2.indexOf("/");
+      const rightSlug = slashIdx >= 0 ? p2.slice(0, slashIdx) : p2;
+      const rightPath = slashIdx >= 0 ? decodeURIComponent(p2.slice(slashIdx + 1)) : "";
+      const rightConn = getConnectionByName(rightSlug);
+      if (rightConn) {
+        setPaneMode("dual");
+        rightPane.setConnectionId(rightConn.id);
+        rightPane.setCurrentPath(rightPath);
+        localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
+      }
+    }
+
+    // ── Active pane: restore from ?active= ──
+    const activeParam = searchParams.get(ACTIVE_PANE_QUERY_KEY);
+    if (activeParam === "2" && p2) {
+      setActivePaneId("right");
+      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
     }
 
     // Mark initialization complete after state updates have been flushed
@@ -568,42 +424,79 @@ const Browser: React.FC = () => {
     });
   }, [connections.length, params.connectionId, params["*"]]);
 
-  // Handle browser back/forward navigation
+  // Handle browser back/forward navigation (both panes)
   // biome-ignore lint/correctness/useExhaustiveDependencies: getConnectionByName intentionally excluded - we use closure value to avoid re-running when function reference changes
   useEffect(() => {
     if (isInitializing.current || connections.length === 0) return;
 
     isUpdatingFromUrl.current = true;
 
+    // ── Left pane: sync from path params ──
     if (params.connectionId) {
       const connection = getConnectionByName(params.connectionId);
-      if (connection && connection.id !== selectedConnectionIdRef.current) {
-        setSelectedConnectionId(connection.id);
+      if (connection && connection.id !== leftPane.connectionIdRef.current) {
+        leftPane.setConnectionId(connection.id);
       }
     }
 
     const urlPath = params["*"] || "";
     const decodedPath = decodeURIComponent(urlPath);
+    if (leftPane.currentPathRef.current !== decodedPath) {
+      logger.debug("[URL Navigation] Setting left pane path", { path: decodedPath }, "browser");
+      leftPane.setCurrentPath(decodedPath);
+    }
 
-    // Only update if the path actually changed (using ref to avoid stale closure)
-    if (currentPathRef.current !== decodedPath) {
-      logger.debug(
-        "[URL Navigation useEffect] Setting currentPath to:",
-        {
-          path: decodedPath,
-        },
-        "browser"
-      );
-      setCurrentPath(decodedPath);
-    } else {
-      logger.debug("[URL Navigation useEffect] Path unchanged, skipping update", {}, "browser");
+    // ── Right pane: sync from ?p2= ──
+    const p2 = searchParams.get(RIGHT_PANE_QUERY_KEY);
+    if (p2) {
+      const slashIdx = p2.indexOf("/");
+      const rightSlug = slashIdx >= 0 ? p2.slice(0, slashIdx) : p2;
+      const rightPath = slashIdx >= 0 ? decodeURIComponent(p2.slice(slashIdx + 1)) : "";
+      const rightConn = getConnectionByName(rightSlug);
+      if (rightConn) {
+        if (paneMode !== "dual") {
+          setPaneMode("dual");
+          localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
+        }
+        if (rightConn.id !== rightPane.connectionIdRef.current) {
+          rightPane.setConnectionId(rightConn.id);
+        }
+        if (rightPane.currentPathRef.current !== rightPath) {
+          rightPane.setCurrentPath(rightPath);
+        }
+      }
+    } else if (paneMode === "dual") {
+      // URL has no p2 — revert to single mode (e.g. user pressed back after closing dual mode)
+      setPaneMode("single");
+      setActivePaneId("left");
+      rightPane.setConnectionId("");
+      rightPane.setCurrentPath("");
+      rightPane.setViewInfo(null);
+      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "single");
+      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+    }
+
+    // ── Active pane: sync from ?active= ──
+    const activeParam = searchParams.get(ACTIVE_PANE_QUERY_KEY);
+    const urlActivePaneId: PaneId = activeParam === "2" ? "right" : "left";
+    if (activePaneId !== urlActivePaneId) {
+      setActivePaneId(urlActivePaneId);
+      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, urlActivePaneId);
     }
 
     // Reset flag after state updates have been flushed
     Promise.resolve().then(() => {
       isUpdatingFromUrl.current = false;
     });
-  }, [connections.length, params.connectionId, params["*"]]);
+  }, [connections.length, params.connectionId, params["*"], searchParams]);
+
+  // Sync URL with state changes from both panes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rightPane dependencies are covered by the refs inside updateUrl
+  useEffect(() => {
+    if (leftPane.connectionId) {
+      updateUrl();
+    }
+  }, [leftPane.currentPath, leftPane.connectionId, rightPane.currentPath, rightPane.connectionId, paneMode, activePaneId, updateUrl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // WebSocket Real-Time Updates
@@ -615,9 +508,21 @@ const Browser: React.FC = () => {
    * - Automatic reconnection with 5-second delay on disconnect
    * - Cache invalidation when remote changes detected
    * - Selective directory subscription based on current path
+   *
+   * The socket is tracked in a local variable (`activeWs`) rather than only
+   * in `wsRef`, because `wsRef.current` is set inside the async `onopen`
+   * callback. If cleanup runs before `onopen` fires (React StrictMode
+   * double-mount or Vite HMR), `wsRef.current` would still be `null` and
+   * the socket would leak. `disposed` prevents reconnection after unmount.
    */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: WebSocket created once on mount. handleDirectoryChanged refs are stable.
   useEffect(() => {
+    let disposed = false;
+    let activeWs: WebSocket | null = null;
+
     const connectWebSocket = () => {
+      if (disposed) return;
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       // In development, use port 8000; in production, use same port as current page
       const isDev = window.location.port === "3000" || window.location.hostname === "localhost";
@@ -626,64 +531,39 @@ const Browser: React.FC = () => {
 
       logger.info("Connecting to WebSocket", { wsUrl }, "websocket");
       const ws = new WebSocket(wsUrl);
+      activeWs = ws;
 
       ws.onopen = () => {
+        if (disposed) {
+          ws.close();
+          return;
+        }
         logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
 
-        // Subscribe to current directory if we have one
-        const connId = selectedConnectionIdRef.current;
-        const path = currentPathRef.current;
-        if (connId && path !== undefined) {
-          logger.debug(
-            "Subscribing to directory changes",
-            {
-              connectionId: connId,
-              path,
-            },
-            "websocket"
-          );
-          ws.send(
-            JSON.stringify({
-              action: "subscribe",
-              connection_id: connId,
-              path: path,
-            })
-          );
+        // Subscribe to left pane's current directory
+        const leftConnId = leftPane.connectionIdRef.current;
+        const leftPath = leftPane.currentPathRef.current;
+        if (leftConnId && leftPath !== undefined) {
+          logger.debug("Subscribing to left pane directory", { connectionId: leftConnId, path: leftPath }, "websocket");
+          ws.send(JSON.stringify({ action: "subscribe", connection_id: leftConnId, path: leftPath }));
+        }
+
+        // Subscribe to right pane's current directory (if in dual mode)
+        const rightConnId = rightPane.connectionIdRef.current;
+        const rightPath = rightPane.currentPathRef.current;
+        if (rightConnId && rightPath !== undefined) {
+          logger.debug("Subscribing to right pane directory", { connectionId: rightConnId, path: rightPath }, "websocket");
+          ws.send(JSON.stringify({ action: "subscribe", connection_id: rightConnId, path: rightPath }));
         }
       };
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-
         if (data.type === "directory_changed") {
-          // Use refs to get current values (avoid closure issues)
-          const currentConnId = selectedConnectionIdRef.current;
-          const currentDir = currentPathRef.current;
-
-          // Invalidate cache for this directory
-          const cacheKey = `${data.connection_id}:${data.path}`;
-          directoryCache.current.delete(cacheKey);
-
-          logger.info(
-            "Directory changed notification received",
-            {
-              connectionId: data.connection_id,
-              path: data.path,
-              isCurrentDirectory: data.connection_id === currentConnId && data.path === currentDir,
-            },
-            "websocket"
-          );
-
-          // If we're currently viewing this directory, reload it
-          if (data.connection_id === currentConnId && data.path === currentDir) {
-            // Skip if a forced reload was already triggered recently (e.g. after a delete)
-            if (Date.now() - lastForceReloadRef.current < RELOAD_DEDUP_WINDOW_MS) {
-              logger.info("Skipping redundant WebSocket reload (recent forced reload)", undefined, "websocket");
-            } else {
-              loadFilesRef.current?.(currentDir, true); // Force reload
-            }
-          }
+          // Dispatch to both panes — each pane checks if it's viewing the affected directory
+          leftPane.handleDirectoryChanged(data.connection_id, data.path);
+          rightPane.handleDirectoryChanged(data.connection_id, data.path);
         }
       };
 
@@ -692,1183 +572,317 @@ const Browser: React.FC = () => {
       };
 
       ws.onclose = () => {
-        logger.warn("WebSocket disconnected, will reconnect in 5s", { wsUrl }, "websocket");
+        logger.warn("WebSocket disconnected", { wsUrl, willReconnect: !disposed }, "websocket");
+        if (activeWs === ws) {
+          activeWs = null;
+        }
         wsRef.current = null;
 
-        // Reconnect after 5 seconds
-        reconnectTimeoutRef.current = window.setTimeout(() => {
-          connectWebSocket();
-        }, 5000);
+        if (!disposed) {
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            connectWebSocket();
+          }, 5000);
+        }
       };
     };
 
     connectWebSocket();
 
-    // Cleanup on unmount
     return () => {
+      disposed = true;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
-      if (wsRef.current) {
-        wsRef.current.close();
+      // Close the locally-tracked socket — works even if onopen hasn't fired yet
+      if (activeWs) {
+        activeWs.close();
+        activeWs = null;
       }
+      wsRef.current = null;
     };
-  }, []); // WebSocket connection is stable - created once on mount
+  }, []);
 
-  // Subscribe/unsubscribe when directory changes
+  // Subscribe/unsubscribe when either pane's directory changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: paneMode is needed to re-subscribe when toggling dual mode
   useEffect(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN && selectedConnectionId) {
-      // Unsubscribe from all and subscribe to current directory
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+
+    // Subscribe to left pane's directory
+    if (leftPane.connectionId) {
       wsRef.current.send(
         JSON.stringify({
           action: "subscribe",
-          connection_id: selectedConnectionId,
-          path: currentPath,
+          connection_id: leftPane.connectionId,
+          path: leftPane.currentPath,
         })
       );
     }
-  }, [currentPath, selectedConnectionId]);
 
-  // Sync URL with state changes
-  useEffect(() => {
-    if (selectedConnectionId) {
-      updateUrl(selectedConnectionId, currentPath);
+    // Subscribe to right pane's directory when in dual mode
+    if (isDualMode && rightPane.connectionId) {
+      wsRef.current.send(
+        JSON.stringify({
+          action: "subscribe",
+          connection_id: rightPane.connectionId,
+          path: rightPane.currentPath,
+        })
+      );
     }
-  }, [currentPath, selectedConnectionId, updateUrl]);
-
-  // Load files when connection or path changes
-  useEffect(() => {
-    if (selectedConnectionId) {
-      // Use ref to avoid dependency on loadFiles function
-      loadFilesRef.current?.(currentPath);
-    }
-  }, [currentPath, selectedConnectionId]);
-
-  // Calculate visible row count for PageUp/PageDown navigation
-  // Attach a resize observer whenever the list container mounts
-  useLayoutEffect(() => {
-    const element = listContainerEl;
-    if (!element) {
-      return;
-    }
-
-    const updateVisibleRows = () => {
-      const rect = element.getBoundingClientRect();
-      const visibleRows = Math.floor(rect.height / rowHeight);
-      const newCount = visibleRows >= 5 ? visibleRows : 10;
-      if (newCount !== visibleRowCountRef.current) {
-        setVisibleRowCount(newCount);
-        visibleRowCountRef.current = newCount;
-      }
-    };
-
-    updateVisibleRows();
-    const observer = new ResizeObserver(updateVisibleRows);
-    observer.observe(element);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [listContainerEl, rowHeight]);
-
-  // Focus the list container when it first mounts or directory contents change.
-  // files.length is an intentional trigger: re-focus when navigating to a new directory.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: files.length is a deliberate trigger dependency
-  useEffect(() => {
-    if (listContainerEl && !viewInfo) {
-      listContainerEl.focus();
-    }
-  }, [listContainerEl, files.length, viewInfo]);
+  }, [leftPane.currentPath, leftPane.connectionId, rightPane.currentPath, rightPane.connectionId, isDualMode, paneMode]);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Event Handlers
+  // Dual-Pane Handlers
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleConnectionChange = (connectionId: string) => {
-    // Skip if the user re-selected the already-active connection
-    if (connectionId === selectedConnectionId) return;
+  /** Toggle between single and dual-pane mode. */
+  const handleToggleDualPane = useCallback(() => {
+    if (paneMode === "single") {
+      // Activate dual mode — initialize right pane with left pane's location
+      setPaneMode("dual");
+      setActivePaneId("right");
+      rightPane.setConnectionId(leftPane.connectionIdRef.current);
+      rightPane.setCurrentPath(leftPane.currentPathRef.current);
+      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
+      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
+    } else {
+      // Return to single mode — clear right pane to avoid background work
+      setPaneMode("single");
+      setActivePaneId("left");
+      rightPane.setConnectionId("");
+      rightPane.setCurrentPath("");
+      rightPane.setViewInfo(null);
+      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "single");
+      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+      // Focus left pane's list container
+      setTimeout(() => leftPane.listContainerEl?.focus(), 0);
+    }
+  }, [paneMode, leftPane, rightPane]);
 
-    setSelectedConnectionId(connectionId);
-    setCurrentPath("");
-    setViewInfo(null);
-    setFiles([]);
-    // Clear caches when switching connections
-    directoryCache.current.clear();
-    navigationHistory.current.clear();
-    // Persist selection
-    localStorage.setItem("selectedConnectionId", connectionId);
-  };
+  /** Switch focus to the other pane (Tab in dual mode). */
+  const handleSwitchPane = useCallback(() => {
+    if (!isDualMode) return;
+    const currentId = effectiveActivePaneIdRef.current;
+    const nextId: PaneId = currentId === "left" ? "right" : "left";
+    setActivePaneId(nextId);
+    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextId);
+    const nextPane = nextId === "left" ? leftPane : rightPane;
+    setTimeout(() => nextPane.listContainerEl?.focus(), 0);
+  }, [isDualMode, leftPane, rightPane]);
+
+  /** Focus the left pane (Ctrl+1). Opens dual mode from single if Ctrl+2 is used. */
+  const handleFocusLeftPane = useCallback(() => {
+    setActivePaneId("left");
+    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+    setTimeout(() => leftPane.listContainerEl?.focus(), 0);
+  }, [leftPane]);
+
+  /** Focus the right pane (Ctrl+2). Opens dual mode if currently in single. */
+  const handleFocusRightPane = useCallback(() => {
+    if (paneMode === "single") {
+      // Open dual mode and focus right pane
+      setPaneMode("dual");
+      rightPane.setConnectionId(leftPane.connectionIdRef.current);
+      rightPane.setCurrentPath(leftPane.currentPathRef.current);
+      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
+    }
+    setActivePaneId("right");
+    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
+    setTimeout(() => rightPane.listContainerEl?.focus(), 0);
+  }, [paneMode, leftPane, rightPane]);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Data Processing (Sort & Filter)
+  // Keyboard Shortcuts
   // ──────────────────────────────────────────────────────────────────────────
-
-  /**
-   * sortedAndFilteredFiles
-   *
-   * Applies search filter and sorting to file list.
-   * Directories always shown first, then files.
-   * Single-pass algorithm for optimal performance.
-   */
-  const sortedAndFilteredFiles = useMemo(() => {
-    // Single-pass separation and sorting
-    const directories: FileEntry[] = [];
-    const regularFiles: FileEntry[] = [];
-
-    for (const file of files) {
-      if (file.type === "directory") {
-        directories.push(file);
-      } else {
-        regularFiles.push(file);
-      }
-    }
-
-    // Optimized sort function
-    const sortFunction = (a: FileEntry, b: FileEntry) => {
-      let comparison = 0;
-      switch (sortBy) {
-        case "name":
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case "size":
-          comparison = (a.size || 0) - (b.size || 0);
-          break;
-        case "modified": {
-          const dateA = a.modified_at ? new Date(a.modified_at).getTime() : 0;
-          const dateB = b.modified_at ? new Date(b.modified_at).getTime() : 0;
-          comparison = dateA - dateB;
-          break;
-        }
-        case "type": {
-          // Extract file extensions (empty string for files without extension)
-          const extA = a.name.includes(".") ? a.name.split(".").pop()?.toLowerCase() || "" : "";
-          const extB = b.name.includes(".") ? b.name.split(".").pop()?.toLowerCase() || "" : "";
-          comparison = extA.localeCompare(extB);
-          // If extensions are the same, sort by name as secondary criterion
-          if (comparison === 0) {
-            comparison = a.name.localeCompare(b.name);
-          }
-          break;
-        }
-        default:
-          comparison = 0;
-      }
-      return sortDirection === "asc" ? comparison : -comparison;
-    };
-
-    directories.sort(sortFunction);
-    regularFiles.sort(sortFunction);
-
-    return [...directories, ...regularFiles];
-  }, [files, sortBy, sortDirection]);
-
-  // Get all image files in current directory for gallery mode
-  // Use sortedAndFilteredFiles to match the display order
-  const imageFiles = useMemo(() => {
-    return sortedAndFilteredFiles
-      .filter((f: FileEntry) => f.type === "file" && isImageFile(f.name))
-      .map((f: FileEntry) => (currentPath ? `${currentPath}/${f.name}` : f.name));
-  }, [sortedAndFilteredFiles, currentPath]);
-
-  const handleFileClick = useCallback(
-    (file: FileEntry, index?: number) => {
-      if (index !== undefined) {
-        updateFocus(index, { immediate: true });
-      }
-      if (file.type === "directory") {
-        // Save current state before navigating into directory
-        const currentScrollOffset = parentRef.current?.scrollTop || 0;
-        const currentFocusedIndex = focusedIndex;
-        navigationHistory.current.set(currentPath, {
-          focusedIndex: currentFocusedIndex,
-          scrollOffset: currentScrollOffset,
-          selectedFileName: file.name,
-        });
-
-        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-
-        logger.info(
-          "Navigating to directory",
-          {
-            from: currentPath,
-            to: newPath,
-            directory: file.name,
-          },
-          "browser"
-        );
-
-        setCurrentPath(newPath);
-        setViewInfo(null);
-        // Blur any focused element when navigating so keyboard shortcuts work
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-      } else {
-        const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
-        const viewerSessionId = createViewerSessionId();
-
-        // Get MIME type from backend (provided via get_file_info API call)
-        const mimeType = file.mime_type || "application/octet-stream";
-
-        // Check if it's an image for gallery mode
-        const isImage = isImageFile(file.name);
-
-        logger.info(
-          "File selected for viewing",
-          {
-            path: filePath,
-            fileName: file.name,
-            size: file.size,
-            mimeType,
-            isImage,
-            imageFilesCount: imageFiles.length,
-          },
-          "viewer"
-        );
-
-        if (isImage && imageFiles.length > 0) {
-          // Gallery mode for images
-          const imageIndex = imageFiles.indexOf(filePath);
-          logger.info(
-            "Opening image in gallery mode",
-            {
-              imageIndex,
-              totalImages: imageFiles.length,
-            },
-            "viewer"
-          );
-          const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
-          currentViewIndexRef.current = effectiveIndex;
-          currentViewImagesRef.current = imageFiles;
-          setViewInfo({
-            path: filePath,
-            mimeType,
-            images: imageFiles,
-            currentIndex: effectiveIndex,
-            sessionId: viewerSessionId,
-          });
-        } else {
-          currentViewIndexRef.current = null;
-          currentViewImagesRef.current = undefined;
-
-          // Check if viewer component is available for this MIME type
-          const canView = hasViewerSupport(mimeType);
-
-          logger.info(
-            "Opening file in single viewer mode",
-            {
-              isImage,
-              mimeType,
-              hasViewerSupport: canView,
-            },
-            "viewer"
-          );
-
-          // Only open viewer if we have a component for it
-          if (canView) {
-            setViewInfo({
-              path: filePath,
-              mimeType,
-              sessionId: viewerSessionId,
-            });
-          } else {
-            logger.info(
-              "No viewer component available, file will not open",
-              {
-                mimeType,
-              },
-              "viewer"
-            );
-          }
-        }
-
-        // Keep old behavior for markdown (backward compatibility)
-        // Viewer component is managed exclusively through viewInfo state
-      }
-    },
-    [currentPath, updateFocus, imageFiles, focusedIndex]
-  );
-
-  const handleViewIndexChange = useCallback((index: number) => {
-    currentViewIndexRef.current = index;
-    setViewInfo((prev: typeof viewInfo) => {
-      if (!prev || !prev.images || prev.images.length === 0) {
-        return prev;
-      }
-
-      const nextPath = prev.images[index] ?? prev.path;
-      if (prev.currentIndex === index && prev.path === nextPath) {
-        return prev;
-      }
-
-      return {
-        ...prev,
-        currentIndex: index,
-        path: nextPath,
-      };
-    });
-  }, []);
-
-  const handleViewClose = useCallback(() => {
-    const images = currentViewImagesRef.current ?? viewInfo?.images;
-    const indexFromRef = currentViewIndexRef.current ?? viewInfo?.currentIndex ?? null;
-
-    let finalPath: string | undefined;
-    if (images && images.length > 0) {
-      const clampedIndex = indexFromRef !== null ? Math.min(Math.max(indexFromRef, 0), images.length - 1) : 0;
-      finalPath = images[clampedIndex];
-    } else if (viewInfo?.path) {
-      finalPath = viewInfo.path;
-    }
-
-    setViewInfo(null);
-    currentViewIndexRef.current = null;
-    currentViewImagesRef.current = undefined;
-
-    if (!finalPath) {
-      return;
-    }
-
-    const targetIndex = sortedAndFilteredFiles.findIndex((file: FileEntry) => {
-      if (file.type !== "file") {
-        return false;
-      }
-      const fullPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-      return fullPath === finalPath;
-    });
-
-    if (targetIndex >= 0) {
-      updateFocus(targetIndex, { immediate: true });
-    }
-  }, [currentPath, viewInfo, sortedAndFilteredFiles, updateFocus]);
-
-  // Memoize measureElement to prevent rowVirtualizer from changing on every render
-  const measureElement = React.useMemo(
-    () =>
-      typeof window !== "undefined" && navigator.userAgent.includes("Firefox")
-        ? undefined
-        : (element: Element) => element.getBoundingClientRect().height,
-    []
-  );
-
-  // TanStack Virtual: Initialize the virtualizer for efficient rendering of large lists
-  const rowVirtualizer = useVirtualizer({
-    count: sortedAndFilteredFiles.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => rowHeight,
-    overscan: 10, // Increased overscan for smoother scrolling during rapid navigation
-    measureElement,
-    // Use stable file/directory name as key instead of index for proper React reconciliation
-    // This ensures each FileRow is properly tracked across sorting/filtering changes
-    getItemKey: (index: number) => sortedAndFilteredFiles[index]?.name ?? index,
-    // Optimize scroll offset calculations by accounting for the container's offset
-    // This ensures scrollToIndex calculations are pixel-perfect
-    scrollMargin: parentRef.current?.offsetTop ?? 0,
-    // Enable smooth scrolling behavior for better UX (TanStack Virtual will handle the animation)
-    // This is particularly effective during programmatic scrolling operations
-    enabled: true, // Explicitly enable the virtualizer (default, but being explicit)
-  });
-
-  // Keep ref updated and restore or reset focused index when files change
-  const prevPathForFocusRef = React.useRef<string>(currentPath);
-  useEffect(() => {
-    filesRef.current = sortedAndFilteredFiles;
-
-    // Clear pending rename focus when navigating to a different directory
-    if (currentPath !== prevPathForFocusRef.current) {
-      prevPathForFocusRef.current = currentPath;
-      pendingFocusNameRef.current = null;
-    }
-
-    // Check if we have saved state to restore for current path
-    const savedState = navigationHistory.current.get(currentPath);
-    if (savedState?.selectedFileName) {
-      // Find the index of the previously selected item
-      const restoredIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName);
-      if (restoredIndex >= 0) {
-        lastRestoredPathRef.current = currentPath;
-        updateFocus(restoredIndex, { immediate: true });
-        // Restore exact scroll position in next frame to ensure list is rendered
-        requestAnimationFrame(() => {
-          if (parentRef.current) {
-            parentRef.current.scrollTop = savedState.scrollOffset;
-          }
-        });
-        // Clear the saved state after restoring
-        navigationHistory.current.delete(currentPath);
-        return;
-      }
-      // If we have saved state but file not found yet, don't reset to 0
-      // This prevents flickering when files are still loading
-      return;
-    }
-    // After rename: focus the item with the new name
-    // The ref is NOT cleared here — it is only cleared on path change (above).
-    // This ensures the focus survives React StrictMode's double effect invocation.
-    const pendingName = pendingFocusNameRef.current;
-    if (pendingName !== null) {
-      const idx = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === pendingName);
-      if (idx >= 0) {
-        updateFocus(idx, { immediate: true });
-        rowVirtualizer.scrollToIndex(idx, { align: "auto" });
-      }
-      // Whether found or not, skip the default reset-to-0
-      return;
-    }
-
-    // Default: reset to top (only if no saved state exists AND we haven't just restored this path)
-    if (lastRestoredPathRef.current !== currentPath) {
-      updateFocus(0, { immediate: true });
-      // Ensure scroll to top even if focusedIndex is already 0
-      rowVirtualizer.scrollToIndex(0, { align: "start" });
-    }
-  }, [sortedAndFilteredFiles, currentPath, updateFocus, rowVirtualizer]);
-
-  // Scroll focused item into view using VirtualList API
-  // Use useLayoutEffect to run synchronously BEFORE React renders components
-  // This prevents the old viewport from rendering with the new focusedIndex
-  const prevFocusedIndexRef = React.useRef<number>(0);
-
-  // Skip the layout effect scroll if we already handled it synchronously in the keyboard handler
-  const skipNextLayoutScrollRef = React.useRef<boolean>(false);
-
-  // Track the last path we restored to prevent resetting focus during restoration
-  const lastRestoredPathRef = React.useRef<string | null>(null);
-
-  // Update focused index when files change or search query changes
-  useLayoutEffect(() => {
-    if (focusedIndex >= 0) {
-      const prev = prevFocusedIndexRef.current;
-      const diff = focusedIndex - prev;
-
-      if (skipNextLayoutScrollRef.current || lastRestoredPathRef.current === currentPathRef.current) {
-        skipNextLayoutScrollRef.current = false;
-        lastRestoredPathRef.current = null;
-        prevFocusedIndexRef.current = focusedIndex;
-        return;
-      }
-
-      // Determine alignment based on jump size
-      let align: "auto" | "center" | "end" | "start" = "auto";
-
-      // Large forward jump (PageDown) - lock new focused item at bottom
-      if (diff >= visibleRowCount) {
-        align = "end";
-      }
-      // Large backward jump (PageUp) - lock new focused item at top
-      else if (diff <= -visibleRowCount) {
-        align = "start";
-      } else if (Math.abs(diff) === 1) {
-        // Single-step arrow navigation - use simple edge detection without forced reflow
-        // Use "auto" alignment which lets TanStack Virtual decide based on its internal state
-        // This avoids calling getVirtualItems() which causes layout thrashing
-        align = "auto";
-      } else {
-        // Multi-step jump (Home/End or programmatic) - align to appropriate edge
-        align = diff > 0 ? "end" : "start";
-      }
-
-      rowVirtualizer.scrollToIndex(focusedIndex, {
-        align,
-      });
-
-      // Update previous value
-      prevFocusedIndexRef.current = focusedIndex;
-    }
-  }, [focusedIndex, visibleRowCount, rowVirtualizer]);
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Keyboard Navigation & Shortcuts
-  // ──────────────────────────────────────────────────────────────────────────
-
-  // Arrow key and navigation handlers
-  const handleNavigateDown = useCallback(
-    (e?: KeyboardEvent) => {
-      // Check focus at keypress time, not render time
-      if (!listContainerEl) return;
-      const activeElement = document.activeElement;
-      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-      if (focusedIndex < 0) return;
-      const fileCount = filesRef.current.length;
-      const next = Math.min(focusedIndex + 1, fileCount - 1);
-      if (next === focusedIndex) return;
-
-      // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
-      if (e?.repeat) {
-        updateFocus(next, { immediate: false });
-      } else {
-        updateFocus(next);
-      }
-    },
-    [focusedIndex, updateFocus, listContainerEl]
-  );
-
-  const handleArrowUp = useCallback(
-    (e?: KeyboardEvent) => {
-      // Check focus at keypress time, not render time
-      if (!listContainerEl) return;
-      const activeElement = document.activeElement;
-      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-      if (focusedIndex < 0) return;
-
-      const next = Math.max(focusedIndex - 1, 0);
-      if (next === focusedIndex) return;
-
-      // For key repeat (holding down arrow), use async scrolling to avoid layout thrashing
-      if (e?.repeat) {
-        updateFocus(next, { immediate: false });
-      } else {
-        updateFocus(next);
-      }
-    },
-    [focusedIndex, updateFocus, listContainerEl]
-  );
-
-  const handleHome = useCallback(() => {
-    // Check focus at keypress time, not render time
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    updateFocus(0);
-  }, [updateFocus, listContainerEl]);
-
-  const handleEnd = useCallback(() => {
-    // Check focus at keypress time, not render time
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    const fileCount = filesRef.current.length;
-    updateFocus(fileCount - 1);
-  }, [updateFocus, listContainerEl]);
-
-  const handlePageDown = useCallback(
-    (e?: KeyboardEvent) => {
-      // Check focus at keypress time, not render time
-      if (!listContainerEl) return;
-      const activeElement = document.activeElement;
-      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-      const fileCount = filesRef.current.length;
-      const pageSize = visibleRowCount;
-      const newIndex = Math.min(focusedIndex + pageSize, fileCount - 1);
-
-      if (e?.repeat) {
-        updateFocus(newIndex, { immediate: false });
-      } else {
-        rowVirtualizer.scrollToIndex(newIndex, { align: "end" });
-        skipNextLayoutScrollRef.current = true;
-        updateFocus(newIndex, { immediate: true });
-      }
-    },
-    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer, listContainerEl]
-  );
-
-  const handlePageUp = useCallback(
-    (e?: KeyboardEvent) => {
-      // Check focus at keypress time, not render time
-      if (!listContainerEl) return;
-      const activeElement = document.activeElement;
-      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-      const pageSize = visibleRowCount;
-      const newIndex = Math.max(focusedIndex - pageSize, 0);
-
-      if (e?.repeat) {
-        updateFocus(newIndex, { immediate: false });
-      } else {
-        rowVirtualizer.scrollToIndex(newIndex, { align: "start" });
-        skipNextLayoutScrollRef.current = true;
-        updateFocus(newIndex, { immediate: true });
-      }
-    },
-    [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer, listContainerEl]
-  );
-
-  const handleOpenFile = useCallback(() => {
-    // Check focus at keypress time, not render time
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    const files = filesRef.current;
-    const file = files[focusedIndex];
-    if (file) {
-      handleFileClick(file, focusedIndex);
-    }
-  }, [focusedIndex, handleFileClick, listContainerEl]);
-
-  const handleNavigateUpDirectory = useCallback(() => {
-    if (currentPathRef.current) {
-      const pathParts = currentPathRef.current.split("/");
-      const newPath = pathParts.slice(0, -1).join("/");
-      setCurrentPath(newPath);
-      setViewInfo(null);
-    }
-  }, []);
-
-  const handleClose = useCallback(() => {
-    setViewInfo(null);
-  }, []);
-
-  const handleFocusSearch = useCallback(() => {
-    searchInputRef.current?.focus();
-  }, []);
-
-  const handleRefresh = useCallback(() => {
-    loadFilesRef.current?.(currentPathRef.current, true);
-  }, []);
-
-  //
-  // handleDeleteRequest
-  //
-  const handleDeleteRequest = useCallback(() => {
-    /**
-     * Opens the delete confirmation dialog for the currently focused item.
-     * Only fires when the file list container has focus.
-     */
-
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    const file = filesRef.current[focusedIndex];
-    if (!file) return;
-
-    setDeleteTarget(file);
-    setDeleteDialogOpen(true);
-  }, [focusedIndex, listContainerEl]);
-
-  //
-  // handleDeleteConfirm
-  //
-  const handleDeleteConfirm = useCallback(async () => {
-    /**
-     * Executes deletion via the API, refreshes the file list, and closes the
-     * dialog. Adjusts focusedIndex if the deleted item was at the end of the
-     * list. Shows an error alert on failure.
-     */
-
-    if (!deleteTarget || !selectedConnectionId) return;
-
-    setIsDeleting(true);
-    try {
-      await api.deleteItem(selectedConnectionId, deleteTarget.path);
-
-      // Close dialog and clear target
-      setDeleteDialogOpen(false);
-      setDeleteTarget(null);
-
-      // Refresh the file list
-      lastForceReloadRef.current = Date.now();
-      loadFilesRef.current?.(currentPathRef.current, true);
-
-      // Adjust focus so it doesn't point beyond the list
-      const newLength = filesRef.current.length - 1;
-      if (focusedIndex >= newLength && newLength > 0) {
-        setFocusedIndex(newLength - 1);
-      }
-
-      logger.info(`Deleted: ${deleteTarget.path}`, undefined, "file-browser");
-    } catch (err: unknown) {
-      let detail = "Failed to delete item.";
-      if (isApiError(err) && err.response?.data?.detail) {
-        detail = err.response.data.detail;
-      }
-      setError(detail);
-      logger.error(`Delete failed: ${deleteTarget.path}`, { error: err }, "file-browser");
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [deleteTarget, selectedConnectionId, focusedIndex]);
-
-  //
-  // handleRenameRequest
-  //
-  const handleRenameRequest = useCallback(() => {
-    /**
-     * Opens the rename dialog for the currently focused item.
-     * Only fires when the file list container has focus.
-     */
-
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    const file = filesRef.current[focusedIndex];
-    if (!file) return;
-
-    setRenameError(null);
-    setRenameTarget(file);
-    setRenameDialogOpen(true);
-  }, [focusedIndex, listContainerEl]);
-
-  //
-  // handleRenameConfirm
-  //
-  const handleRenameConfirm = useCallback(
-    async (newName: string) => {
-      /**
-       * Executes the rename via the API, refreshes the file list, and closes
-       * the dialog. Shows an inline error in the dialog on failure.
-       */
-
-      if (!renameTarget || !selectedConnectionId) return;
-
-      setIsRenaming(true);
-      setRenameError(null);
-      try {
-        await api.renameItem(selectedConnectionId, renameTarget.path, newName);
-
-        // Close dialog and clear target
-        setRenameDialogOpen(false);
-        setRenameTarget(null);
-
-        // Tell the focus-restore effect to select the renamed item
-        pendingFocusNameRef.current = newName;
-
-        // Refresh the file list
-        lastForceReloadRef.current = Date.now();
-        loadFilesRef.current?.(currentPathRef.current, true);
-
-        // Return keyboard focus to the file list so the focused row is visible
-        listContainerEl?.focus();
-
-        logger.info(`Renamed: ${renameTarget.path} -> ${newName}`, undefined, "file-browser");
-      } catch (err: unknown) {
-        let detail = "Failed to rename item.";
-        if (isApiError(err) && err.response?.data?.detail) {
-          detail = err.response.data.detail;
-        }
-        setRenameError(detail);
-        logger.error(`Rename failed: ${renameTarget.path}`, { error: err }, "file-browser");
-      } finally {
-        setIsRenaming(false);
-      }
-    },
-    [renameTarget, selectedConnectionId, listContainerEl]
-  );
-
-  //
-  // handleOpenInApp
-  //
-  const handleOpenInApp = useCallback(async () => {
-    /**
-     * Generates a sambee:// URI for the focused file and opens it,
-     * triggering the companion app via the OS custom protocol handler.
-     */
-    if (!selectedConnectionId) return;
-
-    const file = filesRef.current[focusedIndex];
-    if (!file || file.type === "directory") return;
-
-    const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
-
-    setOpenInAppLoading(true);
-    try {
-      const themeJson = JSON.stringify({
-        id: currentTheme.id,
-        mode: currentTheme.mode,
-        primary: currentTheme.primary.main,
-      });
-      const uri = await api.getCompanionUri(selectedConnectionId, filePath, themeJson);
-
-      logger.info("Opening file in companion app", { path: filePath }, "companion");
-
-      // Trigger the custom protocol handler
-      window.location.href = uri;
-
-      // Show guidance hint in case companion is not installed
-      setCompanionHintOpen(true);
-    } catch (err: unknown) {
-      let detail = "Failed to generate companion URI.";
-      if (isApiError(err) && err.response?.data?.detail) {
-        detail = err.response.data.detail;
-      }
-      setError(detail);
-      logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
-    } finally {
-      setOpenInAppLoading(false);
-    }
-  }, [selectedConnectionId, focusedIndex, currentTheme]);
-
-  /**
-   * Open the rename dialog for a specific file (used by context menu).
-   * Unlike handleRenameRequest which uses focusedIndex, this takes an explicit file.
-   */
-  const handleRenameForFile = useCallback((file: FileEntry, _index: number) => {
-    setRenameError(null);
-    setRenameTarget(file);
-    setRenameDialogOpen(true);
-  }, []);
-
-  //
-  // handleNewDirectoryRequest
-  //
-  const handleNewDirectoryRequest = useCallback(() => {
-    /**
-     * Opens the create dialog for a new directory.
-     * Works even in empty directories — no selected item required.
-     */
-
-    setCreateError(null);
-    setCreateItemType(FileType.DIRECTORY);
-    setCreateDialogOpen(true);
-  }, []);
-
-  //
-  // handleNewFileRequest
-  //
-  const handleNewFileRequest = useCallback(() => {
-    /**
-     * Opens the create dialog for a new file.
-     * Works even in empty directories — no selected item required.
-     */
-
-    setCreateError(null);
-    setCreateItemType(FileType.FILE);
-    setCreateDialogOpen(true);
-  }, []);
-
-  //
-  // handleCreateConfirm
-  //
-  const handleCreateConfirm = useCallback(
-    async (name: string) => {
-      /**
-       * Executes the create via the API, refreshes the file list, and closes
-       * the dialog. Shows an inline error in the dialog on failure.
-       */
-
-      if (!selectedConnectionId) return;
-
-      setIsCreating(true);
-      setCreateError(null);
-      try {
-        const parentPath = currentPathRef.current;
-        await api.createItem(selectedConnectionId, parentPath, name, createItemType === FileType.DIRECTORY ? "directory" : "file");
-
-        // Close dialog
-        setCreateDialogOpen(false);
-
-        // Tell the focus-restore effect to select the new item
-        pendingFocusNameRef.current = name;
-
-        // Refresh the file list
-        lastForceReloadRef.current = Date.now();
-        loadFilesRef.current?.(currentPathRef.current, true);
-
-        // Return keyboard focus to the file list
-        listContainerEl?.focus();
-
-        logger.info(`Created ${createItemType}: ${name}`, undefined, "file-browser");
-      } catch (err: unknown) {
-        let detail = "Failed to create item.";
-        if (isApiError(err) && err.response?.data?.detail) {
-          detail = err.response.data.detail;
-        }
-        setCreateError(detail);
-        logger.error(`Create failed: ${name}`, { error: err }, "file-browser");
-      } finally {
-        setIsCreating(false);
-      }
-    },
-    [selectedConnectionId, createItemType, listContainerEl]
-  );
-
-  /**
-   * Open a specific file in the companion app (used by context menu).
-   * Unlike handleOpenInApp which uses focusedIndex, this takes explicit file + index.
-   */
-  const handleOpenInAppForFile = useCallback(
-    async (file: FileEntry, _index: number) => {
-      if (!selectedConnectionId || file.type === "directory") return;
-
-      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
-
-      setOpenInAppLoading(true);
-      try {
-        const themeJson = JSON.stringify({
-          id: currentTheme.id,
-          mode: currentTheme.mode,
-          primary: currentTheme.primary.main,
-        });
-        const uri = await api.getCompanionUri(selectedConnectionId, filePath, themeJson);
-        logger.info("Opening file in companion app (context menu)", { path: filePath }, "companion");
-        window.location.href = uri;
-
-        // Show guidance hint in case companion is not installed
-        setCompanionHintOpen(true);
-      } catch (err: unknown) {
-        let detail = "Failed to generate companion URI.";
-        if (isApiError(err) && err.response?.data?.detail) {
-          detail = err.response.data.detail;
-        }
-        setError(detail);
-        logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
-      } finally {
-        setOpenInAppLoading(false);
-      }
-    },
-    [selectedConnectionId, currentTheme]
-  );
 
   /**
    * Keyboard shortcuts configuration
    *
    * Defines all browser shortcuts with handlers and enabled conditions.
-   * Integrates with centralized keyboard shortcut system.
+   * Routes navigation/action shortcuts to the active pane.
+   * Includes dual-pane shortcuts (Ctrl+B, Tab, Ctrl+1, Ctrl+2).
    */
   const browserShortcuts = useMemo(
     () => [
       // Navigation - Arrow keys (focus checked inside handlers)
       {
         ...BROWSER_SHORTCUTS.ARROW_DOWN,
-        handler: handleNavigateDown,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
+        handler: activePane.handleNavigateDown,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
       },
       {
         ...BROWSER_SHORTCUTS.ARROW_UP,
-        handler: handleArrowUp,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
+        handler: activePane.handleArrowUp,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
       },
       // Navigation - Home/End (focus checked inside handlers)
       {
         ...COMMON_SHORTCUTS.FIRST_PAGE,
         description: "First file",
-        handler: handleHome,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
+        handler: activePane.handleHome,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
       },
       {
         ...COMMON_SHORTCUTS.LAST_PAGE,
         description: "Last file",
-        handler: handleEnd,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
+        handler: activePane.handleEnd,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
       },
       // Navigation - Page Up/Down (focus checked inside handlers)
       {
         ...COMMON_SHORTCUTS.PAGE_DOWN,
-        handler: handlePageDown,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
+        handler: activePane.handlePageDown,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
       },
       {
         ...COMMON_SHORTCUTS.PAGE_UP,
-        handler: handlePageUp,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && filesRef.current.length > 0,
+        handler: activePane.handlePageUp,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
       },
       // Open file/folder (focus checked inside handler)
       {
         ...COMMON_SHORTCUTS.OPEN,
-        handler: handleOpenFile,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex] !== undefined,
+        handler: activePane.handleOpenFile,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          activePane.focusedIndex >= 0 &&
+          activePane.filesRef.current[activePane.focusedIndex] !== undefined,
       },
       // Navigate up directory
       {
         ...BROWSER_SHORTCUTS.NAVIGATE_UP,
-        handler: handleNavigateUpDirectory,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && currentPathRef.current !== "",
+        handler: activePane.handleNavigateUpDirectory,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.currentPathRef.current !== "",
       },
       // Clear selection and search (close action in browser context)
       {
         ...COMMON_SHORTCUTS.CLOSE,
-        handler: handleClose,
+        handler: activePane.handleClose,
         enabled: true,
       },
       // Refresh
       {
         ...BROWSER_SHORTCUTS.REFRESH,
-        handler: handleRefresh,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
+        handler: activePane.handleRefresh,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo,
       },
       // Quick navigate (Ctrl+K) — also focuses the search bar
       {
         ...BROWSER_SHORTCUTS.QUICK_NAVIGATE,
-        handler: handleFocusSearch,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
+        handler: activePane.handleFocusSearch,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo,
       },
       // Show help
       {
         ...BROWSER_SHORTCUTS.SHOW_HELP,
         handler: () => setShowHelp(true),
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo,
       },
       // Delete file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.DELETE_ITEM,
-        handler: handleDeleteRequest,
+        handler: activePane.handleDeleteRequest,
         enabled:
           !settingsOpen &&
           !mobileSettingsOpen &&
-          !viewInfo &&
-          !deleteDialogOpen &&
-          !renameDialogOpen &&
-          !createDialogOpen &&
-          focusedIndex >= 0 &&
-          filesRef.current[focusedIndex] !== undefined,
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen &&
+          activePane.focusedIndex >= 0 &&
+          activePane.filesRef.current[activePane.focusedIndex] !== undefined,
       },
       // Rename file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.RENAME_ITEM,
-        handler: handleRenameRequest,
+        handler: activePane.handleRenameRequest,
         enabled:
           !settingsOpen &&
           !mobileSettingsOpen &&
-          !viewInfo &&
-          !deleteDialogOpen &&
-          !renameDialogOpen &&
-          !createDialogOpen &&
-          focusedIndex >= 0 &&
-          filesRef.current[focusedIndex] !== undefined,
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen &&
+          activePane.focusedIndex >= 0 &&
+          activePane.filesRef.current[activePane.focusedIndex] !== undefined,
       },
       // Open in companion app (Ctrl+Enter)
       {
         ...BROWSER_SHORTCUTS.OPEN_IN_APP,
-        handler: handleOpenInApp,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && focusedIndex >= 0 && filesRef.current[focusedIndex]?.type === "file",
+        handler: activePane.handleOpenInApp,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          activePane.focusedIndex >= 0 &&
+          activePane.filesRef.current[activePane.focusedIndex]?.type === "file",
       },
       // Create new directory (F7)
       {
         ...BROWSER_SHORTCUTS.NEW_DIRECTORY,
-        handler: handleNewDirectoryRequest,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && !deleteDialogOpen && !renameDialogOpen && !createDialogOpen,
+        handler: activePane.handleNewDirectoryRequest,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen,
       },
       // Create new file (Shift+F7)
       {
         ...BROWSER_SHORTCUTS.NEW_FILE,
-        handler: handleNewFileRequest,
-        enabled: !settingsOpen && !mobileSettingsOpen && !viewInfo && !deleteDialogOpen && !renameDialogOpen && !createDialogOpen,
+        handler: activePane.handleNewFileRequest,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen,
+      },
+
+      // ── Dual-Pane Shortcuts ──────────────────────────────────────────────
+      {
+        ...PANE_SHORTCUTS.TOGGLE_DUAL_PANE,
+        handler: handleToggleDualPane,
+        enabled: !settingsOpen && !mobileSettingsOpen && !useCompactLayout,
+      },
+      {
+        ...PANE_SHORTCUTS.FOCUS_LEFT_PANE,
+        handler: handleFocusLeftPane,
+        enabled: !settingsOpen && !mobileSettingsOpen,
+      },
+      {
+        ...PANE_SHORTCUTS.FOCUS_RIGHT_PANE,
+        handler: handleFocusRightPane,
+        enabled: !settingsOpen && !mobileSettingsOpen,
+      },
+      {
+        ...PANE_SHORTCUTS.SWITCH_PANE,
+        handler: handleSwitchPane,
+        enabled: !settingsOpen && !mobileSettingsOpen && isDualMode,
+        allowInInput: true,
       },
     ],
     [
-      handleNavigateDown,
+      activePane,
       settingsOpen,
       mobileSettingsOpen,
-      viewInfo,
-      handleArrowUp,
-      handleHome,
-      handleEnd,
-      handlePageDown,
-      handlePageUp,
-      handleOpenFile,
-      focusedIndex,
-      handleNavigateUpDirectory,
-      handleClose,
-      handleFocusSearch,
-      handleRefresh,
-      handleDeleteRequest,
-      deleteDialogOpen,
-      handleRenameRequest,
-      renameDialogOpen,
-      handleOpenInApp,
-      handleNewDirectoryRequest,
-      handleNewFileRequest,
-      createDialogOpen,
+      useCompactLayout,
+      isDualMode,
+      handleToggleDualPane,
+      handleSwitchPane,
+      handleFocusLeftPane,
+      handleFocusRightPane,
     ]
   );
 
   useKeyboardShortcuts({
     shortcuts: browserShortcuts,
   });
-
-  /**
-   * Special keyboard handler for edge cases:
-   * 1. Backspace in empty search -> navigate up directory
-   * 2. Incremental search: type characters to jump to matching files (only when file list has focus)
-   *
-   * Runs in bubble phase after centralized shortcuts.
-   */
-  useEffect(() => {
-    const handleKeyDown = (e?: KeyboardEvent) => {
-      if (!e) return;
-
-      // Don't handle if settings dialog/drawer is open or if viewer is open
-      if (settingsOpen || mobileSettingsOpen || viewInfo) return;
-
-      // Don't handle if event already handled
-      if (e.defaultPrevented) return;
-
-      const target = e.target as HTMLElement;
-      const isInInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
-
-      // Handle special transitions when in input fields
-      if (isInInput) {
-        // Exception: Allow Backspace for navigation when search input is empty
-        if (e.key === "Backspace" && (target as HTMLInputElement).value === "" && currentPathRef.current) {
-          // Check if cursor is at the beginning of input (no text to delete)
-          const input = target as HTMLInputElement;
-          if (input.selectionStart === 0 && input.selectionEnd === 0) {
-            e.preventDefault();
-            const pathParts = currentPathRef.current.split("/");
-            const newPath = pathParts.slice(0, -1).join("/");
-            setCurrentPath(newPath);
-            setViewInfo(null);
-            return;
-          }
-        }
-
-        // Allow certain special keys to pass through to useKeyboardShortcuts
-        // These keys have allowInInput: true and will be handled there
-        const allowedKeysInInput = ["?", "Escape"];
-        if (allowedKeysInInput.includes(e.key)) {
-          // Don't interfere - let these pass through to useKeyboardShortcuts
-          return;
-        }
-
-        // For all other keys when in input, don't interfere (let normal input behavior happen)
-        return;
-      }
-
-      // Don't handle if viewer is showing
-      if (viewInfo) {
-        return;
-      }
-
-      // Incremental search - only when file list has focus
-      if (!listContainerEl) return;
-      const activeElement = document.activeElement;
-      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-      const files = filesRef.current;
-      const fileCount = files.length;
-
-      // Incremental search - accumulate keystrokes to match file names
-      // Match any printable character, excluding special shortcut keys
-      const shortcutKeys = ["?", "Escape"];
-      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && e.key !== " " && !shortcutKeys.includes(e.key) && fileCount > 0) {
-        e.preventDefault();
-
-        // Clear any existing timeout
-        if (searchTimeoutRef.current) {
-          clearTimeout(searchTimeoutRef.current);
-        }
-
-        // Add this character to the search buffer
-        searchBufferRef.current += e.key.toLowerCase();
-
-        // Find first file matching the accumulated prefix
-        const index = files.findIndex((f: FileEntry) => f.name.toLowerCase().startsWith(searchBufferRef.current));
-        if (index !== -1) {
-          updateFocus(index);
-        }
-
-        // Reset search buffer after 1 second of no typing
-        searchTimeoutRef.current = window.setTimeout(() => {
-          searchBufferRef.current = "";
-        }, 1000);
-      }
-    };
-
-    // Attach to window in bubble phase (runs AFTER useKeyboardShortcuts)
-    // This allows useKeyboardShortcuts to handle special keys (/, ?, Esc) first
-    // Only if they don't match a shortcut, this handler will process incremental search
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [settingsOpen, mobileSettingsOpen, viewInfo, updateFocus, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Accessibility
@@ -1905,10 +919,9 @@ const Browser: React.FC = () => {
 
   const handleSettingsClose = () => {
     setSettingsOpen(false);
-    // Return focus to file list after closing settings, similar to other dialogs
-    // Use setTimeout to ensure focus happens after Dialog's focus restoration
+    // Return focus to active pane's file list after closing settings
     setTimeout(() => {
-      listContainerEl?.focus();
+      activePane.listContainerEl?.focus();
     }, 0);
   };
 
@@ -1926,121 +939,67 @@ const Browser: React.FC = () => {
       const data = await api.getConnections();
       setConnections(data);
 
-      // Check if current selection still exists
-      if (selectedConnectionId && data.find((c: Connection) => c.id === selectedConnectionId)) {
-        // Current connection still exists, keep selection.
-        // Invalidate cache and reload files since connection properties
-        // (host, share, path_prefix, etc.) may have changed.
-        for (const key of directoryCache.current.keys()) {
-          if (key.startsWith(`${selectedConnectionId}:`)) {
-            directoryCache.current.delete(key);
-          }
+      // Invalidate caches in both panes since connection properties may have changed
+      const leftConnId = leftPane.connectionId;
+      if (leftConnId && data.find((c: Connection) => c.id === leftConnId)) {
+        leftPane.invalidateConnectionCache(leftConnId);
+        leftPane.loadFiles(leftPane.currentPathRef.current, true);
+      }
+      const rightConnId = rightPane.connectionId;
+      if (rightConnId && data.find((c: Connection) => c.id === rightConnId)) {
+        rightPane.invalidateConnectionCache(rightConnId);
+        rightPane.loadFiles(rightPane.currentPathRef.current, true);
+      }
+
+      // Check if left pane's connection still exists
+      if (leftConnId && data.find((c: Connection) => c.id === leftConnId)) {
+        // Left pane's connection is fine — check right pane too
+        if (rightConnId && !data.find((c: Connection) => c.id === rightConnId)) {
+          // Right pane's connection was removed — revert to single mode
+          setPaneMode("single");
+          setActivePaneId("left");
+          rightPane.setConnectionId("");
+          rightPane.setCurrentPath("");
+          rightPane.setViewInfo(null);
+          localStorage.setItem(DUAL_PANE_STORAGE_KEY, "single");
+          localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
         }
-        loadFilesRef.current?.(currentPathRef.current, true);
         return;
       }
 
-      // Current connection removed or no selection - select first alphabetically
+      // Left pane's connection removed or no selection - select first alphabetically
       if (data.length > 0) {
         const sortedByName = [...data].sort((a, b) => a.name.localeCompare(b.name));
         const firstConnection = sortedByName[0];
         if (firstConnection) {
-          setSelectedConnectionId(firstConnection.id);
-          localStorage.setItem("selectedConnectionId", firstConnection.id);
+          leftPane.handleConnectionChange(firstConnection.id);
           const identifier = slugifyConnectionName(firstConnection.name);
           navigate(`/browse/${identifier}`, { replace: true });
-          setCurrentPath("");
         }
       } else {
         // No connections remaining - show welcome screen
-        setSelectedConnectionId("");
+        leftPane.setConnectionId("");
+        leftPane.setCurrentPath("");
+        leftPane.setViewInfo(null);
+        rightPane.setConnectionId("");
+        rightPane.setCurrentPath("");
+        rightPane.setViewInfo(null);
         localStorage.removeItem("selectedConnectionId");
         navigate("/browse", { replace: true });
-        setCurrentPath("");
-        setFiles([]);
       }
     } catch (err) {
       logger.error("Error refreshing connections", { error: err }, "browser");
     }
-  }, [selectedConnectionId, slugifyConnectionName, navigate]);
+  }, [leftPane, rightPane, slugifyConnectionName, navigate]);
 
-  const pathParts = currentPath ? currentPath.split("/") : [];
+  // ── Computed values for the active pane (used in toolbar / mobile) ────────
+  const activeCurrentPath = activePane.currentPath;
+  const pathParts = activeCurrentPath ? activeCurrentPath.split("/") : [];
   const currentDirectoryName = (pathParts.length > 0 && pathParts[pathParts.length - 1]) || "Root";
-  const canNavigateUp = currentPath !== "";
+  const canNavigateUp = activeCurrentPath !== "";
 
-  const handleNavigateUp = () => {
-    if (!canNavigateUp) return;
-    const pathParts = currentPath.split("/");
-    const newPath = pathParts.slice(0, -1).join("/");
-    setCurrentPath(newPath);
-    setViewInfo(null);
-  };
-
-  // Memoized FileRow component for optimal performance
-  // FileRow component styles - memoized outside to prevent recreation on every scroll
-  const fileRowStyles = React.useMemo(
-    () => ({
-      iconBox: {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 24,
-        flexShrink: 0,
-      },
-      contentBox: {
-        flex: 1,
-        minWidth: 0,
-      },
-      buttonSelected: {
-        display: "flex",
-        alignItems: "center",
-        gap: 1,
-        height: "100%",
-        width: "100%",
-        px: 2,
-        py: 1.5,
-        cursor: "pointer",
-        userSelect: "none",
-        border: "none",
-        borderRadius: 0,
-        transition: "background-color 80ms ease-out",
-        textAlign: "left",
-        WebkitTapHighlightColor: "transparent",
-        // Only show focus highlight when keyboard is being used
-        background: isUsingKeyboard ? theme.palette.action.selected : "transparent",
-        "&:hover": {
-          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
-        },
-        "&:active": {
-          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
-        },
-      },
-      buttonNotSelected: {
-        display: "flex",
-        alignItems: "center",
-        gap: 1,
-        height: "100%",
-        width: "100%",
-        px: 2,
-        py: 1.5,
-        cursor: "pointer",
-        userSelect: "none",
-        border: "none",
-        background: "transparent",
-        borderRadius: 0,
-        transition: "background-color 80ms ease-out",
-        textAlign: "left",
-        WebkitTapHighlightColor: "transparent",
-        "&:hover": {
-          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
-        },
-        "&:active": {
-          backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
-        },
-      },
-    }),
-    [theme, isUsingKeyboard]
-  );
+  // Force single-pane on mobile
+  const effectivePaneMode: PaneMode = useCompactLayout ? "single" : paneMode;
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Render
@@ -2053,45 +1012,62 @@ const Browser: React.FC = () => {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         connections={connections}
-        selectedConnectionId={selectedConnectionId}
-        onConnectionChange={handleConnectionChange}
+        selectedConnectionId={activePane.connectionId}
+        onConnectionChange={activePane.handleConnectionChange}
         onNavigateToRoot={() => {
-          setCurrentPath("");
-          setViewInfo(null);
+          activePane.setCurrentPath("");
+          activePane.setViewInfo(null);
         }}
         onOpenSettings={() => setMobileSettingsOpen(true)}
         onLogout={handleLogout}
       />
 
-      <AppBar position="static">
+      <AppBar position="static" elevation={useCompactLayout ? undefined : 0}>
         <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
           {useCompactLayout ? (
             <MobileToolbar
               currentDirectoryName={currentDirectoryName}
               onOpenMenu={() => setDrawerOpen(true)}
-              onNavigateUp={handleNavigateUp}
+              onNavigateUp={activePane.handleNavigateUp}
               canNavigateUp={canNavigateUp}
             />
           ) : (
             <DesktopToolbar
               connections={connections}
-              selectedConnectionId={selectedConnectionId}
-              onConnectionChange={handleConnectionChange}
-              searchProvider={directorySearchProvider}
-              searchInputRef={searchInputRef}
-              showSearch={selectedConnectionId !== ""}
+              selectedConnectionId={activePane.connectionId}
+              onConnectionChange={activePane.handleConnectionChange}
+              searchProvider={activePane.directorySearchProvider}
+              searchInputRef={activePane.searchInputRef}
+              showSearch={activePane.connectionId !== ""}
               onOpenSettings={() => {
                 setSettingsInitialCategory("appearance");
                 setSettingsOpen(true);
               }}
-              onBlurToFileList={() => listContainerEl?.focus()}
-              showOpenInApp={focusedIndex >= 0 && filesRef.current[focusedIndex]?.type === "file"}
-              onOpenInApp={handleOpenInApp}
-              openInAppLoading={openInAppLoading}
+              onBlurToFileList={() => activePane.listContainerEl?.focus()}
+              showOpenInApp={activePane.focusedIndex >= 0 && activePane.filesRef.current[activePane.focusedIndex]?.type === "file"}
+              onOpenInApp={activePane.handleOpenInApp}
+              openInAppLoading={activePane.openInAppLoading}
+              disableTabFocus={isDualMode}
             />
           )}
         </Toolbar>
       </AppBar>
+
+      {/* Secondary action strip — view mode & sort controls for the active pane (desktop only) */}
+      {!useCompactLayout && (
+        <SecondaryActionStrip
+          viewMode={activePane.viewMode}
+          onViewModeChange={activePane.setViewMode}
+          sortBy={activePane.sortBy}
+          onSortChange={activePane.setSortBy}
+          sortDirection={activePane.sortDirection}
+          onDirectionChange={() => activePane.setSortDirection((d) => (d === "asc" ? "desc" : "asc"))}
+          hasFiles={activePane.files.length > 0}
+          onBlurToFileList={() => activePane.listContainerEl?.focus()}
+          disableTabFocus={isDualMode}
+        />
+      )}
+
       <Container
         maxWidth={false}
         disableGutters
@@ -2105,109 +1081,70 @@ const Browser: React.FC = () => {
         }}
       >
         <FileBrowserAlerts
-          error={error}
+          error={leftPane.error}
           loadingConnections={loadingConnections}
           connectionsCount={connections.length}
           isAdmin={isAdmin}
           onOpenConnectionsSettings={() => {
             if (useCompactLayout) {
-              // Mobile: open mobile settings drawer directly to connections
               setMobileSettingsInitialView("connections");
               setMobileSettingsOpen(true);
             } else {
-              // Desktop: open settings dialog with connections tab
               setSettingsInitialCategory("connections");
               setSettingsOpen(true);
             }
           }}
         />
 
-        {selectedConnectionId && (
-          <>
-            {/* Desktop: Breadcrumbs and controls header */}
-            {!useCompactLayout && (
-              <Box
-                display="flex"
-                flexDirection={{ xs: "column", md: "row" }}
-                gap={{ xs: 2, md: 0 }}
-                justifyContent="space-between"
-                alignItems={{ xs: "stretch", md: "center" }}
-                sx={{ mb: 2, px: 2 }}
-              >
-                <BreadcrumbsNavigation
-                  currentPath={currentPath}
-                  connectionName={connections.find((c) => c.id === selectedConnectionId)?.name ?? ""}
-                  onNavigate={(path) => {
-                    setCurrentPath(path);
-                    setViewInfo(null);
-                    // Blur any focused element
-                    if (document.activeElement instanceof HTMLElement) {
-                      document.activeElement.blur();
-                    }
+        {/* Pane content area — single or dual-pane layout */}
+        {leftPane.connectionId && (
+          <Box
+            sx={{
+              display: "flex",
+              flex: 1,
+              minHeight: 0,
+              overflow: "hidden",
+            }}
+          >
+            {/* Left Pane — always visible */}
+            <FileBrowserPane
+              pane={leftPane}
+              paneId="left"
+              isActive={effectiveActivePaneId === "left"}
+              paneMode={effectivePaneMode}
+              connections={connections}
+              useCompactLayout={useCompactLayout}
+              isUsingKeyboard={isUsingKeyboard}
+              onPaneFocus={() => {
+                setActivePaneId("left");
+                localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+              }}
+              disableTabFocus={isDualMode}
+            />
+
+            {/* Divider + Right Pane — dual mode only */}
+            {isDualMode && rightPane.connectionId && (
+              <>
+                <Divider orientation="vertical" flexItem />
+                <FileBrowserPane
+                  pane={rightPane}
+                  paneId="right"
+                  isActive={effectiveActivePaneId === "right"}
+                  paneMode={effectivePaneMode}
+                  connections={connections}
+                  useCompactLayout={useCompactLayout}
+                  isUsingKeyboard={isUsingKeyboard}
+                  onPaneFocus={() => {
+                    setActivePaneId("right");
+                    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
                   }}
-                  onEscape={() => listContainerEl?.focus()}
+                  disableTabFocus={isDualMode}
                 />
-
-                {files.length > 0 && (
-                  <Box display="flex" gap={1}>
-                    <ViewModeSelector viewMode={viewMode} onViewModeChange={setViewMode} onAfterChange={() => listContainerEl?.focus()} />
-                    <SortControls
-                      sortBy={sortBy}
-                      onSortChange={(field) => setSortBy(field)}
-                      sortDirection={sortDirection}
-                      onDirectionChange={() => setSortDirection(sortDirection === "asc" ? "desc" : "asc")}
-                      onAfterChange={() => listContainerEl?.focus()}
-                    />
-                  </Box>
-                )}
-              </Box>
+              </>
             )}
-
-            {selectedConnectionId && useCompactLayout && (
-              <UnifiedSearchBar
-                provider={directorySearchProvider}
-                inputRef={searchInputRef}
-                useCompactLayout={useCompactLayout}
-                onBlurToFileList={() => listContainerEl?.focus()}
-              />
-            )}
-
-            {loading ? (
-              <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-                <CircularProgress />
-              </Box>
-            ) : (
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 2,
-                  flex: 1,
-                  minHeight: 0,
-                  mb: 0,
-                  flexDirection: "column",
-                }}
-              >
-                <FileList
-                  files={sortedAndFilteredFiles}
-                  focusedIndex={focusedIndex}
-                  onFileClick={handleFileClick}
-                  rowVirtualizer={rowVirtualizer}
-                  parentRef={parentRef}
-                  listContainerRef={listContainerRef}
-                  fileRowStyles={fileRowStyles}
-                  viewMode={viewMode}
-                  onOpenInApp={handleOpenInAppForFile}
-                  onRename={handleRenameForFile}
-                />
-              </Box>
-            )}
-          </>
+          </Box>
         )}
       </Container>
-
-      {!useCompactLayout && selectedConnectionId && sortedAndFilteredFiles.length > 0 && !loading && (
-        <StatusBar files={sortedAndFilteredFiles} focusedIndex={focusedIndex} />
-      )}
 
       {/* Settings Dialog (Desktop only) */}
       {!useCompactLayout && (
@@ -2232,12 +1169,21 @@ const Browser: React.FC = () => {
         />
       )}
 
-      {viewInfo && (
+      {/* Viewer overlay — full-screen, from whichever pane opened it */}
+      {leftPane.viewInfo && (
         <DynamicViewer
-          connectionId={selectedConnectionId}
-          viewInfo={viewInfo}
-          onClose={handleViewClose}
-          onIndexChange={handleViewIndexChange}
+          connectionId={leftPane.connectionId}
+          viewInfo={leftPane.viewInfo}
+          onClose={leftPane.handleViewClose}
+          onIndexChange={leftPane.handleViewIndexChange}
+        />
+      )}
+      {rightPane.viewInfo && !leftPane.viewInfo && (
+        <DynamicViewer
+          connectionId={rightPane.connectionId}
+          viewInfo={rightPane.viewInfo}
+          onClose={rightPane.handleViewClose}
+          onIndexChange={rightPane.handleViewIndexChange}
         />
       )}
 
@@ -2247,47 +1193,6 @@ const Browser: React.FC = () => {
         onClose={() => setShowHelp(false)}
         shortcuts={browserShortcuts}
         title="File browser shortcuts"
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <ConfirmDeleteDialog
-        open={deleteDialogOpen}
-        itemName={deleteTarget?.name ?? ""}
-        itemType={deleteTarget?.type ?? FileType.FILE}
-        isDeleting={isDeleting}
-        onClose={() => {
-          setDeleteDialogOpen(false);
-          setDeleteTarget(null);
-        }}
-        onConfirm={handleDeleteConfirm}
-      />
-
-      {/* Rename Dialog */}
-      <RenameDialog
-        open={renameDialogOpen}
-        itemName={renameTarget?.name ?? ""}
-        itemType={renameTarget?.type ?? FileType.FILE}
-        isRenaming={isRenaming}
-        apiError={renameError}
-        onClose={() => {
-          setRenameDialogOpen(false);
-          setRenameTarget(null);
-          setRenameError(null);
-        }}
-        onConfirm={handleRenameConfirm}
-      />
-
-      {/* Create Item Dialog */}
-      <CreateItemDialog
-        open={createDialogOpen}
-        itemType={createItemType}
-        isCreating={isCreating}
-        apiError={createError}
-        onClose={() => {
-          setCreateDialogOpen(false);
-          setCreateError(null);
-        }}
-        onConfirm={handleCreateConfirm}
       />
 
       {/* Companion app guidance hint */}

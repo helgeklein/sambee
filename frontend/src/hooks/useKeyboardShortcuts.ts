@@ -176,9 +176,11 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
+    // Use capture phase so shortcuts always fire before other document-level
+    // keydown handlers (e.g. useFocusTrap) regardless of registration order.
+    document.addEventListener("keydown", handleKeyDown, true);
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
   }, [shortcuts, inputSelector]);
 };

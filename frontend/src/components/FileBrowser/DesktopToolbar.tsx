@@ -23,6 +23,8 @@ interface DesktopToolbarProps {
   onOpenInApp?: () => void;
   /** Whether companion URI generation is in progress */
   openInAppLoading?: boolean;
+  /** Remove toolbar controls from Tab order (dual-pane mode uses Tab for pane switching) */
+  disableTabFocus?: boolean;
 }
 
 //
@@ -40,6 +42,7 @@ export function DesktopToolbar({
   showOpenInApp,
   onOpenInApp,
   openInAppLoading,
+  disableTabFocus,
 }: DesktopToolbarProps) {
   return (
     <>
@@ -58,6 +61,7 @@ export function DesktopToolbar({
             inputRef={searchInputRef}
             useCompactLayout={false}
             onBlurToFileList={onBlurToFileList}
+            disableTabFocus={disableTabFocus}
           />
         </Box>
       )}
@@ -69,6 +73,7 @@ export function DesktopToolbar({
         selectedConnectionId={selectedConnectionId}
         onConnectionChange={onConnectionChange}
         onAfterChange={onBlurToFileList}
+        disableTabFocus={disableTabFocus}
       />
 
       <Box sx={{ ml: 1 }}>
@@ -78,6 +83,7 @@ export function DesktopToolbar({
           showOpenInApp={showOpenInApp}
           onOpenInApp={onOpenInApp}
           openInAppLoading={openInAppLoading}
+          disableTabFocus={disableTabFocus}
         />
       </Box>
     </>
