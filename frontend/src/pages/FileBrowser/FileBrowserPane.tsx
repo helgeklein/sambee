@@ -29,13 +29,6 @@ import { FileType } from "../../types";
 import type { PaneId, PaneMode, UseFileBrowserPaneReturn } from "./types";
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-/** Opacity applied to inactive panes to visually distinguish them. */
-const INACTIVE_PANE_OPACITY = 0.7;
-
-// ============================================================================
 // Props
 // ============================================================================
 
@@ -211,12 +204,10 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       flex: 1,
       minWidth: 0,
       overflow: "hidden",
-      transition: "opacity 150ms ease-out",
     };
 
-    if (isDualMode) {
-      base["opacity"] = isActive ? 1 : INACTIVE_PANE_OPACITY;
-      base["cursor"] = isActive ? "default" : "pointer";
+    if (isDualMode && !isActive) {
+      base["cursor"] = "pointer";
     }
 
     return base;
@@ -263,11 +254,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             px: 2,
             height: STATUS_BAR_HEIGHT,
             boxSizing: "border-box",
-            ...(isDualMode && {
-              bgcolor: (theme) =>
-                theme.palette.statusBar?.background || (theme.palette.mode === "dark" ? "background.paper" : "primary.main"),
-              color: (theme) => theme.palette.statusBar?.text || (theme.palette.mode === "dark" ? "text.primary" : "primary.contrastText"),
-            }),
           }}
         >
           <BreadcrumbsNavigation
@@ -276,6 +262,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             onNavigate={handleBreadcrumbNavigate}
             onEscape={() => listContainerEl?.focus()}
             disableTabFocus={disableTabFocus}
+            showActiveIndicator={isDualMode && isActive}
           />
         </Box>
       )}

@@ -31,6 +31,10 @@ interface BreadcrumbsNavigationProps {
   connectionName: string;
   /** Called when ESC is pressed on a breadcrumb link */
   onEscape?: () => void;
+  /** When true, render tab-index as -1 so breadcrumb links are skipped */
+  disableTabFocus?: boolean;
+  /** When true, show status-bar background behind the breadcrumb text (active pane in dual mode) */
+  showActiveIndicator?: boolean;
 }
 
 /** A single item in the rendered breadcrumb trail */
@@ -283,7 +287,14 @@ function calculateBreadcrumbSegments(pathParts: string[], containerWidth: number
  * when space is limited, prioritizing segments closest to the current
  * directory for maximum navigational context.
  */
-export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName, onEscape, disableTabFocus }: BreadcrumbsNavigationProps) {
+export function BreadcrumbsNavigation({
+  currentPath,
+  onNavigate,
+  connectionName,
+  onEscape,
+  disableTabFocus,
+  showActiveIndicator,
+}: BreadcrumbsNavigationProps) {
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -331,6 +342,15 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
     onNavigate("");
   };
 
+  const activeIndicatorSx = showActiveIndicator
+    ? {
+        bgcolor: (theme: import("@mui/material").Theme) =>
+          theme.palette.statusBar?.background || (theme.palette.mode === "dark" ? "background.paper" : "primary.main"),
+        color: (theme: import("@mui/material").Theme) =>
+          theme.palette.statusBar?.text || (theme.palette.mode === "dark" ? "text.primary" : "primary.contrastText"),
+      }
+    : {};
+
   return (
     <Breadcrumbs
       ref={containerRef}
@@ -350,6 +370,14 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
           flexWrap: "nowrap",
           overflow: "hidden",
           alignItems: "center",
+          /* Padding expands the background; negative margin cancels the shift so text stays aligned */
+          px: 1,
+          py: 0.25,
+          mx: -1,
+          borderRadius: 1,
+          width: "fit-content",
+          maxWidth: "calc(100% + 16px)",
+          ...activeIndicatorSx,
         },
         "& .MuiBreadcrumbs-li": {
           overflow: "hidden",
