@@ -1033,9 +1033,6 @@ const Browser: React.FC = () => {
             />
           ) : (
             <DesktopToolbar
-              connections={connections}
-              selectedConnectionId={activePane.connectionId}
-              onConnectionChange={activePane.handleConnectionChange}
               searchProvider={activePane.directorySearchProvider}
               searchInputRef={activePane.searchInputRef}
               showSearch={activePane.connectionId !== ""}
@@ -1044,9 +1041,6 @@ const Browser: React.FC = () => {
                 setSettingsOpen(true);
               }}
               onBlurToFileList={() => activePane.listContainerEl?.focus()}
-              showOpenInApp={activePane.focusedIndex >= 0 && activePane.filesRef.current[activePane.focusedIndex]?.type === "file"}
-              onOpenInApp={activePane.handleOpenInApp}
-              openInAppLoading={activePane.openInAppLoading}
               disableTabFocus={isDualMode}
             />
           )}
@@ -1056,6 +1050,9 @@ const Browser: React.FC = () => {
       {/* Secondary action strip — view mode & sort controls for the active pane (desktop only) */}
       {!useCompactLayout && (
         <SecondaryActionStrip
+          connections={connections}
+          selectedConnectionId={activePane.connectionId}
+          onConnectionChange={activePane.handleConnectionChange}
           viewMode={activePane.viewMode}
           onViewModeChange={activePane.setViewMode}
           sortBy={activePane.sortBy}

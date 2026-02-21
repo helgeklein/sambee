@@ -9,7 +9,7 @@ import { createEscapeHandler } from "../../utils/keyboardUtils";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 /** Average character width in pixels for the breadcrumb font (body2 variant) */
-const CHAR_WIDTH_PX = 7;
+const CHAR_WIDTH_PX = 6;
 
 /** Pixel width of the " / " separator rendered between breadcrumb items */
 const SEPARATOR_WIDTH_PX = 24;
@@ -340,9 +340,11 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
         flex: 1,
         minWidth: 0,
         "& .MuiBreadcrumbs-separator": {
-          color: "text.secondary",
+          color: "inherit",
+          opacity: 0.7,
           display: "flex",
           alignItems: "center",
+          mx: 0.5,
         },
         "& .MuiBreadcrumbs-ol": {
           flexWrap: "nowrap",
@@ -356,21 +358,26 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
           display: "flex",
           alignItems: "center",
         },
+        /* Remove button inner padding so link-buttons match plain text height */
+        "& .MuiBreadcrumbs-li button": {
+          p: 0,
+          minWidth: 0,
+        },
       }}
     >
       {/* Connection name: bold when at root, clickable link otherwise */}
       {pathParts.length === 0 ? (
-        <Typography variant="body2" color="text.primary" sx={{ fontWeight: "bold" }}>
+        <Typography variant="caption" color="inherit" sx={{ fontWeight: "bold" }}>
           {connectionName}
         </Typography>
       ) : (
         <Link
           component="button"
-          variant="body2"
+          variant="caption"
           onClick={handleRootClick}
           onKeyDown={createEscapeHandler(onEscape)}
           tabIndex={disableTabFocus ? -1 : undefined}
-          sx={{ fontWeight: "regular" }}
+          sx={{ fontWeight: "regular", color: "inherit", opacity: 0.85 }}
           aria-label="Navigate to root directory"
         >
           {connectionName}
@@ -381,7 +388,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
       {displaySegments.map((segment) => {
         if (segment.type === "ellipsis") {
           return (
-            <Typography key="breadcrumb-ellipsis" variant="body2" color="text.secondary" sx={{ userSelect: "none" }}>
+            <Typography key="breadcrumb-ellipsis" variant="caption" color="inherit" sx={{ userSelect: "none", opacity: 0.7 }}>
               …
             </Typography>
           );
@@ -394,8 +401,8 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
           return (
             <Typography
               key={fullPath}
-              variant="body2"
-              color="text.primary"
+              variant="caption"
+              color="inherit"
               title={segment.fullLabel}
               sx={{
                 overflow: "hidden",
@@ -413,7 +420,7 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
           <Link
             key={fullPath}
             component="button"
-            variant="body2"
+            variant="caption"
             onClick={() => handleBreadcrumbClick(segment.pathIndex)}
             onKeyDown={createEscapeHandler(onEscape)}
             tabIndex={disableTabFocus ? -1 : undefined}
@@ -424,6 +431,8 @@ export function BreadcrumbsNavigation({ currentPath, onNavigate, connectionName,
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
               fontWeight: "regular",
+              color: "inherit",
+              opacity: 0.85,
             }}
           >
             {segment.label}

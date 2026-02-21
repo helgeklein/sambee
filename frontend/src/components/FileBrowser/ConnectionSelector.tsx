@@ -1,4 +1,5 @@
-import { Button, Menu, MenuItem } from "@mui/material";
+import LanIcon from "@mui/icons-material/Lan";
+import { Box, Button, Menu, MenuItem, Typography } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { pillButtonStyle } from "../../theme/commonStyles";
 import type { Connection } from "../../types";
@@ -43,19 +44,23 @@ export function ConnectionSelector({
         onClick={handleClick}
         onKeyDown={createEscapeHandler(onAfterChange)}
         role="combobox"
+        size="small"
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-controls={open ? "connection-menu" : undefined}
         tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
           ...pillButtonStyle,
-          color: "inherit",
-          fontSize: "0.9375rem",
-          fontWeight: 400,
-          mr: 0,
+          color: "text.secondary",
+          px: 2,
         }}
       >
-        {selectedConnection?.name || "Select Connection"}
+        <Box display="flex" alignItems="center" gap={0.5}>
+          <LanIcon fontSize="small" sx={{ display: "flex" }} />
+          <Typography variant="body2" sx={{ lineHeight: 1.43 }}>
+            {selectedConnection?.name || "Select Connection"}
+          </Typography>
+        </Box>
       </Button>
       <Menu
         id="connection-menu"

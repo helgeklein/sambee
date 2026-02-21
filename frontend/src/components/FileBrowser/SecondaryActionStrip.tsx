@@ -21,6 +21,8 @@
 
 import { Box } from "@mui/material";
 import type { SortField, ViewMode } from "../../pages/FileBrowser/types";
+import type { Connection } from "../../types";
+import { ConnectionSelector } from "./ConnectionSelector";
 import { SortControls } from "./SortControls";
 import { ViewModeSelector } from "./ViewModeSelector";
 
@@ -29,6 +31,12 @@ import { ViewModeSelector } from "./ViewModeSelector";
 // ============================================================================
 
 interface SecondaryActionStripProps {
+  /** Available SMB connections. */
+  connections: Connection[];
+  /** Currently selected connection ID for the active pane. */
+  selectedConnectionId: string;
+  /** Callback to change the active pane's connection. */
+  onConnectionChange: (connectionId: string) => void;
   /** Current view mode of the active pane. */
   viewMode: ViewMode;
   /** Callback to change the active pane's view mode. */
@@ -58,6 +66,9 @@ interface SecondaryActionStripProps {
  * Only shown on desktop; hidden when there are no files to act on.
  */
 export function SecondaryActionStrip({
+  connections,
+  selectedConnectionId,
+  onConnectionChange,
   viewMode,
   onViewModeChange,
   sortBy,
@@ -72,7 +83,7 @@ export function SecondaryActionStrip({
     <Box
       display="flex"
       alignItems="center"
-      justifyContent="flex-end"
+      justifyContent="space-between"
       sx={{
         px: 2,
         py: 0.5,
@@ -81,6 +92,15 @@ export function SecondaryActionStrip({
         zIndex: 1,
       }}
     >
+      <Box display="flex" gap={1}>
+        <ConnectionSelector
+          connections={connections}
+          selectedConnectionId={selectedConnectionId}
+          onConnectionChange={onConnectionChange}
+          onAfterChange={onBlurToFileList}
+          disableTabFocus={disableTabFocus}
+        />
+      </Box>
       {hasFiles && (
         <Box display="flex" gap={1}>
           <ViewModeSelector

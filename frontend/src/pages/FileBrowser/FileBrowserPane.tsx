@@ -22,7 +22,7 @@ import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialo
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
 import { FileList } from "../../components/FileBrowser/FileList";
 import RenameDialog from "../../components/FileBrowser/RenameDialog";
-import { StatusBar } from "../../components/FileBrowser/StatusBar";
+import { STATUS_BAR_HEIGHT, StatusBar } from "../../components/FileBrowser/StatusBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
 import type { Connection } from "../../types";
 import { FileType } from "../../types";
@@ -257,11 +257,18 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       {!useCompactLayout && (
         <Box
           display="flex"
-          flexDirection={{ xs: "column", md: "row" }}
-          gap={{ xs: 2, md: 0 }}
-          justifyContent="space-between"
-          alignItems={{ xs: "stretch", md: "center" }}
-          sx={{ mb: 2, px: 2, py: 1 }}
+          alignItems="center"
+          sx={{
+            mb: 2,
+            px: 2,
+            height: STATUS_BAR_HEIGHT,
+            boxSizing: "border-box",
+            ...(isDualMode && {
+              bgcolor: (theme) =>
+                theme.palette.statusBar?.background || (theme.palette.mode === "dark" ? "background.paper" : "primary.main"),
+              color: (theme) => theme.palette.statusBar?.text || (theme.palette.mode === "dark" ? "text.primary" : "primary.contrastText"),
+            }),
+          }}
         >
           <BreadcrumbsNavigation
             currentPath={currentPath}

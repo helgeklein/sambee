@@ -52,6 +52,7 @@ vi.mock("../../components/FileBrowser/FileList", () => ({
 }));
 
 vi.mock("../../components/FileBrowser/StatusBar", () => ({
+  STATUS_BAR_HEIGHT: 32,
   StatusBar: ({ files }: { files: FileEntry[] }) => <div data-testid="status-bar">{files.length} items</div>,
 }));
 

@@ -6,6 +6,9 @@ import { Box, Typography } from "@mui/material";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { FileEntry } from "../../types";
 
+/** Shared height constant so breadcrumb bar and status bar match exactly. */
+export const STATUS_BAR_HEIGHT = 32;
+
 interface StatusBarProps {
   files: FileEntry[];
   focusedIndex: number;
@@ -26,7 +29,8 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
     <Box
       sx={{
         px: 2,
-        py: 0.75,
+        height: STATUS_BAR_HEIGHT,
+        boxSizing: "border-box",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
