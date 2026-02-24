@@ -34,75 +34,186 @@ SAMBEE_SYSTEM_PACKAGES=(
     wget
 )
 
+# ImageMagick 7 AppImage download URL (always latest release)
+MAGICK_APPIMAGE_URL="https://imagemagick.org/archive/binaries/magick"
+MAGICK_INSTALL_DIR="/opt/imagemagick"
+MAGICK_CACHE_DIR="/tmp/imagemagick-appimage"
+# Minimum plausible AppImage size in bytes (protects against empty/error responses)
+MAGICK_MIN_APPIMAGE_SIZE=10000000
+
+# Legacy command names that get symlinked to the magick wrapper
+MAGICK_LEGACY_COMMANDS=(convert identify mogrify composite montage)
+
+# Remove ImageMagick wrapper and legacy symlinks
+cleanup_imagemagick_links() {
+    rm -f /usr/local/bin/magick
+    for cmd in "${MAGICK_LEGACY_COMMANDS[@]}"; do
+        rm -f "/usr/local/bin/$cmd"
+    done
+}
+
+# Download the ImageMagick AppImage with retry logic
+# Outputs the path to the downloaded file on success, returns non-zero on failure
+download_imagemagick_appimage() {
+    local dest="$1"
+    local max_retries=3
+    local retry_delay=5
+
+    for attempt in $(seq 1 "$max_retries"); do
+        echo "Downloading ImageMagick AppImage (attempt $attempt/$max_retries)..."
+        if wget -q --timeout=60 "$MAGICK_APPIMAGE_URL" -O "$dest" 2>/dev/null; then
+            # Validate: file must exist, be non-trivial size (not a 404 HTML page)
+            local file_size
+            file_size=$(stat -c%s "$dest" 2>/dev/null || echo 0)
+            if [ "$file_size" -ge "$MAGICK_MIN_APPIMAGE_SIZE" ]; then
+                return 0
+            fi
+            echo "Warning: Downloaded file is too small (${file_size} bytes), likely not a valid AppImage"
+            rm -f "$dest"
+        fi
+
+        if [ "$attempt" -lt "$max_retries" ]; then
+            echo "Retrying in ${retry_delay}s..."
+            sleep "$retry_delay"
+        fi
+    done
+
+    echo "Failed to download ImageMagick AppImage after $max_retries attempts"
+    rm -f "$dest"
+    return 1
+}
+
+# Create the /usr/local/bin/magick wrapper script with dynamically detected paths
+create_imagemagick_wrapper() {
+    local install_dir="$1"
+    local magick_home="$install_dir/usr"
+
+    # Dynamically detect the versioned lib directory (e.g. "ImageMagick-7.1.2")
+    local lib_version_dir
+    lib_version_dir=$(find "$magick_home/lib" -maxdepth 1 -type d -name 'ImageMagick-*' -printf '%f\n' 2>/dev/null | head -1)
+    if [ -z "$lib_version_dir" ]; then
+        echo "Error: Could not detect ImageMagick version directory in $magick_home/lib"
+        return 1
+    fi
+
+    # Detect the quantum depth config directory (e.g. "config-Q16HDRI")
+    local config_dir
+    config_dir=$(find "$magick_home/lib/$lib_version_dir" -maxdepth 1 -type d -name 'config-*' -printf '%f\n' 2>/dev/null | head -1)
+    if [ -z "$config_dir" ]; then
+        echo "Error: Could not detect ImageMagick config directory in $magick_home/lib/$lib_version_dir"
+        return 1
+    fi
+
+    # Detect the modules coders directory (e.g. "modules-Q16HDRI")
+    local modules_dir
+    modules_dir=$(find "$magick_home/lib/$lib_version_dir" -maxdepth 1 -type d -name 'modules-*' -printf '%f\n' 2>/dev/null | head -1)
+
+    # Build the wrapper script with detected paths
+    cat > /usr/local/bin/magick << WRAPPER_EOF
+#!/bin/bash
+MAGICK_HOME="$magick_home"
+export MAGICK_CONFIGURE_PATH="\$MAGICK_HOME/lib/$lib_version_dir/$config_dir:\$MAGICK_HOME/share/ImageMagick-7:\$MAGICK_HOME/etc/ImageMagick-7"
+export LD_LIBRARY_PATH="\$MAGICK_HOME/lib${modules_dir:+:\$MAGICK_HOME/lib/$lib_version_dir/$modules_dir/coders}\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec "\$MAGICK_HOME/bin/magick" "\$@"
+WRAPPER_EOF
+    chmod +x /usr/local/bin/magick
+
+    # Create symlinks for legacy command names
+    for cmd in "${MAGICK_LEGACY_COMMANDS[@]}"; do
+        ln -sf /usr/local/bin/magick "/usr/local/bin/$cmd"
+    done
+}
+
 # Install ImageMagick 7 from official AppImage
 install_imagemagick7() {
-    INSTALL_DIR="/opt/imagemagick"
-
-    # Check if ImageMagick is already installed (from cache)
-    if [ -x "$INSTALL_DIR/usr/bin/magick" ] && [ -x /usr/local/bin/magick ]; then
-        echo "ImageMagick 7 already installed (restored from cache)"
-        return
+    # Check if ImageMagick 7 is already installed and functional (from cache)
+    if [ -x "$MAGICK_INSTALL_DIR/usr/bin/magick" ] && [ -x /usr/local/bin/magick ]; then
+        if /usr/local/bin/magick --version >/dev/null 2>&1; then
+            echo "ImageMagick 7 already installed (restored from cache)"
+            return
+        fi
+        echo "Cached ImageMagick installation is broken, reinstalling..."
+        rm -rf "$MAGICK_INSTALL_DIR"
+        cleanup_imagemagick_links
     fi
 
     echo "Installing ImageMagick 7 from AppImage..."
 
-    # Download and extract ImageMagick AppImage
-    # Note: AppImages require FUSE which isn't available in containers,
+    # AppImages require FUSE which isn't available in containers,
     # so we extract the contents and use the binaries directly
-    MAGICK_URL="https://imagemagick.org/archive/binaries/magick"
-    CACHE_DIR="/tmp/imagemagick-appimage"
+    local appimage_path="/tmp/magick.appimage"
 
-    # Check if cached AppImage exists
-    if [ -f "$CACHE_DIR/magick.appimage" ]; then
-        echo "Using cached ImageMagick AppImage..."
-        cp "$CACHE_DIR/magick.appimage" /tmp/magick.appimage
-    else
-        # Download AppImage to temp location
-        cd /tmp
-        if ! wget -q "$MAGICK_URL" -O magick.appimage; then
-            echo "Failed to download ImageMagick AppImage, falling back to package manager"
+    # Try cached AppImage first, validate it before use
+    if [ -f "$MAGICK_CACHE_DIR/magick.appimage" ]; then
+        local cached_size
+        cached_size=$(stat -c%s "$MAGICK_CACHE_DIR/magick.appimage" 2>/dev/null || echo 0)
+        if [ "$cached_size" -ge "$MAGICK_MIN_APPIMAGE_SIZE" ]; then
+            echo "Using cached ImageMagick AppImage ($(( cached_size / 1024 / 1024 ))MB)..."
+            cp "$MAGICK_CACHE_DIR/magick.appimage" "$appimage_path"
+        else
+            echo "Cached AppImage is invalid (${cached_size} bytes), re-downloading..."
+            rm -f "$MAGICK_CACHE_DIR/magick.appimage"
+        fi
+    fi
+
+    # Download if we don't have a valid AppImage yet
+    if [ ! -f "$appimage_path" ]; then
+        if ! download_imagemagick_appimage "$appimage_path"; then
+            echo "❌ Could not obtain ImageMagick AppImage, falling back to package manager (v6)"
             apt-get install -y imagemagick
             return
         fi
 
-        # Cache the downloaded AppImage for future runs
-        mkdir -p "$CACHE_DIR"
-        cp magick.appimage "$CACHE_DIR/magick.appimage"
+        # Cache the successfully downloaded AppImage for future runs
+        mkdir -p "$MAGICK_CACHE_DIR"
+        cp "$appimage_path" "$MAGICK_CACHE_DIR/magick.appimage"
     fi
 
     # Extract AppImage contents
     cd /tmp
-    chmod +x magick.appimage
-    ./magick.appimage --appimage-extract >/dev/null 2>&1
+    rm -rf squashfs-root  # Clean up any previous failed extraction
+    chmod +x "$appimage_path"
+    if ! ./magick.appimage --appimage-extract >/dev/null 2>&1; then
+        echo "Error: AppImage extraction failed"
+        rm -f "$appimage_path"
+        rm -f "$MAGICK_CACHE_DIR/magick.appimage"
+        echo "❌ Could not extract ImageMagick AppImage, falling back to package manager (v6)"
+        apt-get install -y imagemagick
+        return
+    fi
+    rm -f "$appimage_path"
+
+    # Validate extraction produced expected structure
+    if [ ! -x "squashfs-root/usr/bin/magick" ]; then
+        echo "Error: Extracted AppImage is missing usr/bin/magick binary"
+        rm -rf squashfs-root
+        rm -f "$MAGICK_CACHE_DIR/magick.appimage"
+        echo "❌ Invalid ImageMagick AppImage contents, falling back to package manager (v6)"
+        apt-get install -y imagemagick
+        return
+    fi
 
     # Move extracted contents to install directory
-    rm -rf "$INSTALL_DIR"
-    mv squashfs-root "$INSTALL_DIR"
-    rm magick.appimage
+    rm -rf "$MAGICK_INSTALL_DIR"
+    mv squashfs-root "$MAGICK_INSTALL_DIR"
 
-    # Create wrapper script that sets up ImageMagick environment
-    cat > /usr/local/bin/magick << 'EOF'
-#!/bin/bash
-MAGICK_HOME="/opt/imagemagick/usr"
-export MAGICK_CONFIGURE_PATH="$MAGICK_HOME/lib/ImageMagick-7.1.2/config-Q16:$MAGICK_HOME/lib/ImageMagick-7.1.2/config-Q16HDRI:$MAGICK_HOME/share/ImageMagick-7:$MAGICK_HOME/etc/ImageMagick-7"
-export LD_LIBRARY_PATH="$MAGICK_HOME/lib:$MAGICK_HOME/lib/ImageMagick-7.1.2/modules-Q16HDRI/coders${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec "$MAGICK_HOME/bin/magick" "$@"
-EOF
-    chmod +x /usr/local/bin/magick
+    # Create wrapper with dynamically detected version paths
+    if ! create_imagemagick_wrapper "$MAGICK_INSTALL_DIR"; then
+        echo "❌ Failed to create ImageMagick wrapper, falling back to package manager (v6)"
+        rm -rf "$MAGICK_INSTALL_DIR"
+        cleanup_imagemagick_links
+        apt-get install -y imagemagick
+        return
+    fi
 
-    # Create symlinks for legacy command names
-    ln -sf /usr/local/bin/magick /usr/local/bin/convert
-    ln -sf /usr/local/bin/magick /usr/local/bin/identify
-    ln -sf /usr/local/bin/magick /usr/local/bin/mogrify
-    ln -sf /usr/local/bin/magick /usr/local/bin/composite
-    ln -sf /usr/local/bin/magick /usr/local/bin/montage
-
-    # Verify installation
+    # Verify the installation actually works
     if /usr/local/bin/magick --version 2>/dev/null | head -1; then
         echo "✓ ImageMagick 7 installed successfully from AppImage"
     else
-        echo "❌ ImageMagick 7 installation failed, falling back to package manager"
-        rm -rf "$INSTALL_DIR" /usr/local/bin/magick
+        echo "❌ ImageMagick 7 installation verification failed, falling back to package manager (v6)"
+        rm -rf "$MAGICK_INSTALL_DIR"
+        cleanup_imagemagick_links
+        rm -f "$MAGICK_CACHE_DIR/magick.appimage"
         apt-get install -y imagemagick
     fi
 }
