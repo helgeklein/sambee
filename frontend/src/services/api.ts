@@ -238,6 +238,38 @@ class ApiService {
     return response.data;
   }
 
+  /**
+   * Copy a file or directory to a new location on the same connection.
+   *
+   * @param connectionId - Source connection UUID.
+   * @param sourcePath   - Relative path of the item to copy.
+   * @param destPath     - Full destination path (including final name).
+   * @param destConnectionId - Optional destination connection (cross-connection not yet supported).
+   */
+  async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string): Promise<void> {
+    await this.api.post(`/browse/${connectionId}/copy`, {
+      source_path: sourcePath,
+      dest_path: destPath,
+      dest_connection_id: destConnectionId,
+    });
+  }
+
+  /**
+   * Move a file or directory to a new location on the same connection.
+   *
+   * @param connectionId - Source connection UUID.
+   * @param sourcePath   - Relative path of the item to move.
+   * @param destPath     - Full destination path (including final name).
+   * @param destConnectionId - Optional destination connection (cross-connection not yet supported).
+   */
+  async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string): Promise<void> {
+    await this.api.post(`/browse/${connectionId}/move`, {
+      source_path: sourcePath,
+      dest_path: destPath,
+      dest_connection_id: destConnectionId,
+    });
+  }
+
   // Viewer endpoints
   getViewUrl(connectionId: string, path: string): string {
     const token = localStorage.getItem("access_token");

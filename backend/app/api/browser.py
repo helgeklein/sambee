@@ -9,7 +9,7 @@ from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
-from app.models.file import CreateItemRequest, DirectoryListing, DirectorySearchResult, FileInfo, FileType, RenameRequest
+from app.models.file import CopyMoveRequest, CreateItemRequest, DirectoryListing, DirectorySearchResult, FileInfo, FileType, RenameRequest
 from app.models.user import User
 from app.storage.smb import SMBBackend
 
@@ -630,6 +630,230 @@ async def create_item(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create item: {str(e)}",
+        )
+
+
+# ============================================================================
+# Copy file or directory
+# ============================================================================
+
+
+def _build_backend(connection: Connection) -> SMBBackend:
+    """Create an SMBBackend instance from a Connection model.
+
+    Assumes connection.share_name has already been validated
+    (e.g. by _get_connection_or_404).
+    """
+    assert connection.share_name, "share_name must not be empty"
+
+    return SMBBackend(
+        host=connection.host,
+        share_name=connection.share_name,
+        username=connection.username,
+        password=decrypt_password(connection.password_encrypted),
+        port=connection.port,
+        path_prefix=connection.path_prefix or "/",
+    )
+
+
+def _validate_copy_move_paths(source_path: str, dest_path: str) -> tuple[str, str]:
+    """Validate and normalize source and dest paths for copy/move.
+
+    Raises HTTPException on invalid input. Returns (source, dest) with
+    leading/trailing slashes stripped.
+    """
+
+    source = source_path.strip("/") if source_path else ""
+    dest = dest_path.strip("/") if dest_path else ""
+
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source path must not be empty",
+        )
+    if not dest:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Destination path must not be empty",
+        )
+    if source == dest:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source and destination paths must be different",
+        )
+    # Prevent copying/moving a directory into itself
+    if dest.startswith(source + "/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot copy or move a directory into itself",
+        )
+    return source, dest
+
+
+def _get_connection_or_404(session: Session, connection_id: uuid.UUID) -> Connection:
+    """Look up a connection by ID, raising 404 if not found or misconfigured."""
+
+    connection = session.get(Connection, connection_id)
+    if not connection:
+        logger.warning(f"Connection not found: connection_id={connection_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+
+    if not connection.share_name:
+        logger.warning(f"Connection has no share name: connection_id={connection_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection has no share name configured",
+        )
+    return connection
+
+
+#
+# copy_item
+#
+@router.post("/{connection_id}/copy", status_code=status.HTTP_204_NO_CONTENT)
+async def copy_item(
+    connection_id: uuid.UUID,
+    body: CopyMoveRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> None:
+    """Copy a file or directory.
+
+    Copies the source item to the destination path within the same
+    connection (same SMB share).  Cross-connection copy is not yet
+    supported — ``dest_connection_id`` is accepted but currently
+    raises 501 if it differs from the source connection.
+    """
+
+    set_user(current_user.username)
+
+    source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
+
+    # Cross-connection copy: not yet implemented
+    if body.dest_connection_id and str(body.dest_connection_id) != str(connection_id):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cross-connection copy is not yet supported",
+        )
+
+    connection = _get_connection_or_404(session, connection_id)
+
+    try:
+        backend = _build_backend(connection)
+        await backend.connect()
+        await backend.copy_item(source, dest)
+        await backend.disconnect()
+
+        # If a directory was copied, add it to the cache
+        _add_to_directory_cache(str(connection_id), dest)
+
+        logger.info(f"Copied item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Source not found: {source}",
+        )
+    except FileExistsError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Destination already exists: {dest}",
+        )
+    except OSError as e:
+        logger.error(
+            f"Failed to copy item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to copy item: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to copy item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to copy item: {str(e)}",
+        )
+
+
+# ============================================================================
+# Move file or directory
+# ============================================================================
+
+
+#
+# move_item
+#
+@router.post("/{connection_id}/move", status_code=status.HTTP_204_NO_CONTENT)
+async def move_item(
+    connection_id: uuid.UUID,
+    body: CopyMoveRequest,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> None:
+    """Move (rename across directories) a file or directory.
+
+    Moves the source item to the destination path within the same
+    connection (same SMB share).  Cross-connection move is not yet
+    supported — ``dest_connection_id`` is accepted but currently
+    raises 501 if it differs from the source connection.
+    """
+
+    set_user(current_user.username)
+
+    source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
+
+    # Cross-connection move: not yet implemented
+    if body.dest_connection_id and str(body.dest_connection_id) != str(connection_id):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Cross-connection move is not yet supported",
+        )
+
+    connection = _get_connection_or_404(session, connection_id)
+
+    try:
+        backend = _build_backend(connection)
+        await backend.connect()
+        await backend.move_item(source, dest)
+        await backend.disconnect()
+
+        # Update directory cache: remove old path, add new path
+        _remove_from_directory_cache(str(connection_id), source)
+        _add_to_directory_cache(str(connection_id), dest)
+
+        logger.info(f"Moved item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Source not found: {source}",
+        )
+    except FileExistsError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Destination already exists: {dest}",
+        )
+    except OSError as e:
+        logger.error(
+            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move item: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move item: {str(e)}",
         )
 
 

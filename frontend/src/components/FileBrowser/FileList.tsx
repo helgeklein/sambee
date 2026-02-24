@@ -8,6 +8,7 @@ import { FileRow } from "./FileRow";
 interface FileListProps {
   files: FileEntry[];
   focusedIndex: number;
+  selectedFiles: Set<string>;
   onFileClick: (file: FileEntry, index?: number) => void;
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   parentRef: React.RefObject<HTMLDivElement>;
@@ -17,6 +18,8 @@ interface FileListProps {
     contentBox: Record<string, unknown>;
     buttonSelected: Record<string, unknown>;
     buttonNotSelected: Record<string, unknown>;
+    buttonMultiSelected: Record<string, unknown>;
+    buttonFocusedMultiSelected: Record<string, unknown>;
   };
   viewMode: ViewMode;
   /** Called when "Open in app" is chosen from a file's context menu */
@@ -30,6 +33,7 @@ export const FileList = React.memo(
   ({
     files,
     focusedIndex,
+    selectedFiles,
     onFileClick,
     rowVirtualizer,
     parentRef,
@@ -89,6 +93,7 @@ export const FileList = React.memo(
                     file={file}
                     index={virtualItem.index}
                     isSelected={virtualItem.index === focusedIndex}
+                    isMultiSelected={selectedFiles.has(file.name)}
                     virtualStart={virtualItem.start}
                     virtualSize={virtualItem.size}
                     onClick={onFileClick}

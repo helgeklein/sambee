@@ -246,6 +246,43 @@ export const BROWSER_SHORTCUTS = {
 } as const satisfies Record<string, ShortcutDefinition>;
 
 /**
+ * Selection shortcuts (Norton Commander style multi-select)
+ */
+export const SELECTION_SHORTCUTS = {
+  TOGGLE_SELECTION: {
+    id: "toggle-selection",
+    keys: ["Insert", " "],
+    description: "Toggle selection & move down",
+    label: "Ins / Space",
+  },
+  SELECT_ALL: {
+    id: "select-all",
+    keys: "a",
+    description: "Select all files",
+    label: "Ctrl+A",
+    ctrl: true,
+  },
+} as const satisfies Record<string, ShortcutDefinition>;
+
+/**
+ * Copy / Move shortcuts (Norton Commander style, dual-pane)
+ */
+export const COPY_MOVE_SHORTCUTS = {
+  COPY_TO_OTHER_PANE: {
+    id: "copy-to-other",
+    keys: "F5",
+    description: "Copy to other pane",
+    label: "F5",
+  },
+  MOVE_TO_OTHER_PANE: {
+    id: "move-to-other",
+    keys: "F6",
+    description: "Move to other pane",
+    label: "F6",
+  },
+} as const satisfies Record<string, ShortcutDefinition>;
+
+/**
  * Dual-pane layout shortcuts (Norton Commander style)
  */
 export const PANE_SHORTCUTS = {

@@ -740,3 +740,147 @@ class SMBBackend(StorageBackend):
                 exc_info=True,
             )
             raise
+
+    #
+    # copy_item
+    #
+    async def copy_item(self, source_path: str, dest_path: str) -> None:
+        """Copy a file or directory to a new location via SMB.
+
+        Files are copied using ``smbclient.copyfile`` which performs a
+        server-side copy (``FSCTL_SRV_COPYCHUNK``).  Directories are
+        copied recursively — structure is replicated depth-first.
+
+        Args:
+            source_path: Relative path of the item to copy.
+            dest_path: Relative destination path (full path including name).
+
+        Raises:
+            FileNotFoundError: If the source path does not exist.
+            FileExistsError: If the destination path already exists.
+            OSError: If the operation fails.
+        """
+
+        smb_src = self._build_smb_path(source_path)
+        smb_dst = self._build_smb_path(dest_path)
+        logger.info(f"Copying item: '{source_path}' -> '{dest_path}' (smb: '{smb_src}' -> '{smb_dst}')")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+
+                def _copy_recursive(src: str, dst: str) -> None:
+                    """Copy *src* to *dst*, creating directories as needed."""
+
+                    stat_info = smbclient.stat(src)
+                    if stat.S_ISDIR(stat_info.st_mode):
+                        smbclient.mkdir(dst)
+                        for entry in smbclient.scandir(src):
+                            if entry.name in (".", ".."):
+                                continue
+                            _copy_recursive(entry.path, f"{dst}\\{entry.name}")
+                    else:
+                        smbclient.copyfile(src, dst)
+
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, _copy_recursive, smb_src, smb_dst),
+                    timeout=300.0,  # Large copies may take time
+                )
+
+                logger.info(f"Successfully copied: '{source_path}' -> '{dest_path}'")
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout copying '{source_path}' after 300 seconds")
+            raise TimeoutError(f"SMB operation timed out while copying: {source_path}")
+        except OSError as e:
+            error_str = str(e)
+            # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Source not found: {source_path}") from e
+            # 0xc0000035 = STATUS_OBJECT_NAME_COLLISION (destination already exists)
+            if "0xc0000035" in error_str:
+                raise FileExistsError(f"Destination already exists: {dest_path}") from e
+            logger.error(
+                f"Failed to copy '{source_path}' -> '{dest_path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to copy '{source_path}' -> '{dest_path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+
+    #
+    # move_item
+    #
+    async def move_item(self, source_path: str, dest_path: str) -> None:
+        """Move a file or directory to a new location via SMB.
+
+        Uses ``smbclient.rename`` which performs a server-side rename
+        (instant, no data copy) — this works across directories within
+        the same share.
+
+        Args:
+            source_path: Relative path of the item to move.
+            dest_path: Relative destination path (full path including name).
+
+        Raises:
+            FileNotFoundError: If the source path does not exist.
+            FileExistsError: If the destination path already exists.
+            OSError: If the operation fails.
+        """
+
+        smb_src = self._build_smb_path(source_path)
+        smb_dst = self._build_smb_path(dest_path)
+        logger.info(f"Moving item: '{source_path}' -> '{dest_path}' (smb: '{smb_src}' -> '{smb_dst}')")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, smbclient.rename, smb_src, smb_dst),
+                    timeout=30.0,
+                )
+
+                logger.info(f"Successfully moved: '{source_path}' -> '{dest_path}'")
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout moving '{source_path}' after 30 seconds")
+            raise TimeoutError(f"SMB operation timed out while moving: {source_path}")
+        except OSError as e:
+            error_str = str(e)
+            # 0xc0000034 = STATUS_OBJECT_NAME_NOT_FOUND
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Source not found: {source_path}") from e
+            # 0xc0000035 = STATUS_OBJECT_NAME_COLLISION (destination already exists)
+            if "0xc0000035" in error_str:
+                raise FileExistsError(f"Destination already exists: {dest_path}") from e
+            logger.error(
+                f"Failed to move '{source_path}' -> '{dest_path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise
+        except Exception as e:
+            logger.error(
+                f"Failed to move '{source_path}' -> '{dest_path}': {type(e).__name__}: {e}",
+                exc_info=True,
+            )
+            raise

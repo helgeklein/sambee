@@ -43,6 +43,19 @@ class CreateItemRequest(BaseModel):
     type: FileType
 
 
+class CopyMoveRequest(BaseModel):
+    """Request model for copying or moving a file or directory.
+
+    ``source_path`` is relative to the source connection's share.
+    ``dest_path`` is relative to the destination connection's share
+    (or the same connection when ``dest_connection_id`` is omitted).
+    """
+
+    source_path: str
+    dest_path: str
+    dest_connection_id: Optional[str] = None
+
+
 class DirectorySearchResult(BaseModel):
     """Response model for directory search (quick navigate)."""
 

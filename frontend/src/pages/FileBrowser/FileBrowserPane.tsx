@@ -15,7 +15,7 @@
  */
 
 import { Box, CircularProgress } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { alpha, useTheme } from "@mui/material/styles";
 import React, { useMemo } from "react";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
 import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialog";
@@ -89,6 +89,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     loading,
     viewMode,
     focusedIndex,
+    selectedFiles,
     sortedAndFilteredFiles,
     directorySearchProvider,
     setViewInfo,
@@ -187,6 +188,55 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         },
         "&:active": {
           backgroundColor: isUsingKeyboard ? theme.palette.action.selected : "transparent",
+        },
+      },
+      buttonMultiSelected: {
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        height: "100%",
+        width: "100%",
+        px: 2,
+        py: 1.5,
+        cursor: "pointer",
+        userSelect: "none",
+        border: "none",
+        borderRadius: 0,
+        transition: "background-color 80ms ease-out",
+        textAlign: "left",
+        WebkitTapHighlightColor: "transparent",
+        background: alpha(theme.palette.primary.main, 0.12),
+        color: theme.palette.primary.main,
+        "&:hover": {
+          backgroundColor: alpha(theme.palette.primary.main, 0.18),
+        },
+        "&:active": {
+          backgroundColor: alpha(theme.palette.primary.main, 0.18),
+        },
+      },
+      buttonFocusedMultiSelected: {
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        height: "100%",
+        width: "100%",
+        px: 2,
+        py: 1.5,
+        cursor: "pointer",
+        userSelect: "none",
+        border: "none",
+        borderRadius: 0,
+        transition: "background-color 80ms ease-out",
+        textAlign: "left",
+        WebkitTapHighlightColor: "transparent",
+        background:
+          isUsingKeyboard && showSelectionHighlight ? alpha(theme.palette.primary.main, 0.22) : alpha(theme.palette.primary.main, 0.12),
+        color: theme.palette.primary.main,
+        "&:hover": {
+          backgroundColor: alpha(theme.palette.primary.main, 0.22),
+        },
+        "&:active": {
+          backgroundColor: alpha(theme.palette.primary.main, 0.22),
         },
       },
     }),
@@ -296,6 +346,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
           <FileList
             files={sortedAndFilteredFiles}
             focusedIndex={focusedIndex}
+            selectedFiles={selectedFiles}
             onFileClick={handleFileClick}
             rowVirtualizer={rowVirtualizer}
             parentRef={parentRef}

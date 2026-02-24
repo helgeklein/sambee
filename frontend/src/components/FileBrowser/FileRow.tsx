@@ -15,12 +15,15 @@ interface FileRowProps {
   file: FileEntry;
   index: number;
   isSelected: boolean;
+  isMultiSelected: boolean;
   virtualStart: number;
   virtualSize: number;
   onClick: (file: FileEntry, index: number) => void;
   fileRowStyles: {
     buttonSelected: Record<string, unknown>;
     buttonNotSelected: Record<string, unknown>;
+    buttonMultiSelected: Record<string, unknown>;
+    buttonFocusedMultiSelected: Record<string, unknown>;
     iconBox: Record<string, unknown>;
     contentBox: Record<string, unknown>;
   };
@@ -37,10 +40,23 @@ interface FileRowProps {
  */
 export const FileRow = React.memo(
   React.forwardRef<HTMLDivElement, FileRowProps>(
-    ({ file, index, isSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp, onRename }, ref) => {
+    (
+      { file, index, isSelected, isMultiSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp, onRename },
+      ref
+    ) => {
       const isListMode = viewMode === "list";
       const isFile = file.type !== "directory";
       const hasContextMenu = !!(onRename || (isFile && onOpenInApp));
+
+      // Compute the correct row style based on focused + multi-selected state
+      const rowStyle =
+        isSelected && isMultiSelected
+          ? fileRowStyles.buttonFocusedMultiSelected
+          : isMultiSelected
+            ? fileRowStyles.buttonMultiSelected
+            : isSelected
+              ? fileRowStyles.buttonSelected
+              : fileRowStyles.buttonNotSelected;
 
       // Context menu state
       const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number } | null>(null);
@@ -87,7 +103,7 @@ export const FileRow = React.memo(
             tabIndex={-1}
             onClick={() => onClick(file, index)}
             onContextMenu={handleContextMenu}
-            sx={isSelected ? fileRowStyles.buttonSelected : fileRowStyles.buttonNotSelected}
+            sx={rowStyle}
             aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}`}
           >
             {isListMode ? (
@@ -173,6 +189,7 @@ export const FileRow = React.memo(
   (prev, next) =>
     prev.index === next.index &&
     prev.isSelected === next.isSelected &&
+    prev.isMultiSelected === next.isMultiSelected &&
     prev.file.name === next.file.name &&
     prev.file.modified_at === next.file.modified_at &&
     prev.file.size === next.file.size &&

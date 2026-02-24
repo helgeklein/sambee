@@ -152,3 +152,49 @@ class StorageBackend(ABC):
         """
 
         pass
+
+    #
+    # copy_item
+    #
+    @abstractmethod
+    async def copy_item(self, source_path: str, dest_path: str) -> None:
+        """Copy a file or directory to a new location within the same share.
+
+        Directories are copied recursively — all contents are replicated
+        at the destination.
+
+        Args:
+            source_path: Relative path of the item to copy.
+            dest_path: Relative path for the copy destination (full path
+                including the final name, not just the parent directory).
+
+        Raises:
+            FileNotFoundError: If the source path does not exist.
+            FileExistsError: If the destination path already exists.
+            OSError: If the operation fails.
+        """
+
+        pass
+
+    #
+    # move_item
+    #
+    @abstractmethod
+    async def move_item(self, source_path: str, dest_path: str) -> None:
+        """Move (rename) a file or directory to a new location within the same share.
+
+        This is effectively a cross-directory rename. For SMB backends
+        this is typically a server-side operation (instant, no data copy).
+
+        Args:
+            source_path: Relative path of the item to move.
+            dest_path: Relative path for the move destination (full path
+                including the final name, not just the parent directory).
+
+        Raises:
+            FileNotFoundError: If the source path does not exist.
+            FileExistsError: If the destination path already exists.
+            OSError: If the operation fails.
+        """
+
+        pass

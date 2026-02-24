@@ -1109,3 +1109,401 @@ class TestUploadFile:
             )
 
         assert response.status_code == 500
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Copy file or directory
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestCopyItem:
+    """Test copy item endpoint."""
+
+    def test_copy_file_success(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test copying a file returns 204."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.copy_item.return_value = None
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "docs/file.txt", "dest_path": "backup/file.txt"},
+        )
+
+        assert response.status_code == 204
+        mock_instance.connect.assert_called_once()
+        mock_instance.copy_item.assert_called_once_with("docs/file.txt", "backup/file.txt")
+        mock_instance.disconnect.assert_called_once()
+
+    def test_copy_directory_success(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test copying a directory returns 204."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.copy_item.return_value = None
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_admin,
+            json={"source_path": "photos", "dest_path": "photos-backup"},
+        )
+
+        assert response.status_code == 204
+        mock_instance.copy_item.assert_called_once_with("photos", "photos-backup")
+
+    def test_copy_without_auth(self, client: TestClient, test_connection: Connection):
+        """Test that copying requires authentication."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 401
+
+    def test_copy_nonexistent_connection(self, client: TestClient, auth_headers_user: dict):
+        """Test copying for a non-existent connection returns 404."""
+        fake_id = uuid.uuid4()
+        response = client.post(
+            f"/api/browse/{fake_id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 404
+
+    def test_copy_empty_source_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that an empty source path is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "", "dest_path": "backup/file.txt"},
+        )
+        assert response.status_code == 400
+        assert "source" in response.json()["detail"].lower()
+
+    def test_copy_empty_dest_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that an empty dest path is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "docs/file.txt", "dest_path": ""},
+        )
+        assert response.status_code == 400
+        assert "destination" in response.json()["detail"].lower()
+
+    def test_copy_same_path_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that copying to the same path is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "docs/file.txt", "dest_path": "docs/file.txt"},
+        )
+        assert response.status_code == 400
+        assert "different" in response.json()["detail"].lower()
+
+    def test_copy_into_self_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that copying a directory into itself is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "photos", "dest_path": "photos/photos-copy"},
+        )
+        assert response.status_code == 400
+        assert "into itself" in response.json()["detail"].lower()
+
+    def test_copy_source_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test copying a non-existent source returns 404."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.copy_item.side_effect = FileNotFoundError("Source not found")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "ghost.txt", "dest_path": "backup/ghost.txt"},
+        )
+        assert response.status_code == 404
+
+    def test_copy_dest_exists(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test copying to an existing destination returns 409."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.copy_item.side_effect = FileExistsError("Destination exists")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 409
+
+    def test_copy_server_error(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test generic SMB error returns 500."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.copy_item.side_effect = Exception("Connection lost")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 500
+
+    def test_copy_cross_connection_not_implemented(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that cross-connection copy returns 501."""
+        other_id = str(uuid.uuid4())
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={
+                "source_path": "a.txt",
+                "dest_path": "b.txt",
+                "dest_connection_id": other_id,
+            },
+        )
+        assert response.status_code == 501
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Move file or directory
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.integration
+class TestMoveItem:
+    """Test move item endpoint."""
+
+    def test_move_file_success(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test moving a file returns 204."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.move_item.return_value = None
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "docs/file.txt", "dest_path": "archive/file.txt"},
+        )
+
+        assert response.status_code == 204
+        mock_instance.connect.assert_called_once()
+        mock_instance.move_item.assert_called_once_with("docs/file.txt", "archive/file.txt")
+        mock_instance.disconnect.assert_called_once()
+
+    def test_move_directory_success(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test moving a directory returns 204."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.move_item.return_value = None
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_admin,
+            json={"source_path": "old-folder", "dest_path": "new-folder"},
+        )
+
+        assert response.status_code == 204
+        mock_instance.move_item.assert_called_once_with("old-folder", "new-folder")
+
+    def test_move_without_auth(self, client: TestClient, test_connection: Connection):
+        """Test that moving requires authentication."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 401
+
+    def test_move_nonexistent_connection(self, client: TestClient, auth_headers_user: dict):
+        """Test moving for a non-existent connection returns 404."""
+        fake_id = uuid.uuid4()
+        response = client.post(
+            f"/api/browse/{fake_id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 404
+
+    def test_move_empty_source_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that an empty source path is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "", "dest_path": "archive/file.txt"},
+        )
+        assert response.status_code == 400
+
+    def test_move_same_path_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that moving to the same path is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "docs/file.txt", "dest_path": "docs/file.txt"},
+        )
+        assert response.status_code == 400
+
+    def test_move_into_self_rejected(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that moving a directory into itself is rejected with 400."""
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "photos", "dest_path": "photos/subfolder"},
+        )
+        assert response.status_code == 400
+        assert "into itself" in response.json()["detail"].lower()
+
+    def test_move_source_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test moving a non-existent source returns 404."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.move_item.side_effect = FileNotFoundError("Source not found")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "ghost.txt", "dest_path": "archive/ghost.txt"},
+        )
+        assert response.status_code == 404
+
+    def test_move_dest_exists(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test moving to an existing destination returns 409."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.move_item.side_effect = FileExistsError("Destination exists")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 409
+
+    def test_move_server_error(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test generic SMB error returns 500."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.move_item.side_effect = Exception("Connection lost")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+        assert response.status_code == 500
+
+    def test_move_cross_connection_not_implemented(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Test that cross-connection move returns 501."""
+        other_id = str(uuid.uuid4())
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={
+                "source_path": "a.txt",
+                "dest_path": "b.txt",
+                "dest_connection_id": other_id,
+            },
+        )
+        assert response.status_code == 501

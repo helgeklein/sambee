@@ -111,6 +111,21 @@ export interface UseFileBrowserPaneReturn {
   setViewMode: React.Dispatch<React.SetStateAction<ViewMode>>;
   focusedIndex: number;
 
+  // ── Selection State (multi-select) ────────────────────────────────────
+  /** Set of file names currently selected (multi-select). */
+  selectedFiles: Set<string>;
+  /** Toggle selection of the focused file and move focus down (Insert / Space). */
+  handleToggleSelection: (e?: KeyboardEvent) => void;
+  /** Select all files in the current directory (Ctrl+A). */
+  handleSelectAll: () => void;
+  /** Clear all selections. */
+  handleClearSelection: () => void;
+  /**
+   * Returns the effective selection: if files are explicitly selected,
+   * returns those; otherwise returns the single focused file.
+   */
+  getEffectiveSelection: () => FileEntry[];
+
   // ── Computed Data ──────────────────────────────────────────────────────
   sortedAndFilteredFiles: FileEntry[];
   imageFiles: string[];

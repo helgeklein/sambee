@@ -14,9 +14,9 @@ The file browser page lives in `frontend/src/pages/FileBrowser.tsx` and delegate
 | Pane logic extraction | **Phase 0 complete.** `useFileBrowserPane` hook encapsulates all per-pane state. |
 | Pane keyboard shortcuts | **Phase 2 complete.** Ctrl+B toggle, Ctrl+1/2 focus, Tab switch. |
 | WebSocket multi-subscription | **Phase 6 complete.** Both panes receive directory_changed events. |
-| Copy/move operations | **Not implemented.** Neither frontend nor backend. |
-| Multi-select | **Not implemented.** Single `focusedIndex` only. |
-| Backend storage API | `StorageBackend` ABC has `read_file`/`write_file` but no `copy_file`/`move_file`. |
+| Copy/move operations | **Phase 5 complete.** Multi-select, F5/F6 shortcuts, confirmation dialog, backend API integration. |
+| Multi-select | **Phase 5 complete.** `selectedFiles: Set<string>` per pane, Insert/Space toggle, Ctrl+A select all. |
+| Backend storage API | **Phase 4 complete.** `StorageBackend` ABC has `copy_item`/`move_item`; SMB backend implements both. |
 | URL routing | **Phase 3 complete.** Both panes encoded in URL: `/browse/:slug/*?p2=slug/path&active=2`. |
 | Keyboard shortcuts | Centralized in `config/keyboardShortcuts.ts`, consumed via `useKeyboardShortcuts` hook. Clean and extensible. |
 | WebSocket | Subscribes to both panes' directories for real-time change notifications. |
@@ -195,7 +195,25 @@ Pane 1 stays in the path (backward-compatible with existing single-pane URLs). A
 - **Duplicate panes** (same connection + path in two panes): Allowed — useful for comparing sort orders or selections.
 - **Maximum panes:** Cap at a reasonable limit (e.g. 4) to prevent degenerate URLs and layouts. Enforce in the UI, not the URL parser.
 
-### Phase 4: Copy & Move Backend
+### Phase 4: Copy & Move Backend ✅ COMPLETE
+
+**Files created/modified:**
+
+| File | Description |
+|------|-------------|
+| `storage/base.py` | Added `copy_item` and `move_item` abstract methods to `StorageBackend` ABC |
+| `storage/smb.py` | Implemented `copy_item` (recursive via `smbclient.copyfile` + `smbclient.mkdir`) and `move_item` (via `smbclient.rename`) |
+| `models/file.py` | Added `CopyMoveRequest` Pydantic model (`source_path`, `dest_path`, optional `dest_connection_id`) |
+| `api/browser.py` | Added `POST /{connection_id}/copy` (204) and `POST /{connection_id}/move` (204) endpoints with shared helpers `_build_backend`, `_validate_copy_move_paths`, `_get_connection_or_404` |
+| `frontend/src/services/api.ts` | Added `copyItem` and `moveItem` API methods |
+| `tests/test_browser.py` | Added `TestCopyItem` (12 tests) and `TestMoveItem` (12 tests) |
+
+**Implementation details:**
+
+- **Copy** uses `smbclient.copyfile()` which leverages `FSCTL_SRV_COPYCHUNK` for server-side copy (no data streamed through Sambee). Directories are copied recursively via `smbclient.scandir()` + `smbclient.mkdir()`.
+- **Move** uses `smbclient.rename()` for server-side cross-directory rename (instant, no data copy).
+- Both endpoints validate: empty paths → 400, same path → 400, copy-into-self → 400, source not found → 404, destination exists → 409, cross-connection → 501 Not Implemented.
+- Copy timeout: 300s. Move timeout: 30s.
 
 #### 4a. Add to `StorageBackend` ABC (`backend/app/storage/base.py`)
 
@@ -235,40 +253,53 @@ async copyItem(srcConnId: string, srcPath: string, destConnId: string, destPath:
 async moveItem(srcConnId: string, srcPath: string, destConnId: string, destPath: string): Promise<void>
 ```
 
-### Phase 5: Copy/Move UI
+### Phase 5: Copy/Move UI ✅ COMPLETE
 
-#### 5a. Multi-select
+Multi-select, Norton Commander–style copy/move shortcuts, and a confirmation dialog.
 
-Add `selectedFiles: Set<string>` to each pane's state.
+**Sub-phases:**
+
+#### 5a. Multi-select ✅
+
+Added `selectedFiles: Set<string>` to each pane's state in `useFileBrowserPane`.
 
 - **Insert** or **Space** — Toggle selection of focused file and move focus down.
 - **Ctrl+A** — Select all.
-- If nothing is selected, operations apply to the focused file only.
-- Selected files get a visual highlight distinct from the focus indicator.
+- If nothing is selected, `getEffectiveSelection()` returns the single focused file.
+- Selected files get a primary-colored highlight (using MUI `alpha(primary.main, 0.12)`) distinct from the focus indicator.
+- Selection clears automatically on directory navigation.
 
-#### 5b. Norton Commander shortcuts
+#### 5b. Norton Commander shortcuts ✅
 
-```typescript
-COPY_TO_OTHER_PANE: {
-  id: "copy-to-other",
-  keys: "F5",
-  description: "Copy to other pane",
-  label: "F5",
-},
-MOVE_TO_OTHER_PANE: {
-  id: "move-to-other",
-  keys: "F6",
-  description: "Move to other pane",
-  label: "F6",
-},
-```
+Registered in `keyboardShortcuts.ts` as `SELECTION_SHORTCUTS` and `COPY_MOVE_SHORTCUTS`.
 
-#### 5c. Confirmation dialog flow
+- F5 = Copy to other pane (dual mode only; in single mode F5 remains Refresh).
+- F6 = Move to other pane (dual mode only).
+- Shortcuts are disabled when dialogs are open or viewer is active.
 
-1. User presses F5 (copy) or F6 (move).
-2. Dialog: "Copy 3 files to [destination path]?" with an editable destination text field pre-filled from the other pane.
-3. On confirm, call the API. Show a progress indicator for large operations.
-4. Both panes refresh via WebSocket notifications.
+#### 5c. Confirmation dialog flow ✅
+
+1. User presses F5 (copy) or F6 (move) in dual-pane mode.
+2. `CopyMoveDialog` opens with the effective selection and an editable destination path pre-filled from the other pane.
+3. Shows source file list (max 8 visible + "…and N more" truncation).
+4. Cross-connection warning when connections differ (disabled for now).
+5. Same-directory detection — disables confirm when source === dest.
+6. On confirm, calls `api.copyItem`/`api.moveItem` sequentially per file with progress bar.
+7. Both panes refresh via WebSocket `directory_changed` notifications.
+
+**Files created/modified:**
+
+| File | Description |
+|------|-------------|
+| `config/keyboardShortcuts.ts` | Added `SELECTION_SHORTCUTS` (Insert/Space, Ctrl+A) and `COPY_MOVE_SHORTCUTS` (F5, F6) |
+| `pages/FileBrowser/types.ts` | Added `selectedFiles`, `handleToggleSelection`, `handleSelectAll`, `handleClearSelection`, `getEffectiveSelection` to `UseFileBrowserPaneReturn` |
+| `pages/FileBrowser/useFileBrowserPane.ts` | Multi-select state, toggle/selectAll/clear handlers, effective selection getter, auto-clear on navigation |
+| `components/FileBrowser/FileRow.tsx` | Added `isMultiSelected` prop, 4-way style computation (normal/focused/selected/both) |
+| `components/FileBrowser/FileList.tsx` | Added `selectedFiles` prop, passes `isMultiSelected` to rows |
+| `pages/FileBrowser/FileBrowserPane.tsx` | Added `buttonMultiSelected` and `buttonFocusedMultiSelected` style variants using `alpha()` |
+| `components/FileBrowser/CopyMoveDialog.tsx` | New component — confirmation dialog with editable dest, progress, warnings |
+| `components/FileBrowser/copyMoveDialogStrings.ts` | Centralized i18n-ready strings for the dialog |
+| `pages/FileBrowser.tsx` | Copy/move state, F5/F6 handlers, selection shortcuts, dialog rendering, F5 dual/single mode split |
 
 ### Phase 6: WebSocket Enhancements ✅ COMPLETE (implemented with Phase 1)
 
@@ -285,9 +316,9 @@ The WebSocket backend already tracks a **set** of subscriptions per client (see 
 | 1 | **Phase 0** — Extract `useFileBrowserPane` + types | Large (3–5 days) | None | ✅ Complete |
 | 2 | **Phase 1+2** — Dual-pane layout + keyboard shortcuts + WebSocket | Medium (2–3 days) | Phase 0 | ✅ Complete |
 | 3 | **Phase 3** — URL routing with query params for N panes | Medium (2 days) | Phase 1 | ✅ Complete |
-| 4 | **Phase 4** — Backend copy/move API | Medium (2–3 days) | None (parallel) | |
-| 5 | **Phase 5a** — Multi-select UI | Medium (2 days) | Phase 0 | |
-| 6 | **Phase 5b+5c** — Copy/move shortcuts + dialog | Medium (2–3 days) | Phases 4, 5a, 1 | |
+| 4 | **Phase 4** — Backend copy/move API | Medium (2–3 days) | None (parallel) | ✅ Complete |
+| 5 | **Phase 5a** — Multi-select UI | Medium (2 days) | Phase 0 | ✅ Complete |
+| 6 | **Phase 5b+5c** — Copy/move shortcuts + dialog | Medium (2–3 days) | Phases 4, 5a, 1 | ✅ Complete |
 
 **Total estimated effort:** ~15–21 days
 

@@ -23,6 +23,7 @@ import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery } fro
 import { useTheme } from "@mui/material/styles";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import CopyMoveDialog, { type CopyMoveMode } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
@@ -32,7 +33,7 @@ import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog, { type SettingsCategory } from "../components/Settings/SettingsDialog";
-import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, PANE_SHORTCUTS } from "../config/keyboardShortcuts";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
@@ -93,6 +94,22 @@ const Browser: React.FC = () => {
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<"main" | "appearance" | "connections">("main");
   const [showHelp, setShowHelp] = useState(false);
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Copy / Move Dialog State
+  // ──────────────────────────────────────────────────────────────────────────
+
+  const [copyMoveDialogOpen, setCopyMoveDialogOpen] = useState(false);
+  const [copyMoveMode, setCopyMoveMode] = useState<CopyMoveMode>("copy");
+  const [copyMoveFiles, setCopyMoveFiles] = useState<import("../types").FileEntry[]>([]);
+  const [copyMoveSourceConnectionId, setCopyMoveSourceConnectionId] = useState("");
+  const [copyMoveSourcePath, setCopyMoveSourcePath] = useState("");
+  const [copyMoveDestConnectionId, setCopyMoveDestConnectionId] = useState("");
+  const [copyMoveDestConnectionName, setCopyMoveDestConnectionName] = useState("");
+  const [copyMoveDestPath, setCopyMoveDestPath] = useState("");
+  const [copyMoveProcessing, setCopyMoveProcessing] = useState(false);
+  const [copyMoveProgress, setCopyMoveProgress] = useState<{ current: number; total: number } | undefined>();
+  const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Dual-Pane State
@@ -692,6 +709,107 @@ const Browser: React.FC = () => {
   }, [paneMode, leftPane, rightPane]);
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Copy / Move Handlers
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Open the copy/move dialog with the effective selection from the active pane.
+   * The destination is pre-filled from the other pane's current directory.
+   */
+  const handleOpenCopyMoveDialog = useCallback(
+    (mode: CopyMoveMode) => {
+      if (!isDualMode) return;
+
+      const sourcePaneId = effectiveActivePaneIdRef.current;
+      const sourcePane = sourcePaneId === "left" ? leftPane : rightPane;
+      const destPane = sourcePaneId === "left" ? rightPane : leftPane;
+
+      const files = sourcePane.getEffectiveSelection();
+      if (files.length === 0) return;
+
+      const destConnId = destPane.connectionIdRef.current;
+      const destConn = connections.find((c) => c.id === destConnId);
+
+      setCopyMoveMode(mode);
+      setCopyMoveFiles(files);
+      setCopyMoveSourceConnectionId(sourcePane.connectionIdRef.current);
+      setCopyMoveSourcePath(sourcePane.currentPathRef.current);
+      setCopyMoveDestConnectionId(destConnId);
+      setCopyMoveDestConnectionName(destConn?.name ?? "");
+      setCopyMoveDestPath(destPane.currentPathRef.current);
+      setCopyMoveError(null);
+      setCopyMoveProgress(undefined);
+      setCopyMoveProcessing(false);
+      setCopyMoveDialogOpen(true);
+    },
+    [isDualMode, leftPane, rightPane, connections]
+  );
+
+  /** Open the copy dialog (F5). */
+  const handleCopyToOtherPane = useCallback(() => handleOpenCopyMoveDialog("copy"), [handleOpenCopyMoveDialog]);
+
+  /** Open the move dialog (F6). */
+  const handleMoveToOtherPane = useCallback(() => handleOpenCopyMoveDialog("move"), [handleOpenCopyMoveDialog]);
+
+  /**
+   * Execute the copy/move operation for all selected files sequentially.
+   * Shows progress per file. Both panes refresh via WebSocket after completion.
+   */
+  const handleCopyMoveConfirm = useCallback(
+    async (destPath: string) => {
+      if (copyMoveFiles.length === 0) return;
+
+      setCopyMoveProcessing(true);
+      setCopyMoveError(null);
+      setCopyMoveProgress({ current: 0, total: copyMoveFiles.length });
+
+      const apiFn = copyMoveMode === "copy" ? api.copyItem.bind(api) : api.moveItem.bind(api);
+      const errors: string[] = [];
+
+      for (let i = 0; i < copyMoveFiles.length; i++) {
+        const file = copyMoveFiles[i]!;
+        const sourcePath = copyMoveSourcePath ? `${copyMoveSourcePath}/${file.name}` : file.name;
+        const fullDestPath = destPath ? `${destPath}/${file.name}` : file.name;
+
+        setCopyMoveProgress({ current: i + 1, total: copyMoveFiles.length });
+
+        try {
+          await apiFn(
+            copyMoveSourceConnectionId,
+            sourcePath,
+            fullDestPath,
+            copyMoveSourceConnectionId !== copyMoveDestConnectionId ? copyMoveDestConnectionId : undefined
+          );
+        } catch (err) {
+          const msg = (isApiError(err) ? err.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
+          errors.push(msg);
+          logger.error(`${copyMoveMode} failed`, { file: file.name, error: err }, "browser");
+        }
+      }
+
+      setCopyMoveProcessing(false);
+
+      if (errors.length > 0) {
+        setCopyMoveError(errors.join("; "));
+      } else {
+        // Success — close dialog and clear selection on the source pane
+        setCopyMoveDialogOpen(false);
+        const sourcePaneId = effectiveActivePaneIdRef.current;
+        const sourcePane = sourcePaneId === "left" ? leftPane : rightPane;
+        sourcePane.handleClearSelection();
+      }
+    },
+    [copyMoveFiles, copyMoveMode, copyMoveSourceConnectionId, copyMoveSourcePath, copyMoveDestConnectionId, leftPane, rightPane]
+  );
+
+  /** Cancel the copy/move dialog. */
+  const handleCopyMoveCancel = useCallback(() => {
+    if (!copyMoveProcessing) {
+      setCopyMoveDialogOpen(false);
+    }
+  }, [copyMoveProcessing]);
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Keyboard Shortcuts
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -762,11 +880,11 @@ const Browser: React.FC = () => {
         handler: activePane.handleClose,
         enabled: true,
       },
-      // Refresh
+      // Refresh — F5 in single-pane mode (in dual mode, F5 = copy to other pane)
       {
         ...BROWSER_SHORTCUTS.REFRESH,
         handler: activePane.handleRefresh,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo,
+        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && !isDualMode,
       },
       // Quick navigate (Ctrl+K) — also focuses the search bar
       {
@@ -844,6 +962,66 @@ const Browser: React.FC = () => {
           !activePane.createDialogOpen,
       },
 
+      // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
+      // Toggle selection on focused file, then move focus down (Insert / Space)
+      {
+        ...SELECTION_SHORTCUTS.TOGGLE_SELECTION,
+        handler: activePane.handleToggleSelection,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen &&
+          !copyMoveDialogOpen &&
+          activePane.filesRef.current.length > 0,
+      },
+      // Select all files (Ctrl+A)
+      {
+        ...SELECTION_SHORTCUTS.SELECT_ALL,
+        handler: activePane.handleSelectAll,
+        enabled:
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen &&
+          !copyMoveDialogOpen &&
+          activePane.filesRef.current.length > 0,
+      },
+
+      // ── Copy / Move Shortcuts (dual-pane only) ──────────────────────────
+      // Copy to other pane (F5 in dual mode — takes priority over Refresh)
+      {
+        ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
+        handler: handleCopyToOtherPane,
+        enabled:
+          isDualMode &&
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen &&
+          !copyMoveDialogOpen,
+      },
+      // Move to other pane (F6 in dual mode)
+      {
+        ...COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE,
+        handler: handleMoveToOtherPane,
+        enabled:
+          isDualMode &&
+          !settingsOpen &&
+          !mobileSettingsOpen &&
+          !activePane.viewInfo &&
+          !activePane.deleteDialogOpen &&
+          !activePane.renameDialogOpen &&
+          !activePane.createDialogOpen &&
+          !copyMoveDialogOpen,
+      },
+
       // ── Dual-Pane Shortcuts ──────────────────────────────────────────────
       {
         ...PANE_SHORTCUTS.TOGGLE_DUAL_PANE,
@@ -873,10 +1051,13 @@ const Browser: React.FC = () => {
       mobileSettingsOpen,
       useCompactLayout,
       isDualMode,
+      copyMoveDialogOpen,
       handleToggleDualPane,
       handleSwitchPane,
       handleFocusLeftPane,
       handleFocusRightPane,
+      handleCopyToOtherPane,
+      handleMoveToOtherPane,
     ]
   );
 
@@ -1199,6 +1380,24 @@ const Browser: React.FC = () => {
         onClose={() => setCompanionHintOpen(false)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         message="Opening in Sambee Companion… If nothing happened, make sure the companion app is installed."
+      />
+
+      {/* Copy / Move Dialog (dual-pane F5/F6) */}
+      <CopyMoveDialog
+        open={copyMoveDialogOpen}
+        mode={copyMoveMode}
+        files={copyMoveFiles}
+        sourceConnectionId={copyMoveSourceConnectionId}
+        sourcePath={copyMoveSourcePath}
+        destConnectionId={copyMoveDestConnectionId}
+        destConnectionName={copyMoveDestConnectionName}
+        destPath={copyMoveDestPath}
+        isSameConnection={copyMoveSourceConnectionId === copyMoveDestConnectionId}
+        onConfirm={handleCopyMoveConfirm}
+        onCancel={handleCopyMoveCancel}
+        isProcessing={copyMoveProcessing}
+        progress={copyMoveProgress}
+        error={copyMoveError}
       />
     </Box>
   );

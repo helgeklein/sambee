@@ -83,6 +83,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Selection State (multi-select)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Set of currently selected file names. */
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Viewer State
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -758,6 +765,74 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Selection (multi-select)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Toggle the focused file's selection and advance focus down (Norton Commander style).
+   * Insert / Space both trigger this.
+   */
+  const handleToggleSelection = useCallback(
+    (_e?: KeyboardEvent) => {
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
+      const files = filesRef.current;
+      if (files.length === 0) return;
+
+      const currentFile = files[focusedIndex];
+      if (!currentFile) return;
+
+      setSelectedFiles((prev) => {
+        const next = new Set(prev);
+        if (next.has(currentFile.name)) {
+          next.delete(currentFile.name);
+        } else {
+          next.add(currentFile.name);
+        }
+        return next;
+      });
+
+      // Move focus down (Norton Commander style)
+      if (focusedIndex < files.length - 1) {
+        updateFocus(focusedIndex + 1);
+      }
+    },
+    [focusedIndex, updateFocus, listContainerEl]
+  );
+
+  /** Select all files in the current directory (Ctrl+A). */
+  const handleSelectAll = useCallback(() => {
+    const allNames = new Set(filesRef.current.map((f) => f.name));
+    setSelectedFiles(allNames);
+  }, []);
+
+  /** Clear all selections. */
+  const handleClearSelection = useCallback(() => {
+    setSelectedFiles(new Set());
+  }, []);
+
+  /**
+   * Returns the effective selection for operations (copy, move, delete, etc.).
+   * If files are explicitly selected, returns those in display order.
+   * Otherwise returns the single focused file.
+   */
+  const getEffectiveSelection = useCallback(() => {
+    if (selectedFiles.size > 0) {
+      return filesRef.current.filter((f) => selectedFiles.has(f.name));
+    }
+    const focused = filesRef.current[focusedIndex];
+    return focused ? [focused] : [];
+  }, [selectedFiles, focusedIndex]);
+
+  // Clear selection when the directory or connection changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: connectionId is needed as a trigger
+  useEffect(() => {
+    setSelectedFiles(new Set());
+  }, [currentPath, connectionId]);
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Delete
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -1115,6 +1190,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     viewMode,
     setViewMode,
     focusedIndex,
+
+    // Selection (multi-select)
+    selectedFiles,
+    handleToggleSelection,
+    handleSelectAll,
+    handleClearSelection,
+    getEffectiveSelection,
 
     // Computed
     sortedAndFilteredFiles,
