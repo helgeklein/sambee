@@ -146,6 +146,8 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     // Selection state (multi-select)
     selectedFiles: new Set<string>(),
     handleToggleSelection: vi.fn(),
+    handleSelectDown: vi.fn(),
+    handleSelectUp: vi.fn(),
     handleSelectAll: vi.fn(),
     handleClearSelection: vi.fn(),
     getEffectiveSelection: vi.fn().mockReturnValue([]),

@@ -207,9 +207,10 @@ export const BROWSER_SHORTCUTS = {
   },
   REFRESH: {
     id: "refresh",
-    keys: "F5",
+    keys: "r",
     description: "Refresh file list",
-    label: "F5",
+    label: "Ctrl+R",
+    ctrl: true,
   },
   DELETE_ITEM: {
     id: "delete-item",
@@ -254,6 +255,20 @@ export const SELECTION_SHORTCUTS = {
     keys: ["Insert", " "],
     description: "Toggle selection & move down",
     label: "Ins / Space",
+  },
+  SELECT_DOWN: {
+    id: "select-down",
+    keys: "ArrowDown",
+    description: "Select & move down",
+    label: "Shift+Down",
+    shift: true,
+  },
+  SELECT_UP: {
+    id: "select-up",
+    keys: "ArrowUp",
+    description: "Select & move up",
+    label: "Shift+Up",
+    shift: true,
   },
   SELECT_ALL: {
     id: "select-all",

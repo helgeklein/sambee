@@ -12,19 +12,19 @@ export const COPY_MOVE_STRINGS = {
   TITLE_COPY: "Copy",
   TITLE_MOVE: "Move",
 
-  // Prompts
+  // Prompts (action text — destination is shown separately)
   PROMPT_COPY_SINGLE: "Copy 1 item to:",
   PROMPT_COPY_MULTI: (count: number) => `Copy ${count} items to:`,
   PROMPT_MOVE_SINGLE: "Move 1 item to:",
   PROMPT_MOVE_MULTI: (count: number) => `Move ${count} items to:`,
 
   // Labels
-  LABEL_DESTINATION: "Destination path",
-  LABEL_DESTINATION_CONNECTION: "Destination connection",
+  LABEL_FILENAME: "File name",
 
   // Warnings
   WARN_CROSS_CONNECTION: "Cross-connection operations are not yet supported.",
   WARN_SAME_DIRECTORY: "Source and destination are the same directory.",
+  WARN_EMPTY_FILENAME: "File name cannot be empty.",
 
   // Buttons
   BUTTON_CANCEL: "Cancel",

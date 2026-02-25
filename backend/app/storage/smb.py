@@ -778,17 +778,30 @@ class SMBBackend(StorageBackend):
                 loop = asyncio.get_event_loop()
 
                 def _copy_recursive(src: str, dst: str) -> None:
-                    """Copy *src* to *dst*, creating directories as needed."""
+                    """Copy *src* to *dst*, creating directories as needed.
+
+                    Preserves the original modification time on both files
+                    and directories.
+                    """
 
                     stat_info = smbclient.stat(src)
+                    # Convert float seconds to integer nanoseconds —
+                    # smbclient.utime() requires int via the ns= parameter.
+                    atime_ns = int(stat_info.st_atime * 1_000_000_000)
+                    mtime_ns = int(stat_info.st_mtime * 1_000_000_000)
+
                     if stat.S_ISDIR(stat_info.st_mode):
                         smbclient.mkdir(dst)
                         for entry in smbclient.scandir(src):
                             if entry.name in (".", ".."):
                                 continue
                             _copy_recursive(entry.path, f"{dst}\\{entry.name}")
+                        # Restore directory timestamps after all children are
+                        # copied (adding children updates the directory mtime).
+                        smbclient.utime(dst, ns=(atime_ns, mtime_ns))
                     else:
                         smbclient.copyfile(src, dst)
+                        smbclient.utime(dst, ns=(atime_ns, mtime_ns))
 
                 await asyncio.wait_for(
                     loop.run_in_executor(None, _copy_recursive, smb_src, smb_dst),

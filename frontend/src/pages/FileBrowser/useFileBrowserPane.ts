@@ -754,6 +754,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const handleClose = useCallback(() => {
     setViewInfo(null);
+    setSelectedFiles(new Set());
   }, []);
 
   const handleFocusSearch = useCallback(() => {
@@ -797,6 +798,68 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       // Move focus down (Norton Commander style)
       if (focusedIndex < files.length - 1) {
         updateFocus(focusedIndex + 1);
+      }
+    },
+    [focusedIndex, updateFocus, listContainerEl]
+  );
+
+  /**
+   * Select the focused file and move focus down (Alt+ArrowDown).
+   * Always adds to the selection set (never deselects), like Shift+Down in most file managers.
+   */
+  const handleSelectDown = useCallback(
+    (_e?: KeyboardEvent) => {
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
+      const files = filesRef.current;
+      if (files.length === 0) return;
+
+      const currentFile = files[focusedIndex];
+      if (!currentFile) return;
+
+      // Select the current file
+      setSelectedFiles((prev) => {
+        const next = new Set(prev);
+        next.add(currentFile.name);
+        return next;
+      });
+
+      // Move focus down
+      if (focusedIndex < files.length - 1) {
+        updateFocus(focusedIndex + 1);
+      }
+    },
+    [focusedIndex, updateFocus, listContainerEl]
+  );
+
+  /**
+   * Select the focused file and move focus up (Alt+ArrowUp).
+   * Always adds to the selection set (never deselects), like Shift+Up in most file managers.
+   */
+  const handleSelectUp = useCallback(
+    (_e?: KeyboardEvent) => {
+      if (!listContainerEl) return;
+      const activeElement = document.activeElement;
+      if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+
+      const files = filesRef.current;
+      if (files.length === 0) return;
+
+      const currentFile = files[focusedIndex];
+      if (!currentFile) return;
+
+      // Select the current file
+      setSelectedFiles((prev) => {
+        const next = new Set(prev);
+        next.add(currentFile.name);
+        return next;
+      });
+
+      // Move focus up
+      if (focusedIndex > 0) {
+        updateFocus(focusedIndex - 1);
       }
     },
     [focusedIndex, updateFocus, listContainerEl]
@@ -1194,6 +1257,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     // Selection (multi-select)
     selectedFiles,
     handleToggleSelection,
+    handleSelectDown,
+    handleSelectUp,
     handleSelectAll,
     handleClearSelection,
     getEffectiveSelection,

@@ -1,15 +1,28 @@
 # TODO
 
-## Next steps
+## Companion
 
-- Theme:
-   - import/export, e.g., as JSON
-   - Apparently, the selected theme is only stored locally in the browser. Store it in the backend DB per user instead.
-- Frontend: the UI should stay responsive even when the backend is temporarily unavailable
+- Windows: Authenticode signing
+- New feature:
+   - Companion as backend, so local disk can be managed by Sambee, too.
+
+## File copy
+
+- Cross-connection copy/move
+
+## Frontend responsiveness
+
+- The UI should stay responsive even when the backend is temporarily unavailable
    - Requires downloading all assets to the browser and keeping them there
-- Admin UI
-- Authentication system
-   - OAuth/OIDC
+
+## Authentication system
+
+- OAuth/OIDC
+
+## Theme
+
+- import/export, e.g., as JSON
+- Apparently, the selected theme is only stored locally in the browser. Store it in the backend DB per user instead.
 
 ## Image viewer
 
@@ -19,7 +32,8 @@
 
 ## Markdown viewer
 
-- Add search
+- Search
+- Editing
 
 ## Configuration system
 
@@ -31,6 +45,10 @@
 ## Docker
 
 - The healthcheck doesn't seem to be working
+
+## Localization
+
+- Make all UI strings translatable
 
 ## Settings
 

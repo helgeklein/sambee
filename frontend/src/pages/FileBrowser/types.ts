@@ -116,6 +116,10 @@ export interface UseFileBrowserPaneReturn {
   selectedFiles: Set<string>;
   /** Toggle selection of the focused file and move focus down (Insert / Space). */
   handleToggleSelection: (e?: KeyboardEvent) => void;
+  /** Select the focused file and move focus down (Alt+ArrowDown). */
+  handleSelectDown: (e?: KeyboardEvent) => void;
+  /** Select the focused file and move focus up (Alt+ArrowUp). */
+  handleSelectUp: (e?: KeyboardEvent) => void;
   /** Select all files in the current directory (Ctrl+A). */
   handleSelectAll: () => void;
   /** Clear all selections. */

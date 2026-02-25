@@ -2,6 +2,7 @@
 // FileRow
 //
 
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
@@ -104,55 +105,56 @@ export const FileRow = React.memo(
             onClick={() => onClick(file, index)}
             onContextMenu={handleContextMenu}
             sx={rowStyle}
-            aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}`}
+            aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${isMultiSelected ? " (selected)" : ""}`}
           >
-            {isListMode ? (
-              // List mode: icon + name only
-              <>
-                <Box sx={fileRowStyles.iconBox}>
-                  {getFileIcon({
-                    filename: file.name,
-                    isDirectory: file.type === "directory",
-                    size: 24,
-                  })}
-                </Box>
-                <Box sx={fileRowStyles.contentBox}>
-                  <Typography variant="body2" noWrap title={file.name} color="text.primary">
-                    {file.name}
+            {/* Icon: show checkmark when multi-selected, file icon otherwise */}
+            {(() => {
+              const icon = isMultiSelected ? (
+                <CheckCircleIcon sx={{ fontSize: 24, color: "primary.main" }} />
+              ) : (
+                getFileIcon({
+                  filename: file.name,
+                  isDirectory: file.type === "directory",
+                  size: 24,
+                })
+              );
+
+              return isListMode ? (
+                // List mode: icon + name only
+                <>
+                  <Box sx={fileRowStyles.iconBox}>{icon}</Box>
+                  <Box sx={fileRowStyles.contentBox}>
+                    <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                      {file.name}
+                    </Typography>
+                  </Box>
+                </>
+              ) : (
+                // Details mode: icon + name + size + date in grid layout
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "24px 1fr auto auto",
+                    columnGap: 1,
+                    alignItems: "center",
+                    width: "100%",
+                  }}
+                >
+                  <Box sx={fileRowStyles.iconBox}>{icon}</Box>
+                  <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>
+                    <Typography variant="body2" noWrap title={file.name} color="text.primary">
+                      {file.name}
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3 }} noWrap>
+                    {file.type === "directory" ? "" : formatFileSize(file.size)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" noWrap>
+                    {formatDate(file.modified_at)}
                   </Typography>
                 </Box>
-              </>
-            ) : (
-              // Details mode: icon + name + size + date in grid layout
-              <Box
-                sx={{
-                  display: "grid",
-                  gridTemplateColumns: "24px 1fr auto auto",
-                  columnGap: 1,
-                  alignItems: "center",
-                  width: "100%",
-                }}
-              >
-                <Box sx={fileRowStyles.iconBox}>
-                  {getFileIcon({
-                    filename: file.name,
-                    isDirectory: file.type === "directory",
-                    size: 24,
-                  })}
-                </Box>
-                <Box sx={{ ...fileRowStyles.contentBox, minWidth: 0 }}>
-                  <Typography variant="body2" noWrap title={file.name} color="text.primary">
-                    {file.name}
-                  </Typography>
-                </Box>
-                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "right", minWidth: "80px", ml: 1, mr: 3 }} noWrap>
-                  {file.type === "directory" ? "" : formatFileSize(file.size)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" noWrap>
-                  {formatDate(file.modified_at)}
-                </Typography>
-              </Box>
-            )}
+              );
+            })()}
           </Box>
 
           {/* Context menu */}

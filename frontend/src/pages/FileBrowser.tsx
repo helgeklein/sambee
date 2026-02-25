@@ -756,7 +756,7 @@ const Browser: React.FC = () => {
    * Shows progress per file. Both panes refresh via WebSocket after completion.
    */
   const handleCopyMoveConfirm = useCallback(
-    async (destPath: string) => {
+    async (destPath: string, destFileName?: string) => {
       if (copyMoveFiles.length === 0) return;
 
       setCopyMoveProcessing(true);
@@ -769,7 +769,9 @@ const Browser: React.FC = () => {
       for (let i = 0; i < copyMoveFiles.length; i++) {
         const file = copyMoveFiles[i]!;
         const sourcePath = copyMoveSourcePath ? `${copyMoveSourcePath}/${file.name}` : file.name;
-        const fullDestPath = destPath ? `${destPath}/${file.name}` : file.name;
+        // Use the renamed file name for single-item operations, otherwise keep original
+        const targetName = destFileName ?? file.name;
+        const fullDestPath = destPath ? `${destPath}/${targetName}` : targetName;
 
         setCopyMoveProgress({ current: i + 1, total: copyMoveFiles.length });
 
@@ -820,146 +822,116 @@ const Browser: React.FC = () => {
    * Routes navigation/action shortcuts to the active pane.
    * Includes dual-pane shortcuts (Ctrl+B, Tab, Ctrl+1, Ctrl+2).
    */
-  const browserShortcuts = useMemo(
-    () => [
+  const browserShortcuts = useMemo(() => {
+    // Common condition building blocks to avoid repetition
+    const noSettings = !settingsOpen && !mobileSettingsOpen;
+    const browsing = noSettings && !activePane.viewInfo;
+    const hasFiles = activePane.filesRef.current.length > 0;
+    const hasFocusedFile = activePane.focusedIndex >= 0 && activePane.filesRef.current[activePane.focusedIndex] !== undefined;
+    const noDialogOpen = !activePane.deleteDialogOpen && !activePane.renameDialogOpen && !activePane.createDialogOpen;
+    const noDialogOrCopyMove = noDialogOpen && !copyMoveDialogOpen;
+
+    return [
       // Navigation - Arrow keys (focus checked inside handlers)
       {
         ...BROWSER_SHORTCUTS.ARROW_DOWN,
         handler: activePane.handleNavigateDown,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
+        enabled: browsing && hasFiles,
       },
       {
         ...BROWSER_SHORTCUTS.ARROW_UP,
         handler: activePane.handleArrowUp,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
+        enabled: browsing && hasFiles,
       },
       // Navigation - Home/End (focus checked inside handlers)
       {
         ...COMMON_SHORTCUTS.FIRST_PAGE,
         description: "First file",
         handler: activePane.handleHome,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
+        enabled: browsing && hasFiles,
       },
       {
         ...COMMON_SHORTCUTS.LAST_PAGE,
         description: "Last file",
         handler: activePane.handleEnd,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
+        enabled: browsing && hasFiles,
       },
       // Navigation - Page Up/Down (focus checked inside handlers)
       {
         ...COMMON_SHORTCUTS.PAGE_DOWN,
         handler: activePane.handlePageDown,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
+        enabled: browsing && hasFiles,
       },
       {
         ...COMMON_SHORTCUTS.PAGE_UP,
         handler: activePane.handlePageUp,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.filesRef.current.length > 0,
+        enabled: browsing && hasFiles,
       },
       // Open file/folder (focus checked inside handler)
       {
         ...COMMON_SHORTCUTS.OPEN,
         handler: activePane.handleOpenFile,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          activePane.focusedIndex >= 0 &&
-          activePane.filesRef.current[activePane.focusedIndex] !== undefined,
+        enabled: browsing && hasFocusedFile,
       },
       // Navigate up directory
       {
         ...BROWSER_SHORTCUTS.NAVIGATE_UP,
         handler: activePane.handleNavigateUpDirectory,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && activePane.currentPathRef.current !== "",
+        enabled: browsing && activePane.currentPathRef.current !== "",
       },
       // Clear selection and search (close action in browser context)
       {
         ...COMMON_SHORTCUTS.CLOSE,
         handler: activePane.handleClose,
-        enabled: true,
+        enabled: noDialogOrCopyMove,
       },
-      // Refresh — F5 in single-pane mode (in dual mode, F5 = copy to other pane)
+      // Refresh (Ctrl+R) — available in both single and dual pane modes
       {
         ...BROWSER_SHORTCUTS.REFRESH,
         handler: activePane.handleRefresh,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo && !isDualMode,
+        enabled: browsing,
       },
       // Quick navigate (Ctrl+K) — also focuses the search bar
       {
         ...BROWSER_SHORTCUTS.QUICK_NAVIGATE,
         handler: activePane.handleFocusSearch,
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo,
+        enabled: browsing,
       },
       // Show help
       {
         ...BROWSER_SHORTCUTS.SHOW_HELP,
         handler: () => setShowHelp(true),
-        enabled: !settingsOpen && !mobileSettingsOpen && !activePane.viewInfo,
+        enabled: browsing,
       },
       // Delete file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.DELETE_ITEM,
         handler: activePane.handleDeleteRequest,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen &&
-          activePane.focusedIndex >= 0 &&
-          activePane.filesRef.current[activePane.focusedIndex] !== undefined,
+        enabled: browsing && noDialogOpen && hasFocusedFile,
       },
       // Rename file/directory (focus checked inside handler)
       {
         ...BROWSER_SHORTCUTS.RENAME_ITEM,
         handler: activePane.handleRenameRequest,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen &&
-          activePane.focusedIndex >= 0 &&
-          activePane.filesRef.current[activePane.focusedIndex] !== undefined,
+        enabled: browsing && noDialogOpen && hasFocusedFile,
       },
       // Open in companion app (Ctrl+Enter)
       {
         ...BROWSER_SHORTCUTS.OPEN_IN_APP,
         handler: activePane.handleOpenInApp,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          activePane.focusedIndex >= 0 &&
-          activePane.filesRef.current[activePane.focusedIndex]?.type === "file",
+        enabled: browsing && activePane.focusedIndex >= 0 && activePane.filesRef.current[activePane.focusedIndex]?.type === "file",
       },
       // Create new directory (F7)
       {
         ...BROWSER_SHORTCUTS.NEW_DIRECTORY,
         handler: activePane.handleNewDirectoryRequest,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen,
+        enabled: browsing && noDialogOpen,
       },
       // Create new file (Shift+F7)
       {
         ...BROWSER_SHORTCUTS.NEW_FILE,
         handler: activePane.handleNewFileRequest,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen,
+        enabled: browsing && noDialogOpen,
       },
 
       // ── Selection Shortcuts (Norton Commander multi-select) ──────────────
@@ -967,29 +939,27 @@ const Browser: React.FC = () => {
       {
         ...SELECTION_SHORTCUTS.TOGGLE_SELECTION,
         handler: activePane.handleToggleSelection,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen &&
-          !copyMoveDialogOpen &&
-          activePane.filesRef.current.length > 0,
+        enabled: browsing && noDialogOrCopyMove && hasFiles,
+      },
+      // Select focused file & move down (Alt+Down)
+      {
+        ...SELECTION_SHORTCUTS.SELECT_DOWN,
+        handler: activePane.handleSelectDown,
+        enabled: browsing && noDialogOrCopyMove && hasFiles,
+        priority: 10,
+      },
+      // Select focused file & move up (Alt+Up)
+      {
+        ...SELECTION_SHORTCUTS.SELECT_UP,
+        handler: activePane.handleSelectUp,
+        enabled: browsing && noDialogOrCopyMove && hasFiles,
+        priority: 10,
       },
       // Select all files (Ctrl+A)
       {
         ...SELECTION_SHORTCUTS.SELECT_ALL,
         handler: activePane.handleSelectAll,
-        enabled:
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen &&
-          !copyMoveDialogOpen &&
-          activePane.filesRef.current.length > 0,
+        enabled: browsing && noDialogOrCopyMove && hasFiles,
       },
 
       // ── Copy / Move Shortcuts (dual-pane only) ──────────────────────────
@@ -997,69 +967,52 @@ const Browser: React.FC = () => {
       {
         ...COPY_MOVE_SHORTCUTS.COPY_TO_OTHER_PANE,
         handler: handleCopyToOtherPane,
-        enabled:
-          isDualMode &&
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen &&
-          !copyMoveDialogOpen,
+        enabled: isDualMode && browsing && noDialogOrCopyMove,
       },
       // Move to other pane (F6 in dual mode)
       {
         ...COPY_MOVE_SHORTCUTS.MOVE_TO_OTHER_PANE,
         handler: handleMoveToOtherPane,
-        enabled:
-          isDualMode &&
-          !settingsOpen &&
-          !mobileSettingsOpen &&
-          !activePane.viewInfo &&
-          !activePane.deleteDialogOpen &&
-          !activePane.renameDialogOpen &&
-          !activePane.createDialogOpen &&
-          !copyMoveDialogOpen,
+        enabled: isDualMode && browsing && noDialogOrCopyMove,
       },
 
       // ── Dual-Pane Shortcuts ──────────────────────────────────────────────
       {
         ...PANE_SHORTCUTS.TOGGLE_DUAL_PANE,
         handler: handleToggleDualPane,
-        enabled: !settingsOpen && !mobileSettingsOpen && !useCompactLayout,
+        enabled: noSettings && !useCompactLayout,
       },
       {
         ...PANE_SHORTCUTS.FOCUS_LEFT_PANE,
         handler: handleFocusLeftPane,
-        enabled: !settingsOpen && !mobileSettingsOpen,
+        enabled: noSettings && noDialogOrCopyMove,
       },
       {
         ...PANE_SHORTCUTS.FOCUS_RIGHT_PANE,
         handler: handleFocusRightPane,
-        enabled: !settingsOpen && !mobileSettingsOpen,
+        enabled: noSettings && noDialogOrCopyMove,
       },
       {
         ...PANE_SHORTCUTS.SWITCH_PANE,
         handler: handleSwitchPane,
-        enabled: !settingsOpen && !mobileSettingsOpen && isDualMode,
+        enabled: noSettings && isDualMode && noDialogOrCopyMove,
         allowInInput: true,
       },
-    ],
-    [
-      activePane,
-      settingsOpen,
-      mobileSettingsOpen,
-      useCompactLayout,
-      isDualMode,
-      copyMoveDialogOpen,
-      handleToggleDualPane,
-      handleSwitchPane,
-      handleFocusLeftPane,
-      handleFocusRightPane,
-      handleCopyToOtherPane,
-      handleMoveToOtherPane,
-    ]
-  );
+    ];
+  }, [
+    activePane,
+    settingsOpen,
+    mobileSettingsOpen,
+    useCompactLayout,
+    isDualMode,
+    copyMoveDialogOpen,
+    handleToggleDualPane,
+    handleSwitchPane,
+    handleFocusLeftPane,
+    handleFocusRightPane,
+    handleCopyToOtherPane,
+    handleMoveToOtherPane,
+  ]);
 
   useKeyboardShortcuts({
     shortcuts: browserShortcuts,

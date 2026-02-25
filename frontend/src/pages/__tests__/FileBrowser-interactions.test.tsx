@@ -183,7 +183,7 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Refresh", () => {
-    it("refreshes file list when F5 key pressed", async () => {
+    it("refreshes file list when Ctrl+R pressed", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");
 
@@ -195,8 +195,8 @@ describe("Browser Component - Interactions", () => {
 
       const initialCallCount = (api.listDirectory as Mock).mock.calls.length;
 
-      // Press F5 to refresh
-      await user.keyboard("{F5}");
+      // Press Ctrl+R to refresh
+      await user.keyboard("{Control>}r{/Control}");
 
       // Should call listDirectory again
       await waitFor(() => {

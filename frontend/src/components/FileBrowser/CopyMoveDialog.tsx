@@ -7,8 +7,9 @@
  * ================================
  *
  * Shows a confirmation dialog when the user presses F5 (copy) or F6 (move)
- * in dual-pane mode. Displays the list of selected items and an editable
- * destination path pre-filled from the other pane's current directory.
+ * in dual-pane mode. Displays the list of selected items, a read-only
+ * destination path, and an editable file-name field for single-item
+ * operations (allowing rename-on-copy/move).
  *
  * The dialog calls the backend API for each item sequentially, showing
  * progress. Both panes refresh via WebSocket after completion.
@@ -31,6 +32,7 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FileEntry } from "../../types";
 import { COPY_MOVE_STRINGS as S } from "./copyMoveDialogStrings";
+import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { NoTransition } from "./transitions";
 
 // ============================================================================
@@ -59,8 +61,8 @@ export interface CopyMoveDialogProps {
   destPath: string;
   /** Whether source and destination are on the same connection. */
   isSameConnection: boolean;
-  /** Called when the user confirms — receives the (possibly edited) destination path. */
-  onConfirm: (destPath: string) => void;
+  /** Called when the user confirms — receives the destination path and optional renamed file name. */
+  onConfirm: (destPath: string, destFileName?: string) => void;
   /** Called when the user cancels. */
   onCancel: () => void;
   /** Whether an operation is currently in progress. */
@@ -69,6 +71,16 @@ export interface CopyMoveDialogProps {
   progress?: { current: number; total: number };
   /** Error message from a failed operation, if any. */
   error?: string | null;
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/** Build a human-readable "connection: /path" destination string. */
+function formatDestination(connectionName: string, path: string): string {
+  const displayPath = path === "" ? "/" : `/${path}`;
+  return connectionName ? `${connectionName}: ${displayPath}` : displayPath;
 }
 
 // ============================================================================
@@ -81,7 +93,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   files,
   sourcePath,
   destConnectionName,
-  destPath: initialDestPath,
+  destPath,
   isSameConnection,
   onConfirm,
   onCancel,
@@ -89,20 +101,26 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   progress,
   error,
 }) => {
-  const [destPath, setDestPath] = useState(initialDestPath);
+  // Editable file name — only used for single-item operations
+  const isSingleItem = files.length === 1;
+  const originalFileName = isSingleItem ? (files[0]!.name ?? "") : "";
+  const [destFileName, setDestFileName] = useState(originalFileName);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Reset destination when the dialog opens with new values
+  // Reset state when the dialog opens with new values
   useEffect(() => {
     if (open) {
-      setDestPath(initialDestPath);
-      // Focus the destination input after a frame (dialog open animation)
-      requestAnimationFrame(() => inputRef.current?.select());
+      setDestFileName(originalFileName);
+      if (isSingleItem) {
+        // Focus the filename input after a frame (dialog open animation)
+        requestAnimationFrame(() => inputRef.current?.select());
+      }
     }
-  }, [open, initialDestPath]);
+  }, [open, originalFileName, isSingleItem]);
 
   const isCopy = mode === "copy";
   const title = isCopy ? S.TITLE_COPY : S.TITLE_MOVE;
+  const destination = formatDestination(destConnectionName, destPath);
   const prompt = isCopy
     ? files.length === 1
       ? S.PROMPT_COPY_SINGLE
@@ -116,14 +134,22 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   // Destination is the same directory as the source — would be a no-op
   const sameDirectory = destPath.replace(/\/+$/, "") === sourcePath.replace(/\/+$/, "");
 
+  // For single-item: same dir + same name is a no-op
+  const sameFile = sameDirectory && isSingleItem && destFileName.trim() === originalFileName;
+
+  // File name must not be empty for single-item operations
+  const emptyFileName = isSingleItem && destFileName.trim() === "";
+
   // Can confirm only when we have a valid destination
-  const canConfirm = !isProcessing && isSameConnection && destPath.trim() !== "" && !sameDirectory;
+  const canConfirm = !isProcessing && isSameConnection && !sameFile && !emptyFileName && (!sameDirectory || isSingleItem);
 
   const handleConfirm = useCallback(() => {
     if (canConfirm) {
-      onConfirm(destPath.trim());
+      // Pass renamed file name only if it was changed for single-item operations
+      const renamedFileName = isSingleItem && destFileName.trim() !== originalFileName ? destFileName.trim() : undefined;
+      onConfirm(destPath, renamedFileName);
     }
-  }, [canConfirm, destPath, onConfirm]);
+  }, [canConfirm, destPath, destFileName, originalFileName, isSingleItem, onConfirm]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -135,65 +161,34 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
     [canConfirm, handleConfirm]
   );
 
-  // ── Max items to show in the file list before truncating ──────────────
-  const MAX_VISIBLE_FILES = 8;
-  const visibleFiles = files.slice(0, MAX_VISIBLE_FILES);
-  const hiddenCount = files.length - MAX_VISIBLE_FILES;
-
   return (
     <Dialog open={open} onClose={isProcessing ? undefined : onCancel} fullWidth maxWidth="sm" TransitionComponent={NoTransition}>
       <DialogTitle>{title}</DialogTitle>
 
       <DialogContent>
-        {/* Prompt */}
-        <Typography variant="body1" sx={{ mb: 2 }}>
-          {prompt}
+        {/* Prompt with destination on a separate line */}
+        <Typography variant="body1">{prompt}</Typography>
+        <Typography variant="body1" sx={{ mb: 2, fontWeight: 500, wordBreak: "break-word" }}>
+          {destination}
         </Typography>
 
-        {/* File list */}
-        <Box
-          sx={{
-            maxHeight: 200,
-            overflow: "auto",
-            mb: 2,
-            pl: 2,
-            borderLeft: 2,
-            borderColor: "divider",
-          }}
-        >
-          {visibleFiles.map((f) => (
-            <Typography key={f.name} variant="body2" color="text.secondary" noWrap title={f.name}>
-              {f.type === "directory" ? `${f.name}/` : f.name}
-            </Typography>
-          ))}
-          {hiddenCount > 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: "italic" }}>
-              …and {hiddenCount} more
-            </Typography>
-          )}
-        </Box>
-
-        {/* Destination connection (read-only) */}
-        {destConnectionName && (
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
-            {S.LABEL_DESTINATION_CONNECTION}: {destConnectionName}
-          </Typography>
+        {/* Editable file name (single-item only) */}
+        {isSingleItem && (
+          <TextField
+            inputRef={inputRef}
+            label={S.LABEL_FILENAME}
+            value={destFileName}
+            onChange={(e) => setDestFileName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isProcessing}
+            {...FILENAME_FIELD_PROPS}
+            inputProps={{
+              "aria-label": S.LABEL_FILENAME,
+              ...FILENAME_INPUT_PROPS,
+            }}
+            sx={{ mt: 2, ...FILENAME_INPUT_SX }}
+          />
         )}
-
-        {/* Destination path (editable) */}
-        <TextField
-          inputRef={inputRef}
-          label={S.LABEL_DESTINATION}
-          value={destPath}
-          onChange={(e) => setDestPath(e.target.value)}
-          onKeyDown={handleKeyDown}
-          fullWidth
-          size="small"
-          disabled={isProcessing}
-          autoComplete="off"
-          inputProps={{ "aria-label": S.LABEL_DESTINATION }}
-          sx={{ mt: 1 }}
-        />
 
         {/* Warnings */}
         {!isSameConnection && (
@@ -201,9 +196,19 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
             {S.WARN_CROSS_CONNECTION}
           </Alert>
         )}
-        {isSameConnection && sameDirectory && (
+        {isSameConnection && sameDirectory && !isSingleItem && (
           <Alert severity="info" sx={{ mt: 2 }}>
             {S.WARN_SAME_DIRECTORY}
+          </Alert>
+        )}
+        {isSameConnection && sameFile && (
+          <Alert severity="info" sx={{ mt: 2 }}>
+            {S.WARN_SAME_DIRECTORY}
+          </Alert>
+        )}
+        {emptyFileName && (
+          <Alert severity="warning" sx={{ mt: 2 }}>
+            {S.WARN_EMPTY_FILENAME}
           </Alert>
         )}
 

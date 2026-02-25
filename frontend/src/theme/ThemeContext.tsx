@@ -283,6 +283,14 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        // Align dialog action buttons with dialog content padding
+        MuiDialogActions: {
+          styleOverrides: {
+            root: {
+              padding: "16px 24px",
+            },
+          },
+        },
       },
     });
   }, [currentTheme]);

@@ -20,6 +20,7 @@
 import { Alert, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, TextField } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { NAME_DIALOG_STRINGS, validateItemName } from "./nameDialogStrings";
 import { NoTransition } from "./transitions";
 
@@ -189,7 +190,6 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
       <DialogContent>
         <TextField
           inputRef={inputRef}
-          fullWidth
           label={inputLabel}
           value={value}
           onChange={handleChange}
@@ -198,10 +198,9 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
           error={hasError}
           helperText={validationError}
           variant="outlined"
-          size="small"
-          autoComplete="off"
-          spellCheck={false}
-          sx={{ mt: 1 }}
+          {...FILENAME_FIELD_PROPS}
+          inputProps={FILENAME_INPUT_PROPS}
+          sx={{ mt: 1, ...FILENAME_INPUT_SX }}
         />
         {apiError && !validationError && (
           <Alert severity="error" sx={{ mt: 1 }}>

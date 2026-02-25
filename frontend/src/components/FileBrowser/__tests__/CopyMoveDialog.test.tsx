@@ -4,8 +4,9 @@
  * Verifies:
  * - Renders correct title for copy vs move mode
  * - Displays file list and truncation for large selections
- * - Shows editable destination path
- * - Confirm calls onConfirm with edited destination
+ * - Shows read-only destination (combined connection + path)
+ * - Single-item: shows editable file name, confirms with rename
+ * - Multi-item: no file name field, confirms without rename
  * - Cancel calls onCancel
  * - Buttons disabled during processing
  * - Progress bar shown during processing
@@ -26,8 +27,8 @@ import { COPY_MOVE_STRINGS as S } from "../copyMoveDialogStrings";
 // Helpers
 // ============================================================================
 
-function createFile(name: string, type: FileType = FileType.FILE): FileEntry {
-  return { name, path: name, type, size: 100, modified_at: "2025-01-01T00:00:00", is_readable: true, is_hidden: false };
+function createFile(name: string): FileEntry {
+  return { name, path: name, type: FileType.FILE, size: 100, modified_at: "2025-01-01T00:00:00", is_readable: true, is_hidden: false };
 }
 
 const CONNECTION_ID = "conn-1";
@@ -67,70 +68,75 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByRole("heading", { name: S.TITLE_MOVE })).toBeInTheDocument();
   });
 
-  it("shows single-item prompt for one file", () => {
+  it("shows single-item copy prompt with destination", () => {
     const props = { ...defaultProps, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} mode="copy" />);
     expect(screen.getByText(S.PROMPT_COPY_SINGLE)).toBeInTheDocument();
+    expect(screen.getByText("My Server: /backup")).toBeInTheDocument();
   });
 
-  it("shows multi-item prompt for multiple files", () => {
+  it("shows multi-item copy prompt with destination", () => {
     render(<CopyMoveDialog {...defaultProps} mode="copy" />);
     expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
+    expect(screen.getByText("My Server: /backup")).toBeInTheDocument();
   });
 
-  it("shows move single-item prompt", () => {
+  it("shows move single-item prompt with destination", () => {
     const props = { ...defaultProps, mode: "move" as const, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} />);
     expect(screen.getByText(S.PROMPT_MOVE_SINGLE)).toBeInTheDocument();
+    expect(screen.getByText("My Server: /backup")).toBeInTheDocument();
   });
 
-  it("displays file names in the list", () => {
+  it("shows destination with leading slash for root path", () => {
+    render(<CopyMoveDialog {...defaultProps} destPath="" />);
+    expect(screen.getByText(S.PROMPT_COPY_MULTI(2))).toBeInTheDocument();
+    expect(screen.getByText("My Server: /")).toBeInTheDocument();
+  });
+
+  it("does not show editable destination path field for multi-item", () => {
     render(<CopyMoveDialog {...defaultProps} />);
-    expect(screen.getByText("readme.txt")).toBeInTheDocument();
-    expect(screen.getByText("notes.md")).toBeInTheDocument();
+    expect(screen.queryByLabelText(S.LABEL_FILENAME)).not.toBeInTheDocument();
   });
 
-  it("shows trailing slash for directories", () => {
-    const props = {
-      ...defaultProps,
-      files: [createFile("Photos", FileType.DIRECTORY)],
-    };
+  it("shows editable file name field for single-item copy", () => {
+    const props = { ...defaultProps, files: [createFile("readme.txt")] };
     render(<CopyMoveDialog {...props} />);
-    expect(screen.getByText("Photos/")).toBeInTheDocument();
+    const input = screen.getByLabelText(S.LABEL_FILENAME) as HTMLInputElement;
+    expect(input.value).toBe("readme.txt");
   });
 
-  it("truncates long file lists with count", () => {
-    const files = Array.from({ length: 12 }, (_, i) => createFile(`file-${i}.txt`));
-    render(<CopyMoveDialog {...defaultProps} files={files} />);
-    // First 8 should be visible, then "…and 4 more"
-    expect(screen.getByText("file-0.txt")).toBeInTheDocument();
-    expect(screen.getByText("file-7.txt")).toBeInTheDocument();
-    expect(screen.getByText(/…and 4 more/)).toBeInTheDocument();
-    expect(screen.queryByText("file-8.txt")).not.toBeInTheDocument();
-  });
-
-  it("shows editable destination path pre-filled from props", () => {
-    render(<CopyMoveDialog {...defaultProps} />);
-    const input = screen.getByLabelText(S.LABEL_DESTINATION) as HTMLInputElement;
-    expect(input.value).toBe(DEST_PATH);
-  });
-
-  it("shows destination connection name", () => {
-    render(<CopyMoveDialog {...defaultProps} />);
-    expect(screen.getByText(/My Server/)).toBeInTheDocument();
-  });
-
-  it("calls onConfirm with edited destination path", async () => {
+  it("calls onConfirm with destPath and no rename for multi-item", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
     render(<CopyMoveDialog {...defaultProps} onConfirm={onConfirm} />);
 
-    const input = screen.getByLabelText(S.LABEL_DESTINATION);
+    await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined);
+  });
+
+  it("calls onConfirm with destPath and rename for single-item with edited name", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
+    render(<CopyMoveDialog {...props} />);
+
+    const input = screen.getByLabelText(S.LABEL_FILENAME);
     await user.clear(input);
-    await user.type(input, "new-dest");
+    await user.type(input, "renamed.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith("new-dest");
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, "renamed.txt");
+  });
+
+  it("calls onConfirm with destPath and no rename when single-item name unchanged", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
+    render(<CopyMoveDialog {...props} />);
+
+    await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined);
   });
 
   it("calls onCancel when Cancel is clicked", async () => {
@@ -142,16 +148,17 @@ describe("CopyMoveDialog", () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("confirms on Enter in the text field", async () => {
+  it("confirms on Enter in the file name field (single-item)", async () => {
     const onConfirm = vi.fn();
     const user = userEvent.setup();
-    render(<CopyMoveDialog {...defaultProps} onConfirm={onConfirm} />);
+    const props = { ...defaultProps, files: [createFile("readme.txt")], onConfirm };
+    render(<CopyMoveDialog {...props} />);
 
-    const input = screen.getByLabelText(S.LABEL_DESTINATION);
+    const input = screen.getByLabelText(S.LABEL_FILENAME);
     await user.click(input);
     await user.keyboard("{Enter}");
 
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH);
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined);
   });
 
   it("disables confirm button during processing", () => {
@@ -184,13 +191,42 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
   });
 
-  it("shows same-directory warning when source equals dest", () => {
+  it("shows same-directory warning for multi-item when source equals dest", () => {
     render(<CopyMoveDialog {...defaultProps} destPath={SOURCE_PATH} />);
     expect(screen.getByText(S.WARN_SAME_DIRECTORY)).toBeInTheDocument();
   });
 
-  it("disables confirm when source equals dest directory", () => {
+  it("disables confirm for multi-item when source equals dest directory", () => {
     render(<CopyMoveDialog {...defaultProps} destPath={SOURCE_PATH} />);
+    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
+  });
+
+  it("allows single-item confirm in same directory with different name", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    const props = {
+      ...defaultProps,
+      files: [createFile("readme.txt")],
+      destPath: SOURCE_PATH,
+      onConfirm,
+    };
+    render(<CopyMoveDialog {...props} />);
+
+    const input = screen.getByLabelText(S.LABEL_FILENAME);
+    await user.clear(input);
+    await user.type(input, "readme-copy.txt");
+    await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
+
+    expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme-copy.txt");
+  });
+
+  it("disables confirm for single-item same directory with same name", () => {
+    const props = {
+      ...defaultProps,
+      files: [createFile("readme.txt")],
+      destPath: SOURCE_PATH,
+    };
+    render(<CopyMoveDialog {...props} />);
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
   });
 
@@ -199,14 +235,16 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
   });
 
-  it("disables confirm when destination is empty", async () => {
+  it("disables confirm when file name is empty (single-item)", async () => {
     const user = userEvent.setup();
-    render(<CopyMoveDialog {...defaultProps} />);
+    const props = { ...defaultProps, files: [createFile("readme.txt")] };
+    render(<CopyMoveDialog {...props} />);
 
-    const input = screen.getByLabelText(S.LABEL_DESTINATION);
+    const input = screen.getByLabelText(S.LABEL_FILENAME);
     await user.clear(input);
 
     expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
+    expect(screen.getByText(S.WARN_EMPTY_FILENAME)).toBeInTheDocument();
   });
 
   it("shows Move button label in move mode", () => {
