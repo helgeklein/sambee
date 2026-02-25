@@ -4,6 +4,7 @@
 //! Platform-specific implementations query the OS app registry (Windows Registry,
 //! macOS Launch Services, Linux mimeapps.list) to build the app picker UI.
 
+#[cfg(target_os = "linux")]
 pub mod linux;
 
 #[cfg(target_os = "windows")]

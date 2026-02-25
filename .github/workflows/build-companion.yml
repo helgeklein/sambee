@@ -110,6 +110,52 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: cd companion && npm ci
 
+      # ── Code signing tools (Windows only) ──
+      - name: Install trusted-signing-cli
+        if: runner.os == 'Windows'
+        run: cargo install trusted-signing-cli
+
+      - name: Pre-install Azure Code Signing dlib
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $cacheDir = "$env:USERPROFILE\.trusted-signing-cli"
+          $libDir = "$cacheDir\lib"
+          $nupkgPath = "$cacheDir\signing-client.nupkg"
+          $url = "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client/1.0.95"
+
+          New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+
+          # Download the NuGet package with retry and validation
+          $maxRetries = 3
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              Write-Host "Downloading Azure Code Signing dlib (attempt $i/$maxRetries)..."
+              Invoke-WebRequest -Uri $url -OutFile $nupkgPath -UseBasicParsing
+              # Validate that the download is a valid ZIP archive
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              [System.IO.Compression.ZipFile]::OpenRead($nupkgPath).Dispose()
+              Write-Host "Download validated successfully."
+              break
+            } catch {
+              Remove-Item -Path $nupkgPath -ErrorAction SilentlyContinue
+              if ($i -eq $maxRetries) {
+                throw "Failed to download Azure Code Signing dlib after $maxRetries attempts: $_"
+              }
+              Write-Host "Attempt $i failed: $_. Retrying in 10s..."
+              Start-Sleep -Seconds 10
+            }
+          }
+
+          Expand-Archive -Path $nupkgPath -DestinationPath $libDir -Force
+          Remove-Item -Path $nupkgPath
+
+          if (Test-Path "$libDir\bin\x64\Azure.CodeSigning.Dlib.dll") {
+            Write-Host "Azure Code Signing dlib installed successfully."
+          } else {
+            throw "Azure Code Signing dlib not found after extraction."
+          }
+
       # ── Build with tauri-action ──
       - name: Build Tauri application
         uses: tauri-apps/tauri-action@v0
@@ -125,6 +171,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Code signing for Windows (Azure Trusted Signing)
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: HK-Artifact-Signing
+          AZURE_CERTIFICATE_PROFILE_NAME: HK-Certificate-Profile
           # Tauri updater signing
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
