@@ -221,6 +221,55 @@ class ConnectionManager:
             for ws in disconnected:
                 self.disconnect(ws)
 
+    #
+    # broadcast_transfer_progress
+    #
+    async def broadcast_transfer_progress(
+        self,
+        connection_id: str,
+        path: str,
+        bytes_transferred: int,
+        total_bytes: int | None,
+        item_name: str,
+    ) -> None:
+        """Broadcast byte-level transfer progress to all WebSocket clients
+        subscribed to the parent directory of *path*.
+
+        Used during cross-connection copy/move to provide real-time
+        progress updates in the UI.
+
+        Args:
+            connection_id: The connection whose directory the transfer
+                targets.
+            path: The parent directory path (matches subscription keys).
+            bytes_transferred: Bytes written so far for the current file.
+            total_bytes: Total file size (``None`` if unknown).
+            item_name: Human-readable filename being transferred.
+        """
+
+        key = f"{connection_id}:{path}"
+        if key not in self.active_connections:
+            return
+
+        payload = {
+            "type": "transfer_progress",
+            "connection_id": connection_id,
+            "path": path,
+            "bytes_transferred": bytes_transferred,
+            "total_bytes": total_bytes,
+            "item_name": item_name,
+        }
+
+        disconnected: list[WebSocket] = []
+        for websocket in self.active_connections[key]:
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                disconnected.append(websocket)
+
+        for ws in disconnected:
+            self.disconnect(ws)
+
 
 # Global connection manager instance
 manager = ConnectionManager()
@@ -281,3 +330,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 async def notify_change(connection_id: str, path: str) -> None:
     """Notify clients about a directory change"""
     await manager.notify_directory_change(connection_id, path)
+
+
+async def notify_transfer_progress(
+    connection_id: str,
+    path: str,
+    bytes_transferred: int,
+    total_bytes: int | None,
+    item_name: str,
+) -> None:
+    """Broadcast byte-level transfer progress to subscribed clients."""
+    await manager.broadcast_transfer_progress(
+        connection_id,
+        path,
+        bytes_transferred,
+        total_bytes,
+        item_name,
+    )

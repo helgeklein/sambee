@@ -22,7 +22,6 @@ export const COPY_MOVE_STRINGS = {
   LABEL_FILENAME: "File name",
 
   // Warnings
-  WARN_CROSS_CONNECTION: "Cross-connection operations are not yet supported.",
   WARN_SAME_DIRECTORY: "Source and destination are the same directory.",
   WARN_EMPTY_FILENAME: "File name cannot be empty.",
 

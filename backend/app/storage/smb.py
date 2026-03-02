@@ -1,15 +1,16 @@
 import asyncio
 import logging
 import stat
+from collections.abc import AsyncIterator
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import AsyncIterator, BinaryIO
+from typing import BinaryIO
 
 import smbclient
 from smbclient._os import FileAttributes
 
 from app.models.file import DirectoryListing, FileInfo, FileType
-from app.storage.base import StorageBackend
+from app.storage.base import ProgressCallback, StorageBackend
 from app.storage.smb_pool import get_connection_pool
 from app.utils.file_type_registry import get_mime_type
 
@@ -155,12 +156,9 @@ class SMBBackend(StorageBackend):
                 def _scan_directory() -> list[FileInfo]:
                     result = []
                     # Don't pass username/password - use the registered session from pool
-                    entries = smbclient.scandir(smb_path)
-
-                    for entry in entries:
-                        if entry.name in [".", ".."]:
-                            continue
-
+                    # scandir internally manages its SMBDirectoryIO handle
+                    # and already filters out "." and ".." entries.
+                    for entry in smbclient.scandir(smb_path):
                         item_path = f"{path}/{entry.name}" if path else entry.name
 
                         try:
@@ -499,12 +497,23 @@ class SMBBackend(StorageBackend):
                 loop = asyncio.get_event_loop()
 
                 def _delete_recursive(target: str) -> None:
-                    """Depth-first removal of *target* (file or directory)."""
+                    """Depth-first removal of *target* (file or directory).
+
+                    Children are collected into a list before recursing
+                    so the scandir generator is fully consumed — this
+                    releases the underlying SMB directory handle before
+                    we attempt rmdir on the parent.
+                    """
 
                     stat_info = smbclient.stat(target)
                     if stat.S_ISDIR(stat_info.st_mode):
-                        for entry in smbclient.scandir(target):
-                            _delete_recursive(entry.path)
+                        # Collect all children before recursing so the
+                        # scandir generator (and its underlying SMB
+                        # directory handle) is fully consumed and closed
+                        # before we call rmdir.
+                        children = [entry.path for entry in smbclient.scandir(target)]
+                        for child_path in children:
+                            _delete_recursive(child_path)
                         smbclient.rmdir(target)
                     else:
                         smbclient.remove(target)
@@ -742,6 +751,39 @@ class SMBBackend(StorageBackend):
             raise
 
     #
+    # get_file_size
+    #
+    async def get_file_size(self, path: str) -> int | None:
+        """Return the file size in bytes, or ``None`` for directories."""
+
+        smb_path = self._build_smb_path(path)
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                stat_result = await asyncio.wait_for(
+                    loop.run_in_executor(None, smbclient.stat, smb_path),
+                    timeout=10.0,
+                )
+                if stat.S_ISDIR(stat_result.st_mode):
+                    return None
+                return stat_result.st_size  # type: ignore  # smbclient untyped
+        except Exception as e:
+            error_str = str(e)
+            if "0xc0000034" in error_str or "No such file" in error_str:
+                raise FileNotFoundError(f"Path not found: {path}") from e
+            logger.error(f"Failed to get file size for '{path}': {e}")
+            raise
+
+    #
     # copy_item
     #
     async def copy_item(self, source_path: str, dest_path: str) -> None:
@@ -792,10 +834,11 @@ class SMBBackend(StorageBackend):
 
                     if stat.S_ISDIR(stat_info.st_mode):
                         smbclient.mkdir(dst)
-                        for entry in smbclient.scandir(src):
-                            if entry.name in (".", ".."):
-                                continue
-                            _copy_recursive(entry.path, f"{dst}\\{entry.name}")
+                        # Collect children before recursing so the scandir
+                        # generator is fully consumed before deeper calls.
+                        children = [(entry.name, entry.path) for entry in smbclient.scandir(src)]
+                        for child_name, child_path in children:
+                            _copy_recursive(child_path, f"{dst}\\{child_name}")
                         # Restore directory timestamps after all children are
                         # copied (adding children updates the directory mtime).
                         smbclient.utime(dst, ns=(atime_ns, mtime_ns))
@@ -896,4 +939,96 @@ class SMBBackend(StorageBackend):
                 f"Failed to move '{source_path}' -> '{dest_path}': {type(e).__name__}: {e}",
                 exc_info=True,
             )
+            raise
+
+    #
+    # write_file_from_stream
+    #
+    async def write_file_from_stream(
+        self,
+        path: str,
+        stream: AsyncIterator[bytes],
+        on_progress: ProgressCallback | None = None,
+    ) -> int:
+        """Write a file from an async byte stream (for cross-connection transfers).
+
+        Opens the destination file and writes chunks as they arrive from
+        the async iterator.  Each individual chunk write is guarded by a
+        per-chunk timeout (60 s) instead of a total timeout, so
+        arbitrarily large files can be transferred without hitting a
+        wall-clock limit.
+
+        Args:
+            path: Relative path within the share (parent must exist).
+            stream: Async iterator yielding file content in chunks.
+            on_progress: Optional callback invoked after each chunk with
+                ``(bytes_written_so_far, None)``.
+
+        Returns:
+            Total number of bytes written.
+        """
+
+        # Per-chunk timeout — generous to handle slow network segments
+        # without capping total transfer time.
+        chunk_write_timeout_s: float = 60.0
+
+        smb_path = self._build_smb_path(path)
+        logger.info(f"write_file_from_stream: path='{path}' -> smb_path='{smb_path}'")
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+
+                # Open the file handle once — we keep it open while streaming.
+                file_handle = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: smbclient.open_file(smb_path, mode="wb", share_access="r"),
+                    ),
+                    timeout=15.0,
+                )
+
+                bytes_written = 0
+                try:
+                    async for chunk in stream:
+                        await asyncio.wait_for(
+                            loop.run_in_executor(None, file_handle.write, chunk),
+                            timeout=chunk_write_timeout_s,
+                        )
+                        bytes_written += len(chunk)
+                        if on_progress:
+                            on_progress(bytes_written, None)
+                finally:
+                    try:
+                        await asyncio.wait_for(
+                            loop.run_in_executor(None, file_handle.close),
+                            timeout=5.0,
+                        )
+                    except Exception as close_err:
+                        logger.warning(f"Error closing file handle for '{path}': {close_err}")
+
+                logger.info(f"write_file_from_stream: wrote {bytes_written} bytes to '{path}'")
+                return bytes_written
+
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout during write_file_from_stream for '{path}'")
+            raise TimeoutError(f"SMB operation timed out while writing: {path}")
+        except OSError as e:
+            error_str = str(e)
+            if "0xc0000035" in error_str:
+                raise FileExistsError(f"Destination already exists: {path}") from e
+            if "0xc0000043" in error_str or "being used by another process" in error_str:
+                raise IOError(f"File is locked and cannot be written: {path}") from e
+            logger.error(f"Failed write_file_from_stream '{path}': {type(e).__name__}: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Failed write_file_from_stream '{path}': {type(e).__name__}: {e}", exc_info=True)
             raise

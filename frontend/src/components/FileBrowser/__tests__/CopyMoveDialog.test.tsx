@@ -181,14 +181,9 @@ describe("CopyMoveDialog", () => {
     expect(screen.getByText(S.PROGRESS_MOVE(2, 5))).toBeInTheDocument();
   });
 
-  it("shows cross-connection warning when connections differ", () => {
+  it("enables confirm when connections differ", () => {
     render(<CopyMoveDialog {...defaultProps} isSameConnection={false} />);
-    expect(screen.getByText(S.WARN_CROSS_CONNECTION)).toBeInTheDocument();
-  });
-
-  it("disables confirm when connections differ", () => {
-    render(<CopyMoveDialog {...defaultProps} isSameConnection={false} />);
-    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeDisabled();
+    expect(screen.getByRole("button", { name: S.BUTTON_COPY })).toBeEnabled();
   });
 
   it("shows same-directory warning for multi-item when source equals dest", () => {
@@ -255,5 +250,32 @@ describe("CopyMoveDialog", () => {
   it("does not render when not open", () => {
     render(<CopyMoveDialog {...defaultProps} open={false} />);
     expect(screen.queryByText(S.TITLE_COPY)).not.toBeInTheDocument();
+  });
+
+  it("shows byte-level transfer progress during processing", () => {
+    render(
+      <CopyMoveDialog
+        {...defaultProps}
+        isProcessing={true}
+        progress={{ current: 1, total: 2 }}
+        transferProgress={{ bytesTransferred: 5242880, totalBytes: 10485760, itemName: "big-file.zip" }}
+      />
+    );
+    expect(screen.getByText(/big-file\.zip/)).toBeInTheDocument();
+    expect(screen.getByText(/5\.0 MB/)).toBeInTheDocument();
+    expect(screen.getByText(/10\.0 MB/)).toBeInTheDocument();
+  });
+
+  it("shows indeterminate progress when total bytes unknown", () => {
+    render(
+      <CopyMoveDialog
+        {...defaultProps}
+        isProcessing={true}
+        progress={{ current: 1, total: 2 }}
+        transferProgress={{ bytesTransferred: 1024, totalBytes: null, itemName: "unknown-size.dat" }}
+      />
+    );
+    expect(screen.getByText(/unknown-size\.dat/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.0 KB/)).toBeInTheDocument();
   });
 });

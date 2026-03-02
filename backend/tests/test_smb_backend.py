@@ -492,21 +492,22 @@ class TestDirectoryListing:
     @pytest.mark.asyncio
     @patch("app.storage.smb.smbclient.scandir")
     async def test_list_directory_filters_dot_entries(self, mock_scandir):
-        """Test that . and .. entries are filtered out."""
-        mock_entry1 = MagicMock()
-        mock_entry1.name = "."
+        """Test that . and .. entries are filtered by smbclient.scandir itself.
 
-        mock_entry2 = MagicMock()
-        mock_entry2.name = ".."
+        smbclient.scandir already excludes '.' and '..' internally, so
+        the backend receives only real entries.  This test verifies the
+        backend does not break when only real entries are present.
+        """
+        mock_entry = MagicMock()
+        mock_entry.name = "file.txt"
+        mock_entry.smb_info.file_attributes = 0
+        mock_entry.smb_info.end_of_file = 100
+        mock_entry.smb_info.last_write_time = datetime(2024, 1, 15, 10, 30)
+        mock_entry.smb_info.creation_time = datetime(2024, 1, 10, 9, 0)
 
-        mock_entry3 = MagicMock()
-        mock_entry3.name = "file.txt"
-        mock_entry3.smb_info.file_attributes = 0
-        mock_entry3.smb_info.end_of_file = 100
-        mock_entry3.smb_info.last_write_time = datetime(2024, 1, 15, 10, 30)
-        mock_entry3.smb_info.creation_time = datetime(2024, 1, 10, 9, 0)
-
-        mock_scandir.return_value = [mock_entry1, mock_entry2, mock_entry3]
+        # smbclient.scandir never yields '.' or '..', so mock returns
+        # only real entries.
+        mock_scandir.return_value = [mock_entry]
 
         backend = SMBBackend(
             host="server.local",

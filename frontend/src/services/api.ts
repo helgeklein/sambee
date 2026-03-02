@@ -239,12 +239,15 @@ class ApiService {
   }
 
   /**
-   * Copy a file or directory to a new location on the same connection.
+   * Copy a file or directory to a new location.
+   *
+   * When ``destConnectionId`` is provided and differs from ``connectionId``,
+   * a cross-connection copy is performed (data streams through the server).
    *
    * @param connectionId - Source connection UUID.
    * @param sourcePath   - Relative path of the item to copy.
    * @param destPath     - Full destination path (including final name).
-   * @param destConnectionId - Optional destination connection (cross-connection not yet supported).
+   * @param destConnectionId - Optional destination connection for cross-connection copy.
    */
   async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string): Promise<void> {
     await this.api.post(`/browse/${connectionId}/copy`, {
@@ -255,12 +258,15 @@ class ApiService {
   }
 
   /**
-   * Move a file or directory to a new location on the same connection.
+   * Move a file or directory to a new location.
+   *
+   * When ``destConnectionId`` is provided and differs from ``connectionId``,
+   * a cross-connection move is performed (copy + delete source).
    *
    * @param connectionId - Source connection UUID.
    * @param sourcePath   - Relative path of the item to move.
    * @param destPath     - Full destination path (including final name).
-   * @param destConnectionId - Optional destination connection (cross-connection not yet supported).
+   * @param destConnectionId - Optional destination connection for cross-connection move.
    */
   async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string): Promise<void> {
     await this.api.post(`/browse/${connectionId}/move`, {

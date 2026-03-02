@@ -1,4 +1,6 @@
+import asyncio
 import uuid
+from pathlib import PurePosixPath
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -11,6 +13,7 @@ from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.file import CopyMoveRequest, CreateItemRequest, DirectoryListing, DirectorySearchResult, FileInfo, FileType, RenameRequest
 from app.models.user import User
+from app.services.cross_connection import cross_connection_copy, cross_connection_move
 from app.storage.smb import SMBBackend
 
 router = APIRouter()
@@ -332,6 +335,13 @@ async def delete_item(
         )
 
     try:
+        # Stop any active directory monitor for this path (and its
+        # children) before deleting.  The monitor holds a persistent
+        # SMB directory handle; if it's still open when rmdir runs,
+        # the server can only mark the directory as "delete pending"
+        # instead of removing it immediately.
+        _stop_monitors_for_path(str(connection_id), path)
+
         backend = SMBBackend(
             host=connection.host,
             share_name=connection.share_name,
@@ -719,33 +729,43 @@ async def copy_item(
 ) -> None:
     """Copy a file or directory.
 
-    Copies the source item to the destination path within the same
-    connection (same SMB share).  Cross-connection copy is not yet
-    supported — ``dest_connection_id`` is accepted but currently
-    raises 501 if it differs from the source connection.
+    Copies the source item to the destination path.  When
+    ``dest_connection_id`` differs from the source connection, a
+    cross-connection copy is performed by streaming data through the
+    backend.  Byte-level progress is broadcast over WebSocket as
+    ``transfer_progress`` events.
     """
 
     set_user(current_user.username)
 
     source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
 
-    # Cross-connection copy: not yet implemented
-    if body.dest_connection_id and str(body.dest_connection_id) != str(connection_id):
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Cross-connection copy is not yet supported",
-        )
+    is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
 
     connection = _get_connection_or_404(session, connection_id)
 
     try:
-        backend = _build_backend(connection)
-        await backend.connect()
-        await backend.copy_item(source, dest)
-        await backend.disconnect()
+        if is_cross_connection:
+            dest_connection = _get_connection_or_404(
+                session,
+                uuid.UUID(str(body.dest_connection_id)),
+            )
+            await _cross_connection_copy(
+                connection,
+                dest_connection,
+                source,
+                dest,
+                str(connection_id),
+                str(body.dest_connection_id),
+            )
+        else:
+            backend = _build_backend(connection)
+            await backend.connect()
+            await backend.copy_item(source, dest)
+            await backend.disconnect()
 
-        # If a directory was copied, add it to the cache
-        _add_to_directory_cache(str(connection_id), dest)
+            # If a directory was copied, add it to the cache
+            _add_to_directory_cache(str(connection_id), dest)
 
         logger.info(f"Copied item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
 
@@ -759,6 +779,8 @@ async def copy_item(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Destination already exists: {dest}",
         )
+    except HTTPException:
+        raise
     except OSError as e:
         logger.error(
             f"Failed to copy item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
@@ -796,34 +818,44 @@ async def move_item(
 ) -> None:
     """Move (rename across directories) a file or directory.
 
-    Moves the source item to the destination path within the same
-    connection (same SMB share).  Cross-connection move is not yet
-    supported — ``dest_connection_id`` is accepted but currently
-    raises 501 if it differs from the source connection.
+    Moves the source item to the destination path.  When
+    ``dest_connection_id`` differs from the source connection, a
+    cross-connection move is performed (copy + delete source).
+    Byte-level progress is broadcast over WebSocket as
+    ``transfer_progress`` events.
     """
 
     set_user(current_user.username)
 
     source, dest = _validate_copy_move_paths(body.source_path, body.dest_path)
 
-    # Cross-connection move: not yet implemented
-    if body.dest_connection_id and str(body.dest_connection_id) != str(connection_id):
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="Cross-connection move is not yet supported",
-        )
+    is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
 
     connection = _get_connection_or_404(session, connection_id)
 
     try:
-        backend = _build_backend(connection)
-        await backend.connect()
-        await backend.move_item(source, dest)
-        await backend.disconnect()
+        if is_cross_connection:
+            dest_connection = _get_connection_or_404(
+                session,
+                uuid.UUID(str(body.dest_connection_id)),
+            )
+            await _cross_connection_move(
+                connection,
+                dest_connection,
+                source,
+                dest,
+                str(connection_id),
+                str(body.dest_connection_id),
+            )
+        else:
+            backend = _build_backend(connection)
+            await backend.connect()
+            await backend.move_item(source, dest)
+            await backend.disconnect()
 
-        # Update directory cache: remove old path, add new path
-        _remove_from_directory_cache(str(connection_id), source)
-        _add_to_directory_cache(str(connection_id), dest)
+            # Update directory cache: remove old path, add new path
+            _remove_from_directory_cache(str(connection_id), source)
+            _add_to_directory_cache(str(connection_id), dest)
 
         logger.info(f"Moved item: connection_id={connection_id}, '{source}' -> '{dest}', user={current_user.username}")
 
@@ -837,6 +869,8 @@ async def move_item(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Destination already exists: {dest}",
         )
+    except HTTPException:
+        raise
     except OSError as e:
         logger.error(
             f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
@@ -855,6 +889,172 @@ async def move_item(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to move item: {str(e)}",
         )
+
+
+# ============================================================================
+# Cross-connection copy/move helpers
+# ============================================================================
+
+
+async def _cross_connection_copy(
+    src_conn: Connection,
+    dst_conn: Connection,
+    source_path: str,
+    dest_path: str,
+    src_conn_id: str,
+    dst_conn_id: str,
+) -> None:
+    """Perform a cross-connection copy with WebSocket progress reporting.
+
+    Builds two separate SMB backends, streams data from source to
+    destination, and broadcasts byte-level progress via WebSocket.
+    """
+
+    from app.api.websocket import notify_transfer_progress
+
+    source_backend = _build_backend(src_conn)
+    dest_backend = _build_backend(dst_conn)
+
+    await source_backend.connect()
+    await dest_backend.connect()
+
+    # Determine the destination parent directory for progress events.
+    dest_parent = str(PurePosixPath(dest_path).parent)
+    if dest_parent == ".":
+        dest_parent = ""
+    # Item name for progress display
+    item_name = PurePosixPath(dest_path).name
+
+    # Throttle progress broadcasts to avoid flooding the WebSocket
+    # (~4 updates/s is plenty for a smooth progress bar).
+    _last_broadcast: list[float] = [0.0]
+    _min_broadcast_interval_s: float = 0.25
+
+    def on_progress(bytes_transferred: int, total_bytes: int | None) -> None:
+        """Schedule a WS broadcast (non-blocking from sync context)."""
+        import time
+
+        now = time.monotonic()
+        if now - _last_broadcast[0] < _min_broadcast_interval_s:
+            return
+        _last_broadcast[0] = now
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(
+                notify_transfer_progress(
+                    dst_conn_id,
+                    dest_parent,
+                    bytes_transferred,
+                    total_bytes,
+                    item_name,
+                )
+            )
+        except RuntimeError:
+            pass  # No running event loop — skip this broadcast
+
+    try:
+        await cross_connection_copy(
+            source_backend,
+            dest_backend,
+            source_path,
+            dest_path,
+            on_progress=on_progress,
+        )
+        # Send a final 100 % broadcast
+        try:
+            await notify_transfer_progress(
+                dst_conn_id,
+                dest_parent,
+                -1,
+                -1,
+                item_name,
+            )
+        except Exception:
+            pass
+
+        # Update directory cache for the destination connection
+        _add_to_directory_cache(dst_conn_id, dest_path)
+
+    finally:
+        await source_backend.disconnect()
+        await dest_backend.disconnect()
+
+
+async def _cross_connection_move(
+    src_conn: Connection,
+    dst_conn: Connection,
+    source_path: str,
+    dest_path: str,
+    src_conn_id: str,
+    dst_conn_id: str,
+) -> None:
+    """Perform a cross-connection move (copy + delete) with progress reporting."""
+
+    from app.api.websocket import notify_transfer_progress
+
+    source_backend = _build_backend(src_conn)
+    dest_backend = _build_backend(dst_conn)
+
+    await source_backend.connect()
+    await dest_backend.connect()
+
+    dest_parent = str(PurePosixPath(dest_path).parent)
+    if dest_parent == ".":
+        dest_parent = ""
+    item_name = PurePosixPath(dest_path).name
+
+    _last_broadcast: list[float] = [0.0]
+    _min_broadcast_interval_s: float = 0.25
+
+    def on_progress(bytes_transferred: int, total_bytes: int | None) -> None:
+        import time
+
+        now = time.monotonic()
+        if now - _last_broadcast[0] < _min_broadcast_interval_s:
+            return
+        _last_broadcast[0] = now
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(
+                notify_transfer_progress(
+                    dst_conn_id,
+                    dest_parent,
+                    bytes_transferred,
+                    total_bytes,
+                    item_name,
+                )
+            )
+        except RuntimeError:
+            pass
+
+    try:
+        await cross_connection_move(
+            source_backend,
+            dest_backend,
+            source_path,
+            dest_path,
+            on_progress=on_progress,
+        )
+        try:
+            await notify_transfer_progress(
+                dst_conn_id,
+                dest_parent,
+                -1,
+                -1,
+                item_name,
+            )
+        except Exception:
+            pass
+
+        # Update both caches
+        _remove_from_directory_cache(src_conn_id, source_path)
+        _add_to_directory_cache(dst_conn_id, dest_path)
+
+    finally:
+        await source_backend.disconnect()
+        await dest_backend.disconnect()
 
 
 # ============================================================================
@@ -892,6 +1092,50 @@ def _update_directory_cache_from_listing(connection_id: str, listing: DirectoryL
             cache.add_directories(dir_paths)
     except Exception:
         # Never let cache updates break the main flow
+        pass
+
+
+#
+# _stop_monitors_for_path
+#
+def _stop_monitors_for_path(connection_id: str, path: str) -> None:
+    """Stop directory monitors for *path* and any of its children.
+
+    Before deleting a directory we must release the SMB handles held by
+    the directory monitor.  Without this, ``rmdir`` marks the directory
+    as "delete pending" instead of removing it immediately, because
+    the server sees an outstanding open handle.
+
+    Silently ignores errors — monitor cleanup must never break the
+    delete flow.
+    """
+
+    from app.api.websocket import manager
+    from app.services.directory_monitor import get_monitor
+
+    try:
+        monitor = get_monitor()
+        prefix = f"{connection_id}:{path}"
+
+        # Snapshot keys to avoid mutating while iterating
+        keys_to_stop = [key for key in list(manager.active_connections.keys()) if key == prefix or key.startswith(f"{prefix}/")]
+
+        for key in keys_to_stop:
+            try:
+                conn_id, sub_path = key.split(":", 1)
+                resolved = manager._resolved_paths.pop(key, sub_path)
+                monitor.stop_monitoring(conn_id, resolved)
+
+                # Also clean up the subscription bookkeeping so the
+                # manager doesn't try to stop it again on disconnect.
+                manager.active_connections.pop(key, None)
+                for ws_subs in manager.subscriptions.values():
+                    ws_subs.discard(key)
+
+                logger.info(f"Stopped monitor before delete: {key}")
+            except Exception as e:
+                logger.warning(f"Failed to stop monitor {key} before delete: {e}")
+    except Exception:
         pass
 
 

@@ -69,6 +69,8 @@ export interface CopyMoveDialogProps {
   isProcessing: boolean;
   /** Progress info shown during batch processing. */
   progress?: { current: number; total: number };
+  /** Byte-level transfer progress for cross-connection operations via WebSocket. */
+  transferProgress?: { bytesTransferred: number; totalBytes: number | null; itemName: string } | null;
   /** Error message from a failed operation, if any. */
   error?: string | null;
 }
@@ -81,6 +83,17 @@ export interface CopyMoveDialogProps {
 function formatDestination(connectionName: string, path: string): string {
   const displayPath = path === "" ? "/" : `/${path}`;
   return connectionName ? `${connectionName}: ${displayPath}` : displayPath;
+}
+
+/** Format byte count into a human-readable string (e.g. "1.5 MB"). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(2)} GB`;
 }
 
 // ============================================================================
@@ -99,6 +112,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   onCancel,
   isProcessing,
   progress,
+  transferProgress,
   error,
 }) => {
   // Editable file name — only used for single-item operations
@@ -106,14 +120,19 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const originalFileName = isSingleItem ? (files[0]!.name ?? "") : "";
   const [destFileName, setDestFileName] = useState(originalFileName);
   const inputRef = useRef<HTMLInputElement>(null);
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
   // Reset state when the dialog opens with new values
   useEffect(() => {
     if (open) {
       setDestFileName(originalFileName);
+      // Focus the filename input for single-item, or the confirm
+      // button for multi-item.  requestAnimationFrame lets the MUI
+      // Dialog finish its own focus-trap setup first.
       if (isSingleItem) {
-        // Focus the filename input after a frame (dialog open animation)
         requestAnimationFrame(() => inputRef.current?.select());
+      } else {
+        requestAnimationFrame(() => confirmButtonRef.current?.focus());
       }
     }
   }, [open, originalFileName, isSingleItem]);
@@ -141,7 +160,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const emptyFileName = isSingleItem && destFileName.trim() === "";
 
   // Can confirm only when we have a valid destination
-  const canConfirm = !isProcessing && isSameConnection && !sameFile && !emptyFileName && (!sameDirectory || isSingleItem);
+  const canConfirm = !isProcessing && !sameFile && !emptyFileName && (!sameDirectory || isSingleItem);
 
   const handleConfirm = useCallback(() => {
     if (canConfirm) {
@@ -191,11 +210,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
         )}
 
         {/* Warnings */}
-        {!isSameConnection && (
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            {S.WARN_CROSS_CONNECTION}
-          </Alert>
-        )}
         {isSameConnection && sameDirectory && !isSingleItem && (
           <Alert severity="info" sx={{ mt: 2 }}>
             {S.WARN_SAME_DIRECTORY}
@@ -222,6 +236,26 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
           </Box>
         )}
 
+        {/* Byte-level transfer progress (cross-connection) */}
+        {isProcessing && transferProgress && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              {transferProgress.itemName}:{" "}
+              {transferProgress.totalBytes != null && transferProgress.totalBytes > 0
+                ? `${formatBytes(transferProgress.bytesTransferred)} / ${formatBytes(transferProgress.totalBytes)}`
+                : formatBytes(transferProgress.bytesTransferred)}
+            </Typography>
+            {transferProgress.totalBytes != null && transferProgress.totalBytes > 0 ? (
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(100, (transferProgress.bytesTransferred / transferProgress.totalBytes) * 100)}
+              />
+            ) : (
+              <LinearProgress variant="indeterminate" />
+            )}
+          </Box>
+        )}
+
         {/* Error */}
         {error && (
           <Alert severity="error" sx={{ mt: 2 }}>
@@ -235,7 +269,9 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
           {S.BUTTON_CANCEL}
         </Button>
         <Button
+          ref={confirmButtonRef}
           onClick={handleConfirm}
+          onKeyDown={handleKeyDown}
           disabled={!canConfirm}
           variant="contained"
           startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : undefined}

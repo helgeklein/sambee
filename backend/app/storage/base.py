@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import BinaryIO
+from typing import BinaryIO, Callable, Optional
 
 from app.models.file import DirectoryListing, FileInfo
+
+# Type alias for progress callbacks.
+# Called with (bytes_transferred, total_bytes_or_none) after each chunk.
+ProgressCallback = Callable[[int, Optional[int]], None]
 
 
 class StorageBackend(ABC):
@@ -154,6 +158,24 @@ class StorageBackend(ABC):
         pass
 
     #
+    # get_file_size
+    #
+    @abstractmethod
+    async def get_file_size(self, path: str) -> int | None:
+        """Return the size in bytes of a file, or ``None`` if unknown.
+
+        Used by cross-connection transfers to report total progress.
+
+        Args:
+            path: Relative path within the share.
+
+        Raises:
+            FileNotFoundError: If the path does not exist.
+        """
+
+        pass
+
+    #
     # copy_item
     #
     @abstractmethod
@@ -195,6 +217,40 @@ class StorageBackend(ABC):
             FileNotFoundError: If the source path does not exist.
             FileExistsError: If the destination path already exists.
             OSError: If the operation fails.
+        """
+
+        pass
+
+    #
+    # write_file_from_stream
+    #
+    @abstractmethod
+    async def write_file_from_stream(
+        self,
+        path: str,
+        stream: AsyncIterator[bytes],
+        on_progress: ProgressCallback | None = None,
+    ) -> int:
+        """Write a file by consuming an async byte stream.
+
+        Designed for cross-connection transfers: the caller reads chunks
+        from a source backend via ``read_file()`` and pipes them here.
+        No overall timeout is applied — instead, each chunk write has
+        its own per-operation timeout so arbitrarily large files can be
+        transferred without hitting a wall-clock limit.
+
+        Args:
+            path: Relative path within the share (parent must exist).
+            stream: Async iterator yielding file content chunks.
+            on_progress: Optional callback invoked after each chunk is
+                written.  Receives ``(bytes_written_so_far, None)``.
+
+        Returns:
+            Total number of bytes written.
+
+        Raises:
+            FileExistsError: If the destination already exists.
+            OSError: If the write operation fails.
         """
 
         pass

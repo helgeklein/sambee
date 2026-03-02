@@ -109,6 +109,11 @@ const Browser: React.FC = () => {
   const [copyMoveDestPath, setCopyMoveDestPath] = useState("");
   const [copyMoveProcessing, setCopyMoveProcessing] = useState(false);
   const [copyMoveProgress, setCopyMoveProgress] = useState<{ current: number; total: number } | undefined>();
+  const [copyMoveTransferProgress, setCopyMoveTransferProgress] = useState<{
+    bytesTransferred: number;
+    totalBytes: number | null;
+    itemName: string;
+  } | null>(null);
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -581,6 +586,18 @@ const Browser: React.FC = () => {
           // Dispatch to both panes — each pane checks if it's viewing the affected directory
           leftPane.handleDirectoryChanged(data.connection_id, data.path);
           rightPane.handleDirectoryChanged(data.connection_id, data.path);
+        } else if (data.type === "transfer_progress") {
+          // Byte-level progress for cross-connection copy/move
+          if (data.bytes_transferred === -1) {
+            // Sentinel: transfer complete — clear byte progress
+            setCopyMoveTransferProgress(null);
+          } else {
+            setCopyMoveTransferProgress({
+              bytesTransferred: data.bytes_transferred,
+              totalBytes: data.total_bytes ?? null,
+              itemName: data.item_name ?? "",
+            });
+          }
         }
       };
 
@@ -620,32 +637,38 @@ const Browser: React.FC = () => {
     };
   }, []);
 
-  // Subscribe/unsubscribe when either pane's directory changes
+  // Subscribe/unsubscribe when either pane's directory changes.
+  // Returns a cleanup function that unsubscribes from the paths that were
+  // subscribed in *this* effect run, so stale directory-monitor handles on
+  // the backend are released before the next subscribe fires.
   // biome-ignore lint/correctness/useExhaustiveDependencies: paneMode is needed to re-subscribe when toggling dual mode
   useEffect(() => {
     if (wsRef.current?.readyState !== WebSocket.OPEN) return;
 
+    // Track what we subscribe to so we can unsubscribe on cleanup
+    const subscribed: Array<{ connection_id: string; path: string }> = [];
+
     // Subscribe to left pane's directory
     if (leftPane.connectionId) {
-      wsRef.current.send(
-        JSON.stringify({
-          action: "subscribe",
-          connection_id: leftPane.connectionId,
-          path: leftPane.currentPath,
-        })
-      );
+      const msg = { action: "subscribe", connection_id: leftPane.connectionId, path: leftPane.currentPath };
+      wsRef.current.send(JSON.stringify(msg));
+      subscribed.push({ connection_id: leftPane.connectionId, path: leftPane.currentPath });
     }
 
     // Subscribe to right pane's directory when in dual mode
     if (isDualMode && rightPane.connectionId) {
-      wsRef.current.send(
-        JSON.stringify({
-          action: "subscribe",
-          connection_id: rightPane.connectionId,
-          path: rightPane.currentPath,
-        })
-      );
+      const msg = { action: "subscribe", connection_id: rightPane.connectionId, path: rightPane.currentPath };
+      wsRef.current.send(JSON.stringify(msg));
+      subscribed.push({ connection_id: rightPane.connectionId, path: rightPane.currentPath });
     }
+
+    // Cleanup: unsubscribe from old paths when deps change or on unmount
+    return () => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      for (const sub of subscribed) {
+        wsRef.current.send(JSON.stringify({ action: "unsubscribe", connection_id: sub.connection_id, path: sub.path }));
+      }
+    };
   }, [leftPane.currentPath, leftPane.connectionId, rightPane.currentPath, rightPane.connectionId, isDualMode, paneMode]);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -739,6 +762,7 @@ const Browser: React.FC = () => {
       setCopyMoveDestPath(destPane.currentPathRef.current);
       setCopyMoveError(null);
       setCopyMoveProgress(undefined);
+      setCopyMoveTransferProgress(null);
       setCopyMoveProcessing(false);
       setCopyMoveDialogOpen(true);
     },
@@ -761,6 +785,7 @@ const Browser: React.FC = () => {
 
       setCopyMoveProcessing(true);
       setCopyMoveError(null);
+      setCopyMoveTransferProgress(null);
       setCopyMoveProgress({ current: 0, total: copyMoveFiles.length });
 
       const apiFn = copyMoveMode === "copy" ? api.copyItem.bind(api) : api.moveItem.bind(api);
@@ -790,6 +815,7 @@ const Browser: React.FC = () => {
       }
 
       setCopyMoveProcessing(false);
+      setCopyMoveTransferProgress(null);
 
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
@@ -1350,6 +1376,7 @@ const Browser: React.FC = () => {
         onCancel={handleCopyMoveCancel}
         isProcessing={copyMoveProcessing}
         progress={copyMoveProgress}
+        transferProgress={copyMoveTransferProgress}
         error={copyMoveError}
       />
     </Box>

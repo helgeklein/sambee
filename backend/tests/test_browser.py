@@ -1298,25 +1298,69 @@ class TestCopyItem:
         )
         assert response.status_code == 500
 
-    def test_copy_cross_connection_not_implemented(
+    def test_copy_cross_connection_success(
         self,
         client: TestClient,
         auth_headers_user: dict,
         test_connection: Connection,
-        mock_smb_backend,
+        multiple_connections: list,
     ):
-        """Test that cross-connection copy returns 501."""
-        other_id = str(uuid.uuid4())
+        """Test that cross-connection copy returns 204."""
+        dest_conn = multiple_connections[0]
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            src_instance = AsyncMock()
+            dst_instance = AsyncMock()
+
+            # Source returns a file
+            src_instance.get_file_info.return_value = FileInfo(
+                name="a.txt",
+                path="a.txt",
+                type=FileType.FILE,
+                size=100,
+            )
+            src_instance.get_file_size.return_value = 100
+
+            async def fake_read_file(path):
+                yield b"file content"
+
+            src_instance.read_file = fake_read_file
+            dst_instance.write_file_from_stream = AsyncMock(return_value=12)
+
+            # Return different instances for source and dest backends
+            MockBackend.side_effect = [src_instance, dst_instance]
+
+            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock):
+                response = client.post(
+                    f"/api/browse/{test_connection.id}/copy",
+                    headers=auth_headers_user,
+                    json={
+                        "source_path": "a.txt",
+                        "dest_path": "b.txt",
+                        "dest_connection_id": str(dest_conn.id),
+                    },
+                )
+
+            assert response.status_code == 204
+
+    def test_copy_cross_connection_dest_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        """Test that cross-connection copy with invalid dest connection returns 404."""
+        fake_dest_id = str(uuid.uuid4())
         response = client.post(
             f"/api/browse/{test_connection.id}/copy",
             headers=auth_headers_user,
             json={
                 "source_path": "a.txt",
                 "dest_path": "b.txt",
-                "dest_connection_id": other_id,
+                "dest_connection_id": fake_dest_id,
             },
         )
-        assert response.status_code == 501
+        assert response.status_code == 404
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1488,22 +1532,67 @@ class TestMoveItem:
         )
         assert response.status_code == 500
 
-    def test_move_cross_connection_not_implemented(
+    def test_move_cross_connection_success(
         self,
         client: TestClient,
         auth_headers_user: dict,
         test_connection: Connection,
-        mock_smb_backend,
+        multiple_connections: list,
     ):
-        """Test that cross-connection move returns 501."""
-        other_id = str(uuid.uuid4())
+        """Test that cross-connection move returns 204 (copy + delete)."""
+        dest_conn = multiple_connections[0]
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            src_instance = AsyncMock()
+            dst_instance = AsyncMock()
+
+            src_instance.get_file_info.return_value = FileInfo(
+                name="a.txt",
+                path="a.txt",
+                type=FileType.FILE,
+                size=100,
+            )
+            src_instance.get_file_size.return_value = 100
+            src_instance.delete_item.return_value = None
+
+            async def fake_read_file(path):
+                yield b"file content"
+
+            src_instance.read_file = fake_read_file
+            dst_instance.write_file_from_stream = AsyncMock(return_value=12)
+
+            MockBackend.side_effect = [src_instance, dst_instance]
+
+            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock):
+                response = client.post(
+                    f"/api/browse/{test_connection.id}/move",
+                    headers=auth_headers_user,
+                    json={
+                        "source_path": "a.txt",
+                        "dest_path": "b.txt",
+                        "dest_connection_id": str(dest_conn.id),
+                    },
+                )
+
+            assert response.status_code == 204
+            # Verify that source was deleted after copy
+            src_instance.delete_item.assert_called_once_with("a.txt")
+
+    def test_move_cross_connection_dest_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        """Test that cross-connection move with invalid dest connection returns 404."""
+        fake_dest_id = str(uuid.uuid4())
         response = client.post(
             f"/api/browse/{test_connection.id}/move",
             headers=auth_headers_user,
             json={
                 "source_path": "a.txt",
                 "dest_path": "b.txt",
-                "dest_connection_id": other_id,
+                "dest_connection_id": fake_dest_id,
             },
         )
-        assert response.status_code == 501
+        assert response.status_code == 404

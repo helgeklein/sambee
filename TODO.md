@@ -6,10 +6,6 @@
 - New feature:
    - Companion as backend, so local disk can be managed by Sambee, too.
 
-## File copy
-
-- Cross-connection copy/move
-
 ## Frontend responsiveness
 
 - The UI should stay responsive even when the backend is temporarily unavailable
