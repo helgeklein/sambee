@@ -11,7 +11,16 @@ from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
-from app.models.file import CopyMoveRequest, CreateItemRequest, DirectoryListing, DirectorySearchResult, FileInfo, FileType, RenameRequest
+from app.models.file import (
+    ConflictInfo,
+    CopyMoveRequest,
+    CreateItemRequest,
+    DirectoryListing,
+    DirectorySearchResult,
+    FileInfo,
+    FileType,
+    RenameRequest,
+)
 from app.models.user import User
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
 from app.storage.smb import SMBBackend
@@ -700,6 +709,61 @@ def _validate_copy_move_paths(source_path: str, dest_path: str) -> tuple[str, st
     return source, dest
 
 
+async def _conflict_response(
+    connection: Connection,
+    body: CopyMoveRequest,
+    connection_id: uuid.UUID,
+    source: str,
+    dest: str,
+    session: Session,
+) -> HTTPException:
+    """Build a 409 response with ``ConflictInfo`` for overwrite prompts.
+
+    Fetches metadata for both the existing destination and the incoming
+    source so the frontend can display a meaningful comparison dialog.
+    Falls back to a plain 409 if metadata retrieval fails.
+    """
+
+    try:
+        # Determine which backend to use for each path
+        source_backend = _build_backend(connection)
+        await source_backend.connect()
+
+        is_cross = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
+        if is_cross:
+            dest_connection = _get_connection_or_404(session, uuid.UUID(str(body.dest_connection_id)))
+            dest_backend = _build_backend(dest_connection)
+            await dest_backend.connect()
+        else:
+            dest_backend = source_backend
+
+        try:
+            source_info = await source_backend.get_file_info(source)
+            existing_info = await dest_backend.get_file_info(dest)
+
+            conflict = ConflictInfo(
+                existing_file=existing_info,
+                incoming_file=source_info,
+            )
+
+            return HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=conflict.model_dump(mode="json"),
+            )
+        finally:
+            await source_backend.disconnect()
+            if is_cross:
+                await dest_backend.disconnect()
+
+    except Exception as info_err:
+        # If we can't fetch metadata, fall back to a plain 409
+        logger.warning(f"Could not fetch conflict metadata: {info_err}")
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Destination already exists: {dest}",
+        )
+
+
 def _get_connection_or_404(session: Session, connection_id: uuid.UUID) -> Connection:
     """Look up a connection by ID, raising 404 if not found or misconfigured."""
 
@@ -734,6 +798,10 @@ async def copy_item(
     cross-connection copy is performed by streaming data through the
     backend.  Byte-level progress is broadcast over WebSocket as
     ``transfer_progress`` events.
+
+    When ``overwrite`` is ``True``, the destination is replaced if it
+    exists.  Otherwise a 409 response is returned with ``ConflictInfo``
+    containing metadata for both the existing and incoming items.
     """
 
     set_user(current_user.username)
@@ -757,11 +825,12 @@ async def copy_item(
                 dest,
                 str(connection_id),
                 str(body.dest_connection_id),
+                overwrite=body.overwrite,
             )
         else:
             backend = _build_backend(connection)
             await backend.connect()
-            await backend.copy_item(source, dest)
+            await backend.copy_item(source, dest, overwrite=body.overwrite)
             await backend.disconnect()
 
             # If a directory was copied, add it to the cache
@@ -775,10 +844,7 @@ async def copy_item(
             detail=f"Source not found: {source}",
         )
     except FileExistsError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Destination already exists: {dest}",
-        )
+        raise await _conflict_response(connection, body, connection_id, source, dest, session)
     except HTTPException:
         raise
     except OSError as e:
@@ -823,6 +889,10 @@ async def move_item(
     cross-connection move is performed (copy + delete source).
     Byte-level progress is broadcast over WebSocket as
     ``transfer_progress`` events.
+
+    When ``overwrite`` is ``True``, the destination is replaced if it
+    exists.  Otherwise a 409 response is returned with ``ConflictInfo``
+    containing metadata for both the existing and incoming items.
     """
 
     set_user(current_user.username)
@@ -846,11 +916,12 @@ async def move_item(
                 dest,
                 str(connection_id),
                 str(body.dest_connection_id),
+                overwrite=body.overwrite,
             )
         else:
             backend = _build_backend(connection)
             await backend.connect()
-            await backend.move_item(source, dest)
+            await backend.move_item(source, dest, overwrite=body.overwrite)
             await backend.disconnect()
 
             # Update directory cache: remove old path, add new path
@@ -865,10 +936,7 @@ async def move_item(
             detail=f"Source not found: {source}",
         )
     except FileExistsError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Destination already exists: {dest}",
-        )
+        raise await _conflict_response(connection, body, connection_id, source, dest, session)
     except HTTPException:
         raise
     except OSError as e:
@@ -903,6 +971,8 @@ async def _cross_connection_copy(
     dest_path: str,
     src_conn_id: str,
     dst_conn_id: str,
+    *,
+    overwrite: bool = False,
 ) -> None:
     """Perform a cross-connection copy with WebSocket progress reporting.
 
@@ -960,6 +1030,7 @@ async def _cross_connection_copy(
             source_path,
             dest_path,
             on_progress=on_progress,
+            overwrite=overwrite,
         )
         # Send a final 100 % broadcast
         try:
@@ -988,6 +1059,8 @@ async def _cross_connection_move(
     dest_path: str,
     src_conn_id: str,
     dst_conn_id: str,
+    *,
+    overwrite: bool = False,
 ) -> None:
     """Perform a cross-connection move (copy + delete) with progress reporting."""
 
@@ -1036,6 +1109,7 @@ async def _cross_connection_move(
             source_path,
             dest_path,
             on_progress=on_progress,
+            overwrite=overwrite,
         )
         try:
             await notify_transfer_progress(

@@ -11,6 +11,13 @@
  * destination path, and an editable file-name field for single-item
  * operations (allowing rename-on-copy/move).
  *
+ * For multi-file operations, a pre-flight "overwrite strategy" selector
+ * lets the user choose how to handle destination conflicts before the
+ * operation begins:
+ *   - Ask for each file (default / safest)
+ *   - Replace all existing files
+ *   - Skip all existing files
+ *
  * The dialog calls the backend API for each item sequentially, showing
  * progress. Both panes refresh via WebSocket after completion.
  */
@@ -24,13 +31,19 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
+  FormControlLabel,
   LinearProgress,
+  Radio,
+  RadioGroup,
   TextField,
   Typography,
 } from "@mui/material";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fileNamePillSx } from "../../theme/commonStyles";
 import type { FileEntry } from "../../types";
+import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { COPY_MOVE_STRINGS as S } from "./copyMoveDialogStrings";
 import { FILENAME_FIELD_PROPS, FILENAME_INPUT_PROPS, FILENAME_INPUT_SX } from "./filenameFieldProps";
 import { NoTransition } from "./transitions";
@@ -41,6 +54,15 @@ import { NoTransition } from "./transitions";
 
 /** Whether the dialog is being used for a copy or move operation. */
 export type CopyMoveMode = "copy" | "move";
+
+/**
+ * Pre-flight strategy for handling destination conflicts.
+ *
+ * - ``ask``         — pause on each conflict and prompt the user (default)
+ * - ``replace-all`` — silently overwrite every conflicting destination
+ * - ``skip-all``    — silently skip every conflicting file
+ */
+export type OverwriteStrategy = "ask" | "replace-all" | "skip-all";
 
 export interface CopyMoveDialogProps {
   /** Whether the dialog is open. */
@@ -61,8 +83,8 @@ export interface CopyMoveDialogProps {
   destPath: string;
   /** Whether source and destination are on the same connection. */
   isSameConnection: boolean;
-  /** Called when the user confirms — receives the destination path and optional renamed file name. */
-  onConfirm: (destPath: string, destFileName?: string) => void;
+  /** Called when the user confirms — receives the destination path, optional renamed file name, and overwrite strategy. */
+  onConfirm: (destPath: string, destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => void;
   /** Called when the user cancels. */
   onCancel: () => void;
   /** Whether an operation is currently in progress. */
@@ -119,6 +141,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   const isSingleItem = files.length === 1;
   const originalFileName = isSingleItem ? (files[0]!.name ?? "") : "";
   const [destFileName, setDestFileName] = useState(originalFileName);
+  const [overwriteStrategy, setOverwriteStrategy] = useState<OverwriteStrategy>("ask");
   const inputRef = useRef<HTMLInputElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -126,6 +149,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
   useEffect(() => {
     if (open) {
       setDestFileName(originalFileName);
+      setOverwriteStrategy("ask");
       // Focus the filename input for single-item, or the confirm
       // button for multi-item.  requestAnimationFrame lets the MUI
       // Dialog finish its own focus-trap setup first.
@@ -166,30 +190,29 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
     if (canConfirm) {
       // Pass renamed file name only if it was changed for single-item operations
       const renamedFileName = isSingleItem && destFileName.trim() !== originalFileName ? destFileName.trim() : undefined;
-      onConfirm(destPath, renamedFileName);
+      onConfirm(destPath, renamedFileName, overwriteStrategy);
     }
-  }, [canConfirm, destPath, destFileName, originalFileName, isSingleItem, onConfirm]);
+  }, [canConfirm, destPath, destFileName, originalFileName, isSingleItem, onConfirm, overwriteStrategy]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && canConfirm) {
-        e.preventDefault();
-        handleConfirm();
-      }
-    },
-    [canConfirm, handleConfirm]
-  );
+  const handleKeyDown = useMemo(() => dialogEnterKeyHandler(canConfirm ? handleConfirm : undefined), [canConfirm, handleConfirm]);
 
   return (
-    <Dialog open={open} onClose={isProcessing ? undefined : onCancel} fullWidth maxWidth="sm" TransitionComponent={NoTransition}>
+    <Dialog
+      open={open}
+      onClose={isProcessing ? undefined : onCancel}
+      onKeyDown={handleKeyDown}
+      fullWidth
+      maxWidth="sm"
+      TransitionComponent={NoTransition}
+    >
       <DialogTitle>{title}</DialogTitle>
 
       <DialogContent>
         {/* Prompt with destination on a separate line */}
-        <Typography variant="body1">{prompt}</Typography>
-        <Typography variant="body1" sx={{ mb: 2, fontWeight: 500, wordBreak: "break-word" }}>
-          {destination}
+        <Typography variant="body1" sx={{ mb: 0.5 }}>
+          {prompt}
         </Typography>
+        <Box sx={{ ...fileNamePillSx, mb: 2 }}>{destination}</Box>
 
         {/* Editable file name (single-item only) */}
         {isSingleItem && (
@@ -198,7 +221,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
             label={S.LABEL_FILENAME}
             value={destFileName}
             onChange={(e) => setDestFileName(e.target.value)}
-            onKeyDown={handleKeyDown}
             disabled={isProcessing}
             {...FILENAME_FIELD_PROPS}
             inputProps={{
@@ -207,6 +229,20 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
             }}
             sx={{ mt: 2, ...FILENAME_INPUT_SX }}
           />
+        )}
+
+        {/* Overwrite strategy (multi-file operations only) */}
+        {!isSingleItem && (
+          <FormControl sx={{ mt: 2 }} disabled={isProcessing}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              {S.OVERWRITE_STRATEGY_LABEL}
+            </Typography>
+            <RadioGroup value={overwriteStrategy} onChange={(e) => setOverwriteStrategy(e.target.value as OverwriteStrategy)}>
+              <FormControlLabel value="ask" control={<Radio size="small" />} label={S.OVERWRITE_STRATEGY_ASK} />
+              <FormControlLabel value="replace-all" control={<Radio size="small" />} label={S.OVERWRITE_STRATEGY_REPLACE_ALL} />
+              <FormControlLabel value="skip-all" control={<Radio size="small" />} label={S.OVERWRITE_STRATEGY_SKIP_ALL} />
+            </RadioGroup>
+          </FormControl>
         )}
 
         {/* Warnings */}
@@ -271,7 +307,6 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
         <Button
           ref={confirmButtonRef}
           onClick={handleConfirm}
-          onKeyDown={handleKeyDown}
           disabled={!canConfirm}
           variant="contained"
           startIcon={isProcessing ? <CircularProgress size={16} color="inherit" /> : undefined}

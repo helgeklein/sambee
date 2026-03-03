@@ -61,3 +61,39 @@ export function blurActiveToolbarControl(contentRef?: React.RefObject<HTMLElemen
   }
   return true;
 }
+
+/**
+ * Handle Enter key inside an MUI Dialog.
+ *
+ * MUI's modal focus-trap prevents native Enter-to-click on `<button>`
+ * elements.  This handler activates the focused button programmatically
+ * via `click()`.  When no button is focused (e.g. a text field or
+ * checkbox has focus), the optional *fallback* callback is invoked
+ * instead.
+ *
+ * Usage – pass this as the Dialog's `onKeyDown`:
+ *
+ * ```tsx
+ * <Dialog onKeyDown={dialogEnterKeyHandler(handleConfirm)}>
+ * ```
+ *
+ * @param fallback - Optional callback invoked on Enter when no button
+ *                   has focus (typically the dialog's primary action).
+ * @returns A keyboard event handler suitable for `onKeyDown`.
+ */
+export function dialogEnterKeyHandler(fallback?: () => void): (e: React.KeyboardEvent) => void {
+  return (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter") return;
+
+    if (e.target instanceof HTMLButtonElement) {
+      e.preventDefault();
+      e.target.click();
+      return;
+    }
+
+    if (fallback) {
+      e.preventDefault();
+      fallback();
+    }
+  };
+}

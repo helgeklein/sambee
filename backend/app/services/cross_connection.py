@@ -21,7 +21,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Optional
 
-from app.models.file import FileType
+from app.models.file import FileInfo, FileType
 from app.storage.base import ProgressCallback, StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,8 @@ async def cross_connection_copy(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None = None,
+    *,
+    overwrite: bool = False,
 ) -> int:
     """Copy a file or directory from one connection to another.
 
@@ -51,21 +53,23 @@ async def cross_connection_copy(
             (full path including the final name).
         on_progress: Optional callback invoked after every chunk write
             with ``(bytes_transferred_so_far, total_bytes_or_none)``.
+        overwrite: When ``True``, replace existing destinations.
 
     Returns:
         Total number of bytes transferred.
 
     Raises:
         FileNotFoundError: If the source path does not exist.
-        FileExistsError: If the destination path already exists.
+        FileExistsError: If the destination path already exists
+            and *overwrite* is ``False``.
         OSError: On any I/O failure during the transfer.
     """
 
     info = await source.get_file_info(source_path)
 
     if info.type == FileType.DIRECTORY:
-        return await _copy_directory(source, dest, source_path, dest_path, on_progress)
-    return await _copy_file(source, dest, source_path, dest_path, on_progress)
+        return await _copy_directory(source, dest, source_path, dest_path, on_progress, overwrite=overwrite)
+    return await _copy_file(source, dest, source_path, dest_path, on_progress, source_info=info, overwrite=overwrite)
 
 
 async def cross_connection_move(
@@ -74,6 +78,8 @@ async def cross_connection_move(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None = None,
+    *,
+    overwrite: bool = False,
 ) -> int:
     """Move a file or directory across connections (copy + delete).
 
@@ -88,17 +94,19 @@ async def cross_connection_move(
         source_path: Relative path on the source share.
         dest_path: Relative path on the destination share.
         on_progress: Optional progress callback (see ``cross_connection_copy``).
+        overwrite: When ``True``, replace existing destinations.
 
     Returns:
         Total number of bytes transferred.
 
     Raises:
         FileNotFoundError: If the source path does not exist.
-        FileExistsError: If the destination already exists.
+        FileExistsError: If the destination already exists
+            and *overwrite* is ``False``.
         OSError: On transfer failure.
     """
 
-    total_bytes = await cross_connection_copy(source, dest, source_path, dest_path, on_progress)
+    total_bytes = await cross_connection_copy(source, dest, source_path, dest_path, on_progress, overwrite=overwrite)
 
     # Delete source after successful copy
     try:
@@ -129,22 +137,28 @@ async def _copy_file(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None,
+    *,
+    source_info: FileInfo | None = None,
+    overwrite: bool = False,
 ) -> int:
-    """Stream a single file from *source* to *dest*."""
+    """Stream a single file from *source* to *dest*.
 
-    # Get file size for progress reporting (best-effort).
-    total_size: Optional[int] = None
-    try:
-        total_size = await source.get_file_size(source_path)
-    except Exception:
-        pass  # Non-critical; progress will report None for total
+    When *source_info* is supplied (e.g. from an earlier ``get_file_info``
+    call), its ``size`` and ``modified_at`` fields are reused — avoiding
+    extra round-trips to the source share.
+    """
 
-    # Accumulator so the wrapper callback can inject total_size.
-    bytes_so_far = 0
+    # Reuse source_info when available; fall back to a dedicated call.
+    if source_info is None:
+        try:
+            source_info = await source.get_file_info(source_path)
+        except Exception:
+            pass  # Non-critical; progress + mtime will degrade gracefully
+
+    total_size = source_info.size if source_info else None
+    source_mtime = source_info.modified_at if source_info else None
 
     def _progress_with_total(transferred: int, _total: Optional[int]) -> None:
-        nonlocal bytes_so_far
-        bytes_so_far = transferred
         if on_progress:
             on_progress(transferred, total_size)
 
@@ -155,6 +169,8 @@ async def _copy_file(
         dest_path,
         stream,
         on_progress=_progress_with_total,
+        overwrite=overwrite,
+        source_mtime=source_mtime,
     )
 
     logger.info(f"Cross-connection copy file: '{source_path}' -> '{dest_path}' ({bytes_written} bytes)")
@@ -167,11 +183,17 @@ async def _copy_directory(
     source_path: str,
     dest_path: str,
     on_progress: ProgressCallback | None,
+    *,
+    overwrite: bool = False,
 ) -> int:
     """Recursively copy a directory from *source* to *dest*."""
 
-    # Create the destination directory first
-    await dest.create_directory(dest_path)
+    # When overwriting, the destination directory may already exist.
+    if overwrite:
+        if not await dest.file_exists(dest_path):
+            await dest.create_directory(dest_path)
+    else:
+        await dest.create_directory(dest_path)
 
     listing = await source.list_directory(source_path)
     total_bytes = 0
@@ -187,6 +209,7 @@ async def _copy_directory(
                 child_source,
                 child_dest,
                 on_progress,
+                overwrite=overwrite,
             )
         else:
             total_bytes += await _copy_file(
@@ -195,7 +218,17 @@ async def _copy_directory(
                 child_source,
                 child_dest,
                 on_progress,
+                overwrite=overwrite,
             )
+
+    # Preserve the original directory modification timestamp.
+    # Done after children are copied (adding children updates the mtime).
+    try:
+        dir_info = await source.get_file_info(source_path)
+        if dir_info.modified_at:
+            await dest.set_file_times(dest_path, dir_info.modified_at)
+    except Exception:
+        logger.warning(f"Could not preserve modification time for directory '{dest_path}'", exc_info=True)
 
     logger.info(f"Cross-connection copy directory: '{source_path}' -> '{dest_path}' ({total_bytes} bytes, {listing.total} items)")
     return total_bytes

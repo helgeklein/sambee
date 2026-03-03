@@ -21,6 +21,12 @@ export const COPY_MOVE_STRINGS = {
   // Labels
   LABEL_FILENAME: "File name",
 
+  // Overwrite strategy (pre-flight choice for multi-file operations)
+  OVERWRITE_STRATEGY_LABEL: "If files already exist:",
+  OVERWRITE_STRATEGY_ASK: "Ask for each file",
+  OVERWRITE_STRATEGY_REPLACE_ALL: "Replace all",
+  OVERWRITE_STRATEGY_SKIP_ALL: "Skip all",
+
   // Warnings
   WARN_SAME_DIRECTORY: "Source and destination are the same directory.",
   WARN_EMPTY_FILENAME: "File name cannot be empty.",

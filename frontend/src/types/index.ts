@@ -68,11 +68,21 @@ export interface AuthToken {
 // Alias for compatibility
 export type FileEntry = FileInfo;
 
+/**
+ * Metadata returned in 409 responses when a copy/move destination
+ * already exists.  Contains info about both the existing and incoming
+ * items so the UI can show a meaningful overwrite-confirmation dialog.
+ */
+export interface ConflictInfo {
+  existing_file: FileInfo;
+  incoming_file: FileInfo;
+}
+
 // API Error type for axios errors
 export interface ApiError {
   response?: {
     data?: {
-      detail?: string;
+      detail?: string | ConflictInfo;
     };
     status?: number;
   };

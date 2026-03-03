@@ -217,13 +217,6 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
           variant="contained"
           disabled={isSubmitting || hasError}
           startIcon={isSubmitting ? <CircularProgress size={16} /> : undefined}
-          sx={{
-            "&.Mui-focusVisible": {
-              outline: "2px solid",
-              outlineColor: "warning.main",
-              outlineOffset: 2,
-            },
-          }}
         >
           {isSubmitting ? submittingLabel : submitLabel}
         </Button>

@@ -1139,7 +1139,7 @@ class TestCopyItem:
 
         assert response.status_code == 204
         mock_instance.connect.assert_called_once()
-        mock_instance.copy_item.assert_called_once_with("docs/file.txt", "backup/file.txt")
+        mock_instance.copy_item.assert_called_once_with("docs/file.txt", "backup/file.txt", overwrite=False)
         mock_instance.disconnect.assert_called_once()
 
     def test_copy_directory_success(
@@ -1160,7 +1160,7 @@ class TestCopyItem:
         )
 
         assert response.status_code == 204
-        mock_instance.copy_item.assert_called_once_with("photos", "photos-backup")
+        mock_instance.copy_item.assert_called_once_with("photos", "photos-backup", overwrite=False)
 
     def test_copy_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that copying requires authentication."""
@@ -1391,7 +1391,7 @@ class TestMoveItem:
 
         assert response.status_code == 204
         mock_instance.connect.assert_called_once()
-        mock_instance.move_item.assert_called_once_with("docs/file.txt", "archive/file.txt")
+        mock_instance.move_item.assert_called_once_with("docs/file.txt", "archive/file.txt", overwrite=False)
         mock_instance.disconnect.assert_called_once()
 
     def test_move_directory_success(
@@ -1412,7 +1412,7 @@ class TestMoveItem:
         )
 
         assert response.status_code == 204
-        mock_instance.move_item.assert_called_once_with("old-folder", "new-folder")
+        mock_instance.move_item.assert_called_once_with("old-folder", "new-folder", overwrite=False)
 
     def test_move_without_auth(self, client: TestClient, test_connection: Connection):
         """Test that moving requires authentication."""

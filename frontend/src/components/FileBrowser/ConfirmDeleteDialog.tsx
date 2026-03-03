@@ -11,10 +11,12 @@
  * accidentally trigger the destructive action.
  */
 
-import { Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import type React from "react";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { fileNamePillSx } from "../../theme/commonStyles";
 import { FileType } from "../../types";
+import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { CONFIRM_DELETE_STRINGS } from "./confirmDeleteDialogStrings";
 import { NoTransition } from "./transitions";
 
@@ -60,40 +62,14 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemNam
 
   const confirmPrompt = isDirectory ? CONFIRM_DELETE_STRINGS.CONFIRM_DIRECTORY : CONFIRM_DELETE_STRINGS.CONFIRM_FILE;
 
-  //
-  // handleCancelKeyDown
-  //
-  const handleCancelKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      /** MUI text buttons only respond to Space by default; wire up Enter too. */
-
-      if (e.key === "Enter" && !isDeleting) {
-        e.preventDefault();
-        onClose();
-      }
-    },
-    [isDeleting, onClose]
-  );
-
-  //
-  // handleDeleteKeyDown
-  //
-  const handleDeleteKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      /** MUI contained buttons only respond to Space by default; wire up Enter too. */
-
-      if (e.key === "Enter" && !isDeleting) {
-        e.preventDefault();
-        onConfirm();
-      }
-    },
-    [isDeleting, onConfirm]
-  );
+  /** ENTER activates the focused button; no default fallback (Cancel has focus). */
+  const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
 
   return (
     <Dialog
       open={open}
       onClose={isDeleting ? undefined : onClose}
+      onKeyDown={handleKeyDown}
       TransitionComponent={NoTransition}
       PaperProps={{
         sx: { bgcolor: "background.default" },
@@ -101,29 +77,19 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemNam
     >
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
-        <DialogContentText sx={{ color: "text.primary" }}>
-          {confirmPrompt} <strong>{itemName}</strong>?
-        </DialogContentText>
+        <DialogContentText sx={{ color: "text.primary" }}>{confirmPrompt}</DialogContentText>
+        <Box sx={{ ...fileNamePillSx, mt: 0.5 }}>{itemName}</Box>
       </DialogContent>
       <DialogActions>
-        <Button ref={cancelRef} onClick={onClose} onKeyDown={handleCancelKeyDown} disabled={isDeleting}>
+        <Button ref={cancelRef} onClick={onClose} disabled={isDeleting}>
           {CONFIRM_DELETE_STRINGS.BUTTON_CANCEL}
         </Button>
         <Button
           onClick={onConfirm}
-          onKeyDown={handleDeleteKeyDown}
           color="error"
           variant="contained"
           disabled={isDeleting}
           startIcon={isDeleting ? <CircularProgress size={16} /> : undefined}
-          sx={{
-            "&.Mui-focusVisible": {
-              outline: "2px solid",
-              outlineColor: "warning.main",
-              outlineOffset: 2,
-              bgcolor: "error.main",
-            },
-          }}
         >
           {isDeleting ? CONFIRM_DELETE_STRINGS.BUTTON_DELETING : CONFIRM_DELETE_STRINGS.BUTTON_DELETE}
         </Button>

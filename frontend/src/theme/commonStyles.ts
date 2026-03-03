@@ -8,6 +8,28 @@ import type { SxProps, Theme } from "@mui/material";
 const FOCUS_RING_WIDTH = 3;
 
 /**
+ * fileNamePillSx
+ *
+ * Inline "pill" style for displaying file names, connection names, or
+ * paths inside dialog text.  Uses medium weight and a tinted background
+ * derived from the theme's primary color to make the name visually
+ * distinct from surrounding prose — without relying on quotes.
+ *
+ * Apply as `sx` on a `<Box component="span">` or `<Typography component="span">`.
+ *
+ * Handles long names gracefully via `wordBreak: "break-word"`.
+ */
+export const fileNamePillSx: SxProps<Theme> = {
+  fontWeight: 500,
+  fontSize: "0.95em",
+  bgcolor: "action.selected",
+  borderRadius: 0.5,
+  px: 0.75,
+  py: 0.25,
+  wordBreak: "break-word",
+};
+
+/**
  * pillButtonStyle
  *
  * Pill-style button with subtle border and background.

@@ -20,10 +20,11 @@ import {
   useTheme,
 } from "@mui/material";
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
 import type { Connection, ConnectionCreate } from "../../types";
 import { isApiError } from "../../types";
+import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { CONNECTION_DIALOG_STRINGS } from "./connectionDialogConstants";
 
 interface ConnectionDialogProps {
@@ -34,6 +35,7 @@ interface ConnectionDialogProps {
 }
 
 const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSave, connection }) => {
+  const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [formData, setFormData] = useState<ConnectionCreate>({
@@ -404,6 +406,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     <Dialog
       open={open}
       onClose={onClose}
+      onKeyDown={handleKeyDown}
       maxWidth="sm"
       fullWidth
       // Higher z-index to stack above SettingsDialog when nested

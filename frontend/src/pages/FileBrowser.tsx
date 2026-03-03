@@ -23,11 +23,12 @@ import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery } fro
 import { useTheme } from "@mui/material/styles";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import CopyMoveDialog, { type CopyMoveMode } from "../components/FileBrowser/CopyMoveDialog";
+import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
+import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
@@ -37,7 +38,7 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUT
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { logger } from "../services/logger";
-import type { Connection } from "../types";
+import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import type { PaneId, PaneMode } from "./FileBrowser/types";
@@ -115,6 +116,13 @@ const Browser: React.FC = () => {
     itemName: string;
   } | null>(null);
   const [copyMoveError, setCopyMoveError] = useState<string | null>(null);
+
+  // Overwrite conflict dialog state
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictInfo, setConflictInfo] = useState<ConflictInfo | null>(null);
+  const [conflictProgress, setConflictProgress] = useState<{ current: number; total: number; conflictsSoFar: number } | undefined>();
+  /** Ref holding the resolve function of a Promise used to pause the processing loop while the conflict dialog is open. */
+  const conflictResolveRef = React.useRef<((value: { resolution: ConflictResolution; applyToAll: boolean }) => void) | null>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Dual-Pane State
@@ -780,7 +788,7 @@ const Browser: React.FC = () => {
    * Shows progress per file. Both panes refresh via WebSocket after completion.
    */
   const handleCopyMoveConfirm = useCallback(
-    async (destPath: string, destFileName?: string) => {
+    async (destPath: string, destFileName: string | undefined, overwriteStrategy: OverwriteStrategy) => {
       if (copyMoveFiles.length === 0) return;
 
       setCopyMoveProcessing(true);
@@ -791,23 +799,80 @@ const Browser: React.FC = () => {
       const apiFn = copyMoveMode === "copy" ? api.copyItem.bind(api) : api.moveItem.bind(api);
       const errors: string[] = [];
 
+      // Mutable state for "apply to all" decisions made during the loop
+      let effectiveStrategy = overwriteStrategy;
+      let conflictCount = 0;
+
       for (let i = 0; i < copyMoveFiles.length; i++) {
         const file = copyMoveFiles[i]!;
         const sourcePath = copyMoveSourcePath ? `${copyMoveSourcePath}/${file.name}` : file.name;
         // Use the renamed file name for single-item operations, otherwise keep original
         const targetName = destFileName ?? file.name;
         const fullDestPath = destPath ? `${destPath}/${targetName}` : targetName;
+        const crossConnId = copyMoveSourceConnectionId !== copyMoveDestConnectionId ? copyMoveDestConnectionId : undefined;
 
         setCopyMoveProgress({ current: i + 1, total: copyMoveFiles.length });
 
         try {
-          await apiFn(
-            copyMoveSourceConnectionId,
-            sourcePath,
-            fullDestPath,
-            copyMoveSourceConnectionId !== copyMoveDestConnectionId ? copyMoveDestConnectionId : undefined
-          );
+          await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId);
         } catch (err) {
+          // ── Handle 409 Conflict (destination already exists) ──
+          if (isApiError(err) && err.response?.status === 409) {
+            const detail = err.response?.data?.detail;
+            const conflict = typeof detail === "object" && detail !== null ? (detail as ConflictInfo) : null;
+
+            if (conflict && effectiveStrategy === "ask") {
+              // Pause the loop and show the conflict dialog
+              conflictCount++;
+              setConflictInfo(conflict);
+              setConflictProgress({ current: i + 1, total: copyMoveFiles.length, conflictsSoFar: conflictCount });
+
+              const decision = await new Promise<{ resolution: ConflictResolution; applyToAll: boolean }>((resolve) => {
+                conflictResolveRef.current = resolve;
+                setConflictDialogOpen(true);
+              });
+
+              setConflictDialogOpen(false);
+
+              // If user chose "apply to all", convert the per-file decision
+              // into a batch strategy for the rest of the operation.
+              if (decision.applyToAll) {
+                effectiveStrategy = decision.resolution === "replace" ? "replace-all" : "skip-all";
+              }
+
+              if (decision.resolution === "replace") {
+                // Retry the operation with overwrite enabled
+                try {
+                  await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId, true);
+                } catch (retryErr) {
+                  const msg = (isApiError(retryErr) ? retryErr.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
+                  errors.push(msg);
+                  logger.error(`${copyMoveMode} overwrite failed`, { file: file.name, error: retryErr }, "browser");
+                }
+              }
+              // else: "skip" — do nothing, move to next file
+              continue;
+            }
+
+            if (effectiveStrategy === "replace-all") {
+              // Silently overwrite
+              try {
+                await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId, true);
+              } catch (retryErr) {
+                const msg = (isApiError(retryErr) ? retryErr.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
+                errors.push(msg);
+                logger.error(`${copyMoveMode} overwrite failed`, { file: file.name, error: retryErr }, "browser");
+              }
+              continue;
+            }
+
+            if (effectiveStrategy === "skip-all") {
+              // Silently skip
+              continue;
+            }
+          }
+
+          // ── Non-conflict errors ──
           const msg = (isApiError(err) ? err.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
           errors.push(msg);
           logger.error(`${copyMoveMode} failed`, { file: file.name, error: err }, "browser");
@@ -829,6 +894,12 @@ const Browser: React.FC = () => {
     },
     [copyMoveFiles, copyMoveMode, copyMoveSourceConnectionId, copyMoveSourcePath, copyMoveDestConnectionId, leftPane, rightPane]
   );
+
+  /** Called when the user resolves an overwrite conflict dialog. */
+  const handleConflictResolve = useCallback((resolution: ConflictResolution, applyToAll: boolean) => {
+    conflictResolveRef.current?.({ resolution, applyToAll });
+    conflictResolveRef.current = null;
+  }, []);
 
   /** Cancel the copy/move dialog. */
   const handleCopyMoveCancel = useCallback(() => {
@@ -1378,6 +1449,14 @@ const Browser: React.FC = () => {
         progress={copyMoveProgress}
         transferProgress={copyMoveTransferProgress}
         error={copyMoveError}
+      />
+
+      {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
+      <OverwriteConflictDialog
+        open={conflictDialogOpen}
+        conflict={conflictInfo}
+        progress={conflictProgress}
+        onResolve={handleConflictResolve}
       />
     </Box>
   );

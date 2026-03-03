@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import BinaryIO, Callable, Optional
 
 from app.models.file import DirectoryListing, FileInfo
@@ -179,7 +180,7 @@ class StorageBackend(ABC):
     # copy_item
     #
     @abstractmethod
-    async def copy_item(self, source_path: str, dest_path: str) -> None:
+    async def copy_item(self, source_path: str, dest_path: str, *, overwrite: bool = False) -> None:
         """Copy a file or directory to a new location within the same share.
 
         Directories are copied recursively — all contents are replicated
@@ -189,10 +190,14 @@ class StorageBackend(ABC):
             source_path: Relative path of the item to copy.
             dest_path: Relative path for the copy destination (full path
                 including the final name, not just the parent directory).
+            overwrite: When ``True``, remove the destination before
+                copying.  When ``False`` (default), raise
+                ``FileExistsError`` if the destination exists.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
-            FileExistsError: If the destination path already exists.
+            FileExistsError: If the destination path already exists
+                and *overwrite* is ``False``.
             OSError: If the operation fails.
         """
 
@@ -202,7 +207,7 @@ class StorageBackend(ABC):
     # move_item
     #
     @abstractmethod
-    async def move_item(self, source_path: str, dest_path: str) -> None:
+    async def move_item(self, source_path: str, dest_path: str, *, overwrite: bool = False) -> None:
         """Move (rename) a file or directory to a new location within the same share.
 
         This is effectively a cross-directory rename. For SMB backends
@@ -212,10 +217,14 @@ class StorageBackend(ABC):
             source_path: Relative path of the item to move.
             dest_path: Relative path for the move destination (full path
                 including the final name, not just the parent directory).
+            overwrite: When ``True``, remove the destination before
+                moving.  When ``False`` (default), raise
+                ``FileExistsError`` if the destination exists.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
-            FileExistsError: If the destination path already exists.
+            FileExistsError: If the destination path already exists
+                and *overwrite* is ``False``.
             OSError: If the operation fails.
         """
 
@@ -230,6 +239,9 @@ class StorageBackend(ABC):
         path: str,
         stream: AsyncIterator[bytes],
         on_progress: ProgressCallback | None = None,
+        *,
+        overwrite: bool = False,
+        source_mtime: datetime | None = None,
     ) -> int:
         """Write a file by consuming an async byte stream.
 
@@ -239,18 +251,40 @@ class StorageBackend(ABC):
         its own per-operation timeout so arbitrarily large files can be
         transferred without hitting a wall-clock limit.
 
+        When *source_mtime* is provided, the destination file's
+        modification timestamp is set to match the source after all
+        data has been written — inside the same connection context,
+        avoiding an extra round-trip.
+
         Args:
             path: Relative path within the share (parent must exist).
             stream: Async iterator yielding file content chunks.
             on_progress: Optional callback invoked after each chunk is
                 written.  Receives ``(bytes_written_so_far, None)``.
+            overwrite: When ``True``, overwrite the destination if it
+                already exists.  When ``False`` (default), raise
+                ``FileExistsError``.
+            source_mtime: When provided, set the destination file's
+                modification time to this value after writing.
 
         Returns:
             Total number of bytes written.
 
         Raises:
-            FileExistsError: If the destination already exists.
+            FileExistsError: If the destination already exists and
+                *overwrite* is ``False``.
             OSError: If the write operation fails.
         """
 
         pass
+
+    async def set_file_times(self, path: str, modified: datetime) -> None:
+        """Set the modification timestamp of a file or directory.
+
+        The default implementation is a no-op.  Subclasses that support
+        timestamp manipulation (e.g. SMB) should override this method.
+
+        Args:
+            path: Relative path within the share.
+            modified: The modification timestamp to apply.
+        """

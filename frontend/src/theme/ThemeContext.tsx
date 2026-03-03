@@ -116,11 +116,10 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const scrollbarThumb = isDark ? "#6b6b6b" : "#c1c1c1";
     const scrollbarTrack = isDark ? "#2b2b2b" : "#f1f1f1";
 
-    // Shared focus outline style for buttons
-    const buttonFocusStyle = {
+    // Shared focus outline style for buttons (outline ring only, no fill change)
+    const buttonFocusOutline = {
       outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${focusColor}`,
       outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
-      backgroundColor: "transparent",
       boxShadow: "none",
     };
 
@@ -246,12 +245,24 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           styleOverrides: {
             root: {
               textTransform: "none",
+              "&.Mui-focusVisible": buttonFocusOutline,
+            },
+            // Text/outlined buttons: strip background on focus for a clean look.
+            // In dark mode, override text color for visibility.
+            text: {
               "&.Mui-focusVisible": {
-                ...buttonFocusStyle,
-                // In dark mode, use primary color for text visibility on transparent background
+                backgroundColor: "transparent",
                 ...(isDark && { color: currentTheme.primary.main }),
               },
             },
+            outlined: {
+              "&.Mui-focusVisible": {
+                backgroundColor: "transparent",
+                ...(isDark && { color: currentTheme.primary.main }),
+              },
+            },
+            // Contained buttons keep their fill color on focus — only the
+            // outline ring (from root) is added.
           },
         },
         // Focus styles for IconButton - clean outline ring (keyboard nav only)
@@ -261,7 +272,7 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
           },
           styleOverrides: {
             root: {
-              "&.Mui-focusVisible": buttonFocusStyle,
+              "&.Mui-focusVisible": buttonFocusOutline,
             },
           },
         },

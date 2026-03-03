@@ -248,12 +248,14 @@ class ApiService {
    * @param sourcePath   - Relative path of the item to copy.
    * @param destPath     - Full destination path (including final name).
    * @param destConnectionId - Optional destination connection for cross-connection copy.
+   * @param overwrite    - When true, replace the destination if it exists.
    */
-  async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string): Promise<void> {
+  async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
     await this.api.post(`/browse/${connectionId}/copy`, {
       source_path: sourcePath,
       dest_path: destPath,
       dest_connection_id: destConnectionId,
+      overwrite,
     });
   }
 
@@ -267,12 +269,14 @@ class ApiService {
    * @param sourcePath   - Relative path of the item to move.
    * @param destPath     - Full destination path (including final name).
    * @param destConnectionId - Optional destination connection for cross-connection move.
+   * @param overwrite    - When true, replace the destination if it exists.
    */
-  async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string): Promise<void> {
+  async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
     await this.api.post(`/browse/${connectionId}/move`, {
       source_path: sourcePath,
       dest_path: destPath,
       dest_connection_id: destConnectionId,
+      overwrite,
     });
   }
 

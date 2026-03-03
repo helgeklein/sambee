@@ -465,6 +465,81 @@ class SMBBackend(StorageBackend):
             return False
 
     #
+    # _remove_if_exists
+    #
+    async def _remove_if_exists(self, loop: asyncio.AbstractEventLoop, smb_path: str) -> None:
+        """Remove *smb_path* (file or directory) if it exists.
+
+        Used internally by copy/move/write operations when the caller
+        has requested overwrite semantics.  The caller must already hold
+        a pool connection — this helper runs synchronous SMB calls inside
+        the provided *loop* executor.
+
+        Directory removal is depth-first (recursive).
+        """
+
+        def _remove(target: str) -> None:
+            if not smbclient.path.exists(target):  # pyright: ignore[reportAttributeAccessIssue]
+                return
+            stat_info = smbclient.stat(target)
+            if stat.S_ISDIR(stat_info.st_mode):
+                # Collect all children before recursing so the scandir
+                # generator is fully consumed and closed first.
+                children = [entry.path for entry in smbclient.scandir(target)]
+                for child_path in children:
+                    _remove(child_path)
+                smbclient.rmdir(target)
+            else:
+                smbclient.remove(target)
+
+        await asyncio.wait_for(
+            loop.run_in_executor(None, _remove, smb_path),
+            timeout=120.0,
+        )
+
+    #
+    # set_file_times
+    #
+    async def set_file_times(self, path: str, modified: datetime) -> None:
+        """Set the modification timestamp of a file or directory.
+
+        Converts the *modified* datetime to nanosecond precision and
+        applies it via ``smbclient.utime()``.
+
+        Args:
+            path: Relative path within the share.
+            modified: The modification timestamp to apply.
+        """
+
+        smb_path = self._build_smb_path(path)
+
+        try:
+            pool = await get_connection_pool()
+
+            async with pool.get_connection(
+                host=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                share_name=self.share_name,
+            ):
+                loop = asyncio.get_event_loop()
+                # Convert to nanoseconds — smbclient.utime() requires
+                # int via the ns= parameter.
+                mtime_ns = int(modified.timestamp() * 1_000_000_000)
+
+                await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: smbclient.utime(smb_path, ns=(mtime_ns, mtime_ns)),
+                    ),
+                    timeout=10.0,
+                )
+
+        except Exception as e:
+            logger.warning(f"Failed to set modification time on '{path}': {type(e).__name__}: {e}")
+
+    #
     # delete_item
     #
     async def delete_item(self, path: str) -> None:
@@ -786,7 +861,7 @@ class SMBBackend(StorageBackend):
     #
     # copy_item
     #
-    async def copy_item(self, source_path: str, dest_path: str) -> None:
+    async def copy_item(self, source_path: str, dest_path: str, *, overwrite: bool = False) -> None:
         """Copy a file or directory to a new location via SMB.
 
         Files are copied using ``smbclient.copyfile`` which performs a
@@ -796,10 +871,14 @@ class SMBBackend(StorageBackend):
         Args:
             source_path: Relative path of the item to copy.
             dest_path: Relative destination path (full path including name).
+            overwrite: When ``True``, remove the destination before
+                copying.  When ``False`` (default), raise
+                ``FileExistsError`` if the destination exists.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
-            FileExistsError: If the destination path already exists.
+            FileExistsError: If the destination path already exists
+                and *overwrite* is ``False``.
             OSError: If the operation fails.
         """
 
@@ -818,6 +897,23 @@ class SMBBackend(StorageBackend):
                 share_name=self.share_name,
             ):
                 loop = asyncio.get_event_loop()
+
+                # Guard: raise early when the destination already
+                # exists and the caller has not opted into overwrite.
+                if not overwrite:
+                    exists = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None,
+                            lambda: smbclient.path.exists(smb_dst),  # pyright: ignore[reportAttributeAccessIssue]
+                        ),
+                        timeout=10.0,
+                    )
+                    if exists:
+                        raise FileExistsError(f"Destination already exists: {dest_path}")
+                else:
+                    # When overwrite is requested, remove the existing
+                    # destination so the copy can proceed cleanly.
+                    await self._remove_if_exists(loop, smb_dst)
 
                 def _copy_recursive(src: str, dst: str) -> None:
                     """Copy *src* to *dst*, creating directories as needed.
@@ -879,7 +975,7 @@ class SMBBackend(StorageBackend):
     #
     # move_item
     #
-    async def move_item(self, source_path: str, dest_path: str) -> None:
+    async def move_item(self, source_path: str, dest_path: str, *, overwrite: bool = False) -> None:
         """Move a file or directory to a new location via SMB.
 
         Uses ``smbclient.rename`` which performs a server-side rename
@@ -889,10 +985,14 @@ class SMBBackend(StorageBackend):
         Args:
             source_path: Relative path of the item to move.
             dest_path: Relative destination path (full path including name).
+            overwrite: When ``True``, remove the destination before
+                moving.  When ``False`` (default), raise
+                ``FileExistsError`` if the destination exists.
 
         Raises:
             FileNotFoundError: If the source path does not exist.
-            FileExistsError: If the destination path already exists.
+            FileExistsError: If the destination path already exists
+                and *overwrite* is ``False``.
             OSError: If the operation fails.
         """
 
@@ -911,6 +1011,24 @@ class SMBBackend(StorageBackend):
                 share_name=self.share_name,
             ):
                 loop = asyncio.get_event_loop()
+
+                # Guard: raise early when the destination already
+                # exists and the caller has not opted into overwrite.
+                if not overwrite:
+                    exists = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None,
+                            lambda: smbclient.path.exists(smb_dst),  # pyright: ignore[reportAttributeAccessIssue]
+                        ),
+                        timeout=10.0,
+                    )
+                    if exists:
+                        raise FileExistsError(f"Destination already exists: {dest_path}")
+                else:
+                    # When overwrite is requested, remove the existing
+                    # destination so the rename can proceed cleanly.
+                    await self._remove_if_exists(loop, smb_dst)
+
                 await asyncio.wait_for(
                     loop.run_in_executor(None, smbclient.rename, smb_src, smb_dst),
                     timeout=30.0,
@@ -949,6 +1067,9 @@ class SMBBackend(StorageBackend):
         path: str,
         stream: AsyncIterator[bytes],
         on_progress: ProgressCallback | None = None,
+        *,
+        overwrite: bool = False,
+        source_mtime: datetime | None = None,
     ) -> int:
         """Write a file from an async byte stream (for cross-connection transfers).
 
@@ -963,6 +1084,12 @@ class SMBBackend(StorageBackend):
             stream: Async iterator yielding file content in chunks.
             on_progress: Optional callback invoked after each chunk with
                 ``(bytes_written_so_far, None)``.
+            overwrite: When ``True``, overwrite the destination if it
+                already exists.  When ``False`` (default), raise
+                ``FileExistsError``.
+            source_mtime: When provided, set the destination file's
+                modification time to this value after writing \u2014 inside
+                the same connection context (no extra round-trip).
 
         Returns:
             Total number of bytes written.
@@ -986,6 +1113,23 @@ class SMBBackend(StorageBackend):
                 share_name=self.share_name,
             ):
                 loop = asyncio.get_event_loop()
+
+                # Guard: raise early when the destination already
+                # exists and the caller has not opted into overwrite.
+                if not overwrite:
+                    exists = await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None,
+                            lambda: smbclient.path.exists(smb_path),  # pyright: ignore[reportAttributeAccessIssue]
+                        ),
+                        timeout=10.0,
+                    )
+                    if exists:
+                        raise FileExistsError(f"Destination already exists: {path}")
+                else:
+                    # When overwrite is requested, remove the existing
+                    # destination so the write can proceed cleanly.
+                    await self._remove_if_exists(loop, smb_path)
 
                 # Open the file handle once — we keep it open while streaming.
                 file_handle = await asyncio.wait_for(
@@ -1014,6 +1158,21 @@ class SMBBackend(StorageBackend):
                         )
                     except Exception as close_err:
                         logger.warning(f"Error closing file handle for '{path}': {close_err}")
+
+                # Preserve the original modification timestamp inside
+                # the same connection context (no extra pool checkout).
+                if source_mtime is not None:
+                    try:
+                        mtime_ns = int(source_mtime.timestamp() * 1_000_000_000)
+                        await asyncio.wait_for(
+                            loop.run_in_executor(
+                                None,
+                                lambda: smbclient.utime(smb_path, ns=(mtime_ns, mtime_ns)),
+                            ),
+                            timeout=10.0,
+                        )
+                    except Exception as utime_err:
+                        logger.warning(f"Could not preserve modification time for '{path}': {utime_err}")
 
                 logger.info(f"write_file_from_stream: wrote {bytes_written} bytes to '{path}'")
                 return bytes_written

@@ -112,7 +112,7 @@ describe("CopyMoveDialog", () => {
     render(<CopyMoveDialog {...defaultProps} onConfirm={onConfirm} />);
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined);
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
   });
 
   it("calls onConfirm with destPath and rename for single-item with edited name", async () => {
@@ -126,7 +126,7 @@ describe("CopyMoveDialog", () => {
     await user.type(input, "renamed.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, "renamed.txt");
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, "renamed.txt", "ask");
   });
 
   it("calls onConfirm with destPath and no rename when single-item name unchanged", async () => {
@@ -136,7 +136,7 @@ describe("CopyMoveDialog", () => {
     render(<CopyMoveDialog {...props} />);
 
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined);
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
   });
 
   it("calls onCancel when Cancel is clicked", async () => {
@@ -158,7 +158,7 @@ describe("CopyMoveDialog", () => {
     await user.click(input);
     await user.keyboard("{Enter}");
 
-    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined);
+    expect(onConfirm).toHaveBeenCalledWith(DEST_PATH, undefined, "ask");
   });
 
   it("disables confirm button during processing", () => {
@@ -212,7 +212,7 @@ describe("CopyMoveDialog", () => {
     await user.type(input, "readme-copy.txt");
     await user.click(screen.getByRole("button", { name: S.BUTTON_COPY }));
 
-    expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme-copy.txt");
+    expect(onConfirm).toHaveBeenCalledWith(SOURCE_PATH, "readme-copy.txt", "ask");
   });
 
   it("disables confirm for single-item same directory with same name", () => {
