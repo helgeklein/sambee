@@ -92,7 +92,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@8a02ed5e290d8afc7e587930243f3016b3223f50
         with:
           workspaces: companion/src-tauri -> target
 
