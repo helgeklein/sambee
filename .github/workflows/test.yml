@@ -22,22 +22,77 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       companion: ${{ steps.filter.outputs.companion }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
-
     - name: Detect changed paths
-      uses: dorny/paths-filter@v3
       id: filter
-      with:
-        filters: |
-          backend:
-            - 'backend/**'
-            - 'scripts/install-system-deps'
-            - 'scripts/setup-test-images'
-          frontend:
-            - 'frontend/**'
-          companion:
-            - 'companion/**'
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        python3 <<'PY'
+        import json
+        import os
+        import sys
+        import urllib.request
+
+        output_path = os.environ["GITHUB_OUTPUT"]
+        backend_extras = {
+            "scripts/install-system-deps",
+            "scripts/setup-test-images",
+        }
+
+        def write_output(name: str, value: bool) -> None:
+            with open(output_path, "a", encoding="utf-8") as handle:
+                handle.write(f"{name}={'true' if value else 'false'}\n")
+
+        if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+            for component in ("backend", "frontend", "companion"):
+                write_output(component, True)
+            sys.exit(0)
+
+        with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+            event = json.load(handle)
+
+        pull_request = event.get("pull_request")
+        if not pull_request:
+            raise SystemExit("Change detection only supports pull_request and workflow_dispatch events")
+
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+            "User-Agent": "sambee-ci-change-detector",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+        repo = os.environ["GITHUB_REPOSITORY"]
+
+        filenames: list[str] = []
+        page = 1
+        while True:
+            request = urllib.request.Request(
+                f"{api_url}/repos/{repo}/pulls/{pull_request['number']}/files?per_page=100&page={page}",
+                headers=headers,
+            )
+            with urllib.request.urlopen(request) as response:
+                files = json.load(response)
+
+            if not files:
+                break
+
+            filenames.extend(file["filename"] for file in files)
+            if len(files) < 100:
+                break
+            page += 1
+
+        backend = any(name.startswith("backend/") or name in backend_extras for name in filenames)
+        frontend = any(name.startswith("frontend/") for name in filenames)
+        companion = any(name.startswith("companion/") for name in filenames)
+
+        print(f"Detected {len(filenames)} changed files")
+        print(f"backend={backend} frontend={frontend} companion={companion}")
+
+        write_output("backend", backend)
+        write_output("frontend", frontend)
+        write_output("companion", companion)
+        PY
 
   # ──────────────────────────────────────────────
   # Backend: Python + mypy + pytest
