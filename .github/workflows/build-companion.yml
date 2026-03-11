@@ -1,5 +1,8 @@
 name: Build Companion
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     tags:
@@ -63,7 +66,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # ── System dependencies (Linux only) ──
       - name: Install Tauri system dependencies (Linux)
@@ -95,12 +98,12 @@ jobs:
 
       # ── Node.js + frontend build ──
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
 
       - name: Cache node_modules
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: node-cache
         with:
           path: companion/node_modules
@@ -193,7 +196,7 @@ jobs:
 
       # ── Upload build artifacts ──
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: companion-${{ matrix.label }}
           path: companion/src-tauri/target/${{ matrix.target }}/release/bundle/

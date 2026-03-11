@@ -1,5 +1,8 @@
 name: Lint
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   pull_request:
     branches: [ main ]
@@ -20,7 +23,7 @@ jobs:
       companion: ${{ steps.filter.outputs.companion }}
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Detect changed paths
       uses: dorny/paths-filter@v3
@@ -43,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -71,15 +74,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: '20'
 
     - name: Cache node_modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       id: node-cache
       with:
         path: frontend/node_modules
@@ -101,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Install Tauri system dependencies
       run: |
@@ -131,12 +134,12 @@ jobs:
       run: cd companion/src-tauri && cargo fmt --check
 
     - name: Set up Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v5
       with:
         node-version: '20'
 
     - name: Cache node_modules
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       id: companion-node-cache
       with:
         path: companion/node_modules
