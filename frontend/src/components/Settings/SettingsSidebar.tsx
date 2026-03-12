@@ -2,11 +2,12 @@
 // SettingsSidebar
 //
 
-import { Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
+import { Computer as ComputerIcon, Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
 import { Box, List, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "../../services/api";
+import { getSettingsCategoryLabel, SETTINGS_CATEGORY_META } from "./settingsNavigation";
 
 /**
  * SettingsSidebar
@@ -39,11 +40,18 @@ export function SettingsSidebar() {
       visible: true,
     },
     {
-      id: "connections",
-      label: "Connections",
+      id: "smb-connections",
+      label: getSettingsCategoryLabel("smb-connections"),
       icon: <StorageIcon />,
-      path: "/settings/connections",
+      path: SETTINGS_CATEGORY_META["smb-connections"].route,
       visible: isAdmin,
+    },
+    {
+      id: "local-drives",
+      label: getSettingsCategoryLabel("local-drives"),
+      icon: <ComputerIcon />,
+      path: SETTINGS_CATEGORY_META["local-drives"].route,
+      visible: true,
     },
   ];
 

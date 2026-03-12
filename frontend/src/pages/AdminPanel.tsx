@@ -8,7 +8,7 @@ import ConnectionList from "../components/Admin/ConnectionList";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import api from "../services/api";
 import type { Connection } from "../types";
-import { isApiError } from "../types";
+import { getApiErrorMessage } from "../utils/apiErrors";
 
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
@@ -50,7 +50,7 @@ const AdminPanel: React.FC = () => {
       const data = await api.getConnections();
       setConnections(data);
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to load connections" : "Failed to load connections";
+      const message = getApiErrorMessage(error, "Failed to load connections");
       showNotification(message, "error");
     } finally {
       setLoading(false);
@@ -83,7 +83,7 @@ const AdminPanel: React.FC = () => {
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to test connection" : "Failed to test connection";
+      const message = getApiErrorMessage(error, "Failed to test connection");
       showNotification(message, "error");
     } finally {
       setTesting(false);
@@ -105,7 +105,7 @@ const AdminPanel: React.FC = () => {
       loadConnections();
       showNotification("Connection deleted successfully", "success");
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to delete connection" : "Failed to delete connection";
+      const message = getApiErrorMessage(error, "Failed to delete connection");
       showNotification(message, "error");
     }
   };

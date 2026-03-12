@@ -2,17 +2,17 @@
 // SettingsDialog
 //
 
-import { Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
+import { Computer as ComputerIcon, Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
 import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppearanceSettings } from "../../pages/AppearanceSettings";
 import { ConnectionSettings } from "../../pages/ConnectionSettings";
+import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
 import api from "../../services/api";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
-
-export type SettingsCategory = "appearance" | "connections";
+import { getSettingsCategoryLabel, type SettingsCategory } from "./settingsNavigation";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -27,7 +27,8 @@ interface SettingsDialogProps {
  * SettingsDialog
  *
  * Modal dialog for settings on desktop.
- * Contains sidebar navigation and content area showing Appearance or Connections settings.
+ * Contains sidebar navigation and content area showing Appearance,
+ * SMB Connections, or Local Drives settings.
  */
 const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialCategory = "appearance", onConnectionsChanged }) => {
   const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>(initialCategory);
@@ -36,16 +37,32 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
 
   // Refs for category list items (for arrow key navigation and initial focus)
   const appearanceRef = useRef<HTMLDivElement>(null);
-  const connectionsRef = useRef<HTMLDivElement>(null);
+  const smbConnectionsRef = useRef<HTMLDivElement>(null);
+  const localDrivesRef = useRef<HTMLDivElement>(null);
 
   // Build list of available categories based on admin status
   const availableCategories = useMemo(() => {
     const categories: SettingsCategory[] = ["appearance"];
     if (isAdmin) {
-      categories.push("connections");
+      categories.push("smb-connections");
     }
+    categories.push("local-drives");
     return categories;
   }, [isAdmin]);
+
+  const focusCategoryButton = useCallback((category: SettingsCategory) => {
+    if (category === "appearance") {
+      appearanceRef.current?.focus();
+      return;
+    }
+
+    if (category === "smb-connections") {
+      smbConnectionsRef.current?.focus();
+      return;
+    }
+
+    localDrivesRef.current?.focus();
+  }, []);
 
   //
   // handleCategoryKeyDown
@@ -70,16 +87,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
         const newCategory = availableCategories[newIndex];
         if (newCategory) {
           setSelectedCategory(newCategory);
-          // Focus the new category button
-          if (newCategory === "appearance") {
-            appearanceRef.current?.focus();
-          } else if (newCategory === "connections") {
-            connectionsRef.current?.focus();
-          }
+          focusCategoryButton(newCategory);
         }
       }
     },
-    [availableCategories, selectedCategory]
+    [availableCategories, focusCategoryButton, selectedCategory]
   );
 
   useEffect(() => {
@@ -102,24 +114,20 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
   // Set category when dialog opens (use initialCategory prop)
   useEffect(() => {
     if (open) {
-      setSelectedCategory(initialCategory);
+      setSelectedCategory(availableCategories.includes(initialCategory) ? initialCategory : (availableCategories[0] ?? "appearance"));
     }
-  }, [open, initialCategory]);
+  }, [availableCategories, initialCategory, open]);
 
   // Focus the initial category button when dialog opens
   useEffect(() => {
     if (open) {
       // Use setTimeout to ensure the dialog is fully rendered
       const timeoutId = setTimeout(() => {
-        if (initialCategory === "appearance") {
-          appearanceRef.current?.focus();
-        } else if (initialCategory === "connections") {
-          connectionsRef.current?.focus();
-        }
+        focusCategoryButton(availableCategories.includes(initialCategory) ? initialCategory : (availableCategories[0] ?? "appearance"));
       }, 0);
       return () => clearTimeout(timeoutId);
     }
-  }, [open, initialCategory]);
+  }, [availableCategories, focusCategoryButton, initialCategory, open]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { height: "80vh", bgcolor: "background.default" } }}>
@@ -188,33 +196,61 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
             {isAdmin && (
               <ListItem disablePadding>
                 <ListItemButton
-                  ref={connectionsRef}
-                  onClick={() => setSelectedCategory("connections")}
+                  ref={smbConnectionsRef}
+                  onClick={() => setSelectedCategory("smb-connections")}
                   onKeyDown={handleCategoryKeyDown}
-                  selected={selectedCategory === "connections"}
-                  tabIndex={selectedCategory === "connections" ? 0 : -1}
+                  selected={selectedCategory === "smb-connections"}
+                  tabIndex={selectedCategory === "smb-connections" ? 0 : -1}
                   role="option"
-                  aria-selected={selectedCategory === "connections"}
+                  aria-selected={selectedCategory === "smb-connections"}
                   sx={{ py: 1.5, px: 2 }}
                 >
                   <ListItemIcon
                     sx={{
                       minWidth: 40,
-                      color: selectedCategory === "connections" ? "primary.main" : "text.secondary",
+                      color: selectedCategory === "smb-connections" ? "primary.main" : "text.secondary",
                     }}
                   >
                     <StorageIcon sx={{ fontSize: 28 }} />
                   </ListItemIcon>
                   <ListItemText
-                    primary="Connections"
+                    primary={getSettingsCategoryLabel("smb-connections")}
                     primaryTypographyProps={{
                       variant: "h6",
-                      fontWeight: selectedCategory === "connections" ? "medium" : "normal",
+                      fontWeight: selectedCategory === "smb-connections" ? "medium" : "normal",
                     }}
                   />
                 </ListItemButton>
               </ListItem>
             )}
+            <ListItem disablePadding>
+              <ListItemButton
+                ref={localDrivesRef}
+                onClick={() => setSelectedCategory("local-drives")}
+                onKeyDown={handleCategoryKeyDown}
+                selected={selectedCategory === "local-drives"}
+                tabIndex={selectedCategory === "local-drives" ? 0 : -1}
+                role="option"
+                aria-selected={selectedCategory === "local-drives"}
+                sx={{ py: 1.5, px: 2 }}
+              >
+                <ListItemIcon
+                  sx={{
+                    minWidth: 40,
+                    color: selectedCategory === "local-drives" ? "primary.main" : "text.secondary",
+                  }}
+                >
+                  <ComputerIcon sx={{ fontSize: 28 }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={getSettingsCategoryLabel("local-drives")}
+                  primaryTypographyProps={{
+                    variant: "h6",
+                    fontWeight: selectedCategory === "local-drives" ? "medium" : "normal",
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
           </List>
 
           {/* Version Information */}
@@ -247,9 +283,10 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
           }}
         >
           {selectedCategory === "appearance" && <AppearanceSettings />}
-          {selectedCategory === "connections" && isAdmin && (
+          {selectedCategory === "smb-connections" && isAdmin && (
             <ConnectionSettings onConnectionsChanged={onConnectionsChanged} forceDesktopLayout />
           )}
+          {selectedCategory === "local-drives" && <LocalDrivesSettings onConnectionsChanged={onConnectionsChanged} />}
         </Box>
       </Box>
     </Dialog>

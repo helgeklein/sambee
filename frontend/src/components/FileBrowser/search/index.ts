@@ -1,2 +1,3 @@
+export { normalizeQuerySeparators } from "./normalizeQuerySeparators";
 export type { SearchProvider, SearchResult, SearchStatusInfo } from "./types";
-export { normalizeQuerySeparators, useDirectorySearchProvider } from "./useDirectorySearchProvider";
+export { useDirectorySearchProvider } from "./useDirectorySearchProvider";

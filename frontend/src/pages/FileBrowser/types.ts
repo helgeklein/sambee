@@ -183,6 +183,7 @@ export interface UseFileBrowserPaneReturn {
   handleClose: () => void;
   handleFocusSearch: () => void;
   handleRefresh: () => void;
+  forceReloadCurrentDirectory: () => void;
 
   // ── Viewer Handlers ────────────────────────────────────────────────────
   handleViewIndexChange: (index: number) => void;

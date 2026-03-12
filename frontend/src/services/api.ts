@@ -1,9 +1,14 @@
-import axios, { type AxiosError, type AxiosInstance } from "axios";
+import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
 import type { AuthToken, Connection, ConnectionCreate, DirectoryListing, DirectorySearchResult, FileInfo, User } from "../types";
+import { FileType } from "../types";
+import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
+import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
 
 class ApiService {
   private api: AxiosInstance;
+  /** Separate axios instance for companion requests (no Bearer interceptor). */
+  private companionApi: AxiosInstance;
   private skipRedirectOnce = false;
 
   constructor() {
@@ -102,6 +107,84 @@ class ApiService {
         return Promise.reject(error);
       }
     );
+
+    // Companion axios instance — no Bearer token interceptor.
+    // Auth headers are added per-request via buildCompanionHeaders().
+    this.companionApi = axios.create({
+      baseURL: COMPANION_BASE_URL,
+      timeout: 10_000,
+    });
+  }
+
+  // ── Routing helpers ─────────────────────────────────────────────────────
+
+  /**
+   * Build HMAC auth headers for companion requests.
+   *
+   * Uses Web Crypto API for HMAC-SHA256(secret, timestamp).
+   */
+  private async buildCompanionHeaders(): Promise<Record<string, string>> {
+    const secret = localStorage.getItem("companion_secret");
+    if (!secret) {
+      throw new Error("Not paired with companion");
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const msgData = encoder.encode(timestamp);
+
+    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
+    const hmac = Array.from(new Uint8Array(signature))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    return {
+      "X-Companion-Secret": hmac,
+      "X-Companion-Timestamp": timestamp,
+    };
+  }
+
+  /**
+   * Build HMAC auth as URL query parameters for companion viewer URLs.
+   *
+   * Used for `<img src>` / `<iframe>` contexts where headers can't be set.
+   * Returns a query string fragment: `hmac=...&ts=...&origin=...`
+   */
+  private async buildCompanionQueryAuth(): Promise<string> {
+    const secret = localStorage.getItem("companion_secret");
+    if (!secret) {
+      throw new Error("Not paired with companion");
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const msgData = encoder.encode(timestamp);
+
+    const cryptoKey = await crypto.subtle.importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const signature = await crypto.subtle.sign("HMAC", cryptoKey, msgData);
+    const hmac = Array.from(new Uint8Array(signature))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    const origin = encodeURIComponent(window.location.origin);
+    return `hmac=${hmac}&ts=${timestamp}&origin=${origin}`;
+  }
+
+  /**
+   * Get the correct axios instance and extra config for a connection.
+   *
+   * For local drives: returns the companion instance + HMAC headers.
+   * For server connections: returns the main instance (Bearer via interceptor).
+   */
+  private async getClientConfig(connectionId: string): Promise<{ client: AxiosInstance; extraConfig: AxiosRequestConfig }> {
+    if (isLocalDrive(connectionId)) {
+      const headers = await this.buildCompanionHeaders();
+      return { client: this.companionApi, extraConfig: { headers } };
+    }
+    return { client: this.api, extraConfig: {} };
   }
 
   // Auth endpoints
@@ -177,14 +260,20 @@ class ApiService {
 
   // Browse endpoints
   async listDirectory(connectionId: string, path: string = ""): Promise<DirectoryListing> {
-    const response = await this.api.get<DirectoryListing>(`/browse/${connectionId}/list`, {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<DirectoryListing>(`/browse/${segment}/list`, {
+      ...extraConfig,
       params: { path },
     });
     return response.data;
   }
 
   async getFileInfo(connectionId: string, path: string): Promise<FileInfo> {
-    const response = await this.api.get<FileInfo>(`/browse/${connectionId}/info`, {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<FileInfo>(`/browse/${segment}/info`, {
+      ...extraConfig,
       params: { path },
     });
     return response.data;
@@ -195,7 +284,10 @@ class ApiService {
    * Returns matching directory paths from the server-side cache.
    */
   async searchDirectories(connectionId: string, query: string, signal?: AbortSignal): Promise<DirectorySearchResult> {
-    const response = await this.api.get<DirectorySearchResult>(`/browse/${connectionId}/directories`, {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<DirectorySearchResult>(`/browse/${segment}/directories`, {
+      ...extraConfig,
       params: { q: query },
       signal,
     });
@@ -203,38 +295,53 @@ class ApiService {
   }
 
   /**
-   * Delete a file or empty directory on the remote share.
+   * Delete a file or directory.
    */
   async deleteItem(connectionId: string, path: string): Promise<void> {
-    await this.api.delete(`/browse/${connectionId}/item`, {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.delete(`/browse/${segment}/item`, {
+      ...extraConfig,
       params: { path },
     });
   }
 
   /**
-   * Rename a file or directory on the remote share.
+   * Rename a file or directory.
    *
    * Returns the updated FileInfo for the renamed item.
    */
   async renameItem(connectionId: string, path: string, newName: string): Promise<FileInfo> {
-    const response = await this.api.post<FileInfo>(`/browse/${connectionId}/rename`, {
-      path,
-      new_name: newName,
-    });
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<FileInfo>(
+      `/browse/${segment}/rename`,
+      {
+        path,
+        new_name: newName,
+      },
+      extraConfig
+    );
     return response.data;
   }
 
   /**
-   * Create a new file or directory on the remote share.
+   * Create a new file or directory.
    *
    * Returns the FileInfo for the newly created item.
    */
   async createItem(connectionId: string, parentPath: string, name: string, type: "file" | "directory"): Promise<FileInfo> {
-    const response = await this.api.post<FileInfo>(`/browse/${connectionId}/create`, {
-      parent_path: parentPath,
-      name,
-      type,
-    });
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<FileInfo>(
+      `/browse/${segment}/create`,
+      {
+        parent_path: parentPath,
+        name,
+        type,
+      },
+      extraConfig
+    );
     return response.data;
   }
 
@@ -242,21 +349,28 @@ class ApiService {
    * Copy a file or directory to a new location.
    *
    * When ``destConnectionId`` is provided and differs from ``connectionId``,
-   * a cross-connection copy is performed (data streams through the server).
-   *
-   * @param connectionId - Source connection UUID.
-   * @param sourcePath   - Relative path of the item to copy.
-   * @param destPath     - Full destination path (including final name).
-   * @param destConnectionId - Optional destination connection for cross-connection copy.
-   * @param overwrite    - When true, replace the destination if it exists.
+   * a cross-connection copy is performed. For same-backend transfers (both
+   * SMB or both local), the backend handles it natively. For cross-backend
+   * transfers (SMB ↔ local), the browser mediates: download from source,
+   * upload to destination.
    */
   async copyItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
-    await this.api.post(`/browse/${connectionId}/copy`, {
-      source_path: sourcePath,
-      dest_path: destPath,
-      dest_connection_id: destConnectionId,
-      overwrite,
-    });
+    if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
+      await this.crossBackendCopy(connectionId, sourcePath, destConnectionId, destPath, overwrite);
+      return;
+    }
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.post(
+      `/browse/${segment}/copy`,
+      {
+        source_path: sourcePath,
+        dest_path: destPath,
+        dest_connection_id: destConnectionId,
+        overwrite,
+      },
+      extraConfig
+    );
   }
 
   /**
@@ -264,45 +378,221 @@ class ApiService {
    *
    * When ``destConnectionId`` is provided and differs from ``connectionId``,
    * a cross-connection move is performed (copy + delete source).
-   *
-   * @param connectionId - Source connection UUID.
-   * @param sourcePath   - Relative path of the item to move.
-   * @param destPath     - Full destination path (including final name).
-   * @param destConnectionId - Optional destination connection for cross-connection move.
-   * @param overwrite    - When true, replace the destination if it exists.
+   * For cross-backend transfers (SMB ↔ local), the browser mediates.
    */
   async moveItem(connectionId: string, sourcePath: string, destPath: string, destConnectionId?: string, overwrite = false): Promise<void> {
-    await this.api.post(`/browse/${connectionId}/move`, {
-      source_path: sourcePath,
-      dest_path: destPath,
-      dest_connection_id: destConnectionId,
-      overwrite,
+    if (destConnectionId && this.isCrossBackendTransfer(connectionId, destConnectionId)) {
+      await this.crossBackendCopy(connectionId, sourcePath, destConnectionId, destPath, overwrite);
+      await this.deleteItem(connectionId, sourcePath);
+      return;
+    }
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.post(
+      `/browse/${segment}/move`,
+      {
+        source_path: sourcePath,
+        dest_path: destPath,
+        dest_connection_id: destConnectionId,
+        overwrite,
+      },
+      extraConfig
+    );
+  }
+
+  // ── Cross-backend transfer helpers ──────────────────────────────────────
+
+  /**
+   * Check whether source and destination are on different backend types
+   * (one local, one SMB). Same-type transfers are handled natively by
+   * each backend.
+   */
+  private isCrossBackendTransfer(sourceConnectionId: string, destConnectionId: string): boolean {
+    return isLocalDrive(sourceConnectionId) !== isLocalDrive(destConnectionId);
+  }
+
+  /**
+   * Download a file's raw bytes from any backend (companion or server).
+   * Returns the data as a `Blob`.
+   */
+  private async downloadFileBlob(connectionId: string, path: string): Promise<Blob> {
+    const baseUrl = getBaseUrl(connectionId);
+    const segment = getBrowseSegment(connectionId);
+    const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
+
+    const headers: Record<string, string> = {};
+    if (isLocalDrive(connectionId)) {
+      Object.assign(headers, await this.buildCompanionHeaders());
+    } else {
+      const token = localStorage.getItem("access_token");
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      throw new Error(`Download failed (${response.status}): ${response.statusText}`);
+    }
+
+    return response.blob();
+  }
+
+  /**
+   * Upload a `Blob` to a destination path on any backend.
+   *
+   * Uses multipart form data with a single `file` field, matching both
+   * the Python backend and the companion upload endpoints.
+   */
+  private async uploadFileBlob(connectionId: string, destPath: string, blob: Blob, filename: string): Promise<void> {
+    const baseUrl = getBaseUrl(connectionId);
+    const segment = getBrowseSegment(connectionId);
+    const url = `${baseUrl}/browse/${segment}/upload?path=${encodeURIComponent(destPath)}`;
+
+    const formData = new FormData();
+    formData.append("file", blob, filename);
+
+    const headers: Record<string, string> = {};
+    if (isLocalDrive(connectionId)) {
+      Object.assign(headers, await this.buildCompanionHeaders());
+    } else {
+      const token = localStorage.getItem("access_token");
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
     });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => response.statusText);
+      throw new Error(`Upload failed (${response.status}): ${text}`);
+    }
+  }
+
+  /**
+   * Browser-mediated cross-backend copy.
+   *
+   * Downloads each file from the source backend and uploads it to the
+   * destination backend. For directories, recursively lists the source
+   * and processes all contained files.
+   */
+  private async crossBackendCopy(
+    sourceConnectionId: string,
+    sourcePath: string,
+    destConnectionId: string,
+    destPath: string,
+    overwrite: boolean
+  ): Promise<void> {
+    // Determine whether the source is a file or directory
+    const info = await this.getFileInfo(sourceConnectionId, sourcePath);
+
+    if (info.type === FileType.FILE) {
+      // Check for existing file on the destination before uploading
+      if (!overwrite) {
+        try {
+          await this.getFileInfo(destConnectionId, destPath);
+          // If we get here, the dest exists — throw a 409-like error
+          throw Object.assign(new Error("Destination already exists"), {
+            response: { status: 409, data: { detail: `Destination already exists: ${destPath}` } },
+            isAxiosError: true,
+          });
+        } catch (e: unknown) {
+          // 404 = dest doesn't exist, which is what we want
+          const err = e as { response?: { status?: number } };
+          if (err.response?.status !== 404) throw e;
+        }
+      }
+
+      const blob = await this.downloadFileBlob(sourceConnectionId, sourcePath);
+      const filename = sourcePath.split("/").pop() ?? sourcePath;
+      await this.uploadFileBlob(destConnectionId, destPath, blob, filename);
+    } else {
+      // Directory — recursively process contents
+      await this.crossBackendCopyDirectory(sourceConnectionId, sourcePath, destConnectionId, destPath, overwrite);
+    }
+  }
+
+  /**
+   * Recursively copy a directory across backends.
+   *
+   * Creates the target directory, then lists the source and processes
+   * each child (files are downloaded/uploaded, subdirectories recurse).
+   */
+  private async crossBackendCopyDirectory(
+    sourceConnectionId: string,
+    sourceDirPath: string,
+    destConnectionId: string,
+    destDirPath: string,
+    overwrite: boolean
+  ): Promise<void> {
+    // Create the destination directory
+    const destDirName = destDirPath.split("/").pop() ?? destDirPath;
+    const destParent = destDirPath.includes("/") ? destDirPath.substring(0, destDirPath.lastIndexOf("/")) : "";
+    await this.createItem(destConnectionId, destParent, destDirName, "directory");
+
+    // List the source directory
+    const listing = await this.listDirectory(sourceConnectionId, sourceDirPath);
+
+    for (const item of listing.items) {
+      const childSourcePath = item.path;
+      const childDestPath = destDirPath ? `${destDirPath}/${item.name}` : item.name;
+
+      if (item.type === FileType.DIRECTORY) {
+        await this.crossBackendCopyDirectory(sourceConnectionId, childSourcePath, destConnectionId, childDestPath, overwrite);
+      } else {
+        const blob = await this.downloadFileBlob(sourceConnectionId, childSourcePath);
+        await this.uploadFileBlob(destConnectionId, childDestPath, blob, item.name);
+      }
+    }
   }
 
   // Viewer endpoints
-  getViewUrl(connectionId: string, path: string): string {
+
+  /**
+   * Build a direct URL for viewing a file.
+   *
+   * For companion connections, embeds HMAC auth in query params since
+   * these URLs may be used in `<img src>` / `<iframe>` where headers can't be set.
+   * Async because companion HMAC computation uses the Web Crypto API.
+   */
+  async getViewUrl(connectionId: string, path: string): Promise<string> {
+    const baseUrl = getBaseUrl(connectionId);
+    const segment = getBrowseSegment(connectionId);
+    if (isLocalDrive(connectionId)) {
+      const authParams = await this.buildCompanionQueryAuth();
+      return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}&${authParams}`;
+    }
     const token = localStorage.getItem("access_token");
-    const baseUrl = import.meta.env.VITE_API_URL || "/api";
-    return `${baseUrl}/viewer/${connectionId}/file?path=${encodeURIComponent(path)}&token=${token}`;
+    return `${baseUrl}/viewer/${segment}/file?path=${encodeURIComponent(path)}&token=${token}`;
   }
 
-  getDownloadUrl(connectionId: string, path: string): string {
+  async getDownloadUrl(connectionId: string, path: string): Promise<string> {
+    const baseUrl = getBaseUrl(connectionId);
+    const segment = getBrowseSegment(connectionId);
+    if (isLocalDrive(connectionId)) {
+      const authParams = await this.buildCompanionQueryAuth();
+      return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}&${authParams}`;
+    }
     const token = localStorage.getItem("access_token");
-    const baseUrl = import.meta.env.VITE_API_URL || "/api";
-    return `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(path)}&token=${token}`;
+    return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}&token=${token}`;
   }
 
   async downloadFile(connectionId: string, path: string, filename: string): Promise<void> {
-    const token = localStorage.getItem("access_token");
-    const baseUrl = import.meta.env.VITE_API_URL || "/api";
-    const url = `${baseUrl}/viewer/${connectionId}/download?path=${encodeURIComponent(path)}`;
+    const baseUrl = getBaseUrl(connectionId);
+    const segment = getBrowseSegment(connectionId);
+    const url = `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}`;
 
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    const headers: Record<string, string> = {};
+    if (isLocalDrive(connectionId)) {
+      const companionHeaders = await this.buildCompanionHeaders();
+      Object.assign(headers, companionHeaders);
+    } else {
+      const token = localStorage.getItem("access_token");
+      if (token) headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, { headers });
 
     if (!response.ok) {
       throw new Error(`Download failed: ${response.statusText}`);
@@ -318,12 +608,11 @@ class ApiService {
   }
 
   async getFileContent(connectionId: string, path: string): Promise<string> {
-    const token = localStorage.getItem("access_token");
-    const response = await this.api.get(`/viewer/${connectionId}/file`, {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get(`/viewer/${segment}/file`, {
+      ...extraConfig,
       params: { path },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       responseType: "text",
     });
     return response.data;
@@ -353,7 +642,18 @@ class ApiService {
         params["no_resizing"] = 1;
       }
 
-      const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
+      const segment = getBrowseSegment(connectionId);
+      const { client, extraConfig } = await this.getClientConfig(connectionId);
+
+      // Companion serves raw files without resizing (no pyvips)
+      if (isLocalDrive(connectionId)) {
+        delete params["viewport_width"];
+        delete params["viewport_height"];
+        delete params["no_resizing"];
+      }
+
+      const response = await client.get<ArrayBuffer>(`/viewer/${segment}/file`, {
+        ...extraConfig,
         params,
         responseType: "arraybuffer",
         signal: options.signal,
@@ -417,7 +717,10 @@ class ApiService {
    */
   async getPdfBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
     try {
-      const response = await this.api.get<ArrayBuffer>(`/viewer/${connectionId}/file`, {
+      const segment = getBrowseSegment(connectionId);
+      const { client, extraConfig } = await this.getClientConfig(connectionId);
+      const response = await client.get<ArrayBuffer>(`/viewer/${segment}/file`, {
+        ...extraConfig,
         params: { path },
         responseType: "arraybuffer",
         signal: options.signal,
@@ -538,6 +841,18 @@ class ApiService {
     }
 
     return uri;
+  }
+
+  /**
+   * Open a local-drive file directly with the system default application.
+   *
+   * This is a companion-only operation (Phase 3a "direct local open"):
+   * no download, no edit lock, no upload — the file is already on disk.
+   */
+  async openLocalFile(connectionId: string, path: string): Promise<void> {
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.post(`/browse/${segment}/open`, { path }, extraConfig);
   }
 
   /**

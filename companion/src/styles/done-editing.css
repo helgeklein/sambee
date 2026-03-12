@@ -19,6 +19,7 @@
   background: var(--bg-color, #f6f1e8);
   height: 100vh;
   box-sizing: border-box;
+  overflow-y: auto;
   user-select: none;
   -webkit-user-select: none;
 }

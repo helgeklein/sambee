@@ -4,6 +4,17 @@
 
 import type React from "react";
 
+const DIALOG_BUTTON_ACTIVATION_KEYS = new Set(["Enter", " ", "Space", "Spacebar"]);
+
+function getDialogButtonTarget(target: EventTarget | null): HTMLButtonElement | null {
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+
+  const button = target.closest("button");
+  return button instanceof HTMLButtonElement ? button : null;
+}
+
 /**
  * Selector matching interactive elements (buttons, inputs, etc.) that
  * receive visible focus rings when tabbed to in a viewer toolbar.
@@ -63,13 +74,13 @@ export function blurActiveToolbarControl(contentRef?: React.RefObject<HTMLElemen
 }
 
 /**
- * Handle Enter key inside an MUI Dialog.
+ * Handle button activation keys inside an MUI Dialog.
  *
- * MUI's modal focus-trap prevents native Enter-to-click on `<button>`
- * elements.  This handler activates the focused button programmatically
- * via `click()`.  When no button is focused (e.g. a text field or
- * checkbox has focus), the optional *fallback* callback is invoked
- * instead.
+ * MUI's modal focus-trap can prevent native keyboard activation on
+ * `<button>` elements inside dialogs. This handler activates the focused
+ * button programmatically for Enter and Space. When no button is focused
+ * (e.g. a text field or checkbox has focus), the optional *fallback*
+ * callback is invoked for Enter only.
  *
  * Usage – pass this as the Dialog's `onKeyDown`:
  *
@@ -83,15 +94,18 @@ export function blurActiveToolbarControl(contentRef?: React.RefObject<HTMLElemen
  */
 export function dialogEnterKeyHandler(fallback?: () => void): (e: React.KeyboardEvent) => void {
   return (e: React.KeyboardEvent) => {
-    if (e.key !== "Enter") return;
-
-    if (e.target instanceof HTMLButtonElement) {
-      e.preventDefault();
-      e.target.click();
+    if (!DIALOG_BUTTON_ACTIVATION_KEYS.has(e.key)) {
       return;
     }
 
-    if (fallback) {
+    const button = getDialogButtonTarget(e.target);
+    if (button) {
+      e.preventDefault();
+      button.click();
+      return;
+    }
+
+    if (e.key === "Enter" && fallback) {
       e.preventDefault();
       fallback();
     }

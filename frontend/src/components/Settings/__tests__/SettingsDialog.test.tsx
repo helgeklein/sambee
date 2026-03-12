@@ -20,6 +20,10 @@ vi.mock("../../../pages/ConnectionSettings", () => ({
   ConnectionSettings: () => <div>Connection Settings Content</div>,
 }));
 
+vi.mock("../../../pages/LocalDrivesSettings", () => ({
+  LocalDrivesSettings: () => <div>Local Drives Settings Content</div>,
+}));
+
 import api from "../../../services/api";
 
 describe("SettingsDialog Component", () => {
@@ -72,7 +76,7 @@ describe("SettingsDialog Component", () => {
     expect(mockOnClose).toHaveBeenCalled();
   });
 
-  it("shows Connections tab for admin users", async () => {
+  it("shows SMB Connections and Local Drives tabs for admin users", async () => {
     vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "admin", is_admin: true });
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
@@ -82,16 +86,18 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Should show both Appearance and Connections in sidebar
+    // Should show all categories in sidebar
     expect(screen.getByText("Settings")).toBeInTheDocument();
     const appearanceOption = screen.getByRole("option", { name: /appearance/i });
-    const connectionsOption = screen.getByRole("option", { name: /connections/i });
+    const smbConnectionsOption = screen.getByRole("option", { name: /smb connections/i });
+    const localDrivesOption = screen.getByRole("option", { name: /local drives/i });
 
     expect(appearanceOption).toBeInTheDocument();
-    expect(connectionsOption).toBeInTheDocument();
+    expect(smbConnectionsOption).toBeInTheDocument();
+    expect(localDrivesOption).toBeInTheDocument();
   });
 
-  it("hides Connections tab for non-admin users", async () => {
+  it("hides SMB Connections tab but keeps Local Drives for non-admin users", async () => {
     vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "user", is_admin: false });
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
@@ -104,11 +110,12 @@ describe("SettingsDialog Component", () => {
     // Should show only Appearance
     expect(screen.getByText("Appearance")).toBeInTheDocument();
 
-    // Connections should not be in the sidebar
-    expect(screen.queryByRole("option", { name: /connections/i })).not.toBeInTheDocument();
+    // SMB Connections should not be in the sidebar, but Local drives should remain accessible
+    expect(screen.queryByRole("option", { name: /smb connections/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
   });
 
-  it("switches to connections tab when admin clicks it", async () => {
+  it("switches to SMB Connections tab when admin clicks it", async () => {
     vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "admin", is_admin: true });
 
     const user = userEvent.setup();
@@ -122,11 +129,25 @@ describe("SettingsDialog Component", () => {
     // Should start with Appearance
     expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
 
-    // Click Connections option
-    const connectionsOption = screen.getByRole("option", { name: /connections/i });
-    await user.click(connectionsOption);
+    // Click SMB Connections option
+    const smbConnectionsOption = screen.getByRole("option", { name: /smb connections/i });
+    await user.click(smbConnectionsOption);
 
     // Should now show Connection Settings
     expect(screen.getByText("Connection Settings Content")).toBeInTheDocument();
+  });
+
+  it("switches to Local Drives tab for non-admin users", async () => {
+    const user = userEvent.setup();
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    const localDrivesOption = screen.getByRole("option", { name: /local drives/i });
+    await user.click(localDrivesOption);
+
+    expect(screen.getByText("Local Drives Settings Content")).toBeInTheDocument();
   });
 });

@@ -1,15 +1,18 @@
 /**
  * Preferences panel for the Sambee Companion app.
  *
- * Displays user-configurable settings such as trusted servers, notification
- * preferences, upload conflict resolution, and temp file retention. Settings
- * are auto-saved when changed.
+ * Displays user-configurable settings such as paired browser management,
+ * notification preferences, upload conflict resolution, and temp file
+ * retention. Settings are auto-saved when changed.
  */
 
+import { invoke } from "@tauri-apps/api/core";
+import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { log } from "../lib/logger";
 import type { UploadConflictAction, UserPreferences } from "../stores/userPreferences";
 import { getUserPreferences, saveUserPreferences } from "../stores/userPreferences";
+import { ModalDialog } from "./ModalDialog";
 import "../styles/preferences.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +27,9 @@ const MAX_RETENTION_DAYS = 90;
 
 /** Duration (ms) to show the "Saved" indicator after a change. */
 const SAVED_INDICATOR_MS = 1500;
+
+/** Recommendation copy for the autostart setting. */
+const AUTOSTART_HINT = "Recommended for Local Drives. Browser access to local drives only works while the companion is running.";
 
 /** Human-readable labels for upload conflict actions. */
 const CONFLICT_ACTION_LABELS: Record<UploadConflictAction, string> = {
@@ -56,18 +62,41 @@ interface PreferencesProps {
  */
 export function Preferences({ onClose }: PreferencesProps) {
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
+  const [pairedOrigins, setPairedOrigins] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSaved, setShowSaved] = useState(false);
-  const [newServerUrl, setNewServerUrl] = useState("");
+  const [changingAutostart, setChangingAutostart] = useState(false);
+  const [pendingUnpairOrigin, setPendingUnpairOrigin] = useState<string | null>(null);
+  const [unpairingOrigin, setUnpairingOrigin] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelUnpairButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // ── Load preferences on mount ───────────────────────────────────────
 
   useEffect(() => {
-    getUserPreferences()
-      .then((p) => {
-        setPrefs(p);
+    Promise.all([getUserPreferences(), invoke<string[]>("get_paired_origins")])
+      .then(async ([storedPrefs, origins]) => {
+        let autoStartOnLogin = storedPrefs.autoStartOnLogin;
+
+        try {
+          autoStartOnLogin = await isAutostartEnabled();
+        } catch (err) {
+          log.error("Failed to read autostart state:", err);
+        }
+
+        const resolvedPrefs = storedPrefs.autoStartOnLogin === autoStartOnLogin ? storedPrefs : { ...storedPrefs, autoStartOnLogin };
+
+        setPrefs(resolvedPrefs);
+        setPairedOrigins(origins);
         setLoading(false);
+
+        if (resolvedPrefs !== storedPrefs) {
+          try {
+            await saveUserPreferences(resolvedPrefs);
+          } catch (err) {
+            log.error("Failed to reconcile autostart preference:", err);
+          }
+        }
       })
       .catch((err) => {
         log.error("Failed to load preferences:", err);
@@ -78,6 +107,14 @@ export function Preferences({ onClose }: PreferencesProps) {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!pendingUnpairOrigin) {
+      return;
+    }
+
+    cancelUnpairButtonRef.current?.focus();
+  }, [pendingUnpairOrigin]);
 
   // ── Auto-save helper ────────────────────────────────────────────────
 
@@ -109,6 +146,36 @@ export function Preferences({ onClose }: PreferencesProps) {
     persistPrefs({ ...prefs, showNotifications: !prefs.showNotifications });
   }, [prefs, persistPrefs]);
 
+  const handleAutostartChange = useCallback(async () => {
+    if (!prefs || changingAutostart) {
+      return;
+    }
+
+    const previousPrefs = prefs;
+    const updatedPrefs = {
+      ...prefs,
+      autoStartOnLogin: !prefs.autoStartOnLogin,
+    };
+
+    setChangingAutostart(true);
+    setPrefs(updatedPrefs);
+
+    try {
+      if (updatedPrefs.autoStartOnLogin) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+
+      await persistPrefs(updatedPrefs);
+    } catch (err) {
+      setPrefs(previousPrefs);
+      log.error("Failed to update autostart preference:", err);
+    } finally {
+      setChangingAutostart(false);
+    }
+  }, [changingAutostart, persistPrefs, prefs]);
+
   //
   // handleConflictActionChange
   //
@@ -136,53 +203,31 @@ export function Preferences({ onClose }: PreferencesProps) {
   );
 
   //
-  // handleAddServer
-  //
-  const handleAddServer = useCallback(() => {
-    if (!prefs) return;
-    const url = newServerUrl.trim().replace(/\/+$/, "");
-    if (!url) return;
-
-    // Prevent duplicate entries
-    if (prefs.allowedServers.includes(url)) {
-      setNewServerUrl("");
+  const handleConfirmUnpair = useCallback(async () => {
+    if (!pendingUnpairOrigin) {
       return;
     }
 
-    persistPrefs({
-      ...prefs,
-      allowedServers: [...prefs.allowedServers, url],
-    });
-    setNewServerUrl("");
-  }, [prefs, newServerUrl, persistPrefs]);
+    const origin = pendingUnpairOrigin;
+    setUnpairingOrigin(origin);
+    try {
+      await invoke("unpair_origin", { origin });
+      setPairedOrigins((current) => current.filter((entry) => entry !== origin));
+    } catch (err) {
+      log.error("Failed to unpair origin:", err);
+    } finally {
+      setPendingUnpairOrigin(null);
+      setUnpairingOrigin(null);
+    }
+  }, [pendingUnpairOrigin]);
 
-  //
-  // handleRemoveServer
-  //
-  const handleRemoveServer = useCallback(
-    (url: string) => {
-      if (!prefs) return;
-      persistPrefs({
-        ...prefs,
-        allowedServers: prefs.allowedServers.filter((s) => s !== url),
-      });
-    },
-    [prefs, persistPrefs]
-  );
+  const handleCancelUnpair = useCallback(() => {
+    if (unpairingOrigin) {
+      return;
+    }
 
-  //
-  // handleServerInputKeyDown
-  //
-  /** Allow pressing Enter to add a server. */
-  const handleServerInputKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        handleAddServer();
-      }
-    },
-    [handleAddServer]
-  );
+    setPendingUnpairOrigin(null);
+  }, [unpairingOrigin]);
 
   // ── Render ──────────────────────────────────────────────────────────
 
@@ -204,45 +249,33 @@ export function Preferences({ onClose }: PreferencesProps) {
         </button>
       </div>
 
-      {/* ── Trusted Servers ── */}
+      {/* ── Paired Browsers ── */}
       <div class="preferences__section">
-        <span class="preferences__section-title">Trusted Servers</span>
+        <span class="preferences__section-title">Paired Browsers</span>
         <div class="preferences__field">
-          <span class="preferences__hint">Only servers in this list will be allowed to initiate edit sessions.</span>
-          {prefs.allowedServers.length > 0 ? (
+          <span class="preferences__hint">
+            These browser origins can access local drives through this companion. Removing one forces it to pair again.
+          </span>
+          {pairedOrigins.length > 0 ? (
             <div class="preferences__server-list">
-              {prefs.allowedServers.map((url) => (
-                <div key={url} class="preferences__server-item">
-                  <span class="preferences__server-url">{url}</span>
+              {pairedOrigins.map((origin) => (
+                <div key={origin} class="preferences__server-item">
+                  <span class="preferences__server-url">{origin}</span>
                   <button
                     type="button"
                     class="preferences__server-remove-btn"
-                    onClick={() => handleRemoveServer(url)}
-                    title="Remove server"
+                    onClick={() => setPendingUnpairOrigin(origin)}
+                    title="Unpair browser"
+                    disabled={unpairingOrigin === origin}
                   >
-                    ✕
+                    {unpairingOrigin === origin ? "…" : "Unpair"}
                   </button>
                 </div>
               ))}
             </div>
           ) : (
-            <span class="preferences__server-empty">
-              No trusted servers yet. Servers are added automatically on first use, or add one manually below.
-            </span>
+            <span class="preferences__server-empty">No browsers are currently paired with this companion.</span>
           )}
-          <div class="preferences__server-add">
-            <input
-              type="url"
-              class="preferences__server-input"
-              placeholder="https://sambee.example.com"
-              value={newServerUrl}
-              onInput={(e) => setNewServerUrl((e.target as HTMLInputElement).value)}
-              onKeyDown={handleServerInputKeyDown}
-            />
-            <button type="button" class="preferences__server-add-btn" onClick={handleAddServer} disabled={!newServerUrl.trim()}>
-              Add
-            </button>
-          </div>
         </div>
       </div>
 
@@ -266,6 +299,18 @@ export function Preferences({ onClose }: PreferencesProps) {
           </select>
           <span class="preferences__hint">What to do when the file on the server changed while you were editing.</span>
         </div>
+      </div>
+
+      <hr class="preferences__divider" />
+
+      {/* ── Startup ── */}
+      <div class="preferences__section">
+        <span class="preferences__section-title">Startup</span>
+        <label class="preferences__checkbox-row">
+          <input type="checkbox" checked={prefs.autoStartOnLogin} onChange={handleAutostartChange} disabled={changingAutostart} />
+          <span class="preferences__label">Start Sambee Companion when I sign in</span>
+        </label>
+        <span class="preferences__hint">{AUTOSTART_HINT}</span>
       </div>
 
       <hr class="preferences__divider" />
@@ -304,6 +349,42 @@ export function Preferences({ onClose }: PreferencesProps) {
 
       {/* ── Save indicator ── */}
       <div class="preferences__footer">{showSaved && <span class="preferences__saved-indicator">Saved ✓</span>}</div>
+
+      {pendingUnpairOrigin && (
+        <ModalDialog
+          role="alertdialog"
+          titleId="unpair-dialog-title"
+          onRequestClose={handleCancelUnpair}
+          initialFocusRef={cancelUnpairButtonRef}
+          panelClassName="preferences__confirm-panel"
+        >
+          <h3 id="unpair-dialog-title" class="preferences__confirm-title">
+            Unpair browser?
+          </h3>
+          <p class="preferences__confirm-body">
+            <strong>{pendingUnpairOrigin}</strong> will lose access to local drives until it pairs with this companion again.
+          </p>
+          <div class="preferences__confirm-actions">
+            <button
+              type="button"
+              class="preferences__confirm-btn preferences__confirm-btn--ghost"
+              ref={cancelUnpairButtonRef}
+              onClick={handleCancelUnpair}
+              disabled={Boolean(unpairingOrigin)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="preferences__confirm-btn preferences__confirm-btn--danger"
+              onClick={handleConfirmUnpair}
+              disabled={Boolean(unpairingOrigin)}
+            >
+              {unpairingOrigin ? "Unpairing…" : "Unpair"}
+            </button>
+          </div>
+        </ModalDialog>
+      )}
     </div>
   );
 }

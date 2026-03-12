@@ -256,6 +256,9 @@ class SMBBackend(StorageBackend):
                 )
 
         except Exception as e:
+            error_str = str(e)
+            if "0xc0000034" in error_str or "No such file" in error_str or "File not found" in error_str:
+                raise FileNotFoundError(f"Path not found: {path}") from e
             logger.error(f"Failed to get file info for {path}: {e}")
             raise
 

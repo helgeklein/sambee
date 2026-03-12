@@ -7,6 +7,7 @@
 mod app_registry;
 mod commands;
 mod logging;
+mod server;
 mod sync;
 mod token;
 mod uri;
@@ -20,11 +21,18 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
+use crate::server::pairing::PairingState;
 use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
 use crate::uri::SambeeUri;
 
 /// ID used for the system tray icon, allowing retrieval via `app.tray_by_id()`.
 const TRAY_ICON_ID: &str = "sambee-main";
+
+/// Human-readable name used for the OS autostart entry.
+const AUTOSTART_APP_NAME: &str = "Sambee Companion";
+
+/// CLI flag added when the app is launched automatically at sign-in.
+const AUTOSTART_LAUNCH_ARG: &str = "--from-autostart";
 
 /// Tray menu item ID for the "Preferences…" item.
 const TRAY_MENU_PREFERENCES: &str = "preferences";
@@ -35,17 +43,38 @@ const TRAY_MENU_QUIT: &str = "quit";
 /// Label of the webview window created for the preferences / app-picker UI.
 const MAIN_WINDOW_LABEL: &str = "main";
 
+/// Label of the dedicated pairing approval window.
+const PAIRING_WINDOW_LABEL: &str = "pairing";
+
 /// Width (logical pixels) of the preferences window.
 const PREFERENCES_WIDTH: f64 = 520.0;
 
 /// Height (logical pixels) of the preferences window.
 const PREFERENCES_HEIGHT: f64 = 560.0;
 
+/// Width (logical pixels) of the pairing approval window.
+const PAIRING_WIDTH: f64 = 460.0;
+
+/// Height (logical pixels) of the pairing approval window.
+const PAIRING_HEIGHT: f64 = 500.0;
+
 /// Width (logical pixels) of the app picker window.
 const APP_PICKER_WIDTH: f64 = 420.0;
 
 /// Height (logical pixels) of the app picker window.
 const APP_PICKER_HEIGHT: f64 = 480.0;
+
+/// Delay before emitting UI events to a newly-created main window.
+const MAIN_WINDOW_CREATED_EVENT_DELAY_MS: u64 = 400;
+
+/// Delay before emitting UI events to an already-open main window.
+const MAIN_WINDOW_REUSED_EVENT_DELAY_MS: u64 = 50;
+
+/// Delay before re-asserting focus on the main window.
+const MAIN_WINDOW_FOCUS_RETRY_DELAY_MS: u64 = 150;
+
+/// Time to keep the pairing window temporarily above other windows.
+const PAIRING_ALWAYS_ON_TOP_MS: u64 = 1500;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme state — stores the latest theme received from the web app
@@ -265,7 +294,11 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         ensure_main_window(&app, "Sambee Companion — Choose Application", APP_PICKER_WIDTH, APP_PICKER_HEIGHT).unwrap_or(false);
 
     // Delay event emission if the window was just created
-    let delay_ms = if newly_created { 400 } else { 50 };
+    let delay_ms = if newly_created {
+        MAIN_WINDOW_CREATED_EVENT_DELAY_MS
+    } else {
+        MAIN_WINDOW_REUSED_EVENT_DELAY_MS
+    };
     let app_for_emit = app.clone();
     let req_id_for_emit = request_id.clone();
     let ext_for_emit = file_extension.clone();
@@ -279,7 +312,8 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
             let _ = win.set_focus();
         }
 
-        let _ = app_for_emit.emit(
+        let _ = app_for_emit.emit_to(
+            MAIN_WINDOW_LABEL,
             "show-app-picker",
             serde_json::json!({
                 "extension": ext_for_emit,
@@ -290,7 +324,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         // Also send the current theme to the window
         if let Some(theme_state) = app_for_emit.try_state::<ThemeState>() {
             if let Some(theme) = theme_state.get() {
-                let _ = app_for_emit.emit("apply-theme", &theme);
+                let _ = app_for_emit.emit_to(MAIN_WINDOW_LABEL, "apply-theme", &theme);
             }
         }
     });
@@ -439,7 +473,7 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
 //
 /// Create (or focus) the main webview window and emit "show-preferences"
 /// so the Preact frontend switches to the Preferences view.
-fn show_preferences_window(app: &tauri::AppHandle) {
+pub(crate) fn show_preferences_window(app: &tauri::AppHandle) {
     // Re-use the existing main window if it is already open
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         // Restore normal window chrome (may have been hidden for app picker)
@@ -453,7 +487,7 @@ fn show_preferences_window(app: &tauri::AppHandle) {
         let _ = win.center();
         let _ = win.show();
         let _ = win.set_focus();
-        let _ = app.emit("show-preferences", ());
+        let _ = app.emit_to(MAIN_WINDOW_LABEL, "show-preferences", ());
         return;
     }
 
@@ -472,12 +506,12 @@ fn show_preferences_window(app: &tauri::AppHandle) {
             let app_handle = app.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                let _ = app_handle.emit("show-preferences", ());
+                let _ = app_handle.emit_to(MAIN_WINDOW_LABEL, "show-preferences", ());
 
                 // Also send the current theme
                 if let Some(theme_state) = app_handle.try_state::<ThemeState>() {
                     if let Some(theme) = theme_state.get() {
-                        let _ = app_handle.emit("apply-theme", &theme);
+                        let _ = app_handle.emit_to(MAIN_WINDOW_LABEL, "apply-theme", &theme);
                     }
                 }
             });
@@ -488,6 +522,90 @@ fn show_preferences_window(app: &tauri::AppHandle) {
     }
 }
 
+/// Create (or focus) the dedicated pairing window and emit `show-pairing`
+/// so the pairing UI displays the current approval request.
+pub(crate) fn show_pairing_window(app: &tauri::AppHandle, pairing_id: &str, origin: &str, pairing_code: &str) {
+    let newly_created = if let Some(win) = app.get_webview_window(PAIRING_WINDOW_LABEL) {
+        let _ = win.set_decorations(true);
+        let _ = win.set_always_on_top(true);
+        let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: PAIRING_WIDTH,
+            height: PAIRING_HEIGHT,
+        }));
+        let _ = win.set_title("Sambee Companion — Pairing Request");
+        let _ = win.center();
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+        false
+    } else {
+        match tauri::WebviewWindowBuilder::new(app, PAIRING_WINDOW_LABEL, tauri::WebviewUrl::App("/pairing".into()))
+            .title("Sambee Companion — Pairing Request")
+            .inner_size(PAIRING_WIDTH, PAIRING_HEIGHT)
+            .resizable(false)
+            .maximizable(false)
+            .fullscreen(false)
+            .always_on_top(true)
+            .center()
+            .focused(true)
+            .build()
+        {
+            Ok(_) => true,
+            Err(e) => {
+                error!("Failed to create pairing window: {e}");
+                return;
+            }
+        }
+    };
+
+    let delay_ms = if newly_created {
+        MAIN_WINDOW_CREATED_EVENT_DELAY_MS
+    } else {
+        MAIN_WINDOW_REUSED_EVENT_DELAY_MS
+    };
+
+    let app_handle = app.clone();
+    let pairing_id = pairing_id.to_string();
+    let origin = origin.to_string();
+    let pairing_code = pairing_code.to_string();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
+        if let Some(win) = app_handle.get_webview_window(PAIRING_WINDOW_LABEL) {
+            let _ = win.unminimize();
+            let _ = win.show();
+            let _ = win.set_focus();
+
+            tokio::time::sleep(std::time::Duration::from_millis(MAIN_WINDOW_FOCUS_RETRY_DELAY_MS)).await;
+            let _ = win.set_focus();
+
+            let _ = app_handle.emit_to(
+                PAIRING_WINDOW_LABEL,
+                "show-pairing",
+                serde_json::json!({
+                    "pairing_id": pairing_id,
+                    "origin": origin,
+                    "pairing_code": pairing_code,
+                }),
+            );
+
+            if let Some(theme_state) = app_handle.try_state::<ThemeState>() {
+                if let Some(theme) = theme_state.get() {
+                    let _ = app_handle.emit_to(PAIRING_WINDOW_LABEL, "apply-theme", &theme);
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(PAIRING_ALWAYS_ON_TOP_MS)).await;
+            let _ = win.set_always_on_top(false);
+        }
+    });
+}
+
+/// Notify the dedicated pairing window that the current pairing completed.
+pub(crate) fn show_pairing_success(app: &tauri::AppHandle) {
+    let _ = app.emit_to(PAIRING_WINDOW_LABEL, "pairing-completed", ());
+}
+
 //
 // refresh_tray_menu
 //
@@ -495,7 +613,7 @@ fn show_preferences_window(app: &tauri::AppHandle) {
 ///
 /// Displays one menu item per active file (status + filename), plus
 /// a separator and the "Quit" item at the bottom.
-fn refresh_tray_menu(app: &tauri::AppHandle) {
+pub(crate) fn refresh_tray_menu(app: &tauri::AppHandle) {
     let tray = match app.tray_by_id(&TrayIconId::new(TRAY_ICON_ID)) {
         Some(t) => t,
         None => {
@@ -680,6 +798,12 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name(AUTOSTART_APP_NAME)
+                .args([AUTOSTART_LAUNCH_ARG])
+                .build(),
+        )
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_http::init())
@@ -690,8 +814,10 @@ pub fn run() {
         .manage(ThemeState::default())
         .manage(PendingConfirmations::default())
         .manage(PendingAppSelections::default())
+        .manage(Arc::new(PairingState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::app_picker::get_apps_for_file,
+            commands::open_file::get_done_editing_context,
             commands::open_file::finish_editing,
             commands::open_file::discard_editing,
             commands::open_file::resolve_conflict_overwrite,
@@ -702,6 +828,10 @@ pub fn run() {
             commands::open_file::recovery_discard,
             commands::open_file::recovery_dismiss,
             commands::open_file::has_active_operations,
+            commands::pairing::confirm_pending_pairing,
+            commands::pairing::reject_pending_pairing,
+            commands::pairing::get_paired_origins,
+            commands::pairing::unpair_origin,
             logging::log_from_frontend,
         ])
         .setup(|app| {
@@ -735,6 +865,11 @@ pub fn run() {
                 });
             }
 
+            // Start the local companion HTTP server with shared pairing state
+            let pairing_state = app.state::<Arc<PairingState>>().inner().clone();
+            pairing_state.load_from_keychain();
+            server::start_server(app.handle().clone(), pairing_state);
+
             // Process deep-link if app was cold-started via a URI
             if let Ok(Some(urls)) = app.deep_link().get_current() {
                 handle_deep_links(app.handle(), urls);
@@ -743,13 +878,19 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Intercept close on the main window (preferences / app picker):
-            // hide instead of quitting so the tray app keeps running.
+            // Intercept close on companion UI windows: hide instead of quitting
+            // so the tray app keeps running and windows can be reused.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == MAIN_WINDOW_LABEL {
+                if window.label() == MAIN_WINDOW_LABEL || window.label() == PAIRING_WINDOW_LABEL {
                     api.prevent_close();
                     let _ = window.hide();
-                    info!("Main window close intercepted — hidden to tray");
+                    info!("Companion window '{}' close intercepted — hidden to tray", window.label());
+                } else if commands::open_file::is_done_editing_window_label(window.label()) {
+                    api.prevent_close();
+                    info!(
+                        "Done Editing window '{}' close intercepted — waiting for explicit action",
+                        window.label()
+                    );
                 }
             }
         })

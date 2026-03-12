@@ -135,6 +135,11 @@ async def get_file_info(
         logger.info(f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}")
         return file_info
 
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Path not found: {path}",
+        )
     except Exception as e:
         logger.error(
             f"Failed to get file info: connection_id={connection_id}, path='{path}', "

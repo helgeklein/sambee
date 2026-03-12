@@ -12,7 +12,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
-import "../styles/dialog.css";
+import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -172,60 +172,60 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
   }
 
   return (
-    <div class="dialog-overlay">
-      <div class="dialog-panel">
-        <h2 class="dialog-title dialog-title--warning">Unsaved Files Found</h2>
-        <p class="dialog-subtitle">{pendingLeftovers.length} file(s) from a previous session need attention.</p>
+    <ModalDialog titleId="recovery-dialog-title">
+      <h2 id="recovery-dialog-title" class="dialog-title dialog-title--warning">
+        Unsaved Files Found
+      </h2>
+      <p class="dialog-subtitle">{pendingLeftovers.length} file(s) from a previous session need attention.</p>
 
-        <div class="recovery-list">
-          {pendingLeftovers.map((leftover) => {
-            const state = states[leftover.operation_dir];
-            return (
-              <div class="recovery-item" key={leftover.operation_dir}>
-                <div class="recovery-item-header">
-                  <span class="recovery-item-filename">{leftover.filename}</span>
-                </div>
-                <div class="recovery-item-detail">
-                  {leftover.remote_path} — modified {leftover.local_modified}
-                </div>
-                <div class="recovery-item-actions">
-                  <button
-                    type="button"
-                    class="dialog-btn dialog-btn--primary"
-                    onClick={() => handleUpload(leftover.operation_dir)}
-                    disabled={state?.loading}
-                  >
-                    Upload
-                  </button>
-                  <button
-                    type="button"
-                    class="dialog-btn dialog-btn--danger"
-                    onClick={() => handleDiscard(leftover.operation_dir)}
-                    disabled={state?.loading}
-                  >
-                    Discard
-                  </button>
-                  <button
-                    type="button"
-                    class="dialog-btn dialog-btn--ghost"
-                    onClick={() => handleDismiss(leftover.operation_dir)}
-                    disabled={state?.loading}
-                  >
-                    Later
-                  </button>
-                </div>
-                {state?.error && <p class="dialog-error">{state.error}</p>}
+      <div class="recovery-list">
+        {pendingLeftovers.map((leftover) => {
+          const state = states[leftover.operation_dir];
+          return (
+            <div class="recovery-item" key={leftover.operation_dir}>
+              <div class="recovery-item-header">
+                <span class="recovery-item-filename">{leftover.filename}</span>
               </div>
-            );
-          })}
-        </div>
-
-        <div class="dialog-actions dialog-actions--row">
-          <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleDismissAll}>
-            Dismiss All
-          </button>
-        </div>
+              <div class="recovery-item-detail">
+                {leftover.remote_path} — modified {leftover.local_modified}
+              </div>
+              <div class="recovery-item-actions">
+                <button
+                  type="button"
+                  class="dialog-btn dialog-btn--primary"
+                  onClick={() => handleUpload(leftover.operation_dir)}
+                  disabled={state?.loading}
+                >
+                  Upload
+                </button>
+                <button
+                  type="button"
+                  class="dialog-btn dialog-btn--danger"
+                  onClick={() => handleDiscard(leftover.operation_dir)}
+                  disabled={state?.loading}
+                >
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  class="dialog-btn dialog-btn--ghost"
+                  onClick={() => handleDismiss(leftover.operation_dir)}
+                  disabled={state?.loading}
+                >
+                  Later
+                </button>
+              </div>
+              {state?.error && <p class="dialog-error">{state.error}</p>}
+            </div>
+          );
+        })}
       </div>
-    </div>
+
+      <div class="dialog-actions dialog-actions--row">
+        <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleDismissAll}>
+          Dismiss All
+        </button>
+      </div>
+    </ModalDialog>
   );
 }

@@ -13,6 +13,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import type { ConflictInfo } from "./ConflictDialog";
 import { ConflictDialog } from "./ConflictDialog";
@@ -86,6 +87,16 @@ export function DoneEditingWindow() {
     const unlistenUpload = listen<{ progress: number }>("upload-progress", (event) => {
       setUploadProgress(event.payload.progress);
     });
+
+    void invoke<EditContext>("get_done_editing_context", {
+      windowLabel: getCurrentWindow().label,
+    })
+      .then((payload) => {
+        setContext(payload);
+      })
+      .catch(() => {
+        // The initial edit-context event still handles the normal path.
+      });
 
     return () => {
       unlistenContext.then((fn) => fn());

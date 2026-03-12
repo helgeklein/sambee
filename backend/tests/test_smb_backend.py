@@ -723,7 +723,23 @@ class TestFileInfoRetrieval:
             password="pass",
         )
 
-        with pytest.raises(FileNotFoundError, match="File not found"):
+        with pytest.raises(FileNotFoundError, match="Path not found: nonexistent.txt"):
+            await backend.get_file_info("nonexistent.txt")
+
+    @pytest.mark.asyncio
+    @patch("app.storage.smb.smbclient.stat")
+    async def test_get_file_info_maps_smb_missing_path_to_file_not_found(self, mock_stat):
+        """SMB missing-path errors should surface as FileNotFoundError."""
+        mock_stat.side_effect = OSError("[Error 2] [NtStatus 0xc0000034] No such file or directory")
+
+        backend = SMBBackend(
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+        )
+
+        with pytest.raises(FileNotFoundError, match="Path not found: nonexistent.txt"):
             await backend.get_file_info("nonexistent.txt")
 
 

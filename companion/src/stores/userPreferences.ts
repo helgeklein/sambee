@@ -6,8 +6,9 @@
  * associations.
  *
  * Preference schema:
- * - allowedServers: list of trusted Sambee server URLs
+ * - allowedServers: legacy list of trusted Sambee server URLs
  * - uploadConflictAction: "ask" | "overwrite" | "save-copy"
+ * - autoStartOnLogin: whether the companion starts automatically at sign-in
  * - showNotifications: whether to show desktop notifications
  * - tempFileRetentionDays: how long recycled temp files are kept
  */
@@ -38,11 +39,14 @@ export type UploadConflictAction = "ask" | "overwrite" | "save-copy";
  * Full user preferences object.
  */
 export interface UserPreferences {
-  /** Trusted Sambee server URLs (e.g. ["https://sambee.example.com"]). */
+  /** Legacy trusted Sambee server URLs (kept for compatibility). */
   allowedServers: string[];
 
   /** Default action when an upload conflict is detected. */
   uploadConflictAction: UploadConflictAction;
+
+  /** Whether the companion should start automatically when the user signs in. */
+  autoStartOnLogin: boolean;
 
   /** Whether to show desktop notifications for edit events. */
   showNotifications: boolean;
@@ -55,6 +59,7 @@ export interface UserPreferences {
 const DEFAULT_PREFERENCES: UserPreferences = {
   allowedServers: [],
   uploadConflictAction: "ask",
+  autoStartOnLogin: false,
   showNotifications: true,
   tempFileRetentionDays: DEFAULT_TEMP_RETENTION_DAYS,
 };

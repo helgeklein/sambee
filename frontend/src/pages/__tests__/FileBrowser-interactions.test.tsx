@@ -3,7 +3,7 @@
  * Tests for keyboard navigation, search/filter, sorting, settings, and refresh
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
@@ -201,6 +201,46 @@ describe("Browser Component - Interactions", () => {
       // Should call listDirectory again
       await waitFor(() => {
         expect((api.listDirectory as Mock).mock.calls.length).toBeGreaterThan(initialCallCount);
+      });
+    });
+
+    it("refreshes the destination pane after copy to the other pane succeeds", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.copyItem).mockResolvedValue(undefined);
+
+      renderBrowser("/browse/test-server-1?p2=test-server-2/Documents");
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "Documents");
+      });
+
+      const initialDestinationLoads = (api.listDirectory as Mock).mock.calls.filter(
+        ([connectionId, path]) => connectionId === "conn-2" && path === "Documents"
+      ).length;
+
+      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+
+      const dialog = await screen.findByRole("dialog");
+      const copyButton = within(dialog).getByRole("button", { name: "Copy" });
+      await waitFor(() => {
+        expect(copyButton).toBeEnabled();
+      });
+      await user.click(copyButton);
+
+      await waitFor(() => {
+        expect(api.copyItem).toHaveBeenCalledWith("conn-1", "Documents", "Documents/Documents", "conn-2");
+      });
+
+      await waitFor(() => {
+        const destinationLoads = (api.listDirectory as Mock).mock.calls.filter(
+          ([connectionId, path]) => connectionId === "conn-2" && path === "Documents"
+        ).length;
+        expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
     });
   });

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import apiService from "../services/api";
 import { error as logError, logger, info as logInfo } from "../services/logger";
 import { isApiError } from "../types";
+import { getApiErrorMessage } from "../utils/apiErrors";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "./useApiRetry";
 
 // Delay before showing spinner to avoid flicker on fast loads
@@ -33,25 +34,6 @@ const clamp = (value: number, min: number, max: number) => {
     return max;
   }
   return value;
-};
-
-// Extract user-friendly error message from API error
-const getErrorMessage = (err: unknown): string => {
-  if (isApiError(err) && err.response?.data?.detail) {
-    return err.response.data.detail;
-  }
-
-  if (isApiError(err) && err.message) {
-    if (err.response?.data) {
-      const data = err.response.data as Record<string, unknown>;
-      if (typeof data["detail"] === "string") {
-        return data["detail"];
-      }
-    }
-    return `Failed to load image: ${err.message}`;
-  }
-
-  return "Failed to load image";
 };
 
 export interface UseImageGalleryDataParams {
@@ -322,7 +304,9 @@ export const useCachedImageGallery = ({
           status: isApiError(err) ? err.response?.status : undefined,
         });
 
-        const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
+        const errorMessage = checkIsTransientError(err)
+          ? getTransientErrorMessage()
+          : getApiErrorMessage(err, "Failed to load image", { includeOriginalMessage: true });
 
         // Use RAF to batch state updates and avoid layout thrashing
         requestAnimationFrame(() => {

@@ -11,6 +11,7 @@ import { error as logError } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
+import { getApiErrorMessage } from "../../utils/apiErrors";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
@@ -51,25 +52,6 @@ interface PDFViewport {
   height: number;
   scale: number;
 }
-
-/**
- * Extract error message from API error or exception
- */
-const getErrorMessage = (err: unknown): string => {
-  if (isApiError(err) && err.response?.data?.detail) {
-    return err.response.data.detail;
-  }
-  if (isApiError(err) && err.message) {
-    if (err.response?.data) {
-      const data = err.response.data as Record<string, unknown>;
-      if (typeof data["detail"] === "string") {
-        return data["detail"];
-      }
-    }
-    return `Failed to load PDF: ${err.message}`;
-  }
-  return "Failed to load PDF";
-};
 
 /**
  * PDF Viewer Component
@@ -156,7 +138,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         if (!isMounted) return;
 
         // Show "server busy" only for actual transient/network errors
-        const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
+        const errorMessage = checkIsTransientError(err)
+          ? getTransientErrorMessage()
+          : getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true });
 
         logError("Failed to fetch PDF", {
           path,
@@ -355,7 +339,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Handle document load error
   const handleDocumentLoadError = useCallback((err: Error) => {
     logError("PDF load error", { error: err.message });
-    setError(getErrorMessage(err));
+    setError(getApiErrorMessage(err, "Failed to load PDF", { includeOriginalMessage: true }));
   }, []);
 
   // Page navigation

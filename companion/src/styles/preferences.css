@@ -51,6 +51,16 @@
   background: var(--surface-hover, rgba(0, 0, 0, 0.04));
 }
 
+.preferences__close-btn:focus-visible {
+  outline: none;
+  background: var(--surface-selected, rgba(244, 196, 48, 0.08));
+  box-shadow: 0 0 0 2px var(--accent-dark, #d4a020);
+}
+
+.preferences__close-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ── Sections ──────────────────────────────────────────────────────────── */
 
 .preferences__section {
@@ -165,18 +175,36 @@
 }
 
 .preferences__server-remove-btn {
-  background: none;
-  border: none;
+  background: var(--danger-surface, rgba(220, 38, 38, 0.08));
+  border: 1px solid var(--danger-border, rgba(220, 38, 38, 0.2));
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 600;
   color: var(--danger-text, #dc2626);
-  padding: 0 0.25rem;
+  padding: 0.2rem 0.45rem;
   line-height: 1;
   flex-shrink: 0;
+  border-radius: 999px;
 }
 
 .preferences__server-remove-btn:hover {
+  background: var(--danger-surface-hover, rgba(220, 38, 38, 0.14));
   color: #b91c1c;
+}
+
+.preferences__server-remove-btn:focus-visible {
+  outline: none;
+  border-color: var(--danger-text, #dc2626);
+  box-shadow: 0 0 0 2px var(--danger-border, #fecaca);
+}
+
+.preferences__server-remove-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.preferences__server-remove-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .preferences__server-empty {
@@ -184,50 +212,6 @@
   color: var(--text-secondary, #1f262bb3);
   font-style: italic;
   padding: 0.25rem 0;
-}
-
-/* ── Server add row ────────────────────────────────────────────────────── */
-
-.preferences__server-add {
-  display: flex;
-  gap: 0.375rem;
-}
-
-.preferences__server-input {
-  flex: 1;
-  padding: 0.375rem 0.5rem;
-  font-size: 0.8125rem;
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 4px;
-  background: var(--bg-color, #f6f1e8);
-  color: var(--text-color, #1f262b);
-  font-family: monospace;
-}
-
-.preferences__server-input:focus {
-  outline: 2px solid var(--accent-color, #f4c430);
-  outline-offset: -1px;
-}
-
-.preferences__server-add-btn {
-  padding: 0.375rem 0.75rem;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 4px;
-  background: var(--btn-bg, #f3f4f6);
-  color: var(--text-color, #1f262b);
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.preferences__server-add-btn:hover {
-  background: var(--btn-bg-hover, #e5e7eb);
-}
-
-.preferences__server-add-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* ── Divider ───────────────────────────────────────────────────────────── */
@@ -252,4 +236,84 @@
   font-size: 0.75rem;
   color: var(--accent-color, #f4c430);
   font-weight: 500;
+}
+
+/* ── Confirmation dialog ──────────────────────────────────────────────── */
+
+.preferences__confirm-panel {
+  width: min(100%, 360px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.preferences__confirm-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.preferences__confirm-body {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-color, #1f262b);
+}
+
+.preferences__confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.preferences__confirm-btn {
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.preferences__confirm-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent-dark, #d4a020);
+  box-shadow: 0 0 0 2px var(--accent-light, #f6e58d);
+}
+
+.preferences__confirm-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.preferences__confirm-btn--ghost {
+  background: var(--btn-bg, #f3f4f6);
+  color: var(--text-color, #1f262b);
+}
+
+.preferences__confirm-btn--ghost:hover {
+  background: var(--btn-bg-hover, #e5e7eb);
+}
+
+.preferences__confirm-btn--danger {
+  background: var(--danger-surface, rgba(220, 38, 38, 0.08));
+  border-color: var(--danger-border, rgba(220, 38, 38, 0.2));
+  color: var(--danger-text, #dc2626);
+}
+
+.preferences__confirm-btn--danger:hover {
+  background: var(--danger-surface-hover, rgba(220, 38, 38, 0.14));
+}
+
+.preferences__confirm-btn--danger:focus-visible {
+  border-color: var(--danger-text, #dc2626);
+  box-shadow: 0 0 0 2px var(--danger-border, #fecaca);
+}
+
+.preferences__confirm-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }

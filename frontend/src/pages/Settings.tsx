@@ -2,10 +2,20 @@
 // Settings
 //
 
-import { ChevronRight as ChevronRightIcon, Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
+import {
+  ChevronRight as ChevronRightIcon,
+  Computer as ComputerIcon,
+  Palette as PaletteIcon,
+  Storage as StorageIcon,
+} from "@mui/icons-material";
 import { Box, Divider, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  getSettingsCategoryDescription,
+  getSettingsCategoryLabel,
+  SETTINGS_ROUTE_BY_CATEGORY,
+} from "../components/Settings/settingsNavigation";
 import api from "../services/api";
 
 /**
@@ -32,17 +42,17 @@ export function Settings() {
         {isAdmin && (
           <>
             <ListItem disablePadding>
-              <ListItemButton onClick={() => navigate("/settings/connections")} sx={{ py: 2 }}>
+              <ListItemButton onClick={() => navigate(SETTINGS_ROUTE_BY_CATEGORY["smb-connections"])} sx={{ py: 2 }}>
                 <ListItemIcon>
                   <StorageIcon sx={{ color: "primary.main", fontSize: 28 }} />
                 </ListItemIcon>
                 <ListItemText
                   primary={
                     <Typography variant="h6" fontWeight="medium">
-                      Connections
+                      {getSettingsCategoryLabel("smb-connections")}
                     </Typography>
                   }
-                  secondary="Manage SMB connections"
+                  secondary={getSettingsCategoryDescription("smb-connections")}
                 />
                 <ChevronRightIcon sx={{ color: "text.secondary" }} />
               </ListItemButton>
@@ -50,6 +60,24 @@ export function Settings() {
             <Divider />
           </>
         )}
+
+        <ListItem disablePadding>
+          <ListItemButton onClick={() => navigate(SETTINGS_ROUTE_BY_CATEGORY["local-drives"])} sx={{ py: 2 }}>
+            <ListItemIcon>
+              <ComputerIcon sx={{ color: "primary.main", fontSize: 28 }} />
+            </ListItemIcon>
+            <ListItemText
+              primary={
+                <Typography variant="h6" fontWeight="medium">
+                  {getSettingsCategoryLabel("local-drives")}
+                </Typography>
+              }
+              secondary={getSettingsCategoryDescription("local-drives")}
+            />
+            <ChevronRightIcon sx={{ color: "text.secondary" }} />
+          </ListItemButton>
+        </ListItem>
+        <Divider />
 
         <ListItem disablePadding>
           <ListItemButton onClick={() => navigate("/settings/appearance")} sx={{ py: 2 }}>

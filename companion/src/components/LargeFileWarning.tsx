@@ -13,7 +13,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
-import "../styles/dialog.css";
+import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -85,29 +85,29 @@ export function LargeFileWarning({ info, onResolved }: LargeFileWarningProps) {
   const handleCancel = useCallback(() => respond(false), [respond]);
 
   return (
-    <div class="dialog-overlay">
-      <div class="dialog-panel">
-        <h2 class="dialog-title dialog-title--warning">⚠ Large File</h2>
-        <p class="dialog-subtitle">{info.filename}</p>
+    <ModalDialog role="alertdialog" titleId="large-file-title">
+      <h2 id="large-file-title" class="dialog-title dialog-title--warning">
+        ⚠ Large File
+      </h2>
+      <p class="dialog-subtitle">{info.filename}</p>
 
-        <div class="dialog-body">
-          <p>
-            This file is <strong>{info.size_mb} MB</strong> (limit: {info.limit_mb} MB). Downloading and syncing large files may be slow and
-            use significant disk space.
-          </p>
-        </div>
-
-        <div class="dialog-actions">
-          <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleContinue} disabled={loading}>
-            Continue Anyway
-          </button>
-          <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleCancel} disabled={loading}>
-            Cancel
-          </button>
-        </div>
-
-        {error && <p class="dialog-error">{error}</p>}
+      <div class="dialog-body">
+        <p>
+          This file is <strong>{info.size_mb} MB</strong> (limit: {info.limit_mb} MB). Downloading and syncing large files may be slow and
+          use significant disk space.
+        </p>
       </div>
-    </div>
+
+      <div class="dialog-actions">
+        <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleContinue} disabled={loading}>
+          Continue Anyway
+        </button>
+        <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleCancel} disabled={loading}>
+          Cancel
+        </button>
+      </div>
+
+      {error && <p class="dialog-error">{error}</p>}
+    </ModalDialog>
   );
 }

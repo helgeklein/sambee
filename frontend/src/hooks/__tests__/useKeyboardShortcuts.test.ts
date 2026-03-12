@@ -248,14 +248,19 @@ describe("useKeyboardShortcuts", () => {
 
   describe("Input Focus Handling", () => {
     let input: HTMLInputElement;
+    let button: HTMLButtonElement;
 
     beforeEach(() => {
       input = document.createElement("input");
+      button = document.createElement("button");
+      button.type = "button";
       document.body.appendChild(input);
+      document.body.appendChild(button);
     });
 
     afterEach(() => {
       document.body.removeChild(input);
+      document.body.removeChild(button);
     });
 
     it("should block shortcut when input has focus by default", () => {
@@ -291,6 +296,23 @@ describe("useKeyboardShortcuts", () => {
       simulateKeyPress("Escape");
 
       expect(mockHandler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should block shortcut when button has focus by default", () => {
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "toggle-selection",
+          keys: " ",
+          description: "Toggle selection",
+          handler: mockHandler,
+        },
+      ];
+
+      renderHook(() => useKeyboardShortcuts({ shortcuts }));
+      button.focus();
+      simulateKeyPress(" ");
+
+      expect(mockHandler).not.toHaveBeenCalled();
     });
 
     it("should work when input loses focus", () => {

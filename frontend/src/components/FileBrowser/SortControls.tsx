@@ -4,7 +4,6 @@ import { Box, Button, Divider, Menu, MenuItem, Typography, useMediaQuery, useThe
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { SortField } from "../../pages/FileBrowser/types";
 import { pillButtonStyle } from "../../theme/commonStyles";
-import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 interface SortControlsProps {
   sortBy: SortField;
@@ -36,7 +35,7 @@ export function SortControls({
 }: SortControlsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
+  const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onAfterChange);
 
   const handleCriterionChange = (field: SortField) => {
     if (field !== sortBy) {
@@ -57,7 +56,8 @@ export function SortControls({
     <Box display="flex" alignItems="center" gap={1}>
       <Button
         onClick={handleClick}
-        onKeyDown={createEscapeHandler(onAfterChange)}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
         size="small"
         tabIndex={disableTabFocus ? -1 : undefined}
         sx={{

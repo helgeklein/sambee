@@ -4,7 +4,6 @@ import { Box, Button, Divider, Menu, MenuItem, Typography } from "@mui/material"
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import { pillButtonStyle } from "../../theme/commonStyles";
-import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 interface ViewModeSelectorProps {
   viewMode: ViewMode;
@@ -23,7 +22,7 @@ const VIEW_MODE_LABELS: Record<ViewMode, string> = {
 // ViewModeSelector
 //
 export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, disableTabFocus }: ViewModeSelectorProps) {
-  const { anchorEl, open, handleClick, handleClose } = usePillButtonMenu(onAfterChange);
+  const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onAfterChange);
 
   const handleModeChange = (mode: ViewMode) => {
     if (mode !== viewMode) {
@@ -40,7 +39,8 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
     <Box display="flex" alignItems="center" gap={1}>
       <Button
         onClick={handleClick}
-        onKeyDown={createEscapeHandler(onAfterChange)}
+        onKeyDown={handleKeyDown}
+        onKeyUp={handleKeyUp}
         size="small"
         tabIndex={disableTabFocus ? -1 : undefined}
         sx={{

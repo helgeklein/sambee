@@ -33,10 +33,14 @@ import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionS
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
-import SettingsDialog, { type SettingsCategory } from "../components/Settings/SettingsDialog";
+import SettingsDialog from "../components/Settings/SettingsDialog";
+import type { MobileSettingsView, SettingsCategory } from "../components/Settings/settingsNavigation";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
+import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
+import { isLocalDrive, mergeConnections } from "../services/backendRouter";
+import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
@@ -92,9 +96,15 @@ const Browser: React.FC = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("appearance");
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
-  const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<"main" | "appearance" | "connections">("main");
+  const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<MobileSettingsView>("main");
   const [showHelp, setShowHelp] = useState(false);
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
+
+  // ── Companion detection & drive management ──────────────────────────────
+  const companion = useCompanion();
+
+  /** Server connections merged with companion-provided local drives. */
+  const allConnections = useMemo(() => mergeConnections(connections, companion.drives), [connections, companion.drives]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Copy / Move Dialog State
@@ -103,6 +113,7 @@ const Browser: React.FC = () => {
   const [copyMoveDialogOpen, setCopyMoveDialogOpen] = useState(false);
   const [copyMoveMode, setCopyMoveMode] = useState<CopyMoveMode>("copy");
   const [copyMoveFiles, setCopyMoveFiles] = useState<import("../types").FileEntry[]>([]);
+  const [copyMoveSourcePaneId, setCopyMoveSourcePaneId] = useState<PaneId>("left");
   const [copyMoveSourceConnectionId, setCopyMoveSourceConnectionId] = useState("");
   const [copyMoveSourcePath, setCopyMoveSourcePath] = useState("");
   const [copyMoveDestConnectionId, setCopyMoveDestConnectionId] = useState("");
@@ -153,9 +164,13 @@ const Browser: React.FC = () => {
   const isInitializing = React.useRef<boolean>(true); // Avoid URL updates during initial mount
   const isUpdatingFromUrl = React.useRef<boolean>(false); // Avoid navigate() during back/forward
 
-  // WebSocket for real-time directory updates
+  // WebSocket for real-time directory updates (server)
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
+
+  // WebSocket for real-time directory updates (companion / local drives)
+  const companionWsRef = React.useRef<WebSocket | null>(null);
+  const companionReconnectRef = React.useRef<number | null>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Pane Hooks — all per-pane state and logic
@@ -571,18 +586,18 @@ const Browser: React.FC = () => {
         logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
 
-        // Subscribe to left pane's current directory
+        // Subscribe to left pane's current directory (server connections only)
         const leftConnId = leftPane.connectionIdRef.current;
         const leftPath = leftPane.currentPathRef.current;
-        if (leftConnId && leftPath !== undefined) {
+        if (leftConnId && leftPath !== undefined && !isLocalDrive(leftConnId)) {
           logger.debug("Subscribing to left pane directory", { connectionId: leftConnId, path: leftPath }, "websocket");
           ws.send(JSON.stringify({ action: "subscribe", connection_id: leftConnId, path: leftPath }));
         }
 
-        // Subscribe to right pane's current directory (if in dual mode)
+        // Subscribe to right pane's current directory (if in dual mode, server connections only)
         const rightConnId = rightPane.connectionIdRef.current;
         const rightPath = rightPane.currentPathRef.current;
-        if (rightConnId && rightPath !== undefined) {
+        if (rightConnId && rightPath !== undefined && !isLocalDrive(rightConnId)) {
           logger.debug("Subscribing to right pane directory", { connectionId: rightConnId, path: rightPath }, "websocket");
           ws.send(JSON.stringify({ action: "subscribe", connection_id: rightConnId, path: rightPath }));
         }
@@ -645,13 +660,116 @@ const Browser: React.FC = () => {
     };
   }, []);
 
+  /**
+   * Companion WebSocket for real-time local drive change notifications.
+   *
+   * Only connects when the companion is paired. Uses HMAC query-param auth
+   * since the browser WebSocket API does not support custom headers.
+   * Reconnects independently from the server WebSocket.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: handleDirectoryChanged refs are stable; companion.status drives connect/disconnect.
+  useEffect(() => {
+    if (companion.status !== "paired") return;
+
+    let disposed = false;
+    let activeWs: WebSocket | null = null;
+
+    const connectCompanionWs = async () => {
+      if (disposed) return;
+
+      const wsUrl = await buildCompanionWsUrl();
+      if (!wsUrl || disposed) return;
+
+      logger.info("Connecting to companion WebSocket", { wsUrl }, "websocket");
+      const ws = new WebSocket(wsUrl);
+      activeWs = ws;
+
+      ws.onopen = () => {
+        if (disposed) {
+          ws.close();
+          return;
+        }
+        logger.info("Companion WebSocket connected", {}, "websocket");
+        companionWsRef.current = ws;
+
+        // Subscribe to local-drive directories currently being viewed
+        const leftConnId = leftPane.connectionIdRef.current;
+        const leftPath = leftPane.currentPathRef.current;
+        if (leftConnId && leftPath !== undefined && isLocalDrive(leftConnId)) {
+          ws.send(JSON.stringify({ action: "subscribe", connection_id: leftConnId, path: leftPath }));
+        }
+
+        const rightConnId = rightPane.connectionIdRef.current;
+        const rightPath = rightPane.currentPathRef.current;
+        if (rightConnId && rightPath !== undefined && isLocalDrive(rightConnId)) {
+          ws.send(JSON.stringify({ action: "subscribe", connection_id: rightConnId, path: rightPath }));
+        }
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "directory_changed") {
+          leftPane.handleDirectoryChanged(data.connection_id, data.path);
+          rightPane.handleDirectoryChanged(data.connection_id, data.path);
+        }
+      };
+
+      ws.onerror = (error) => {
+        logger.error("Companion WebSocket error", { error: String(error) }, "websocket");
+      };
+
+      ws.onclose = () => {
+        logger.warn("Companion WebSocket disconnected", { willReconnect: !disposed }, "websocket");
+        if (activeWs === ws) {
+          activeWs = null;
+        }
+        companionWsRef.current = null;
+
+        if (!disposed) {
+          companionReconnectRef.current = window.setTimeout(() => {
+            connectCompanionWs();
+          }, 5000);
+        }
+      };
+    };
+
+    connectCompanionWs();
+
+    return () => {
+      disposed = true;
+      if (companionReconnectRef.current) {
+        clearTimeout(companionReconnectRef.current);
+        companionReconnectRef.current = null;
+      }
+      if (activeWs) {
+        activeWs.close();
+        activeWs = null;
+      }
+      companionWsRef.current = null;
+    };
+  }, [companion.status]);
+
   // Subscribe/unsubscribe when either pane's directory changes.
   // Returns a cleanup function that unsubscribes from the paths that were
   // subscribed in *this* effect run, so stale directory-monitor handles on
   // the backend are released before the next subscribe fires.
   // biome-ignore lint/correctness/useExhaustiveDependencies: paneMode is needed to re-subscribe when toggling dual mode
   useEffect(() => {
-    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    // Helper: send a message to the correct WebSocket for a given connection.
+    const sendToWs = (connectionId: string, msg: object): boolean => {
+      if (isLocalDrive(connectionId)) {
+        if (companionWsRef.current?.readyState === WebSocket.OPEN) {
+          companionWsRef.current.send(JSON.stringify(msg));
+          return true;
+        }
+      } else {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify(msg));
+          return true;
+        }
+      }
+      return false;
+    };
 
     // Track what we subscribe to so we can unsubscribe on cleanup
     const subscribed: Array<{ connection_id: string; path: string }> = [];
@@ -659,22 +777,23 @@ const Browser: React.FC = () => {
     // Subscribe to left pane's directory
     if (leftPane.connectionId) {
       const msg = { action: "subscribe", connection_id: leftPane.connectionId, path: leftPane.currentPath };
-      wsRef.current.send(JSON.stringify(msg));
-      subscribed.push({ connection_id: leftPane.connectionId, path: leftPane.currentPath });
+      if (sendToWs(leftPane.connectionId, msg)) {
+        subscribed.push({ connection_id: leftPane.connectionId, path: leftPane.currentPath });
+      }
     }
 
     // Subscribe to right pane's directory when in dual mode
     if (isDualMode && rightPane.connectionId) {
       const msg = { action: "subscribe", connection_id: rightPane.connectionId, path: rightPane.currentPath };
-      wsRef.current.send(JSON.stringify(msg));
-      subscribed.push({ connection_id: rightPane.connectionId, path: rightPane.currentPath });
+      if (sendToWs(rightPane.connectionId, msg)) {
+        subscribed.push({ connection_id: rightPane.connectionId, path: rightPane.currentPath });
+      }
     }
 
     // Cleanup: unsubscribe from old paths when deps change or on unmount
     return () => {
-      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
       for (const sub of subscribed) {
-        wsRef.current.send(JSON.stringify({ action: "unsubscribe", connection_id: sub.connection_id, path: sub.path }));
+        sendToWs(sub.connection_id, { action: "unsubscribe", connection_id: sub.connection_id, path: sub.path });
       }
     };
   }, [leftPane.currentPath, leftPane.connectionId, rightPane.currentPath, rightPane.connectionId, isDualMode, paneMode]);
@@ -763,6 +882,7 @@ const Browser: React.FC = () => {
 
       setCopyMoveMode(mode);
       setCopyMoveFiles(files);
+      setCopyMoveSourcePaneId(sourcePaneId);
       setCopyMoveSourceConnectionId(sourcePane.connectionIdRef.current);
       setCopyMoveSourcePath(sourcePane.currentPathRef.current);
       setCopyMoveDestConnectionId(destConnId);
@@ -798,6 +918,8 @@ const Browser: React.FC = () => {
 
       const apiFn = copyMoveMode === "copy" ? api.copyItem.bind(api) : api.moveItem.bind(api);
       const errors: string[] = [];
+      let destinationMutated = false;
+      let sourceMutated = false;
 
       // Mutable state for "apply to all" decisions made during the loop
       let effectiveStrategy = overwriteStrategy;
@@ -815,6 +937,10 @@ const Browser: React.FC = () => {
 
         try {
           await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId);
+          destinationMutated = true;
+          if (copyMoveMode === "move") {
+            sourceMutated = true;
+          }
         } catch (err) {
           // ── Handle 409 Conflict (destination already exists) ──
           if (isApiError(err) && err.response?.status === 409) {
@@ -844,6 +970,10 @@ const Browser: React.FC = () => {
                 // Retry the operation with overwrite enabled
                 try {
                   await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId, true);
+                  destinationMutated = true;
+                  if (copyMoveMode === "move") {
+                    sourceMutated = true;
+                  }
                 } catch (retryErr) {
                   const msg = (isApiError(retryErr) ? retryErr.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
                   errors.push(msg);
@@ -858,6 +988,10 @@ const Browser: React.FC = () => {
               // Silently overwrite
               try {
                 await apiFn(copyMoveSourceConnectionId, sourcePath, fullDestPath, crossConnId, true);
+                destinationMutated = true;
+                if (copyMoveMode === "move") {
+                  sourceMutated = true;
+                }
               } catch (retryErr) {
                 const msg = (isApiError(retryErr) ? retryErr.message : undefined) ?? `Failed to ${copyMoveMode} ${file.name}`;
                 errors.push(msg);
@@ -882,6 +1016,17 @@ const Browser: React.FC = () => {
       setCopyMoveProcessing(false);
       setCopyMoveTransferProgress(null);
 
+      const sourcePane = copyMoveSourcePaneId === "left" ? leftPane : rightPane;
+      const destPane = copyMoveSourcePaneId === "left" ? rightPane : leftPane;
+
+      if (destinationMutated) {
+        destPane.forceReloadCurrentDirectory();
+      }
+
+      if (sourceMutated) {
+        sourcePane.forceReloadCurrentDirectory();
+      }
+
       if (errors.length > 0) {
         setCopyMoveError(errors.join("; "));
       } else {
@@ -892,7 +1037,16 @@ const Browser: React.FC = () => {
         sourcePane.handleClearSelection();
       }
     },
-    [copyMoveFiles, copyMoveMode, copyMoveSourceConnectionId, copyMoveSourcePath, copyMoveDestConnectionId, leftPane, rightPane]
+    [
+      copyMoveFiles,
+      copyMoveMode,
+      copyMoveSourcePaneId,
+      copyMoveSourceConnectionId,
+      copyMoveSourcePath,
+      copyMoveDestConnectionId,
+      leftPane,
+      rightPane,
+    ]
   );
 
   /** Called when the user resolves an overwrite conflict dialog. */
@@ -1156,6 +1310,17 @@ const Browser: React.FC = () => {
     }, 0);
   };
 
+  const openLocalDrivesSettings = useCallback(() => {
+    if (useCompactLayout) {
+      setMobileSettingsInitialView("local-drives");
+      setMobileSettingsOpen(true);
+      return;
+    }
+
+    setSettingsInitialCategory("local-drives");
+    setSettingsOpen(true);
+  }, [useCompactLayout]);
+
   /**
    * handleConnectionsChanged
    *
@@ -1170,22 +1335,36 @@ const Browser: React.FC = () => {
       const data = await api.getConnections();
       setConnections(data);
 
+      await companion.refresh();
+
+      let companionDrives: DriveInfo[] = [];
+      if (hasStoredSecret()) {
+        try {
+          companionDrives = await companionService.getDrives();
+        } catch (error) {
+          logger.warn("Failed to refresh companion drives after settings change", { error }, "companion");
+        }
+      }
+
+      const availableConnections = mergeConnections(data, companionDrives);
+      const hasConnection = (connectionId: string) => availableConnections.some((connection) => connection.id === connectionId);
+
       // Invalidate caches in both panes since connection properties may have changed
       const leftConnId = leftPane.connectionId;
-      if (leftConnId && data.find((c: Connection) => c.id === leftConnId)) {
+      if (leftConnId && hasConnection(leftConnId)) {
         leftPane.invalidateConnectionCache(leftConnId);
         leftPane.loadFiles(leftPane.currentPathRef.current, true);
       }
       const rightConnId = rightPane.connectionId;
-      if (rightConnId && data.find((c: Connection) => c.id === rightConnId)) {
+      if (rightConnId && hasConnection(rightConnId)) {
         rightPane.invalidateConnectionCache(rightConnId);
         rightPane.loadFiles(rightPane.currentPathRef.current, true);
       }
 
       // Check if left pane's connection still exists
-      if (leftConnId && data.find((c: Connection) => c.id === leftConnId)) {
+      if (leftConnId && hasConnection(leftConnId)) {
         // Left pane's connection is fine — check right pane too
-        if (rightConnId && !data.find((c: Connection) => c.id === rightConnId)) {
+        if (rightConnId && !hasConnection(rightConnId)) {
           // Right pane's connection was removed — revert to single mode
           setPaneMode("single");
           setActivePaneId("left");
@@ -1199,8 +1378,8 @@ const Browser: React.FC = () => {
       }
 
       // Left pane's connection removed or no selection - select first alphabetically
-      if (data.length > 0) {
-        const sortedByName = [...data].sort((a, b) => a.name.localeCompare(b.name));
+      if (availableConnections.length > 0) {
+        const sortedByName = [...availableConnections].sort((a, b) => a.name.localeCompare(b.name));
         const firstConnection = sortedByName[0];
         if (firstConnection) {
           leftPane.handleConnectionChange(firstConnection.id);
@@ -1221,7 +1400,7 @@ const Browser: React.FC = () => {
     } catch (err) {
       logger.error("Error refreshing connections", { error: err }, "browser");
     }
-  }, [leftPane, rightPane, slugifyConnectionName, navigate]);
+  }, [companion, leftPane, navigate, rightPane, slugifyConnectionName]);
 
   // ── Computed values for the active pane (used in toolbar / mobile) ────────
   const activeCurrentPath = activePane.currentPath;
@@ -1242,7 +1421,7 @@ const Browser: React.FC = () => {
       <HamburgerMenu
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        connections={connections}
+        connections={allConnections}
         selectedConnectionId={activePane.connectionId}
         onConnectionChange={activePane.handleConnectionChange}
         onNavigateToRoot={() => {
@@ -1281,7 +1460,7 @@ const Browser: React.FC = () => {
       {/* Secondary action strip — view mode & sort controls for the active pane (desktop only) */}
       {!useCompactLayout && (
         <SecondaryActionStrip
-          connections={connections}
+          connections={allConnections}
           selectedConnectionId={activePane.connectionId}
           onConnectionChange={activePane.handleConnectionChange}
           viewMode={activePane.viewMode}
@@ -1293,6 +1472,8 @@ const Browser: React.FC = () => {
           hasFiles={activePane.files.length > 0}
           onBlurToFileList={() => activePane.listContainerEl?.focus()}
           disableTabFocus={isDualMode}
+          companionStatus={companion.status}
+          onManageLocalDrives={openLocalDrivesSettings}
         />
       )}
 
@@ -1315,10 +1496,10 @@ const Browser: React.FC = () => {
           isAdmin={isAdmin}
           onOpenConnectionsSettings={() => {
             if (useCompactLayout) {
-              setMobileSettingsInitialView("connections");
+              setMobileSettingsInitialView("smb-connections");
               setMobileSettingsOpen(true);
             } else {
-              setSettingsInitialCategory("connections");
+              setSettingsInitialCategory("smb-connections");
               setSettingsOpen(true);
             }
           }}
@@ -1340,7 +1521,7 @@ const Browser: React.FC = () => {
               paneId="left"
               isActive={effectiveActivePaneId === "left"}
               paneMode={effectivePaneMode}
-              connections={connections}
+              connections={allConnections}
               useCompactLayout={useCompactLayout}
               isUsingKeyboard={isUsingKeyboard}
               onPaneFocus={() => {
@@ -1359,7 +1540,7 @@ const Browser: React.FC = () => {
                   paneId="right"
                   isActive={effectiveActivePaneId === "right"}
                   paneMode={effectivePaneMode}
-                  connections={connections}
+                  connections={allConnections}
                   useCompactLayout={useCompactLayout}
                   isUsingKeyboard={isUsingKeyboard}
                   onPaneFocus={() => {

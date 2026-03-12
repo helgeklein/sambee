@@ -8,6 +8,9 @@
   "permissions": [
     "core:default",
     "deep-link:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
     "shell:default",
     "store:default",
     "http:default",

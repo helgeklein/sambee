@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 
 import { useDirectorySearchProvider } from "../../components/FileBrowser/search";
 import api from "../../services/api";
+import { isLocalDrive } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
@@ -761,9 +762,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     searchInputRef.current?.focus();
   }, []);
 
-  const handleRefresh = useCallback(() => {
+  const forceReloadCurrentDirectory = useCallback(() => {
+    lastForceReloadRef.current = Date.now();
     loadFilesRef.current?.(currentPathRef.current, true);
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    forceReloadCurrentDirectory();
+  }, [forceReloadCurrentDirectory]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Selection (multi-select)
@@ -1074,17 +1080,23 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     setOpenInAppLoading(true);
     try {
-      const themeJson = JSON.stringify({
-        id: currentTheme.id,
-        mode: currentTheme.mode,
-        primary: currentTheme.primary.main,
-      });
-      const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
-      logger.info("Opening file in companion app", { path: filePath }, "companion");
-      window.location.href = uri;
-      onCompanionHint?.();
+      if (isLocalDrive(connectionId)) {
+        // Direct local open — no download/lock/upload cycle
+        await api.openLocalFile(connectionId, filePath);
+        logger.info("Opened local file directly", { path: filePath }, "companion");
+      } else {
+        const themeJson = JSON.stringify({
+          id: currentTheme.id,
+          mode: currentTheme.mode,
+          primary: currentTheme.primary.main,
+        });
+        const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
+        logger.info("Opening file in companion app", { path: filePath }, "companion");
+        window.location.href = uri;
+        onCompanionHint?.();
+      }
     } catch (err: unknown) {
-      let detail = "Failed to generate companion URI.";
+      let detail = "Failed to open file.";
       if (isApiError(err) && err.response?.data?.detail) {
         detail = err.response.data.detail;
       }
@@ -1102,17 +1114,23 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       setOpenInAppLoading(true);
       try {
-        const themeJson = JSON.stringify({
-          id: currentTheme.id,
-          mode: currentTheme.mode,
-          primary: currentTheme.primary.main,
-        });
-        const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
-        logger.info("Opening file in companion app (context menu)", { path: filePath }, "companion");
-        window.location.href = uri;
-        onCompanionHint?.();
+        if (isLocalDrive(connectionId)) {
+          // Direct local open — no download/lock/upload cycle
+          await api.openLocalFile(connectionId, filePath);
+          logger.info("Opened local file directly (context menu)", { path: filePath }, "companion");
+        } else {
+          const themeJson = JSON.stringify({
+            id: currentTheme.id,
+            mode: currentTheme.mode,
+            primary: currentTheme.primary.main,
+          });
+          const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
+          logger.info("Opening file in companion app (context menu)", { path: filePath }, "companion");
+          window.location.href = uri;
+          onCompanionHint?.();
+        }
       } catch (err: unknown) {
-        let detail = "Failed to generate companion URI.";
+        let detail = "Failed to open file.";
         if (isApiError(err) && err.response?.data?.detail) {
           detail = err.response.data.detail;
         }
@@ -1313,6 +1331,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handleClose,
     handleFocusSearch,
     handleRefresh,
+    forceReloadCurrentDirectory,
 
     // Viewer
     handleViewIndexChange,

@@ -31,9 +31,16 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
+import {
+  settingsDestructiveIconButtonSx,
+  settingsPrimaryButtonSx,
+  settingsPrimaryFabSx,
+  settingsUtilityIconButtonSx,
+} from "../components/Settings/settingsButtonStyles";
+import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import api from "../services/api";
 import type { Connection } from "../types";
-import { isApiError } from "../types";
+import { getApiErrorMessage } from "../utils/apiErrors";
 
 /**
  * ConnectionSettings
@@ -88,7 +95,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
       const data = await api.getConnections();
       setConnections(data);
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to load connections" : "Failed to load connections";
+      const message = getApiErrorMessage(error, "Failed to load connections");
       showNotification(message, "error");
     } finally {
       setLoading(false);
@@ -137,7 +144,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
       setSelectedConnection(null);
       onConnectionsChanged?.();
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to delete connection" : "Failed to delete connection";
+      const message = getApiErrorMessage(error, "Failed to delete connection");
       showNotification(message, "error");
     }
   };
@@ -147,7 +154,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Connection test failed" : "Connection test failed";
+      const message = getApiErrorMessage(error, "Connection test failed");
       showNotification(message, "error");
     }
   };
@@ -204,9 +211,9 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
         >
           <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Typography variant="h5" fontWeight="medium">
-              Connections
+              {getSettingsCategoryLabel("smb-connections")}
             </Typography>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick}>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
               Add Connection
             </Button>
           </Box>
@@ -286,17 +293,25 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
                     </Box>
                     <Box sx={{ display: "flex", gap: 1, ml: 2 }}>
                       <Tooltip title="Test Connection">
-                        <IconButton onClick={() => handleTestConnection(connection)} color="primary" aria-label="Test connection">
+                        <IconButton
+                          onClick={() => handleTestConnection(connection)}
+                          aria-label="Test connection"
+                          sx={settingsUtilityIconButtonSx}
+                        >
                           <TestIcon />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Edit">
-                        <IconButton onClick={() => handleEdit(connection)} color="primary" aria-label="Edit connection">
+                        <IconButton onClick={() => handleEdit(connection)} aria-label="Edit connection" sx={settingsUtilityIconButtonSx}>
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Delete">
-                        <IconButton onClick={() => handleDeleteClick(connection)} color="error" aria-label="Delete connection">
+                        <IconButton
+                          onClick={() => handleDeleteClick(connection)}
+                          aria-label="Delete connection"
+                          sx={settingsDestructiveIconButtonSx}
+                        >
                           <DeleteIcon />
                         </IconButton>
                       </Tooltip>
@@ -343,7 +358,17 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
                       </Typography>
                       <Chip label={connection.type.toUpperCase()} size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
                     </Box>
-                    <IconButton size="small" onClick={(e) => handleMenuOpen(e, connection)} aria-label="Connection actions" sx={{ mt: 0 }}>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => handleMenuOpen(e, connection)}
+                      aria-label="Connection actions"
+                      sx={{
+                        ...settingsUtilityIconButtonSx,
+                        mt: 0,
+                        width: 32,
+                        height: 32,
+                      }}
+                    >
                       <MoreVertIcon />
                     </IconButton>
                   </Box>
@@ -383,6 +408,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
           aria-label="add connection"
           onClick={handleAddClick}
           sx={{
+            ...settingsPrimaryFabSx,
             position: "fixed",
             bottom: "calc(16px + env(safe-area-inset-bottom))",
             right: "calc(16px + env(safe-area-inset-right))",

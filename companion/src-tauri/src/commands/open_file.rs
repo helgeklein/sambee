@@ -48,7 +48,7 @@ const DONE_EDITING_MARGIN: f64 = 24.0;
 const DONE_EDITING_CASCADE_STEP: f64 = 32.0;
 
 /// Label prefix for Done Editing windows (used to count open instances).
-const DONE_EDITING_LABEL_PREFIX: &str = "done-editing-";
+pub(crate) const DONE_EDITING_LABEL_PREFIX: &str = "done-editing-";
 
 /// Prefix used to distinguish a conflict result from a normal success in
 /// `finish_editing`. The frontend checks for this prefix to show the
@@ -58,6 +58,45 @@ const CONFLICT_PREFIX: &str = "conflict:";
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns true if the given window label belongs to a Done Editing window.
+pub(crate) fn is_done_editing_window_label(label: &str) -> bool {
+    label.starts_with(DONE_EDITING_LABEL_PREFIX)
+}
+
+/// Returns the operation ID encoded into a Done Editing window label.
+fn operation_id_from_window_label(window_label: &str) -> Result<uuid::Uuid, String> {
+    let operation_id = window_label
+        .strip_prefix(DONE_EDITING_LABEL_PREFIX)
+        .ok_or_else(|| format!("Window '{window_label}' is not a Done Editing window"))?;
+
+    operation_id
+        .parse()
+        .map_err(|_| format!("Window '{window_label}' has an invalid operation ID"))
+}
+
+#[tauri::command]
+pub fn get_done_editing_context(app: AppHandle, window_label: String) -> Result<EditContext, String> {
+    let op_id = operation_id_from_window_label(&window_label)?;
+
+    let store = app
+        .try_state::<OperationStore>()
+        .ok_or_else(|| "Operation store not available".to_string())?;
+
+    let operation = store.get(op_id).ok_or_else(|| format!("Operation {op_id} not found"))?;
+
+    let app_name = operation
+        .opened_with_app
+        .clone()
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Unknown app".to_string());
+
+    Ok(EditContext {
+        operation_id: operation.id.to_string(),
+        filename: operation.filename().to_string(),
+        app_name,
+    })
+}
 
 //
 // open_in_native_app
@@ -338,6 +377,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         // Upload the file
         info!("Uploading modified file: {}", local_path.display());
         store.update_status(op_id, OperationStatus::Uploading(0.0));
+        crate::refresh_tray_menu(&app);
 
         match super::upload::upload_file(&app, &window_label, &server_url, &connection_id, &remote_path, &local_path, &token).await {
             Ok(_resp) => {
@@ -346,6 +386,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
             Err(e) => {
                 error!("Upload failed for {}: {e}", filename);
                 store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
+                crate::refresh_tray_menu(&app);
                 return Err(format!("Upload failed: {e}"));
             }
         }
@@ -359,10 +400,11 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
 
     // Update status
     store.update_status(op_id, OperationStatus::Completed);
+    crate::refresh_tray_menu(&app);
 
     // Close the Done Editing window
     if let Some(window) = app.get_webview_window(&window_label) {
-        let _ = window.close();
+        let _ = window.destroy();
     }
 
     // Send notification
@@ -410,10 +452,11 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
 
     // Update status
     store.update_status(op_id, OperationStatus::Discarded);
+    crate::refresh_tray_menu(&app);
 
     // Close the Done Editing window
     if let Some(window) = app.get_webview_window(&window_label) {
-        let _ = window.close();
+        let _ = window.destroy();
     }
 
     let message = format!("{} — changes discarded (recoverable for 7 days).", filename);
@@ -486,6 +529,7 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
 
     // Upload
     store.update_status(op_id, OperationStatus::Uploading(0.0));
+    crate::refresh_tray_menu(app);
     match super::upload::upload_file(app, &window_label, &server_url, &connection_id, remote_path, &local_path, &token).await {
         Ok(_) => {
             info!("Upload successful (conflict resolved) for {}", filename);
@@ -493,6 +537,7 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
         Err(e) => {
             error!("Upload failed for {}: {e}", filename);
             store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
+            crate::refresh_tray_menu(app);
             return Err(format!("Upload failed: {e}"));
         }
     }
@@ -510,9 +555,10 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     let _ = crate::sync::recycle::recycle_file(&local_path);
 
     store.update_status(op_id, OperationStatus::Completed);
+    crate::refresh_tray_menu(app);
 
     if let Some(window) = app.get_webview_window(&window_label) {
-        let _ = window.close();
+        let _ = window.destroy();
     }
 
     let message = if upload_path_override.is_some() {

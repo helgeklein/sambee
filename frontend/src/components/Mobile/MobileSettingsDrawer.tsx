@@ -2,7 +2,12 @@
 // MobileSettingsDrawer
 //
 
-import { ChevronRight as ChevronRightIcon, Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
+import {
+  ChevronRight as ChevronRightIcon,
+  Computer as ComputerIcon,
+  Palette as PaletteIcon,
+  Storage as StorageIcon,
+} from "@mui/icons-material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import {
   AppBar,
@@ -22,7 +27,9 @@ import type React from "react";
 import { useEffect, useState } from "react";
 import { AppearanceSettings } from "../../pages/AppearanceSettings";
 import { ConnectionSettings } from "../../pages/ConnectionSettings";
+import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
 import api from "../../services/api";
+import { getSettingsCategoryDescription, getSettingsCategoryLabel, type MobileSettingsView } from "../Settings/settingsNavigation";
 
 interface MobileSettingsDrawerProps {
   open: boolean;
@@ -30,10 +37,8 @@ interface MobileSettingsDrawerProps {
   /** Callback when connections are added, updated, or deleted */
   onConnectionsChanged?: () => void;
   /** Initial view to show when drawer opens */
-  initialView?: SettingsView;
+  initialView?: MobileSettingsView;
 }
-
-type SettingsView = "main" | "appearance" | "connections";
 
 /**
  * MobileSettingsDrawer
@@ -47,7 +52,7 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
   onConnectionsChanged,
   initialView = "main",
 }) => {
-  const [currentView, setCurrentView] = useState<SettingsView>(initialView);
+  const [currentView, setCurrentView] = useState<MobileSettingsView>(initialView);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -79,8 +84,10 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
     switch (currentView) {
       case "appearance":
         return "Appearance";
-      case "connections":
-        return "Connections";
+      case "smb-connections":
+        return getSettingsCategoryLabel("smb-connections");
+      case "local-drives":
+        return getSettingsCategoryLabel("local-drives");
       default:
         return "Settings";
     }
@@ -137,17 +144,17 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
                 {isAdmin && (
                   <>
                     <ListItem disablePadding>
-                      <ListItemButton onClick={() => setCurrentView("connections")} sx={{ py: 2 }}>
+                      <ListItemButton onClick={() => setCurrentView("smb-connections")} sx={{ py: 2 }}>
                         <ListItemIcon>
                           <StorageIcon sx={{ color: "primary.main", fontSize: 28 }} />
                         </ListItemIcon>
                         <ListItemText
                           primary={
                             <Typography variant="h6" fontWeight="medium">
-                              Connections
+                              {getSettingsCategoryLabel("smb-connections")}
                             </Typography>
                           }
-                          secondary="Manage SMB connections"
+                          secondary={getSettingsCategoryDescription("smb-connections")}
                         />
                         <ChevronRightIcon sx={{ color: "text.secondary" }} />
                       </ListItemButton>
@@ -155,13 +162,33 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
                     <Divider />
                   </>
                 )}
+
+                <ListItem disablePadding>
+                  <ListItemButton onClick={() => setCurrentView("local-drives")} sx={{ py: 2 }}>
+                    <ListItemIcon>
+                      <ComputerIcon sx={{ color: "primary.main", fontSize: 28 }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Typography variant="h6" fontWeight="medium">
+                          {getSettingsCategoryLabel("local-drives")}
+                        </Typography>
+                      }
+                      secondary={getSettingsCategoryDescription("local-drives")}
+                    />
+                    <ChevronRightIcon sx={{ color: "text.secondary" }} />
+                  </ListItemButton>
+                </ListItem>
+                <Divider />
               </List>
             </Box>
           )}
 
           {currentView === "appearance" && <AppearanceSettings />}
 
-          {currentView === "connections" && <ConnectionSettings onConnectionsChanged={onConnectionsChanged} />}
+          {currentView === "smb-connections" && <ConnectionSettings onConnectionsChanged={onConnectionsChanged} />}
+
+          {currentView === "local-drives" && <LocalDrivesSettings onConnectionsChanged={onConnectionsChanged} />}
         </Box>
       </Box>
     </Drawer>

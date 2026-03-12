@@ -24,6 +24,7 @@ import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
 import api from "../../../services/api";
 import { logger } from "../../../services/logger";
 import type { DirectorySearchResult } from "../../../types";
+import { normalizeQuerySeparators } from "./normalizeQuerySeparators";
 import type { SearchProvider, SearchResult, SearchStatusInfo } from "./types";
 import { DIRECTORY_SEARCH_PLACEHOLDER } from "./types";
 
@@ -37,36 +38,10 @@ const DIRECTORY_SEARCH_DEBOUNCE_MS = 200;
 /** Minimum query length to trigger a directory search */
 const DIRECTORY_MIN_QUERY_LENGTH = 2;
 
-// ============================================================================
-// Path separator constant
-// ============================================================================
-
 const PATH_SEPARATOR = "/";
-
-/** Windows-style backslash separator (normalised to forward slash) */
-const BACKSLASH_SEPARATOR = "\\";
 
 /** Ellipsis prefix used when the path is truncated */
 const ELLIPSIS_PREFIX = "…/";
-
-// ============================================================================
-// normalizeQuerySeparators — replace backslashes with forward slashes
-// ============================================================================
-
-/**
- * Normalises path separators in a search query so that both ``/`` and ``\``
- * work for cross-directory matching.
- */
-//
-// normalizeQuerySeparators
-//
-export function normalizeQuerySeparators(query: string): string {
-  /**
-   * Replace all backslash occurrences with forward slashes.
-   */
-
-  return query.replaceAll(BACKSLASH_SEPARATOR, PATH_SEPARATOR);
-}
 
 // ============================================================================
 // splitPathSegments — splits a path into segments preserving separators

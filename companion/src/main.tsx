@@ -2,14 +2,16 @@ import { listen } from "@tauri-apps/api/event";
 import { render } from "preact";
 import { App } from "./App";
 import { DoneEditingWindow } from "./components/DoneEditingWindow";
+import { PairingWindow } from "./components/PairingWindow";
 import { applyFallbackTheme, applyThemeFromBase64 } from "./lib/theme";
 import { scheduleUpdateCheck } from "./lib/updateCheck";
 import "./styles/global.css";
 
 /**
  * Entry point — routes to the appropriate component based on the window's
- * URL path. The main window loads "/", while "Done Editing" secondary
- * windows load "/done-editing" (set by the Rust `WebviewUrl::App` call).
+ * URL path. The main window loads "/", the dedicated pairing window loads
+ * "/pairing", and "Done Editing" secondary windows load "/done-editing"
+ * (set by the Rust `WebviewUrl::App` call).
  *
  * Applies a fallback theme immediately (based on OS light/dark preference),
  * then listens for "apply-theme" events from the Rust backend to switch to
@@ -18,6 +20,19 @@ import "./styles/global.css";
 
 // Apply a sensible default theme before the first paint.
 applyFallbackTheme();
+
+// Block browser-style reload shortcuts so the companion behaves like a native app.
+const preventReloadShortcut = (event: KeyboardEvent) => {
+  const isReloadShortcut = event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r");
+  if (!isReloadShortcut) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+};
+
+window.addEventListener("keydown", preventReloadShortcut, true);
 
 // Listen for theme updates from the Rust backend (deep-link URI payload).
 listen<string>("apply-theme", (event) => {
@@ -30,6 +45,8 @@ if (root) {
 
   if (path === "/done-editing") {
     render(<DoneEditingWindow />, root);
+  } else if (path === "/pairing") {
+    render(<PairingWindow />, root);
   } else {
     render(<App />, root);
     // Check for updates shortly after main UI renders

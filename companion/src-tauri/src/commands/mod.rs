@@ -8,4 +8,5 @@ pub mod app_picker;
 pub mod download;
 pub mod file_info;
 pub mod open_file;
+pub mod pairing;
 pub mod upload;

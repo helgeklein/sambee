@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { log } from "../lib/logger";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
 import type { NativeApp } from "../types";
+import { ModalDialog } from "./ModalDialog";
 import "../styles/app-picker.css";
 
 /** Props for the AppPicker component. */
@@ -58,6 +59,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [alwaysUse, setAlwaysUse] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const titleId = `app-picker-title-${extension}`;
 
   // Keep the listbox focused and scroll the selected item into view
   useEffect(() => {
@@ -222,23 +224,16 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
     [state, handleOpen]
   );
 
-  //
-  // handleDialogKeyDown
-  //
-  /** Dialog-level keyboard handler (Escape to close). */
-  const handleDialogKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    },
-    [onCancel]
-  );
-
   return (
-    <div class="app-picker" role="dialog" aria-label="Application picker" onKeyDown={handleDialogKeyDown}>
-      <h2 class="app-picker__header">
+    <ModalDialog
+      onRequestClose={onCancel}
+      initialFocusRef={listRef}
+      titleId={titleId}
+      panelClassName="app-picker"
+      includeDefaultOverlayClass={false}
+      includeDefaultPanelClass={false}
+    >
+      <h2 id={titleId} class="app-picker__header">
         Choose an app to open this <span class="app-picker__extension">.{extension}</span> file
       </h2>
 
@@ -320,7 +315,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   );
 }
 

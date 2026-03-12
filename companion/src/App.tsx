@@ -14,6 +14,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { AppPicker } from "./components/AppPicker";
 import type { LargeFileInfo } from "./components/LargeFileWarning";
@@ -142,7 +143,12 @@ export function App() {
   //
   /** Called when the user closes the preferences panel. */
   const handlePreferencesClose = useCallback(() => {
-    setView({ kind: "idle" });
+    void getCurrentWindow()
+      .close()
+      .catch((err) => {
+        log.warn("Failed to close preferences window:", err);
+        setView({ kind: "idle" });
+      });
   }, []);
 
   // ── Render overlays (recovery + large file) ───────────────────────────

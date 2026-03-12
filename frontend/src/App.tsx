@@ -13,6 +13,7 @@ const SettingsLayout = lazy(() => import("./components/Settings/SettingsLayout")
 const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
 const ConnectionSettings = lazy(() => import("./pages/ConnectionSettings").then((m) => ({ default: m.ConnectionSettings })));
 const AppearanceSettings = lazy(() => import("./pages/AppearanceSettings").then((m) => ({ default: m.AppearanceSettings })));
+const LocalDrivesSettings = lazy(() => import("./pages/LocalDrivesSettings").then((m) => ({ default: m.LocalDrivesSettings })));
 
 //
 // AppContent
@@ -38,8 +39,10 @@ function AppContent() {
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/settings" element={<SettingsLayout />}>
                 <Route index element={<Settings />} />
-                <Route path="connections" element={<ConnectionSettings />} />
                 <Route path="appearance" element={<AppearanceSettings />} />
+                <Route path="connections" element={<Navigate to="/settings/smb-connections" replace />} />
+                <Route path="smb-connections" element={<ConnectionSettings />} />
+                <Route path="local-drives" element={<LocalDrivesSettings />} />
               </Route>
               <Route path="/" element={<Navigate to="/browse" replace />} />
             </Routes>

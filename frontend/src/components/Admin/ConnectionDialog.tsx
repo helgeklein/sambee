@@ -23,7 +23,7 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
 import type { Connection, ConnectionCreate } from "../../types";
-import { isApiError } from "../../types";
+import { getApiErrorMessage } from "../../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { CONNECTION_DIALOG_STRINGS } from "./connectionDialogConstants";
 
@@ -148,7 +148,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         setTestResult(result as { status: "success" | "error"; message: string });
       }
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to test connection" : "Failed to test connection";
+      const message = getApiErrorMessage(error, "Failed to test connection");
       setTestResult({
         status: "error",
         message,
@@ -183,7 +183,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       onSave();
       onClose();
     } catch (error: unknown) {
-      const message = isApiError(error) ? error.response?.data?.detail || "Failed to save connection" : "Failed to save connection";
+      const message = getApiErrorMessage(error, "Failed to save connection");
       setTestResult({
         status: "error",
         message,

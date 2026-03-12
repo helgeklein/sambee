@@ -21,6 +21,9 @@ export default defineConfig({
     format: "es",
   },
   optimizeDeps: {
+    // Crawl lazy-loaded route modules during startup so navigation does not
+    // trigger mid-session dependency re-optimization and a forced client reload.
+    entries: ["index.html", "src/**/*.{ts,tsx}"],
     include: ["yet-another-react-lightbox", "yet-another-react-lightbox/plugins/zoom"],
   },
   build: {

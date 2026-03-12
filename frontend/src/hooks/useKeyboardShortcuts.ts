@@ -1,5 +1,22 @@
 import { useEffect } from "react";
 
+const INTERACTIVE_SHORTCUT_BLOCK_SELECTOR = [
+  "button",
+  "select",
+  "a[href]",
+  '[role="button"]',
+  '[role="menuitem"]',
+  '[contenteditable="true"]',
+].join(", ");
+
+function hasInteractiveFocus(activeElement: Element | null, inputSelector: string): boolean {
+  if (!activeElement) {
+    return false;
+  }
+
+  return activeElement.matches(`${inputSelector}, ${INTERACTIVE_SHORTCUT_BLOCK_SELECTOR}`);
+}
+
 /**
  * Keyboard shortcut configuration
  */
@@ -94,7 +111,7 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
  *
  * Features:
  * - Automatic modifier key handling (Ctrl/Cmd, Shift, Alt)
- * - Input field awareness (shortcuts disabled in inputs by default)
+ * - Interactive control awareness (shortcuts disabled in focused controls by default)
  * - Conditional enabling/disabling of shortcuts
  * - Priority system for overlapping shortcuts (higher priority checked first)
  * - Multiple key alternatives (e.g., ArrowRight or 'd' for same action)
@@ -137,17 +154,17 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
 
-      // Check if any input element has focus
+      // Check if any interactive control has focus
       const activeElement = document.activeElement;
-      const inputHasFocus = activeElement?.matches(inputSelector) ?? false;
+      const interactiveHasFocus = hasInteractiveFocus(activeElement, inputSelector);
 
       // Find matching shortcut (sorted by priority)
       for (const shortcut of sortedShortcuts) {
         // Skip if shortcut is disabled
         if (shortcut.enabled === false) continue;
 
-        // Skip if input has focus and shortcut doesn't allow it
-        if (inputHasFocus && !shortcut.allowInInput) continue;
+        // Skip if an interactive control has focus and shortcut doesn't explicitly allow it
+        if (interactiveHasFocus && !shortcut.allowInInput) continue;
 
         // Check modifier keys
         if (shortcut.ctrl && !(event.ctrlKey || event.metaKey)) continue;

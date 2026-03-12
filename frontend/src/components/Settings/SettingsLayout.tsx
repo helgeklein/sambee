@@ -7,6 +7,7 @@ import { AppBar, Box, IconButton, Toolbar, Typography, useMediaQuery, useTheme }
 import { useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { SettingsSidebar } from "./SettingsSidebar";
+import { getSettingsCategoryByPath, getSettingsCategoryLabel } from "./settingsNavigation";
 
 /**
  * SettingsLayout
@@ -30,8 +31,12 @@ export function SettingsLayout() {
 
   // Get page title from current route
   const getPageTitle = () => {
-    if (location.pathname === "/settings/appearance") return "Appearance";
-    if (location.pathname === "/settings/connections") return "Connections";
+    const category = getSettingsCategoryByPath(
+      location.pathname === "/settings/connections" ? "/settings/smb-connections" : location.pathname
+    );
+    if (category) {
+      return getSettingsCategoryLabel(category);
+    }
     return "Settings";
   };
 

@@ -207,6 +207,26 @@ class TestGetFileInfo:
         )
         assert response.status_code == 401
 
+    def test_get_file_info_not_found(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Missing files should return 404 so copy preflight can continue."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.side_effect = FileNotFoundError("Path not found: /missing.txt")
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/info",
+            headers=auth_headers_user,
+            params={"path": "/missing.txt"},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Path not found: /missing.txt"
+
 
 @pytest.mark.unit
 class TestFileInfoModel:

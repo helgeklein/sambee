@@ -337,20 +337,20 @@ describe("API Service", () => {
   });
 
   describe("Viewer Operations", () => {
-    it("getViewUrl() constructs correct URL with token", () => {
+    it("getViewUrl() constructs correct URL with token", async () => {
       localStorage.setItem("access_token", "viewer-token");
 
-      const url = apiService.getViewUrl("conn1", "/test.pdf");
+      const url = await apiService.getViewUrl("conn1", "/test.pdf");
 
       expect(url).toContain("/viewer/conn1/file");
       expect(url).toContain("path=%2Ftest.pdf");
       expect(url).toContain("token=viewer-token");
     });
 
-    it("getDownloadUrl() constructs correct URL with token", () => {
+    it("getDownloadUrl() constructs correct URL with token", async () => {
       localStorage.setItem("access_token", "download-token");
 
-      const url = apiService.getDownloadUrl("conn1", "/data.zip");
+      const url = await apiService.getDownloadUrl("conn1", "/data.zip");
 
       expect(url).toContain("/viewer/conn1/download");
       expect(url).toContain("path=%2Fdata.zip");

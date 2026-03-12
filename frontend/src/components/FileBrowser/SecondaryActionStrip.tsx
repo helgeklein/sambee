@@ -20,6 +20,7 @@
  */
 
 import { Box } from "@mui/material";
+import type { CompanionStatus } from "../../hooks/useCompanion";
 import type { SortField, ViewMode } from "../../pages/FileBrowser/types";
 import type { Connection } from "../../types";
 import { ConnectionSelector } from "./ConnectionSelector";
@@ -55,6 +56,10 @@ interface SecondaryActionStripProps {
   onBlurToFileList?: () => void;
   /** Remove controls from Tab order (dual-pane mode uses Tab for pane switching). */
   disableTabFocus?: boolean;
+  /** Companion pairing status — when unavailable or unpaired, shows management action in the selector. */
+  companionStatus?: CompanionStatus;
+  /** Callback to open local-drive settings. */
+  onManageLocalDrives?: () => void;
 }
 
 // ============================================================================
@@ -78,6 +83,8 @@ export function SecondaryActionStrip({
   hasFiles,
   onBlurToFileList,
   disableTabFocus,
+  companionStatus,
+  onManageLocalDrives,
 }: SecondaryActionStripProps) {
   return (
     <Box
@@ -99,6 +106,8 @@ export function SecondaryActionStrip({
           onConnectionChange={onConnectionChange}
           onAfterChange={onBlurToFileList}
           disableTabFocus={disableTabFocus}
+          companionStatus={companionStatus}
+          onManageLocalDrives={onManageLocalDrives}
         />
       </Box>
       {hasFiles && (

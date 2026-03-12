@@ -154,7 +154,7 @@ describe("Browser - PDF Viewer Integration", () => {
     mockedApi.getPdfBlob.mockResolvedValue(new Blob(["mock pdf content"], { type: "application/pdf" }));
 
     // Mock download URL
-    mockedApi.getDownloadUrl.mockReturnValue("/api/viewer/test-server/download?path=/document.pdf");
+    mockedApi.getDownloadUrl.mockResolvedValue("/api/viewer/test-server/download?path=/document.pdf");
   });
 
   describe("Opening PDF", () => {

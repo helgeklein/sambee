@@ -11,30 +11,12 @@ import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getMarkdownContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
+import { getApiErrorMessage } from "../../utils/apiErrors";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 import "highlight.js/styles/github.css";
-
-/**
- * Extract error message from API error or exception
- */
-const getErrorMessage = (err: unknown): string => {
-  if (isApiError(err) && err.response?.data?.detail) {
-    return err.response.data.detail;
-  }
-  if (isApiError(err) && err.message) {
-    if (err.response?.data) {
-      const data = err.response.data as Record<string, unknown>;
-      if (typeof data["detail"] === "string") {
-        return data["detail"];
-      }
-    }
-    return `Failed to load markdown: ${err.message}`;
-  }
-  return "Failed to load markdown file";
-};
 
 /**
  * Markdown Viewer Component
@@ -76,7 +58,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         }
 
         // Show "server busy" only for actual transient/network errors
-        const errorMessage = checkIsTransientError(err) ? getTransientErrorMessage() : getErrorMessage(err);
+        const errorMessage = checkIsTransientError(err)
+          ? getTransientErrorMessage()
+          : getApiErrorMessage(err, "Failed to load markdown file", { includeOriginalMessage: true });
 
         setError(errorMessage);
         logError("Error loading markdown:", {

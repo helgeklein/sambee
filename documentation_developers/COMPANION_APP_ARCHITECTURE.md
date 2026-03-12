@@ -44,7 +44,7 @@ The Sambee Companion is a lightweight desktop application (Tauri v2 + Preact) th
 **Key characteristics:**
 
 - ~3–6 MB binary (Tauri v2 uses the system WebView instead of bundling Chromium).
-- On-demand only — no autostart, no background service. The OS launches it via the URI scheme handler.
+- Primarily on-demand, but can also auto-start at user sign-in. This keeps Local Drives available without requiring a manual launch while still avoiding a background service.
 - Single-instance — subsequent `sambee://` URIs are routed to the running instance.
 - System tray presence while active editing sessions are open.
 
@@ -757,13 +757,13 @@ Stored via `tauri-plugin-store` in a persistent JSON file:
 
 | Setting                  | Type       | Default                | Description                              |
 |--------------------------|------------|------------------------|------------------------------------------|
-| `allowedServers`         | `string[]` | `[]`                   | Trusted Sambee server URLs               |
+| `allowedServers`         | `string[]` | `[]`                   | Legacy trusted server list (not shown in current Preferences UI) |
 | `appPreferences`         | `object`   | `{}`                   | Per-extension app overrides              |
 | `tempFileRetentionDays`  | `number`   | `7`                    | Days before recycled files are deleted   |
 | `uploadConflictAction`   | `string`   | `"ask"`                | `"ask"` / `"overwrite"` / `"save-copy"` |
 | `showNotifications`      | `boolean`  | `true`                 | Desktop notifications enabled            |
 
-The Preferences panel is accessible from the system tray menu.
+The Preferences panel is accessible from the system tray menu. The current Preferences UI exposes paired browser management for local-drive access; the older `allowedServers` store field remains only for compatibility.
 
 ---
 
@@ -1085,7 +1085,7 @@ When the companion is not installed and "Open in app" is clicked:
 | HTTP client                   | `reqwest`         | Async, multipart upload, TLS built-in                                        |
 | App enumeration               | Per-OS Rust       | Must call platform-native APIs; no cross-platform abstraction exists         |
 | Token in URI                  | Short-lived JWT   | Avoids storing secrets in URI; exchanged immediately for session token        |
-| Launch mode                   | On-demand only    | OS launches via URI scheme handler; no autostart, no background service      |
+| Launch mode                   | On-demand + optional autostart | Deep links still cold-start the app, but users can also enable start-at-sign-in so Local Drives work immediately after login without a manual launch. |
 | Editor close detection        | "Done Editing" window | No production software reliably detects arbitrary editor closes. Explicit user action is the only universal approach. |
 | ~~Process monitoring~~        | Rejected          | `sysinfo` process scan + OS file-lock detection are fragile heuristics       |
 | Temp file naming              | `-copy` suffix    | Makes clear the file is a working copy; avoids confusion with the original   |

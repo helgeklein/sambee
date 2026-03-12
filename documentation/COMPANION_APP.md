@@ -10,7 +10,7 @@ The Sambee Companion is a lightweight desktop application that lets you open fil
 4. A small "Done Editing" window appears — click **Upload & Close** when finished
 5. The modified file is uploaded back to the server and the temp copy is cleaned up
 
-The Companion runs quietly in your system tray. No browser extensions or manual setup are required beyond initial installation.
+The Companion runs quietly in your system tray. No browser extensions or manual setup are required beyond initial installation. Local Drives access requires the companion to be running, so starting it automatically when you sign in is recommended.
 
 ## Installation
 
@@ -18,7 +18,8 @@ The Companion runs quietly in your system tray. No browser extensions or manual 
 
 1. Download the installer from the [Releases](https://github.com/helgeklein/sambee/releases) page
 2. Run the installer and follow the prompts
-3. The Companion starts automatically and appears in the system tray
+3. Leave **Start Sambee Companion when I sign in** enabled if you want Local Drives access to be available immediately after logging in
+4. The Companion starts automatically and appears in the system tray
 
 ### macOS
 
@@ -69,9 +70,13 @@ The Companion lives in your system tray (Windows/Linux) or menu bar (macOS). Rig
 
 Access preferences from the system tray menu → **Preferences…**
 
-### Trusted Servers
+### Paired Browsers
 
-A list of Sambee server URLs that are allowed to initiate edit sessions. Servers are added automatically on first use, but you can also add or remove them manually.
+A list of browser origins that are allowed to access local drives through this companion. Removing one forces that browser to pair again before it can use Local Drives.
+
+### Startup
+
+Enable **Start Sambee Companion when I sign in** to keep the companion available for Local Drives without launching it manually. On Windows, the installer offers the same setting during setup.
 
 ### Upload Conflict Resolution
 
@@ -126,6 +131,7 @@ The Companion checks for updates automatically in the background. When an update
 ### "Open in App" does nothing
 
 - Make sure the Companion is running (look for the Sambee icon in your system tray)
+- If you use Local Drives regularly, enable **Start Sambee Companion when I sign in** in Preferences so the companion is already running after login
 - Check that your browser allowed the `sambee://` deep link. Some browsers require re-allowing after updates
 - On Linux, verify the deep-link handler is registered: `xdg-mime query default x-scheme-handler/sambee`
 
