@@ -105,7 +105,7 @@ describe("Browse → View Flow", () => {
     it("should handle network errors gracefully", async () => {
       // Mock network error (no response object)
       const getFileContentSpy = vi.spyOn(apiService, "getFileContent");
-      getFileContentSpy.mockRejectedValueOnce({
+      getFileContentSpy.mockRejectedValue({
         code: "ERR_NETWORK",
         message: "Network Error",
       });

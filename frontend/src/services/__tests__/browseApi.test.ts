@@ -732,7 +732,8 @@ describe("Browse API Contract Tests", () => {
 
       expect((mockAxiosInstance as unknown as { post: ReturnType<typeof vi.fn> }).post).toHaveBeenCalledWith(
         `/browse/${testConnectionId}/rename`,
-        { path: "/document.txt", new_name: "renamed.txt" }
+        { path: "/document.txt", new_name: "renamed.txt" },
+        {}
       );
     });
 

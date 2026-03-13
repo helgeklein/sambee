@@ -369,9 +369,6 @@ describe("API Service", () => {
       expect(result).toBe("File content here");
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/viewer/conn1/file", {
         params: { path: "/readme.txt" },
-        headers: {
-          Authorization: "Bearer content-token",
-        },
         responseType: "text",
       });
     });

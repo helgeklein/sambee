@@ -3,6 +3,19 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./mocks/server";
 
+const mockLocation = {
+  href: "http://localhost:3000/",
+  origin: "http://localhost:3000",
+  protocol: "http:",
+  host: "localhost:3000",
+  hostname: "localhost",
+  port: "3000",
+  pathname: "/",
+  search: "",
+  hash: "",
+  reload: vi.fn(),
+};
+
 // Suppress jsdom CSS parsing errors and React act warnings
 const originalStderrWrite = process.stderr.write.bind(process.stderr);
 const originalConsoleError = console.error.bind(console);
@@ -28,17 +41,7 @@ console.error = (...args: any[]) => {
 // Set up fake location for jsdom/MSW - must be before MSW setup
 Object.defineProperty(window, "location", {
   writable: true,
-  value: {
-    href: "http://localhost:3000/",
-    origin: "http://localhost:3000",
-    protocol: "http:",
-    host: "localhost:3000",
-    hostname: "localhost",
-    port: "3000",
-    pathname: "/",
-    search: "",
-    hash: "",
-  },
+  value: mockLocation,
 });
 
 // Start MSW server before all tests
@@ -149,8 +152,4 @@ Object.defineProperty(window, "localStorage", {
   value: localStorageMock,
 });
 
-// Mock window.location
-// biome-ignore lint/suspicious/noExplicitAny: test setup
-delete (window as any).location;
-// biome-ignore lint/suspicious/noExplicitAny: test setup
-window.location = { href: "", reload: vi.fn() } as any;
+// Keep a stable, fully populated location object for tests that construct URLs.
