@@ -2,7 +2,7 @@
 
 ## Overview
 
-The keyboard shortcuts system provides a centralized, declarative way to manage keyboard shortcuts across all viewers in the application. Instead of scattering shortcut definitions and tooltip strings across multiple files, everything is defined in one place and reused throughout the app.
+The keyboard shortcuts system provides a centralized, declarative way to manage keyboard shortcuts across viewers and the file browser. Instead of scattering shortcut definitions and tooltip strings across multiple files, bindings live in shared config and are consumed by feature-specific handlers.
 
 ## Architecture
 
@@ -10,12 +10,14 @@ The keyboard shortcuts system provides a centralized, declarative way to manage 
 
 1. **`/frontend/src/config/keyboardShortcuts.ts`**: Central registry of all keyboard shortcut definitions
 2. **`/frontend/src/hooks/useKeyboardShortcuts.ts`**: React hook for handling keyboard shortcuts
-3. **Viewer Components**: Use shortcuts from the registry and inject handlers
+3. **`/frontend/src/config/browserCommands.ts`**: File-browser command registry used by command palette mode
+4. **Feature Components**: Viewers and file-browser surfaces use shortcuts from the registry and inject handlers
 
 ### Key Features
 
 - **Single source of truth**: All shortcut keys and labels defined in one file
 - **App-wide reusability**: Same shortcuts used across PDF viewer, image viewer, etc.
+- **Command discoverability**: File-browser actions are modeled as commands, not only raw keybindings
 - **Auto-generated labels**: Display labels auto-generated from shortcut configuration
 - **Type safety**: TypeScript interfaces ensure consistency
 - **Declarative API**: No imperative event handling code in components
@@ -26,10 +28,17 @@ The keyboard shortcuts system provides a centralized, declarative way to manage 
 frontend/src/
 ├── config/
 │   └── keyboardShortcuts.ts      # Centralized shortcut definitions
+│   └── browserCommands.ts        # File-browser command registry
 ├── hooks/
 │   └── useKeyboardShortcuts.ts   # Hook for handling shortcuts
+├── pages/
+│   └── FileBrowser.tsx           # Registers browser shortcuts and routes actions
 └── components/
-    └── Viewer/
+  └── FileBrowser/
+    ├── UnifiedSearchBar.tsx  # Multi-mode quick bar shell
+    └── search/               # Quick-nav, filter, and command providers
+components/
+└── Viewer/
         ├── PDFViewer.tsx         # Uses shortcuts from config
         ├── ImageViewer.tsx       # Uses shortcuts from config
         └── ViewerControls.tsx    # Uses shortcuts for tooltips
@@ -157,6 +166,64 @@ const ViewerControls = () => {
 ```
 
 The `withShortcut()` function formats the shortcut as: `"Download (Ctrl+S)"`
+
+## File Browser Model
+
+The file browser now uses the centralized shortcut registry together with a command registry. Shortcuts remain defined in `frontend/src/config/keyboardShortcuts.ts`, while discoverable browser actions live in `frontend/src/config/browserCommands.ts`.
+
+### Quick Bar Modes
+
+The file browser now uses one main smart bar plus command mode:
+
+- **Navigate**: the default mode opened by `Ctrl+K`; merges current-pane filtering with directory jump results
+- **Commands**: entered directly via `Ctrl+P` or `F1`, or by typing `>` as the first character in the smart bar
+
+The quick bar captures the pane that opened it. In dual-pane mode, results continue to target that pane even if the other pane becomes active before selection.
+
+### Current File Browser Shortcuts
+
+- `Ctrl+K`: Open Smart Navigation
+- `Ctrl+Alt+F`: Compatibility alias for Smart Navigation
+- `Ctrl+P`: Show Commands
+- `F1`: Alternate binding for Show Commands
+- `Ctrl+,`: Open Settings
+- `?`: Show keyboard shortcuts help
+- `Backspace`: Go up one directory
+- `Ctrl+R`: Refresh file list
+- `F2`: Rename focused item
+- `Delete`: Delete focused item
+- `F7`: Create new directory
+- `Shift+F7`: Create new file
+- `Ctrl+Enter`: Open focused file in companion app
+- `Ctrl+B`: Toggle dual-pane view
+- `Ctrl+1`: Focus left pane
+- `Ctrl+2`: Focus right pane
+- `Tab`: Switch active pane
+- `F5`: Copy to other pane
+- `F6`: Move to other pane
+
+### Command Registry Rules
+
+Each browser command definition includes:
+
+- `id`: stable internal identifier
+- `title`: user-facing command label
+- `category`: command-palette grouping
+- `defaultShortcutIds`: links back to centralized shortcut definitions when a shortcut exists
+- `isEnabled(context)`: context-aware availability check
+- `run(context)`: action handler
+- `selectionFocusTarget`: post-selection focus behavior for quick-bar flows
+
+This split keeps keybinding policy centralized while allowing the browser command palette to expose actions even when users do not know the shortcut.
+
+### Focus and Interaction Rules
+
+- Opening the quick bar focuses the input.
+- Selecting a navigation or filter result returns focus to the relevant file list.
+- Selecting commands that switch quick-bar modes keeps focus in the quick bar.
+- Commands that open a dialog or settings surface do not force focus back to the file list.
+- Pane-switching shortcuts do not fire while the quick bar input is focused.
+- Typing `>` as the first character in the smart bar switches the bar into command mode without leaving the surface.
 
 ## Key Auto-Formatting
 
@@ -387,19 +454,23 @@ it("downloads on Ctrl+S", () => {
 ## Future Enhancements
 
 Possible improvements:
-- **Help dialog**: Show all available shortcuts in a modal
+- **App-wide command palette**: Extend the command model beyond the file browser
 - **Customization**: Allow users to customize shortcuts
-- **Context-aware**: Show different shortcuts based on current view/mode
+- **Context-aware surfacing**: Show different shortcuts based on current view/mode
 - **Conflicts detection**: Warn about conflicting shortcuts at build time
 - **Platform-specific**: Different shortcuts for Windows/Mac/Linux
 
 ## Related Files
 
 - `frontend/src/config/keyboardShortcuts.ts` - Shortcut definitions
+- `frontend/src/config/browserCommands.ts` - File-browser command definitions
 - `frontend/src/hooks/useKeyboardShortcuts.ts` - Hook implementation
+- `frontend/src/pages/FileBrowser.tsx` - Browser-level shortcut registration and mode routing
+- `frontend/src/components/FileBrowser/UnifiedSearchBar.tsx` - Multi-mode quick bar UI
 - `frontend/src/components/Viewer/PDFViewer.tsx` - PDF viewer usage
 - `frontend/src/components/Viewer/ImageViewer.tsx` - Image viewer usage
 - `frontend/src/components/Viewer/ViewerControls.tsx` - Tooltip usage
+- `documentation_developers/KEYBOARD_NAVIGATION_IMPLEMENTATION_SPEC.md` - File browser keyboard navigation upgrade spec
 - `documentation_developers/KEYBOARD_SHORTCUTS_REFACTORING.md` - Original refactoring doc
 
 ## Migration Guide

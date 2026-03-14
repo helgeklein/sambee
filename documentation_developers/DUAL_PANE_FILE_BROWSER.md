@@ -70,6 +70,28 @@ Dual pane:    /browse/my-server/documents?p2=other-server/photos&active=2
 
 All shortcuts are centralized in `config/keyboardShortcuts.ts` and consumed via the `useKeyboardShortcuts` hook. The hook calls `preventDefault()` on matched shortcuts, overriding any browser defaults (e.g. Ctrl+1/2 tab switching).
 
+### Quick bar modes (`BROWSER_SHORTCUTS`)
+
+The file browser now uses one main smart bar plus command mode. The pane that opens the quick bar is captured at open time, and quick-bar actions continue to target that pane even if focus later moves to the other pane before selection.
+
+| Shortcut | Mode / Action |
+|----------|---------------|
+| **Ctrl+K** | Open smart navigation |
+| **Ctrl+Alt+F** | Compatibility alias for smart navigation |
+| **Ctrl+P** | Show browser commands |
+| **F1** | Alternate binding for Show browser commands |
+| **Ctrl+,** | Open settings |
+| **?** | Show keyboard shortcuts help |
+
+**Quick bar mode behavior:**
+- **Navigate** merges current-pane filtering with directory-jump results for the captured pane and connection.
+- Typing `>` as the first character in the smart bar switches the bar into command mode.
+- **Commands** shows only enabled browser commands for the current UI state.
+- Selecting a navigation or filter result returns focus to the relevant pane's file list.
+- Selecting commands that switch quick-bar modes keeps focus in the quick bar.
+- Commands that open settings or another surface do not force focus back to the file list.
+- `Ctrl+1`, `Ctrl+2`, and `Tab` pane-switching shortcuts do not fire while the quick bar input is focused.
+
 ### Pane navigation (`PANE_SHORTCUTS`)
 
 | Shortcut | Action |
@@ -96,6 +118,19 @@ All shortcuts are centralized in `config/keyboardShortcuts.ts` and consumed via 
 | **F6** | Move to other pane (dual mode only) |
 
 Shortcuts are disabled when dialogs are open or the viewer is active.
+
+### Browser command palette
+
+Command mode is powered by `frontend/src/config/browserCommands.ts`, not by ad hoc button handlers. Commands are grouped into categories such as Navigation, Files, Panes, View, Settings, and Help, and each command can declare:
+
+- a stable command id,
+- a user-facing title,
+- a category,
+- optional shortcut references,
+- context-aware enablement,
+- post-selection focus behavior.
+
+This allows the quick bar to act like a browser-scoped command palette while still reusing the centralized keyboard shortcut registry for the actual bindings.
 
 ## Multi-Select
 

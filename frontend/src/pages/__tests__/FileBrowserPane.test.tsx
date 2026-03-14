@@ -141,6 +141,10 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     setSortDirection: vi.fn(),
     viewMode: "list",
     setViewMode: vi.fn(),
+    currentDirectoryFilter: "",
+    setCurrentDirectoryFilter: vi.fn(),
+    clearCurrentDirectoryFilter: vi.fn(),
+    isCurrentDirectoryFilterActive: false,
     focusedIndex: 0,
 
     // Selection state (multi-select)

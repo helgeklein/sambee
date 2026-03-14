@@ -12,14 +12,17 @@ export const STATUS_BAR_HEIGHT = 32;
 interface StatusBarProps {
   files: FileEntry[];
   focusedIndex: number;
+  activeFilter?: string;
 }
 
 /**
  * Status bar showing selected file info and total count
  * Desktop only component
  */
-export function StatusBar({ files, focusedIndex }: StatusBarProps) {
-  if (files.length === 0) {
+export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps) {
+  const hasActiveFilter = (activeFilter?.trim().length ?? 0) > 0;
+
+  if (files.length === 0 && !hasActiveFilter) {
     return null;
   }
 
@@ -88,17 +91,32 @@ export function StatusBar({ files, focusedIndex }: StatusBarProps) {
         })()}
       </Box>
 
-      {/* Right side - Total count */}
-      <Typography
-        variant="caption"
-        sx={{
-          whiteSpace: "nowrap",
-          color: (theme) => theme.palette.statusBar?.textSecondary || "inherit",
-          opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.7),
-        }}
-      >
-        {files.length} item{files.length !== 1 ? "s" : ""}
-      </Typography>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+        {hasActiveFilter && (
+          <Typography
+            variant="caption"
+            noWrap
+            sx={{
+              maxWidth: 240,
+              color: (theme) => theme.palette.statusBar?.textSecondary || "inherit",
+              opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.85),
+            }}
+          >
+            Filtered by: {activeFilter}
+          </Typography>
+        )}
+
+        <Typography
+          variant="caption"
+          sx={{
+            whiteSpace: "nowrap",
+            color: (theme) => theme.palette.statusBar?.textSecondary || "inherit",
+            opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.7),
+          }}
+        >
+          {files.length} item{files.length !== 1 ? "s" : ""}
+        </Typography>
+      </Box>
     </Box>
   );
 }

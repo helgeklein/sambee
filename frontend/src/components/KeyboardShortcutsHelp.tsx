@@ -23,11 +23,13 @@ interface GroupedShortcut {
  * Groups shortcuts with the same description into a single row
  */
 export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ open, onClose, shortcuts, title = "Keyboard Shortcuts" }) => {
+  const visibleShortcuts = shortcuts.filter((shortcut) => shortcut.enabled !== false);
+
   // Group shortcuts by description
   const groupedShortcuts: GroupedShortcut[] = [];
   const descriptionMap = new Map<string, string[]>();
 
-  for (const shortcut of shortcuts) {
+  for (const shortcut of visibleShortcuts) {
     const label = shortcut.label || shortcut.keys.toString();
     const existing = descriptionMap.get(shortcut.description);
     if (existing) {
@@ -39,7 +41,7 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
 
   // Convert map to array, preserving order from original shortcuts
   const seenDescriptions = new Set<string>();
-  for (const shortcut of shortcuts) {
+  for (const shortcut of visibleShortcuts) {
     if (!seenDescriptions.has(shortcut.description)) {
       seenDescriptions.add(shortcut.description);
       groupedShortcuts.push({

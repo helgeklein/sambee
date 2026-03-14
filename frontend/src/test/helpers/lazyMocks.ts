@@ -4,7 +4,6 @@
  */
 
 import React, { type ComponentType } from "react";
-import { vi } from "vitest";
 
 /**
  * Lazy mock for react-window List component
@@ -86,45 +85,6 @@ export function createSettingsDialogMock() {
           )
         : null,
   };
-}
-
-/**
- * Setup all common mocks using lazy factories
- * Call this in test files that need these mocks
- */
-export function setupLazyMocks() {
-  vi.mock("react-window", () => createReactWindowMock());
-  vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
-  vi.mock("../../components/Viewer/PDFViewer", () => createPDFViewerMock());
-  vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
-}
-
-/**
- * Setup only react-window mock
- */
-export function setupReactWindowMock() {
-  vi.mock("react-window", () => createReactWindowMock());
-}
-
-/**
- * Setup only MarkdownViewer mock
- */
-export function setupMarkdownViewerMock() {
-  vi.mock("../../components/Viewer/MarkdownViewer", () => createMarkdownViewerMock());
-}
-
-/**
- * Setup only PDFViewer mock
- */
-export function setupPDFViewerMock() {
-  vi.mock("../../components/Viewer/PDFViewer", () => createPDFViewerMock());
-}
-
-/**
- * Setup only SettingsDialog mock
- */
-export function setupSettingsDialogMock() {
-  vi.mock("../../components/Settings/SettingsDialog", () => createSettingsDialogMock());
 }
 
 /**

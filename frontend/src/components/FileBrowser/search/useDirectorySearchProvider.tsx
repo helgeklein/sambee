@@ -412,6 +412,7 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
 
   return {
     id: "directory-search",
+    modeLabel: "Quick Nav",
     placeholder: DIRECTORY_SEARCH_PLACEHOLDER,
     debounceMs: DIRECTORY_SEARCH_DEBOUNCE_MS,
     minQueryLength: DIRECTORY_MIN_QUERY_LENGTH,

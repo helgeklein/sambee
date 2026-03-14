@@ -30,11 +30,13 @@ import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
+import { useBrowserCommandsProvider, useSmartBrowserSearchProvider } from "../components/FileBrowser/search";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog from "../components/Settings/SettingsDialog";
 import type { MobileSettingsView, SettingsCategory } from "../components/Settings/settingsNavigation";
+import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
@@ -98,6 +100,9 @@ const Browser: React.FC = () => {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<MobileSettingsView>("main");
   const [showHelp, setShowHelp] = useState(false);
+  const [quickBarMode, setQuickBarMode] = useState<"smart" | "commands" | "filter">("smart");
+  const [quickBarActivationToken, setQuickBarActivationToken] = useState(0);
+  const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
 
   // ── Companion detection & drive management ──────────────────────────────
@@ -202,6 +207,13 @@ const Browser: React.FC = () => {
   const effectiveActivePaneIdRef = React.useRef(effectiveActivePaneId);
   effectiveActivePaneIdRef.current = effectiveActivePaneId;
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
+  const quickBarPane = quickBarPaneId === "right" && isDualMode ? rightPane : leftPane;
+
+  useEffect(() => {
+    if ((!isDualMode || !rightPane.connectionId) && quickBarPaneId === "right") {
+      setQuickBarPaneId("left");
+    }
+  }, [isDualMode, quickBarPaneId, rightPane.connectionId]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Helper Functions
@@ -1062,6 +1074,152 @@ const Browser: React.FC = () => {
     }
   }, [copyMoveProcessing]);
 
+  const handleOpenSettings = useCallback(() => {
+    if (useCompactLayout) {
+      setMobileSettingsInitialView("main");
+      setMobileSettingsOpen(true);
+      return;
+    }
+
+    setSettingsInitialCategory("appearance");
+    setSettingsOpen(true);
+  }, [useCompactLayout]);
+
+  const handleSettingsClose = () => {
+    setSettingsOpen(false);
+    // Return focus to active pane's file list after closing settings
+    setTimeout(() => {
+      activePane.listContainerEl?.focus();
+    }, 0);
+  };
+
+  const openLocalDrivesSettings = useCallback(() => {
+    if (useCompactLayout) {
+      setMobileSettingsInitialView("local-drives");
+      setMobileSettingsOpen(true);
+      return;
+    }
+
+    setSettingsInitialCategory("local-drives");
+    setSettingsOpen(true);
+  }, [useCompactLayout]);
+
+  const openQuickBarMode = useCallback(
+    (mode: "smart" | "commands" | "filter") => {
+      const sourcePaneId = effectiveActivePaneIdRef.current;
+      setQuickBarPaneId(sourcePaneId);
+      setQuickBarMode(mode);
+      setQuickBarActivationToken((current) => current + 1);
+      setTimeout(() => {
+        const sourcePane = sourcePaneId === "right" && isDualMode ? rightPane : leftPane;
+        sourcePane.searchInputRef.current?.focus();
+        sourcePane.searchInputRef.current?.select();
+      }, 0);
+    },
+    [isDualMode, leftPane, rightPane]
+  );
+
+  const browserCommandContext = useMemo(
+    () => ({
+      isDualMode,
+      useCompactLayout,
+      settingsOpen,
+      mobileSettingsOpen,
+      helpOpen: showHelp,
+      quickBarMode,
+      hasFiles: quickBarPane.filesRef.current.length > 0,
+      hasFocusedFile: quickBarPane.focusedIndex >= 0 && quickBarPane.filesRef.current[quickBarPane.focusedIndex] !== undefined,
+      connectionSelected: quickBarPane.connectionId !== "",
+      openQuickNav: () => openQuickBarMode("smart"),
+      openFilterMode: () => openQuickBarMode("filter"),
+      openCommandMode: () => openQuickBarMode("commands"),
+      openSettings: handleOpenSettings,
+      openLocalDriveSettings: openLocalDrivesSettings,
+      openHelp: () => setShowHelp(true),
+      refresh: quickBarPane.handleRefresh,
+      navigateUp: quickBarPane.handleNavigateUpDirectory,
+      openFocusedItem: quickBarPane.handleOpenFile,
+      renameFocusedItem: quickBarPane.handleRenameRequest,
+      deleteFocusedItem: quickBarPane.handleDeleteRequest,
+      newDirectory: quickBarPane.handleNewDirectoryRequest,
+      newFile: quickBarPane.handleNewFileRequest,
+      openInApp: () => {
+        void quickBarPane.handleOpenInApp();
+      },
+      toggleDualPane: handleToggleDualPane,
+      focusLeftPane: handleFocusLeftPane,
+      focusRightPane: handleFocusRightPane,
+      switchPane: handleSwitchPane,
+      copyToOtherPane: handleCopyToOtherPane,
+      moveToOtherPane: handleMoveToOtherPane,
+    }),
+    [
+      handleCopyToOtherPane,
+      handleFocusLeftPane,
+      handleFocusRightPane,
+      handleMoveToOtherPane,
+      handleOpenSettings,
+      handleSwitchPane,
+      handleToggleDualPane,
+      isDualMode,
+      mobileSettingsOpen,
+      openLocalDrivesSettings,
+      openQuickBarMode,
+      quickBarMode,
+      quickBarPane,
+      settingsOpen,
+      showHelp,
+      useCompactLayout,
+    ]
+  );
+
+  const browserCommandsProvider = useBrowserCommandsProvider({
+    commands: getEnabledBrowserCommands(browserCommandContext),
+    onSelect: (command) => command.run(browserCommandContext),
+  });
+
+  const smartBrowserSearchProvider = useSmartBrowserSearchProvider({
+    directoryProvider: quickBarPane.directorySearchProvider,
+    commandsProvider: browserCommandsProvider,
+  });
+
+  const filterInputProvider = useMemo(
+    () => ({
+      id: "current-directory-filter-input",
+      modeLabel: "Filter",
+      placeholder: "Filter files in the current directory",
+      debounceMs: 0,
+      minQueryLength: 0,
+      fetchResults: async () => [],
+      onSelect: () => undefined,
+      getStatusInfo: () => null,
+      shortcutHint: BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY.label,
+    }),
+    []
+  );
+
+  const quickBarProvider = useMemo(() => {
+    if (quickBarMode === "commands") {
+      return browserCommandsProvider;
+    }
+
+    if (quickBarMode === "filter") {
+      return filterInputProvider;
+    }
+
+    return smartBrowserSearchProvider;
+  }, [browserCommandsProvider, filterInputProvider, quickBarMode, smartBrowserSearchProvider]);
+
+  const quickBarQueryValue = quickBarMode === "filter" ? quickBarPane.currentDirectoryFilter : undefined;
+  const handleQuickBarQueryValueChange = quickBarMode === "filter" ? quickBarPane.setCurrentDirectoryFilter : undefined;
+  const handleQuickBarArrowDownToFileList = useCallback(() => {
+    if (quickBarPane.filesRef.current.length === 0) {
+      return;
+    }
+
+    quickBarPane.listContainerEl?.focus();
+  }, [quickBarPane]);
+
   // ──────────────────────────────────────────────────────────────────────────
   // Keyboard Shortcuts
   // ──────────────────────────────────────────────────────────────────────────
@@ -1142,10 +1300,34 @@ const Browser: React.FC = () => {
         handler: activePane.handleRefresh,
         enabled: browsing,
       },
-      // Quick navigate (Ctrl+K) — also focuses the search bar
+      // Smart navigation (Ctrl+K) — also focuses the search bar
       {
         ...BROWSER_SHORTCUTS.QUICK_NAVIGATE,
-        handler: activePane.handleFocusSearch,
+        handler: () => openQuickBarMode("smart"),
+        enabled: browsing,
+      },
+      // Smart navigation compatibility alias (Ctrl+Alt+F)
+      {
+        ...BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY,
+        handler: () => openQuickBarMode("filter"),
+        enabled: browsing,
+      },
+      // Command palette (Ctrl+P)
+      {
+        ...BROWSER_SHORTCUTS.COMMAND_PALETTE,
+        handler: () => openQuickBarMode("commands"),
+        enabled: noSettings,
+      },
+      // Command palette alternate binding (F1)
+      {
+        ...BROWSER_SHORTCUTS.COMMAND_PALETTE_ALTERNATE,
+        handler: () => openQuickBarMode("commands"),
+        enabled: noSettings,
+      },
+      // Open settings (Ctrl+,)
+      {
+        ...BROWSER_SHORTCUTS.OPEN_SETTINGS,
+        handler: handleOpenSettings,
         enabled: browsing,
       },
       // Show help
@@ -1247,16 +1429,17 @@ const Browser: React.FC = () => {
         ...PANE_SHORTCUTS.SWITCH_PANE,
         handler: handleSwitchPane,
         enabled: noSettings && isDualMode && noDialogOrCopyMove,
-        allowInInput: true,
       },
     ];
   }, [
     activePane,
+    handleOpenSettings,
     settingsOpen,
     mobileSettingsOpen,
     useCompactLayout,
     isDualMode,
     copyMoveDialogOpen,
+    openQuickBarMode,
     handleToggleDualPane,
     handleSwitchPane,
     handleFocusLeftPane,
@@ -1301,25 +1484,6 @@ const Browser: React.FC = () => {
     localStorage.removeItem("access_token");
     navigate("/login");
   };
-
-  const handleSettingsClose = () => {
-    setSettingsOpen(false);
-    // Return focus to active pane's file list after closing settings
-    setTimeout(() => {
-      activePane.listContainerEl?.focus();
-    }, 0);
-  };
-
-  const openLocalDrivesSettings = useCallback(() => {
-    if (useCompactLayout) {
-      setMobileSettingsInitialView("local-drives");
-      setMobileSettingsOpen(true);
-      return;
-    }
-
-    setSettingsInitialCategory("local-drives");
-    setSettingsOpen(true);
-  }, [useCompactLayout]);
 
   /**
    * handleConnectionsChanged
@@ -1428,7 +1592,7 @@ const Browser: React.FC = () => {
           activePane.setCurrentPath("");
           activePane.setViewInfo(null);
         }}
-        onOpenSettings={() => setMobileSettingsOpen(true)}
+        onOpenSettings={handleOpenSettings}
         onLogout={handleLogout}
       />
 
@@ -1443,14 +1607,16 @@ const Browser: React.FC = () => {
             />
           ) : (
             <DesktopToolbar
-              searchProvider={activePane.directorySearchProvider}
-              searchInputRef={activePane.searchInputRef}
+              searchProvider={quickBarProvider}
+              searchActivationToken={quickBarActivationToken}
+              searchInputRef={quickBarPane.searchInputRef}
               showSearch={activePane.connectionId !== ""}
-              onOpenSettings={() => {
-                setSettingsInitialCategory("appearance");
-                setSettingsOpen(true);
-              }}
-              onBlurToFileList={() => activePane.listContainerEl?.focus()}
+              onOpenSettings={handleOpenSettings}
+              onBlurToFileList={() => quickBarPane.listContainerEl?.focus()}
+              searchQueryValue={quickBarQueryValue}
+              onSearchQueryValueChange={handleQuickBarQueryValueChange}
+              disableSearchDropdown={quickBarMode === "filter"}
+              onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               disableTabFocus={isDualMode}
             />
           )}
@@ -1529,6 +1695,12 @@ const Browser: React.FC = () => {
                 localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
               }}
               disableTabFocus={isDualMode}
+              searchProvider={quickBarProvider}
+              searchActivationToken={quickBarActivationToken}
+              searchQueryValue={quickBarQueryValue}
+              onSearchQueryValueChange={handleQuickBarQueryValueChange}
+              disableSearchDropdown={quickBarMode === "filter"}
+              onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
             />
 
             {/* Divider + Right Pane — dual mode only */}
@@ -1548,6 +1720,12 @@ const Browser: React.FC = () => {
                     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
                   }}
                   disableTabFocus={isDualMode}
+                  searchProvider={quickBarProvider}
+                  searchActivationToken={quickBarActivationToken}
+                  searchQueryValue={quickBarQueryValue}
+                  onSearchQueryValueChange={handleQuickBarQueryValueChange}
+                  disableSearchDropdown={quickBarMode === "filter"}
+                  onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                 />
               </>
             )}

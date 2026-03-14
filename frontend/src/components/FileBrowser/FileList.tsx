@@ -48,6 +48,7 @@ export const FileList = React.memo(
     return (
       <Box
         ref={listContainerRef}
+        data-testid="file-list-container"
         tabIndex={0}
         sx={{
           flex: 1,

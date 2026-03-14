@@ -1,8 +1,23 @@
 import { HttpResponse, http } from "msw";
 
 const API_BASE = "http://localhost:3000/api";
+const COMPANION_API_BASE = "http://localhost:21549/api";
 
 export const handlers = [
+  // Companion - Health check
+  http.get(`${COMPANION_API_BASE}/health`, () => {
+    return HttpResponse.json({
+      status: "ok",
+      paired: false,
+    });
+  }),
+
+  http.options(`${COMPANION_API_BASE}/health`, () => {
+    return new HttpResponse(null, {
+      status: 204,
+    });
+  }),
+
   // Version endpoint
   http.get(`${API_BASE}/version`, () => {
     return HttpResponse.json({

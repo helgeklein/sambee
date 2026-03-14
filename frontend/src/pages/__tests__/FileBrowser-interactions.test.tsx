@@ -246,6 +246,547 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Keyboard Navigation", () => {
+    it("opens smart navigation with Ctrl+K even when a toolbar button is focused", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      const settingsButton = screen.getByTitle("Settings");
+      settingsButton.focus();
+      expect(settingsButton).toHaveFocus();
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      expect(quickBarInput).toHaveFocus();
+    });
+
+    it("does not show an empty no-results dropdown when smart navigation opens", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      expect(quickBarInput).toHaveFocus();
+      expect(screen.queryByText(/No results found for/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
+    it("shows a minimum-query hint instead of no-results for single-character quick nav input", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(quickBarInput, "e");
+
+      expect(screen.getByText("Type at least 2 characters to search")).toBeInTheDocument();
+      expect(screen.queryByText("No results found for “e”")).not.toBeInTheDocument();
+      expect(screen.queryByText(/No results found for/i)).not.toBeInTheDocument();
+    });
+
+    it("shows mode badges only for non-default or idle quick-bar modes", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+      await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      expect(screen.queryByText("Navigate")).not.toBeInTheDocument();
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      expect(screen.getByText("Commands")).toBeInTheDocument();
+
+      await user.type(commandInput, "f");
+      expect(screen.queryByText("Commands")).not.toBeInTheDocument();
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+
+      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      expect(screen.getByText("Filter")).toBeInTheDocument();
+
+      await user.type(filterInput, "r");
+      expect(screen.queryByText("Filter")).not.toBeInTheDocument();
+    });
+
+    it("keeps Home and End bound to the smart navigation input text", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(quickBarInput, "abc");
+      await user.keyboard("{Home}");
+      await user.keyboard("x");
+      await user.keyboard("{End}");
+      await user.keyboard("z");
+
+      expect(quickBarInput).toHaveValue("xabcz");
+    });
+
+    it("keeps quick navigation bound to the pane that opened it in dual-pane mode", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.searchDirectories).mockImplementation(async (connectionId, query) => {
+        if (query === "Ri") {
+          if (connectionId === "conn-2") {
+            return {
+              results: ["RightTarget"],
+              total_matches: 1,
+              cache_state: "ready",
+              directory_count: 1,
+            };
+          }
+
+          return {
+            results: ["LeftTarget"],
+            total_matches: 1,
+            cache_state: "ready",
+            directory_count: 1,
+          };
+        }
+
+        return {
+          results: [],
+          total_matches: 0,
+          cache_state: "ready",
+          directory_count: 1,
+        };
+      });
+
+      vi.mocked(api.listDirectory).mockImplementation(async (connectionId, path) => {
+        if (connectionId === "conn-2" && path === "RightTarget") {
+          return {
+            items: [],
+            path: "RightTarget",
+            total: 0,
+          };
+        }
+
+        return mockDirectoryListing;
+      });
+
+      const { container } = renderBrowser("/browse/test-server-1?p2=test-server-2");
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+      });
+
+      const rightPane = container.querySelector('[data-pane-id="right"]');
+      const leftPane = container.querySelector('[data-pane-id="left"]');
+
+      expect(rightPane).not.toBeNull();
+      expect(leftPane).not.toBeNull();
+
+      await user.click(rightPane as HTMLElement);
+      await user.keyboard("{Control>}k{/Control}");
+
+      const quickBarInput = screen.getByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(quickBarInput, "Ri");
+
+      await waitFor(() => {
+        expect(api.searchDirectories).toHaveBeenCalledWith("conn-2", "Ri", expect.any(AbortSignal));
+      });
+
+      await user.click(leftPane as HTMLElement);
+      await user.click(screen.getByPlaceholderText("Go to any folder or type > for commands"));
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "RightTarget");
+      });
+    });
+
+    it("keeps focus in the quick bar when a command switches quick-bar modes", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      expect(commandInput).toHaveFocus();
+
+      await user.type(commandInput, "filter");
+      const filterCommand = await screen.findByText("Filter Current Directory");
+      await user.click(filterCommand);
+
+      await waitFor(() => {
+        const filterInput = screen.getByPlaceholderText("Filter files in the current directory");
+        expect(filterInput).toHaveFocus();
+      });
+    });
+
+    it("filters the main file list with Ctrl+Alt+F and keeps the filter visible in the status bar", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+
+      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      expect(filterInput).toHaveFocus();
+
+      await user.type(filterInput, "read");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /readme.txt/i })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /pictures/i })).not.toBeInTheDocument();
+        expect(screen.getByText("Filtered by: read")).toBeInTheDocument();
+      });
+    });
+
+    it("moves from the filter box into the filtered list with ArrowDown", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      await user.type(filterInput, "read");
+      await user.keyboard("{ArrowDown}");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("file-list-container")).toHaveFocus();
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveFocus();
+      expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveValue("read");
+    });
+
+    it("preserves the filter across mode switches and clears it after directory navigation", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
+        if (path === "Documents") {
+          return {
+            items: [
+              {
+                name: "report.pdf",
+                path: "Documents/report.pdf",
+                type: FileType.FILE,
+                size: 5120,
+                modified_at: "2024-01-02T12:00:00Z",
+                is_readable: true,
+                is_hidden: false,
+              },
+            ],
+            path: "Documents",
+            total: 1,
+          };
+        }
+
+        return mockDirectoryListing;
+      });
+
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      await user.type(filterInput, "doc");
+
+      await waitFor(() => {
+        expect(screen.getByText("Filtered by: doc")).toBeInTheDocument();
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+      expect(await screen.findByPlaceholderText("Go to any folder or type > for commands")).toHaveFocus();
+      expect(screen.getByText("Filtered by: doc")).toBeInTheDocument();
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      const restoredFilterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      expect(restoredFilterInput).toHaveValue("doc");
+
+      await user.click(screen.getByRole("button", { name: /documents/i }));
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      expect(await screen.findByPlaceholderText("Filter files in the current directory")).toHaveValue("");
+      expect(screen.queryByText("Filtered by: doc")).not.toBeInTheDocument();
+    });
+
+    it("restores the just-left directory selection after backing out of a filtered child directory", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
+        if (path === "Zeta") {
+          return {
+            items: [
+              {
+                name: "report.pdf",
+                path: "Zeta/report.pdf",
+                type: FileType.FILE,
+                size: 5120,
+                modified_at: "2024-01-02T12:00:00Z",
+                is_readable: true,
+                is_hidden: false,
+              },
+              {
+                name: "notes.txt",
+                path: "Zeta/notes.txt",
+                type: FileType.FILE,
+                size: 1024,
+                modified_at: "2024-01-02T11:00:00Z",
+                is_readable: true,
+                is_hidden: false,
+              },
+            ],
+            path: "Zeta",
+            total: 2,
+          };
+        }
+
+        return {
+          items: [
+            {
+              name: "Alpha",
+              path: "Alpha",
+              type: FileType.DIRECTORY,
+              size: 0,
+              modified_at: "2024-01-01T10:00:00Z",
+              is_readable: true,
+              is_hidden: false,
+            },
+            {
+              name: "Zeta",
+              path: "Zeta",
+              type: FileType.DIRECTORY,
+              size: 0,
+              modified_at: "2024-01-01T11:00:00Z",
+              is_readable: true,
+              is_hidden: false,
+            },
+          ],
+          path: "",
+          total: 2,
+        };
+      });
+
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /folder: zeta/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /folder: zeta/i }));
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Zeta");
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      await user.type(filterInput, "rep");
+      await user.keyboard("{ArrowDown}");
+      await user.keyboard("{Backspace}");
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /folder: zeta/i })).toHaveAttribute("data-selected", "true");
+      });
+
+      expect(screen.getByRole("button", { name: /folder: alpha/i })).not.toHaveAttribute("data-selected", "true");
+    });
+
+    it("restores the just-left directory selection when backing out from an empty filter input", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
+        if (path === "Zeta") {
+          return {
+            items: [
+              {
+                name: "report.pdf",
+                path: "Zeta/report.pdf",
+                type: FileType.FILE,
+                size: 5120,
+                modified_at: "2024-01-02T12:00:00Z",
+                is_readable: true,
+                is_hidden: false,
+              },
+            ],
+            path: "Zeta",
+            total: 1,
+          };
+        }
+
+        return {
+          items: [
+            {
+              name: "Alpha",
+              path: "Alpha",
+              type: FileType.DIRECTORY,
+              size: 0,
+              modified_at: "2024-01-01T10:00:00Z",
+              is_readable: true,
+              is_hidden: false,
+            },
+            {
+              name: "Zeta",
+              path: "Zeta",
+              type: FileType.DIRECTORY,
+              size: 0,
+              modified_at: "2024-01-01T11:00:00Z",
+              is_readable: true,
+              is_hidden: false,
+            },
+          ],
+          path: "",
+          total: 2,
+        };
+      });
+
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /folder: zeta/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("button", { name: /folder: zeta/i }));
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Zeta");
+      });
+
+      await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
+      const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
+      await user.type(filterInput, "rep");
+      await user.keyboard("{Escape}");
+      expect(filterInput).toHaveValue("");
+      await user.keyboard("{Backspace}");
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /folder: zeta/i })).toHaveAttribute("data-selected", "true");
+      });
+    });
+
+    it("switches from smart navigation to commands when > is the first character", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const smartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(smartInput, ">filt");
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("Run a command")).toHaveValue(">filt");
+      });
+
+      expect(await screen.findByText("Filter Current Directory")).toBeInTheDocument();
+    });
+
+    it("returns to smart navigation UI when Ctrl+K is pressed from command-prefixed quick nav", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const smartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(smartInput, ">filt");
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("Run a command")).toHaveValue(">filt");
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const resetSmartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      expect(resetSmartInput).toHaveFocus();
+      expect(resetSmartInput).toHaveValue("");
+      expect(screen.queryByPlaceholderText("Run a command")).not.toBeInTheDocument();
+    });
+
+    it("clears the stale command badge after escaping out of command-prefixed quick nav", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const smartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(smartInput, ">filt");
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("Run a command")).toHaveValue(">filt");
+      });
+
+      await user.keyboard("{Escape}{Escape}");
+
+      const resetInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      expect(resetInput).toHaveValue("");
+      expect(screen.queryByText("Commands")).not.toBeInTheDocument();
+
+      await user.type(resetInput, "do");
+
+      expect(screen.queryByText("Commands")).not.toBeInTheDocument();
+      expect(screen.queryByPlaceholderText("Run a command")).not.toBeInTheDocument();
+    });
+
     it("navigates down with ArrowDown key", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");

@@ -24,7 +24,7 @@ import type React from "react";
 // ============================================================================
 
 /** Shared placeholder text for directory search inputs */
-export const DIRECTORY_SEARCH_PLACEHOLDER = "Quick navigation";
+export const DIRECTORY_SEARCH_PLACEHOLDER = "Navigate to any directory";
 
 // ============================================================================
 // Result types
@@ -48,6 +48,13 @@ export interface SearchStatusInfo {
   showSpinner: boolean;
 }
 
+export type SearchSelectionFocusTarget = "file-list" | "quick-bar" | "none";
+
+export interface SearchSelectionBehavior {
+  /** Where focus should go after a result is selected. */
+  focusTarget?: SearchSelectionFocusTarget;
+}
+
 // ============================================================================
 // Provider interface
 // ============================================================================
@@ -55,6 +62,9 @@ export interface SearchStatusInfo {
 export interface SearchProvider {
   /** Unique identifier for this provider */
   id: string;
+
+  /** Short visible label for the current quick-bar mode. */
+  modeLabel?: string;
 
   /** Placeholder text shown in the search input */
   placeholder: string;
@@ -64,6 +74,9 @@ export interface SearchProvider {
 
   /** Minimum query length to trigger a search (0 = search on empty string) */
   minQueryLength: number;
+
+  /** Optional query-aware minimum length for providers whose threshold depends on the current input. */
+  getMinQueryLength?: (query: string) => number;
 
   /**
    * Fetch results for a given query.
@@ -77,7 +90,7 @@ export interface SearchProvider {
    * Called when a result is selected (via click or Enter).
    * @param value The value of the selected result
    */
-  onSelect: (value: string) => void;
+  onSelect: (value: string) => SearchSelectionBehavior | undefined;
 
   /**
    * Optional status info to display (e.g., "Indexing... 42 directories found").
@@ -90,6 +103,12 @@ export interface SearchProvider {
    * Providers can use this to warm up caches or prefetch data.
    */
   onActivate?: () => void;
+
+  /**
+   * Called whenever the visible query changes, including explicit clears.
+   * Providers can use this to keep derived UI state in sync with the raw input.
+   */
+  onQueryChange?: (query: string) => void;
 
   /**
    * Called when the search bar is dismissed.
@@ -111,4 +130,7 @@ export interface SearchProvider {
    * E.g., "Type at least 2 characters to search"
    */
   belowMinimumMessage?: string;
+
+  /** Optional query-aware below-minimum hint for providers whose guidance depends on the current input. */
+  getBelowMinimumMessage?: (query: string) => string | undefined;
 }

@@ -7,11 +7,16 @@ import { UnifiedSearchBar } from "./UnifiedSearchBar";
 
 interface DesktopToolbarProps {
   searchProvider: SearchProvider;
+  searchActivationToken?: number;
   searchInputRef?: React.RefObject<HTMLInputElement>;
   showSearch: boolean;
   onOpenSettings: () => void;
   /** Called when ESC is pressed on controls or when menus close, to focus file list */
   onBlurToFileList?: () => void;
+  searchQueryValue?: string;
+  onSearchQueryValueChange?: (value: string) => void;
+  disableSearchDropdown?: boolean;
+  onSearchArrowDownToFileList?: () => void;
   /** Remove toolbar controls from Tab order (dual-pane mode uses Tab for pane switching) */
   disableTabFocus?: boolean;
 }
@@ -21,10 +26,15 @@ interface DesktopToolbarProps {
 //
 export function DesktopToolbar({
   searchProvider,
+  searchActivationToken,
   searchInputRef,
   showSearch,
   onOpenSettings,
   onBlurToFileList,
+  searchQueryValue,
+  onSearchQueryValueChange,
+  disableSearchDropdown,
+  onSearchArrowDownToFileList,
   disableTabFocus,
 }: DesktopToolbarProps) {
   return (
@@ -41,9 +51,14 @@ export function DesktopToolbar({
         <Box sx={{ flexGrow: 0, width: "100%", maxWidth: { sm: 400, md: 500, lg: 600 }, mx: 2 }}>
           <UnifiedSearchBar
             provider={searchProvider}
+            activationToken={searchActivationToken}
             inputRef={searchInputRef}
             useCompactLayout={false}
             onBlurToFileList={onBlurToFileList}
+            queryValue={searchQueryValue}
+            onQueryValueChange={onSearchQueryValueChange}
+            disableDropdown={disableSearchDropdown}
+            onArrowDownToFileList={onSearchArrowDownToFileList}
             disableTabFocus={disableTabFocus}
           />
         </Box>

@@ -105,6 +105,7 @@ export const FileRow = React.memo(
             onClick={() => onClick(file, index)}
             onContextMenu={handleContextMenu}
             sx={rowStyle}
+            data-selected={isSelected ? "true" : undefined}
             aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${isMultiSelected ? " (selected)" : ""}`}
           >
             {/* Icon: show checkmark when multi-selected, file icon otherwise */}

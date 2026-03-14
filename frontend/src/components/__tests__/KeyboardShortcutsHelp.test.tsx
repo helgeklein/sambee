@@ -68,6 +68,35 @@ describe("KeyboardShortcutsHelp", () => {
 
       expect(screen.getByText("No keyboard shortcuts available")).toBeInTheDocument();
     });
+
+    it("should hide shortcuts that are currently disabled", () => {
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "enabled",
+          keys: "p",
+          description: "Open quick navigation",
+          label: "Ctrl+P",
+          ctrl: true,
+          handler: vi.fn(),
+          enabled: true,
+        },
+        {
+          id: "disabled",
+          keys: ",",
+          description: "Open settings",
+          label: "Ctrl+,",
+          ctrl: true,
+          handler: vi.fn(),
+          enabled: false,
+        },
+      ];
+
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
+
+      expect(screen.getByText("Open quick navigation")).toBeInTheDocument();
+      expect(screen.queryByText("Open settings")).not.toBeInTheDocument();
+      expect(screen.queryByText("Ctrl+,")).not.toBeInTheDocument();
+    });
   });
 
   describe("Grouping", () => {

@@ -109,6 +109,10 @@ export interface UseFileBrowserPaneReturn {
   setSortDirection: React.Dispatch<React.SetStateAction<"asc" | "desc">>;
   viewMode: ViewMode;
   setViewMode: React.Dispatch<React.SetStateAction<ViewMode>>;
+  currentDirectoryFilter: string;
+  setCurrentDirectoryFilter: React.Dispatch<React.SetStateAction<string>>;
+  clearCurrentDirectoryFilter: () => void;
+  isCurrentDirectoryFilterActive: boolean;
   focusedIndex: number;
 
   // ── Selection State (multi-select) ────────────────────────────────────

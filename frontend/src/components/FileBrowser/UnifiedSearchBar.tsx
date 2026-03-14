@@ -21,7 +21,6 @@
  */
 
 import ClearIcon from "@mui/icons-material/Clear";
-import SearchIcon from "@mui/icons-material/Search";
 import {
   Box,
   CircularProgress,
@@ -38,7 +37,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SearchProvider, SearchResult } from "./search/types";
+import type { SearchProvider, SearchResult, SearchSelectionBehavior } from "./search/types";
 
 // ============================================================================
 // Constants
@@ -56,6 +55,13 @@ const DROPDOWN_WIDTH_PX = 700;
 /** Number of items to jump with Page Up/Down */
 const PAGE_JUMP_SIZE = 10;
 
+/** The default quick-bar mode should read as the baseline, not a tagged variant. */
+const DEFAULT_MODE_LABEL = "Navigate";
+
+/** Preserve touch comfort on mobile while tightening desktop density slightly. */
+const MOBILE_INPUT_PADDING = "10px 14px";
+const DESKTOP_INPUT_PADDING = "7.5px 12px";
+
 // ============================================================================
 // Props
 // ============================================================================
@@ -63,6 +69,8 @@ const PAGE_JUMP_SIZE = 10;
 interface UnifiedSearchBarProps {
   /** The search provider supplying results and behavior */
   provider: SearchProvider;
+  /** Increments whenever the quick bar is explicitly reopened and should reset transient state. */
+  activationToken?: number;
   /** Ref forwarded to the underlying <input> element */
   inputRef?: React.RefObject<HTMLInputElement>;
   /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
@@ -71,6 +79,14 @@ interface UnifiedSearchBarProps {
   useCompactLayout?: boolean;
   /** Called when Escape is pressed with an empty query and closed dropdown */
   onBlurToFileList?: () => void;
+  /** Controlled query value for modes that should persist outside the search bar. */
+  queryValue?: string;
+  /** Controlled query change handler. */
+  onQueryValueChange?: (value: string) => void;
+  /** Disable dropdown search behavior and use the input as a plain filter box. */
+  disableDropdown?: boolean;
+  /** Called when ArrowDown should hand focus from the input to the file list. */
+  onArrowDownToFileList?: () => void;
 }
 
 // ============================================================================
@@ -82,13 +98,18 @@ interface UnifiedSearchBarProps {
 //
 export function UnifiedSearchBar({
   provider,
+  activationToken = 0,
   inputRef,
   useCompactLayout = false,
   onBlurToFileList,
+  queryValue,
+  onQueryValueChange,
+  disableDropdown = false,
+  onArrowDownToFileList,
   disableTabFocus,
 }: UnifiedSearchBarProps) {
   // ── State ──────────────────────────────────────────────────────────────
-  const [query, setQuery] = useState("");
+  const [internalQuery, setInternalQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -107,43 +128,157 @@ export function UnifiedSearchBar({
   const providerRef = useRef(provider);
   const internalInputRef = useRef<HTMLInputElement>(null);
   const activatedRef = useRef(false);
+  const lastResetProviderRef = useRef(provider);
+  const lastActivationTokenRef = useRef(activationToken);
 
   // Always keep providerRef current so stable callbacks use the latest provider
   providerRef.current = provider;
 
+  const isControlledQuery = queryValue !== undefined;
+  const query = isControlledQuery ? queryValue : internalQuery;
+
+  const setQuery = useCallback(
+    (value: string) => {
+      providerRef.current.onQueryChange?.(value);
+
+      if (isControlledQuery) {
+        onQueryValueChange?.(value);
+        return;
+      }
+
+      setInternalQuery(value);
+    },
+    [isControlledQuery, onQueryValueChange]
+  );
+
   // Use external inputRef if provided, otherwise internal
   const effectiveInputRef = inputRef ?? internalInputRef;
+
+  const getEffectiveMinQueryLength = useCallback(
+    (value: string) => provider.getMinQueryLength?.(value) ?? provider.minQueryLength,
+    [provider]
+  );
+
+  const getEffectiveBelowMinimumMessage = useCallback(
+    (value: string) => provider.getBelowMinimumMessage?.(value) ?? provider.belowMinimumMessage,
+    [provider]
+  );
 
   // ── Keyboard shortcut badge (memoized) ─────────────────────────────────
   const kbdBadge = useMemo(() => {
     if (!provider.shortcutHint || useCompactLayout) return null;
     return (
+      <Box
+        component="kbd"
+        aria-hidden="true"
+        sx={{
+          display: "inline-block",
+          fontFamily: "inherit",
+          fontSize: "0.7rem",
+          lineHeight: 1,
+          px: 0.75,
+          py: 0.3,
+          borderRadius: 0.5,
+          border: 1,
+          borderColor: "divider",
+          color: "text.disabled",
+          backgroundColor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+          whiteSpace: "nowrap",
+          pointerEvents: "none",
+          userSelect: "none",
+        }}
+      >
+        {provider.shortcutHint}
+      </Box>
+    );
+  }, [provider.shortcutHint, useCompactLayout, theme.palette.mode]);
+
+  const shouldShowModeBadge = !!provider.modeLabel && provider.modeLabel !== DEFAULT_MODE_LABEL && query.length === 0;
+
+  const modeBadge = useMemo(() => {
+    if (!provider.modeLabel || !shouldShowModeBadge) return null;
+
+    return (
+      <Box
+        aria-hidden="true"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          px: 0.75,
+          py: 0.25,
+          borderRadius: 999,
+          backgroundColor: "action.selected",
+          color: "text.secondary",
+          fontSize: "0.7rem",
+          fontWeight: 600,
+          letterSpacing: "0.02em",
+          whiteSpace: "nowrap",
+          mr: 0,
+        }}
+      >
+        {provider.modeLabel}
+      </Box>
+    );
+  }, [provider.modeLabel, shouldShowModeBadge]);
+
+  const startAdornment = useMemo(() => {
+    if (!modeBadge) {
+      return undefined;
+    }
+
+    return (
+      <InputAdornment
+        position="start"
+        sx={{
+          ml: 0,
+          mr: 0.75,
+          display: "flex",
+          alignItems: "center",
+          gap: 0.5,
+        }}
+      >
+        {modeBadge}
+      </InputAdornment>
+    );
+  }, [modeBadge]);
+
+  const endAdornment = useMemo(() => {
+    const showShortcutBadge = !query && !isFocused && !!kbdBadge;
+
+    if (!query && !isLoading && !showShortcutBadge) {
+      return undefined;
+    }
+
+    return (
       <InputAdornment position="end">
-        <Box
-          component="kbd"
-          aria-hidden="true"
-          sx={{
-            display: "inline-block",
-            fontFamily: "inherit",
-            fontSize: "0.7rem",
-            lineHeight: 1,
-            px: 0.75,
-            py: 0.3,
-            borderRadius: 0.5,
-            border: 1,
-            borderColor: "divider",
-            color: "text.disabled",
-            backgroundColor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
-            whiteSpace: "nowrap",
-            pointerEvents: "none",
-            userSelect: "none",
-          }}
-        >
-          {provider.shortcutHint}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+          {isLoading ? <CircularProgress size={18} /> : null}
+          {query ? (
+            <IconButton
+              size="small"
+              onClick={() => {
+                setQuery("");
+                setResults([]);
+                setIsDropdownOpen(false);
+                setHasSearched(false);
+                effectiveInputRef.current?.focus();
+              }}
+              edge="end"
+              sx={{
+                minWidth: { xs: 44, sm: "auto" },
+                minHeight: { xs: 44, sm: "auto" },
+              }}
+              aria-label="Clear search"
+            >
+              <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
+            </IconButton>
+          ) : showShortcutBadge ? (
+            kbdBadge
+          ) : null}
         </Box>
       </InputAdornment>
     );
-  }, [provider.shortcutHint, useCompactLayout, theme.palette.mode]);
+  }, [effectiveInputRef, isFocused, isLoading, kbdBadge, query, setQuery, useCompactLayout]);
 
   // ── Search execution ───────────────────────────────────────────────────
 
@@ -193,14 +328,26 @@ export function UnifiedSearchBar({
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const newQuery = e.target.value;
+      const effectiveMinQueryLength = getEffectiveMinQueryLength(newQuery);
+      const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(newQuery);
+
       setQuery(newQuery);
+
+      if (disableDropdown) {
+        setResults([]);
+        setSelectedIndex(0);
+        setHasSearched(false);
+        setIsDropdownOpen(false);
+        setIsSearchPending(false);
+        return;
+      }
 
       // Clear previous debounce timer
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
 
-      if (newQuery.length >= provider.minQueryLength) {
+      if (newQuery.length >= effectiveMinQueryLength) {
         setIsSearchPending(true);
         pendingQueryRef.current = newQuery;
         debounceTimerRef.current = setTimeout(() => {
@@ -213,13 +360,13 @@ export function UnifiedSearchBar({
         setHasSearched(false);
         if (newQuery.length === 0) {
           setIsDropdownOpen(false);
-        } else if (provider.belowMinimumMessage) {
+        } else if (effectiveBelowMinimumMessage) {
           // Show hint when query is non-empty but below minimum length
           setIsDropdownOpen(true);
         }
       }
     },
-    [provider.minQueryLength, provider.debounceMs, executeSearch, provider.belowMinimumMessage]
+    [disableDropdown, provider.debounceMs, executeSearch, getEffectiveBelowMinimumMessage, getEffectiveMinQueryLength, setQuery]
   );
 
   // ── Selection handling ─────────────────────────────────────────────────
@@ -229,18 +376,27 @@ export function UnifiedSearchBar({
   //
   const handleSelect = useCallback(
     (value: string) => {
-      providerRef.current.onSelect(value);
+      const selectionBehavior: SearchSelectionBehavior | undefined = providerRef.current.onSelect(value);
       setQuery("");
       setResults([]);
       setIsDropdownOpen(false);
       setHasSearched(false);
 
-      // Return focus to the file list after selection
-      if (onBlurToFileList) {
+      const focusTarget = selectionBehavior?.focusTarget ?? "file-list";
+
+      if (focusTarget === "quick-bar") {
+        setTimeout(() => {
+          effectiveInputRef.current?.focus();
+          effectiveInputRef.current?.select();
+        }, 0);
+        return;
+      }
+
+      if (focusTarget === "file-list" && onBlurToFileList) {
         onBlurToFileList();
       }
     },
-    [onBlurToFileList]
+    [effectiveInputRef, onBlurToFileList, setQuery]
   );
 
   // ── Keyboard navigation ────────────────────────────────────────────────
@@ -252,6 +408,13 @@ export function UnifiedSearchBar({
     (e: React.KeyboardEvent) => {
       switch (e.key) {
         case "ArrowDown":
+          if (disableDropdown) {
+            if (onArrowDownToFileList) {
+              e.preventDefault();
+              onArrowDownToFileList();
+            }
+            break;
+          }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
             setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
@@ -259,6 +422,9 @@ export function UnifiedSearchBar({
           break;
 
         case "ArrowUp":
+          if (disableDropdown) {
+            break;
+          }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
             setSelectedIndex((prev) => Math.max(prev - 1, 0));
@@ -266,6 +432,9 @@ export function UnifiedSearchBar({
           break;
 
         case "PageDown":
+          if (disableDropdown) {
+            break;
+          }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
             setSelectedIndex((prev) => Math.min(prev + PAGE_JUMP_SIZE, results.length - 1));
@@ -273,27 +442,19 @@ export function UnifiedSearchBar({
           break;
 
         case "PageUp":
+          if (disableDropdown) {
+            break;
+          }
           if (isDropdownOpen && results.length > 0) {
             e.preventDefault();
             setSelectedIndex((prev) => Math.max(prev - PAGE_JUMP_SIZE, 0));
           }
           break;
 
-        case "Home":
-          if (isDropdownOpen && results.length > 0) {
-            e.preventDefault();
-            setSelectedIndex(0);
-          }
-          break;
-
-        case "End":
-          if (isDropdownOpen && results.length > 0) {
-            e.preventDefault();
-            setSelectedIndex(results.length - 1);
-          }
-          break;
-
         case "Enter":
+          if (disableDropdown) {
+            break;
+          }
           if (isDropdownOpen && results[selectedIndex]) {
             e.preventDefault();
             handleSelect(results[selectedIndex].value);
@@ -302,6 +463,17 @@ export function UnifiedSearchBar({
 
         case "Escape":
           e.preventDefault();
+          if (disableDropdown) {
+            if (query) {
+              setQuery("");
+              setResults([]);
+              setHasSearched(false);
+              setIsDropdownOpen(false);
+            } else if (onBlurToFileList) {
+              onBlurToFileList();
+            }
+            break;
+          }
           if (isDropdownOpen) {
             // First Escape: close the dropdown
             setIsDropdownOpen(false);
@@ -317,7 +489,7 @@ export function UnifiedSearchBar({
           break;
       }
     },
-    [isDropdownOpen, results, selectedIndex, handleSelect, query, onBlurToFileList]
+    [disableDropdown, handleSelect, isDropdownOpen, onArrowDownToFileList, onBlurToFileList, query, results, selectedIndex, setQuery]
   );
 
   // ── Virtual list for results ───────────────────────────────────────────
@@ -366,15 +538,38 @@ export function UnifiedSearchBar({
   const handleInputFocus = useCallback(() => {
     setIsFocused(true);
     handleFocus();
+
+    const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
+    const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
+
+    if (disableDropdown) {
+      setIsDropdownOpen(false);
+      return;
+    }
+
+    if (!hasSearched && query.length === 0 && effectiveMinQueryLength === 0) {
+      void executeSearch("");
+    }
+
     // Re-open dropdown if there are results to show
     if (results.length > 0 || hasSearched) {
       setIsDropdownOpen(true);
     }
+
     // Show below-minimum hint if query is non-empty but too short
-    if (query.length > 0 && query.length < provider.minQueryLength && provider.belowMinimumMessage) {
+    if (query.length > 0 && query.length < effectiveMinQueryLength && effectiveBelowMinimumMessage) {
       setIsDropdownOpen(true);
     }
-  }, [handleFocus, results.length, hasSearched, query.length, provider.minQueryLength, provider.belowMinimumMessage]);
+  }, [
+    disableDropdown,
+    executeSearch,
+    getEffectiveBelowMinimumMessage,
+    getEffectiveMinQueryLength,
+    handleFocus,
+    results.length,
+    hasSearched,
+    query,
+  ]);
 
   // ── Cleanup on unmount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -389,20 +584,66 @@ export function UnifiedSearchBar({
     };
   }, []);
 
-  // ── Reset when provider changes (e.g., connection switch) ──────────────
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset only when provider identity changes, not on every object reference change
+  // ── Reset when provider changes or the quick bar is explicitly reopened ──
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset only on explicit provider identity / activation changes
   useEffect(() => {
-    setQuery("");
+    const previousProvider = lastResetProviderRef.current;
+    const providerChanged = previousProvider.id !== provider.id;
+    const activationChanged = lastActivationTokenRef.current !== activationToken;
+
+    if (!providerChanged && !activationChanged) {
+      return;
+    }
+
+    previousProvider.onDeactivate?.();
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
     setResults([]);
+    setSelectedIndex(0);
+    setIsLoading(false);
+    setIsSearchPending(false);
     setIsDropdownOpen(false);
     setHasSearched(false);
-    activatedRef.current = false;
-  }, [provider.id]);
+
+    if (!isControlledQuery) {
+      setInternalQuery("");
+    }
+
+    lastResetProviderRef.current = provider;
+    lastActivationTokenRef.current = activationToken;
+
+    const isInputFocused = document.activeElement === effectiveInputRef.current;
+    activatedRef.current = isInputFocused;
+
+    if (isInputFocused) {
+      providerRef.current.onActivate?.();
+    }
+  }, [activationToken, effectiveInputRef, isControlledQuery, provider.id]);
+
+  useEffect(() => {
+    if (disableDropdown) {
+      return;
+    }
+    if (document.activeElement === effectiveInputRef.current && provider.minQueryLength === 0) {
+      void executeSearch("");
+    }
+  }, [disableDropdown, effectiveInputRef, executeSearch, provider.minQueryLength]);
 
   // ── Derived state ──────────────────────────────────────────────────────
   const statusInfo = provider.getStatusInfo();
-  const showNoResults = hasSearched && query.length >= provider.minQueryLength && !isLoading && !isSearchPending && results.length === 0;
-  const showBelowMinimum = query.length > 0 && query.length < provider.minQueryLength && !!provider.belowMinimumMessage;
+  const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
+  const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
+  const showNoResults = hasSearched && query.length >= effectiveMinQueryLength && !isLoading && !isSearchPending && results.length === 0;
+  const showBelowMinimum = query.length > 0 && query.length < effectiveMinQueryLength && !!effectiveBelowMinimumMessage;
 
   // ── Render ─────────────────────────────────────────────────────────────
   return (
@@ -447,7 +688,7 @@ export function UnifiedSearchBar({
                 outlineOffset: "0",
               },
               "& .MuiInputBase-input": {
-                padding: { xs: "10px 14px", sm: "8.5px 14px" },
+                padding: { xs: MOBILE_INPUT_PADDING, sm: DESKTOP_INPUT_PADDING },
               },
               "& .MuiOutlinedInput-notchedOutline": {
                 border: "none",
@@ -460,35 +701,8 @@ export function UnifiedSearchBar({
               },
             }}
             InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  {isLoading ? <CircularProgress size={20} /> : <SearchIcon fontSize={useCompactLayout ? "medium" : "small"} />}
-                </InputAdornment>
-              ),
-              endAdornment: query ? (
-                <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    onClick={() => {
-                      setQuery("");
-                      setResults([]);
-                      setIsDropdownOpen(false);
-                      setHasSearched(false);
-                      effectiveInputRef.current?.focus();
-                    }}
-                    edge="end"
-                    sx={{
-                      minWidth: { xs: 44, sm: "auto" },
-                      minHeight: { xs: 44, sm: "auto" },
-                    }}
-                    aria-label="Clear search"
-                  >
-                    <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
-                  </IconButton>
-                </InputAdornment>
-              ) : (
-                !isFocused && kbdBadge
-              ),
+              startAdornment,
+              endAdornment,
             }}
           />
         </Paper>
@@ -496,6 +710,7 @@ export function UnifiedSearchBar({
         {/* Dropdown results panel */}
         <Popper
           open={
+            !disableDropdown &&
             isDropdownOpen &&
             (results.length > 0 || showNoResults || showBelowMinimum || isSearchPending || isLoading || statusInfo !== null)
           }
@@ -595,7 +810,7 @@ export function UnifiedSearchBar({
             {showBelowMinimum && (
               <Box sx={{ px: 2, py: 1.5, textAlign: "center" }}>
                 <Typography variant="body2" color="text.secondary">
-                  {provider.belowMinimumMessage}
+                  {effectiveBelowMinimumMessage}
                 </Typography>
               </Box>
             )}

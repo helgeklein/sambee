@@ -23,6 +23,7 @@ import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
 import { FileList } from "../../components/FileBrowser/FileList";
 import RenameDialog from "../../components/FileBrowser/RenameDialog";
 import { STATUS_BAR_HEIGHT, StatusBar } from "../../components/FileBrowser/StatusBar";
+import type { SearchProvider } from "../../components/FileBrowser/search";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
 import type { Connection } from "../../types";
 import { FileType } from "../../types";
@@ -59,6 +60,24 @@ export interface FileBrowserPaneProps {
 
   /** Remove interactive controls from Tab order (dual-pane mode uses Tab for pane switching). */
   disableTabFocus?: boolean;
+
+  /** Current quick-bar provider for the browser. */
+  searchProvider: SearchProvider;
+
+  /** Increments whenever the quick bar is explicitly reopened. */
+  searchActivationToken?: number;
+
+  /** Controlled query value for filter mode. */
+  searchQueryValue?: string;
+
+  /** Controlled query change handler for filter mode. */
+  onSearchQueryValueChange?: (value: string) => void;
+
+  /** Disable dropdown behavior for list-backed filter mode. */
+  disableSearchDropdown?: boolean;
+
+  /** Move focus from the search input into the file list. */
+  onSearchArrowDownToFileList?: () => void;
 }
 
 // ============================================================================
@@ -75,6 +94,12 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   isUsingKeyboard,
   onPaneFocus,
   disableTabFocus,
+  searchProvider,
+  searchActivationToken,
+  searchQueryValue,
+  onSearchQueryValueChange,
+  disableSearchDropdown,
+  onSearchArrowDownToFileList,
 }) => {
   const theme = useTheme();
   const isDualMode = paneMode === "dual";
@@ -88,10 +113,11 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     setCurrentPath,
     loading,
     viewMode,
+    currentDirectoryFilter,
+    isCurrentDirectoryFilterActive,
     focusedIndex,
     selectedFiles,
     sortedAndFilteredFiles,
-    directorySearchProvider,
     setViewInfo,
     // Dialogs
     deleteDialogOpen,
@@ -322,10 +348,15 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       {/* Search bar (mobile compact layout) */}
       {useCompactLayout && (
         <UnifiedSearchBar
-          provider={directorySearchProvider}
+          provider={searchProvider}
+          activationToken={searchActivationToken}
           inputRef={searchInputRef}
           useCompactLayout={useCompactLayout}
           onBlurToFileList={() => listContainerEl?.focus()}
+          queryValue={searchQueryValue}
+          onQueryValueChange={onSearchQueryValueChange}
+          disableDropdown={disableSearchDropdown}
+          onArrowDownToFileList={onSearchArrowDownToFileList}
         />
       )}
 
@@ -362,8 +393,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       )}
 
       {/* Status Bar */}
-      {!useCompactLayout && sortedAndFilteredFiles.length > 0 && !loading && (
-        <StatusBar files={sortedAndFilteredFiles} focusedIndex={focusedIndex} />
+      {!useCompactLayout && !loading && (sortedAndFilteredFiles.length > 0 || isCurrentDirectoryFilterActive) && (
+        <StatusBar files={sortedAndFilteredFiles} focusedIndex={focusedIndex} activeFilter={currentDirectoryFilter} />
       )}
 
       {/* Delete Confirmation Dialog */}

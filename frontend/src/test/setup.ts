@@ -52,6 +52,12 @@ beforeAll(() => {
       if (request.url.includes("/api/ws") || request.url.startsWith("ws://")) {
         return;
       }
+      // Ignore companion background health probes triggered by FileBrowser.
+      // These requests are expected during test startup and their failures are
+      // already handled by the hook as a normal "companion unavailable" path.
+      if (request.url === "http://localhost:21549/api/health") {
+        return;
+      }
       // Warn about other unhandled requests
       print.warning();
     },

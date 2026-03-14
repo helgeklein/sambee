@@ -19,11 +19,3 @@ export function createWebSocketMock() {
     })),
   };
 }
-
-/**
- * Setup WebSocket mock globally
- * Call this in test setup files or individual test files
- */
-export function setupWebSocketMock() {
-  vi.mock("../../hooks/useWebSocket", () => createWebSocketMock());
-}
