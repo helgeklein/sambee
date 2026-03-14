@@ -411,7 +411,7 @@ export function UnifiedSearchBar({
         ref={anchorRef}
         sx={{
           position: "relative",
-          width: "100%",
+          boxSizing: "border-box",
           mb: useCompactLayout ? 2 : 0,
           mt: useCompactLayout ? { xs: 1, sm: 0 } : 0,
           mx: useCompactLayout ? { xs: 2, sm: 3, md: 4 } : 0,
