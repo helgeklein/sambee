@@ -160,6 +160,7 @@ async def get_file_info(
 async def search_directories(
     connection_id: uuid.UUID,
     q: str = Query("", description="Search query for directory names"),
+    include_dot_directories: bool = Query(False, description="Whether to include directories whose path contains dot-prefixed segments"),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> DirectorySearchResult:
@@ -199,7 +200,7 @@ async def search_directories(
             path_prefix=connection.path_prefix or "/",
         )
 
-        results, total_matches = cache.search(q) if q else ([], 0)
+        results, total_matches = cache.search(q, include_dot_directories=include_dot_directories) if q else ([], 0)
 
         return DirectorySearchResult(
             results=results,
@@ -210,7 +211,7 @@ async def search_directories(
 
     except Exception as e:
         logger.error(
-            f"Failed to search directories: connection_id={connection_id}, query='{q}', error={type(e).__name__}: {e}",
+            f"Failed to search directories: connection_id={connection_id}, query='{q}', include_dot_directories={include_dot_directories}, error={type(e).__name__}: {e}",
             exc_info=True,
         )
         raise HTTPException(

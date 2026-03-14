@@ -17,6 +17,7 @@ import {
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
 import { FileType } from "../../types";
+import { QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY } from "../FileBrowser/preferences";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 // Mock the API module
@@ -32,6 +33,7 @@ describe("Browser Component - Interactions", () => {
     vi.clearAllMocks();
     localStorage.setItem("access_token", "fake-token");
     localStorage.removeItem("selectedConnectionId");
+    localStorage.removeItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY);
 
     // Use mock factory for successful API responses
     setupSuccessfulApiMocks(api as unknown as ApiMock);
@@ -410,7 +412,14 @@ describe("Browser Component - Interactions", () => {
       await user.type(quickBarInput, "Ri");
 
       await waitFor(() => {
-        expect(api.searchDirectories).toHaveBeenCalledWith("conn-2", "Ri", expect.any(AbortSignal));
+        expect(api.searchDirectories).toHaveBeenCalledWith(
+          "conn-2",
+          "Ri",
+          expect.objectContaining({
+            includeDotDirectories: false,
+            signal: expect.any(AbortSignal),
+          })
+        );
       });
 
       await user.click(leftPane as HTMLElement);
@@ -419,6 +428,34 @@ describe("Browser Component - Interactions", () => {
 
       await waitFor(() => {
         expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "RightTarget");
+      });
+    });
+
+    it("uses the stored quick-nav dot-directory preference", async () => {
+      const user = userEvent.setup();
+
+      localStorage.setItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY, "true");
+
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}k{/Control}");
+
+      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      await user.type(quickBarInput, "do");
+
+      await waitFor(() => {
+        expect(api.searchDirectories).toHaveBeenCalledWith(
+          "conn-1",
+          "do",
+          expect.objectContaining({
+            includeDotDirectories: true,
+            signal: expect.any(AbortSignal),
+          })
+        );
       });
     });
 

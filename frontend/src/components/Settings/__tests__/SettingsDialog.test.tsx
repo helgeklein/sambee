@@ -16,6 +16,10 @@ vi.mock("../../../pages/AppearanceSettings", () => ({
   AppearanceSettings: () => <div>Appearance Settings Content</div>,
 }));
 
+vi.mock("../../../pages/BrowserSettings", () => ({
+  BrowserSettings: () => <div>Browser Settings Content</div>,
+}));
+
 vi.mock("../../../pages/ConnectionSettings", () => ({
   ConnectionSettings: () => <div>Connection Settings Content</div>,
 }));
@@ -89,10 +93,12 @@ describe("SettingsDialog Component", () => {
     // Should show all categories in sidebar
     expect(screen.getByText("Settings")).toBeInTheDocument();
     const appearanceOption = screen.getByRole("option", { name: /appearance/i });
+    const browserOption = screen.getByRole("option", { name: /browser/i });
     const smbConnectionsOption = screen.getByRole("option", { name: /smb connections/i });
     const localDrivesOption = screen.getByRole("option", { name: /local drives/i });
 
     expect(appearanceOption).toBeInTheDocument();
+    expect(browserOption).toBeInTheDocument();
     expect(smbConnectionsOption).toBeInTheDocument();
     expect(localDrivesOption).toBeInTheDocument();
   });
@@ -110,9 +116,24 @@ describe("SettingsDialog Component", () => {
     // Should show only Appearance
     expect(screen.getByText("Appearance")).toBeInTheDocument();
 
-    // SMB Connections should not be in the sidebar, but Local drives should remain accessible
+    // SMB Connections should not be in the sidebar, but Browser and Local Drives should remain accessible
+    expect(screen.getByRole("option", { name: /browser/i })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /smb connections/i })).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
+  });
+
+  it("switches to Browser tab when clicked", async () => {
+    const user = userEvent.setup();
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    const browserOption = screen.getByRole("option", { name: /browser/i });
+    await user.click(browserOption);
+
+    expect(screen.getByText("Browser Settings Content")).toBeInTheDocument();
   });
 
   it("switches to SMB Connections tab when admin clicks it", async () => {

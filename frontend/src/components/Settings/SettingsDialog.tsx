@@ -2,11 +2,17 @@
 // SettingsDialog
 //
 
-import { Computer as ComputerIcon, Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
+import {
+  Computer as ComputerIcon,
+  ManageSearch as ManageSearchIcon,
+  Palette as PaletteIcon,
+  Storage as StorageIcon,
+} from "@mui/icons-material";
 import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppearanceSettings } from "../../pages/AppearanceSettings";
+import { BrowserSettings } from "../../pages/BrowserSettings";
 import { ConnectionSettings } from "../../pages/ConnectionSettings";
 import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
 import api from "../../services/api";
@@ -28,7 +34,7 @@ interface SettingsDialogProps {
  *
  * Modal dialog for settings on desktop.
  * Contains sidebar navigation and content area showing Appearance,
- * SMB Connections, or Local Drives settings.
+ * Browser, SMB Connections, or Local Drives settings.
  */
 const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialCategory = "appearance", onConnectionsChanged }) => {
   const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>(initialCategory);
@@ -37,12 +43,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
 
   // Refs for category list items (for arrow key navigation and initial focus)
   const appearanceRef = useRef<HTMLDivElement>(null);
+  const browserRef = useRef<HTMLDivElement>(null);
   const smbConnectionsRef = useRef<HTMLDivElement>(null);
   const localDrivesRef = useRef<HTMLDivElement>(null);
 
   // Build list of available categories based on admin status
   const availableCategories = useMemo(() => {
-    const categories: SettingsCategory[] = ["appearance"];
+    const categories: SettingsCategory[] = ["appearance", "browser"];
     if (isAdmin) {
       categories.push("smb-connections");
     }
@@ -53,6 +60,11 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
   const focusCategoryButton = useCallback((category: SettingsCategory) => {
     if (category === "appearance") {
       appearanceRef.current?.focus();
+      return;
+    }
+
+    if (category === "browser") {
+      browserRef.current?.focus();
       return;
     }
 
@@ -193,6 +205,34 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
                 />
               </ListItemButton>
             </ListItem>
+            <ListItem disablePadding>
+              <ListItemButton
+                ref={browserRef}
+                onClick={() => setSelectedCategory("browser")}
+                onKeyDown={handleCategoryKeyDown}
+                selected={selectedCategory === "browser"}
+                tabIndex={selectedCategory === "browser" ? 0 : -1}
+                role="option"
+                aria-selected={selectedCategory === "browser"}
+                sx={{ py: 1.5, px: 2 }}
+              >
+                <ListItemIcon
+                  sx={{
+                    minWidth: 40,
+                    color: selectedCategory === "browser" ? "primary.main" : "text.secondary",
+                  }}
+                >
+                  <ManageSearchIcon sx={{ fontSize: 28 }} />
+                </ListItemIcon>
+                <ListItemText
+                  primary={getSettingsCategoryLabel("browser")}
+                  primaryTypographyProps={{
+                    variant: "h6",
+                    fontWeight: selectedCategory === "browser" ? "medium" : "normal",
+                  }}
+                />
+              </ListItemButton>
+            </ListItem>
             {isAdmin && (
               <ListItem disablePadding>
                 <ListItemButton
@@ -283,6 +323,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
           }}
         >
           {selectedCategory === "appearance" && <AppearanceSettings />}
+          {selectedCategory === "browser" && <BrowserSettings />}
           {selectedCategory === "smb-connections" && isAdmin && (
             <ConnectionSettings onConnectionsChanged={onConnectionsChanged} forceDesktopLayout />
           )}

@@ -5,6 +5,7 @@
 import {
   ChevronRight as ChevronRightIcon,
   Computer as ComputerIcon,
+  ManageSearch as ManageSearchIcon,
   Palette as PaletteIcon,
   Storage as StorageIcon,
 } from "@mui/icons-material";
@@ -26,6 +27,7 @@ import {
 import type React from "react";
 import { useEffect, useState } from "react";
 import { AppearanceSettings } from "../../pages/AppearanceSettings";
+import { BrowserSettings } from "../../pages/BrowserSettings";
 import { ConnectionSettings } from "../../pages/ConnectionSettings";
 import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
 import api from "../../services/api";
@@ -84,6 +86,8 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
     switch (currentView) {
       case "appearance":
         return "Appearance";
+      case "browser":
+        return getSettingsCategoryLabel("browser");
       case "smb-connections":
         return getSettingsCategoryLabel("smb-connections");
       case "local-drives":
@@ -123,6 +127,24 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
           {currentView === "main" && (
             <Box sx={{ height: "100%", bgcolor: "background.default" }}>
               <List sx={{ py: 0 }}>
+                <ListItem disablePadding>
+                  <ListItemButton onClick={() => setCurrentView("browser")} sx={{ py: 2 }}>
+                    <ListItemIcon>
+                      <ManageSearchIcon sx={{ color: "primary.main", fontSize: 28 }} />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={
+                        <Typography variant="h6" fontWeight="medium">
+                          {getSettingsCategoryLabel("browser")}
+                        </Typography>
+                      }
+                      secondary={getSettingsCategoryDescription("browser")}
+                    />
+                    <ChevronRightIcon sx={{ color: "text.secondary" }} />
+                  </ListItemButton>
+                </ListItem>
+                <Divider />
+
                 <ListItem disablePadding>
                   <ListItemButton onClick={() => setCurrentView("appearance")} sx={{ py: 2 }}>
                     <ListItemIcon>
@@ -185,6 +207,8 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
           )}
 
           {currentView === "appearance" && <AppearanceSettings />}
+
+          {currentView === "browser" && <BrowserSettings />}
 
           {currentView === "smb-connections" && <ConnectionSettings onConnectionsChanged={onConnectionsChanged} />}
 

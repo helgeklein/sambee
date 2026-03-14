@@ -5,6 +5,11 @@ import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
 
+export interface DirectorySearchOptions {
+  includeDotDirectories?: boolean;
+  signal?: AbortSignal;
+}
+
 class ApiService {
   private api: AxiosInstance;
   /** Separate axios instance for companion requests (no Bearer interceptor). */
@@ -283,13 +288,16 @@ class ApiService {
    * Search for directories across an entire connection.
    * Returns matching directory paths from the server-side cache.
    */
-  async searchDirectories(connectionId: string, query: string, signal?: AbortSignal): Promise<DirectorySearchResult> {
+  async searchDirectories(connectionId: string, query: string, options?: DirectorySearchOptions): Promise<DirectorySearchResult> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<DirectorySearchResult>(`/browse/${segment}/directories`, {
       ...extraConfig,
-      params: { q: query },
-      signal,
+      params: {
+        q: query,
+        include_dot_directories: options?.includeDotDirectories ?? false,
+      },
+      signal: options?.signal,
     });
     return response.data;
   }

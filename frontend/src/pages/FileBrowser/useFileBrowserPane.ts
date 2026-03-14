@@ -27,6 +27,7 @@ import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
 import { FileType, isApiError } from "../../types";
 import { hasViewerSupport, isImageFile } from "../../utils/FileTypeRegistry";
+import { useQuickNavIncludeDotDirectoriesPreference } from "./preferences";
 import type { SortField, UseFileBrowserPaneConfig, UseFileBrowserPaneReturn, ViewMode } from "./types";
 
 // ============================================================================
@@ -83,6 +84,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   });
   const [currentDirectoryFilter, setCurrentDirectoryFilter] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const [includeDotDirectoriesInQuickNav] = useQuickNavIncludeDotDirectoriesPreference();
 
   // ──────────────────────────────────────────────────────────────────────────
   // Selection State (multi-select)
@@ -125,7 +127,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Search Provider
   // ──────────────────────────────────────────────────────────────────────────
 
-  const directorySearchProvider = useDirectorySearchProvider(connectionId, (path) => setCurrentPath(path));
+  const directorySearchProvider = useDirectorySearchProvider(connectionId, (path) => setCurrentPath(path), {
+    includeDotDirectories: includeDotDirectoriesInQuickNav,
+  });
 
   // ──────────────────────────────────────────────────────────────────────────
   // Refs — DOM

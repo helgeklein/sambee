@@ -274,6 +274,10 @@ interface ResultRowProps {
   query: string;
 }
 
+interface DirectorySearchProviderOptions {
+  includeDotDirectories?: boolean;
+}
+
 //
 // ResultRow
 //
@@ -300,11 +304,16 @@ const ResultRow: React.FC<ResultRowProps> = ({ path, query }) => (
 //
 // useDirectorySearchProvider
 //
-export function useDirectorySearchProvider(connectionId: string, onNavigate: (path: string) => void): SearchProvider {
+export function useDirectorySearchProvider(
+  connectionId: string,
+  onNavigate: (path: string) => void,
+  options: DirectorySearchProviderOptions = {}
+): SearchProvider {
   const [cacheState, setCacheState] = useState<string>("empty");
   const [directoryCount, setDirectoryCount] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
   const lastQueryRef = useRef<string>("");
+  const includeDotDirectories = options.includeDotDirectories ?? false;
 
   //
   // fetchResults
@@ -316,7 +325,10 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
       lastQueryRef.current = normalizedQuery;
 
       try {
-        const result: DirectorySearchResult = await api.searchDirectories(connectionId, normalizedQuery, signal);
+        const result: DirectorySearchResult = await api.searchDirectories(connectionId, normalizedQuery, {
+          includeDotDirectories,
+          signal,
+        });
 
         if (!signal.aborted) {
           setCacheState(result.cache_state);
@@ -337,7 +349,7 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
         return [];
       }
     },
-    [connectionId]
+    [connectionId, includeDotDirectories]
   );
 
   //
@@ -381,7 +393,10 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
     // Trigger an empty search to warm up the directory cache
     const controller = new AbortController();
     api
-      .searchDirectories(connectionId, "", controller.signal)
+      .searchDirectories(connectionId, "", {
+        includeDotDirectories,
+        signal: controller.signal,
+      })
       .then((result: DirectorySearchResult) => {
         if (!controller.signal.aborted) {
           setCacheState(result.cache_state);
@@ -393,7 +408,7 @@ export function useDirectorySearchProvider(connectionId: string, onNavigate: (pa
           logger.error("Failed to warm up directory cache", { error }, "directory-search-provider");
         }
       });
-  }, [connectionId]);
+  }, [connectionId, includeDotDirectories]);
 
   //
   // footerInfo

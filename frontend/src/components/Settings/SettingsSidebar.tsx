@@ -2,7 +2,12 @@
 // SettingsSidebar
 //
 
-import { Computer as ComputerIcon, Palette as PaletteIcon, Storage as StorageIcon } from "@mui/icons-material";
+import {
+  Computer as ComputerIcon,
+  ManageSearch as ManageSearchIcon,
+  Palette as PaletteIcon,
+  Storage as StorageIcon,
+} from "@mui/icons-material";
 import { Box, List, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -37,6 +42,13 @@ export function SettingsSidebar() {
       label: "Appearance",
       icon: <PaletteIcon />,
       path: "/settings/appearance",
+      visible: true,
+    },
+    {
+      id: "browser",
+      label: getSettingsCategoryLabel("browser"),
+      icon: <ManageSearchIcon />,
+      path: SETTINGS_CATEGORY_META.browser.route,
       visible: true,
     },
     {

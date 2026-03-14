@@ -243,6 +243,64 @@ class TestSearchDirectories:
         data = response.json()
         assert data["directory_count"] == 5  # mock_cache has 5 directories
 
+    def test_search_excludes_dot_directories_by_default(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_cache_manager,
+        mock_cache: ConnectionDirectoryCache,
+    ):
+        """Dot directories should be filtered out unless explicitly enabled."""
+
+        mock_cache.add_directories(
+            [
+                ".git",
+                "projects/.cache",
+                "projects/visible-cache",
+            ]
+        )
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/directories",
+            headers=auth_headers_user,
+            params={"q": "cache"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"] == ["projects/visible-cache"]
+        assert data["total_matches"] == 1
+
+    def test_search_can_include_dot_directories(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_cache_manager,
+        mock_cache: ConnectionDirectoryCache,
+    ):
+        """Dot directories should be returned when explicitly enabled."""
+
+        mock_cache.add_directories(
+            [
+                ".git",
+                "projects/.cache",
+                "projects/visible-cache",
+            ]
+        )
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/directories",
+            headers=auth_headers_user,
+            params={"q": "cache", "include_dot_directories": True},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["results"] == ["projects/.cache", "projects/visible-cache"]
+        assert data["total_matches"] == 2
+
     def test_search_triggers_cache_creation(
         self,
         client: TestClient,

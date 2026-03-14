@@ -750,6 +750,8 @@ const MAX_DIRECTORY_SCAN: usize = 100_000;
 pub struct DirectorySearchQuery {
     /// Search query string (case-insensitive substring match on path).
     pub q: Option<String>,
+    /// Whether to include directories with dot-prefixed path segments.
+    pub include_dot_directories: Option<bool>,
 }
 
 /// `GET /api/browse/{drive}/directories` — search for directories on a local drive.
@@ -770,11 +772,12 @@ pub async fn browse_search_directories(
     let canonical_base = std::fs::canonicalize(&base_path).map_err(|e| ApiError::NotFound(format!("Drive root inaccessible: {e}")))?;
 
     let q = query.q.unwrap_or_default();
+    let include_dot_directories = query.include_dot_directories.unwrap_or(false);
 
     // Walk the directory tree and collect directory paths
     let directories = tokio::task::spawn_blocking({
         let base = canonical_base.clone();
-        move || walk_directories(&base, MAX_DIRECTORY_SCAN)
+        move || walk_directories(&base, MAX_DIRECTORY_SCAN, include_dot_directories)
     })
     .await
     .map_err(|e| ApiError::Internal(format!("Directory scan task failed: {e}")))?;
@@ -805,9 +808,9 @@ pub async fn browse_search_directories(
 
 /// Recursively walk a directory tree and collect relative directory paths.
 ///
-/// Skips hidden directories (starting with `.`) and stops after `max_dirs`
-/// directories to prevent runaway scans on very large filesystems.
-fn walk_directories(base: &std::path::Path, max_dirs: usize) -> Vec<String> {
+/// Optionally skips hidden directories (starting with `.`) and stops after
+/// `max_dirs` directories to prevent runaway scans on very large filesystems.
+fn walk_directories(base: &std::path::Path, max_dirs: usize, include_dot_directories: bool) -> Vec<String> {
     let mut result = Vec::new();
     let mut stack: Vec<PathBuf> = vec![base.to_path_buf()];
 
@@ -831,7 +834,7 @@ fn walk_directories(base: &std::path::Path, max_dirs: usize) -> Vec<String> {
             let name_str = name.to_string_lossy();
 
             // Skip hidden directories
-            if name_str.starts_with('.') {
+            if !include_dot_directories && name_str.starts_with('.') {
                 continue;
             }
 

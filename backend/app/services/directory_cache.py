@@ -94,12 +94,20 @@ WATCHER_RETRY_MAX_DELAY = 120.0  # seconds
 
 # Search configuration
 MAX_SEARCH_RESULTS = 200
+PATH_SEPARATOR = "/"
+HIDDEN_DIRECTORY_PREFIX = "."
 
 # Persistence configuration
 CACHE_PERSIST_SUBDIR = "directory_cache"  # Default subdirectory under data_dir
 CACHE_FILE_EXTENSION = ".idx"
 CACHE_BACKUP_EXTENSION = ".bak"  # Backup kept alongside the main file
 CACHE_FILE_VERSION = 1
+
+
+def path_contains_dot_directory(path: str) -> bool:
+    """Return True when any path segment is dot-prefixed."""
+
+    return any(segment.startswith(HIDDEN_DIRECTORY_PREFIX) for segment in path.split(PATH_SEPARATOR) if segment)
 
 
 # ============================================================================
@@ -239,7 +247,13 @@ class ConnectionDirectoryCache:
     #
     # search
     #
-    def search(self, query: str, max_results: int = MAX_SEARCH_RESULTS) -> tuple[list[str], int]:
+    def search(
+        self,
+        query: str,
+        max_results: int = MAX_SEARCH_RESULTS,
+        *,
+        include_dot_directories: bool = False,
+    ) -> tuple[list[str], int]:
         """Search for directories matching query (case-insensitive substring).
 
         Supports path separators in the query: both ``/`` and ``\\`` are
@@ -249,6 +263,7 @@ class ConnectionDirectoryCache:
         Args:
             query: Search term (substring match, may contain path separators)
             max_results: Maximum results to return (server-side cap)
+            include_dot_directories: Whether to include dot-prefixed path segments
 
         Returns:
             Tuple of (matching directory paths sorted by relevance, total match count).
@@ -264,7 +279,11 @@ class ConnectionDirectoryCache:
 
         with self._lock:
             # Substring match on all cached paths
-            matches = [d for d in self._directories if query_lower in d.lower()]
+            matches = [
+                directory
+                for directory in self._directories
+                if query_lower in directory.lower() and (include_dot_directories or not path_contains_dot_directory(directory))
+            ]
 
         # Sort by relevance:
         # 1. Exact basename match first

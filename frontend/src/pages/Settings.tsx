@@ -5,6 +5,7 @@
 import {
   ChevronRight as ChevronRightIcon,
   Computer as ComputerIcon,
+  ManageSearch as ManageSearchIcon,
   Palette as PaletteIcon,
   Storage as StorageIcon,
 } from "@mui/icons-material";
@@ -62,6 +63,24 @@ export function Settings() {
         )}
 
         <ListItem disablePadding>
+          <ListItemButton onClick={() => navigate(SETTINGS_ROUTE_BY_CATEGORY.browser)} sx={{ py: 2 }}>
+            <ListItemIcon>
+              <ManageSearchIcon sx={{ color: "primary.main", fontSize: 28 }} />
+            </ListItemIcon>
+            <ListItemText
+              primary={
+                <Typography variant="h6" fontWeight="medium">
+                  {getSettingsCategoryLabel("browser")}
+                </Typography>
+              }
+              secondary={getSettingsCategoryDescription("browser")}
+            />
+            <ChevronRightIcon sx={{ color: "text.secondary" }} />
+          </ListItemButton>
+        </ListItem>
+        <Divider />
+
+        <ListItem disablePadding>
           <ListItemButton onClick={() => navigate(SETTINGS_ROUTE_BY_CATEGORY["local-drives"])} sx={{ py: 2 }}>
             <ListItemIcon>
               <ComputerIcon sx={{ color: "primary.main", fontSize: 28 }} />
@@ -80,7 +99,7 @@ export function Settings() {
         <Divider />
 
         <ListItem disablePadding>
-          <ListItemButton onClick={() => navigate("/settings/appearance")} sx={{ py: 2 }}>
+          <ListItemButton onClick={() => navigate(SETTINGS_ROUTE_BY_CATEGORY.appearance)} sx={{ py: 2 }}>
             <ListItemIcon>
               <PaletteIcon sx={{ color: "primary.main", fontSize: 28 }} />
             </ListItemIcon>

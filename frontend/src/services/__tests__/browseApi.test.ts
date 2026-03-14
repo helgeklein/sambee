@@ -614,7 +614,29 @@ describe("Browse API Contract Tests", () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         `/browse/${testConnectionId}/directories`,
         expect.objectContaining({
-          params: { q: "doc" },
+          params: { q: "doc", include_dot_directories: false },
+        })
+      );
+    });
+
+    it("should pass include_dot_directories when requested", async () => {
+      const backendResponse: DirectorySearchResult = {
+        results: [".git"],
+        total_matches: 1,
+        cache_state: "ready",
+        directory_count: 5,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: backendResponse,
+      } as AxiosResponse);
+
+      await apiService.searchDirectories(testConnectionId, "git", { includeDotDirectories: true });
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith(
+        `/browse/${testConnectionId}/directories`,
+        expect.objectContaining({
+          params: { q: "git", include_dot_directories: true },
         })
       );
     });
@@ -671,7 +693,7 @@ describe("Browse API Contract Tests", () => {
       } as AxiosResponse);
 
       const controller = new AbortController();
-      await apiService.searchDirectories(testConnectionId, "test", controller.signal);
+      await apiService.searchDirectories(testConnectionId, "test", { signal: controller.signal });
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith(
         `/browse/${testConnectionId}/directories`,
