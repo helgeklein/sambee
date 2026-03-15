@@ -48,9 +48,9 @@ USER sambee
 # Expose port
 EXPOSE 8000
 
-# Health check (curl is installed via install-system-deps script)
+# Health check (wget is installed via install-system-deps script)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+    CMD wget -qO- http://localhost:8000/api/health >/dev/null || exit 1
 
 # Run the application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
