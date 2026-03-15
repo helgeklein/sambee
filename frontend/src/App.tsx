@@ -36,7 +36,7 @@ function AppContent() {
           <Suspense fallback={<div>Loading...</div>}>
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+              <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/settings" element={<SettingsLayout />}>
                 <Route index element={<Settings />} />

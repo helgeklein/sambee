@@ -33,6 +33,7 @@ export function driveToConnection(drive: DriveInfo): Connection {
   return {
     id: `${LOCAL_DRIVE_PREFIX}${drive.id}`,
     name: drive.name,
+    slug: drive.id,
     type: CONNECTION_TYPE_LOCAL,
     host: "localhost",
     port: 21549,

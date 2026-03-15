@@ -78,6 +78,9 @@ export interface FileBrowserPaneProps {
 
   /** Move focus from the search input into the file list. */
   onSearchArrowDownToFileList?: () => void;
+
+  /** Navigate the pane to a specific path via the router. */
+  onNavigatePath: (path: string) => void;
 }
 
 // ============================================================================
@@ -100,6 +103,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   onSearchQueryValueChange,
   disableSearchDropdown,
   onSearchArrowDownToFileList,
+  onNavigatePath,
 }) => {
   const theme = useTheme();
   const isDualMode = paneMode === "dual";
@@ -302,16 +306,23 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     }
   }, [isActive, onPaneFocus]);
 
+  const handlePaneFocus = React.useCallback(() => {
+    if (!isActive) {
+      onPaneFocus();
+    }
+  }, [isActive, onPaneFocus]);
+
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
       setCurrentPath(path);
       setViewInfo(null);
+      onNavigatePath(path);
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
     },
-    [setCurrentPath, setViewInfo]
+    [onNavigatePath, setCurrentPath, setViewInfo]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -321,7 +332,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   if (!connectionId) return null;
 
   return (
-    <Box data-pane-id={paneId} sx={paneContainerSx} onClick={handlePaneClick} onKeyDown={undefined}>
+    <Box data-pane-id={paneId} sx={paneContainerSx} onClick={handlePaneClick} onFocusCapture={handlePaneFocus} onKeyDown={undefined}>
       {/* Breadcrumbs + View/Sort controls (desktop) */}
       {!useCompactLayout && (
         <Box

@@ -37,7 +37,7 @@ describe("Browser Component - Rendering", () => {
   });
 
   it("shows breadcrumb navigation", async () => {
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Now shows connection name in breadcrumb instead of "Root"
     // Use getAllByText and filter to avoid collision with connection selector combobox
@@ -47,7 +47,7 @@ describe("Browser Component - Rendering", () => {
   });
 
   it("renders file and folder list", async () => {
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Wait for connections to load first
     await waitFor(() => {
@@ -73,7 +73,7 @@ describe("Browser Component - Rendering", () => {
     // Mock a delayed response
     vi.mocked(api.listDirectory).mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(mockDirectoryListing), 100)));
 
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Loading should appear briefly
     await waitFor(() => {
@@ -86,7 +86,7 @@ describe("Browser Component - Rendering", () => {
       response: { data: { detail: "Connection failed" } },
     });
 
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/Connection failed/i)).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe("Browser Component - Rendering", () => {
       total: 0,
     });
 
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/This directory is empty/i)).toBeInTheDocument();

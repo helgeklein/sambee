@@ -42,7 +42,7 @@ describe("Browser Component - Interactions", () => {
   describe("Settings", () => {
     it("opens settings when settings button clicked", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -63,7 +63,7 @@ describe("Browser Component - Interactions", () => {
   describe("Sort Functionality", () => {
     it("sorts files by name, size, and date", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -100,7 +100,7 @@ describe("Browser Component - Interactions", () => {
 
     it("sorts files by name", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -150,7 +150,7 @@ describe("Browser Component - Interactions", () => {
         return Promise.resolve(mockDirectoryListing);
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -187,7 +187,7 @@ describe("Browser Component - Interactions", () => {
   describe("Refresh", () => {
     it("refreshes file list when Ctrl+R pressed", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -211,7 +211,7 @@ describe("Browser Component - Interactions", () => {
 
       vi.mocked(api.copyItem).mockResolvedValue(undefined);
 
-      renderBrowser("/browse/test-server-1?p2=test-server-2/Documents");
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
 
       await waitFor(() => {
         expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
@@ -250,7 +250,7 @@ describe("Browser Component - Interactions", () => {
   describe("Keyboard Navigation", () => {
     it("opens smart navigation with Ctrl+K even when a toolbar button is focused", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         const documentsElements = screen.getAllByText("Documents");
@@ -269,7 +269,7 @@ describe("Browser Component - Interactions", () => {
 
     it("opens the connection selector with Ctrl+ArrowDown", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -287,7 +287,7 @@ describe("Browser Component - Interactions", () => {
 
     it("does not show an empty no-results dropdown when smart navigation opens", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -303,7 +303,7 @@ describe("Browser Component - Interactions", () => {
 
     it("shows a minimum-query hint instead of no-results for single-character quick nav input", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -321,7 +321,7 @@ describe("Browser Component - Interactions", () => {
 
     it("shows mode badges only for non-default or idle quick-bar modes", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -350,7 +350,7 @@ describe("Browser Component - Interactions", () => {
 
     it("keeps Home and End bound to the smart navigation input text", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -410,7 +410,7 @@ describe("Browser Component - Interactions", () => {
         return mockDirectoryListing;
       });
 
-      const { container } = renderBrowser("/browse/test-server-1?p2=test-server-2");
+      const { container } = renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
       await waitFor(() => {
         expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
@@ -454,7 +454,7 @@ describe("Browser Component - Interactions", () => {
 
       localStorage.setItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY, "true");
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -479,7 +479,7 @@ describe("Browser Component - Interactions", () => {
 
     it("keeps focus in the quick bar when a command switches quick-bar modes", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         const documentsElements = screen.getAllByText("Documents");
@@ -503,7 +503,7 @@ describe("Browser Component - Interactions", () => {
 
     it("filters the main file list with Ctrl+Alt+F and keeps the filter visible in the status bar", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         const documentsElements = screen.getAllByText("Documents");
@@ -527,7 +527,7 @@ describe("Browser Component - Interactions", () => {
 
     it("moves from the filter box into the filtered list with ArrowDown", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -572,7 +572,7 @@ describe("Browser Component - Interactions", () => {
         return mockDirectoryListing;
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -662,7 +662,7 @@ describe("Browser Component - Interactions", () => {
         };
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /folder: zeta/i })).toBeInTheDocument();
@@ -739,7 +739,7 @@ describe("Browser Component - Interactions", () => {
         };
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /folder: zeta/i })).toBeInTheDocument();
@@ -769,7 +769,7 @@ describe("Browser Component - Interactions", () => {
 
     it("switches from smart navigation to commands when > is the first character", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         const documentsElements = screen.getAllByText("Documents");
@@ -790,7 +790,7 @@ describe("Browser Component - Interactions", () => {
 
     it("returns to smart navigation UI when Ctrl+K is pressed from command-prefixed quick nav", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -815,7 +815,7 @@ describe("Browser Component - Interactions", () => {
 
     it("clears the stale command badge after escaping out of command-prefixed quick nav", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       await waitFor(() => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
@@ -844,7 +844,7 @@ describe("Browser Component - Interactions", () => {
 
     it("navigates down with ArrowDown key", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -865,7 +865,7 @@ describe("Browser Component - Interactions", () => {
 
     it("navigates up with ArrowUp key", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -884,7 +884,7 @@ describe("Browser Component - Interactions", () => {
 
     it("opens file or folder with Enter key", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -931,7 +931,7 @@ describe("Browser Component - Interactions", () => {
         return Promise.resolve(mockDirectoryListing);
       });
 
-      renderBrowser("/browse/test-server-1/Documents");
+      renderBrowser("/browse/smb/test-server-1/Documents");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -949,7 +949,7 @@ describe("Browser Component - Interactions", () => {
 
     it("opens shortcuts dialog with ? key", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -969,7 +969,7 @@ describe("Browser Component - Interactions", () => {
 
     it("handles keyboard navigation without crashing on empty directory", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       await waitFor(() => {
@@ -988,7 +988,7 @@ describe("Browser Component - Interactions", () => {
 
     it("handles switching between mouse and keyboard input without crashing", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {
@@ -1034,7 +1034,7 @@ describe("Browser Component - Interactions", () => {
     it("handles connection not found (404)", async () => {
       vi.mocked(api.listDirectory).mockRejectedValue(createNotFoundError());
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       expect(await screen.findByText(/Connection not found/i)).toBeInTheDocument();
     });
@@ -1044,7 +1044,7 @@ describe("Browser Component - Interactions", () => {
         response: { data: { detail: "Server error" } },
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       expect(await screen.findByText(/Server error/i)).toBeInTheDocument();
     });
@@ -1052,7 +1052,7 @@ describe("Browser Component - Interactions", () => {
     it("handles network errors", async () => {
       vi.mocked(api.listDirectory).mockRejectedValue(createNetworkError());
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       expect(await screen.findByText(/Failed to load directory contents. Please try again/i)).toBeInTheDocument();
     });
@@ -1061,7 +1061,7 @@ describe("Browser Component - Interactions", () => {
   describe("Delete", () => {
     it("opens confirm dialog when Delete key pressed on focused file", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {
@@ -1084,7 +1084,7 @@ describe("Browser Component - Interactions", () => {
 
     it("calls deleteItem API when confirmed", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {
@@ -1113,7 +1113,7 @@ describe("Browser Component - Interactions", () => {
 
     it("closes dialog when Cancel is clicked", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {
@@ -1140,7 +1140,7 @@ describe("Browser Component - Interactions", () => {
   describe("Rename", () => {
     it("opens rename dialog when F2 is pressed on focused file", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {
@@ -1161,7 +1161,7 @@ describe("Browser Component - Interactions", () => {
 
     it("calls renameItem API when confirmed", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {
@@ -1191,7 +1191,7 @@ describe("Browser Component - Interactions", () => {
 
     it("closes dialog when Cancel is clicked", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for files to load
       await waitFor(() => {

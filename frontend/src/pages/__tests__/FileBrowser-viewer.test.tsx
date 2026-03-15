@@ -33,7 +33,7 @@ describe("Browser Component - View and Advanced", () => {
   describe("File View", () => {
     it("opens view when clicking file", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for the browser to load - find an image file which has view support
       // Add a mock image file to the directory listing
@@ -68,7 +68,7 @@ describe("Browser Component - View and Advanced", () => {
 
     it("handles Escape key press without crashing", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Add a mock image file
       vi.mocked(api.listDirectory).mockResolvedValue({
@@ -135,7 +135,7 @@ describe("Browser Component - View and Advanced", () => {
         return Promise.resolve(mockDirectoryListing);
       });
 
-      renderBrowser("/browse/test-server-1/Documents");
+      renderBrowser("/browse/smb/test-server-1/Documents");
 
       // Wait for the Documents folder content to load
       await waitFor(
@@ -183,7 +183,7 @@ describe("Browser Component - View and Advanced", () => {
         return Promise.resolve(mockDirectoryListing);
       });
 
-      renderBrowser("/browse/test-server-1/Documents");
+      renderBrowser("/browse/smb/test-server-1/Documents");
 
       await waitFor(() => {
         expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
@@ -206,7 +206,7 @@ describe("Browser Component - View and Advanced", () => {
   describe("Performance and Edge Cases", () => {
     it("handles rapid navigation without crashes", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for Documents to appear - there may be multiple (breadcrumb + file list)
       await waitFor(
@@ -234,7 +234,7 @@ describe("Browser Component - View and Advanced", () => {
 
     it("displays file info tooltips on hover", async () => {
       const user = userEvent.setup();
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Optimized: Use findByText
       expect(await screen.findByText("readme.txt")).toBeInTheDocument();
@@ -265,7 +265,7 @@ describe("Browser Component - View and Advanced", () => {
         total: 1,
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // UI should render without crashing - filename may be truncated
       // Optimized: Use findByText
@@ -294,7 +294,7 @@ describe("Browser Component - View and Advanced", () => {
         total: 1,
       });
 
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // UI should render without crashing - special chars may be escaped
       // Optimized: Use findByText
@@ -305,7 +305,7 @@ describe("Browser Component - View and Advanced", () => {
     });
 
     it("updates UI when localStorage changes externally", async () => {
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Wait for component to load - Optimized: Use findByText
       expect(await screen.findByText("Sambee")).toBeInTheDocument();

@@ -13,6 +13,7 @@ from app.models.connection import (
     ConnectionCreate,
     ConnectionRead,
     ConnectionUpdate,
+    generate_unique_connection_slug,
 )
 from app.models.user import User
 from app.storage.smb import SMBBackend
@@ -83,8 +84,10 @@ async def create_connection(
         )
 
     # Encrypt password and save connection
+    existing_slugs = set(session.exec(select(Connection.slug)).all())
     connection = Connection(
         name=connection_data.name,
+        slug=generate_unique_connection_slug(connection_data.name, existing_slugs),
         type=connection_data.type,
         host=connection_data.host,
         port=connection_data.port,
@@ -100,12 +103,11 @@ async def create_connection(
         session.refresh(connection)
     except Exception as e:
         session.rollback()
-        # Check if it's a duplicate name error
         if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
-            logger.error(f"Duplicate connection name: name={connection_data.name}")
+            logger.error(f"Duplicate connection slug: slug={connection.slug}, name={connection_data.name}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Connection with name '{connection_data.name}' already exists",
+                detail="Failed to create a unique connection slug",
             )
         # Other database errors
         logger.error(f"Failed to save connection: error={type(e).__name__}: {e}", exc_info=True)
@@ -189,12 +191,11 @@ async def update_connection(
         session.refresh(connection)
     except Exception as e:
         session.rollback()
-        # Check if it's a duplicate name error
         if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
-            logger.error(f"Duplicate connection name: name={connection.name}")
+            logger.error(f"Duplicate connection slug during update: slug={connection.slug}, id={connection.id}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Connection with name '{connection.name}' already exists",
+                detail="Connection slug conflict detected",
             )
         # Other database errors
         logger.error(f"Failed to update connection: error={type(e).__name__}: {e}", exc_info=True)

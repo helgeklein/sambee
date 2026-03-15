@@ -3,12 +3,12 @@
  * ==========================================
  *
  * Verifies:
- * - Single-pane URLs remain backward-compatible (no query string)
+ * - Single-pane typed URLs load correctly
  * - Dual-pane mode is restored when ?p2= is present in the URL
- * - Right pane connection and path are restored from ?p2=slug/path
+ * - Right pane connection and path are restored from ?p2=type/id/path
  * - Active pane is restored from ?active=2
- * - Navigating back from dual mode to single mode works
- * - Invalid p2 slugs are handled gracefully
+ * - Invalid typed p2 targets are handled gracefully
+ * - Local-drive routes participate in URL restoration
  * - URL query param constants are correct
  */
 
@@ -57,9 +57,9 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
   // Single-pane backward compatibility
   // --------------------------------------------------------------------------
 
-  describe("single-pane backward compatibility", () => {
+  describe("single-pane typed routes", () => {
     it("loads single-pane mode from a clean URL without query params", async () => {
-      renderBrowser("/browse/test-server-1");
+      renderBrowser("/browse/smb/test-server-1");
 
       // Should load and display files in single pane
       await waitFor(() => {
@@ -78,7 +78,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     });
 
     it("loads single-pane mode with a subpath", async () => {
-      renderBrowser("/browse/test-server-1/Documents");
+      renderBrowser("/browse/smb/test-server-1/Documents");
 
       await waitFor(() => {
         expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
@@ -92,7 +92,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
   describe("dual-pane restoration from URL", () => {
     it("activates dual-pane mode when ?p2= is present", async () => {
-      renderBrowser("/browse/test-server-1?p2=test-server-2");
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -108,8 +108,8 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
     });
 
-    it("restores right pane path from ?p2=slug/path/segments", async () => {
-      renderBrowser("/browse/test-server-1/Documents?p2=test-server-2/Pictures");
+    it("restores right pane path from ?p2=type/id/path/segments", async () => {
+      renderBrowser("/browse/smb/test-server-1/Documents?p2=smb/test-server-2/Pictures");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     });
 
     it("restores both panes to the same connection", async () => {
-      renderBrowser("/browse/test-server-1/Documents?p2=test-server-1/Pictures");
+      renderBrowser("/browse/smb/test-server-1/Documents?p2=smb/test-server-1/Pictures");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     });
 
     it("persists dual-pane mode to localStorage when restored from URL", async () => {
-      renderBrowser("/browse/test-server-1?p2=test-server-2");
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -162,7 +162,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
   describe("active pane restoration from URL", () => {
     it("defaults to left pane when ?active is absent", async () => {
-      renderBrowser("/browse/test-server-1?p2=test-server-2");
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -175,7 +175,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     });
 
     it("restores right pane as active when ?active=2", async () => {
-      renderBrowser("/browse/test-server-1?p2=test-server-2&active=2");
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2&active=2");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -192,8 +192,8 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
   // --------------------------------------------------------------------------
 
   describe("edge cases", () => {
-    it("ignores invalid connection slug in p2 gracefully", async () => {
-      renderBrowser("/browse/test-server-1?p2=nonexistent-server/photos");
+    it("ignores invalid SMB p2 targets gracefully", async () => {
+      renderBrowser("/browse/smb/test-server-1?p2=smb/nonexistent-server/photos");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
     });
 
     it("handles p2 with no path (root of connection)", async () => {
-      renderBrowser("/browse/test-server-1/Documents?p2=test-server-2");
+      renderBrowser("/browse/smb/test-server-1/Documents?p2=smb/test-server-2");
 
       await waitFor(() => {
         expect(api.getConnections).toHaveBeenCalled();
@@ -221,6 +221,34 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       // Right pane should load root
       await waitFor(() => {
         expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+      });
+    });
+
+    it("loads local drives from typed left-pane URLs", async () => {
+      renderBrowser("/browse/local/c/Users");
+
+      await waitFor(() => {
+        expect(api.getConnections).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("local-drive:c", "Users");
+      });
+    });
+
+    it("restores a local drive in the right pane from p2", async () => {
+      renderBrowser("/browse/smb/test-server-1/Documents?p2=local/c/Users");
+
+      await waitFor(() => {
+        expect(api.getConnections).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+      });
+
+      await waitFor(() => {
+        expect(api.listDirectory).toHaveBeenCalledWith("local-drive:c", "Users");
       });
     });
   });

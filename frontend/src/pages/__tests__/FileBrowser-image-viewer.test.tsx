@@ -36,12 +36,12 @@ vi.mock("../../utils/FileTypeRegistry", async () => {
 });
 
 describe("Browser - Image View Integration", () => {
-  const renderBrowser = (initialPath = "/browse/test-server") => {
+  const renderBrowser = (initialPath = "/browse/smb/test-server-1") => {
     return render(
       <SambeeThemeProvider>
         <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
-            <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+            <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />
             <Route path="/login" element={<div>Login Page</div>} />
           </Routes>
@@ -59,8 +59,9 @@ describe("Browser - Image View Integration", () => {
     // Mock successful API responses
     mockedApi.getConnections.mockResolvedValue([
       {
-        id: "test-server",
+        id: "conn-1",
         name: "Test Server",
+        slug: "test-server-1",
         type: "smb",
         host: "test.local",
         share_name: "share",

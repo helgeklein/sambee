@@ -7,6 +7,7 @@ export interface User {
 export interface Connection {
   id: string;
   name: string;
+  slug: string;
   type: string;
   host: string;
   port: number;

@@ -60,7 +60,7 @@ describe("Browser Component - Navigation", () => {
     });
 
     const user = userEvent.setup();
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Wait for Documents to load (may appear multiple times in UI)
     await waitFor(() => {
@@ -108,7 +108,7 @@ describe("Browser Component - Navigation", () => {
     });
 
     const user = userEvent.setup();
-    renderBrowser("/browse/test-server-1/Documents/Subfolder");
+    renderBrowser("/browse/smb/test-server-1/Documents/Subfolder");
 
     // Optimized: Use findByText
     expect(await screen.findByText("Subfolder")).toBeInTheDocument();
@@ -127,7 +127,7 @@ describe("Browser Component - Navigation", () => {
   });
 
   it("loads connection from URL parameter", async () => {
-    renderBrowser("/browse/test-server-2");
+    renderBrowser("/browse/smb/test-server-2");
 
     // Wait for connections to load and URL to be processed
     await waitFor(() => {
@@ -140,7 +140,7 @@ describe("Browser Component - Navigation", () => {
   });
 
   it("loads nested path from URL", async () => {
-    renderBrowser("/browse/test-server-1/Documents/Subfolder");
+    renderBrowser("/browse/smb/test-server-1/Documents/Subfolder");
 
     // Wait for connections to load
     await waitFor(() => {
@@ -188,7 +188,7 @@ describe("Browser Component - Navigation", () => {
     vi.mocked(api.listDirectory).mockResolvedValueOnce(mockDirectoryListing);
 
     const user = userEvent.setup();
-    renderBrowser("/browse/test-server-1");
+    renderBrowser("/browse/smb/test-server-1");
 
     // Wait for Documents to load (may appear multiple times in UI)
     await waitFor(() => {
@@ -213,5 +213,65 @@ describe("Browser Component - Navigation", () => {
     await waitFor(() => {
       expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
     });
+  });
+
+  it("ignores stale directory responses after switching connections", async () => {
+    const user = userEvent.setup();
+
+    let resolveConn1: ((value: typeof mockDirectoryListing) => void) | null = null;
+    let resolveConn2: ((value: { items: FileInfo[]; path: string; total: number }) => void) | null = null;
+
+    const conn2Files: FileInfo[] = [
+      {
+        name: "conn2-only.txt",
+        path: "conn2-only.txt",
+        type: FileType.FILE,
+        size: 2048,
+        modified_at: "2024-01-10T10:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+
+    vi.mocked(api.listDirectory).mockImplementation((connectionId) => {
+      if (connectionId === "conn-1") {
+        return new Promise((resolve) => {
+          resolveConn1 = resolve as (value: typeof mockDirectoryListing) => void;
+        });
+      }
+
+      if (connectionId === "conn-2") {
+        return new Promise((resolve) => {
+          resolveConn2 = resolve as (value: { items: FileInfo[]; path: string; total: number }) => void;
+        });
+      }
+
+      return Promise.resolve(mockDirectoryListing);
+    });
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    const select = await screen.findByRole("combobox");
+    await user.click(select);
+
+    const option = await screen.findByText(/Test Server 2/);
+    await user.click(option);
+
+    resolveConn2?.({
+      items: conn2Files,
+      path: "",
+      total: conn2Files.length,
+    });
+
+    const conn2OnlyElements = await screen.findAllByText("conn2-only.txt");
+    expect(conn2OnlyElements.length).toBeGreaterThan(0);
+
+    resolveConn1?.(mockDirectoryListing);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("conn2-only.txt").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText("readme.txt")).not.toBeInTheDocument();
   });
 });

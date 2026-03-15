@@ -25,7 +25,7 @@ export const renderBrowser = (initialPath = "/browse") => {
     <SambeeThemeProvider>
       <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
-          <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+          <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
           <Route path="/browse" element={<FileBrowser />} />
           <Route path="/login" element={<div>Login Page</div>} />
         </Routes>

@@ -88,6 +88,12 @@ export interface UseFileBrowserPaneConfig {
 
   /** Called when the pane wants to show the companion-app hint snackbar. */
   onCompanionHint?: () => void;
+
+  /** Called when the pane should navigate to a different path in the same connection. */
+  onNavigatePath?: (path: string) => void;
+
+  /** Called when the pane should switch to a different connection root. */
+  onNavigateConnection?: (connectionId: string) => void;
 }
 
 /** Everything returned by useFileBrowserPane for use by the parent and pane component. */
@@ -225,4 +231,6 @@ export interface UseFileBrowserPaneReturn {
   invalidateConnectionCache: (targetConnectionId: string) => void;
   /** Load files for a specific path, optionally bypassing cache. */
   loadFiles: (path: string, forceRefresh?: boolean) => Promise<void>;
+  /** Apply route-driven state from the browser location without triggering navigation again. */
+  applyLocation: (connectionId: string, path: string) => void;
 }

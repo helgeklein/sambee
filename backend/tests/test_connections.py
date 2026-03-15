@@ -28,6 +28,7 @@ class TestListConnections:
         assert len(data) == 3
         # Check structure
         assert "name" in data[0]
+        assert "slug" in data[0]
         assert "host" in data[0]
         assert "share_name" in data[0]
 
@@ -85,6 +86,7 @@ class TestCreateConnection:
             assert data["host"] == connection_data["host"]
             assert data["share_name"] == connection_data["share_name"]
             assert data["username"] == connection_data["username"]
+            assert data["slug"] == "new-test-server"
             assert "id" in data
             assert "password" not in data  # Password should not be returned
             assert "password_encrypted" not in data
@@ -211,6 +213,7 @@ class TestUpdateConnection:
             assert data["name"] == update_data["name"]
             assert data["host"] == update_data["host"]
             assert data["port"] == 8445
+            assert data["slug"] == "test-smb-server"
 
             # Verify in database
             session.refresh(test_connection)

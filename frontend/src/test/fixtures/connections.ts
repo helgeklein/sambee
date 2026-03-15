@@ -12,6 +12,7 @@ export const mockConnections: Connection[] = [
   {
     id: "conn-1",
     name: "Test Server 1",
+    slug: "test-server-1",
     type: "SMB",
     host: "192.168.1.100",
     port: 445,
@@ -24,6 +25,7 @@ export const mockConnections: Connection[] = [
   {
     id: "conn-2",
     name: "Test Server 2",
+    slug: "test-server-2",
     type: "SMB",
     host: "192.168.1.101",
     port: 445,
@@ -47,6 +49,7 @@ export function createMockConnection(overrides: Partial<Connection> = {}): Conne
   return {
     id: "conn-test",
     name: "Test Server",
+    slug: "test-server",
     type: "smb",
     host: "192.168.1.100",
     port: 445,

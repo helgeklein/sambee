@@ -115,12 +115,12 @@ global.URL.createObjectURL = vi.fn(() => "blob:mock-pdf-url");
 global.URL.revokeObjectURL = vi.fn();
 
 describe("Browser - PDF Viewer Integration", () => {
-  const renderBrowser = (initialPath = "/browse/test-server") => {
+  const renderBrowser = (initialPath = "/browse/smb/test-server-1") => {
     return render(
       <SambeeThemeProvider>
         <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
-            <Route path="/browse/:connectionId/*" element={<FileBrowser />} />
+            <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />
             <Route path="/login" element={<div>Login Page</div>} />
           </Routes>
@@ -138,8 +138,9 @@ describe("Browser - PDF Viewer Integration", () => {
     // Mock successful API responses
     mockedApi.getConnections.mockResolvedValue([
       {
-        id: "test-server",
+        id: "conn-1",
         name: "Test Server",
+        slug: "test-server-1",
         type: "smb",
         host: "test.local",
         share_name: "share",
@@ -154,7 +155,7 @@ describe("Browser - PDF Viewer Integration", () => {
     mockedApi.getPdfBlob.mockResolvedValue(new Blob(["mock pdf content"], { type: "application/pdf" }));
 
     // Mock download URL
-    mockedApi.getDownloadUrl.mockResolvedValue("/api/viewer/test-server/download?path=/document.pdf");
+    mockedApi.getDownloadUrl.mockResolvedValue("/api/viewer/conn-1/download?path=/document.pdf");
   });
 
   describe("Opening PDF", () => {

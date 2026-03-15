@@ -20,7 +20,7 @@
  * - Resolves connection name from connections list
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockConnection } from "../../test/fixtures/connections";
@@ -42,12 +42,12 @@ vi.mock("../../components/FileBrowser/BreadcrumbsNavigation", () => ({
 }));
 
 vi.mock("../../components/FileBrowser/FileList", () => ({
-  FileList: ({ files }: { files: FileEntry[] }) => (
-    <div data-testid="file-list">
+  FileList: ({ files, listContainerRef }: { files: FileEntry[]; listContainerRef?: (node: HTMLDivElement | null) => void }) => (
+    <button ref={(node) => listContainerRef?.(node as unknown as HTMLDivElement | null)} data-testid="file-list" type="button">
       {files.map((f) => (
         <div key={f.name}>{f.name}</div>
       ))}
-    </div>
+    </button>
   ),
 }));
 
@@ -465,6 +465,15 @@ describe("FileBrowserPane", () => {
       const paneEl = screen.getByTestId("breadcrumbs").closest("[data-pane-id]") as HTMLElement;
       await user.click(paneEl);
       expect(onPaneFocus).not.toHaveBeenCalled();
+    });
+
+    it("calls onPaneFocus when an inactive pane receives focus", () => {
+      const onPaneFocus = vi.fn();
+      render(<FileBrowserPane {...defaultProps({ isActive: false, paneMode: "dual", onPaneFocus })} />);
+
+      fireEvent.focus(screen.getByTestId("file-list"));
+
+      expect(onPaneFocus).toHaveBeenCalledTimes(1);
     });
   });
 

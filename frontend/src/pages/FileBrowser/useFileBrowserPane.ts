@@ -58,7 +58,7 @@ const createViewerSessionId = (): string => {
 // ============================================================================
 
 export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBrowserPaneReturn {
-  const { rowHeight, disabled = false, isActive = true, onCompanionHint } = config;
+  const { rowHeight, disabled = false, isActive = true, onCompanionHint, onNavigatePath, onNavigateConnection } = config;
 
   const { currentTheme } = useSambeeTheme();
 
@@ -127,9 +127,16 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Search Provider
   // ──────────────────────────────────────────────────────────────────────────
 
-  const directorySearchProvider = useDirectorySearchProvider(connectionId, (path) => setCurrentPath(path), {
-    includeDotDirectories: includeDotDirectoriesInQuickNav,
-  });
+  const directorySearchProvider = useDirectorySearchProvider(
+    connectionId,
+    (path) => {
+      setCurrentPath(path);
+      onNavigatePath?.(path);
+    },
+    {
+      includeDotDirectories: includeDotDirectoriesInQuickNav,
+    }
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Refs — DOM
@@ -156,6 +163,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const connectionIdRef = React.useRef<string>("");
   const currentPathRef = React.useRef<string>("");
   const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
+  const latestLoadRequestIdRef = React.useRef(0);
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -264,7 +272,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     async (path: string, forceRefresh = false) => {
       if (!connectionId) return;
 
-      const cacheKey = `${connectionId}:${path}`;
+      const targetConnectionId = connectionId;
+      const targetPath = path;
+      const cacheKey = `${targetConnectionId}:${targetPath}`;
+      const requestId = latestLoadRequestIdRef.current + 1;
+      latestLoadRequestIdRef.current = requestId;
       const now = Date.now();
 
       if (!forceRefresh) {
@@ -283,12 +295,51 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setError(null);
 
       try {
-        const listing = await api.listDirectory(connectionId, path);
+        const listing = await api.listDirectory(targetConnectionId, targetPath);
         const items = listing.items ?? [];
         directoryCache.current.set(cacheKey, { items, timestamp: now });
+
+        const isStaleRequest =
+          latestLoadRequestIdRef.current !== requestId ||
+          connectionIdRef.current !== targetConnectionId ||
+          currentPathRef.current !== targetPath;
+
+        if (isStaleRequest) {
+          logger.debug(
+            "Ignoring stale directory response",
+            {
+              requestConnectionId: targetConnectionId,
+              requestPath: targetPath,
+              currentConnectionId: connectionIdRef.current,
+              currentPath: currentPathRef.current,
+            },
+            "browser"
+          );
+          return;
+        }
+
         setFiles(items);
       } catch (err) {
-        logger.error("Error loading directory", { error: err, connectionId, path }, "browser");
+        const isStaleRequest =
+          latestLoadRequestIdRef.current !== requestId ||
+          connectionIdRef.current !== targetConnectionId ||
+          currentPathRef.current !== targetPath;
+
+        if (isStaleRequest) {
+          logger.debug(
+            "Ignoring stale directory error",
+            {
+              requestConnectionId: targetConnectionId,
+              requestPath: targetPath,
+              currentConnectionId: connectionIdRef.current,
+              currentPath: currentPathRef.current,
+            },
+            "browser"
+          );
+          return;
+        }
+
+        logger.error("Error loading directory", { error: err, connectionId: targetConnectionId, path: targetPath }, "browser");
 
         let errorMessage = "Failed to load directory contents. Please try again.";
 
@@ -309,7 +360,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         setError(errorMessage);
       } finally {
-        setLoading(false);
+        const isLatestRequest =
+          latestLoadRequestIdRef.current === requestId &&
+          connectionIdRef.current === targetConnectionId &&
+          currentPathRef.current === targetPath;
+
+        if (isLatestRequest) {
+          setLoading(false);
+        }
       }
     },
     [connectionId]
@@ -614,11 +672,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setCurrentPath("");
       setViewInfo(null);
       setFiles([]);
+      setSelectedFiles(new Set());
       directoryCache.current.clear();
       navigationHistory.current.clear();
       localStorage.setItem("selectedConnectionId", newConnectionId);
+      onNavigateConnection?.(newConnectionId);
     },
-    [connectionId]
+    [connectionId, onNavigateConnection]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -645,6 +705,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         setCurrentPath(newPath);
         setViewInfo(null);
+        onNavigatePath?.(newPath);
         if (document.activeElement instanceof HTMLElement) {
           document.activeElement.blur();
         }
@@ -679,7 +740,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       }
     },
-    [currentPath, updateFocus, imageFiles, focusedIndex]
+    [currentPath, updateFocus, imageFiles, focusedIndex, onNavigatePath]
   );
 
   const handleViewIndexChange = useCallback((index: number) => {
@@ -849,7 +910,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     const newPath = pathParts.slice(0, -1).join("/");
     setCurrentPath(newPath);
     setViewInfo(null);
-  }, []);
+    onNavigatePath?.(newPath);
+  }, [onNavigatePath]);
 
   /**
    * handleNavigateUp — Called by toolbar / breadcrumb "up" button.
@@ -1290,6 +1352,32 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
   }, []);
 
+  const applyLocation = useCallback((nextConnectionId: string, nextPath: string) => {
+    const connectionChanged = connectionIdRef.current !== nextConnectionId;
+
+    if (connectionChanged) {
+      setConnectionId(nextConnectionId);
+      setCurrentPath(nextPath);
+      setViewInfo(null);
+      setFiles([]);
+      setSelectedFiles(new Set());
+      directoryCache.current.clear();
+      navigationHistory.current.clear();
+      if (nextConnectionId) {
+        localStorage.setItem("selectedConnectionId", nextConnectionId);
+      } else {
+        localStorage.removeItem("selectedConnectionId");
+      }
+      return;
+    }
+
+    if (currentPathRef.current !== nextPath) {
+      setCurrentPath(nextPath);
+      setViewInfo(null);
+      setSelectedFiles(new Set());
+    }
+  }, []);
+
   // ──────────────────────────────────────────────────────────────────────────
   // Incremental Search (keydown handler)
   // ──────────────────────────────────────────────────────────────────────────
@@ -1473,5 +1561,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     clearCaches,
     invalidateConnectionCache,
     loadFiles,
+    applyLocation,
   };
 }

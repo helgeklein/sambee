@@ -4,7 +4,7 @@
  *
  * Coordinates one or two file-browser panes with page-level concerns:
  * - Connection management and loading
- * - URL synchronisation (browser history, back/forward — left pane only)
+ * - URL synchronisation (browser history, back/forward — both panes)
  * - WebSocket connection for real-time directory change notifications
  * - Keyboard shortcut registration (routed to the active pane)
  * - Global dialogs (settings, help)
@@ -47,6 +47,13 @@ import { logger } from "../services/logger";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
+import {
+  type BrowseRouteState,
+  buildBrowseRouteTarget,
+  parseBrowseRoute,
+  resolveBrowseRouteState,
+  serializeBrowseRoute,
+} from "./FileBrowser/routing";
 import type { PaneId, PaneMode } from "./FileBrowser/types";
 import { ACTIVE_PANE_QUERY_KEY, ACTIVE_PANE_STORAGE_KEY, DUAL_PANE_STORAGE_KEY, RIGHT_PANE_QUERY_KEY } from "./FileBrowser/types";
 import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
@@ -66,7 +73,7 @@ const Browser: React.FC = () => {
   });
 
   const navigate = useNavigate();
-  const params = useParams<{ connectionId: string; "*": string }>();
+  const params = useParams<{ targetType: string; targetId: string; "*": string }>();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const theme = useTheme();
@@ -165,9 +172,22 @@ const Browser: React.FC = () => {
     return saved === "right" ? "right" : "left";
   });
 
-  // URL synchronization flags to prevent circular updates
-  const isInitializing = React.useRef<boolean>(true); // Avoid URL updates during initial mount
-  const isUpdatingFromUrl = React.useRef<boolean>(false); // Avoid navigate() during back/forward
+  const currentRoute = useMemo(
+    () =>
+      parseBrowseRoute({
+        targetType: params.targetType,
+        targetId: params.targetId,
+        path: params["*"],
+        searchParams,
+      }),
+    [params.targetId, params.targetType, params["*"], searchParams]
+  );
+  const resolvedRoute = useMemo(() => resolveBrowseRouteState(currentRoute, allConnections), [allConnections, currentRoute]);
+
+  const leftPathNavigateRef = React.useRef<(path: string) => void>(() => undefined);
+  const rightPathNavigateRef = React.useRef<(path: string) => void>(() => undefined);
+  const leftConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
+  const rightConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
 
   // WebSocket for real-time directory updates (server)
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -187,6 +207,8 @@ const Browser: React.FC = () => {
     disabled: settingsOpen || mobileSettingsOpen,
     isActive: activePaneId === "left",
     onCompanionHint: () => setCompanionHintOpen(true),
+    onNavigatePath: (path) => leftPathNavigateRef.current(path),
+    onNavigateConnection: (connectionId) => leftConnectionNavigateRef.current(connectionId),
   });
 
   // Right pane — always instantiated (React hooks rule: no conditional hooks),
@@ -196,6 +218,8 @@ const Browser: React.FC = () => {
     disabled: settingsOpen || mobileSettingsOpen || paneMode === "single",
     isActive: activePaneId === "right" && paneMode === "dual",
     onCompanionHint: () => setCompanionHintOpen(true),
+    onNavigatePath: (path) => rightPathNavigateRef.current(path),
+    onNavigateConnection: (connectionId) => rightConnectionNavigateRef.current(connectionId),
   });
 
   /**
@@ -216,30 +240,6 @@ const Browser: React.FC = () => {
   }, [isDualMode, quickBarPaneId, rightPane.connectionId]);
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Helper Functions
-  // ──────────────────────────────────────────────────────────────────────────
-
-  /**
-   * slugifyConnectionName
-   *
-   * Converts connection name to URL-safe slug for routing.
-   * Example: "My Server" -> "my-server"
-   */
-  const slugifyConnectionName = useCallback((name: string): string => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-") // Replace non-alphanumeric with dashes
-      .replace(/^-+|-+$/g, ""); // Remove leading/trailing dashes
-  }, []);
-
-  const getConnectionByName = useCallback(
-    (slug: string): Connection | undefined => {
-      return connections.find((c: Connection) => slugifyConnectionName(c.name) === slug);
-    },
-    [connections, slugifyConnectionName]
-  );
-
-  // ──────────────────────────────────────────────────────────────────────────
   // API & Data Loading (Global)
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -258,6 +258,118 @@ const Browser: React.FC = () => {
       setIsAdmin(false);
     }
   }, []);
+
+  const navigateToBrowseState = useCallback(
+    (nextRoute: BrowseRouteState, options?: { replace?: boolean }) => {
+      const nextUrl = serializeBrowseRoute(nextRoute);
+      const currentUrl = location.pathname + location.search;
+      if (currentUrl === nextUrl) {
+        return;
+      }
+
+      navigate(nextUrl, { replace: options?.replace ?? false });
+    },
+    [location.pathname, location.search, navigate]
+  );
+
+  const getCurrentLeftTarget = useCallback(() => {
+    return buildBrowseRouteTarget(leftPane.connectionIdRef.current, leftPane.currentPathRef.current, allConnections);
+  }, [allConnections, leftPane]);
+
+  const getCurrentRightTarget = useCallback(() => {
+    if (paneMode !== "dual") {
+      return null;
+    }
+
+    return buildBrowseRouteTarget(rightPane.connectionIdRef.current, rightPane.currentPathRef.current, allConnections);
+  }, [allConnections, paneMode, rightPane]);
+
+  const navigateLeftPane = useCallback(
+    (connectionId: string, path: string, options?: { replace?: boolean; activePaneId?: PaneId }) => {
+      const leftTarget = buildBrowseRouteTarget(connectionId, path, allConnections);
+      if (!leftTarget) {
+        navigate("/browse", { replace: options?.replace ?? false });
+        return;
+      }
+
+      const rightTarget = getCurrentRightTarget();
+      navigateToBrowseState(
+        {
+          left: leftTarget,
+          right: rightTarget,
+          activePaneId: rightTarget ? (options?.activePaneId ?? activePaneId) : "left",
+        },
+        options
+      );
+    },
+    [activePaneId, allConnections, getCurrentRightTarget, navigate, navigateToBrowseState]
+  );
+
+  const navigateRightPane = useCallback(
+    (connectionId: string, path: string, options?: { replace?: boolean; activePaneId?: PaneId }) => {
+      const leftTarget = getCurrentLeftTarget();
+      const rightTarget = buildBrowseRouteTarget(connectionId, path, allConnections);
+      if (!leftTarget || !rightTarget) {
+        return;
+      }
+
+      navigateToBrowseState(
+        {
+          left: leftTarget,
+          right: rightTarget,
+          activePaneId: options?.activePaneId ?? activePaneId,
+        },
+        options
+      );
+    },
+    [activePaneId, allConnections, getCurrentLeftTarget, navigateToBrowseState]
+  );
+
+  const replaceActivePaneInRoute = useCallback(
+    (nextActivePaneId: PaneId) => {
+      const leftTarget = getCurrentLeftTarget();
+      const rightTarget = getCurrentRightTarget();
+      if (!leftTarget || !rightTarget) {
+        return;
+      }
+
+      navigateToBrowseState(
+        {
+          left: leftTarget,
+          right: rightTarget,
+          activePaneId: nextActivePaneId,
+        },
+        { replace: true }
+      );
+    },
+    [getCurrentLeftTarget, getCurrentRightTarget, navigateToBrowseState]
+  );
+
+  leftPathNavigateRef.current = (path) => {
+    const connectionId = leftPane.connectionIdRef.current;
+    if (!connectionId) {
+      return;
+    }
+
+    navigateLeftPane(connectionId, path, { activePaneId: "left" });
+  };
+
+  rightPathNavigateRef.current = (path) => {
+    const connectionId = rightPane.connectionIdRef.current;
+    if (!connectionId) {
+      return;
+    }
+
+    navigateRightPane(connectionId, path, { activePaneId: "right" });
+  };
+
+  leftConnectionNavigateRef.current = (connectionId) => {
+    navigateLeftPane(connectionId, "", { activePaneId: paneMode === "dual" ? activePaneId : "left" });
+  };
+
+  rightConnectionNavigateRef.current = (connectionId) => {
+    navigateRightPane(connectionId, "", { activePaneId: "right" });
+  };
 
   /**
    * loadConnections
@@ -288,35 +400,47 @@ const Browser: React.FC = () => {
       const data = await api.getConnections();
       setConnections(data);
 
-      // Priority: URL param (name slug) > localStorage > first connection
-      if (params.connectionId) {
-        const urlConnection = data.find((c: Connection) => slugifyConnectionName(c.name) === params.connectionId);
-        if (urlConnection) {
-          // URL has valid connection, will be set in initialization useEffect
-          // Don't override it here
-          return;
-        }
-        // Invalid connection slug in URL - redirect to /browse
+      if ((params.targetType || params.targetId) && !currentRoute.left) {
         navigate("/browse", { replace: true });
         return;
       }
 
-      // No URL param, use localStorage or first
-      const savedConnectionId = localStorage.getItem("selectedConnectionId");
-      let autoSelectedConnection: Connection | undefined;
-
-      if (savedConnectionId && data.find((c: Connection) => c.id === savedConnectionId)) {
-        autoSelectedConnection = data.find((c: Connection) => c.id === savedConnectionId);
-        leftPane.setConnectionId(savedConnectionId);
-      } else if (data.length > 0 && data[0]) {
-        autoSelectedConnection = data[0];
-        leftPane.setConnectionId(data[0].id);
+      if (currentRoute.left?.kind === "smb" && !data.some((connection) => connection.slug === currentRoute.left?.targetId)) {
+        navigate("/browse", { replace: true });
+        return;
       }
 
-      // Update URL to include the auto-selected connection
-      if (autoSelectedConnection) {
-        const identifier = slugifyConnectionName(autoSelectedConnection.name);
-        navigate(`/browse/${identifier}`, { replace: true });
+      if (currentRoute.right?.kind === "smb" && !data.some((connection) => connection.slug === currentRoute.right?.targetId)) {
+        navigateToBrowseState(
+          {
+            left: currentRoute.left,
+            right: null,
+            activePaneId: "left",
+          },
+          { replace: true }
+        );
+        return;
+      }
+
+      if (currentRoute.left) {
+        return;
+      }
+
+      const savedConnectionId = localStorage.getItem("selectedConnectionId");
+      const autoSelectedConnectionId =
+        savedConnectionId && (isLocalDrive(savedConnectionId) || data.some((connection) => connection.id === savedConnectionId))
+          ? savedConnectionId
+          : data[0]?.id;
+
+      if (autoSelectedConnectionId) {
+        navigateToBrowseState(
+          {
+            left: buildBrowseRouteTarget(autoSelectedConnectionId, "", mergeConnections(data, companion.drives)),
+            right: null,
+            activePaneId: "left",
+          },
+          { replace: true }
+        );
       }
     } catch (err: unknown) {
       logger.error("Error loading connections", { error: err }, "browser");
@@ -334,84 +458,7 @@ const Browser: React.FC = () => {
     } finally {
       setLoadingConnections(false);
     }
-  }, [navigate, params.connectionId, slugifyConnectionName]);
-
-  /**
-   * encodePath
-   *
-   * Encodes a file path for use in URLs — each segment is percent-encoded
-   * individually but slashes are kept as literal '/' for readability.
-   */
-  const encodePath = useCallback((path: string): string => {
-    return path
-      .split("/")
-      .map((segment) => encodeURIComponent(segment))
-      .join("/");
-  }, []);
-
-  /**
-   * updateUrl
-   *
-   * Builds the full URL from both panes' state and navigates to it.
-   * Left pane is encoded in the path segment (backward-compatible).
-   * Right pane is encoded as `?p2=connection-slug/path` query parameter.
-   * Active pane is encoded as `&active=2` when the right pane is focused.
-   *
-   * Single-pane mode produces a clean URL with no query string.
-   */
-  const updateUrl = useCallback(() => {
-    if (isInitializing.current) return;
-    if (isUpdatingFromUrl.current) return;
-
-    // ── Left pane (path segment) ──
-    const leftConnId = leftPane.connectionIdRef.current;
-    const leftPath = leftPane.currentPathRef.current;
-    const leftConnection = connections.find((c: Connection) => c.id === leftConnId);
-    if (!leftConnection) return;
-
-    const leftSlug = slugifyConnectionName(leftConnection.name);
-    const leftEncodedPath = encodePath(leftPath);
-    let newUrl = `/browse/${leftSlug}${leftEncodedPath ? `/${leftEncodedPath}` : ""}`;
-
-    // ── Right pane (query parameter) — only in dual mode ──
-    const rightConnId = rightPane.connectionIdRef.current;
-    const rightPath = rightPane.currentPathRef.current;
-    const currentIsDual = paneMode === "dual" && !useCompactLayout;
-
-    if (currentIsDual && rightConnId) {
-      const rightConnection = connections.find((c: Connection) => c.id === rightConnId);
-      if (rightConnection) {
-        const rightSlug = slugifyConnectionName(rightConnection.name);
-        const rightEncodedPath = encodePath(rightPath);
-        const p2Value = `${rightSlug}${rightEncodedPath ? `/${rightEncodedPath}` : ""}`;
-
-        const qp = new URLSearchParams();
-        qp.set(RIGHT_PANE_QUERY_KEY, p2Value);
-        if (activePaneId === "right") {
-          qp.set(ACTIVE_PANE_QUERY_KEY, "2");
-        }
-        newUrl += `?${qp.toString()}`;
-      }
-    }
-
-    // Only navigate if URL actually changed
-    const currentFull = location.pathname + location.search;
-    if (currentFull !== newUrl) {
-      navigate(newUrl, { replace: false });
-    }
-  }, [
-    connections,
-    slugifyConnectionName,
-    encodePath,
-    paneMode,
-    useCompactLayout,
-    activePaneId,
-    location.pathname,
-    location.search,
-    navigate,
-    leftPane,
-    rightPane,
-  ]);
+  }, [companion.drives, currentRoute.left, currentRoute.right, navigate, navigateToBrowseState, params.targetId, params.targetType]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Lifecycle Effects
@@ -436,124 +483,28 @@ const Browser: React.FC = () => {
     };
   }, []);
 
-  // Initialize state from URL after connections are loaded
-  // biome-ignore lint/correctness/useExhaustiveDependencies: getConnectionByName uses closure, including it causes re-initialization
   useEffect(() => {
-    if (connections.length === 0) return; // Wait for connections to load
-
-    // ── Left pane: restore from path params ──
-    if (params.connectionId) {
-      const connection = getConnectionByName(params.connectionId);
-      if (connection) {
-        leftPane.setConnectionId(connection.id);
-        const urlPath = params["*"] || "";
-        leftPane.setCurrentPath(decodeURIComponent(urlPath));
-      }
+    if (loadingConnections) {
+      return;
     }
 
-    // ── Right pane: restore from ?p2= query parameter ──
-    const p2 = searchParams.get(RIGHT_PANE_QUERY_KEY);
-    if (p2) {
-      const slashIdx = p2.indexOf("/");
-      const rightSlug = slashIdx >= 0 ? p2.slice(0, slashIdx) : p2;
-      const rightPath = slashIdx >= 0 ? decodeURIComponent(p2.slice(slashIdx + 1)) : "";
-      const rightConn = getConnectionByName(rightSlug);
-      if (rightConn) {
-        setPaneMode("dual");
-        rightPane.setConnectionId(rightConn.id);
-        rightPane.setCurrentPath(rightPath);
-        localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
-      }
+    leftPane.applyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "");
+    rightPane.applyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "");
+
+    const nextPaneMode: PaneMode = resolvedRoute.right ? "dual" : "single";
+    const nextActivePaneId: PaneId = resolvedRoute.right ? resolvedRoute.activePaneId : "left";
+
+    if (paneMode !== nextPaneMode) {
+      setPaneMode(nextPaneMode);
     }
 
-    // ── Active pane: restore from ?active= ──
-    const activeParam = searchParams.get(ACTIVE_PANE_QUERY_KEY);
-    if (activeParam === "2" && p2) {
-      setActivePaneId("right");
-      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
+    if (activePaneId !== nextActivePaneId) {
+      setActivePaneId(nextActivePaneId);
     }
 
-    // Mark initialization complete after state updates have been flushed
-    // Using flushSync would be too aggressive, so we let React batch the updates
-    // and mark complete in the next microtask after this effect runs
-    Promise.resolve().then(() => {
-      isInitializing.current = false;
-    });
-  }, [connections.length, params.connectionId, params["*"]]);
-
-  // Handle browser back/forward navigation (both panes)
-  // biome-ignore lint/correctness/useExhaustiveDependencies: getConnectionByName intentionally excluded - we use closure value to avoid re-running when function reference changes
-  useEffect(() => {
-    if (isInitializing.current || connections.length === 0) return;
-
-    isUpdatingFromUrl.current = true;
-
-    // ── Left pane: sync from path params ──
-    if (params.connectionId) {
-      const connection = getConnectionByName(params.connectionId);
-      if (connection && connection.id !== leftPane.connectionIdRef.current) {
-        leftPane.setConnectionId(connection.id);
-      }
-    }
-
-    const urlPath = params["*"] || "";
-    const decodedPath = decodeURIComponent(urlPath);
-    if (leftPane.currentPathRef.current !== decodedPath) {
-      logger.debug("[URL Navigation] Setting left pane path", { path: decodedPath }, "browser");
-      leftPane.setCurrentPath(decodedPath);
-    }
-
-    // ── Right pane: sync from ?p2= ──
-    const p2 = searchParams.get(RIGHT_PANE_QUERY_KEY);
-    if (p2) {
-      const slashIdx = p2.indexOf("/");
-      const rightSlug = slashIdx >= 0 ? p2.slice(0, slashIdx) : p2;
-      const rightPath = slashIdx >= 0 ? decodeURIComponent(p2.slice(slashIdx + 1)) : "";
-      const rightConn = getConnectionByName(rightSlug);
-      if (rightConn) {
-        if (paneMode !== "dual") {
-          setPaneMode("dual");
-          localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
-        }
-        if (rightConn.id !== rightPane.connectionIdRef.current) {
-          rightPane.setConnectionId(rightConn.id);
-        }
-        if (rightPane.currentPathRef.current !== rightPath) {
-          rightPane.setCurrentPath(rightPath);
-        }
-      }
-    } else if (paneMode === "dual") {
-      // URL has no p2 — revert to single mode (e.g. user pressed back after closing dual mode)
-      setPaneMode("single");
-      setActivePaneId("left");
-      rightPane.setConnectionId("");
-      rightPane.setCurrentPath("");
-      rightPane.setViewInfo(null);
-      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "single");
-      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
-    }
-
-    // ── Active pane: sync from ?active= ──
-    const activeParam = searchParams.get(ACTIVE_PANE_QUERY_KEY);
-    const urlActivePaneId: PaneId = activeParam === "2" ? "right" : "left";
-    if (activePaneId !== urlActivePaneId) {
-      setActivePaneId(urlActivePaneId);
-      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, urlActivePaneId);
-    }
-
-    // Reset flag after state updates have been flushed
-    Promise.resolve().then(() => {
-      isUpdatingFromUrl.current = false;
-    });
-  }, [connections.length, params.connectionId, params["*"], searchParams]);
-
-  // Sync URL with state changes from both panes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: rightPane dependencies are covered by the refs inside updateUrl
-  useEffect(() => {
-    if (leftPane.connectionId) {
-      updateUrl();
-    }
-  }, [leftPane.currentPath, leftPane.connectionId, rightPane.currentPath, rightPane.connectionId, paneMode, activePaneId, updateUrl]);
+    localStorage.setItem(DUAL_PANE_STORAGE_KEY, nextPaneMode);
+    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextActivePaneId);
+  }, [activePaneId, leftPane, loadingConnections, paneMode, resolvedRoute, rightPane]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // WebSocket Real-Time Updates
@@ -816,59 +767,64 @@ const Browser: React.FC = () => {
 
   /** Toggle between single and dual-pane mode. */
   const handleToggleDualPane = useCallback(() => {
+    const leftTarget = getCurrentLeftTarget();
+    if (!leftTarget) {
+      return;
+    }
+
     if (paneMode === "single") {
-      // Activate dual mode — initialize right pane with left pane's location
-      setPaneMode("dual");
-      setActivePaneId("right");
-      rightPane.setConnectionId(leftPane.connectionIdRef.current);
-      rightPane.setCurrentPath(leftPane.currentPathRef.current);
-      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
-      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
+      navigateToBrowseState({
+        left: leftTarget,
+        right: buildBrowseRouteTarget(leftPane.connectionIdRef.current, leftPane.currentPathRef.current, allConnections),
+        activePaneId: "right",
+      });
     } else {
-      // Return to single mode — clear right pane to avoid background work
-      setPaneMode("single");
-      setActivePaneId("left");
-      rightPane.setConnectionId("");
-      rightPane.setCurrentPath("");
-      rightPane.setViewInfo(null);
-      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "single");
-      localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+      navigateToBrowseState({
+        left: leftTarget,
+        right: null,
+        activePaneId: "left",
+      });
       // Focus left pane's list container
       setTimeout(() => leftPane.listContainerEl?.focus(), 0);
     }
-  }, [paneMode, leftPane, rightPane]);
+  }, [allConnections, getCurrentLeftTarget, leftPane, navigateToBrowseState, paneMode]);
 
   /** Switch focus to the other pane (Tab in dual mode). */
   const handleSwitchPane = useCallback(() => {
     if (!isDualMode) return;
     const currentId = effectiveActivePaneIdRef.current;
     const nextId: PaneId = currentId === "left" ? "right" : "left";
-    setActivePaneId(nextId);
-    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextId);
+    replaceActivePaneInRoute(nextId);
     const nextPane = nextId === "left" ? leftPane : rightPane;
     setTimeout(() => nextPane.listContainerEl?.focus(), 0);
-  }, [isDualMode, leftPane, rightPane]);
+  }, [isDualMode, leftPane, replaceActivePaneInRoute, rightPane]);
 
   /** Focus the left pane (Ctrl+1). Opens dual mode from single if Ctrl+2 is used. */
   const handleFocusLeftPane = useCallback(() => {
-    setActivePaneId("left");
-    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+    if (paneMode === "dual") {
+      replaceActivePaneInRoute("left");
+    }
     setTimeout(() => leftPane.listContainerEl?.focus(), 0);
-  }, [leftPane]);
+  }, [leftPane, paneMode, replaceActivePaneInRoute]);
 
   /** Focus the right pane (Ctrl+2). Opens dual mode if currently in single. */
   const handleFocusRightPane = useCallback(() => {
-    if (paneMode === "single") {
-      // Open dual mode and focus right pane
-      setPaneMode("dual");
-      rightPane.setConnectionId(leftPane.connectionIdRef.current);
-      rightPane.setCurrentPath(leftPane.currentPathRef.current);
-      localStorage.setItem(DUAL_PANE_STORAGE_KEY, "dual");
+    const leftTarget = getCurrentLeftTarget();
+    if (!leftTarget) {
+      return;
     }
-    setActivePaneId("right");
-    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
+
+    if (paneMode === "single") {
+      navigateToBrowseState({
+        left: leftTarget,
+        right: buildBrowseRouteTarget(leftPane.connectionIdRef.current, leftPane.currentPathRef.current, allConnections),
+        activePaneId: "right",
+      });
+    } else {
+      replaceActivePaneInRoute("right");
+    }
     setTimeout(() => rightPane.listContainerEl?.focus(), 0);
-  }, [paneMode, leftPane, rightPane]);
+  }, [allConnections, getCurrentLeftTarget, leftPane, navigateToBrowseState, paneMode, replaceActivePaneInRoute, rightPane]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Copy / Move Handlers
@@ -1549,14 +1505,14 @@ const Browser: React.FC = () => {
       if (leftConnId && hasConnection(leftConnId)) {
         // Left pane's connection is fine — check right pane too
         if (rightConnId && !hasConnection(rightConnId)) {
-          // Right pane's connection was removed — revert to single mode
-          setPaneMode("single");
-          setActivePaneId("left");
-          rightPane.setConnectionId("");
-          rightPane.setCurrentPath("");
-          rightPane.setViewInfo(null);
-          localStorage.setItem(DUAL_PANE_STORAGE_KEY, "single");
-          localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+          navigateToBrowseState(
+            {
+              left: buildBrowseRouteTarget(leftConnId, leftPane.currentPathRef.current, availableConnections),
+              right: null,
+              activePaneId: "left",
+            },
+            { replace: true }
+          );
         }
         return;
       }
@@ -1566,25 +1522,26 @@ const Browser: React.FC = () => {
         const sortedByName = [...availableConnections].sort((a, b) => a.name.localeCompare(b.name));
         const firstConnection = sortedByName[0];
         if (firstConnection) {
-          leftPane.handleConnectionChange(firstConnection.id);
-          const identifier = slugifyConnectionName(firstConnection.name);
-          navigate(`/browse/${identifier}`, { replace: true });
+          navigateToBrowseState(
+            {
+              left: buildBrowseRouteTarget(firstConnection.id, "", availableConnections),
+              right: null,
+              activePaneId: "left",
+            },
+            { replace: true }
+          );
         }
       } else {
         // No connections remaining - show welcome screen
-        leftPane.setConnectionId("");
-        leftPane.setCurrentPath("");
-        leftPane.setViewInfo(null);
-        rightPane.setConnectionId("");
-        rightPane.setCurrentPath("");
-        rightPane.setViewInfo(null);
+        leftPane.applyLocation("", "");
+        rightPane.applyLocation("", "");
         localStorage.removeItem("selectedConnectionId");
         navigate("/browse", { replace: true });
       }
     } catch (err) {
       logger.error("Error refreshing connections", { error: err }, "browser");
     }
-  }, [companion, leftPane, navigate, rightPane, slugifyConnectionName]);
+  }, [companion, leftPane, navigate, navigateToBrowseState, rightPane]);
 
   // ── Computed values for the active pane (used in toolbar / mobile) ────────
   const activeCurrentPath = activePane.currentPath;
@@ -1609,7 +1566,11 @@ const Browser: React.FC = () => {
         selectedConnectionId={activePane.connectionId}
         onConnectionChange={activePane.handleConnectionChange}
         onNavigateToRoot={() => {
-          activePane.setCurrentPath("");
+          if (effectiveActivePaneId === "right" && paneMode === "dual") {
+            rightPathNavigateRef.current("");
+          } else {
+            leftPathNavigateRef.current("");
+          }
           activePane.setViewInfo(null);
         }}
         onOpenSettings={handleOpenSettings}
@@ -1712,8 +1673,9 @@ const Browser: React.FC = () => {
               useCompactLayout={useCompactLayout}
               isUsingKeyboard={isUsingKeyboard}
               onPaneFocus={() => {
-                setActivePaneId("left");
-                localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "left");
+                if (paneMode === "dual") {
+                  replaceActivePaneInRoute("left");
+                }
               }}
               disableTabFocus={isDualMode}
               searchProvider={quickBarProvider}
@@ -1722,6 +1684,7 @@ const Browser: React.FC = () => {
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
               disableSearchDropdown={quickBarMode === "filter"}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
+              onNavigatePath={(path) => leftPathNavigateRef.current(path)}
             />
 
             {/* Divider + Right Pane — dual mode only */}
@@ -1737,8 +1700,7 @@ const Browser: React.FC = () => {
                   useCompactLayout={useCompactLayout}
                   isUsingKeyboard={isUsingKeyboard}
                   onPaneFocus={() => {
-                    setActivePaneId("right");
-                    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, "right");
+                    replaceActivePaneInRoute("right");
                   }}
                   disableTabFocus={isDualMode}
                   searchProvider={quickBarProvider}
@@ -1747,6 +1709,7 @@ const Browser: React.FC = () => {
                   onSearchQueryValueChange={handleQuickBarQueryValueChange}
                   disableSearchDropdown={quickBarMode === "filter"}
                   onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
+                  onNavigatePath={(path) => rightPathNavigateRef.current(path)}
                 />
               </>
             )}
