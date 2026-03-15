@@ -32,10 +32,6 @@
   - Settings file
   - Built-in defaults
 
-## Docker
-
-- The healthcheck doesn't seem to be working
-
 ## Localization
 
 - Make all UI strings translatable

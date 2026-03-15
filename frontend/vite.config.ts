@@ -29,15 +29,18 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Split React and React DOM into their own chunk
-          react: ["react", "react-dom", "react-router-dom"],
-          // Split Material-UI into its own chunk (it's large)
-          mui: ["@mui/material", "@mui/icons-material", "@emotion/react", "@emotion/styled"],
-          // Split markdown rendering into its own chunk (only loaded when viewing markdown)
-          markdown: ["react-markdown", "remark-gfm", "rehype-highlight"],
-          // Split PDF rendering into its own chunk (only loaded when viewing PDFs)
-          pdf: ["react-pdf"],
+        manualChunks(id) {
+          // Avoid forcing React and MUI into separate chunks because their
+          // runtime linkage can create circular chunks in production builds.
+          if (id.includes("react-markdown") || id.includes("remark-gfm") || id.includes("rehype-highlight")) {
+            return "markdown";
+          }
+
+          if (id.includes("react-pdf")) {
+            return "pdf";
+          }
+
+          return undefined;
         },
       },
     },
