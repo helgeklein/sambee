@@ -20,6 +20,8 @@ interface ConnectionSelectorProps {
   companionStatus?: CompanionStatus;
   /** Callback to open settings for local drive management. */
   onManageLocalDrives?: () => void;
+  /** Optional ref to the trigger button for keyboard focus management. */
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 //
@@ -33,6 +35,7 @@ export function ConnectionSelector({
   disableTabFocus,
   companionStatus,
   onManageLocalDrives,
+  buttonRef,
 }: ConnectionSelectorProps) {
   const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onAfterChange);
 
@@ -64,6 +67,7 @@ export function ConnectionSelector({
   return (
     <>
       <Button
+        ref={buttonRef}
         onClick={handleClick}
         onKeyDown={handleKeyDown}
         onKeyUp={handleKeyUp}

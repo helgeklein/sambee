@@ -1212,6 +1212,7 @@ const Browser: React.FC = () => {
 
   const quickBarQueryValue = quickBarMode === "filter" ? quickBarPane.currentDirectoryFilter : undefined;
   const handleQuickBarQueryValueChange = quickBarMode === "filter" ? quickBarPane.setCurrentDirectoryFilter : undefined;
+  const connectionSelectorButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const handleQuickBarArrowDownToFileList = useCallback(() => {
     if (quickBarPane.filesRef.current.length === 0) {
       return;
@@ -1219,6 +1220,17 @@ const Browser: React.FC = () => {
 
     quickBarPane.listContainerEl?.focus();
   }, [quickBarPane]);
+  const handleOpenConnectionSelector = useCallback(() => {
+    const connectionSelectorButton = connectionSelectorButtonRef.current;
+    if (!connectionSelectorButton) {
+      return;
+    }
+
+    connectionSelectorButton.focus();
+    if (connectionSelectorButton.getAttribute("aria-expanded") !== "true") {
+      connectionSelectorButton.click();
+    }
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Keyboard Shortcuts
@@ -1323,6 +1335,12 @@ const Browser: React.FC = () => {
         ...BROWSER_SHORTCUTS.COMMAND_PALETTE_ALTERNATE,
         handler: () => openQuickBarMode("commands"),
         enabled: noSettings,
+      },
+      // Focus connection selector (Ctrl+Down)
+      {
+        ...BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR,
+        handler: handleOpenConnectionSelector,
+        enabled: !useCompactLayout && noSettings && allConnections.length > 0,
       },
       // Open settings (Ctrl+,)
       {
@@ -1434,11 +1452,13 @@ const Browser: React.FC = () => {
   }, [
     activePane,
     handleOpenSettings,
+    handleOpenConnectionSelector,
     settingsOpen,
     mobileSettingsOpen,
     useCompactLayout,
     isDualMode,
     copyMoveDialogOpen,
+    allConnections.length,
     openQuickBarMode,
     handleToggleDualPane,
     handleSwitchPane,
@@ -1640,6 +1660,7 @@ const Browser: React.FC = () => {
           disableTabFocus={isDualMode}
           companionStatus={companion.status}
           onManageLocalDrives={openLocalDrivesSettings}
+          connectionButtonRef={connectionSelectorButtonRef}
         />
       )}
 

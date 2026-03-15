@@ -20,6 +20,7 @@
  */
 
 import { Box } from "@mui/material";
+import type React from "react";
 import type { CompanionStatus } from "../../hooks/useCompanion";
 import type { SortField, ViewMode } from "../../pages/FileBrowser/types";
 import type { Connection } from "../../types";
@@ -60,6 +61,8 @@ interface SecondaryActionStripProps {
   companionStatus?: CompanionStatus;
   /** Callback to open local-drive settings. */
   onManageLocalDrives?: () => void;
+  /** Ref to the connection selector trigger for page-level shortcuts. */
+  connectionButtonRef?: React.Ref<HTMLButtonElement>;
 }
 
 // ============================================================================
@@ -85,6 +88,7 @@ export function SecondaryActionStrip({
   disableTabFocus,
   companionStatus,
   onManageLocalDrives,
+  connectionButtonRef,
 }: SecondaryActionStripProps) {
   return (
     <Box
@@ -108,6 +112,7 @@ export function SecondaryActionStrip({
           disableTabFocus={disableTabFocus}
           companionStatus={companionStatus}
           onManageLocalDrives={onManageLocalDrives}
+          buttonRef={connectionButtonRef}
         />
       </Box>
       {hasFiles && (

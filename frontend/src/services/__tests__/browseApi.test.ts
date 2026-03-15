@@ -43,6 +43,17 @@ const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.
   get: ReturnType<typeof vi.fn>;
 };
 
+function getRequiredItem<T>(items: T[], index: number): T {
+  const item = items[index];
+  expect(item).toBeDefined();
+
+  if (item === undefined) {
+    throw new Error(`Expected item at index ${index} to be defined`);
+  }
+
+  return item;
+}
+
 describe("Browse API Contract Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,7 +127,7 @@ describe("Browse API Contract Tests", () => {
       } as AxiosResponse);
 
       const result = await apiService.listDirectory(testConnectionId, "/files");
-      const item = result.items[0];
+      const item = getRequiredItem(result.items, 0);
 
       // Verify all FileInfo fields
       expect(item).toHaveProperty("name");
@@ -171,10 +182,13 @@ describe("Browse API Contract Tests", () => {
       const result = await apiService.listDirectory(testConnectionId, "/");
 
       // Verify enum values
-      expect(result.items[0].type).toBe(FileType.DIRECTORY);
-      expect(result.items[0].type).toBe("directory");
-      expect(result.items[1].type).toBe(FileType.FILE);
-      expect(result.items[1].type).toBe("file");
+      const firstItem = getRequiredItem(result.items, 0);
+      const secondItem = getRequiredItem(result.items, 1);
+
+      expect(firstItem.type).toBe(FileType.DIRECTORY);
+      expect(firstItem.type).toBe("directory");
+      expect(secondItem.type).toBe(FileType.FILE);
+      expect(secondItem.type).toBe("file");
     });
 
     it("should handle optional fields when available", async () => {
@@ -201,7 +215,7 @@ describe("Browse API Contract Tests", () => {
       } as AxiosResponse);
 
       const result = await apiService.listDirectory(testConnectionId, "/");
-      const item = result.items[0];
+      const item = getRequiredItem(result.items, 0);
 
       // Optional fields should be present when available
       expect(item.size).toBe(1024);
@@ -230,7 +244,7 @@ describe("Browse API Contract Tests", () => {
       } as AxiosResponse);
 
       const result = await apiService.listDirectory(testConnectionId, "/");
-      const item = result.items[0];
+      const item = getRequiredItem(result.items, 0);
 
       // Directories may not have size or mime_type
       // These fields are optional in the FileInfo interface
@@ -284,8 +298,11 @@ describe("Browse API Contract Tests", () => {
 
       const result = await apiService.listDirectory(testConnectionId, "/");
 
-      expect(result.items[0].is_hidden).toBe(true);
-      expect(result.items[1].is_hidden).toBe(false);
+      const hiddenItem = getRequiredItem(result.items, 0);
+      const visibleItem = getRequiredItem(result.items, 1);
+
+      expect(hiddenItem.is_hidden).toBe(true);
+      expect(visibleItem.is_hidden).toBe(false);
     });
 
     it("should handle is_readable flag", async () => {
@@ -316,8 +333,11 @@ describe("Browse API Contract Tests", () => {
 
       const result = await apiService.listDirectory(testConnectionId, "/");
 
-      expect(result.items[0].is_readable).toBe(true);
-      expect(result.items[1].is_readable).toBe(false);
+      const readableItem = getRequiredItem(result.items, 0);
+      const unreadableItem = getRequiredItem(result.items, 1);
+
+      expect(readableItem.is_readable).toBe(true);
+      expect(unreadableItem.is_readable).toBe(false);
     });
 
     it("should handle multiple items with mixed types", async () => {
@@ -361,9 +381,13 @@ describe("Browse API Contract Tests", () => {
 
       expect(result.items).toHaveLength(3);
       expect(result.total).toBe(3);
-      expect(result.items[0].type).toBe(FileType.DIRECTORY);
-      expect(result.items[1].type).toBe(FileType.FILE);
-      expect(result.items[2].type).toBe(FileType.FILE);
+      const firstItem = getRequiredItem(result.items, 0);
+      const secondItem = getRequiredItem(result.items, 1);
+      const thirdItem = getRequiredItem(result.items, 2);
+
+      expect(firstItem.type).toBe(FileType.DIRECTORY);
+      expect(secondItem.type).toBe(FileType.FILE);
+      expect(thirdItem.type).toBe(FileType.FILE);
     });
 
     it("should handle root path", async () => {
@@ -415,7 +439,7 @@ describe("Browse API Contract Tests", () => {
       const result = await apiService.listDirectory(testConnectionId, nestedPath);
 
       expect(result.path).toBe(nestedPath);
-      expect(result.items[0].path).toBe(`${nestedPath}/report.pdf`);
+      expect(getRequiredItem(result.items, 0).path).toBe(`${nestedPath}/report.pdf`);
     });
   });
 

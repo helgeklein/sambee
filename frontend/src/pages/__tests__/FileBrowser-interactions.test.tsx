@@ -267,6 +267,24 @@ describe("Browser Component - Interactions", () => {
       expect(quickBarInput).toHaveFocus();
     });
 
+    it("opens the connection selector with Ctrl+ArrowDown", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const quickBarInput = screen.getByPlaceholderText("Go to any folder or type > for commands");
+      quickBarInput.focus();
+      expect(quickBarInput).toHaveFocus();
+
+      await user.keyboard("{Control>}{ArrowDown}{/Control}");
+
+      expect(await screen.findByRole("listbox")).toBeInTheDocument();
+      expect(screen.getByText("Test Server 1 (192.168.1.100/share1)")).toBeInTheDocument();
+    });
+
     it("does not show an empty no-results dropdown when smart navigation opens", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/test-server-1");

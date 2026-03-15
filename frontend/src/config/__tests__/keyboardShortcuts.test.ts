@@ -62,6 +62,11 @@ describe("Keyboard Shortcuts Configuration", () => {
       const uniqueIds = new Set(ids);
       expect(uniqueIds.size).toBe(ids.length);
     });
+
+    it("should require ctrl modifier for connection selector focus", () => {
+      expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.ctrl).toBe(true);
+      expect(BROWSER_SHORTCUTS.FOCUS_CONNECTION_SELECTOR.keys).toBe("ArrowDown");
+    });
   });
 
   describe("PANE_SHORTCUTS", () => {

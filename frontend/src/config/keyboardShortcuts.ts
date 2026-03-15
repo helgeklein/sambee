@@ -232,6 +232,14 @@ export const BROWSER_SHORTCUTS = {
     label: "F1",
     allowInInput: true,
   },
+  FOCUS_CONNECTION_SELECTOR: {
+    id: "focus-connection-selector",
+    keys: "ArrowDown",
+    description: "Open connection selector",
+    label: "Ctrl+Down",
+    ctrl: true,
+    allowInInput: true,
+  },
   OPEN_SETTINGS: {
     id: "open-settings",
     keys: ",",
