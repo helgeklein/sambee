@@ -68,9 +68,6 @@ store = SystemSettingsStore()
 
 def _system_settings_table_exists(session: Session) -> bool:
     bind = session.get_bind()
-    if bind is None:
-        return False
-
     return bool(inspect(bind).has_table(SYSTEM_SETTINGS_TABLE_NAME))
 
 
