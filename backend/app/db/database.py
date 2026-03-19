@@ -1,12 +1,13 @@
 import os
 from typing import Any, Generator
 
-from sqlalchemy import event, inspect, text
+from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.core.config import settings, static
+from app.db.migrations import run_migrations
 
 # Database file path
 DATABASE_FILE_PATH = static.data_dir / "sambee.db"
@@ -87,45 +88,13 @@ def init_db() -> None:
     # Import here to avoid circular dependency
     from app.core.secrets import get_or_create_app_secrets
     from app.models.app_secret import AppSecret  # noqa: F401 - Required for table creation
-    from app.models.connection import generate_unique_connection_slug
     from app.models.edit_lock import EditLock  # noqa: F401 - Required for table creation
-
-    def ensure_connection_slugs() -> None:
-        inspector = inspect(engine)
-        connection_columns = (
-            {column["name"] for column in inspector.get_columns("connection")} if inspector.has_table("connection") else set()
-        )
-
-        if not connection_columns:
-            return
-
-        with engine.begin() as connection:
-            if "slug" not in connection_columns:
-                connection.execute(text("ALTER TABLE connection ADD COLUMN slug VARCHAR"))
-
-            rows = connection.execute(text("SELECT id, name, slug FROM connection ORDER BY created_at, id")).mappings().all()
-            existing_slugs: set[str] = set()
-
-            for row in rows:
-                row_slug = row["slug"]
-                if row_slug:
-                    existing_slugs.add(str(row_slug))
-
-            for row in rows:
-                if row["slug"]:
-                    continue
-
-                next_slug = generate_unique_connection_slug(str(row["name"]), existing_slugs)
-                connection.execute(
-                    text("UPDATE connection SET slug = :slug WHERE id = :connection_id"), {"slug": next_slug, "connection_id": row["id"]}
-                )
-                existing_slugs.add(next_slug)
-
-            connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_connection_slug ON connection (slug)"))
+    from app.models.system_settings import SystemSetting  # noqa: F401 - Required for table creation
+    from app.models.user_settings import UserSetting  # noqa: F401 - Required for table creation
 
     # Create all tables
     SQLModel.metadata.create_all(engine)
-    ensure_connection_slugs()
+    run_migrations(engine)
 
     # Load or generate app secrets
     with Session(engine) as session:

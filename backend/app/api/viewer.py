@@ -13,6 +13,7 @@ from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.file import FileType
 from app.models.user import User
+from app.services.connection_access import get_accessible_connection_or_404
 from app.services.image_converter import convert_image_for_viewer
 from app.services.pdf_normalizer import (
     is_pdf_normalization_available,
@@ -24,6 +25,13 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _require_share_name(connection: Connection) -> str:
+    """Return a validated share name for typed SMB backend construction."""
+
+    assert connection.share_name is not None
+    return connection.share_name
 
 
 #
@@ -273,10 +281,7 @@ async def view_file(
     set_user(current_user.username)
 
     # Get the storage connection
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
 
     # Verify the connection configuration
     if not connection.share_name:
@@ -287,7 +292,7 @@ async def view_file(
         # Create SMB backend...
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -372,10 +377,7 @@ async def download_file(
     set_user(current_user.username)
     logger.info(f"Download file: connection_id={connection_id}, path='{path}'")
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
 
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
@@ -387,7 +389,7 @@ async def download_file(
     try:
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,

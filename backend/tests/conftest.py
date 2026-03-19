@@ -16,7 +16,7 @@ from sqlmodel.pool import StaticPool
 from app.core.security import create_access_token, get_password_hash
 from app.db.database import get_session
 from app.main import app
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionScope
 from app.models.user import User
 
 
@@ -263,6 +263,7 @@ def test_connection_fixture(session: Session) -> Connection:
         username="smbuser",
         password_encrypted=encrypt_password("smbpass123"),
         port=445,
+        scope=ConnectionScope.SHARED,
     )
     session.add(connection)
     session.commit()
@@ -284,6 +285,7 @@ def multiple_connections_fixture(session: Session) -> list[Connection]:
             username=f"user{i}",
             password_encrypted=encrypt_password(f"pass{i}"),
             port=445,
+            scope=ConnectionScope.SHARED,
         )
         for i in range(1, 4)
     ]
@@ -293,3 +295,58 @@ def multiple_connections_fixture(session: Session) -> list[Connection]:
     for conn in connections:
         session.refresh(conn)
     return connections
+
+
+@pytest.fixture(name="user_private_connection")
+def user_private_connection_fixture(session: Session, regular_user: User) -> Connection:
+    """Create a private SMB connection owned by the regular user."""
+
+    from app.core.security import encrypt_password
+
+    connection = Connection(
+        id=uuid.uuid4(),
+        name="Private User Server",
+        host="private-server.local",
+        share_name="private-share",
+        username="private-user",
+        password_encrypted=encrypt_password("privatepass123"),
+        port=445,
+        scope=ConnectionScope.PRIVATE,
+        owner_user_id=regular_user.id,
+    )
+    session.add(connection)
+    session.commit()
+    session.refresh(connection)
+    return connection
+
+
+@pytest.fixture(name="other_private_connection")
+def other_private_connection_fixture(session: Session) -> Connection:
+    """Create a private SMB connection owned by another user."""
+
+    from app.core.security import encrypt_password
+
+    other_user = User(
+        username="otheruser",
+        password_hash=get_password_hash("otherpass123"),
+        is_admin=False,
+    )
+    session.add(other_user)
+    session.commit()
+    session.refresh(other_user)
+
+    connection = Connection(
+        id=uuid.uuid4(),
+        name="Other Private Server",
+        host="other-private.local",
+        share_name="other-private-share",
+        username="other-user",
+        password_encrypted=encrypt_password("otherprivatepass123"),
+        port=445,
+        scope=ConnectionScope.PRIVATE,
+        owner_user_id=other_user.id,
+    )
+    session.add(connection)
+    session.commit()
+    session.refresh(connection)
+    return connection

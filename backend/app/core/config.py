@@ -9,6 +9,9 @@ from pydantic import BaseModel, field_validator
 from app.core.auth_methods import AuthMethod
 from app.core.environment import IS_DEVELOPMENT
 from app.core.exceptions import ConfigurationError
+from app.core.system_setting_definitions import SYSTEM_SETTING_DEFINITIONS, SystemSettingKey
+
+configured_setting_keys: frozenset[str] = frozenset()
 
 
 #
@@ -104,6 +107,30 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
         if "max_staleness_minutes" in dc:
             flat_config["directory_cache_max_staleness_minutes"] = dc["max_staleness_minutes"]
 
+    # SMB backend settings
+    if "smb" in toml_data:
+        smb = toml_data["smb"]
+        if "read_chunk_size_bytes" in smb:
+            flat_config["smb_read_chunk_size_bytes"] = smb["read_chunk_size_bytes"]
+
+    # Preprocessor settings
+    if "preprocessors" in toml_data:
+        preprocessors = toml_data["preprocessors"]
+
+        imagemagick = preprocessors.get("imagemagick")
+        if isinstance(imagemagick, dict):
+            if "max_file_size_bytes" in imagemagick:
+                flat_config["preprocessor_imagemagick_max_file_size_bytes"] = imagemagick["max_file_size_bytes"]
+            if "timeout_seconds" in imagemagick:
+                flat_config["preprocessor_imagemagick_timeout_seconds"] = imagemagick["timeout_seconds"]
+
+        graphicsmagick = preprocessors.get("graphicsmagick")
+        if isinstance(graphicsmagick, dict):
+            if "max_file_size_bytes" in graphicsmagick:
+                flat_config["preprocessor_graphicsmagick_max_file_size_bytes"] = graphicsmagick["max_file_size_bytes"]
+            if "timeout_seconds" in graphicsmagick:
+                flat_config["preprocessor_graphicsmagick_timeout_seconds"] = graphicsmagick["timeout_seconds"]
+
     return flat_config
 
 
@@ -181,6 +208,40 @@ class Settings(BaseModel):
     directory_cache_coalesce_interval_seconds: int = 30  # Min time between disk writes
     directory_cache_max_staleness_minutes: int = 43200  # 30 days — ignore snapshots older than this
 
+    # SMB backend settings
+    smb_read_chunk_size_bytes: int = SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES].default_value
+
+    # Preprocessor settings
+    preprocessor_imagemagick_max_file_size_bytes: int = SYSTEM_SETTING_DEFINITIONS[
+        SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES
+    ].default_value
+    preprocessor_imagemagick_timeout_seconds: int = SYSTEM_SETTING_DEFINITIONS[
+        SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS
+    ].default_value
+    preprocessor_graphicsmagick_max_file_size_bytes: int = SYSTEM_SETTING_DEFINITIONS[
+        SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_MAX_FILE_SIZE_BYTES
+    ].default_value
+    preprocessor_graphicsmagick_timeout_seconds: int = SYSTEM_SETTING_DEFINITIONS[
+        SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_TIMEOUT_SECONDS
+    ].default_value
+
+    @field_validator(
+        "smb_read_chunk_size_bytes",
+        "preprocessor_imagemagick_max_file_size_bytes",
+        "preprocessor_imagemagick_timeout_seconds",
+        "preprocessor_graphicsmagick_max_file_size_bytes",
+        "preprocessor_graphicsmagick_timeout_seconds",
+    )
+    @classmethod
+    def validate_integer_system_setting(cls, value: int, info: Any) -> int:
+        definition_by_attr = {definition.config_attr: definition for definition in SYSTEM_SETTING_DEFINITIONS.values()}
+        definition = definition_by_attr.get(info.field_name)
+        if definition is None:
+            return value
+        if value < definition.min_value or value > definition.max_value:
+            raise ValueError(f"{definition.config_attr} must be between {definition.min_value} and {definition.max_value}")
+        return value
+
 
 #
 # load_settings
@@ -202,7 +263,10 @@ def load_settings() -> Settings:
         # PROD mode: running in Docker
         config_path = Path("/app/config.toml")
 
+    global configured_setting_keys
+
     toml_config = load_toml_config(config_path)
+    configured_setting_keys = frozenset(toml_config.keys())
     return Settings(**toml_config)
 
 

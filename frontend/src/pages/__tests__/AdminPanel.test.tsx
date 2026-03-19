@@ -9,6 +9,7 @@ vi.mock("../../services/api", () => ({
   default: {
     getCurrentUser: vi.fn(),
     getConnections: vi.fn(),
+    getConnectionVisibilityOptions: vi.fn(),
     testConnection: vi.fn(),
     deleteConnection: vi.fn(),
   },
@@ -21,6 +22,23 @@ vi.mock("react-router-dom", () => ({
 }));
 
 import api from "../../services/api";
+
+const mockVisibilityOptions = [
+  {
+    value: "private" as const,
+    label: "Private to me",
+    description: "Visible only to your account. You can fully manage it.",
+    available: true,
+    unavailable_reason: null,
+  },
+  {
+    value: "shared" as const,
+    label: "Shared with everyone",
+    description: "Visible to all users. Only admins can manage it.",
+    available: true,
+    unavailable_reason: null,
+  },
+];
 
 const mockAdminUser: User = {
   username: "admin",
@@ -66,6 +84,7 @@ describe("AdminPanel Component", () => {
     localStorage.clear();
     vi.clearAllMocks();
     mockNavigate.mockClear();
+    vi.mocked(api.getConnectionVisibilityOptions).mockResolvedValue(mockVisibilityOptions);
   });
 
   it("redirects to login if user is not authenticated", async () => {

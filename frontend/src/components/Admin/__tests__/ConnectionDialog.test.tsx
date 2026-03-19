@@ -7,14 +7,34 @@ import ConnectionDialog from "../ConnectionDialog";
 // Mock the API module
 vi.mock("../../../services/api", () => ({
   default: {
+    getCurrentUser: vi.fn(),
+    getConnectionVisibilityOptions: vi.fn(),
     createConnection: vi.fn(),
     updateConnection: vi.fn(),
     testConnection: vi.fn(),
+    testConnectionConfig: vi.fn(),
     deleteConnection: vi.fn(),
   },
 }));
 
 import api from "../../../services/api";
+
+const mockVisibilityOptions = [
+  {
+    value: "private" as const,
+    label: "Private to me",
+    description: "Visible only to your account. You can fully manage it.",
+    available: true,
+    unavailable_reason: null,
+  },
+  {
+    value: "shared" as const,
+    label: "Shared with everyone",
+    description: "Visible to all users. Only admins can manage it.",
+    available: true,
+    unavailable_reason: null,
+  },
+];
 
 const mockConnection: Connection = {
   id: "1",
@@ -25,6 +45,8 @@ const mockConnection: Connection = {
   share_name: "share1",
   username: "testuser",
   path_prefix: "/",
+  scope: "shared",
+  can_manage: true,
   created_at: "2024-01-01T00:00:00",
   updated_at: "2024-01-01T00:00:00",
 };
@@ -35,6 +57,13 @@ describe("ConnectionDialog Component", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(api.getCurrentUser).mockResolvedValue({
+      id: "user-id",
+      username: "testuser",
+      role: "regular",
+      is_admin: false,
+    });
+    vi.mocked(api.getConnectionVisibilityOptions).mockResolvedValue(mockVisibilityOptions);
   });
 
   it("renders form fields for new connection", () => {
@@ -50,6 +79,21 @@ describe("ConnectionDialog Component", () => {
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT");
     expect(passwordInput).toBeInTheDocument();
     expect(screen.getByLabelText(/path prefix/i)).toBeInTheDocument();
+  });
+
+  it("shows server-defined visibility options", async () => {
+    const user = userEvent.setup();
+
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+    const visibilitySelect = await screen.findByRole("combobox", { name: /visibility/i });
+    expect(visibilitySelect).toBeInTheDocument();
+
+    await user.click(visibilitySelect);
+
+    expect(await screen.findByRole("option", { name: /private to me/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /shared with everyone/i })).toBeInTheDocument();
+    expect(api.getConnectionVisibilityOptions).toHaveBeenCalled();
   });
 
   it("renders form with existing connection data in edit mode", () => {
@@ -127,6 +171,7 @@ describe("ConnectionDialog Component", () => {
         username: "newuser",
         password: "newpass",
         path_prefix: "/",
+        scope: "private",
       });
     });
 

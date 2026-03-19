@@ -74,6 +74,24 @@ def generate_admin_password(is_production: bool) -> str:
     return "".join(password)
 
 
+def generate_temporary_password(length: int = 20) -> str:
+    """Generate a high-entropy temporary password for admin-driven account actions."""
+
+    if length < 12:
+        raise ValueError("Temporary passwords must be at least 12 characters long")
+
+    alphabet = string.ascii_letters + string.digits + string.punctuation
+    password = [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+        secrets.choice(string.punctuation),
+    ]
+    password += [secrets.choice(alphabet) for _ in range(length - 4)]
+    secrets.SystemRandom().shuffle(password)
+    return "".join(password)
+
+
 #
 # get_or_create_app_secrets
 #

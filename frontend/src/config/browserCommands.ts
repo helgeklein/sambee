@@ -14,7 +14,7 @@ export interface BrowserCommandContext {
   openFilterMode: () => void;
   openCommandMode: () => void;
   openSettings: () => void;
-  openLocalDriveSettings: () => void;
+  openConnectionsSettings: () => void;
   openHelp: () => void;
   refresh: () => void;
   navigateUp: () => void;
@@ -238,13 +238,13 @@ export const BROWSER_COMMANDS = [
     run: (context) => context.openSettings(),
   }),
   createCommand({
-    id: "browser.openLocalDriveSettings",
-    title: "Open Local Drive Settings",
+    id: "browser.openConnectionsSettings",
+    title: "Open Connections Settings",
     category: "Settings",
-    keywords: ["companion", "local drive", "drives"],
+    keywords: ["connections", "connection settings", "shares", "companion", "local drive", "drives"],
     selectionFocusTarget: "none",
     isEnabled: () => true,
-    run: (context) => context.openLocalDriveSettings(),
+    run: (context) => context.openConnectionsSettings(),
   }),
   createCommand({
     id: "browser.showHelp",

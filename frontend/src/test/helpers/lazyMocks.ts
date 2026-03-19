@@ -145,7 +145,8 @@ export function createLightPDFViewerMock() {
 
 /**
  * Create light SettingsDialog mock
- * Returns null to skip dialog rendering
+ * Create light SettingsDialog mock
+ * Returns null to skip rendering the consolidated settings dialog
  */
 export function createLightSettingsDialogMock() {
   return {

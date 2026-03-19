@@ -27,8 +27,12 @@ import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
 import { FileType, isApiError } from "../../types";
 import { hasViewerSupport, isImageFile } from "../../utils/FileTypeRegistry";
-import { useQuickNavIncludeDotDirectoriesPreference } from "./preferences";
-import type { SortField, UseFileBrowserPaneConfig, UseFileBrowserPaneReturn, ViewMode } from "./types";
+import {
+  useFileBrowserViewModePreference,
+  useQuickNavIncludeDotDirectoriesPreference,
+  writeSelectedConnectionIdPreference,
+} from "./preferences";
+import type { SortField, UseFileBrowserPaneConfig, UseFileBrowserPaneReturn } from "./types";
 
 // ============================================================================
 // Constants
@@ -78,10 +82,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const [sortBy, setSortBy] = useState<SortField>("name");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    const saved = localStorage.getItem("file-browser-view-mode");
-    return saved === "list" || saved === "details" ? saved : "list";
-  });
+  const [viewMode, setViewMode] = useFileBrowserViewModePreference();
   const [currentDirectoryFilter, setCurrentDirectoryFilter] = useState("");
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [includeDotDirectoriesInQuickNav] = useQuickNavIncludeDotDirectoriesPreference();
@@ -199,11 +200,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   useEffect(() => {
     currentPathRef.current = currentPath;
   }, [currentPath]);
-
-  // Persist view mode preference
-  useEffect(() => {
-    localStorage.setItem("file-browser-view-mode", viewMode);
-  }, [viewMode]);
 
   useEffect(() => {
     const nextFilterScope = `${connectionId}:${currentPath}`;
@@ -675,7 +671,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setSelectedFiles(new Set());
       directoryCache.current.clear();
       navigationHistory.current.clear();
-      localStorage.setItem("selectedConnectionId", newConnectionId);
+      writeSelectedConnectionIdPreference(newConnectionId);
       onNavigateConnection?.(newConnectionId);
     },
     [connectionId, onNavigateConnection]
@@ -1363,11 +1359,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setSelectedFiles(new Set());
       directoryCache.current.clear();
       navigationHistory.current.clear();
-      if (nextConnectionId) {
-        localStorage.setItem("selectedConnectionId", nextConnectionId);
-      } else {
-        localStorage.removeItem("selectedConnectionId");
-      }
+      writeSelectedConnectionIdPreference(nextConnectionId || null);
       return;
     }
 

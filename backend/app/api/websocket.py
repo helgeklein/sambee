@@ -1,11 +1,17 @@
 """WebSocket endpoints for real-time directory updates"""
 
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Dict, Set
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from sqlmodel import Session as DBSession
 
+from app.core.security import decrypt_password, get_current_user_for_token
+from app.db.database import engine
+from app.models.user import User
+from app.services.connection_access import get_accessible_connection_or_404
 from app.services.directory_monitor import get_monitor
 from app.storage.smb import SMBBackend
 
@@ -25,17 +31,20 @@ class ConnectionManager:
         self.active_connections: Dict[str, Set[WebSocket]] = {}
         # Map: WebSocket -> set of subscribed directory paths
         self.subscriptions: Dict[WebSocket, Set[str]] = {}
+        # Map: WebSocket -> authenticated user
+        self.users: Dict[WebSocket, User] = {}
         # Map: subscription key -> resolved SMB path (with path_prefix applied)
         self._resolved_paths: Dict[str, str] = {}
 
     #
     # connect
     #
-    async def connect(self, websocket: WebSocket) -> None:
+    async def connect(self, websocket: WebSocket, user: User) -> None:
         """Accept a new WebSocket connection"""
 
         await websocket.accept()
         self.subscriptions[websocket] = set()
+        self.users[websocket] = user
         logger.info(f"WebSocket connected: {id(websocket)}")
 
     #
@@ -49,6 +58,8 @@ class ConnectionManager:
         if websocket in self.subscriptions:
             subscriptions_to_remove = list(self.subscriptions[websocket])
             del self.subscriptions[websocket]
+
+        self.users.pop(websocket, None)
 
         # Remove from active_connections and stop monitoring if last subscriber
         for key in subscriptions_to_remove:
@@ -75,10 +86,28 @@ class ConnectionManager:
     #
     # subscribe
     #
-    async def subscribe(self, websocket: WebSocket, connection_id: str, path: str) -> None:
+    async def subscribe(self, websocket: WebSocket, connection_id: str, path: str) -> bool:
         """Subscribe a WebSocket to directory changes and start SMB monitoring"""
 
+        current_user = self.users.get(websocket)
+        if current_user is None:
+            logger.warning(f"Rejected unauthenticated WebSocket subscription: {id(websocket)}")
+            return False
+
         key = f"{connection_id}:{path}"
+
+        try:
+            conn_uuid = uuid.UUID(connection_id)
+        except ValueError:
+            logger.error(f"Invalid connection_id format: {connection_id}")
+            return False
+
+        try:
+            with DBSession(engine) as session:
+                conn = get_accessible_connection_or_404(session, current_user, conn_uuid)
+        except HTTPException:
+            logger.warning(f"Rejected unauthorized WebSocket subscription: user={current_user.username}, connection_id={connection_id}")
+            return False
 
         if websocket in self.subscriptions:
             self.subscriptions[websocket].add(key)
@@ -94,60 +123,41 @@ class ConnectionManager:
         # Start SMB monitoring if this is the first subscriber for this directory
         if is_new_subscription:
             try:
-                # Get connection details from database
-                import uuid
+                # Resolve the monitoring path by applying path_prefix.
+                # The user-facing path is relative to the prefix, but
+                # the SMB monitor must watch the real directory on the
+                # share (prefix + user path).
+                prefix = SMBBackend._normalize_prefix(conn.path_prefix)
+                if prefix and path:
+                    resolved_path = f"{prefix}/{path}"
+                elif prefix:
+                    resolved_path = prefix
+                else:
+                    resolved_path = path
 
-                from sqlmodel import Session as DBSession
-                from sqlmodel import select
+                # Remember the resolved path so unsubscribe can stop
+                # the correct monitor.
+                self._resolved_paths[key] = resolved_path
+                share_name = conn.share_name
+                assert share_name is not None
 
-                from app.core.security import decrypt_password
-                from app.db.database import engine
-                from app.models.connection import Connection as SMBConnection
-
-                # Convert string UUID to UUID object
-                try:
-                    conn_uuid = uuid.UUID(connection_id)
-                except ValueError:
-                    logger.error(f"Invalid connection_id format: {connection_id}")
-                    return
-
-                with DBSession(engine) as session:
-                    conn = session.exec(select(SMBConnection).where(SMBConnection.id == conn_uuid)).first()
-
-                    if conn and conn.share_name:
-                        # Resolve the monitoring path by applying path_prefix.
-                        # The user-facing path is relative to the prefix, but
-                        # the SMB monitor must watch the real directory on the
-                        # share (prefix + user path).
-                        prefix = SMBBackend._normalize_prefix(conn.path_prefix)
-                        if prefix and path:
-                            resolved_path = f"{prefix}/{path}"
-                        elif prefix:
-                            resolved_path = prefix
-                        else:
-                            resolved_path = path
-
-                        # Remember the resolved path so unsubscribe can stop
-                        # the correct monitor.
-                        self._resolved_paths[key] = resolved_path
-
-                        # Start monitoring with callback to notify WebSocket clients
-                        monitor = get_monitor()
-                        monitor.start_monitoring(
-                            connection_id=connection_id,
-                            path=resolved_path,
-                            host=conn.host,
-                            share_name=conn.share_name,
-                            username=conn.username,
-                            password=decrypt_password(conn.password_encrypted),
-                            port=conn.port or 445,
-                            on_change_callback=self._make_change_callback(connection_id, path),
-                        )
-                        logger.info(f"Started SMB monitoring for {key} (resolved: {resolved_path})")
-                    else:
-                        logger.warning(f"Connection {connection_id} not found or invalid")
+                # Start monitoring with callback to notify WebSocket clients
+                monitor = get_monitor()
+                monitor.start_monitoring(
+                    connection_id=connection_id,
+                    path=resolved_path,
+                    host=conn.host,
+                    share_name=share_name,
+                    username=conn.username,
+                    password=decrypt_password(conn.password_encrypted),
+                    port=conn.port or 445,
+                    on_change_callback=self._make_change_callback(connection_id, path),
+                )
+                logger.info(f"Started SMB monitoring for {key} (resolved: {resolved_path})")
             except Exception as e:
                 logger.error(f"Failed to start SMB monitoring for {key}: {e}", exc_info=True)
+
+        return True
 
     #
     # unsubscribe
@@ -291,7 +301,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     - {"type": "directory_changed", "connection_id": "uuid", "path": "/some/path"}
     """
 
-    await manager.connect(websocket)
+    token = websocket.query_params.get("token")
+
+    with DBSession(engine) as session:
+        try:
+            current_user = await get_current_user_for_token(token, session)
+        except HTTPException:
+            await websocket.close(code=1008, reason="Not authenticated")
+            return
+
+    await manager.connect(websocket, current_user)
 
     try:
         while True:
@@ -302,8 +321,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             path = data.get("path", "")
 
             if action == "subscribe" and connection_id:
-                await manager.subscribe(websocket, connection_id, path)
-                await websocket.send_json({"type": "subscribed", "connection_id": connection_id, "path": path})
+                if await manager.subscribe(websocket, connection_id, path):
+                    await websocket.send_json({"type": "subscribed", "connection_id": connection_id, "path": path})
+                else:
+                    await websocket.send_json({"type": "error", "message": "Connection not found or access denied"})
 
             elif action == "unsubscribe" and connection_id:
                 await manager.unsubscribe(websocket, connection_id, path)

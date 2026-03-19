@@ -59,8 +59,8 @@ interface SecondaryActionStripProps {
   disableTabFocus?: boolean;
   /** Companion pairing status — when unavailable or unpaired, shows management action in the selector. */
   companionStatus?: CompanionStatus;
-  /** Callback to open local-drive settings. */
-  onManageLocalDrives?: () => void;
+  /** Callback to open the consolidated Connections settings page. */
+  onOpenConnectionsSettings?: () => void;
   /** Ref to the connection selector trigger for page-level shortcuts. */
   connectionButtonRef?: React.Ref<HTMLButtonElement>;
 }
@@ -87,7 +87,7 @@ export function SecondaryActionStrip({
   onBlurToFileList,
   disableTabFocus,
   companionStatus,
-  onManageLocalDrives,
+  onOpenConnectionsSettings,
   connectionButtonRef,
 }: SecondaryActionStripProps) {
   return (
@@ -111,7 +111,7 @@ export function SecondaryActionStrip({
           onAfterChange={onBlurToFileList}
           disableTabFocus={disableTabFocus}
           companionStatus={companionStatus}
-          onManageLocalDrives={onManageLocalDrives}
+          onOpenConnectionsSettings={onOpenConnectionsSettings}
           buttonRef={connectionButtonRef}
         />
       </Box>

@@ -1,20 +1,16 @@
 import { Visibility, VisibilityOff } from "@mui/icons-material";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import {
   Alert,
-  AppBar,
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Drawer,
+  FormControl,
   IconButton,
   InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
   TextField,
-  Toolbar,
   Typography,
   useMediaQuery,
   useTheme,
@@ -22,17 +18,35 @@ import {
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
-import type { Connection, ConnectionCreate } from "../../types";
+import type { Connection, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { CONNECTION_DIALOG_STRINGS } from "./connectionDialogConstants";
+import { ResponsiveFormDialog } from "./ResponsiveFormDialog";
 
 interface ConnectionDialogProps {
   open: boolean;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (savedConnection: Connection, requestedScope: ConnectionScope) => void;
   connection?: Connection | null;
 }
+
+const FALLBACK_VISIBILITY_OPTIONS: ConnectionVisibilityOption[] = [
+  {
+    value: "private",
+    label: "Private to me",
+    description: "Visible only to your account. You can fully manage it.",
+    available: true,
+    unavailable_reason: null,
+  },
+  {
+    value: "shared",
+    label: "Shared with everyone",
+    description: "Visible to all users. Only admins can manage it.",
+    available: true,
+    unavailable_reason: null,
+  },
+];
 
 const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSave, connection }) => {
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
@@ -47,6 +61,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     username: "",
     password: "",
     path_prefix: "/",
+    scope: "private",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -57,6 +72,49 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [visibilityOptions, setVisibilityOptions] = useState<ConnectionVisibilityOption[]>(FALLBACK_VISIBILITY_OPTIONS);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!open) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    void api
+      .getConnectionVisibilityOptions()
+      .then((options) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setVisibilityOptions(options);
+        if (connection) {
+          return;
+        }
+
+        const requestedOption = options.find((option) => option.value === formData.scope && option.available);
+        if (requestedOption) {
+          return;
+        }
+
+        const firstAvailableOption = options.find((option) => option.available);
+        if (firstAvailableOption) {
+          setFormData((current) => ({ ...current, scope: firstAvailableOption.value }));
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setVisibilityOptions(FALLBACK_VISIBILITY_OPTIONS);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [connection, formData.scope, open]);
 
   useEffect(() => {
     if (connection) {
@@ -70,6 +128,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         username: connection.username,
         password: "", // Don't populate password for security
         path_prefix: connection.path_prefix || "/",
+        scope: connection.scope,
       });
     } else {
       // Add mode - reset form
@@ -82,6 +141,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         username: "",
         password: "",
         path_prefix: "/",
+        scope: "private",
       });
     }
     setErrors({});
@@ -139,12 +199,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         const result = await api.testConnection(connection.id);
         setTestResult(result as { status: "success" | "error"; message: string });
       } else {
-        // For new connections, we'll create a temporary connection to test
-        // In production, you might want a separate test endpoint that doesn't save
-        const tempConnection = await api.createConnection(formData);
-        const result = await api.testConnection(tempConnection.id);
-        // Delete the temp connection
-        await api.deleteConnection(tempConnection.id);
+        const result = await api.testConnectionConfig(formData);
         setTestResult(result as { status: "success" | "error"; message: string });
       }
     } catch (error: unknown) {
@@ -165,6 +220,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
 
     setSaving(true);
     try {
+      let savedConnection: Connection;
+
       if (connection) {
         // Edit mode - only send changed fields
         const updateData: Partial<ConnectionCreate> = {};
@@ -175,12 +232,12 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         if (formData.password.trim()) updateData.password = formData.password;
         if (formData.path_prefix !== connection.path_prefix) updateData.path_prefix = formData.path_prefix;
 
-        await api.updateConnection(connection.id, updateData);
+        savedConnection = await api.updateConnection(connection.id, updateData);
       } else {
         // Add mode - port will use default 445
-        await api.createConnection(formData);
+        savedConnection = await api.createConnection(formData);
       }
-      onSave();
+      onSave(savedConnection, formData.scope);
       onClose();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, "Failed to save connection");
@@ -293,6 +350,27 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         }}
       />
 
+      <FormControl fullWidth variant="filled">
+        <InputLabel id="connection-scope-label">Visibility</InputLabel>
+        <Select
+          labelId="connection-scope-label"
+          value={formData.scope}
+          onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
+          renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
+        >
+          {visibilityOptions.map((option) => (
+            <MenuItem key={option.value} value={option.value} disabled={!option.available}>
+              <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-start", py: 0.25 }}>
+                <Typography variant="body1">{option.label}</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {option.available ? option.description : option.unavailable_reason || option.description}
+                </Typography>
+              </Box>
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
       {testResult && <Alert severity={testResult.status}>{testResult.message}</Alert>}
     </Box>
   );
@@ -333,94 +411,17 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     </>
   );
 
-  // Mobile: Full-screen drawer
-  if (isMobile) {
-    return (
-      <Drawer
-        anchor="right"
-        open={open}
-        onClose={onClose}
-        // Higher z-index to stack above SettingsDialog when nested
-        sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
-        PaperProps={{
-          sx: {
-            width: "100%",
-            height: "100%",
-          },
-        }}
-      >
-        <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-          {/* AppBar */}
-          <AppBar position="static">
-            <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-              <IconButton edge="start" color="inherit" onClick={onClose} aria-label={CONNECTION_DIALOG_STRINGS.ARIA_GO_BACK}>
-                <ArrowBackIcon />
-              </IconButton>
-              <Typography variant="h6" component="h1" sx={{ ml: 2 }}>
-                {connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
-              </Typography>
-            </Toolbar>
-          </AppBar>
-
-          {/* Content */}
-          <Box
-            sx={{
-              flex: 1,
-              overflow: "auto",
-              p: 2,
-              bgcolor: "background.default",
-              pb: "calc(80px + env(safe-area-inset-bottom))", // Extra padding for fixed footer + safe area
-            }}
-          >
-            {formContent}
-          </Box>
-
-          {/* Actions - Fixed Footer */}
-          <Box
-            sx={{
-              position: "fixed",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              display: "flex",
-              gap: 1,
-              p: 2,
-              pb: "calc(16px + env(safe-area-inset-bottom))", // Bottom padding + safe area
-              pl: "calc(16px + env(safe-area-inset-left))", // Left padding + safe area
-              pr: "calc(16px + env(safe-area-inset-right))", // Right padding + safe area
-              borderTop: 1,
-              borderColor: "divider",
-              bgcolor: "background.default",
-              zIndex: 1,
-            }}
-          >
-            {actionButtons}
-          </Box>
-        </Box>
-      </Drawer>
-    );
-  }
-
-  // Desktop: Dialog
   return (
-    <Dialog
+    <ResponsiveFormDialog
       open={open}
       onClose={onClose}
+      title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
+      actions={actionButtons}
+      contentSx={{ p: isMobile ? 2 : undefined }}
       onKeyDown={handleKeyDown}
-      maxWidth="sm"
-      fullWidth
-      // Higher z-index to stack above SettingsDialog when nested
-      sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
-      PaperProps={{
-        sx: {
-          bgcolor: "background.default",
-        },
-      }}
     >
-      <DialogTitle>{connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}</DialogTitle>
-      <DialogContent sx={{ bgcolor: "background.default" }}>{formContent}</DialogContent>
-      <DialogActions sx={{ bgcolor: "background.default" }}>{actionButtons}</DialogActions>
-    </Dialog>
+      {formContent}
+    </ResponsiveFormDialog>
   );
 };
 

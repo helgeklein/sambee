@@ -4,6 +4,7 @@ import { alpha } from "@mui/material/styles";
 const SETTINGS_BUTTON_MIN_HEIGHT_PX = 40;
 const SETTINGS_BUTTON_FOCUS_RING_PX = 3;
 const SETTINGS_ICON_BUTTON_SIZE_PX = 36;
+const SETTINGS_FAB_OFFSET_PX = 16;
 
 function getSettingsAccentColor(theme: Theme): string {
   return theme.palette.primary.dark ?? theme.palette.primary.main;
@@ -111,7 +112,25 @@ export const settingsDestructiveIconButtonSx: SxProps<Theme> = {
   },
 };
 
+export const settingsMetadataChipSx: SxProps<Theme> = {
+  height: 20,
+  fontSize: "0.7rem",
+  color: "text.primary",
+  borderColor: (theme) => getUtilityBorderColor(theme),
+  bgcolor: (theme) => getSettingsSurfaceTint(theme),
+  "& .MuiChip-label": {
+    px: 1,
+  },
+  "& .MuiChip-icon": {
+    color: "inherit",
+  },
+};
+
 export const settingsPrimaryFabSx: SxProps<Theme> = {
+  position: "fixed",
+  right: `calc(${SETTINGS_FAB_OFFSET_PX}px + env(safe-area-inset-right))`,
+  bottom: `calc(${SETTINGS_FAB_OFFSET_PX}px + env(safe-area-inset-bottom))`,
+  zIndex: (theme) => theme.zIndex.speedDial,
   boxShadow: 3,
   "&:hover": {
     boxShadow: 5,

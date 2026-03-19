@@ -1,271 +1,191 @@
 import uuid
 from datetime import datetime, timezone
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.authorization import Capability
 from app.core.logging import get_logger, set_user
-from app.core.security import decrypt_password, encrypt_password, get_current_admin_user
+from app.core.secrets import generate_temporary_password
+from app.core.security import get_password_hash, require_capability
 from app.db.database import get_session
-from app.models.connection import (
-    Connection,
-    ConnectionCreate,
-    ConnectionRead,
-    ConnectionUpdate,
-    generate_unique_connection_slug,
+from app.models.user import (
+    AdminUserCreate,
+    AdminUserCreateResult,
+    AdminUserPasswordResetResult,
+    AdminUserRead,
+    AdminUserUpdate,
+    User,
+    UserRole,
+    build_admin_user_read,
 )
-from app.models.user import User
-from app.storage.smb import SMBBackend
 
 router = APIRouter()
 logger = get_logger(__name__)
 
 
-#
-# list_connections
-#
-@router.get("/connections", response_model=List[ConnectionRead])
-async def list_connections(
-    current_user: User = Depends(get_current_admin_user),
+def _count_active_admins(session: Session) -> int:
+    admins = session.exec(select(User).where(User.role == UserRole.ADMIN)).all()
+    return sum(1 for user in admins if user.is_active)
+
+
+def _validate_user_update_guards(
+    *,
+    actor: User,
+    target: User,
+    session: Session,
+    next_role: UserRole,
+    next_is_active: bool,
+    is_delete: bool = False,
+) -> None:
+    if target.id == actor.id and (is_delete or next_role != UserRole.ADMIN or not next_is_active):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot remove your own admin access")
+
+    if target.role == UserRole.ADMIN and target.is_active and (is_delete or next_role != UserRole.ADMIN or not next_is_active):
+        if _count_active_admins(session) <= 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the last active admin")
+
+
+@router.get("/users", response_model=list[AdminUserRead])
+async def list_users(
+    current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
     session: Session = Depends(get_session),
-) -> list[Connection]:
-    """List all configured connections"""
-
+) -> list[AdminUserRead]:
     set_user(current_user.username)
-    logger.info(f"Listing connections: user={current_user.username}")
-
-    connections = session.exec(select(Connection)).all()
-    logger.info(f"Found {len(list(connections))} connections")
-    return list(connections)
+    logger.info(f"Listing users: user={current_user.username}")
+    users = session.exec(select(User).order_by(User.username)).all()
+    return [build_admin_user_read(user) for user in users]
 
 
-#
-# create_connection
-#
-@router.post("/connections", response_model=ConnectionRead)
-async def create_connection(
-    connection_data: ConnectionCreate,
-    current_user: User = Depends(get_current_admin_user),
+@router.post("/users", response_model=AdminUserCreateResult, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    user_data: AdminUserCreate,
+    current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
     session: Session = Depends(get_session),
-) -> Connection:
-    """Create a new SMB connection"""
-
+) -> AdminUserCreateResult:
     set_user(current_user.username)
-    logger.info(
-        f"Creating connection: name={connection_data.name}, host={connection_data.host}, "
-        f"share={connection_data.share_name}, user={current_user.username}"
+    username = user_data.username.strip()
+    existing_user = session.exec(select(User).where(User.username == username)).first()
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with that username already exists")
+
+    temporary_password: str | None = None
+    password_to_store = user_data.password
+    if not password_to_store:
+        temporary_password = generate_temporary_password()
+        password_to_store = temporary_password
+
+    user = User(
+        username=username,
+        password_hash=get_password_hash(password_to_store),
+        role=user_data.role,
+        is_active=True,
+        must_change_password=user_data.must_change_password,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    logger.info(f"Created user: actor={current_user.username}, username={user.username}, role={user.role}")
+
+    return AdminUserCreateResult(
+        **build_admin_user_read(user).model_dump(),
+        temporary_password=temporary_password,
     )
 
-    # Test connection before saving
-    try:
-        backend = SMBBackend(
-            host=connection_data.host,
-            share_name=connection_data.share_name,
-            username=connection_data.username,
-            password=connection_data.password,
-            port=connection_data.port,
-            path_prefix=connection_data.path_prefix or "/",
-        )
-        await backend.connect()
-        # Verify the path_prefix directory is accessible
-        await backend.list_directory("")
-        await backend.disconnect()
-        logger.info(f"Connection test successful: name={connection_data.name}")
-    except Exception as e:
-        logger.error(
-            f"Connection test failed: name={connection_data.name}, host={connection_data.host}, "
-            f"share={connection_data.share_name}, error={type(e).__name__}: {e}",
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to connect to SMB share: {str(e)}",
-        )
 
-    # Encrypt password and save connection
-    existing_slugs = set(session.exec(select(Connection.slug)).all())
-    connection = Connection(
-        name=connection_data.name,
-        slug=generate_unique_connection_slug(connection_data.name, existing_slugs),
-        type=connection_data.type,
-        host=connection_data.host,
-        port=connection_data.port,
-        share_name=connection_data.share_name,
-        username=connection_data.username,
-        password_encrypted=encrypt_password(connection_data.password),
-        path_prefix=connection_data.path_prefix,
+@router.patch("/users/{user_id}", response_model=AdminUserRead)
+async def update_user(
+    user_id: uuid.UUID,
+    user_data: AdminUserUpdate,
+    current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
+    session: Session = Depends(get_session),
+) -> AdminUserRead:
+    set_user(current_user.username)
+
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    next_username = user_data.username.strip() if user_data.username is not None else user.username
+    next_role = user_data.role or user.role
+    next_is_active = user.is_active if user_data.is_active is None else user_data.is_active
+
+    if next_username != user.username:
+        existing_user = session.exec(select(User).where(User.username == next_username)).first()
+        if existing_user and existing_user.id != user.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with that username already exists")
+
+    _validate_user_update_guards(
+        actor=current_user,
+        target=user,
+        session=session,
+        next_role=next_role,
+        next_is_active=next_is_active,
     )
 
-    try:
-        session.add(connection)
-        session.commit()
-        session.refresh(connection)
-    except Exception as e:
-        session.rollback()
-        if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
-            logger.error(f"Duplicate connection slug: slug={connection.slug}, name={connection_data.name}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to create a unique connection slug",
-            )
-        # Other database errors
-        logger.error(f"Failed to save connection: error={type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save connection to database",
-        )
+    user.username = next_username
+    user.role = next_role
+    user.is_active = next_is_active
+    user.updated_at = datetime.now(timezone.utc)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
 
-    return connection
+    logger.info(f"Updated user: actor={current_user.username}, username={user.username}, role={user.role}, active={user.is_active}")
+    return build_admin_user_read(user)
 
 
-#
-# update_connection
-#
-@router.put("/connections/{connection_id}", response_model=ConnectionRead)
-async def update_connection(
-    connection_id: uuid.UUID,
-    connection_data: ConnectionUpdate,
-    current_user: User = Depends(get_current_admin_user),
+@router.post("/users/{user_id}/reset-password", response_model=AdminUserPasswordResetResult)
+async def reset_user_password(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
     session: Session = Depends(get_session),
-) -> Connection:
-    """Update an existing connection"""
+) -> AdminUserPasswordResetResult:
+    set_user(current_user.username)
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Update fields if provided
-    update_dict = connection_data.model_dump(exclude_unset=True)
-
-    # Handle password separately (encrypt if provided)
-    if "password" in update_dict and update_dict["password"]:
-        connection.password_encrypted = encrypt_password(update_dict["password"])
-        del update_dict["password"]
-
-    # Test connection if credentials changed
-    test_host = update_dict.get("host", connection.host)
-    test_share = update_dict.get("share_name", connection.share_name)
-    test_username = update_dict.get("username", connection.username)
-    test_password = update_dict.get("password")
-    test_port = update_dict.get("port", connection.port)
-
-    if any(k in update_dict for k in ["host", "share_name", "username", "password", "port", "path_prefix"]):
-        if not test_share:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Share name is required",
-            )
-
-        try:
-            # Use new password if provided, otherwise decrypt existing
-            password_to_test = test_password if test_password else decrypt_password(connection.password_encrypted)
-
-            backend = SMBBackend(
-                host=test_host,
-                share_name=test_share,
-                username=test_username,
-                password=password_to_test,
-                port=test_port,
-                path_prefix=update_dict.get("path_prefix", connection.path_prefix) or "/",
-            )
-            await backend.connect()
-            # Verify the path_prefix directory is accessible
-            await backend.list_directory("")
-            await backend.disconnect()
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to connect to SMB share: {str(e)}",
-            )
-
-    # Apply updates
-    for key, value in update_dict.items():
-        setattr(connection, key, value)
-
-    connection.updated_at = datetime.now(timezone.utc)
-
-    try:
-        session.add(connection)
-        session.commit()
-        session.refresh(connection)
-    except Exception as e:
-        session.rollback()
-        if "UNIQUE constraint failed" in str(e) or "duplicate key" in str(e).lower():
-            logger.error(f"Duplicate connection slug during update: slug={connection.slug}, id={connection.id}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Connection slug conflict detected",
-            )
-        # Other database errors
-        logger.error(f"Failed to update connection: error={type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update connection in database",
-        )
-
-    return connection
-
-
-#
-# delete_connection
-#
-@router.delete("/connections/{connection_id}")
-async def delete_connection(
-    connection_id: uuid.UUID,
-    current_user: User = Depends(get_current_admin_user),
-    session: Session = Depends(get_session),
-) -> dict[str, str]:
-    """Delete a connection"""
-
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    session.delete(connection)
+    temporary_password = generate_temporary_password()
+    user.password_hash = get_password_hash(temporary_password)
+    user.must_change_password = True
+    user.token_version += 1
+    user.updated_at = datetime.now(timezone.utc)
+    session.add(user)
     session.commit()
 
-    return {"message": "Connection deleted successfully"}
+    logger.info(f"Reset password for user: actor={current_user.username}, username={user.username}")
+    return AdminUserPasswordResetResult(
+        message="Password reset successfully",
+        temporary_password=temporary_password,
+    )
 
 
-#
-# test_connection
-#
-@router.post("/connections/{connection_id}/test")
-async def test_connection(
-    connection_id: uuid.UUID,
-    current_user: User = Depends(get_current_admin_user),
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
-    """Test a connection"""
+    set_user(current_user.username)
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    user = session.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    if not connection.share_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    _validate_user_update_guards(
+        actor=current_user,
+        target=user,
+        session=session,
+        next_role=user.role,
+        next_is_active=user.is_active,
+        is_delete=True,
+    )
 
-    try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=connection.share_name,
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
-        await backend.connect()
-        # Try to list root directory (respects path_prefix)
-        listing = await backend.list_directory("")
-        await backend.disconnect()
+    session.delete(user)
+    session.commit()
 
-        return {
-            "status": "success",
-            "message": f"Successfully connected. Found {listing.total} items in root directory.",
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    logger.info(f"Deleted user: actor={current_user.username}, username={user.username}")
+    return {"message": "User deleted successfully"}

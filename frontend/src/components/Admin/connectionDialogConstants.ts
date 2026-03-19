@@ -26,6 +26,9 @@ export const CONNECTION_DIALOG_STRINGS = {
   HELPER_PASSWORD_EDIT: "Leave blank to keep existing password",
   HELPER_PATH_PREFIX: "Base path within the share (optional)",
   HELPER_USERNAME: "Use DOMAIN\\USER format if needed",
+  HELPER_VISIBILITY_ADMIN: "Admins can create shared connections for everyone or private connections for themselves.",
+  HELPER_VISIBILITY_REGULAR:
+    "Shared connections require admin access. If you choose shared without admin access, the server will save it as private.",
 
   // Error messages
   ERROR_NAME_REQUIRED: "Connection name is required",

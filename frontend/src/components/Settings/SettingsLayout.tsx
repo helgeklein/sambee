@@ -22,18 +22,16 @@ export function SettingsLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // On desktop, redirect from /settings to /settings/appearance (default page)
+  // On desktop, redirect from /settings to /settings/preferences (default page)
   useEffect(() => {
     if (isDesktop && location.pathname === "/settings") {
-      navigate("/settings/appearance", { replace: true });
+      navigate("/settings/preferences", { replace: true });
     }
   }, [isDesktop, location.pathname, navigate]);
 
   // Get page title from current route
   const getPageTitle = () => {
-    const category = getSettingsCategoryByPath(
-      location.pathname === "/settings/connections" ? "/settings/smb-connections" : location.pathname
-    );
+    const category = getSettingsCategoryByPath(location.pathname);
     if (category) {
       return getSettingsCategoryLabel(category);
     }

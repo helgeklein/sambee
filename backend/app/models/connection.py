@@ -2,10 +2,12 @@ import re
 import unicodedata
 import uuid
 from datetime import datetime, timezone
+from enum import StrEnum
 from typing import Optional
 
 from pydantic import field_validator, model_validator
-from sqlalchemy import event, text
+from sqlalchemy import Column, event, text
+from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.engine import Connection as SQLAlchemyConnection
 from sqlmodel import Field, SQLModel
 
@@ -42,6 +44,11 @@ def ensure_connection_slug(target: "Connection", existing_slugs: set[str] | None
     return target.slug
 
 
+class ConnectionScope(StrEnum):
+    SHARED = "shared"
+    PRIVATE = "private"
+
+
 class Connection(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(index=True)
@@ -53,6 +60,21 @@ class Connection(SQLModel, table=True):
     username: str
     password_encrypted: str  # Encrypted with Fernet
     path_prefix: Optional[str] = Field(default="/")  # Base path within share
+    scope: ConnectionScope = Field(
+        default=ConnectionScope.PRIVATE,
+        sa_column=Column(
+            SqlEnum(
+                ConnectionScope,
+                values_callable=lambda enum_cls: [member.value for member in enum_cls],
+                native_enum=False,
+                validate_strings=True,
+            ),
+            nullable=False,
+            default=ConnectionScope.PRIVATE,
+            index=True,
+        ),
+    )
+    owner_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="user.id", index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -106,6 +128,7 @@ class ConnectionCreate(SQLModel):
     username: str
     password: str
     path_prefix: Optional[str] = "/"
+    scope: ConnectionScope = ConnectionScope.PRIVATE
 
     #
     # validate_not_empty
@@ -128,6 +151,7 @@ class ConnectionUpdate(SQLModel):
     username: Optional[str] = None
     password: Optional[str] = None  # Only update if provided
     path_prefix: Optional[str] = None
+    scope: Optional[ConnectionScope] = None
 
 
 class ConnectionRead(SQLModel):
@@ -140,5 +164,15 @@ class ConnectionRead(SQLModel):
     share_name: Optional[str]
     username: str
     path_prefix: Optional[str]
+    scope: ConnectionScope
+    can_manage: bool
     created_at: datetime
     updated_at: datetime
+
+
+class ConnectionVisibilityOptionRead(SQLModel):
+    value: ConnectionScope
+    label: str
+    description: str
+    available: bool
+    unavailable_reason: Optional[str] = None

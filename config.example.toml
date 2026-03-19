@@ -79,3 +79,21 @@ username = "admin"
 
 # Ignore cached snapshots older than this many minutes (default: 43200 = 30 days).
 # max_staleness_minutes = 43200
+
+[smb]
+# SMB read chunk size in bytes. Larger chunks improve throughput but use more memory.
+# read_chunk_size_bytes = 4194304
+
+[preprocessors.imagemagick]
+# Largest file ImageMagick will preprocess, in bytes.
+# max_file_size_bytes = 104857600
+
+# Maximum time allowed for ImageMagick conversions, in seconds.
+# timeout_seconds = 30
+
+[preprocessors.graphicsmagick]
+# Largest file GraphicsMagick will preprocess, in bytes.
+# max_file_size_bytes = 104857600
+
+# Maximum time allowed for GraphicsMagick conversions, in seconds.
+# timeout_seconds = 30

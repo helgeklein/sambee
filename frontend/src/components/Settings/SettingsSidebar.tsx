@@ -2,17 +2,11 @@
 // SettingsSidebar
 //
 
-import {
-  Computer as ComputerIcon,
-  ManageSearch as ManageSearchIcon,
-  Palette as PaletteIcon,
-  Storage as StorageIcon,
-} from "@mui/icons-material";
-import { Box, List, ListItemButton, ListItemIcon, ListItemText, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { Box, Typography } from "@mui/material";
 import { useLocation, useNavigate } from "react-router-dom";
-import api from "../../services/api";
-import { getSettingsCategoryLabel, SETTINGS_CATEGORY_META } from "./settingsNavigation";
+import { SettingsCategoryList } from "./SettingsCategoryList";
+import { getSettingsCategoryByPath, getVisibleSettingsSections, SETTINGS_CATEGORY_META } from "./settingsNavigation";
+import { useSettingsAccess } from "./useSettingsAccess";
 
 /**
  * SettingsSidebar
@@ -23,49 +17,13 @@ import { getSettingsCategoryLabel, SETTINGS_CATEGORY_META } from "./settingsNavi
 export function SettingsSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    // Check admin status
-    api
-      .getCurrentUser()
-      .then((user) => setIsAdmin(user.is_admin))
-      .catch(() => setIsAdmin(false));
-  }, []);
+  const { isAdmin } = useSettingsAccess();
 
   // Determine active category from current route
   const activePath = location.pathname;
+  const selectedCategory = getSettingsCategoryByPath(activePath);
 
-  const categories = [
-    {
-      id: "appearance",
-      label: "Appearance",
-      icon: <PaletteIcon />,
-      path: "/settings/appearance",
-      visible: true,
-    },
-    {
-      id: "browser",
-      label: getSettingsCategoryLabel("browser"),
-      icon: <ManageSearchIcon />,
-      path: SETTINGS_CATEGORY_META.browser.route,
-      visible: true,
-    },
-    {
-      id: "smb-connections",
-      label: getSettingsCategoryLabel("smb-connections"),
-      icon: <StorageIcon />,
-      path: SETTINGS_CATEGORY_META["smb-connections"].route,
-      visible: isAdmin,
-    },
-    {
-      id: "local-drives",
-      label: getSettingsCategoryLabel("local-drives"),
-      icon: <ComputerIcon />,
-      path: SETTINGS_CATEGORY_META["local-drives"].route,
-      visible: true,
-    },
-  ];
+  const sections = getVisibleSettingsSections(isAdmin);
 
   return (
     <Box
@@ -86,39 +44,26 @@ export function SettingsSidebar() {
       </Box>
 
       {/* Categories List */}
-      <List sx={{ flex: 1, py: 1 }}>
-        {categories
-          .filter((cat) => cat.visible)
-          .map((category) => {
-            const isActive = activePath === category.path;
-
-            return (
-              <ListItemButton
-                key={category.id}
-                selected={isActive}
-                onClick={() => navigate(category.path)}
-                sx={{
-                  mx: 1,
-                  borderRadius: 1,
-                  "&.Mui-selected": {
-                    bgcolor: "action.selected",
-                    "&:hover": {
-                      bgcolor: "action.selected",
-                    },
-                  },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 40, color: isActive ? "primary.main" : "text.secondary" }}>{category.icon}</ListItemIcon>
-                <ListItemText
-                  primary={category.label}
-                  primaryTypographyProps={{
-                    fontWeight: isActive ? 600 : 400,
-                  }}
-                />
-              </ListItemButton>
-            );
-          })}
-      </List>
+      <SettingsCategoryList
+        sections={sections}
+        onSelect={(category) => navigate(SETTINGS_CATEGORY_META[category].route)}
+        selectedCategory={selectedCategory ?? undefined}
+        listSx={{ flex: 1, py: 1 }}
+        sectionSx={{ mb: 1.5 }}
+        subheaderSx={{ bgcolor: "transparent", lineHeight: 2.5, textTransform: "uppercase", letterSpacing: 0.8 }}
+        itemButtonSx={{
+          mx: 1,
+          borderRadius: 1,
+          "&.Mui-selected": {
+            bgcolor: "action.selected",
+            "&:hover": {
+              bgcolor: "action.selected",
+            },
+          },
+        }}
+        itemIconSx={(selected) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
+        primaryTypographyProps={(selected) => ({ fontWeight: selected ? 600 : 400 })}
+      />
     </Box>
   );
 }

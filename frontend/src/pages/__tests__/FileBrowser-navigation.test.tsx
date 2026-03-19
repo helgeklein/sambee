@@ -162,6 +162,27 @@ describe("Browser Component - Navigation", () => {
     });
   });
 
+  it("prefers the persisted user setting over local storage when no URL param", async () => {
+    localStorage.setItem("selectedConnectionId", "conn-2");
+    vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
+      appearance: { theme_id: "sambee-light" },
+      browser: {
+        quick_nav_include_dot_directories: false,
+        file_browser_view_mode: "list",
+        pane_mode: "single",
+        selected_connection_id: "conn-1",
+      },
+    });
+
+    renderBrowser("/browse");
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+    });
+
+    expect(localStorage.getItem("selectedConnectionId")).toBe("conn-1");
+  });
+
   it("falls back to first connection when no saved preference", async () => {
     localStorage.removeItem("selectedConnectionId");
 

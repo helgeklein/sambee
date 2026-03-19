@@ -3,7 +3,7 @@ import sys
 import threading
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
 
 from app import __version__
-from app.api import admin, auth, browser, companion, logs, viewer, websocket
+from app.api import admin, auth, browser, companion, connections, logs, system_settings, viewer, websocket
 from app.core.config import settings
 from app.core.environment import DEV_CORS_ORIGINS, IS_DEVELOPMENT, IS_PRODUCTION
 from app.core.exceptions import ConfigurationError, SambeeError
@@ -22,7 +22,8 @@ from app.core.logging import log_error, set_request_id
 from app.core.secrets import generate_admin_password
 from app.core.security import get_password_hash
 from app.db.database import DATABASE_FILE_PATH, engine, init_db
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.services.system_settings import store as system_settings_store
 from app.storage.smb_pool import shutdown_connection_pool
 
 #
@@ -151,6 +152,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info(f"Initializing database: {DATABASE_FILE_PATH.absolute()}")
         init_db()
         logger.info("Database initialized")
+        system_settings_store.warm_cache()
+        logger.info("System settings cache warmed")
 
         # Create default admin user if doesn't exist
         logger.info("Checking for admin user...")
@@ -165,7 +168,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 admin = User(
                     username=settings.admin_username,
                     password_hash=get_password_hash(admin_password),
-                    is_admin=True,
+                    role=UserRole.ADMIN,
                 )
                 session.add(admin)
                 session.commit()
@@ -182,6 +185,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 else:
                     logger.info(f"Created admin user: {settings.admin_username} / {admin_password}")
             else:
+                current_role = (
+                    admin.role
+                    if isinstance(getattr(admin, "role", None), UserRole)
+                    else (UserRole.ADMIN if admin.is_admin else UserRole.REGULAR)
+                )
+                current_is_active = admin.is_active if isinstance(getattr(admin, "is_active", None), bool) else True
+
+                if current_role != UserRole.ADMIN or not current_is_active:
+                    admin.role = UserRole.ADMIN
+                    admin.is_active = True
+                    admin.updated_at = datetime.now(timezone.utc)
+                    session.add(admin)
+                    session.commit()
                 logger.info(f"Admin user exists: {settings.admin_username}")
 
         logger.info("Sambee application startup complete!")
@@ -331,7 +347,9 @@ else:
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(connections.router, prefix="/api", tags=["connections"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(system_settings.router, prefix="/api/admin", tags=["admin-settings"])
 app.include_router(browser.router, prefix="/api/browse", tags=["browse"])
 app.include_router(viewer.router, prefix="/api/viewer", tags=["viewer"])
 app.include_router(companion.router, prefix="/api/companion", tags=["companion"])

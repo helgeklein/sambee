@@ -206,7 +206,7 @@ class TestViewerFile:
 
     def test_view_connection_without_share(self, client, auth_headers_user, session):
         """Test view when connection doesn't have a share name."""
-        from app.models.connection import Connection
+        from app.models.connection import Connection, ConnectionScope
 
         # Create connection without share - use correct Connection model fields
         connection = Connection(
@@ -215,6 +215,7 @@ class TestViewerFile:
             share_name=None,  # No share
             username="testuser",
             password_encrypted="encrypted_password",
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -557,7 +558,7 @@ class TestValidateConnection:
 
     def test_validate_connection_without_share_name(self, client, auth_headers_user, session):
         """Test that connections without share names return 400."""
-        from app.models.connection import Connection
+        from app.models.connection import Connection, ConnectionScope
 
         connection = Connection(
             name="No Share",
@@ -565,6 +566,7 @@ class TestValidateConnection:
             share_name=None,
             username="user",
             password_encrypted="pass",
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()

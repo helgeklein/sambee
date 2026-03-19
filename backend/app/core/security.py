@@ -1,3 +1,5 @@
+import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -10,6 +12,7 @@ from jose import JWTError, jwt
 from sqlmodel import Session, select
 
 from app.core.auth_methods import AuthMethod
+from app.core.authorization import Capability, user_has_capability
 from app.core.config import settings, static
 from app.core.exceptions import ConfigurationError
 from app.core.logging import get_logger
@@ -109,6 +112,25 @@ def create_access_token(data: dict[str, Any], expires_delta: Optional[timedelta]
     return encoded_jwt
 
 
+def build_user_access_token(user: User, expires_delta: Optional[timedelta] = None) -> str:
+    return create_access_token(
+        data={
+            "sub": str(user.id),
+            "tv": user.token_version,
+        },
+        expires_delta=expires_delta,
+    )
+
+
+def _get_user_from_subject(subject: str, session: Session) -> User | None:
+    try:
+        user_id = uuid.UUID(subject)
+        return session.get(User, user_id)
+    except ValueError:
+        statement = select(User).where(User.username == subject)
+        return session.exec(statement).first()
+
+
 #
 # get_current_user
 #
@@ -123,16 +145,19 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
 
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
-        username: str | None = payload.get("sub")
-        if username is None:
+        subject: str | None = payload.get("sub")
+        if subject is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
 
-    statement = select(User).where(User.username == username)
-    user = session.exec(statement).first()
+    user = _get_user_from_subject(subject, session)
 
-    if user is None:
+    if user is None or not user.is_active:
+        raise credentials_exception
+
+    token_version = int(payload.get("tv", 0))
+    if token_version != user.token_version:
         raise credentials_exception
     return user
 
@@ -149,6 +174,16 @@ async def get_current_user_with_auth_check(
     - auth_method="password": Validates JWT token and returns user
     - auth_method="none": Returns admin user without token validation
       (assumes reverse proxy handles authentication)
+    """
+
+    return await get_current_user_for_token(token, session)
+
+
+async def get_current_user_for_token(token: Optional[str], session: Session) -> User:
+    """Resolve the authenticated user for explicit token values.
+
+    This is used by both HTTP dependency-based flows and WebSocket
+    authentication where FastAPI dependencies are not available.
     """
 
     # For "none" auth method, return the admin user
@@ -185,6 +220,15 @@ async def get_current_admin_user(
 ) -> User:
     """Ensure the current user is an admin"""
 
-    if not current_user.is_admin:
+    if not user_has_capability(current_user, Capability.ACCESS_ADMIN_SETTINGS):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
     return current_user
+
+
+def require_capability(capability: Capability) -> Callable[..., Any]:
+    async def dependency(current_user: User = Depends(get_current_user_with_auth_check)) -> User:
+        if not user_has_capability(current_user, capability):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
+        return current_user
+
+    return dependency

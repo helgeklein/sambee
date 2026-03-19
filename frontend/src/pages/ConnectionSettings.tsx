@@ -31,16 +31,24 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
+import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import {
   settingsDestructiveIconButtonSx,
+  settingsMetadataChipSx,
   settingsPrimaryButtonSx,
   settingsPrimaryFabSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { useSettingsAccess } from "../components/Settings/useSettingsAccess";
 import api from "../services/api";
 import type { Connection } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
+
+const CONNECTION_SETTINGS_HEADER = {
+  title: "SMB Connections",
+  description: "Browse shared connections and manage your private SMB share connections.",
+};
 
 /**
  * ConnectionSettings
@@ -51,6 +59,7 @@ import { getApiErrorMessage } from "../utils/apiErrors";
  */
 
 interface ConnectionSettingsProps {
+  isAdmin?: boolean;
   /** Callback when connections are added, updated, or deleted */
   onConnectionsChanged?: () => void;
   /**
@@ -59,13 +68,27 @@ interface ConnectionSettingsProps {
    * would overlap with the dialog's close button.
    */
   forceDesktopLayout?: boolean;
+  showHeader?: boolean;
+  sectionTitle?: string;
+  sectionDescription?: string;
+  showMobileFab?: boolean;
 }
 
-export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = false }: ConnectionSettingsProps) {
+export function ConnectionSettings({
+  isAdmin,
+  onConnectionsChanged,
+  forceDesktopLayout = false,
+  showHeader = true,
+  sectionTitle,
+  sectionDescription,
+  showMobileFab = true,
+}: ConnectionSettingsProps) {
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
+  const { isAdmin: detectedIsAdmin } = useSettingsAccess();
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
+  const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(false);
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
@@ -112,11 +135,13 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
   };
 
   const handleEdit = (connection: Connection) => {
+    if (!connection.can_manage) return;
     setSelectedConnection(connection);
     setConnectionDialogOpen(true);
   };
 
   const handleDeleteClick = (connection: Connection) => {
+    if (!connection.can_manage) return;
     setSelectedConnection(connection);
     setDeleteDialogOpen(true);
   };
@@ -126,9 +151,18 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
     setSelectedConnection(null);
   };
 
-  const handleConnectionSave = () => {
+  const handleConnectionSave = (savedConnection: Connection, requestedScope: "shared" | "private") => {
     loadConnections();
-    showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
+    if (savedConnection.scope !== requestedScope) {
+      showNotification(
+        savedConnection.scope === "private"
+          ? "Connection saved as private. Shared visibility requires admin access."
+          : `Connection ${selectedConnection ? "updated" : "created"} successfully`,
+        savedConnection.scope === "private" ? "info" : "success"
+      );
+    } else {
+      showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
+    }
     handleConnectionDialogClose();
     onConnectionsChanged?.();
   };
@@ -150,6 +184,8 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
   };
 
   const handleTestConnection = async (connection: Connection) => {
+    if (!connection.can_manage) return;
+
     try {
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
@@ -160,6 +196,7 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
   };
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>, connection: Connection) => {
+    if (!connection.can_manage) return;
     setMenuAnchor({ element: event.currentTarget, connection });
   };
 
@@ -188,109 +225,71 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
     handleMenuClose();
   };
 
-  return (
-    <Box
-      sx={{
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-        bgcolor: "background.default",
-        overflow: "hidden",
-      }}
-    >
-      {/* Desktop: Header with button */}
-      {isDesktop && (
-        <Box
-          sx={{
-            px: { xs: 2, sm: 3, md: 4 },
-            py: 2,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <Box sx={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <Typography variant="h5" fontWeight="medium">
-              {getSettingsCategoryLabel("smb-connections")}
-            </Typography>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-              Add Connection
-            </Button>
-          </Box>
-        </Box>
-      )}
+  const sharedConnections = connections.filter((connection) => connection.scope === "shared");
+  const privateConnections = connections.filter((connection) => connection.scope === "private");
 
-      {/* Connection List */}
-      <Box sx={{ flex: 1, overflow: "auto" }}>
-        {loading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-            <CircularProgress />
-          </Box>
-        ) : connections.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: "center" }}>
-            <Typography variant="h6" color="text.secondary">
-              No connections configured
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Click {isDesktop ? "the + button" : "the + button in the toolbar"} to create your first SMB share connection
-            </Typography>
-          </Box>
-        ) : isDesktop ? (
-          // Desktop: Edge-to-edge list layout with inline action buttons
-          <List sx={{ py: 0 }}>
-            {connections.map((connection) => (
-              <Box key={connection.id}>
-                <ListItem
+  const renderConnectionList = (sectionConnections: Connection[]) => {
+    if (sectionConnections.length === 0) {
+      return null;
+    }
+
+    if (isDesktop) {
+      return (
+        <List sx={{ py: 0 }}>
+          {sectionConnections.map((connection) => (
+            <Box key={connection.id}>
+              <ListItem
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  py: 2.5,
+                  px: 0,
+                }}
+              >
+                <Box
                   sx={{
                     display: "flex",
-                    flexDirection: "column",
-                    alignItems: "stretch",
-                    py: 2.5,
-                    px: 2,
+                    alignItems: "center",
+                    gap: 2,
+                    mb: 1.5,
+                    flexWrap: "wrap",
                   }}
                 >
-                  {/* Connection Name and Type */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                      mb: 1.5,
-                    }}
-                  >
-                    <Typography variant="h6" fontWeight="medium">
-                      {connection.name}
-                    </Typography>
-                    <Chip label={connection.type.toUpperCase()} size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
-                  </Box>
+                  <Typography variant="h6" fontWeight="medium">
+                    {connection.name}
+                  </Typography>
+                  <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                  <Chip label={connection.scope.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                </Box>
 
-                  {/* User */}
-                  <Box sx={{ display: "flex", mb: -0.5 }}>
+                <Box sx={{ display: "flex", mb: -0.5 }}>
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                    User:
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {connection.username}
+                  </Typography>
+                </Box>
+
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 2,
+                  }}
+                >
+                  <Box sx={{ display: "flex" }}>
                     <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                      User:
+                      Path:
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      {connection.username}
+                      \\{connection.host}\{connection.share_name}
+                      {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
                     </Typography>
                   </Box>
-
-                  {/* UNC Path and Action Buttons */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Box sx={{ display: "flex" }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                        Path:
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        \\{connection.host}\{connection.share_name}
-                        {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
-                      </Typography>
-                    </Box>
+                  {connection.can_manage ? (
                     <Box sx={{ display: "flex", gap: 1, ml: 2 }}>
                       <Tooltip title="Test Connection">
                         <IconButton
@@ -316,104 +315,194 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
                         </IconButton>
                       </Tooltip>
                     </Box>
-                  </Box>
-                </ListItem>
-                <Divider />
-              </Box>
-            ))}
-          </List>
-        ) : (
-          // Mobile: Edge-to-edge list layout
-          <List sx={{ py: 0 }}>
-            {connections.map((connection) => (
-              <Box key={connection.id}>
-                <ListItem
+                  ) : null}
+                </Box>
+              </ListItem>
+              <Divider />
+            </Box>
+          ))}
+        </List>
+      );
+    }
+
+    return (
+      <List sx={{ py: 0 }}>
+        {sectionConnections.map((connection) => (
+          <Box key={connection.id}>
+            <ListItem
+              sx={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "stretch",
+                py: 2.5,
+                px: 0,
+              }}
+            >
+              <Box
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  mb: 1.5,
+                  gap: 1,
+                }}
+              >
+                <Box
                   sx={{
+                    flex: 1,
                     display: "flex",
-                    flexDirection: "column",
-                    alignItems: "stretch",
-                    py: 2.5,
-                    px: 2,
+                    alignItems: "center",
+                    gap: 1,
+                    flexWrap: "wrap",
                   }}
                 >
-                  {/* Connection Name, Type, and Menu */}
-                  <Box
+                  <Typography variant="h6" fontWeight="medium">
+                    {connection.name}
+                  </Typography>
+                  <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                  <Chip label={connection.scope.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                </Box>
+                {connection.can_manage ? (
+                  <IconButton
+                    size="small"
+                    onClick={(e) => handleMenuOpen(e, connection)}
+                    aria-label="Connection actions"
                     sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
-                      mb: 1.5,
+                      ...settingsUtilityIconButtonSx,
+                      mt: 0,
+                      width: 32,
+                      height: 32,
                     }}
                   >
-                    <Box
-                      sx={{
-                        flex: 1,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                      }}
-                    >
-                      <Typography variant="h6" fontWeight="medium">
-                        {connection.name}
-                      </Typography>
-                      <Chip label={connection.type.toUpperCase()} size="small" sx={{ height: 20, fontSize: "0.7rem" }} />
-                    </Box>
-                    <IconButton
-                      size="small"
-                      onClick={(e) => handleMenuOpen(e, connection)}
-                      aria-label="Connection actions"
-                      sx={{
-                        ...settingsUtilityIconButtonSx,
-                        mt: 0,
-                        width: 32,
-                        height: 32,
-                      }}
-                    >
-                      <MoreVertIcon />
-                    </IconButton>
-                  </Box>
-
-                  {/* User */}
-                  <Box sx={{ display: "flex", mb: 1 }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                      User:
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {connection.username}
-                    </Typography>
-                  </Box>
-
-                  {/* UNC Path */}
-                  <Box sx={{ display: "flex" }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                      Path:
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      \\{connection.host}\{connection.share_name}
-                      {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
-                    </Typography>
-                  </Box>
-                </ListItem>
-                <Divider />
+                    <MoreVertIcon />
+                  </IconButton>
+                ) : null}
               </Box>
-            ))}
-          </List>
+
+              <Box sx={{ display: "flex", mb: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                  User:
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {connection.username}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: "flex" }}>
+                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
+                  Path:
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  \\{connection.host}\{connection.share_name}
+                  {connection.path_prefix && connection.path_prefix !== "/" && connection.path_prefix.replace(/\//g, "\\")}
+                </Typography>
+              </Box>
+            </ListItem>
+            <Divider />
+          </Box>
+        ))}
+      </List>
+    );
+  };
+
+  const renderSection = (title: string, description: string, sectionConnections: Connection[], emptyMessage: string) => (
+    <Box sx={{ mt: 3 }}>
+      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+        {title}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        {description}
+      </Typography>
+      {sectionConnections.length === 0 ? (
+        <Box sx={{ py: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            {emptyMessage}
+          </Typography>
+        </Box>
+      ) : (
+        renderConnectionList(sectionConnections)
+      )}
+    </Box>
+  );
+
+  return (
+    <Box
+      sx={{
+        height: showHeader ? "100%" : "auto",
+        display: "flex",
+        flexDirection: "column",
+        bgcolor: "background.default",
+        overflow: showHeader ? "hidden" : "visible",
+      }}
+    >
+      {showHeader ? (
+        <SettingsSectionHeader
+          title={CONNECTION_SETTINGS_HEADER.title}
+          description={CONNECTION_SETTINGS_HEADER.description}
+          dialogSafe={forceDesktopLayout}
+          showTitle={isDesktop}
+          actions={
+            isDesktop ? (
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
+                Add Connection
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 2 }}>
+          <SettingsGroup
+            title={sectionTitle}
+            description={sectionDescription}
+            actions={
+              isDesktop ? (
+                <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
+                  Add Connection
+                </Button>
+              ) : null
+            }
+          />
+        </Box>
+      )}
+
+      {/* Connection List */}
+      <Box sx={{ flex: showHeader ? 1 : undefined, overflow: showHeader ? "auto" : "visible", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
+        {loading ? (
+          <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : connections.length === 0 ? (
+          <Box sx={{ p: 4, textAlign: "center" }}>
+            <Typography variant="h6" color="text.secondary">
+              No connections configured
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {effectiveIsAdmin
+                ? `Click ${isDesktop ? "the + button" : "the + button in the toolbar"} to create a shared or private SMB connection`
+                : `Click ${isDesktop ? "the + button" : "the + button in the toolbar"} to create your first private SMB connection`}
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            {renderSection(
+              "Shared connections",
+              "Admins can create these for everyone. You can browse them, but only admins can change them.",
+              sharedConnections,
+              "No shared connections are available."
+            )}
+            {renderSection(
+              "My connections",
+              "These connections are visible only to your account.",
+              privateConnections,
+              "You have no private connections yet."
+            )}
+          </>
         )}
       </Box>
 
       {/* Mobile: FAB for adding connections */}
-      {!isDesktop && (
-        <Fab
-          color="primary"
-          aria-label="add connection"
-          onClick={handleAddClick}
-          sx={{
-            ...settingsPrimaryFabSx,
-            position: "fixed",
-            bottom: "calc(16px + env(safe-area-inset-bottom))",
-            right: "calc(16px + env(safe-area-inset-right))",
-          }}
-        >
+      {!isDesktop && showMobileFab && (
+        <Fab color="primary" aria-label="add connection" onClick={handleAddClick} sx={settingsPrimaryFabSx}>
           <AddIcon />
         </Fab>
       )}
@@ -470,7 +559,9 @@ export function ConnectionSettings({ onConnectionsChanged, forceDesktopLayout = 
           setSelectedConnection(null);
         }}
         onConfirm={handleDeleteConfirm}
-        connection={selectedConnection}
+        title="Delete Connection"
+        description="Are you sure you want to delete the connection"
+        itemName={selectedConnection?.name ?? null}
       />
 
       {/* Notification Snackbar */}

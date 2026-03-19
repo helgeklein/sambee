@@ -2,12 +2,13 @@ import ComputerIcon from "@mui/icons-material/Computer";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import UsbIcon from "@mui/icons-material/Usb";
-import { Alert, Box, Button, Snackbar, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Snackbar, Stack, useMediaQuery, useTheme } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CompanionPairingDialog from "../components/FileBrowser/CompanionPairingDialog";
 import { LOCAL_DRIVES_PAGE_COPY } from "../components/Settings/localDrivesCopy";
+import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { settingsDestructiveButtonSx, settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
-import { getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import companionService, {
   clearStoredSecret,
   hasStoredSecret,
@@ -16,8 +17,17 @@ import companionService, {
 } from "../services/companion";
 import { logger } from "../services/logger";
 
+const LOCAL_DRIVES_SETTINGS_HEADER = {
+  title: "Local Drives",
+  description: "Pair Sambee Companion and control local-drive access from this browser.",
+};
+
 interface LocalDrivesSettingsProps {
   onConnectionsChanged?: () => void;
+  dialogSafeHeader?: boolean;
+  showHeader?: boolean;
+  sectionTitle?: string;
+  sectionDescription?: string;
 }
 
 interface LocalDrivesState {
@@ -31,7 +41,15 @@ interface LocalDrivesState {
  * Browser-side management UI for the Sambee Companion pairing that exposes
  * local drives inside the file browser.
  */
-export function LocalDrivesSettings({ onConnectionsChanged }: LocalDrivesSettingsProps) {
+export function LocalDrivesSettings({
+  onConnectionsChanged,
+  dialogSafeHeader = false,
+  showHeader = true,
+  sectionTitle,
+  sectionDescription,
+}: LocalDrivesSettingsProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [state, setState] = useState<LocalDrivesState>({
     companionAvailable: false,
     currentPairStatus: null,
@@ -140,6 +158,47 @@ export function LocalDrivesSettings({ onConnectionsChanged }: LocalDrivesSetting
   const showTestAction = browserFullyPaired;
   const showPairAction = state.companionAvailable && !browserFullyPaired;
   const showUnpairAction = browserFullyPaired;
+  const actionButtons = (
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+      <Button
+        variant="outlined"
+        startIcon={<RefreshIcon />}
+        onClick={() => void loadState()}
+        disabled={loading}
+        sx={settingsUtilityButtonSx}
+      >
+        {LOCAL_DRIVES_PAGE_COPY.refreshButton}
+      </Button>
+      {showTestAction && (
+        <Button
+          variant="outlined"
+          startIcon={<ComputerIcon />}
+          onClick={() => void handleTestPairing()}
+          disabled={testing}
+          sx={settingsUtilityButtonSx}
+        >
+          {testing ? LOCAL_DRIVES_PAGE_COPY.testingButton : LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton}
+        </Button>
+      )}
+      {showPairAction && (
+        <Button variant="contained" startIcon={<UsbIcon />} onClick={() => setPairingDialogOpen(true)} sx={settingsPrimaryButtonSx}>
+          {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
+        </Button>
+      )}
+      {showUnpairAction && (
+        <Button
+          variant="outlined"
+          color="error"
+          startIcon={<LinkOffIcon />}
+          onClick={() => void handleUnpairCurrentBrowser()}
+          disabled={unpairing}
+          sx={settingsDestructiveButtonSx}
+        >
+          {unpairing ? LOCAL_DRIVES_PAGE_COPY.unpairingButton : LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton}
+        </Button>
+      )}
+    </Stack>
+  );
 
   const statusAlert = useMemo(() => {
     if (!state.companionAvailable) {
@@ -172,75 +231,28 @@ export function LocalDrivesSettings({ onConnectionsChanged }: LocalDrivesSetting
   return (
     <Box
       sx={{
-        height: "100%",
+        height: showHeader ? "100%" : "auto",
         display: "flex",
         flexDirection: "column",
         bgcolor: "background.default",
-        overflow: "hidden",
+        overflow: showHeader ? "hidden" : "visible",
       }}
     >
-      <Box
-        sx={{
-          px: { xs: 2, sm: 3, md: 4 },
-          py: 2,
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 2,
-        }}
-      >
-        <Box>
-          <Typography variant="h5" fontWeight="medium">
-            {getSettingsCategoryLabel("local-drives")}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 680 }}>
-            {LOCAL_DRIVES_PAGE_COPY.intro}
-          </Typography>
+      {showHeader ? (
+        <SettingsSectionHeader
+          title={LOCAL_DRIVES_SETTINGS_HEADER.title}
+          description={LOCAL_DRIVES_SETTINGS_HEADER.description}
+          dialogSafe={dialogSafeHeader}
+          showTitle={!isMobile}
+          actions={actionButtons}
+        />
+      ) : (
+        <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 2 }}>
+          <SettingsGroup title={sectionTitle} description={sectionDescription} actions={actionButtons} />
         </Box>
+      )}
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={() => void loadState()}
-            disabled={loading}
-            sx={settingsUtilityButtonSx}
-          >
-            {LOCAL_DRIVES_PAGE_COPY.refreshButton}
-          </Button>
-          {showTestAction && (
-            <Button
-              variant="outlined"
-              startIcon={<ComputerIcon />}
-              onClick={() => void handleTestPairing()}
-              disabled={testing}
-              sx={settingsUtilityButtonSx}
-            >
-              {testing ? LOCAL_DRIVES_PAGE_COPY.testingButton : LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton}
-            </Button>
-          )}
-          {showPairAction && (
-            <Button variant="contained" startIcon={<UsbIcon />} onClick={() => setPairingDialogOpen(true)} sx={settingsPrimaryButtonSx}>
-              {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
-            </Button>
-          )}
-          {showUnpairAction && (
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<LinkOffIcon />}
-              onClick={() => void handleUnpairCurrentBrowser()}
-              disabled={unpairing}
-              sx={settingsDestructiveButtonSx}
-            >
-              {unpairing ? LOCAL_DRIVES_PAGE_COPY.unpairingButton : LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton}
-            </Button>
-          )}
-        </Stack>
-      </Box>
-
-      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
+      <Box sx={{ flex: showHeader ? 1 : undefined, overflow: showHeader ? "auto" : "visible", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         <Alert severity={statusAlert.severity} sx={{ mb: 3 }}>
           {statusAlert.message}
         </Alert>

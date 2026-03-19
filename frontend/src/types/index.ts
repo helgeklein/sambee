@@ -1,7 +1,50 @@
+import type { ThemeConfig } from "../theme/types";
+
+export type UserRole = "admin" | "regular";
+export type ConnectionScope = "shared" | "private";
+export type SystemSettingSource = "database" | "config_file" | "default";
+
 export interface User {
+  id?: string;
   username: string;
+  role?: UserRole;
   is_admin: boolean;
+  is_active?: boolean;
+  must_change_password?: boolean;
   created_at?: string;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  is_admin: boolean;
+  is_active: boolean;
+  must_change_password: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUserCreateInput {
+  username: string;
+  role: UserRole;
+  password?: string;
+  must_change_password: boolean;
+}
+
+export interface AdminUserUpdateInput {
+  username?: string;
+  role?: UserRole;
+  is_active?: boolean;
+}
+
+export interface AdminUserCreateResult extends AdminUser {
+  temporary_password?: string | null;
+}
+
+export interface AdminUserPasswordResetResult {
+  message: string;
+  temporary_password: string;
 }
 
 export interface Connection {
@@ -14,6 +57,8 @@ export interface Connection {
   share_name: string;
   username: string;
   path_prefix?: string;
+  scope: ConnectionScope;
+  can_manage: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -27,6 +72,85 @@ export interface ConnectionCreate {
   username: string;
   password: string;
   path_prefix?: string;
+  scope: ConnectionScope;
+}
+
+export interface ConnectionVisibilityOption {
+  value: ConnectionScope;
+  label: string;
+  description: string;
+  available: boolean;
+  unavailable_reason?: string | null;
+}
+
+export interface IntegerSystemSetting {
+  key: string;
+  label: string;
+  description: string;
+  value: number;
+  source: SystemSettingSource;
+  default_value: number;
+  min_value: number;
+  max_value: number;
+  step: number;
+}
+
+export interface PreprocessorAdvancedSettings {
+  max_file_size_bytes: IntegerSystemSetting;
+  timeout_seconds: IntegerSystemSetting;
+}
+
+export interface AdvancedSystemSettings {
+  smb: {
+    read_chunk_size_bytes: IntegerSystemSetting;
+  };
+  preprocessors: {
+    imagemagick: PreprocessorAdvancedSettings;
+    graphicsmagick: PreprocessorAdvancedSettings;
+  };
+}
+
+export interface AdvancedSystemSettingsUpdate {
+  smb?: {
+    read_chunk_size_bytes?: number;
+  };
+  preprocessors?: {
+    imagemagick?: {
+      max_file_size_bytes?: number;
+      timeout_seconds?: number;
+    };
+    graphicsmagick?: {
+      max_file_size_bytes?: number;
+      timeout_seconds?: number;
+    };
+  };
+  reset_keys?: string[];
+}
+
+export interface CurrentUserSettings {
+  appearance: {
+    theme_id: string;
+    custom_themes: ThemeConfig[];
+  };
+  browser: {
+    quick_nav_include_dot_directories: boolean;
+    file_browser_view_mode: "list" | "details";
+    pane_mode: "single" | "dual";
+    selected_connection_id: string | null;
+  };
+}
+
+export interface CurrentUserSettingsUpdate {
+  appearance?: {
+    theme_id?: string;
+    custom_themes?: ThemeConfig[];
+  };
+  browser?: {
+    quick_nav_include_dot_directories?: boolean;
+    file_browser_view_mode?: "list" | "details";
+    pane_mode?: "single" | "dual";
+    selected_connection_id?: string | null;
+  };
 }
 
 export enum FileType {
@@ -62,8 +186,11 @@ export interface DirectorySearchResult {
 export interface AuthToken {
   access_token: string;
   token_type: string;
+  user_id?: string;
   username: string;
+  role?: UserRole;
   is_admin: boolean;
+  must_change_password?: boolean;
 }
 
 // Alias for compatibility

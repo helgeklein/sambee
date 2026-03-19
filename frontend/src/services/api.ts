@@ -1,6 +1,25 @@
 import axios, { type AxiosError, type AxiosInstance, type AxiosRequestConfig } from "axios";
-import type { AuthToken, Connection, ConnectionCreate, DirectoryListing, DirectorySearchResult, FileInfo, User } from "../types";
+import type {
+  AdminUser,
+  AdminUserCreateInput,
+  AdminUserCreateResult,
+  AdminUserPasswordResetResult,
+  AdminUserUpdateInput,
+  AdvancedSystemSettings,
+  AdvancedSystemSettingsUpdate,
+  AuthToken,
+  Connection,
+  ConnectionCreate,
+  ConnectionVisibilityOption,
+  CurrentUserSettings,
+  CurrentUserSettingsUpdate,
+  DirectoryListing,
+  DirectorySearchResult,
+  FileInfo,
+  User,
+} from "../types";
 import { FileType } from "../types";
+import { isAdminUser } from "../utils/userAccess";
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
@@ -8,6 +27,15 @@ import { logger } from "./logger";
 export interface DirectorySearchOptions {
   includeDotDirectories?: boolean;
   signal?: AbortSignal;
+}
+
+const CONNECTIONS_API_BASE = "/connections";
+
+function normalizeUser(user: User): User {
+  return {
+    ...user,
+    is_admin: isAdminUser(user),
+  };
 }
 
 class ApiService {
@@ -28,7 +56,7 @@ class ApiService {
       (config) => {
         const token = localStorage.getItem("access_token");
         if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
+          config.headers["Authorization"] = `Bearer ${token}`;
         }
 
         // Log API request
@@ -218,6 +246,16 @@ class ApiService {
   async getCurrentUser(): Promise<User> {
     logger.debug("Fetching current user info", {}, "api");
     const response = await this.api.get<User>("/auth/me");
+    return normalizeUser(response.data);
+  }
+
+  async getCurrentUserSettings(): Promise<CurrentUserSettings> {
+    const response = await this.api.get<CurrentUserSettings>("/auth/me/settings");
+    return response.data;
+  }
+
+  async updateCurrentUserSettings(payload: CurrentUserSettingsUpdate): Promise<CurrentUserSettings> {
+    const response = await this.api.put<CurrentUserSettings>("/auth/me/settings", payload);
     return response.data;
   }
 
@@ -238,28 +276,72 @@ class ApiService {
     });
   }
 
-  // Admin endpoints
+  // Connection endpoints
   async getConnections(): Promise<Connection[]> {
-    const response = await this.api.get<Connection[]>("/admin/connections");
+    const response = await this.api.get<Connection[]>(CONNECTIONS_API_BASE);
     return response.data;
   }
 
   async createConnection(connection: ConnectionCreate): Promise<Connection> {
-    const response = await this.api.post<Connection>("/admin/connections", connection);
+    const response = await this.api.post<Connection>(CONNECTIONS_API_BASE, connection);
+    return response.data;
+  }
+
+  async getConnectionVisibilityOptions(): Promise<ConnectionVisibilityOption[]> {
+    const response = await this.api.get<ConnectionVisibilityOption[]>(`${CONNECTIONS_API_BASE}/visibility-options`);
     return response.data;
   }
 
   async updateConnection(connectionId: string, connection: Partial<ConnectionCreate>): Promise<Connection> {
-    const response = await this.api.put<Connection>(`/admin/connections/${connectionId}`, connection);
+    const response = await this.api.put<Connection>(`${CONNECTIONS_API_BASE}/${connectionId}`, connection);
     return response.data;
   }
 
   async deleteConnection(connectionId: string): Promise<void> {
-    await this.api.delete(`/admin/connections/${connectionId}`);
+    await this.api.delete(`${CONNECTIONS_API_BASE}/${connectionId}`);
   }
 
   async testConnection(connectionId: string): Promise<{ status: string; message: string }> {
-    const response = await this.api.post(`/admin/connections/${connectionId}/test`);
+    const response = await this.api.post(`${CONNECTIONS_API_BASE}/${connectionId}/test`);
+    return response.data;
+  }
+
+  async testConnectionConfig(connection: ConnectionCreate): Promise<{ status: string; message: string }> {
+    const response = await this.api.post(`${CONNECTIONS_API_BASE}/test-config`, connection);
+    return response.data;
+  }
+
+  async getUsers(): Promise<AdminUser[]> {
+    const response = await this.api.get<AdminUser[]>("/admin/users");
+    return response.data;
+  }
+
+  async createUser(user: AdminUserCreateInput): Promise<AdminUserCreateResult> {
+    const response = await this.api.post<AdminUserCreateResult>("/admin/users", user);
+    return response.data;
+  }
+
+  async updateUser(userId: string, user: AdminUserUpdateInput): Promise<AdminUser> {
+    const response = await this.api.patch<AdminUser>(`/admin/users/${userId}`, user);
+    return response.data;
+  }
+
+  async resetUserPassword(userId: string): Promise<AdminUserPasswordResetResult> {
+    const response = await this.api.post<AdminUserPasswordResetResult>(`/admin/users/${userId}/reset-password`);
+    return response.data;
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await this.api.delete(`/admin/users/${userId}`);
+  }
+
+  async getAdvancedSettings(): Promise<AdvancedSystemSettings> {
+    const response = await this.api.get<AdvancedSystemSettings>("/admin/settings/advanced");
+    return response.data;
+  }
+
+  async updateAdvancedSettings(payload: AdvancedSystemSettingsUpdate): Promise<AdvancedSystemSettings> {
+    const response = await this.api.put<AdvancedSystemSettings>("/admin/settings/advanced", payload);
     return response.data;
   }
 
@@ -433,7 +515,7 @@ class ApiService {
       Object.assign(headers, await this.buildCompanionHeaders());
     } else {
       const token = localStorage.getItem("access_token");
-      if (token) headers.Authorization = `Bearer ${token}`;
+      if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, { headers });
@@ -463,7 +545,7 @@ class ApiService {
       Object.assign(headers, await this.buildCompanionHeaders());
     } else {
       const token = localStorage.getItem("access_token");
-      if (token) headers.Authorization = `Bearer ${token}`;
+      if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, {
@@ -597,7 +679,7 @@ class ApiService {
       Object.assign(headers, companionHeaders);
     } else {
       const token = localStorage.getItem("access_token");
-      if (token) headers.Authorization = `Bearer ${token}`;
+      if (token) headers["Authorization"] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, { headers });

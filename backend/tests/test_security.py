@@ -134,7 +134,7 @@ class TestAuthenticationBypass:
         """Test accessing protected endpoints without token"""
         protected_endpoints = [
             "/api/auth/me",
-            "/api/admin/connections",
+            "/api/connections",
         ]
 
         for endpoint in protected_endpoints:
@@ -218,9 +218,9 @@ class TestAuthorizationBypass:
 
     def test_regular_user_accessing_admin_endpoint(self, client: TestClient, user_token: str):
         """Test regular user trying to access admin-only endpoints"""
-        # Try to access admin connections list (admin only)
+        # Try to access admin user management (admin only)
         response = client.get(
-            "/api/admin/connections",
+            "/api/admin/users",
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert response.status_code == 403
@@ -230,19 +230,14 @@ class TestAuthorizationBypass:
         self,
         client: TestClient,
         user_token: str,
-        admin_token: str,
-        test_connection: Connection,
+        other_private_connection: Connection,
     ):
         """Test user trying to access another user's connections"""
-        # Use the test_connection fixture which is already created
-        # Try to access it via browse endpoint
         response = client.get(
-            f"/api/browse/{test_connection.id}/list",
+            f"/api/browse/{other_private_connection.id}/list",
             headers={"Authorization": f"Bearer {user_token}"},
         )
-        # Currently connections aren't user-scoped, so this might work
-        # But we're testing that the endpoint at least handles it properly
-        assert response.status_code in [200, 403, 404, 500]
+        assert response.status_code == 404
 
     def test_user_cannot_modify_other_users_connections(
         self,
@@ -250,16 +245,14 @@ class TestAuthorizationBypass:
         user_token: str,
         test_connection: Connection,
     ):
-        """Test user trying to modify a connection without admin rights"""
-        # Regular user tries to update a connection (requires admin)
+        """Test user trying to modify a shared connection they cannot manage"""
         response = client.put(
-            f"/api/admin/connections/{test_connection.id}",
+            f"/api/connections/{test_connection.id}",
             json={
                 "name": "Hacked Connection",
             },
             headers={"Authorization": f"Bearer {user_token}"},
         )
-        # Should be forbidden (user doesn't have admin rights)
         assert response.status_code == 403
 
     def test_user_cannot_delete_other_users_connections(
@@ -268,13 +261,11 @@ class TestAuthorizationBypass:
         user_token: str,
         test_connection: Connection,
     ):
-        """Test user trying to delete a connection without admin rights"""
-        # Regular user tries to delete a connection (requires admin)
+        """Test user trying to delete a shared connection they cannot manage"""
         response = client.delete(
-            f"/api/admin/connections/{test_connection.id}",
+            f"/api/connections/{test_connection.id}",
             headers={"Authorization": f"Bearer {user_token}"},
         )
-        # Should be forbidden (user doesn't have admin rights)
         assert response.status_code == 403
 
     def test_admin_escalation_attempt(self, client: TestClient, user_token: str, session: Session):
@@ -426,13 +417,14 @@ class TestInputValidation:
         """Test connection name validation"""
         # Empty name should be rejected
         response = client.post(
-            "/api/admin/connections",
+            "/api/connections",
             json={
                 "name": "",
                 "host": "valid-host",
                 "share_name": "valid-share",
                 "username": "user",
                 "password": "pass",
+                "scope": "shared",
             },
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -443,13 +435,14 @@ class TestInputValidation:
         """Test SMB host validation"""
         # Empty host should be rejected
         response = client.post(
-            "/api/admin/connections",
+            "/api/connections",
             json={
                 "name": "Test",
                 "host": "",
                 "share_name": "valid-share",
                 "username": "user",
                 "password": "pass",
+                "scope": "shared",
             },
             headers={"Authorization": f"Bearer {admin_token}"},
         )

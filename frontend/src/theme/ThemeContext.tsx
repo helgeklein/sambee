@@ -1,5 +1,6 @@
 import { createTheme, type Theme } from "@mui/material/styles";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { loadCurrentUserSettings, patchCurrentUserSettings } from "../services/userSettingsSync";
 import { builtInThemes, getDefaultTheme } from "./themes";
 import type { ThemeConfig } from "./types";
 
@@ -8,7 +9,6 @@ import type { ThemeConfig } from "./types";
 //
 
 const THEME_ID_STORAGE_KEY = "theme-id-current";
-const BUILTIN_THEMES_STORAGE_KEY = "themes-builtin";
 const CUSTOM_THEMES_STORAGE_KEY = "themes-custom";
 
 // Styling constants
@@ -18,6 +18,25 @@ const SCROLLBAR_WIDTH_PX = 12;
 const SCROLLBAR_THUMB_BORDER_RADIUS_PX = 8;
 const SCROLLBAR_THUMB_MIN_HEIGHT_PX = 24;
 const SCROLLBAR_THUMB_BORDER_PX = 3;
+const POPUP_OVERLAY_Z_INDEX_OFFSET = 2;
+
+function readStoredThemeConfigs(key: string): ThemeConfig[] {
+  const saved = localStorage.getItem(key);
+  if (!saved) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function areThemeCollectionsEqual(left: ThemeConfig[], right: ThemeConfig[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
 interface ThemeContextValue {
   /** Current theme configuration */
@@ -54,43 +73,13 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     return saved || getDefaultTheme().id;
   });
 
-  // Load or update built-in themes
-  const [storedBuiltInThemes, setStoredBuiltInThemes] = useState<ThemeConfig[]>(() => {
-    const saved = localStorage.getItem(BUILTIN_THEMES_STORAGE_KEY);
-    const stored = saved ? JSON.parse(saved) : [];
-
-    // Check if built-in themes need updating (compare with shipped themes)
-    const needsUpdate =
-      stored.length !== builtInThemes.length || builtInThemes.some((theme) => !stored.find((s: ThemeConfig) => s.id === theme.id));
-
-    if (needsUpdate) {
-      // Update localStorage with current built-in themes from code
-      localStorage.setItem(BUILTIN_THEMES_STORAGE_KEY, JSON.stringify(builtInThemes));
-      return builtInThemes;
-    }
-
-    return stored;
-  });
-
   const [customThemes, setCustomThemes] = useState<ThemeConfig[]>(() => {
     // Load custom themes from localStorage
-    const saved = localStorage.getItem(CUSTOM_THEMES_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    return readStoredThemeConfigs(CUSTOM_THEMES_STORAGE_KEY);
   });
 
-  // Sync built-in themes whenever they change in code
-  useEffect(() => {
-    const currentStored = JSON.stringify(storedBuiltInThemes);
-    const currentShipped = JSON.stringify(builtInThemes);
-
-    if (currentStored !== currentShipped) {
-      localStorage.setItem(BUILTIN_THEMES_STORAGE_KEY, currentShipped);
-      setStoredBuiltInThemes(builtInThemes);
-    }
-  }, [storedBuiltInThemes]);
-
   // All available themes (built-in + custom)
-  const availableThemes = useMemo(() => [...storedBuiltInThemes, ...customThemes], [storedBuiltInThemes, customThemes]);
+  const availableThemes = useMemo(() => [...builtInThemes, ...customThemes], [customThemes]);
 
   // Current theme configuration
   const currentTheme = useMemo(
@@ -210,9 +199,26 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
         },
         MuiMenu: {
           styleOverrides: {
+            root: ({ theme }) => ({
+              zIndex: theme.zIndex.modal + POPUP_OVERLAY_Z_INDEX_OFFSET,
+            }),
             paper: {
               backgroundColor: currentTheme.background?.default,
             },
+          },
+        },
+        MuiPopover: {
+          styleOverrides: {
+            root: ({ theme }) => ({
+              zIndex: theme.zIndex.modal + POPUP_OVERLAY_Z_INDEX_OFFSET,
+            }),
+          },
+        },
+        MuiPopper: {
+          styleOverrides: {
+            root: ({ theme }) => ({
+              zIndex: `${theme.zIndex.modal + POPUP_OVERLAY_Z_INDEX_OFFSET} !important`,
+            }),
           },
         },
         MuiMenuItem: {
@@ -319,6 +325,35 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     localStorage.setItem(THEME_ID_STORAGE_KEY, currentThemeId);
   }, [currentThemeId]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncFromBackend = async () => {
+      const settings = await loadCurrentUserSettings(true);
+      if (!settings || cancelled) {
+        return;
+      }
+
+      const backendCustomThemes = Array.isArray(settings.appearance.custom_themes) ? settings.appearance.custom_themes : [];
+      const resolvedThemes = [...builtInThemes, ...backendCustomThemes];
+
+      setCustomThemes((previousThemes) =>
+        areThemeCollectionsEqual(backendCustomThemes, previousThemes) ? previousThemes : backendCustomThemes
+      );
+
+      const backendThemeId = settings.appearance.theme_id;
+      if (resolvedThemes.some((theme) => theme.id === backendThemeId)) {
+        setCurrentThemeId(backendThemeId);
+      }
+    };
+
+    void syncFromBackend();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Persist custom themes
   useEffect(() => {
     localStorage.setItem(CUSTOM_THEMES_STORAGE_KEY, JSON.stringify(customThemes));
@@ -327,28 +362,61 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
   const setThemeById = (themeId: string) => {
     if (availableThemes.find((t) => t.id === themeId)) {
       setCurrentThemeId(themeId);
+      void patchCurrentUserSettings({
+        appearance: {
+          theme_id: themeId,
+        },
+      });
     }
   };
 
   const addCustomTheme = (theme: ThemeConfig) => {
+    let nextCustomThemes: ThemeConfig[] = [];
+
     setCustomThemes((prev) => {
       // Replace if exists, add if new
       const existing = prev.findIndex((t) => t.id === theme.id);
       if (existing >= 0) {
         const updated = [...prev];
         updated[existing] = theme;
+        nextCustomThemes = updated;
         return updated;
       }
-      return [...prev, theme];
+      nextCustomThemes = [...prev, theme];
+      return nextCustomThemes;
+    });
+
+    void patchCurrentUserSettings({
+      appearance: {
+        custom_themes: nextCustomThemes,
+      },
     });
   };
 
   const removeCustomTheme = (themeId: string) => {
-    setCustomThemes((prev) => prev.filter((t) => t.id !== themeId));
-    // If removing current theme, switch to default
-    if (currentThemeId === themeId) {
-      setCurrentThemeId(getDefaultTheme().id);
+    if (builtInThemes.some((theme) => theme.id === themeId)) {
+      return;
     }
+
+    let nextCustomThemes: ThemeConfig[] = [];
+    const nextThemeId = currentThemeId === themeId ? getDefaultTheme().id : undefined;
+
+    setCustomThemes((prev) => {
+      nextCustomThemes = prev.filter((t) => t.id !== themeId);
+      return nextCustomThemes;
+    });
+
+    // If removing current theme, switch to default
+    if (nextThemeId) {
+      setCurrentThemeId(nextThemeId);
+    }
+
+    void patchCurrentUserSettings({
+      appearance: {
+        ...(nextThemeId ? { theme_id: nextThemeId } : {}),
+        custom_themes: nextCustomThemes,
+      },
+    });
   };
 
   const value: ThemeContextValue = {

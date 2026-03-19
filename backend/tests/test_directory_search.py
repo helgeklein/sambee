@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionScope
 from app.models.file import DirectoryListing, DirectorySearchResult, FileInfo, FileType
 from app.services.directory_cache import CacheState, ConnectionDirectoryCache
 
@@ -110,6 +110,7 @@ class TestSearchDirectories:
             share_name=None,
             username="user",
             password_encrypted=encrypt_password("pass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(conn)
         session.commit()

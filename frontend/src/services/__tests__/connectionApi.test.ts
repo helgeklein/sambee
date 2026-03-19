@@ -52,7 +52,7 @@ describe("Connection Management API Contract Tests", () => {
     localStorage.clear();
   });
 
-  describe("Contract Tests - GET /admin/connections", () => {
+  describe("Contract Tests - GET /connections", () => {
     it("should return array of connections", async () => {
       const backendResponse: Connection[] = [
         {
@@ -262,7 +262,7 @@ describe("Connection Management API Contract Tests", () => {
     });
   });
 
-  describe("Contract Tests - POST /admin/connections", () => {
+  describe("Contract Tests - POST /connections", () => {
     it("should return created connection with ID", async () => {
       const createRequest: ConnectionCreate = {
         name: "New Server",
@@ -382,7 +382,7 @@ describe("Connection Management API Contract Tests", () => {
     });
   });
 
-  describe("Contract Tests - PUT /admin/connections/{id}", () => {
+  describe("Contract Tests - PUT /connections/{id}", () => {
     it("should return updated connection", async () => {
       const connectionId = "623e4567-e89b-12d3-a456-426614174005";
       const updates: Partial<ConnectionCreate> = {
@@ -483,7 +483,7 @@ describe("Connection Management API Contract Tests", () => {
     });
   });
 
-  describe("Contract Tests - DELETE /admin/connections/{id}", () => {
+  describe("Contract Tests - DELETE /connections/{id}", () => {
     it("should handle successful deletion with no response body", async () => {
       const connectionId = "923e4567-e89b-12d3-a456-426614174008";
 
@@ -495,7 +495,7 @@ describe("Connection Management API Contract Tests", () => {
       await expect(apiService.deleteConnection(connectionId)).resolves.toBeUndefined();
 
       // Verify correct endpoint was called
-      expect(mockAxiosInstance.delete).toHaveBeenCalledWith(`/admin/connections/${connectionId}`);
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith(`/connections/${connectionId}`);
     });
 
     it("should handle empty object response", async () => {
@@ -509,7 +509,7 @@ describe("Connection Management API Contract Tests", () => {
     });
   });
 
-  describe("Contract Tests - POST /admin/connections/{id}/test", () => {
+  describe("Contract Tests - POST /connections/{id}/test", () => {
     it("should return test result format with success status", async () => {
       const connectionId = "b23e4567-e89b-12d3-a456-426614174010";
 

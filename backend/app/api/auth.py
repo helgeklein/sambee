@@ -1,21 +1,18 @@
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
 from app.core.auth_methods import AuthMethod
 from app.core.config import settings
 from app.core.logging import get_logger, set_user
-from app.core.security import (
-    create_access_token,
-    get_current_user_with_auth_check,
-    get_password_hash,
-    verify_password,
-)
+from app.core.security import build_user_access_token, get_current_user_with_auth_check, get_password_hash, verify_password
 from app.db.database import get_session
-from app.models.user import User
+from app.models.user import CurrentUserRead, PasswordChangeRequest, User, build_current_user_read
+from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
+from app.services.user_settings import build_current_user_settings_read, update_current_user_settings
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -42,7 +39,7 @@ async def get_auth_config() -> dict[str, str]:
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
-) -> dict[str, str | bool]:
+) -> dict[str, Any]:
     """Login endpoint for OAuth2 password flow"""
 
     # Reject login attempts when auth_method is "none"
@@ -58,7 +55,7 @@ async def login(
     statement = select(User).where(User.username == form_data.username)
     user = session.exec(statement).first()
 
-    if not user or not verify_password(form_data.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(form_data.password, user.password_hash):
         logger.warning(f"Failed login attempt: username={form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -67,34 +64,57 @@ async def login(
         )
 
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+    access_token = build_user_access_token(user, expires_delta=access_token_expires)
 
     logger.info(f"Successful login: username={user.username}, is_admin={user.is_admin}")
     return {
         "access_token": access_token,
         "token_type": "bearer",
+        "user_id": str(user.id),
         "username": user.username,
+        "role": user.role,
         "is_admin": user.is_admin,
+        "must_change_password": user.must_change_password,
     }
 
 
 #
 # get_current_user_info
 #
-@router.get("/me")
+@router.get("/me", response_model=CurrentUserRead)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user_with_auth_check),
-) -> dict[str, Any]:
+) -> CurrentUserRead:
     """Get current user information"""
 
     set_user(current_user.username)
     logger.info(f"User info requested: username={current_user.username}")
 
-    return {
-        "username": current_user.username,
-        "is_admin": current_user.is_admin,
-        "created_at": current_user.created_at,
-    }
+    return build_current_user_read(current_user)
+
+
+@router.get("/me/settings", response_model=CurrentUserSettingsRead)
+async def get_current_user_settings(
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> CurrentUserSettingsRead:
+    set_user(current_user.username)
+    return build_current_user_settings_read(user_id=current_user.id, session=session)
+
+
+@router.put("/me/settings", response_model=CurrentUserSettingsRead)
+async def put_current_user_settings(
+    payload: CurrentUserSettingsUpdate,
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> CurrentUserSettingsRead:
+    set_user(current_user.username)
+    try:
+        update_current_user_settings(user_id=current_user.id, payload=payload, session=session)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return build_current_user_settings_read(user_id=current_user.id, session=session)
 
 
 #
@@ -102,12 +122,19 @@ async def get_current_user_info(
 #
 @router.post("/change-password")
 async def change_password(
-    current_password: str,
-    new_password: str,
+    payload: PasswordChangeRequest | None = Body(default=None),
+    current_password: str | None = Query(default=None),
+    new_password: str | None = Query(default=None),
     current_user: User = Depends(get_current_user_with_auth_check),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Change current user's password"""
+
+    effective_current_password = payload.current_password if payload else current_password
+    effective_new_password = payload.new_password if payload else new_password
+
+    if not effective_current_password or not effective_new_password:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Current and new passwords are required")
 
     # Reject password changes when auth_method is "none"
     if settings.auth_method == AuthMethod.NONE:
@@ -120,17 +147,19 @@ async def change_password(
     set_user(current_user.username)
     logger.info(f"Password change requested: username={current_user.username}")
 
-    if not verify_password(current_password, current_user.password_hash):
+    if not verify_password(effective_current_password, current_user.password_hash):
         logger.warning(f"Password change failed - incorrect current password: username={current_user.username}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
         )
 
-    current_user.password_hash = get_password_hash(new_password)
+    current_user.password_hash = get_password_hash(effective_new_password)
+    current_user.must_change_password = False
+    current_user.token_version += 1
     session.add(current_user)
     session.commit()
 
     logger.info(f"Password changed successfully: username={current_user.username}")
 
-    return {"message": "Password changed successfully"}
+    return {"message": "Password changed successfully. Please sign in again."}

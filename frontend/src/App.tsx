@@ -3,18 +3,18 @@ import { ThemeProvider } from "@mui/material/styles";
 import { lazy, Suspense, useRef } from "react";
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { SettingsLayout } from "./components/Settings/SettingsLayout";
 import { useFocusTrap } from "./hooks/useFocusTrap";
+import { AdvancedSettings } from "./pages/AdvancedSettings";
+import { ConnectionsSettings } from "./pages/ConnectionsSettings";
+import { PreferencesSettings } from "./pages/PreferencesSettings";
+import { Settings } from "./pages/Settings";
+import { UserManagementSettings } from "./pages/UserManagementSettings";
 import { SambeeThemeProvider, useSambeeTheme } from "./theme";
 
 // Lazy load route components for better code splitting
 const Login = lazy(() => import("./pages/Login"));
 const FileBrowser = lazy(() => import("./pages/FileBrowser"));
-const SettingsLayout = lazy(() => import("./components/Settings/SettingsLayout").then((m) => ({ default: m.SettingsLayout })));
-const Settings = lazy(() => import("./pages/Settings").then((m) => ({ default: m.Settings })));
-const ConnectionSettings = lazy(() => import("./pages/ConnectionSettings").then((m) => ({ default: m.ConnectionSettings })));
-const AppearanceSettings = lazy(() => import("./pages/AppearanceSettings").then((m) => ({ default: m.AppearanceSettings })));
-const BrowserSettings = lazy(() => import("./pages/BrowserSettings").then((m) => ({ default: m.BrowserSettings })));
-const LocalDrivesSettings = lazy(() => import("./pages/LocalDrivesSettings").then((m) => ({ default: m.LocalDrivesSettings })));
 
 //
 // AppContent
@@ -40,11 +40,10 @@ function AppContent() {
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/settings" element={<SettingsLayout />}>
                 <Route index element={<Settings />} />
-                <Route path="appearance" element={<AppearanceSettings />} />
-                <Route path="browser" element={<BrowserSettings />} />
-                <Route path="connections" element={<Navigate to="/settings/smb-connections" replace />} />
-                <Route path="smb-connections" element={<ConnectionSettings />} />
-                <Route path="local-drives" element={<LocalDrivesSettings />} />
+                <Route path="preferences" element={<PreferencesSettings />} />
+                <Route path="connections" element={<ConnectionsSettings />} />
+                <Route path="admin/users" element={<UserManagementSettings />} />
+                <Route path="admin/system" element={<AdvancedSettings />} />
               </Route>
               <Route path="/" element={<Navigate to="/browse" replace />} />
             </Routes>

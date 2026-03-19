@@ -1,7 +1,17 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider, useSambeeTheme } from "../ThemeContext";
+
+const { loadCurrentUserSettingsMock, patchCurrentUserSettingsMock } = vi.hoisted(() => ({
+  loadCurrentUserSettingsMock: vi.fn(),
+  patchCurrentUserSettingsMock: vi.fn(),
+}));
+
+vi.mock("../../services/userSettingsSync", () => ({
+  loadCurrentUserSettings: loadCurrentUserSettingsMock,
+  patchCurrentUserSettings: patchCurrentUserSettingsMock,
+}));
 
 //
 // ThemeContext.test.tsx
@@ -33,6 +43,8 @@ describe("Theme System - ThemeContext", () => {
   beforeEach(() => {
     localStorageMock.clear();
     vi.clearAllMocks();
+    loadCurrentUserSettingsMock.mockResolvedValue(null);
+    patchCurrentUserSettingsMock.mockResolvedValue(null);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) => <SambeeThemeProvider>{children}</SambeeThemeProvider>;
@@ -274,14 +286,11 @@ describe("Theme System - ThemeContext", () => {
   });
 
   describe("LocalStorage persistence", () => {
-    it("should sync built-in themes to localStorage on mount", () => {
+    it("should use shipped built-in themes without persisting a built-in cache", () => {
       renderHook(() => useSambeeTheme(), { wrapper });
 
-      const stored = localStorageMock.getItem("themes-builtin");
-      expect(stored).toBeTruthy();
-      const parsed = JSON.parse(stored!);
-      expect(Array.isArray(parsed)).toBe(true);
-      expect(parsed.length).toBeGreaterThanOrEqual(2);
+      expect(localStorageMock.getItem("themes-builtin")).toBeNull();
+      expect(localStorageMock.getItem("theme-id-current")).toBe("sambee-light");
     });
 
     it("should restore custom themes from localStorage", () => {
@@ -300,6 +309,65 @@ describe("Theme System - ThemeContext", () => {
       const { result } = renderHook(() => useSambeeTheme(), { wrapper });
 
       expect(result.current.availableThemes.some((t) => t.id === "custom-1")).toBe(true);
+    });
+
+    it("should sync custom themes from backend settings", async () => {
+      loadCurrentUserSettingsMock.mockResolvedValue({
+        appearance: {
+          theme_id: "custom-1",
+          custom_themes: [
+            {
+              id: "custom-1",
+              name: "Custom 1",
+              mode: "light",
+              primary: { main: "#ff0000" },
+            },
+          ],
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+        },
+      });
+
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      await waitFor(() => {
+        expect(result.current.availableThemes.some((t) => t.id === "custom-1")).toBe(true);
+      });
+
+      expect(result.current.currentTheme.id).toBe("custom-1");
+      expect(JSON.parse(localStorageMock.getItem("themes-custom") || "[]")).toEqual([
+        {
+          id: "custom-1",
+          name: "Custom 1",
+          mode: "light",
+          primary: { main: "#ff0000" },
+        },
+      ]);
+    });
+
+    it("should patch backend when custom themes change", () => {
+      const { result } = renderHook(() => useSambeeTheme(), { wrapper });
+
+      const customTheme = {
+        id: "custom-test",
+        name: "Test Theme",
+        mode: "light" as const,
+        primary: { main: "#ff0000" },
+      };
+
+      act(() => {
+        result.current.addCustomTheme(customTheme);
+      });
+
+      expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({
+        appearance: {
+          custom_themes: [customTheme],
+        },
+      });
     });
   });
 });

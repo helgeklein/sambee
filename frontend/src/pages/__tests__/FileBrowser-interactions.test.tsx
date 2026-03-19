@@ -7,6 +7,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
+import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
 import {
   type ApiMock,
   createForbiddenError,
@@ -31,6 +32,7 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 describe("Browser Component - Interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearCurrentUserSettingsCache();
     localStorage.setItem("access_token", "fake-token");
     localStorage.removeItem("selectedConnectionId");
     localStorage.removeItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY);
@@ -449,10 +451,19 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
-    it("uses the stored quick-nav dot-directory preference", async () => {
+    it("uses the persisted quick-nav dot-directory preference", async () => {
       const user = userEvent.setup();
 
       localStorage.setItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY, "true");
+      vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
+        appearance: { theme_id: "sambee-light", custom_themes: [] },
+        browser: {
+          quick_nav_include_dot_directories: true,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+        },
+      });
 
       renderBrowser("/browse/smb/test-server-1");
 

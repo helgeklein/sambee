@@ -44,9 +44,18 @@ import api from "../services/api";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
+import { buildServerWebSocketUrl } from "../services/serverWebsocket";
+import { loadCurrentUserSettings } from "../services/userSettingsSync";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
+import { isAdminUser } from "../utils/userAccess";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
+import {
+  readFileBrowserPaneModePreference,
+  readSelectedConnectionIdPreference,
+  setFileBrowserPaneModePreference,
+  setSelectedConnectionIdPreference,
+} from "./FileBrowser/preferences";
 import {
   type BrowseRouteState,
   buildBrowseRouteTarget,
@@ -55,7 +64,7 @@ import {
   serializeBrowseRoute,
 } from "./FileBrowser/routing";
 import type { PaneId, PaneMode } from "./FileBrowser/types";
-import { ACTIVE_PANE_QUERY_KEY, ACTIVE_PANE_STORAGE_KEY, DUAL_PANE_STORAGE_KEY, RIGHT_PANE_QUERY_KEY } from "./FileBrowser/types";
+import { ACTIVE_PANE_QUERY_KEY, ACTIVE_PANE_STORAGE_KEY, RIGHT_PANE_QUERY_KEY } from "./FileBrowser/types";
 import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 
 // ============================================================================
@@ -103,7 +112,7 @@ const Browser: React.FC = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("appearance");
+  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("preferences");
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<MobileSettingsView>("main");
   const [showHelp, setShowHelp] = useState(false);
@@ -156,9 +165,7 @@ const Browser: React.FC = () => {
     // If the URL contains a p2 query parameter, activate dual mode automatically
     const urlP2 = new URLSearchParams(window.location.search).get(RIGHT_PANE_QUERY_KEY);
     if (urlP2) return "dual";
-    // Otherwise fall back to localStorage preference
-    const saved = localStorage.getItem(DUAL_PANE_STORAGE_KEY);
-    return saved === "dual" ? "dual" : "single";
+    return readFileBrowserPaneModePreference();
   });
 
   /** Which pane is currently active (receives keyboard input and toolbar actions). */
@@ -252,7 +259,7 @@ const Browser: React.FC = () => {
   const checkAdminStatus = useCallback(async () => {
     try {
       const user = await api.getCurrentUser();
-      setIsAdmin(user.is_admin);
+      setIsAdmin(isAdminUser(user));
     } catch (err) {
       logger.warn("Failed to verify admin status", { error: err }, "browser");
       setIsAdmin(false);
@@ -397,6 +404,12 @@ const Browser: React.FC = () => {
       // Initialize mobile logging if not already done (handles page refresh with existing token)
       await logger.initializeBackendTracing();
 
+      const currentUserSettings = await loadCurrentUserSettings(true);
+      const persistedSelectedConnectionId = currentUserSettings?.browser.selected_connection_id ?? null;
+      if (persistedSelectedConnectionId !== null) {
+        setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
+      }
+
       const data = await api.getConnections();
       setConnections(data);
 
@@ -426,7 +439,7 @@ const Browser: React.FC = () => {
         return;
       }
 
-      const savedConnectionId = localStorage.getItem("selectedConnectionId");
+      const savedConnectionId = persistedSelectedConnectionId ?? readSelectedConnectionIdPreference();
       const autoSelectedConnectionId =
         savedConnectionId && (isLocalDrive(savedConnectionId) || data.some((connection) => connection.id === savedConnectionId))
           ? savedConnectionId
@@ -502,7 +515,7 @@ const Browser: React.FC = () => {
       setActivePaneId(nextActivePaneId);
     }
 
-    localStorage.setItem(DUAL_PANE_STORAGE_KEY, nextPaneMode);
+    setFileBrowserPaneModePreference(nextPaneMode, true);
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextActivePaneId);
   }, [activePaneId, leftPane, loadingConnections, paneMode, resolvedRoute, rightPane]);
 
@@ -531,11 +544,8 @@ const Browser: React.FC = () => {
     const connectWebSocket = () => {
       if (disposed) return;
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // In development, use port 8000; in production, use same port as current page
-      const isDev = window.location.port === "3000" || window.location.hostname === "localhost";
-      const port = isDev ? "8000" : window.location.port;
-      const wsUrl = port ? `${protocol}//${window.location.hostname}:${port}/api/ws` : `${protocol}//${window.location.hostname}/api/ws`;
+      const accessToken = localStorage.getItem("access_token");
+      const wsUrl = buildServerWebSocketUrl(window.location, accessToken);
 
       logger.info("Connecting to WebSocket", { wsUrl }, "websocket");
       const ws = new WebSocket(wsUrl);
@@ -1037,7 +1047,7 @@ const Browser: React.FC = () => {
       return;
     }
 
-    setSettingsInitialCategory("appearance");
+    setSettingsInitialCategory("preferences");
     setSettingsOpen(true);
   }, [useCompactLayout]);
 
@@ -1049,14 +1059,14 @@ const Browser: React.FC = () => {
     }, 0);
   };
 
-  const openLocalDrivesSettings = useCallback(() => {
+  const openConnectionsSettings = useCallback(() => {
     if (useCompactLayout) {
-      setMobileSettingsInitialView("local-drives");
+      setMobileSettingsInitialView("connections");
       setMobileSettingsOpen(true);
       return;
     }
 
-    setSettingsInitialCategory("local-drives");
+    setSettingsInitialCategory("connections");
     setSettingsOpen(true);
   }, [useCompactLayout]);
 
@@ -1090,7 +1100,7 @@ const Browser: React.FC = () => {
       openFilterMode: () => openQuickBarMode("filter"),
       openCommandMode: () => openQuickBarMode("commands"),
       openSettings: handleOpenSettings,
-      openLocalDriveSettings: openLocalDrivesSettings,
+      openConnectionsSettings,
       openHelp: () => setShowHelp(true),
       refresh: quickBarPane.handleRefresh,
       navigateUp: quickBarPane.handleNavigateUpDirectory,
@@ -1119,7 +1129,7 @@ const Browser: React.FC = () => {
       handleToggleDualPane,
       isDualMode,
       mobileSettingsOpen,
-      openLocalDrivesSettings,
+      openConnectionsSettings,
       openQuickBarMode,
       quickBarMode,
       quickBarPane,
@@ -1576,7 +1586,6 @@ const Browser: React.FC = () => {
         onOpenSettings={handleOpenSettings}
         onLogout={handleLogout}
       />
-
       <AppBar position="static" elevation={useCompactLayout ? undefined : 0}>
         <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
           {useCompactLayout ? (
@@ -1603,7 +1612,6 @@ const Browser: React.FC = () => {
           )}
         </Toolbar>
       </AppBar>
-
       {/* Secondary action strip — view mode & sort controls for the active pane (desktop only) */}
       {!useCompactLayout && (
         <SecondaryActionStrip
@@ -1620,7 +1628,7 @@ const Browser: React.FC = () => {
           onBlurToFileList={() => activePane.listContainerEl?.focus()}
           disableTabFocus={isDualMode}
           companionStatus={companion.status}
-          onManageLocalDrives={openLocalDrivesSettings}
+          onOpenConnectionsSettings={openConnectionsSettings}
           connectionButtonRef={connectionSelectorButtonRef}
         />
       )}
@@ -1644,10 +1652,10 @@ const Browser: React.FC = () => {
           isAdmin={isAdmin}
           onOpenConnectionsSettings={() => {
             if (useCompactLayout) {
-              setMobileSettingsInitialView("smb-connections");
+              setMobileSettingsInitialView("connections");
               setMobileSettingsOpen(true);
             } else {
-              setSettingsInitialCategory("smb-connections");
+              setSettingsInitialCategory("connections");
               setSettingsOpen(true);
             }
           }}
@@ -1716,7 +1724,6 @@ const Browser: React.FC = () => {
           </Box>
         )}
       </Container>
-
       {/* Settings Dialog (Desktop only) */}
       {!useCompactLayout && (
         <SettingsDialog
@@ -1726,7 +1733,6 @@ const Browser: React.FC = () => {
           onConnectionsChanged={handleConnectionsChanged}
         />
       )}
-
       {/* Settings Drawer (Mobile only) */}
       {useCompactLayout && (
         <MobileSettingsDrawer
@@ -1739,7 +1745,6 @@ const Browser: React.FC = () => {
           initialView={mobileSettingsInitialView}
         />
       )}
-
       {/* Viewer overlay — full-screen, from whichever pane opened it */}
       {leftPane.viewInfo && (
         <DynamicViewer
@@ -1757,7 +1762,6 @@ const Browser: React.FC = () => {
           onIndexChange={rightPane.handleViewIndexChange}
         />
       )}
-
       {/* Keyboard Shortcuts Help */}
       <KeyboardShortcutsHelp
         open={showHelp}
@@ -1765,7 +1769,6 @@ const Browser: React.FC = () => {
         shortcuts={browserShortcuts}
         title="File browser shortcuts"
       />
-
       {/* Companion app guidance hint */}
       <Snackbar
         open={companionHintOpen}
@@ -1774,7 +1777,6 @@ const Browser: React.FC = () => {
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         message="Opening in Sambee Companion… If nothing happened, make sure the companion app is installed."
       />
-
       {/* Copy / Move Dialog (dual-pane F5/F6) */}
       <CopyMoveDialog
         open={copyMoveDialogOpen}
@@ -1793,7 +1795,6 @@ const Browser: React.FC = () => {
         transferProgress={copyMoveTransferProgress}
         error={copyMoveError}
       />
-
       {/* Overwrite Conflict Dialog (shown per-file during copy/move) */}
       <OverwriteConflictDialog
         open={conflictDialogOpen}

@@ -193,20 +193,20 @@ class TestAuthenticationMiddleware:
 
     def test_access_protected_endpoint_with_valid_token(self, client: TestClient, auth_headers_admin: dict):
         """Test accessing protected endpoint with valid token."""
-        response = client.get("/api/admin/connections", headers=auth_headers_admin)
+        response = client.get("/api/connections", headers=auth_headers_admin)
         # Should not get 401 (actual response depends on data, but not auth error)
         assert response.status_code != 401
 
     def test_access_protected_endpoint_without_token(self, client: TestClient):
         """Test accessing protected endpoint without token fails."""
-        response = client.get("/api/admin/connections")
+        response = client.get("/api/connections")
         assert response.status_code == 401
         assert "Not authenticated" in response.json()["detail"]
 
     def test_access_protected_endpoint_with_invalid_token(self, client: TestClient):
         """Test accessing protected endpoint with invalid token fails."""
         response = client.get(
-            "/api/admin/connections",
+            "/api/connections",
             headers={"Authorization": "Bearer invalid_token_12345"},
         )
         assert response.status_code == 401
@@ -214,7 +214,7 @@ class TestAuthenticationMiddleware:
     def test_access_protected_endpoint_with_malformed_header(self, client: TestClient):
         """Test accessing protected endpoint with malformed auth header."""
         response = client.get(
-            "/api/admin/connections",
+            "/api/connections",
             headers={"Authorization": "InvalidFormat"},
         )
         assert response.status_code == 401
@@ -222,19 +222,24 @@ class TestAuthenticationMiddleware:
 
 @pytest.mark.integration
 class TestAdminAuthorization:
-    """Test admin-only endpoints require admin privileges."""
+    """Test admin-only endpoints remain restricted while connection listing is user-visible."""
 
     def test_admin_can_access_admin_endpoint(self, client: TestClient, auth_headers_admin: dict):
         """Test that admin users can access admin endpoints."""
-        response = client.get("/api/admin/connections", headers=auth_headers_admin)
+        response = client.get("/api/admin/users", headers=auth_headers_admin)
         # Should not get 403 (may get 200 with empty list)
         assert response.status_code != 403
 
     def test_regular_user_cannot_access_admin_endpoint(self, client: TestClient, auth_headers_user: dict):
         """Test that regular users cannot access admin endpoints."""
-        response = client.get("/api/admin/connections", headers=auth_headers_user)
+        response = client.get("/api/admin/users", headers=auth_headers_user)
         assert response.status_code == 403
         assert "permission" in response.json()["detail"].lower()
+
+    def test_regular_user_can_access_connection_endpoint(self, client: TestClient, auth_headers_user: dict):
+        """Test that regular users can list visible connections."""
+        response = client.get("/api/connections", headers=auth_headers_user)
+        assert response.status_code == 200
 
     def test_regular_user_can_access_non_admin_endpoint(self, client: TestClient, auth_headers_user: dict, test_connection):
         """Test that regular users can access non-admin endpoints."""
@@ -485,8 +490,8 @@ class TestAuthMethodNone:
 
         monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
 
-        # Test admin endpoint (should be accessible as we're treated as admin)
-        response = client.get("/api/admin/connections")
+        # Test connection endpoint (should be accessible as we're treated as admin)
+        response = client.get("/api/connections")
         assert response.status_code == 200
 
     def test_browser_endpoint_accessible_without_token(self, client: TestClient, config_admin_user: User, test_connection, monkeypatch):

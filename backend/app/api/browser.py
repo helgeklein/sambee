@@ -22,11 +22,19 @@ from app.models.file import (
     RenameRequest,
 )
 from app.models.user import User
+from app.services.connection_access import get_accessible_connection_or_404
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
 from app.storage.smb import SMBBackend
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _require_share_name(connection: Connection) -> str:
+    """Return a validated share name for typed SMB backend construction."""
+
+    assert connection.share_name is not None
+    return connection.share_name
 
 
 #
@@ -44,22 +52,12 @@ async def list_directory(
     # Set user context for logging
     set_user(current_user.username)
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -106,22 +104,12 @@ async def get_file_info(
 
     logger.info(f"Getting file info: connection_id={connection_id}, path='{path}'")
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -174,17 +162,7 @@ async def search_directories(
     # Set user context for logging
     set_user(current_user.username)
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         from app.services.directory_cache import get_directory_cache_manager
@@ -193,7 +171,7 @@ async def search_directories(
         cache = await cache_manager.get_or_create_cache(
             connection_id=str(connection_id),
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port or 445,
@@ -255,22 +233,12 @@ async def upload_file(
     set_user(current_user.username)
     logger.info(f"Upload file: connection_id={connection_id}, path='{path}'")
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -331,17 +299,7 @@ async def delete_item(
     # Set user context for logging
     set_user(current_user.username)
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     if not path or path.strip("/") == "":
         raise HTTPException(
@@ -359,7 +317,7 @@ async def delete_item(
 
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -478,22 +436,12 @@ async def rename_item(
         )
 
     # --- Look up connection -----------------------------------------------
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -583,22 +531,12 @@ async def create_item(
     new_item_path = f"{parent_path}/{name}" if parent_path else name
 
     # --- Look up connection -----------------------------------------------
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-
-    if not connection.share_name:
-        logger.warning(f"Connection has no share name: connection_id={connection_id}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Connection has no share name configured",
-        )
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         backend = SMBBackend(
             host=connection.host,
-            share_name=connection.share_name,
+            share_name=_require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port,
@@ -669,11 +607,9 @@ def _build_backend(connection: Connection) -> SMBBackend:
     Assumes connection.share_name has already been validated
     (e.g. by _get_connection_or_404).
     """
-    assert connection.share_name, "share_name must not be empty"
-
     return SMBBackend(
         host=connection.host,
-        share_name=connection.share_name,
+        share_name=_require_share_name(connection),
         username=connection.username,
         password=decrypt_password(connection.password_encrypted),
         port=connection.port,
@@ -721,6 +657,7 @@ async def _conflict_response(
     connection_id: uuid.UUID,
     source: str,
     dest: str,
+    current_user: User,
     session: Session,
 ) -> HTTPException:
     """Build a 409 response with ``ConflictInfo`` for overwrite prompts.
@@ -737,7 +674,7 @@ async def _conflict_response(
 
         is_cross = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
         if is_cross:
-            dest_connection = _get_connection_or_404(session, uuid.UUID(str(body.dest_connection_id)))
+            dest_connection = _get_connection_or_404(session, current_user, uuid.UUID(str(body.dest_connection_id)))
             dest_backend = _build_backend(dest_connection)
             await dest_backend.connect()
         else:
@@ -770,13 +707,10 @@ async def _conflict_response(
         )
 
 
-def _get_connection_or_404(session: Session, connection_id: uuid.UUID) -> Connection:
+def _get_connection_or_404(session: Session, current_user: User, connection_id: uuid.UUID) -> Connection:
     """Look up a connection by ID, raising 404 if not found or misconfigured."""
 
-    connection = session.get(Connection, connection_id)
-    if not connection:
-        logger.warning(f"Connection not found: connection_id={connection_id}")
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
 
     if not connection.share_name:
         logger.warning(f"Connection has no share name: connection_id={connection_id}")
@@ -816,12 +750,13 @@ async def copy_item(
 
     is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
 
-    connection = _get_connection_or_404(session, connection_id)
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         if is_cross_connection:
             dest_connection = _get_connection_or_404(
                 session,
+                current_user,
                 uuid.UUID(str(body.dest_connection_id)),
             )
             await _cross_connection_copy(
@@ -850,7 +785,7 @@ async def copy_item(
             detail=f"Source not found: {source}",
         )
     except FileExistsError:
-        raise await _conflict_response(connection, body, connection_id, source, dest, session)
+        raise await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
     except HTTPException:
         raise
     except OSError as e:
@@ -907,12 +842,13 @@ async def move_item(
 
     is_cross_connection = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
 
-    connection = _get_connection_or_404(session, connection_id)
+    connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
         if is_cross_connection:
             dest_connection = _get_connection_or_404(
                 session,
+                current_user,
                 uuid.UUID(str(body.dest_connection_id)),
             )
             await _cross_connection_move(
@@ -942,7 +878,7 @@ async def move_item(
             detail=f"Source not found: {source}",
         )
     except FileExistsError:
-        raise await _conflict_response(connection, body, connection_id, source, dest, session)
+        raise await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
     except HTTPException:
         raise
     except OSError as e:

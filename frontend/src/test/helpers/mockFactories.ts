@@ -5,7 +5,7 @@
 
 import type { Mock } from "vitest";
 import { vi } from "vitest";
-import type { Connection, DirectoryListing, User } from "../../types";
+import type { Connection, CurrentUserSettings, DirectoryListing, User } from "../../types";
 import { mockConnections, mockDirectoryListing, mockEmptyDirectory, mockNestedDirectory } from "../fixtures";
 
 /**
@@ -15,6 +15,7 @@ export interface ApiMock {
   getConnections: Mock;
   listDirectory: Mock;
   getCurrentUser: Mock;
+  getCurrentUserSettings: Mock;
   testConnection: Mock;
   createConnection: Mock;
   updateConnection: Mock;
@@ -30,12 +31,23 @@ export interface ApiMock {
  * Common scenario: API calls succeed with standard test data
  */
 export function setupSuccessfulApiMocks(api: ApiMock): void {
+  const defaultUserSettings: CurrentUserSettings = {
+    appearance: { theme_id: "sambee-light", custom_themes: [] },
+    browser: {
+      quick_nav_include_dot_directories: false,
+      file_browser_view_mode: "list",
+      pane_mode: "single",
+      selected_connection_id: null,
+    },
+  };
+
   api.getConnections.mockResolvedValue(mockConnections);
   api.listDirectory.mockResolvedValue(mockDirectoryListing);
   api.getCurrentUser.mockResolvedValue({
     username: "admin",
     is_admin: true,
   });
+  api.getCurrentUserSettings.mockResolvedValue(defaultUserSettings);
   api.testConnection.mockResolvedValue({
     success: true,
     message: "Connection successful",
@@ -107,7 +119,18 @@ export function setupErrorApiMocks(api: ApiMock, status = 500): void {
  * Scenario: Supports multiple directory levels
  */
 export function setupNavigationApiMocks(api: ApiMock): void {
+  const defaultUserSettings: CurrentUserSettings = {
+    appearance: { theme_id: "sambee-light", custom_themes: [] },
+    browser: {
+      quick_nav_include_dot_directories: false,
+      file_browser_view_mode: "list",
+      pane_mode: "single",
+      selected_connection_id: null,
+    },
+  };
+
   api.getConnections.mockResolvedValue(mockConnections);
+  api.getCurrentUserSettings.mockResolvedValue(defaultUserSettings);
 
   api.listDirectory.mockImplementation((_connectionId: string, path: string) => {
     if (path === "" || path === "/") {
@@ -174,6 +197,7 @@ export function createMockApi(): ApiMock {
     getConnections: vi.fn(),
     listDirectory: vi.fn(),
     getCurrentUser: vi.fn(),
+    getCurrentUserSettings: vi.fn(),
     testConnection: vi.fn(),
     createConnection: vi.fn(),
     updateConnection: vi.fn(),

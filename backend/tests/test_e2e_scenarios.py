@@ -16,10 +16,22 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+import app.api.websocket as websocket_module
 from app.core.security import encrypt_password
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionScope
 from app.models.file import DirectoryListing, FileInfo, FileType
 from app.models.user import User
+
+
+class _SessionContext:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def __enter__(self) -> Session:
+        return self.session
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        del exc_type, exc, tb
 
 
 @pytest.mark.integration
@@ -29,7 +41,7 @@ class TestCompleteUserJourney:
     def test_complete_authenticated_workflow(self, client: TestClient, session: Session, auth_headers_admin: dict[str, str]):
         """Test full workflow: admin operations on connections, browse, view, download."""
         # Step 1: Admin creates SMB connection (mock the connection test)
-        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+        with patch("app.api.connections.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_backend_class.return_value = mock_instance
 
@@ -43,7 +55,7 @@ class TestCompleteUserJourney:
                 "password": "smbpass",
             }
             response = client.post(
-                "/api/admin/connections",
+                "/api/connections",
                 json=connection_data,
                 headers=auth_headers_admin,
             )
@@ -51,7 +63,7 @@ class TestCompleteUserJourney:
             connection_id = response.json()["id"]
 
         # Step 4: Admin lists connections
-        response = client.get("/api/admin/connections", headers=auth_headers_admin)
+        response = client.get("/api/connections", headers=auth_headers_admin)
         assert response.status_code == 200
         connections = response.json()
         assert len(connections) >= 1
@@ -134,7 +146,7 @@ class TestCompleteUserJourney:
             assert "attachment" in response.headers.get("content-disposition", "")
 
         # Step 8: Update connection (using PUT, not PATCH)
-        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+        with patch("app.api.connections.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_backend_class.return_value = mock_instance
 
@@ -148,7 +160,7 @@ class TestCompleteUserJourney:
                 "password": "smbpass",
             }
             response = client.put(
-                f"/api/admin/connections/{connection_id}",
+                f"/api/connections/{connection_id}",
                 json=update_data,
                 headers=auth_headers_admin,
             )
@@ -157,13 +169,13 @@ class TestCompleteUserJourney:
 
         # Step 9: Delete connection
         response = client.delete(
-            f"/api/admin/connections/{connection_id}",
+            f"/api/connections/{connection_id}",
             headers=auth_headers_admin,
         )
         assert response.status_code == 200
 
         # Step 10: Verify deletion
-        response = client.get("/api/admin/connections", headers=auth_headers_admin)
+        response = client.get("/api/connections", headers=auth_headers_admin)
         assert response.status_code == 200
         connections = response.json()
         assert not any(c["id"] == connection_id for c in connections)
@@ -178,6 +190,7 @@ class TestCompleteUserJourney:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -195,21 +208,29 @@ class TestCompleteUserJourney:
             )
             assert response.status_code == 200
 
-        # User cannot create connections (admin endpoint)
+        # User can create private connections via the neutral connections endpoint.
         connection_data = {
-            "name": "Unauthorized",
+            "name": "Private Connection",
             "type": "smb",
             "host": "server.local",
             "share_name": "share",
             "username": "user",
             "password": "pass",
+            "scope": "shared",
         }
-        response = client.post(
-            "/api/admin/connections",
-            json=connection_data,
-            headers=auth_headers_user,
-        )
-        assert response.status_code == 403  # Forbidden
+        with patch("app.api.connections.SMBBackend") as mock_backend_class:
+            mock_instance = AsyncMock()
+            mock_backend_class.return_value = mock_instance
+
+            response = client.post(
+                "/api/connections",
+                json=connection_data,
+                headers=auth_headers_user,
+            )
+
+        assert response.status_code == 200
+        assert response.json()["scope"] == "private"
+        assert response.json()["can_manage"] is True
 
 
 @pytest.mark.integration
@@ -232,6 +253,7 @@ class TestMultiUserCollaboration:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -283,6 +305,7 @@ class TestMultiUserCollaboration:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -333,6 +356,7 @@ class TestErrorRecoveryScenarios:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -358,6 +382,7 @@ class TestErrorRecoveryScenarios:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -381,7 +406,7 @@ class TestErrorRecoveryScenarios:
         """Test invalid authentication token handling."""
         invalid_headers = {"Authorization": "Bearer invalid_token"}
 
-        response = client.get("/api/admin/connections", headers=invalid_headers)
+        response = client.get("/api/connections", headers=invalid_headers)
         assert response.status_code == 401
 
     def test_missing_connection_error(self, client: TestClient, auth_headers_user: dict[str, str]):
@@ -403,6 +428,7 @@ class TestErrorRecoveryScenarios:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -432,7 +458,7 @@ class TestWebSocketScenarios:
     """Test WebSocket integration in realistic scenarios."""
 
     @pytest.mark.asyncio
-    async def test_websocket_file_notification_workflow(self, session: Session):
+    async def test_websocket_file_notification_workflow(self, session: Session, regular_user: User):
         """Test complete workflow with WebSocket notifications."""
         from app.api.websocket import ConnectionManager
 
@@ -444,6 +470,7 @@ class TestWebSocketScenarios:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -453,11 +480,20 @@ class TestWebSocketScenarios:
         manager = ConnectionManager()
         mock_ws = AsyncMock()
 
-        # Connect and subscribe
-        await manager.connect(mock_ws)
-        await manager.subscribe(mock_ws, str(connection.id), "/documents")
+        original_db_session = websocket_module.DBSession
+        websocket_module.DBSession = lambda _engine: _SessionContext(session)
+
+        try:
+            with patch("app.api.websocket.get_monitor") as mock_get_monitor:
+                mock_get_monitor.return_value = AsyncMock()
+
+                await manager.connect(mock_ws, regular_user)
+                subscribed = await manager.subscribe(mock_ws, str(connection.id), "/documents")
+        finally:
+            websocket_module.DBSession = original_db_session
 
         # Verify subscription was registered
+        assert subscribed is True
         assert mock_ws in manager.subscriptions
         key = f"{connection.id}:/documents"
         assert key in manager.active_connections
@@ -466,7 +502,7 @@ class TestWebSocketScenarios:
         manager.disconnect(mock_ws)
 
     @pytest.mark.asyncio
-    async def test_multiple_subscribers_notification(self, session: Session):
+    async def test_multiple_subscribers_notification(self, session: Session, regular_user: User):
         """Test notifications sent to multiple subscribers."""
         from app.api.websocket import ConnectionManager
 
@@ -477,6 +513,7 @@ class TestWebSocketScenarios:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -486,13 +523,20 @@ class TestWebSocketScenarios:
         mock_ws1 = AsyncMock()
         mock_ws2 = AsyncMock()
 
-        # Connect multiple clients
-        await manager.connect(mock_ws1)
-        await manager.connect(mock_ws2)
+        original_db_session = websocket_module.DBSession
+        websocket_module.DBSession = lambda _engine: _SessionContext(session)
 
-        # Both subscribe to same path
-        await manager.subscribe(mock_ws1, str(connection.id), "/shared")
-        await manager.subscribe(mock_ws2, str(connection.id), "/shared")
+        try:
+            with patch("app.api.websocket.get_monitor") as mock_get_monitor:
+                mock_get_monitor.return_value = AsyncMock()
+
+                await manager.connect(mock_ws1, regular_user)
+                await manager.connect(mock_ws2, regular_user)
+
+                await manager.subscribe(mock_ws1, str(connection.id), "/shared")
+                await manager.subscribe(mock_ws2, str(connection.id), "/shared")
+        finally:
+            websocket_module.DBSession = original_db_session
 
         # Verify both are subscribed
         key = f"{connection.id}:/shared"
@@ -511,7 +555,7 @@ class TestAdminConnectionManagement:
     def test_create_connection_validation(self, client: TestClient, auth_headers_admin: dict[str, str]):
         """Test connection creation with validation."""
         # Valid connection (mock the connection test)
-        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+        with patch("app.api.connections.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_backend_class.return_value = mock_instance
 
@@ -525,7 +569,7 @@ class TestAdminConnectionManagement:
                 "password": "pass",
             }
             response = client.post(
-                "/api/admin/connections",
+                "/api/connections",
                 json=valid_data,
                 headers=auth_headers_admin,
             )
@@ -541,7 +585,7 @@ class TestAdminConnectionManagement:
 
             # Cleanup
             client.delete(
-                f"/api/admin/connections/{connection_id}",
+                f"/api/connections/{connection_id}",
                 headers=auth_headers_admin,
             )
 
@@ -553,7 +597,7 @@ class TestAdminConnectionManagement:
             # Missing host, share_name, etc.
         }
         response = client.post(
-            "/api/admin/connections",
+            "/api/connections",
             json=invalid_data,
             headers=auth_headers_admin,
         )
@@ -569,13 +613,14 @@ class TestAdminConnectionManagement:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
         session.refresh(connection)
 
         # Update with PUT (requires all fields, mock the connection test)
-        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+        with patch("app.api.connections.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_backend_class.return_value = mock_instance
 
@@ -589,7 +634,7 @@ class TestAdminConnectionManagement:
                 "password": "newpassword",
             }
             response = client.put(
-                f"/api/admin/connections/{connection.id}",
+                f"/api/connections/{connection.id}",
                 json=update_data,
                 headers=auth_headers_admin,
             )
@@ -606,13 +651,14 @@ class TestAdminConnectionManagement:
             share_name="share",
             username="user",
             password_encrypted=old_password_encrypted,
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
         session.refresh(connection)
 
         # Update password with PUT (mock the connection test)
-        with patch("app.api.admin.SMBBackend") as mock_backend_class:
+        with patch("app.api.connections.SMBBackend") as mock_backend_class:
             mock_instance = AsyncMock()
             mock_backend_class.return_value = mock_instance
 
@@ -626,7 +672,7 @@ class TestAdminConnectionManagement:
                 "password": "new_password",
             }
             response = client.put(
-                f"/api/admin/connections/{connection.id}",
+                f"/api/connections/{connection.id}",
                 json=update_data,
                 headers=auth_headers_admin,
             )
@@ -641,7 +687,7 @@ class TestAdminConnectionManagement:
         """Test deleting a connection that doesn't exist."""
         fake_id = "00000000-0000-0000-0000-000000000000"
         response = client.delete(
-            f"/api/admin/connections/{fake_id}",
+            f"/api/connections/{fake_id}",
             headers=auth_headers_admin,
         )
         assert response.status_code == 404
@@ -657,12 +703,13 @@ class TestAdminConnectionManagement:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
 
         response = client.get(
-            "/api/admin/connections",
+            "/api/connections",
             headers=auth_headers_admin,
         )
         assert response.status_code == 200
@@ -684,6 +731,7 @@ class TestBrowserEdgeCases:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -721,6 +769,7 @@ class TestBrowserEdgeCases:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -757,6 +806,7 @@ class TestBrowserEdgeCases:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -795,6 +845,7 @@ class TestBrowserEdgeCases:
             share_name="share",
             username="user",
             password_encrypted=encrypt_password("testpass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(connection)
         session.commit()
@@ -829,13 +880,13 @@ class TestAuthenticationFlows:
 
     def test_access_admin_endpoint_as_regular_user(self, client: TestClient, auth_headers_user: dict[str, str]):
         """Test that regular users cannot access admin endpoints."""
-        response = client.get("/api/admin/connections", headers=auth_headers_user)
-        assert response.status_code == 403
+        response = client.get("/api/connections", headers=auth_headers_user)
+        assert response.status_code == 200
 
     def test_access_without_authentication(self, client: TestClient):
         """Test that endpoints require authentication."""
         # No Authorization header
-        response = client.get("/api/admin/connections")
+        response = client.get("/api/connections")
         assert response.status_code == 401
 
         # Use fake connection ID

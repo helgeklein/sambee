@@ -315,7 +315,7 @@ class TestRouterInclusion:
 
     def test_admin_router_included(self, client: TestClient):
         """Test that admin router is accessible."""
-        response = client.get("/api/admin/connections")
+        response = client.get("/api/connections")
         # Should get 401 (no auth), not 404
         assert response.status_code != 404
 

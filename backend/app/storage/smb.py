@@ -9,7 +9,9 @@ from typing import BinaryIO
 import smbclient
 from smbclient._os import FileAttributes
 
+from app.core.system_setting_definitions import SystemSettingKey
 from app.models.file import DirectoryListing, FileInfo, FileType
+from app.services.system_settings import get_integer_setting_value
 from app.storage.base import ProgressCallback, StorageBackend
 from app.storage.smb_pool import get_connection_pool
 from app.utils.file_type_registry import get_mime_type
@@ -271,7 +273,7 @@ class SMBBackend(StorageBackend):
         # Set the SMB chunk size
         # Larger chunk sizes can improve throughput but use more memory (on both client and server)
         # Larger chunks also use more SMB credits
-        chunk_size: int = 4 * 1024 * 1024
+        chunk_size = get_integer_setting_value(SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES)
 
         # Build full SMB path
         smb_path = self._build_smb_path(path)

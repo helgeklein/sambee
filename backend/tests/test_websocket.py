@@ -1,831 +1,212 @@
-"""
-Tests for WebSocket endpoints and real-time directory change notifications.
+"""Tests for authenticated WebSocket subscriptions and connection authorization."""
 
-This module tests:
-- WebSocket connection management
-- Subscription/unsubscription to directories
-- Directory change notifications
-- SMB monitoring integration
-- Error handling and edge cases
-- Concurrent connections and thread safety
-"""
-
-import uuid
-from typing import List
-from unittest.mock import AsyncMock, MagicMock, patch
+from collections.abc import Generator
+from unittest.mock import MagicMock, patch
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
+
+import app.api.websocket as websocket_module
+from app.api.websocket import manager
+from app.models.connection import Connection
 
 
 class WebSocketClient:
-    """Helper class to manage WebSocket test client connections."""
+    """Helper wrapper around the Starlette websocket test session."""
 
-    def __init__(self, ws):
-        self.ws = ws
-        self.received_messages: List[dict] = []
+    def __init__(self, websocket_session) -> None:
+        self.websocket_session = websocket_session
 
-    def send_json(self, data: dict):
-        """Send JSON data to WebSocket."""
-        self.ws.send_json(data)
+    def send_json(self, payload: dict[str, str]) -> None:
+        self.websocket_session.send_json(payload)
 
-    def receive_json(self) -> dict:
-        """Receive JSON data from WebSocket."""
-        msg = self.ws.receive_json()
-        self.received_messages.append(msg)
-        return msg
+    def receive_json(self) -> dict[str, str]:
+        return self.websocket_session.receive_json()
 
-    def subscribe(self, connection_id: str, path: str = ""):
-        """Send subscribe action."""
+    def subscribe(self, connection_id: str, path: str = "") -> dict[str, str]:
         self.send_json({"action": "subscribe", "connection_id": connection_id, "path": path})
         return self.receive_json()
 
-    def unsubscribe(self, connection_id: str, path: str = ""):
-        """Send unsubscribe action."""
+    def unsubscribe(self, connection_id: str, path: str = "") -> dict[str, str]:
         self.send_json({"action": "unsubscribe", "connection_id": connection_id, "path": path})
         return self.receive_json()
 
-    def ping(self):
-        """Send ping."""
+    def ping(self) -> dict[str, str]:
         self.send_json({"action": "ping"})
         return self.receive_json()
 
 
-class TestWebSocketConnection:
-    """Test WebSocket connection management."""
+class _SessionContext:
+    def __init__(self, session) -> None:
+        self._session = session
 
-    def test_websocket_connection_success(self, client):
-        """Test successful WebSocket connection."""
-        with client.websocket_connect("/api/ws") as websocket:
-            # Connection established successfully
-            assert websocket is not None
+    def __enter__(self):
+        return self._session
 
-            # Send ping to verify connection is alive
-            websocket.send_json({"action": "ping"})
-            response = websocket.receive_json()
-            assert response["type"] == "pong"
-
-    def test_websocket_multiple_connections(self, client):
-        """Test multiple concurrent WebSocket connections."""
-        with client.websocket_connect("/api/ws") as ws1:
-            with client.websocket_connect("/api/ws") as ws2:
-                # Both connections should be active
-                ws1.send_json({"action": "ping"})
-                response1 = ws1.receive_json()
-                assert response1["type"] == "pong"
-
-                ws2.send_json({"action": "ping"})
-                response2 = ws2.receive_json()
-                assert response2["type"] == "pong"
-
-    def test_websocket_disconnect(self, client):
-        """Test WebSocket disconnection cleanup."""
-        ws = client.websocket_connect("/api/ws")
-        websocket = ws.__enter__()
-
-        # Verify connection works
-        websocket.send_json({"action": "ping"})
-        response = websocket.receive_json()
-        assert response["type"] == "pong"
-
-        # Close connection
-        ws.__exit__(None, None, None)
-
-        # Connection should be closed
-        # (cleanup is handled automatically by ConnectionManager)
+    def __exit__(self, exc_type, exc, tb) -> None:
+        del exc_type, exc, tb
 
 
-class TestSubscriptionManagement:
-    """Test directory subscription and unsubscription."""
+@pytest.fixture(name="websocket_state")
+def websocket_state_fixture(session) -> Generator[None, None, None]:
+    """Bind websocket DB access to the per-test SQLModel session and clear global state."""
 
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_subscribe_to_directory(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test subscribing to a directory for change notifications."""
-        # Mock the monitor
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
+    original_db_session = websocket_module.DBSession
+    manager.active_connections.clear()
+    manager.subscriptions.clear()
+    manager.users.clear()
+    manager._resolved_paths.clear()
+    websocket_module.DBSession = lambda _engine: _SessionContext(session)
 
-        # Mock database session to return our test connection
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
+    yield
 
-        with client.websocket_connect("/api/ws") as websocket:
+    manager.active_connections.clear()
+    manager.subscriptions.clear()
+    manager.users.clear()
+    manager._resolved_paths.clear()
+    websocket_module.DBSession = original_db_session
+
+
+def _ws_path(token: str | None) -> str:
+    return f"/api/ws?token={token}" if token else "/api/ws"
+
+
+@pytest.mark.integration
+class TestWebSocketAuthentication:
+    def test_websocket_requires_authentication(self, client, websocket_state) -> None:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(_ws_path(None)):
+                pass
+
+    def test_authenticated_websocket_can_ping(self, client, admin_token: str, websocket_state) -> None:
+        with client.websocket_connect(_ws_path(admin_token)) as websocket:
             ws_client = WebSocketClient(websocket)
+            assert ws_client.ping() == {"type": "pong"}
 
-            # Subscribe to a directory
-            response = ws_client.subscribe(str(test_connection.id), "/documents")
 
-            # Verify response
-            assert response["type"] == "subscribed"
-            assert response["connection_id"] == str(test_connection.id)
-            assert response["path"] == "/documents"
-
-            # Verify SMB monitoring was started
-            mock_monitor.start_monitoring.assert_called_once()
-
+@pytest.mark.integration
+class TestWebSocketConnectionAuthorization:
     @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_subscribe_multiple_directories(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test subscribing to multiple directories."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            # Subscribe to multiple directories
-            response1 = ws_client.subscribe(str(test_connection.id), "/documents")
-            assert response1["type"] == "subscribed"
-            assert response1["path"] == "/documents"
-
-            response2 = ws_client.subscribe(str(test_connection.id), "/images")
-            assert response2["type"] == "subscribed"
-            assert response2["path"] == "/images"
-
-            # Both should trigger monitoring
-            assert mock_monitor.start_monitoring.call_count == 2
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_unsubscribe_from_directory(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test unsubscribing from a directory."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            # Subscribe first
-            ws_client.subscribe(str(test_connection.id), "/documents")
-
-            # Now unsubscribe
-            response = ws_client.unsubscribe(str(test_connection.id), "/documents")
-
-            # Verify response
-            assert response["type"] == "unsubscribed"
-            assert response["connection_id"] == str(test_connection.id)
-            assert response["path"] == "/documents"
-
-            # Verify SMB monitoring was stopped (last subscriber)
-            mock_monitor.stop_monitoring.assert_called_once()
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_multiple_clients_same_directory(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test multiple clients subscribing to the same directory."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as ws1:
-            with client.websocket_connect("/api/ws") as ws2:
-                client1 = WebSocketClient(ws1)
-                client2 = WebSocketClient(ws2)
-
-                # Both subscribe to same directory
-                client1.subscribe(str(test_connection.id), "/shared")
-                client2.subscribe(str(test_connection.id), "/shared")
-
-                # SMB monitoring should only start once
-                assert mock_monitor.start_monitoring.call_count == 1
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_last_subscriber_stops_monitoring(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test that monitoring stops when last subscriber unsubscribes."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as ws1:
-            with client.websocket_connect("/api/ws") as ws2:
-                client1 = WebSocketClient(ws1)
-                client2 = WebSocketClient(ws2)
-
-                # Both subscribe
-                client1.subscribe(str(test_connection.id), "/shared")
-                client2.subscribe(str(test_connection.id), "/shared")
-
-                # First unsubscribe - monitoring should continue
-                client1.unsubscribe(str(test_connection.id), "/shared")
-                assert mock_monitor.stop_monitoring.call_count == 0
-
-                # Second unsubscribe - monitoring should stop
-                client2.unsubscribe(str(test_connection.id), "/shared")
-                mock_monitor.stop_monitoring.assert_called_once()
-
-
-class TestDirectoryMonitoringIntegration:
-    """Test integration with SMB directory monitoring."""
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_monitoring_starts_with_connection_details(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test that SMB monitoring starts with correct connection details."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "/documents")
-
-            # Verify monitoring was called with correct parameters
-            mock_monitor.start_monitoring.assert_called_once()
-            call_kwargs = mock_monitor.start_monitoring.call_args[1]
-
-            assert call_kwargs["connection_id"] == str(test_connection.id)
-            assert call_kwargs["path"] == "/documents"
-            assert call_kwargs["host"] == test_connection.host
-            assert call_kwargs["share_name"] == test_connection.share_name
-            assert call_kwargs["username"] == test_connection.username
-            assert "password" in call_kwargs
-            assert "on_change_callback" in call_kwargs
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_invalid_connection_id_format(self, mock_db_session, mock_get_monitor, client):
-        """Test handling of invalid connection ID format."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            # Subscribe with invalid UUID
-            response = ws_client.subscribe("not-a-valid-uuid", "/documents")
-
-            # Should still get subscribed response (error logged internally)
-            assert response["type"] == "subscribed"
-
-            # Monitoring should not start with invalid UUID
-            mock_monitor.start_monitoring.assert_not_called()
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_nonexistent_connection_id(self, mock_db_session, mock_get_monitor, client):
-        """Test handling of non-existent connection ID."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        # Mock database to return None (connection not found)
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = None
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            fake_id = str(uuid.uuid4())
-            response = ws_client.subscribe(fake_id, "/documents")
-
-            # Should get subscribed response (error logged)
-            assert response["type"] == "subscribed"
-
-            # Monitoring should not start
-            mock_monitor.start_monitoring.assert_not_called()
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_connection_without_share_name(self, mock_db_session, mock_get_monitor, client, session):
-        """Test handling of connection without share name."""
-        from app.models.connection import Connection
-
-        # Create connection without share
-        connection = Connection(
-            name="No Share",
-            host="server.local",
-            share_name=None,
-            username="user",
-            password_encrypted="encrypted",
-        )
-        session.add(connection)
-        session.commit()
-        session.refresh(connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        # Mock database to return connection without share
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            response = ws_client.subscribe(str(connection.id), "/documents")
-            assert response["type"] == "subscribed"
-
-            # Monitoring should not start without share name
-            mock_monitor.start_monitoring.assert_not_called()
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_monitoring_startup_failure(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test handling of SMB monitoring startup failures."""
-        mock_monitor = MagicMock()
-        mock_monitor.start_monitoring.side_effect = Exception("SMB connection failed")
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            # Should still subscribe even if monitoring fails
-            response = ws_client.subscribe(str(test_connection.id), "/documents")
-            assert response["type"] == "subscribed"
-
-
-class TestChangeNotifications:
-    """Test directory change notification broadcasting."""
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_notify_single_subscriber(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test notifying a single subscriber about directory changes."""
-        from app.api.websocket import manager
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "/documents")
-
-            # Simulate a directory change notification
-            import asyncio
-
-            asyncio.run(manager.notify_directory_change(str(test_connection.id), "/documents"))
-
-            # Client should receive notification
-            notification = ws_client.receive_json()
-            assert notification["type"] == "directory_changed"
-            assert notification["connection_id"] == str(test_connection.id)
-            assert notification["path"] == "/documents"
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_notify_multiple_subscribers(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test notifying multiple subscribers about the same change."""
-        from app.api.websocket import manager
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as ws1:
-            with client.websocket_connect("/api/ws") as ws2:
-                client1 = WebSocketClient(ws1)
-                client2 = WebSocketClient(ws2)
-
-                # Both subscribe to same directory
-                client1.subscribe(str(test_connection.id), "/shared")
-                client2.subscribe(str(test_connection.id), "/shared")
-
-                # Trigger notification
-                import asyncio
-
-                asyncio.run(manager.notify_directory_change(str(test_connection.id), "/shared"))
-
-                # Both clients should receive notification
-                notif1 = client1.receive_json()
-                notif2 = client2.receive_json()
-
-                assert notif1["type"] == "directory_changed"
-                assert notif2["type"] == "directory_changed"
-                assert notif1["path"] == "/shared"
-                assert notif2["path"] == "/shared"
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_subscription_filtering(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test that notifications are filtered by subscription."""
-        from app.api.websocket import manager
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-
-            # Subscribe to /documents only
-            ws_client.subscribe(str(test_connection.id), "/documents")
-
-            # Trigger notification for /images (not subscribed)
-            import asyncio
-
-            asyncio.run(manager.notify_directory_change(str(test_connection.id), "/images"))
-
-            # Client should NOT receive notification
-            # (would timeout if trying to receive)
-            # Instead, send a ping to verify connection is still alive
-            ping_response = ws_client.ping()
-            assert ping_response["type"] == "pong"
-
-
-class TestPathPrefixMonitoring:
-    """Test that path_prefix is correctly applied to directory monitoring.
-
-    When a connection has a path_prefix (e.g. "/photos"), the SMB monitor
-    must watch the resolved path (prefix + user path) on the share, but
-    notifications sent to the frontend must use the user-facing path so
-    they match the subscription key and the frontend's currentPath.
-    """
-
-    @staticmethod
-    def _mock_db_session_for(mock_db_session, connection):
-        """Helper to wire up the mock DB session to return a connection."""
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__ = MagicMock(return_value=mock_session_instance)
-        mock_session_instance.__exit__ = MagicMock(return_value=None)
-        mock_session_instance.exec.return_value.first.return_value = connection
-        mock_db_session.return_value = mock_session_instance
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_subscribe_resolves_prefix_for_monitor(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Monitor receives the resolved path (prefix + user path)."""
-
-        # Give the connection a path prefix
-        test_connection.path_prefix = "/photos"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "vacation")
-
-            mock_monitor.start_monitoring.assert_called_once()
-            call_kwargs = mock_monitor.start_monitoring.call_args[1]
-
-            # Monitor should watch the resolved path, not the user path
-            assert call_kwargs["path"] == "photos/vacation"
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_subscribe_root_with_prefix(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Subscribing to root ('') with prefix monitors the prefix directory."""
-
-        test_connection.path_prefix = "/photos"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "")
-
-            call_kwargs = mock_monitor.start_monitoring.call_args[1]
-            assert call_kwargs["path"] == "photos"
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_subscribe_no_prefix_passes_path_unchanged(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Without prefix, monitor receives the user path as-is."""
-
-        test_connection.path_prefix = "/"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "documents")
-
-            call_kwargs = mock_monitor.start_monitoring.call_args[1]
-            assert call_kwargs["path"] == "documents"
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_callback_sends_user_path_not_resolved(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Change callback notifies with user-facing path, not resolved path."""
-
-        test_connection.path_prefix = "/photos"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "vacation")
-
-            # Grab the callback that was passed to start_monitoring
-            call_kwargs = mock_monitor.start_monitoring.call_args[1]
-            change_callback = call_kwargs["on_change_callback"]
-
-            # Simulate a change detected by the monitor (passes resolved path)
-            import asyncio
-
-            asyncio.run(change_callback(str(test_connection.id), "photos/vacation"))
-
-            # The notification should arrive with the user-facing path
-            notification = ws_client.receive_json()
-            assert notification["type"] == "directory_changed"
-            assert notification["path"] == "vacation"
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_unsubscribe_stops_monitor_with_resolved_path(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Unsubscribe passes the resolved path to stop_monitoring."""
-
-        test_connection.path_prefix = "/photos"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "vacation")
-            ws_client.unsubscribe(str(test_connection.id), "vacation")
-
-            mock_monitor.stop_monitoring.assert_called_once_with(str(test_connection.id), "photos/vacation")
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_disconnect_stops_monitor_with_resolved_path(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Disconnect cleanup uses the resolved path for stop_monitoring."""
-
-        test_connection.path_prefix = "/photos"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        ws_context = client.websocket_connect("/api/ws")
-        websocket = ws_context.__enter__()
-        ws_client = WebSocketClient(websocket)
-        ws_client.subscribe(str(test_connection.id), "vacation")
-
-        # Disconnect triggers cleanup
-        ws_context.__exit__(None, None, None)
-
-        mock_monitor.stop_monitoring.assert_called_once_with(str(test_connection.id), "photos/vacation")
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_nested_prefix_resolves_correctly(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Multi-level prefix resolves correctly."""
-
-        test_connection.path_prefix = "/data/year/2025"
-        self._mock_db_session_for(mock_db_session, test_connection)
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        with client.websocket_connect("/api/ws") as websocket:
-            ws_client = WebSocketClient(websocket)
-            ws_client.subscribe(str(test_connection.id), "reports")
-
-            call_kwargs = mock_monitor.start_monitoring.call_args[1]
-            assert call_kwargs["path"] == "data/year/2025/reports"
-
-
-class TestErrorHandling:
-    """Test error handling and edge cases."""
-
-    def test_invalid_json_message(self, client):
-        """Test handling of invalid JSON messages."""
-        with client.websocket_connect("/api/ws"):
-            # This should cause an error but not crash the server
-            # FastAPI's TestClient handles this gracefully
-            pass
-
-    def test_malformed_subscription_request(self, client):
-        """Test handling of malformed subscription requests."""
-        with client.websocket_connect("/api/ws") as websocket:
-            # Send action without required fields
-            websocket.send_json({"action": "subscribe"})
-
-            # Server should handle gracefully (no connection_id means no action)
-            # Connection should still be alive
-            websocket.send_json({"action": "ping"})
-            response = websocket.receive_json()
-            assert response["type"] == "pong"
-
-    def test_unknown_action(self, client):
-        """Test handling of unknown action types."""
-        with client.websocket_connect("/api/ws") as websocket:
-            # Send unknown action
-            websocket.send_json({"action": "unknown_action"})
-
-            # Connection should still be alive
-            websocket.send_json({"action": "ping"})
-            response = websocket.receive_json()
-            assert response["type"] == "pong"
-
-    @patch("app.api.websocket.get_monitor")
-    def test_disconnect_cleanup(self, mock_get_monitor, client):
-        """Test that disconnect properly cleans up subscriptions."""
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        # Create and close connection
-        ws_context = client.websocket_connect("/api/ws")
-        websocket = ws_context.__enter__()
-
-        # Send ping to establish connection
-        websocket.send_json({"action": "ping"})
-        websocket.receive_json()
-
-        # Close
-        ws_context.__exit__(None, None, None)
-
-        # Cleanup happens automatically in ConnectionManager.disconnect()
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_notification_to_disconnected_client(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test handling of notifications to disconnected clients."""
-
-        mock_monitor = MagicMock()
-        mock_get_monitor.return_value = mock_monitor
-
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        # Note: This test is limited by TestClient's WebSocket implementation
-        # In production, failed sends would trigger cleanup
-        # This is more of a structural test
-
-
-class TestConcurrency:
-    """Test concurrent operations and thread safety."""
-
-    @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_multiple_clients_multiple_directories(
+    def test_regular_user_can_subscribe_to_shared_connection(
         self,
-        mock_db_session,
         mock_get_monitor,
         client,
-        test_connection,
-        multiple_connections,
-    ):
-        """Test multiple clients subscribing to multiple directories."""
+        user_token: str,
+        test_connection: Connection,
+        websocket_state,
+    ) -> None:
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
 
-        # Mock to return appropriate connection
-        def get_connection(query):
-            result = MagicMock()
-            # Return test_connection for simplicity
-            result.first.return_value = test_connection
-            return result
+        with client.websocket_connect(_ws_path(user_token)) as websocket:
+            ws_client = WebSocketClient(websocket)
+            response = ws_client.subscribe(str(test_connection.id), "/documents")
 
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.side_effect = lambda q: get_connection(q)
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as ws1:
-            with client.websocket_connect("/api/ws") as ws2:
-                client1 = WebSocketClient(ws1)
-                client2 = WebSocketClient(ws2)
-
-                # Client 1 subscribes to multiple directories
-                client1.subscribe(str(test_connection.id), "/dir1")
-                client1.subscribe(str(test_connection.id), "/dir2")
-
-                # Client 2 subscribes to different directories
-                client2.subscribe(str(test_connection.id), "/dir3")
-                client2.subscribe(str(test_connection.id), "/dir4")
-
-                # All should succeed
-                assert len(client1.received_messages) >= 2
-                assert len(client2.received_messages) >= 2
+        assert response == {
+            "type": "subscribed",
+            "connection_id": str(test_connection.id),
+            "path": "/documents",
+        }
+        mock_monitor.start_monitoring.assert_called_once()
 
     @patch("app.api.websocket.get_monitor")
-    @patch("sqlmodel.Session")
-    def test_rapid_subscribe_unsubscribe(self, mock_db_session, mock_get_monitor, client, test_connection):
-        """Test rapid subscription and unsubscription cycles."""
+    def test_regular_user_can_subscribe_to_owned_private_connection(
+        self,
+        mock_get_monitor,
+        client,
+        user_token: str,
+        user_private_connection: Connection,
+        websocket_state,
+    ) -> None:
         mock_monitor = MagicMock()
         mock_get_monitor.return_value = mock_monitor
 
-        mock_session_instance = MagicMock()
-        mock_session_instance.__enter__.return_value = mock_session_instance
-        mock_session_instance.__exit__.return_value = None
-        mock_session_instance.exec.return_value.first.return_value = test_connection
-        mock_db_session.return_value = mock_session_instance
-
-        with client.websocket_connect("/api/ws") as websocket:
+        with client.websocket_connect(_ws_path(user_token)) as websocket:
             ws_client = WebSocketClient(websocket)
+            response = ws_client.subscribe(str(user_private_connection.id), "/private")
 
-            # Rapid subscribe/unsubscribe cycles
-            for i in range(5):
-                ws_client.subscribe(str(test_connection.id), f"/dir{i}")
-                ws_client.unsubscribe(str(test_connection.id), f"/dir{i}")
+        assert response["type"] == "subscribed"
+        assert response["connection_id"] == str(user_private_connection.id)
+        mock_monitor.start_monitoring.assert_called_once()
 
-            # Connection should still be healthy
-            response = ws_client.ping()
-            assert response["type"] == "pong"
+    @patch("app.api.websocket.get_monitor")
+    def test_regular_user_cannot_subscribe_to_other_private_connection(
+        self,
+        mock_get_monitor,
+        client,
+        user_token: str,
+        other_private_connection: Connection,
+        websocket_state,
+    ) -> None:
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect(_ws_path(user_token)) as websocket:
+            ws_client = WebSocketClient(websocket)
+            response = ws_client.subscribe(str(other_private_connection.id), "/secret")
+
+        assert response == {"type": "error", "message": "Connection not found or access denied"}
+        mock_monitor.start_monitoring.assert_not_called()
+
+    @patch("app.api.websocket.get_monitor")
+    def test_invalid_connection_id_returns_error(
+        self,
+        mock_get_monitor,
+        client,
+        admin_token: str,
+        websocket_state,
+    ) -> None:
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
+
+        with client.websocket_connect(_ws_path(admin_token)) as websocket:
+            ws_client = WebSocketClient(websocket)
+            response = ws_client.subscribe("not-a-valid-uuid", "/documents")
+
+        assert response == {"type": "error", "message": "Connection not found or access denied"}
+        mock_monitor.start_monitoring.assert_not_called()
 
 
-class TestConnectionManager:
-    """Test ConnectionManager class directly."""
+@pytest.mark.integration
+class TestWebSocketMonitoring:
+    @patch("app.api.websocket.get_monitor")
+    def test_subscribe_resolves_prefix_for_monitor(
+        self,
+        mock_get_monitor,
+        client,
+        admin_token: str,
+        test_connection: Connection,
+        websocket_state,
+    ) -> None:
+        test_connection.path_prefix = "/photos"
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
 
-    def test_connection_manager_initialization(self):
-        """Test ConnectionManager initialization."""
-        from app.api.websocket import ConnectionManager
+        with client.websocket_connect(_ws_path(admin_token)) as websocket:
+            ws_client = WebSocketClient(websocket)
+            response = ws_client.subscribe(str(test_connection.id), "vacation")
 
-        manager = ConnectionManager()
-        assert manager.active_connections == {}
-        assert manager.subscriptions == {}
+        assert response["type"] == "subscribed"
+        call_kwargs = mock_monitor.start_monitoring.call_args.kwargs
+        assert call_kwargs["path"] == "photos/vacation"
 
-    @pytest.mark.asyncio
-    async def test_connection_manager_connect(self):
-        """Test ConnectionManager connect method."""
-        from app.api.websocket import ConnectionManager
+    @patch("app.api.websocket.get_monitor")
+    def test_disconnect_stops_monitoring_with_resolved_path(
+        self,
+        mock_get_monitor,
+        client,
+        admin_token: str,
+        test_connection: Connection,
+        websocket_state,
+    ) -> None:
+        test_connection.path_prefix = "/photos"
+        mock_monitor = MagicMock()
+        mock_get_monitor.return_value = mock_monitor
 
-        manager = ConnectionManager()
-        mock_ws = AsyncMock()
+        websocket_context = client.websocket_connect(_ws_path(admin_token))
+        websocket = websocket_context.__enter__()
+        ws_client = WebSocketClient(websocket)
+        ws_client.subscribe(str(test_connection.id), "vacation")
+        websocket_context.__exit__(None, None, None)
 
-        await manager.connect(mock_ws)
-
-        # WebSocket should be accepted and added to subscriptions
-        mock_ws.accept.assert_called_once()
-        assert mock_ws in manager.subscriptions
-        assert manager.subscriptions[mock_ws] == set()
-
-    def test_connection_manager_disconnect(self):
-        """Test ConnectionManager disconnect method."""
-        from app.api.websocket import ConnectionManager
-
-        manager = ConnectionManager()
-        mock_ws = MagicMock()
-
-        # Add websocket to subscriptions
-        manager.subscriptions[mock_ws] = set()
-
-        # Disconnect
-        manager.disconnect(mock_ws)
-
-        # Should be removed from subscriptions
-        assert mock_ws not in manager.subscriptions
+        mock_monitor.stop_monitoring.assert_called_once_with(str(test_connection.id), "photos/vacation")

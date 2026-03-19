@@ -211,7 +211,7 @@ export function mockUnauthorized(endpoint: string) {
  */
 export function mockNoConnections() {
   server.use(
-    http.get("http://localhost:8000/api/admin/connections", () => {
+    http.get("http://localhost:8000/api/connections", () => {
       return HttpResponse.json([]);
     })
   );
@@ -245,7 +245,7 @@ export function mockConnections(
   }>
 ) {
   server.use(
-    http.get("http://localhost:8000/api/admin/connections", () => {
+    http.get("http://localhost:8000/api/connections", () => {
       return HttpResponse.json(connections);
     })
   );

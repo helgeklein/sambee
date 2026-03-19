@@ -1,6 +1,14 @@
 import type { AxiosResponse } from "axios";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthToken, Connection, ConnectionCreate, DirectoryListing, User } from "../../types";
+import type {
+  AdvancedSystemSettings,
+  AuthToken,
+  Connection,
+  ConnectionCreate,
+  CurrentUserSettings,
+  DirectoryListing,
+  User,
+} from "../../types";
 import { FileType } from "../../types";
 
 // Mock axios before importing the API service - use factory function
@@ -104,6 +112,26 @@ describe("API Service", () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/auth/me");
     });
 
+    it("getCurrentUser() infers admin status from role when is_admin is absent", async () => {
+      const mockUser = {
+        username: "adminuser",
+        role: "admin" as const,
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: mockUser,
+      } as AxiosResponse);
+
+      const result = await apiService.getCurrentUser();
+
+      expect(result).toEqual({
+        username: "adminuser",
+        role: "admin",
+        is_admin: true,
+      });
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/auth/me");
+    });
+
     it("changePassword() sends correct request", async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({ data: {} });
 
@@ -114,6 +142,92 @@ describe("API Service", () => {
         new_password: "newpass",
       });
     });
+
+    it("getCurrentUserSettings() returns persisted user settings", async () => {
+      const mockSettings: CurrentUserSettings = {
+        appearance: {
+          theme_id: "sambee-dark",
+          custom_themes: [
+            {
+              id: "custom-theme",
+              name: "Custom Theme",
+              mode: "light",
+              primary: { main: "#123456" },
+            },
+          ],
+        },
+        browser: {
+          quick_nav_include_dot_directories: true,
+          file_browser_view_mode: "details",
+          pane_mode: "dual",
+          selected_connection_id: "conn-123",
+        },
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: mockSettings,
+      } as AxiosResponse);
+
+      const result = await apiService.getCurrentUserSettings();
+
+      expect(result).toEqual(mockSettings);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/auth/me/settings");
+    });
+
+    it("updateCurrentUserSettings() sends the update payload", async () => {
+      const updatedSettings: CurrentUserSettings = {
+        appearance: {
+          theme_id: "sambee-dark",
+          custom_themes: [
+            {
+              id: "custom-theme",
+              name: "Custom Theme",
+              mode: "light",
+              primary: { main: "#123456" },
+            },
+          ],
+        },
+        browser: {
+          quick_nav_include_dot_directories: true,
+          file_browser_view_mode: "details",
+          pane_mode: "dual",
+          selected_connection_id: "conn-123",
+        },
+      };
+
+      mockAxiosInstance.put.mockResolvedValueOnce({
+        data: updatedSettings,
+      } as AxiosResponse);
+
+      const result = await apiService.updateCurrentUserSettings({
+        appearance: {
+          theme_id: "sambee-dark",
+          custom_themes: [
+            {
+              id: "custom-theme",
+              name: "Custom Theme",
+              mode: "light",
+              primary: { main: "#123456" },
+            },
+          ],
+        },
+      });
+
+      expect(result).toEqual(updatedSettings);
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/auth/me/settings", {
+        appearance: {
+          theme_id: "sambee-dark",
+          custom_themes: [
+            {
+              id: "custom-theme",
+              name: "Custom Theme",
+              mode: "light",
+              primary: { main: "#123456" },
+            },
+          ],
+        },
+      });
+    });
   });
 
   describe("Connections Management", () => {
@@ -122,24 +236,30 @@ describe("API Service", () => {
         {
           id: "1",
           name: "Test Server",
+          slug: "test-server",
           type: "smb",
           host: "192.168.1.100",
           port: 445,
           share_name: "public",
           username: "user",
           path_prefix: "",
+          scope: "shared",
+          can_manage: true,
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
         },
         {
           id: "2",
           name: "Backup Server",
+          slug: "backup-server",
           type: "smb",
           host: "192.168.1.200",
           port: 445,
           share_name: "backup",
           username: "admin",
           path_prefix: "",
+          scope: "shared",
+          can_manage: true,
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
         },
@@ -152,7 +272,7 @@ describe("API Service", () => {
       const result = await apiService.getConnections();
 
       expect(result).toEqual(mockConnections);
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/connections");
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/connections");
     });
 
     it("createConnection() posts data and returns new connection", async () => {
@@ -165,17 +285,21 @@ describe("API Service", () => {
         username: "user",
         password: "pass",
         path_prefix: "",
+        scope: "private",
       };
 
       const createdConnection: Connection = {
         id: "3",
         name: "New Server",
+        slug: "new-server",
         type: "smb",
         host: "192.168.1.50",
         port: 445,
         share_name: "data",
         username: "user",
         path_prefix: "",
+        scope: "private",
+        can_manage: true,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -187,7 +311,35 @@ describe("API Service", () => {
       const result = await apiService.createConnection(newConnection);
 
       expect(result).toEqual(createdConnection);
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/admin/connections", newConnection);
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/connections", newConnection);
+    });
+
+    it("getConnectionVisibilityOptions() returns server-driven visibility metadata", async () => {
+      const options = [
+        {
+          value: "private",
+          label: "Private to me",
+          description: "Visible only to your account. You can fully manage it.",
+          available: true,
+          unavailable_reason: null,
+        },
+        {
+          value: "shared",
+          label: "Shared with everyone",
+          description: "Visible to all users. Only admins can manage it.",
+          available: false,
+          unavailable_reason: "Shared connections can only be created or updated by admins.",
+        },
+      ];
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: options,
+      } as AxiosResponse);
+
+      const result = await apiService.getConnectionVisibilityOptions();
+
+      expect(result).toEqual(options);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/connections/visibility-options");
     });
 
     it("updateConnection() updates data and returns updated connection", async () => {
@@ -199,12 +351,15 @@ describe("API Service", () => {
       const updatedConnection: Connection = {
         id: "1",
         name: "Updated Server",
+        slug: "test-server",
         type: "smb",
         host: "192.168.1.100",
         port: 445,
         share_name: "newshare",
         username: "user",
         path_prefix: "",
+        scope: "shared",
+        can_manage: true,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-02T00:00:00Z",
       };
@@ -216,7 +371,165 @@ describe("API Service", () => {
       const result = await apiService.updateConnection("1", updates);
 
       expect(result).toEqual(updatedConnection);
-      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/connections/1", updates);
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/connections/1", updates);
+    });
+
+    it("getAdvancedSettings() returns admin advanced settings", async () => {
+      const advancedSettings: AdvancedSystemSettings = {
+        smb: {
+          read_chunk_size_bytes: {
+            key: "smb.read_chunk_size_bytes",
+            label: "SMB read chunk size",
+            description: "Chunk size used when streaming files from SMB shares.",
+            value: 4194304,
+            source: "default",
+            default_value: 4194304,
+            min_value: 65536,
+            max_value: 16777216,
+            step: 65536,
+          },
+        },
+        preprocessors: {
+          imagemagick: {
+            max_file_size_bytes: {
+              key: "preprocessors.imagemagick.max_file_size_bytes",
+              label: "Maximum file size",
+              description: "Largest input file ImageMagick is allowed to preprocess.",
+              value: 104857600,
+              source: "default",
+              default_value: 104857600,
+              min_value: 1048576,
+              max_value: 1073741824,
+              step: 1048576,
+            },
+            timeout_seconds: {
+              key: "preprocessors.imagemagick.timeout_seconds",
+              label: "Conversion timeout",
+              description: "Maximum time allowed for an ImageMagick preprocessing run.",
+              value: 30,
+              source: "default",
+              default_value: 30,
+              min_value: 5,
+              max_value: 600,
+              step: 1,
+            },
+          },
+          graphicsmagick: {
+            max_file_size_bytes: {
+              key: "preprocessors.graphicsmagick.max_file_size_bytes",
+              label: "Maximum file size",
+              description: "Largest input file GraphicsMagick is allowed to preprocess.",
+              value: 104857600,
+              source: "default",
+              default_value: 104857600,
+              min_value: 1048576,
+              max_value: 1073741824,
+              step: 1048576,
+            },
+            timeout_seconds: {
+              key: "preprocessors.graphicsmagick.timeout_seconds",
+              label: "Conversion timeout",
+              description: "Maximum time allowed for a GraphicsMagick preprocessing run.",
+              value: 30,
+              source: "default",
+              default_value: 30,
+              min_value: 5,
+              max_value: 600,
+              step: 1,
+            },
+          },
+        },
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: advancedSettings,
+      } as AxiosResponse);
+
+      const result = await apiService.getAdvancedSettings();
+
+      expect(result).toEqual(advancedSettings);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/settings/advanced");
+    });
+
+    it("updateAdvancedSettings() forwards reset keys", async () => {
+      const advancedSettings: AdvancedSystemSettings = {
+        smb: {
+          read_chunk_size_bytes: {
+            key: "smb.read_chunk_size_bytes",
+            label: "SMB read chunk size",
+            description: "Chunk size used when streaming files from SMB shares.",
+            value: 4194304,
+            source: "default",
+            default_value: 4194304,
+            min_value: 65536,
+            max_value: 16777216,
+            step: 65536,
+          },
+        },
+        preprocessors: {
+          imagemagick: {
+            max_file_size_bytes: {
+              key: "preprocessors.imagemagick.max_file_size_bytes",
+              label: "Maximum file size",
+              description: "Largest input file ImageMagick is allowed to preprocess.",
+              value: 104857600,
+              source: "default",
+              default_value: 104857600,
+              min_value: 1048576,
+              max_value: 1073741824,
+              step: 1048576,
+            },
+            timeout_seconds: {
+              key: "preprocessors.imagemagick.timeout_seconds",
+              label: "Conversion timeout",
+              description: "Maximum time allowed for an ImageMagick preprocessing run.",
+              value: 30,
+              source: "default",
+              default_value: 30,
+              min_value: 5,
+              max_value: 600,
+              step: 1,
+            },
+          },
+          graphicsmagick: {
+            max_file_size_bytes: {
+              key: "preprocessors.graphicsmagick.max_file_size_bytes",
+              label: "Maximum file size",
+              description: "Largest input file GraphicsMagick is allowed to preprocess.",
+              value: 104857600,
+              source: "default",
+              default_value: 104857600,
+              min_value: 1048576,
+              max_value: 1073741824,
+              step: 1048576,
+            },
+            timeout_seconds: {
+              key: "preprocessors.graphicsmagick.timeout_seconds",
+              label: "Conversion timeout",
+              description: "Maximum time allowed for a GraphicsMagick preprocessing run.",
+              value: 30,
+              source: "default",
+              default_value: 30,
+              min_value: 5,
+              max_value: 600,
+              step: 1,
+            },
+          },
+        },
+      };
+
+      mockAxiosInstance.put.mockResolvedValueOnce({
+        data: advancedSettings,
+      } as AxiosResponse);
+
+      const result = await apiService.updateAdvancedSettings({
+        reset_keys: ["smb.read_chunk_size_bytes"],
+      });
+
+      expect(result).toEqual(advancedSettings);
+      expect(mockAxiosInstance.put).toHaveBeenCalledWith("/admin/settings/advanced", {
+        reset_keys: ["smb.read_chunk_size_bytes"],
+      });
     });
 
     it("deleteConnection() removes connection", async () => {
@@ -224,7 +537,7 @@ describe("API Service", () => {
 
       await apiService.deleteConnection("1");
 
-      expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/admin/connections/1");
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/connections/1");
     });
 
     it("testConnection() returns status", async () => {
@@ -240,7 +553,7 @@ describe("API Service", () => {
       const result = await apiService.testConnection("1");
 
       expect(result).toEqual(mockStatus);
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/admin/connections/1/test");
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/connections/1/test");
     });
   });
 
@@ -422,12 +735,15 @@ describe("API Service", () => {
         {
           id: "conn1",
           name: "Test",
+          slug: "test",
           type: "smb",
           host: "192.168.1.100",
           port: 445,
           share_name: "share",
           username: "user",
           path_prefix: "/",
+          scope: "shared",
+          can_manage: true,
           created_at: "2024-01-01T00:00:00",
           updated_at: "2024-01-01T00:00:00",
         },
@@ -449,7 +765,7 @@ describe("API Service", () => {
         total: 1,
       };
 
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: connections } as AxiosResponse<Connection[]>).mockResolvedValueOnce({
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: connections } as unknown as AxiosResponse<Connection[]>).mockResolvedValueOnce({
         data: listing,
       } as AxiosResponse<DirectoryListing>);
 
@@ -457,14 +773,14 @@ describe("API Service", () => {
       const result = await browseFiles("/test", "token");
 
       expect(result).toEqual(listing.items);
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/admin/connections");
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/connections");
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/conn1/list", {
         params: { path: "/test" },
       });
     });
 
     it("browseFiles() returns empty array when no connections exist", async () => {
-      mockAxiosInstance.get.mockResolvedValueOnce({ data: [] } as AxiosResponse<Connection[]>);
+      mockAxiosInstance.get.mockResolvedValueOnce({ data: [] } as unknown as AxiosResponse<Connection[]>);
 
       const { browseFiles } = await import("../api");
       const result = await browseFiles("/test", "token");

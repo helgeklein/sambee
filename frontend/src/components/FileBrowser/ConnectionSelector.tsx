@@ -18,8 +18,8 @@ interface ConnectionSelectorProps {
   disableTabFocus?: boolean;
   /** Companion pairing status — when unavailable or unpaired, shows management entry. */
   companionStatus?: CompanionStatus;
-  /** Callback to open settings for local drive management. */
-  onManageLocalDrives?: () => void;
+  /** Callback to open the consolidated Connections settings page. */
+  onOpenConnectionsSettings?: () => void;
   /** Optional ref to the trigger button for keyboard focus management. */
   buttonRef?: React.Ref<HTMLButtonElement>;
 }
@@ -34,7 +34,7 @@ export function ConnectionSelector({
   onAfterChange,
   disableTabFocus,
   companionStatus,
-  onManageLocalDrives,
+  onOpenConnectionsSettings,
   buttonRef,
 }: ConnectionSelectorProps) {
   const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onAfterChange);
@@ -54,9 +54,9 @@ export function ConnectionSelector({
     handleClose();
   };
 
-  const handleManageLocalDrives = () => {
+  const handleOpenConnectionsSettings = () => {
     handleClose();
-    onManageLocalDrives?.();
+    onOpenConnectionsSettings?.();
   };
 
   // Split connections into SMB and local groups for visual separation
@@ -133,10 +133,11 @@ export function ConnectionSelector({
         ))}
 
         {/* Local drives management action */}
+        {/* Connections settings shortcut for local-drive management */}
         {(companionStatus === "unpaired" || companionStatus === "unavailable") && (
           <>
             <Divider />
-            <MenuItem onClick={handleManageLocalDrives}>
+            <MenuItem onClick={handleOpenConnectionsSettings}>
               <ListItemIcon>
                 <ComputerIcon fontSize="small" />
               </ListItemIcon>

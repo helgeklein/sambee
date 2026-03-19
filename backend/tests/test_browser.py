@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionScope
 from app.models.file import DirectoryListing, FileInfo, FileType
 
 
@@ -159,6 +159,7 @@ class TestListDirectory:
             share_name=None,  # Missing share name
             username="user",
             password_encrypted=encrypt_password("pass"),
+            scope=ConnectionScope.SHARED,
         )
         session.add(incomplete_conn)
         session.commit()

@@ -38,6 +38,8 @@ from app.core.image_settings import (
     get_imagemagick_jpeg_args,
     get_imagemagick_png_args,
 )
+from app.core.system_setting_definitions import SystemSettingKey
+from app.services.system_settings import get_integer_setting_value
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +67,8 @@ class PreprocessorInterface(ABC):
 
     # Formats this preprocessor can handle
     SUPPORTED_FORMATS: set[str] = set()
-
-    # Maximum file size to preprocess (100 MB default)
-    MAX_FILE_SIZE = 100 * 1024 * 1024
-
-    # Maximum processing time (30 seconds default)
-    TIMEOUT_SECONDS = 30
+    MAX_FILE_SIZE_SETTING_KEY: SystemSettingKey
+    TIMEOUT_SECONDS_SETTING_KEY: SystemSettingKey
 
     #
     # convert_to_final_format
@@ -132,8 +130,9 @@ class PreprocessorInterface(ABC):
 
         # Check file size
         file_size = len(input_data)
-        if file_size > self.MAX_FILE_SIZE:
-            raise PreprocessorError(f"File too large: {file_size} bytes (max: {self.MAX_FILE_SIZE})")
+        max_file_size = self.get_max_file_size()
+        if file_size > max_file_size:
+            raise PreprocessorError(f"File too large: {file_size} bytes (max: {max_file_size})")
 
         # Check extension from filename
         extension = Path(filename).suffix.lower().lstrip(".")
@@ -158,6 +157,20 @@ class PreprocessorInterface(ABC):
         os.close(fd)  # Close the file descriptor, we only need the path
         return Path(temp_path)
 
+    def get_max_file_size(self) -> int:
+        return get_integer_setting_value(self.MAX_FILE_SIZE_SETTING_KEY)
+
+    def get_timeout_seconds(self) -> int:
+        return get_integer_setting_value(self.TIMEOUT_SECONDS_SETTING_KEY)
+
+    @property
+    def MAX_FILE_SIZE(self) -> int:
+        return self.get_max_file_size()
+
+    @property
+    def TIMEOUT_SECONDS(self) -> int:
+        return self.get_timeout_seconds()
+
 
 class GraphicsMagickPreprocessor(PreprocessorInterface):
     """
@@ -176,6 +189,8 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
     """
 
     SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
+    MAX_FILE_SIZE_SETTING_KEY = SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_MAX_FILE_SIZE_BYTES
+    TIMEOUT_SECONDS_SETTING_KEY = SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_TIMEOUT_SECONDS
 
     #
     # __init__
@@ -288,7 +303,7 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
                     command,
                     input=input_data,  # Send data via stdin
                     capture_output=True,
-                    timeout=self.TIMEOUT_SECONDS,
+                    timeout=self.get_timeout_seconds(),
                     check=True,
                 )
             except subprocess.CalledProcessError as e:
@@ -312,7 +327,8 @@ class GraphicsMagickPreprocessor(PreprocessorInterface):
             return output_bytes
 
         except subprocess.TimeoutExpired:
-            raise PreprocessorError(f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. File may be too complex or corrupted.")
+            timeout_seconds = self.get_timeout_seconds()
+            raise PreprocessorError(f"Conversion timed out after {timeout_seconds} seconds. File may be too complex or corrupted.")
 
 
 class ImageMagickPreprocessor(PreprocessorInterface):
@@ -339,6 +355,8 @@ class ImageMagickPreprocessor(PreprocessorInterface):
     """
 
     SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
+    MAX_FILE_SIZE_SETTING_KEY = SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES
+    TIMEOUT_SECONDS_SETTING_KEY = SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS
 
     #
     # __init__
@@ -563,7 +581,7 @@ class ImageMagickPreprocessor(PreprocessorInterface):
                     command,
                     input=input_data,  # Send data via stdin
                     capture_output=True,
-                    timeout=self.TIMEOUT_SECONDS,
+                    timeout=self.get_timeout_seconds(),
                     check=True,
                 )
             except subprocess.CalledProcessError as e:
@@ -587,7 +605,8 @@ class ImageMagickPreprocessor(PreprocessorInterface):
             return output_bytes
 
         except subprocess.TimeoutExpired:
-            raise PreprocessorError(f"Conversion timed out after {self.TIMEOUT_SECONDS} seconds. File may be too complex or corrupted.")
+            timeout_seconds = self.get_timeout_seconds()
+            raise PreprocessorError(f"Conversion timed out after {timeout_seconds} seconds. File may be too complex or corrupted.")
 
 
 class PreprocessorRegistry:

@@ -1,351 +1,363 @@
-"""
-Tests for SMB connection management (admin API).
-Tests CRUD operations on connections with proper authorization.
-"""
+"""Tests for SMB connection visibility and ownership-aware management."""
 
 import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.security import decrypt_password
-from app.models.connection import Connection
+from app.models.connection import Connection, ConnectionScope
+from app.models.user import User
 
 
 @pytest.mark.integration
 class TestListConnections:
-    """Test listing SMB connections."""
+    """Connection listing returns shared connections plus the caller's private ones."""
 
-    def test_list_connections_as_admin(self, client: TestClient, auth_headers_admin: dict, multiple_connections: list):
-        """Test that admin can list all connections."""
-        response = client.get("/api/admin/connections", headers=auth_headers_admin)
-
-        assert response.status_code == 200
-        data = response.json()
-        assert isinstance(data, list)
-        assert len(data) == 3
-        # Check structure
-        assert "name" in data[0]
-        assert "slug" in data[0]
-        assert "host" in data[0]
-        assert "share_name" in data[0]
-
-    def test_list_connections_empty(self, client: TestClient, auth_headers_admin: dict):
-        """Test listing connections when database is empty."""
-        response = client.get("/api/admin/connections", headers=auth_headers_admin)
+    def test_admin_lists_shared_and_own_private_only(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        multiple_connections: list[Connection],
+        other_private_connection: Connection,
+    ) -> None:
+        response = client.get("/api/connections", headers=auth_headers_admin)
 
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        assert len(data) == 0
+        assert len(data) == len(multiple_connections)
+        assert all(connection["scope"] == "shared" for connection in data)
+        assert all(connection["can_manage"] is True for connection in data)
+        assert all(connection["id"] != str(other_private_connection.id) for connection in data)
 
-    def test_list_connections_without_auth(self, client: TestClient):
-        """Test that listing connections requires authentication."""
-        response = client.get("/api/admin/connections")
+    def test_regular_user_lists_shared_and_owned_private(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        multiple_connections: list[Connection],
+        user_private_connection: Connection,
+        other_private_connection: Connection,
+    ) -> None:
+        response = client.get("/api/connections", headers=auth_headers_user)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == len(multiple_connections) + 1
+
+        own_private = next(connection for connection in data if connection["id"] == str(user_private_connection.id))
+        assert own_private["scope"] == "private"
+        assert own_private["can_manage"] is True
+
+        shared_connections = [connection for connection in data if connection["scope"] == "shared"]
+        assert len(shared_connections) == len(multiple_connections)
+        assert all(connection["can_manage"] is False for connection in shared_connections)
+        assert all(connection["id"] != str(other_private_connection.id) for connection in data)
+
+    def test_list_connections_without_auth(self, client: TestClient) -> None:
+        response = client.get("/api/connections")
         assert response.status_code == 401
 
-    def test_list_connections_as_regular_user(self, client: TestClient, auth_headers_user: dict, multiple_connections: list):
-        """Test that regular users cannot list connections."""
+    def test_admin_alias_route_removed(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+    ) -> None:
         response = client.get("/api/admin/connections", headers=auth_headers_user)
-        assert response.status_code == 403
+
+        assert response.status_code == 404
+
+    def test_admin_gets_shared_visibility_option(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+    ) -> None:
+        response = client.get("/api/connections/visibility-options", headers=auth_headers_admin)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [option["value"] for option in data] == ["shared", "private"] or [option["value"] for option in data] == [
+            "private",
+            "shared",
+        ]
+        shared_option = next(option for option in data if option["value"] == "shared")
+        assert shared_option["available"] is True
+        assert shared_option["unavailable_reason"] is None
+
+    def test_regular_user_gets_shared_visibility_option_disabled(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+    ) -> None:
+        response = client.get("/api/connections/visibility-options", headers=auth_headers_user)
+
+        assert response.status_code == 200
+        data = response.json()
+        shared_option = next(option for option in data if option["value"] == "shared")
+        private_option = next(option for option in data if option["value"] == "private")
+
+        assert private_option["available"] is True
+        assert shared_option["available"] is False
+        assert shared_option["unavailable_reason"] == "Shared connections can only be created or updated by admins."
 
 
 @pytest.mark.integration
 class TestCreateConnection:
-    """Test creating SMB connections."""
+    """Connection creation resolves scope according to the caller's permissions."""
 
-    def test_create_connection_success(self, client: TestClient, auth_headers_admin: dict, session: Session):
-        """Test creating a new connection with valid data."""
+    def test_admin_can_create_shared_connection(self, client: TestClient, auth_headers_admin: dict, session: Session) -> None:
         connection_data = {
-            "name": "New Test Server",
-            "host": "newserver.local",
-            "share_name": "newshare",
-            "username": "newuser",
-            "password": "newpass123",
+            "name": "Shared Server",
+            "host": "shared.local",
+            "share_name": "sharedshare",
+            "username": "shareduser",
+            "password": "sharedpass123",
             "port": 445,
+            "scope": "shared",
         }
 
-        with patch("app.api.admin.SMBBackend") as mock_backend:
-            # Mock the SMB backend test connection
+        with patch("app.api.connections.SMBBackend") as mock_backend:
             mock_instance = AsyncMock()
             mock_instance.connect.return_value = None
             mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.return_value = []
             mock_backend.return_value = mock_instance
 
-            response = client.post(
-                "/api/admin/connections",
-                headers=auth_headers_admin,
-                json=connection_data,
-            )
+            response = client.post("/api/connections", headers=auth_headers_admin, json=connection_data)
 
-            assert response.status_code == 200  # Default FastAPI status code
-            data = response.json()
-            assert data["name"] == connection_data["name"]
-            assert data["host"] == connection_data["host"]
-            assert data["share_name"] == connection_data["share_name"]
-            assert data["username"] == connection_data["username"]
-            assert data["slug"] == "new-test-server"
-            assert "id" in data
-            assert "password" not in data  # Password should not be returned
-            assert "password_encrypted" not in data
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scope"] == "shared"
+        assert data["can_manage"] is True
 
-            # Verify in database
-            conn_id = uuid.UUID(data["id"])
-            db_conn = session.get(Connection, conn_id)
-            assert db_conn is not None
-            assert db_conn.name == connection_data["name"]
-            # Verify password is encrypted in DB
-            decrypted = decrypt_password(db_conn.password_encrypted)
-            assert decrypted == connection_data["password"]
+        db_connection = session.get(Connection, uuid.UUID(data["id"]))
+        assert db_connection is not None
+        assert db_connection.scope == ConnectionScope.SHARED
+        assert db_connection.owner_user_id is None
+        assert decrypt_password(db_connection.password_encrypted) == connection_data["password"]
 
-    def test_create_connection_custom_port(self, client: TestClient, auth_headers_admin: dict):
-        """Test creating connection with custom port."""
+    def test_regular_user_create_request_is_private(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        session: Session,
+        regular_user: User,
+    ) -> None:
         connection_data = {
-            "name": "Custom Port Server",
-            "host": "server.local",
-            "share_name": "share",
-            "username": "user",
-            "password": "pass",
-            "port": 8445,
+            "name": "Requested Shared Server",
+            "host": "user.local",
+            "share_name": "usershare",
+            "username": "user1",
+            "password": "userpass123",
+            "port": 445,
+            "scope": "shared",
         }
 
-        with patch("app.api.admin.SMBBackend") as mock_backend:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
             mock_instance = AsyncMock()
             mock_instance.connect.return_value = None
             mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.return_value = []
             mock_backend.return_value = mock_instance
 
-            response = client.post(
-                "/api/admin/connections",
-                headers=auth_headers_admin,
-                json=connection_data,
-            )
+            response = client.post("/api/connections", headers=auth_headers_user, json=connection_data)
 
-            assert response.status_code == 200  # Default FastAPI status code
-            data = response.json()
-            assert data["port"] == 8445
+        assert response.status_code == 200
+        data = response.json()
+        assert data["scope"] == "private"
+        assert data["can_manage"] is True
 
-    def test_create_connection_missing_required_fields(self, client: TestClient, auth_headers_admin: dict):
-        """Test that creating connection without required fields fails."""
-        incomplete_data = {
-            "name": "Incomplete Server",
-            "host": "server.local",
-            # Missing share_name, username, password
-        }
-
-        response = client.post(
-            "/api/admin/connections",
-            headers=auth_headers_admin,
-            json=incomplete_data,
-        )
-
-        assert response.status_code == 422  # Validation error
-
-    def test_create_connection_as_regular_user(self, client: TestClient, auth_headers_user: dict):
-        """Test that regular users cannot create connections."""
-        connection_data = {
-            "name": "Unauthorized Server",
-            "host": "server.local",
-            "share_name": "share",
-            "username": "user",
-            "password": "pass",
-        }
-
-        response = client.post(
-            "/api/admin/connections",
-            headers=auth_headers_user,
-            json=connection_data,
-        )
-
-        assert response.status_code == 403
-
-    def test_create_connection_without_auth(self, client: TestClient):
-        """Test that creating connection requires authentication."""
-        connection_data = {
-            "name": "No Auth Server",
-            "host": "server.local",
-            "share_name": "share",
-            "username": "user",
-            "password": "pass",
-        }
-
-        response = client.post("/api/admin/connections", json=connection_data)
-        assert response.status_code == 401
+        db_connection = session.get(Connection, uuid.UUID(data["id"]))
+        assert db_connection is not None
+        assert db_connection.scope == ConnectionScope.PRIVATE
+        assert db_connection.owner_user_id == regular_user.id
 
 
 @pytest.mark.integration
 class TestUpdateConnection:
-    """Test updating SMB connections."""
+    """Only manageable connections can be updated."""
 
-    def test_update_connection_success(
+    def test_regular_user_can_update_owned_private_connection(
         self,
         client: TestClient,
-        auth_headers_admin: dict,
-        test_connection: Connection,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
         session: Session,
-    ):
-        """Test updating a connection with valid data."""
+    ) -> None:
         update_data = {
-            "name": "Updated Server Name",
-            "host": "updated-server.local",
-            "share_name": "updatedshare",
-            "username": "updateduser",
+            "name": "Updated Private Server",
             "password": "updatedpass123",
-            "port": 8445,
         }
 
-        with patch("app.api.admin.SMBBackend") as mock_backend:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
             mock_instance = AsyncMock()
             mock_instance.connect.return_value = None
             mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.return_value = []
             mock_backend.return_value = mock_instance
 
             response = client.put(
-                f"/api/admin/connections/{test_connection.id}",
-                headers=auth_headers_admin,
+                f"/api/connections/{user_private_connection.id}",
+                headers=auth_headers_user,
                 json=update_data,
             )
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["name"] == update_data["name"]
-            assert data["host"] == update_data["host"]
-            assert data["port"] == 8445
-            assert data["slug"] == "test-smb-server"
-
-            # Verify in database
-            session.refresh(test_connection)
-            assert test_connection.name == update_data["name"]
-            assert decrypt_password(test_connection.password_encrypted) == update_data["password"]
-
-    def test_update_connection_partial(
-        self,
-        client: TestClient,
-        auth_headers_admin: dict,
-        test_connection: Connection,
-        session: Session,
-    ):
-        """Test updating only some fields of a connection."""
-        original_host = test_connection.host
-        update_data = {
-            "name": "Partially Updated Server",
-        }
-
-        response = client.put(
-            f"/api/admin/connections/{test_connection.id}",
-            headers=auth_headers_admin,
-            json=update_data,
-        )
 
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == update_data["name"]
-        # Host should remain unchanged
-        assert data["host"] == original_host
+        assert data["scope"] == "private"
+        assert data["can_manage"] is True
 
-    def test_update_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict):
-        """Test updating a connection that doesn't exist."""
-        fake_id = uuid.uuid4()
-        update_data = {"name": "Non-existent Server"}
+        session.refresh(user_private_connection)
+        assert user_private_connection.name == update_data["name"]
+        assert decrypt_password(user_private_connection.password_encrypted) == update_data["password"]
 
+    def test_regular_user_cannot_update_shared_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ) -> None:
         response = client.put(
-            f"/api/admin/connections/{fake_id}",
-            headers=auth_headers_admin,
-            json=update_data,
-        )
-
-        assert response.status_code == 404
-
-    def test_update_connection_as_regular_user(self, client: TestClient, auth_headers_user: dict, test_connection: Connection):
-        """Test that regular users cannot update connections."""
-        update_data = {"name": "Unauthorized Update"}
-
-        response = client.put(
-            f"/api/admin/connections/{test_connection.id}",
+            f"/api/connections/{test_connection.id}",
             headers=auth_headers_user,
-            json=update_data,
+            json={"name": "Forbidden Update"},
         )
 
         assert response.status_code == 403
+
+    def test_regular_user_cannot_update_other_private_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        other_private_connection: Connection,
+    ) -> None:
+        response = client.put(
+            f"/api/connections/{other_private_connection.id}",
+            headers=auth_headers_user,
+            json={"name": "Invisible Update"},
+        )
+
+        assert response.status_code == 404
 
 
 @pytest.mark.integration
 class TestDeleteConnection:
-    """Test deleting SMB connections."""
+    """Deletion follows the same visibility and management rules."""
 
-    def test_delete_connection_success(
+    def test_regular_user_can_delete_owned_private_connection(
         self,
         client: TestClient,
-        auth_headers_admin: dict,
-        test_connection: Connection,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
         session: Session,
-    ):
-        """Test deleting a connection successfully."""
-        conn_id = test_connection.id
-
-        response = client.delete(
-            f"/api/admin/connections/{conn_id}",
-            headers=auth_headers_admin,
-        )
+    ) -> None:
+        response = client.delete(f"/api/connections/{user_private_connection.id}", headers=auth_headers_user)
 
         assert response.status_code == 200
-        assert "deleted" in response.json()["message"].lower()
+        assert session.get(Connection, user_private_connection.id) is None
 
-        # Verify deletion in database
-        deleted_conn = session.get(Connection, conn_id)
-        assert deleted_conn is None
-
-    def test_delete_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict):
-        """Test deleting a connection that doesn't exist."""
-        fake_id = uuid.uuid4()
-
-        response = client.delete(
-            f"/api/admin/connections/{fake_id}",
-            headers=auth_headers_admin,
-        )
-
-        assert response.status_code == 404
-
-    def test_delete_connection_as_regular_user(self, client: TestClient, auth_headers_user: dict, test_connection: Connection):
-        """Test that regular users cannot delete connections."""
-        response = client.delete(
-            f"/api/admin/connections/{test_connection.id}",
-            headers=auth_headers_user,
-        )
-
+    def test_regular_user_cannot_delete_shared_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ) -> None:
+        response = client.delete(f"/api/connections/{test_connection.id}", headers=auth_headers_user)
         assert response.status_code == 403
-
-    def test_delete_connection_without_auth(self, client: TestClient, test_connection: Connection):
-        """Test that deleting connection requires authentication."""
-        response = client.delete(f"/api/admin/connections/{test_connection.id}")
-        assert response.status_code == 401
 
 
 @pytest.mark.integration
 class TestTestConnection:
-    """Test the connection test endpoint."""
+    """Testing a connection requires management rights on that connection."""
 
-    def test_test_connection_endpoint_exists(self, client: TestClient, auth_headers_admin: dict, test_connection: Connection):
-        """Test that the test connection endpoint is accessible."""
-        response = client.post(
-            f"/api/admin/connections/{test_connection.id}/test",
-            headers=auth_headers_admin,
-        )
+    def test_regular_user_can_test_owned_private_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
+    ) -> None:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
+            mock_instance = AsyncMock()
+            mock_instance.connect.return_value = None
+            mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.return_value = type("Listing", (), {"total": 3})()
+            mock_backend.return_value = mock_instance
 
-        # Will likely fail to connect to test server, but endpoint should exist
-        # Should not be 404 or 405
-        assert response.status_code != 404
-        assert response.status_code != 405
+            response = client.post(
+                f"/api/connections/{user_private_connection.id}/test",
+                headers=auth_headers_user,
+            )
 
-    def test_test_nonexistent_connection(self, client: TestClient, auth_headers_admin: dict):
-        """Test testing a connection that doesn't exist."""
-        fake_id = uuid.uuid4()
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
 
-        response = client.post(
-            f"/api/admin/connections/{fake_id}/test",
-            headers=auth_headers_admin,
-        )
+    def test_regular_user_cannot_test_shared_connection(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ) -> None:
+        response = client.post(f"/api/connections/{test_connection.id}/test", headers=auth_headers_user)
+        assert response.status_code == 403
 
-        assert response.status_code == 404
+    def test_test_config_endpoint_validates_without_persisting(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        session: Session,
+    ) -> None:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
+            mock_instance = AsyncMock()
+            mock_instance.connect.return_value = None
+            mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.return_value = []
+            mock_backend.return_value = mock_instance
+
+            response = client.post(
+                "/api/connections/test-config",
+                headers=auth_headers_user,
+                json={
+                    "name": "Preview Only",
+                    "host": "preview.local",
+                    "share_name": "preview-share",
+                    "username": "preview-user",
+                    "password": "previewpass123",
+                    "port": 445,
+                    "scope": "shared",
+                },
+            )
+
+        assert response.status_code == 200
+        stored = session.exec(select(Connection).where(Connection.name == "Preview Only")).first()
+        assert stored is None
+
+    def test_test_config_neutral_route_alias(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+    ) -> None:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
+            mock_instance = AsyncMock()
+            mock_instance.connect.return_value = None
+            mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.return_value = []
+            mock_backend.return_value = mock_instance
+
+            response = client.post(
+                "/api/connections/test-config",
+                headers=auth_headers_user,
+                json={
+                    "name": "Neutral Preview",
+                    "host": "preview.local",
+                    "share_name": "preview-share",
+                    "username": "preview-user",
+                    "password": "previewpass123",
+                    "port": 445,
+                    "scope": "private",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"

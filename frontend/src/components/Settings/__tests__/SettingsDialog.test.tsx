@@ -11,21 +11,21 @@ vi.mock("../../../services/api", () => ({
   },
 }));
 
-// Mock the settings pages since they're rendered by the dialog
-vi.mock("../../../pages/AppearanceSettings", () => ({
-  AppearanceSettings: () => <div>Appearance Settings Content</div>,
+// Mock the consolidated settings pages since they're rendered by the dialog
+vi.mock("../../../pages/PreferencesSettings", () => ({
+  PreferencesSettings: () => <div>Preferences Settings Content</div>,
 }));
 
-vi.mock("../../../pages/BrowserSettings", () => ({
-  BrowserSettings: () => <div>Browser Settings Content</div>,
+vi.mock("../../../pages/ConnectionsSettings", () => ({
+  ConnectionsSettings: () => <div>Connections Settings Content</div>,
 }));
 
-vi.mock("../../../pages/ConnectionSettings", () => ({
-  ConnectionSettings: () => <div>Connection Settings Content</div>,
+vi.mock("../../../pages/UserManagementSettings", () => ({
+  UserManagementSettings: () => <div>User Management Settings Content</div>,
 }));
 
-vi.mock("../../../pages/LocalDrivesSettings", () => ({
-  LocalDrivesSettings: () => <div>Local Drives Settings Content</div>,
+vi.mock("../../../pages/AdvancedSettings", () => ({
+  AdvancedSettings: () => <div>System Settings Content</div>,
 }));
 
 import api from "../../../services/api";
@@ -36,7 +36,7 @@ describe("SettingsDialog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock getCurrentUser to return non-admin user by default
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "testuser", is_admin: false });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-id", username: "testuser", role: "regular", is_admin: false });
   });
 
   const renderWithTheme = (ui: React.ReactElement) => {
@@ -49,7 +49,7 @@ describe("SettingsDialog Component", () => {
     expect(api.getCurrentUser).not.toHaveBeenCalled();
   });
 
-  it("checks user status and displays appearance settings when opened", async () => {
+  it("checks user status and displays preferences when opened", async () => {
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
     // Dialog should check user status
@@ -57,9 +57,9 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Should show Appearance by default
-    expect(screen.getByText("Appearance")).toBeInTheDocument();
-    expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
+    // Should show Preferences by default
+    expect(screen.getByText("Preferences")).toBeInTheDocument();
+    expect(screen.getByText("Preferences Settings Content")).toBeInTheDocument();
   });
 
   it("closes dialog when close button is clicked", async () => {
@@ -67,7 +67,7 @@ describe("SettingsDialog Component", () => {
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Appearance")).toBeInTheDocument();
+      expect(screen.getByText("Preferences")).toBeInTheDocument();
     });
 
     // Click close button (icon button with CloseIcon)
@@ -80,8 +80,8 @@ describe("SettingsDialog Component", () => {
     expect(mockOnClose).toHaveBeenCalled();
   });
 
-  it("shows SMB Connections and Local Drives tabs for admin users", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "admin", is_admin: true });
+  it("shows the consolidated settings categories for admin users", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -92,19 +92,20 @@ describe("SettingsDialog Component", () => {
 
     // Should show all categories in sidebar
     expect(screen.getByText("Settings")).toBeInTheDocument();
-    const appearanceOption = screen.getByRole("option", { name: /appearance/i });
-    const browserOption = screen.getByRole("option", { name: /browser/i });
-    const smbConnectionsOption = screen.getByRole("option", { name: /smb connections/i });
-    const localDrivesOption = screen.getByRole("option", { name: /local drives/i });
+    const preferencesOption = screen.getByRole("option", { name: /preferences/i });
+    const connectionsOption = screen.getByRole("option", { name: /connections/i });
+    const userManagementOption = screen.getByRole("option", { name: /user management/i });
+    const systemOption = screen.getByRole("option", { name: /system/i });
 
-    expect(appearanceOption).toBeInTheDocument();
-    expect(browserOption).toBeInTheDocument();
-    expect(smbConnectionsOption).toBeInTheDocument();
-    expect(localDrivesOption).toBeInTheDocument();
+    expect(preferencesOption).toBeInTheDocument();
+    expect(connectionsOption).toBeInTheDocument();
+    expect(userManagementOption).toBeInTheDocument();
+    expect(systemOption).toBeInTheDocument();
+    expect(screen.getByText("Administration")).toBeInTheDocument();
   });
 
-  it("hides SMB Connections tab but keeps Local Drives for non-admin users", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "user", is_admin: false });
+  it("shows only personal consolidated categories for non-admin users", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-id", username: "user", role: "regular", is_admin: false });
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -113,16 +114,14 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Should show only Appearance
-    expect(screen.getByText("Appearance")).toBeInTheDocument();
-
-    // SMB Connections should not be in the sidebar, but Browser and Local Drives should remain accessible
-    expect(screen.getByRole("option", { name: /browser/i })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /smb connections/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /local drives/i })).toBeInTheDocument();
+    expect(screen.getByText("Preferences")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /preferences/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /connections/i })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /user management/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /system/i })).not.toBeInTheDocument();
   });
 
-  it("switches to Browser tab when clicked", async () => {
+  it("switches to Connections when clicked", async () => {
     const user = userEvent.setup();
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -130,15 +129,33 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    const browserOption = screen.getByRole("option", { name: /browser/i });
-    await user.click(browserOption);
+    const connectionsOption = screen.getByRole("option", { name: /connections/i });
+    await user.click(connectionsOption);
 
-    expect(screen.getByText("Browser Settings Content")).toBeInTheDocument();
+    expect(screen.getByText("Connections Settings Content")).toBeInTheDocument();
   });
 
-  it("switches to SMB Connections tab when admin clicks it", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ username: "admin", is_admin: true });
+  it("opens the requested consolidated initial category", async () => {
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} initialCategory="connections" />);
 
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    expect(screen.getByText("Connections Settings Content")).toBeInTheDocument();
+  });
+
+  it("falls back to Preferences when an admin-only initial category is unavailable", async () => {
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} initialCategory="admin-users" />);
+
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    expect(screen.getByText("Preferences Settings Content")).toBeInTheDocument();
+  });
+
+  it("switches to Connections when a regular user clicks it", async () => {
     const user = userEvent.setup();
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -147,18 +164,17 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    // Should start with Appearance
-    expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
+    expect(screen.getByText("Preferences Settings Content")).toBeInTheDocument();
 
-    // Click SMB Connections option
-    const smbConnectionsOption = screen.getByRole("option", { name: /smb connections/i });
-    await user.click(smbConnectionsOption);
+    const connectionsOption = screen.getByRole("option", { name: /connections/i });
+    await user.click(connectionsOption);
 
-    // Should now show Connection Settings
-    expect(screen.getByText("Connection Settings Content")).toBeInTheDocument();
+    expect(screen.getByText("Connections Settings Content")).toBeInTheDocument();
   });
 
-  it("switches to Local Drives tab for non-admin users", async () => {
+  it("switches to User Management tab when admin clicks it", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+
     const user = userEvent.setup();
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -166,9 +182,25 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    const localDrivesOption = screen.getByRole("option", { name: /local drives/i });
-    await user.click(localDrivesOption);
+    const userManagementOption = screen.getByRole("option", { name: /user management/i });
+    await user.click(userManagementOption);
 
-    expect(screen.getByText("Local Drives Settings Content")).toBeInTheDocument();
+    expect(screen.getByText("User Management Settings Content")).toBeInTheDocument();
+  });
+
+  it("switches to System when admin clicks it", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+
+    const user = userEvent.setup();
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    const systemOption = screen.getByRole("option", { name: /system/i });
+    await user.click(systemOption);
+
+    expect(screen.getByText("System Settings Content")).toBeInTheDocument();
   });
 });

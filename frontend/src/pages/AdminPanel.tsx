@@ -9,6 +9,7 @@ import DeleteDialog from "../components/Admin/DeleteDialog";
 import api from "../services/api";
 import type { Connection } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
+import { isAdminUser } from "../utils/userAccess";
 
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
@@ -35,7 +36,7 @@ const AdminPanel: React.FC = () => {
   const checkAuth = useCallback(async () => {
     try {
       const user = await api.getCurrentUser();
-      if (!user.is_admin) {
+      if (!isAdminUser(user)) {
         showNotification("Access denied. Admin privileges required.", "error");
         navigate("/browse");
       }
@@ -90,8 +91,18 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleDialogSave = () => {
+  const handleDialogSave = (savedConnection: Connection, requestedScope: "shared" | "private") => {
     loadConnections();
+    if (savedConnection.scope !== requestedScope) {
+      showNotification(
+        savedConnection.scope === "private"
+          ? "Connection saved as private. Shared visibility requires admin access."
+          : `Connection ${selectedConnection ? "updated" : "created"} successfully`,
+        savedConnection.scope === "private" ? "info" : "success"
+      );
+      return;
+    }
+
     showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
   };
 
@@ -145,7 +156,9 @@ const AdminPanel: React.FC = () => {
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={handleDeleteConfirm}
-        connection={selectedConnection}
+        title="Delete Connection"
+        description="Are you sure you want to delete the connection"
+        itemName={selectedConnection?.name ?? null}
       />
 
       <Snackbar
