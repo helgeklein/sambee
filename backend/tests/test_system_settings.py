@@ -1,6 +1,10 @@
-from fastapi.testclient import TestClient
-from sqlmodel import Session
+from pathlib import Path
 
+from fastapi.testclient import TestClient
+from sqlmodel import Session, create_engine
+from sqlmodel.pool import StaticPool
+
+import app.db.database as database_module
 from app.core.system_setting_definitions import SystemSettingKey
 from app.models.system_settings import SystemSetting
 from app.services.system_settings import get_integer_setting_value
@@ -8,6 +12,20 @@ from app.services.system_settings import store as system_settings_store
 
 
 class TestAdvancedSystemSettingsApi:
+    def test_returns_default_when_system_settings_table_is_missing(self, tmp_path: Path, monkeypatch) -> None:
+        test_engine = create_engine(
+            f"sqlite:///{tmp_path / 'missing-system-settings.db'}",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+
+        monkeypatch.setattr(database_module, "engine", test_engine)
+        system_settings_store._cache = {}
+        system_settings_store._loaded = False
+
+        assert get_integer_setting_value(SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES) == 4 * 1024 * 1024
+        assert system_settings_store._loaded is False
+
     def test_admin_can_fetch_advanced_settings(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.get("/api/admin/settings/advanced", headers=auth_headers_admin)
 

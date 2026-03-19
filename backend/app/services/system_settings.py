@@ -6,9 +6,12 @@ from datetime import datetime, timezone
 from threading import RLock
 from typing import Optional
 
+from sqlalchemy import inspect
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, select
 
 import app.core.config as config_module
+import app.db.database as database_module
 from app.core.logging import get_logger
 from app.core.system_setting_definitions import (
     SYSTEM_SETTING_DEFINITIONS,
@@ -16,7 +19,6 @@ from app.core.system_setting_definitions import (
     SystemSettingKey,
     SystemSettingSource,
 )
-from app.db.database import engine
 from app.models.system_settings import (
     AdvancedSystemSettingsRead,
     AdvancedSystemSettingsUpdate,
@@ -27,6 +29,7 @@ from app.models.system_settings import (
 )
 
 logger = get_logger(__name__)
+SYSTEM_SETTINGS_TABLE_NAME = "systemsetting"
 
 
 @dataclass(frozen=True)
@@ -44,8 +47,7 @@ class SystemSettingsStore:
 
     def warm_cache(self) -> None:
         with self._lock:
-            self._cache = self._read_all_overrides()
-            self._loaded = True
+            self._cache, self._loaded = self._read_all_overrides()
 
     def get_override(self, key: SystemSettingKey) -> Optional[str]:
         if not self._loaded:
@@ -54,17 +56,36 @@ class SystemSettingsStore:
 
     def refresh_from_session(self, session: Session) -> None:
         with self._lock:
-            rows = session.exec(select(SystemSetting)).all()
-            self._cache = {row.key: row.value for row in rows}
-            self._loaded = True
+            self._cache, self._loaded = _read_overrides_from_session(session)
 
-    def _read_all_overrides(self) -> dict[str, str]:
-        with Session(engine) as session:
-            rows = session.exec(select(SystemSetting)).all()
-            return {row.key: row.value for row in rows}
+    def _read_all_overrides(self) -> tuple[dict[str, str], bool]:
+        with Session(database_module.engine) as session:
+            return _read_overrides_from_session(session)
 
 
 store = SystemSettingsStore()
+
+
+def _system_settings_table_exists(session: Session) -> bool:
+    bind = session.get_bind()
+    if bind is None:
+        return False
+
+    return bool(inspect(bind).has_table(SYSTEM_SETTINGS_TABLE_NAME))
+
+
+def _read_overrides_from_session(session: Session) -> tuple[dict[str, str], bool]:
+    if not _system_settings_table_exists(session):
+        return {}, False
+
+    try:
+        rows = session.exec(select(SystemSetting)).all()
+    except OperationalError as exc:
+        if f"no such table: {SYSTEM_SETTINGS_TABLE_NAME}" in str(exc).lower():
+            return {}, False
+        raise
+
+    return {row.key: row.value for row in rows}, True
 
 
 def _validate_integer_value(definition: IntegerSystemSettingDefinition, value: int) -> int:
