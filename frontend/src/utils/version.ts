@@ -4,6 +4,8 @@
 
 import { logger } from "../services/logger";
 
+const VERSION_FETCH_TIMEOUT_MS = 5_000;
+
 export interface VersionInfo {
   version: string;
   build_time: string;
@@ -14,10 +16,15 @@ export interface VersionInfo {
  * Fetch version information from the backend
  */
 export async function fetchVersionInfo(): Promise<VersionInfo | null> {
+  const abortController = new AbortController();
+  const timeoutId = window.setTimeout(() => {
+    abortController.abort();
+  }, VERSION_FETCH_TIMEOUT_MS);
+
   try {
     // Use absolute URL for tests (required by MSW), relative for production
     const baseURL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === "test" ? "http://localhost:3000/api" : "/api");
-    const response = await fetch(`${baseURL}/version`);
+    const response = await fetch(`${baseURL}/version`, { signal: abortController.signal });
     if (!response.ok) {
       logger.warn("Failed to fetch version info", { status: response.statusText }, "api");
       return null;
@@ -26,6 +33,8 @@ export async function fetchVersionInfo(): Promise<VersionInfo | null> {
   } catch (error) {
     logger.warn("Error fetching version info", { error }, "api");
     return null;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -28,6 +28,11 @@ export interface ViewerComponentProps {
 
 export type ViewerComponent = React.ComponentType<ViewerComponentProps>;
 
+export type ViewerComponentLoadResult =
+  | { status: "loaded"; component: ViewerComponent }
+  | { status: "unsupported" }
+  | { status: "failed"; error: unknown };
+
 export type FileCategory = "image" | "document" | "text" | "video" | "audio" | "archive" | "code" | "spreadsheet" | "directory" | "other";
 
 // Icon identifier - matches icon names from fileIcons.tsx
@@ -687,19 +692,36 @@ export const isMarkdownFile = (filename: string): boolean => {
 /**
  * Get viewer component for a MIME type
  */
-export const getViewerComponent = async (mimeType: string): Promise<ViewerComponent | null> => {
+export const getViewerComponentLoadResult = async (mimeType: string): Promise<ViewerComponentLoadResult> => {
   const fileType = getFileTypeByMime(mimeType);
   if (!fileType?.viewerComponent) {
-    return null;
+    return { status: "unsupported" };
   }
 
   try {
     const module = await fileType.viewerComponent();
-    return module.default;
+    return { status: "loaded", component: module.default };
   } catch (error) {
     logger.error(`Failed to load viewer component for ${mimeType}`, { error, mimeType }, "viewer");
+    return { status: "failed", error };
+  }
+};
+
+/**
+ * Get viewer component for a MIME type
+ */
+export const getViewerComponent = async (mimeType: string): Promise<ViewerComponent | null> => {
+  const result = await getViewerComponentLoadResult(mimeType);
+
+  if (result.status === "loaded") {
+    return result.component;
+  }
+
+  if (result.status === "failed") {
     return null;
   }
+
+  return null;
 };
 
 /**

@@ -1,10 +1,5 @@
 # TODO
 
-## Frontend responsiveness
-
-- The UI should stay responsive even when the backend is temporarily unavailable
-   - Requires downloading all assets to the browser and keeping them there
-
 ## Authentication system
 
 - OAuth/OIDC

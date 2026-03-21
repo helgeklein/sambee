@@ -12,6 +12,16 @@ import type { FileInfo } from "../../types";
 import { FileType } from "../../types";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
+const expectDirectoryLoad = (connectionId: string, path: string) => {
+  expect(api.listDirectory).toHaveBeenCalledWith(
+    connectionId,
+    path,
+    expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    })
+  );
+};
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -74,12 +84,62 @@ describe("Browser Component - Navigation", () => {
 
     // Should load files from Documents directory
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+      expectDirectoryLoad("conn-1", "Documents");
     });
     await waitFor(() => {
       const file1Elements = screen.getAllByText("file1.txt");
       expect(file1Elements.length).toBeGreaterThan(0);
     });
+  });
+
+  it("does not repaint the previous directory contents while loading a child directory", async () => {
+    const user = userEvent.setup();
+    const subfolderFiles: FileInfo[] = [
+      {
+        name: "file1.txt",
+        path: "Documents/file1.txt",
+        type: FileType.FILE,
+        size: 512,
+        modified_at: "2024-01-12T10:00:00Z",
+        is_readable: true,
+        is_hidden: false,
+      },
+    ];
+
+    let resolveSubfolder: ((value: { items: FileInfo[]; path: string; total: number }) => void) | null = null;
+
+    vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
+      if (path === "Documents") {
+        return new Promise((resolve) => {
+          resolveSubfolder = resolve as (value: { items: FileInfo[]; path: string; total: number }) => void;
+        });
+      }
+
+      return mockDirectoryListing;
+    });
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    expect(await screen.findByText("readme.txt")).toBeInTheDocument();
+
+    const documentsFolders = screen.getAllByRole("button", { name: /documents/i });
+    await user.click(documentsFolders[0]);
+
+    await waitFor(() => {
+      expectDirectoryLoad("conn-1", "Documents");
+    });
+
+    expect(screen.queryByText("readme.txt")).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+
+    resolveSubfolder?.({
+      items: subfolderFiles,
+      path: "Documents",
+      total: subfolderFiles.length,
+    });
+
+    const fileEntries = await screen.findAllByText("file1.txt");
+    expect(fileEntries.length).toBeGreaterThan(0);
   });
 
   it("navigates using breadcrumb links", async () => {
@@ -122,7 +182,7 @@ describe("Browser Component - Navigation", () => {
 
     // Should navigate back to root
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+      expectDirectoryLoad("conn-1", "");
     });
   });
 
@@ -135,7 +195,7 @@ describe("Browser Component - Navigation", () => {
     });
 
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+      expectDirectoryLoad("conn-2", "");
     });
   });
 
@@ -148,7 +208,7 @@ describe("Browser Component - Navigation", () => {
     });
 
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents/Subfolder");
+      expectDirectoryLoad("conn-1", "Documents/Subfolder");
     });
   });
 
@@ -158,7 +218,7 @@ describe("Browser Component - Navigation", () => {
     renderBrowser("/browse");
 
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+      expectDirectoryLoad("conn-2", "");
     });
   });
 
@@ -177,7 +237,7 @@ describe("Browser Component - Navigation", () => {
     renderBrowser("/browse");
 
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+      expectDirectoryLoad("conn-1", "");
     });
 
     expect(localStorage.getItem("selectedConnectionId")).toBe("conn-1");
@@ -189,7 +249,7 @@ describe("Browser Component - Navigation", () => {
     renderBrowser("/browse");
 
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+      expectDirectoryLoad("conn-1", "");
     });
   });
 
@@ -232,7 +292,7 @@ describe("Browser Component - Navigation", () => {
 
     // Should load files from new connection
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+      expectDirectoryLoad("conn-2", "");
     });
   });
 

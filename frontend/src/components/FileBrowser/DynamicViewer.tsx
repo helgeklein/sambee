@@ -1,7 +1,9 @@
+import CloseIcon from "@mui/icons-material/Close";
+import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
 import { logger } from "../../services/logger";
-import type { ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
-import { getViewerComponent } from "../../utils/FileTypeRegistry";
+import type { ViewerComponentLoadResult, ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
+import { getViewerComponentLoadResult } from "../../utils/FileTypeRegistry";
 
 interface DynamicViewerProps {
   connectionId: string;
@@ -16,33 +18,107 @@ interface DynamicViewerProps {
   onIndexChange?: (index: number) => void;
 }
 
+type DynamicViewerLoadState =
+  | { status: "loading" }
+  | { status: "loaded"; component: ViewerComponentType }
+  | { status: "unsupported" }
+  | { status: "failed"; error: unknown };
+
+function getViewerLoadFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return `${error.message} The viewer code could not be loaded.`;
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return `${message} The viewer code could not be loaded.`;
+    }
+  }
+
+  return "The viewer code could not be loaded. This can happen if the backend or asset host is temporarily unavailable.";
+}
+
+interface ViewerFallbackDialogProps {
+  mode: "unsupported" | "failed";
+  path: string;
+  error?: unknown;
+  onClose: () => void;
+  onRetry?: () => void;
+}
+
+function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFallbackDialogProps) {
+  const filename = path.split("/").pop() || path;
+  const message =
+    mode === "failed"
+      ? getViewerLoadFailureMessage(error)
+      : "This file type does not have an available viewer in the current frontend runtime.";
+
+  return (
+    <Dialog open={true} onClose={onClose} fullScreen aria-labelledby="viewer-fallback-title">
+      <DialogTitle id="viewer-fallback-title" sx={{ pr: 7 }}>
+        {mode === "failed" ? "Viewer unavailable" : "Viewer unsupported"}
+        <IconButton aria-label="Close viewer error" onClick={onClose} size="small" sx={{ position: "absolute", top: 12, right: 12 }}>
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ maxWidth: 640, pt: 1 }}>
+          <Typography variant="h6">{filename}</Typography>
+          <Alert severity={mode === "failed" ? "warning" : "info"}>{message}</Alert>
+          <Box>
+            <Typography variant="body2" color="text.secondary">
+              The file browser is still available. You can close this dialog and continue working elsewhere in the app.
+            </Typography>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        {mode === "failed" && onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+        <Button variant="contained" onClick={onClose}>
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 //
 // DynamicViewer
 //
 export function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }: DynamicViewerProps) {
-  const [ViewerComponent, setViewerComponent] = useState<ViewerComponentType | null>(null);
+  const [loadState, setLoadState] = useState<DynamicViewerLoadState>({ status: "loading" });
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let mounted = true;
+    const loadAttempt = retryToken;
+    setLoadState({ status: "loading" });
 
     logger.info(
       "DynamicViewer: Loading viewer component",
       {
+        loadAttempt,
         mimeType: viewInfo.mimeType,
         sessionId: viewInfo.sessionId,
       },
       "viewer"
     );
 
-    getViewerComponent(viewInfo.mimeType).then((component) => {
+    getViewerComponentLoadResult(viewInfo.mimeType).then((result: ViewerComponentLoadResult) => {
       if (mounted) {
         logger.info("DynamicViewer: Viewer component loaded", {
           mimeType: viewInfo.mimeType,
-          componentFound: !!component,
+          componentFound: result.status === "loaded",
+          resultStatus: result.status,
           sessionId: viewInfo.sessionId,
         });
-        if (component) {
-          setViewerComponent(() => component);
+        if (result.status === "loaded") {
+          setLoadState({ status: "loaded", component: result.component });
+        } else if (result.status === "failed") {
+          setLoadState({ status: "failed", error: result.error });
+        } else {
+          setLoadState({ status: "unsupported" });
         }
       }
     });
@@ -50,10 +126,10 @@ export function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }
     return () => {
       mounted = false;
     };
-  }, [viewInfo.mimeType, viewInfo.sessionId]);
+  }, [retryToken, viewInfo.mimeType, viewInfo.sessionId]);
 
   useEffect(() => {
-    if (!ViewerComponent) {
+    if (loadState.status !== "loaded") {
       return;
     }
 
@@ -67,11 +143,27 @@ export function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }
       },
       "viewer"
     );
-  }, [ViewerComponent, viewInfo.mimeType, viewInfo.path, viewInfo.currentIndex, viewInfo.sessionId]);
+  }, [loadState, viewInfo.mimeType, viewInfo.path, viewInfo.currentIndex, viewInfo.sessionId]);
 
-  if (!ViewerComponent) {
+  if (loadState.status === "failed") {
+    return (
+      <ViewerFallbackDialog
+        mode="failed"
+        path={viewInfo.path}
+        error={loadState.error}
+        onClose={onClose}
+        onRetry={() => setRetryToken((value) => value + 1)}
+      />
+    );
+  }
+
+  if (loadState.status === "unsupported") {
+    return <ViewerFallbackDialog mode="unsupported" path={viewInfo.path} onClose={onClose} />;
+  }
+
+  if (loadState.status !== "loaded") {
     logger.debug(
-      "DynamicViewer: No viewer component yet",
+      "DynamicViewer: Viewer component still loading",
       {
         mimeType: viewInfo.mimeType,
         sessionId: viewInfo.sessionId,
@@ -80,6 +172,8 @@ export function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }
     );
     return null;
   }
+
+  const ViewerComponent = loadState.component;
 
   return (
     <ViewerComponent

@@ -21,6 +21,16 @@ import { FileType } from "../../types";
 import { QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY } from "../FileBrowser/preferences";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
+const expectDirectoryLoad = (connectionId: string, path: string) => {
+  expect(api.listDirectory).toHaveBeenCalledWith(
+    connectionId,
+    path,
+    expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    })
+  );
+};
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -216,8 +226,8 @@ describe("Browser Component - Interactions", () => {
       renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "Documents");
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
       });
 
       const initialDestinationLoads = (api.listDirectory as Mock).mock.calls.filter(
@@ -415,8 +425,8 @@ describe("Browser Component - Interactions", () => {
       const { container } = renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "");
       });
 
       const rightPane = container.querySelector('[data-pane-id="right"]');
@@ -447,7 +457,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Enter}");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "RightTarget");
+        expectDirectoryLoad("conn-2", "RightTarget");
       });
     });
 
@@ -608,7 +618,7 @@ describe("Browser Component - Interactions", () => {
       await user.click(screen.getByRole("button", { name: /documents/i }));
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
 
       await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
@@ -682,7 +692,7 @@ describe("Browser Component - Interactions", () => {
       await user.click(screen.getByRole("button", { name: /folder: zeta/i }));
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Zeta");
+        expectDirectoryLoad("conn-1", "Zeta");
       });
 
       await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
@@ -692,7 +702,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Backspace}");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expectDirectoryLoad("conn-1", "");
       });
 
       await waitFor(() => {
@@ -759,7 +769,7 @@ describe("Browser Component - Interactions", () => {
       await user.click(screen.getByRole("button", { name: /folder: zeta/i }));
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Zeta");
+        expectDirectoryLoad("conn-1", "Zeta");
       });
 
       await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
@@ -770,7 +780,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Backspace}");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expectDirectoryLoad("conn-1", "");
       });
 
       await waitFor(() => {
@@ -913,7 +923,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Enter}");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
     });
 
@@ -954,7 +964,7 @@ describe("Browser Component - Interactions", () => {
       await user.keyboard("{Backspace}");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expectDirectoryLoad("conn-1", "");
       });
     });
 

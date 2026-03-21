@@ -41,9 +41,11 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUT
 import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
+import { markBackendAvailable, markBackendReconnecting, useBackendAvailability } from "../services/backendAvailability";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
+import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
 import type { ConflictInfo, Connection } from "../types";
@@ -120,6 +122,7 @@ const Browser: React.FC = () => {
   const [quickBarActivationToken, setQuickBarActivationToken] = useState(0);
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
+  const backendAvailability = useBackendAvailability();
 
   // ── Companion detection & drive management ──────────────────────────────
   const companion = useCompanion();
@@ -477,6 +480,10 @@ const Browser: React.FC = () => {
   // Component Lifecycle Effects
   // ──────────────────────────────────────────────────────────────────────────
 
+  useEffect(() => {
+    scheduleRuntimeWarmup();
+  }, []);
+
   // Initial load - run once on mount.
   // The `cancelled` flag prevents the second StrictMode invocation (and HMR
   // re-mounts) from issuing duplicate API calls.
@@ -517,7 +524,7 @@ const Browser: React.FC = () => {
 
     setFileBrowserPaneModePreference(nextPaneMode, true);
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextActivePaneId);
-  }, [activePaneId, leftPane, loadingConnections, paneMode, resolvedRoute, rightPane]);
+  }, [activePaneId, leftPane.applyLocation, loadingConnections, paneMode, resolvedRoute, rightPane.applyLocation]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // WebSocket Real-Time Updates
@@ -556,6 +563,7 @@ const Browser: React.FC = () => {
           ws.close();
           return;
         }
+        markBackendAvailable();
         logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
 
@@ -602,6 +610,15 @@ const Browser: React.FC = () => {
       };
 
       ws.onclose = () => {
+        if (disposed) {
+          if (activeWs === ws) {
+            activeWs = null;
+          }
+          wsRef.current = null;
+          return;
+        }
+
+        markBackendReconnecting("WebSocket disconnected");
         logger.warn("WebSocket disconnected", { wsUrl, willReconnect: !disposed }, "websocket");
         if (activeWs === ws) {
           activeWs = null;
@@ -692,6 +709,14 @@ const Browser: React.FC = () => {
       };
 
       ws.onclose = () => {
+        if (disposed) {
+          if (activeWs === ws) {
+            activeWs = null;
+          }
+          companionWsRef.current = null;
+          return;
+        }
+
         logger.warn("Companion WebSocket disconnected", { willReconnect: !disposed }, "websocket");
         if (activeWs === ws) {
           activeWs = null;
@@ -1650,6 +1675,7 @@ const Browser: React.FC = () => {
           loadingConnections={loadingConnections}
           connectionsCount={connections.length}
           isAdmin={isAdmin}
+          backendAvailabilityStatus={backendAvailability.status}
           onOpenConnectionsSettings={() => {
             if (useCompactLayout) {
               setMobileSettingsInitialView("connections");

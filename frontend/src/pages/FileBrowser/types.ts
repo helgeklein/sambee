@@ -188,6 +188,7 @@ export interface UseFileBrowserPaneReturn {
   handlePageDown: (e?: KeyboardEvent) => void;
   handlePageUp: (e?: KeyboardEvent) => void;
   handleOpenFile: () => void;
+  prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
   handleNavigateUp: () => void;
   handleClose: () => void;

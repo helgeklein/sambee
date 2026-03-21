@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { isBackendConnectivityError, isLocalAbortOrClientTimeout } from "../services/backendAvailability";
 import { info as logInfo } from "../services/logger";
 import { isApiError } from "../types";
 
@@ -19,28 +20,18 @@ interface RetryOptions {
  * Only true network errors (no response at all from server) should trigger retry
  */
 const isTransientError = (err: unknown): boolean => {
+  if (isLocalAbortOrClientTimeout(err)) {
+    return false;
+  }
+
+  if (isBackendConnectivityError(err)) {
+    return true;
+  }
+
   if (!isApiError(err)) {
     return false;
   }
 
-  // Check for specific Axios network error codes
-  if (err.code === "ERR_NETWORK" || err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
-    return true;
-  }
-
-  // Check for network error message from Axios
-  if (err.message?.includes("Network Error")) {
-    return true;
-  }
-
-  // If there's a response object with a status code, it's not a network error
-  // (it's an HTTP error response from the server)
-  if (err.response?.status) {
-    return false;
-  }
-
-  // If there's no response at all AND it looks like a network issue, retry
-  // But only if it doesn't have a response with data (which means server responded with an error)
   return !err.response;
 };
 

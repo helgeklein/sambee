@@ -71,6 +71,9 @@ describe("useApiRetry", () => {
     // Errors with "Network Error" message are transient
     expect(checkIsTransientError({ message: "Network Error" })).toBe(true);
 
+    // Client-side abort/timeout should not automatically flip the app into backend-unavailable mode
+    expect(checkIsTransientError({ code: "ECONNABORTED", message: "timeout of 8000ms exceeded" })).toBe(false);
+
     // API errors with HTTP status codes are NOT transient
     expect(
       checkIsTransientError({

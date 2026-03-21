@@ -19,6 +19,16 @@ import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setup
 import { ACTIVE_PANE_QUERY_KEY, RIGHT_PANE_QUERY_KEY } from "../FileBrowser/types";
 import { renderBrowser } from "./FileBrowser.test.utils";
 
+const expectDirectoryLoad = (connectionId: string, path: string) => {
+  expect(api.listDirectory).toHaveBeenCalledWith(
+    connectionId,
+    path,
+    expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    })
+  );
+};
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -67,7 +77,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expectDirectoryLoad("conn-1", "");
       });
 
       // Files should render
@@ -81,7 +91,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       renderBrowser("/browse/smb/test-server-1/Documents");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
     });
   });
@@ -100,11 +110,11 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       // Both panes should request directory listings
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expectDirectoryLoad("conn-1", "");
       });
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+        expectDirectoryLoad("conn-2", "");
       });
     });
 
@@ -117,12 +127,12 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       // Left pane should load Documents
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
 
       // Right pane should load Pictures
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "Pictures");
+        expectDirectoryLoad("conn-2", "Pictures");
       });
     });
 
@@ -135,11 +145,11 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       // Both calls should use conn-1 with different paths
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Pictures");
+        expectDirectoryLoad("conn-1", "Pictures");
       });
     });
 
@@ -201,7 +211,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       // Left pane should still load normally
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+        expectDirectoryLoad("conn-1", "");
       });
 
       // Right pane should NOT have loaded (invalid connection slug)
@@ -220,7 +230,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
 
       // Right pane should load root
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+        expectDirectoryLoad("conn-2", "");
       });
     });
 
@@ -232,7 +242,7 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("local-drive:c", "Users");
+        expectDirectoryLoad("local-drive:c", "Users");
       });
     });
 
@@ -244,11 +254,11 @@ describe("FileBrowser — URL Routing (Phase 3)", () => {
       });
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("local-drive:c", "Users");
+        expectDirectoryLoad("local-drive:c", "Users");
       });
     });
   });

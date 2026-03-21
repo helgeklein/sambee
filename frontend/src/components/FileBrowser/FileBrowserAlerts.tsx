@@ -3,6 +3,7 @@
 //
 
 import { Alert, Box, Link, Typography } from "@mui/material";
+import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
 import { useSambeeTheme } from "../../theme/ThemeContext";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
 
@@ -11,6 +12,7 @@ interface FileBrowserAlertsProps {
   loadingConnections: boolean;
   connectionsCount: number;
   isAdmin: boolean;
+  backendAvailabilityStatus: BackendAvailabilityStatus;
   /** Callback when user wants to open settings with connections tab */
   onOpenConnectionsSettings?: () => void;
 }
@@ -29,6 +31,7 @@ export function FileBrowserAlerts({
   loadingConnections,
   connectionsCount,
   isAdmin,
+  backendAvailabilityStatus,
   onOpenConnectionsSettings,
 }: FileBrowserAlertsProps) {
   const { currentTheme } = useSambeeTheme();
@@ -50,7 +53,7 @@ export function FileBrowserAlerts({
   };
 
   // Show welcome/onboarding when no connections
-  if (connectionsCount === 0 && !error && !loadingConnections) {
+  if (connectionsCount === 0 && !error && !loadingConnections && backendAvailabilityStatus === "available") {
     return (
       <Box
         sx={{
@@ -105,6 +108,18 @@ export function FileBrowserAlerts({
       {error && (
         <Alert severity="error" sx={{ mb: 2, mx: 2, ...getAlertStyles("error") }}>
           {error}
+        </Alert>
+      )}
+
+      {backendAvailabilityStatus === "unavailable" && (
+        <Alert severity="warning" sx={{ mb: 2, mx: 2, ...getAlertStyles("warning") }}>
+          Backend connection lost. The current UI remains available, but refreshes and live updates may fail until the connection returns.
+        </Alert>
+      )}
+
+      {backendAvailabilityStatus === "reconnecting" && (
+        <Alert severity="info" sx={{ mb: 2, mx: 2, ...getAlertStyles("info") }}>
+          Reconnecting to backend. Live updates may be delayed for a moment.
         </Alert>
       )}
 

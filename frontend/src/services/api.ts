@@ -20,6 +20,7 @@ import type {
 } from "../types";
 import { FileType } from "../types";
 import { isAdminUser } from "../utils/userAccess";
+import { isBackendConnectivityError, markBackendAvailable, markBackendUnavailable } from "./backendAvailability";
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
@@ -30,7 +31,6 @@ export interface DirectorySearchOptions {
 }
 
 const CONNECTIONS_API_BASE = "/connections";
-
 function normalizeUser(user: User): User {
   return {
     ...user,
@@ -79,6 +79,7 @@ class ApiService {
     // Handle auth errors and log responses
     this.api.interceptors.response.use(
       (response) => {
+        markBackendAvailable();
         logger.debug(
           `API Response: ${response.config.method?.toUpperCase()} ${response.config.url}`,
           {
@@ -92,6 +93,12 @@ class ApiService {
       (error: AxiosError) => {
         if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
           return Promise.reject(error);
+        }
+
+        if (isBackendConnectivityError(error)) {
+          markBackendUnavailable(error.message);
+        } else if (error.response?.status) {
+          markBackendAvailable();
         }
 
         const requestId = logger.extractRequestId(error.response?.headers as Record<string, string>);
@@ -346,12 +353,13 @@ class ApiService {
   }
 
   // Browse endpoints
-  async listDirectory(connectionId: string, path: string = ""): Promise<DirectoryListing> {
+  async listDirectory(connectionId: string, path: string = "", options?: { signal?: AbortSignal }): Promise<DirectoryListing> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<DirectoryListing>(`/browse/${segment}/list`, {
       ...extraConfig,
       params: { path },
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
     return response.data;
   }

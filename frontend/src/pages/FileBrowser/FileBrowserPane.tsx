@@ -315,6 +315,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
+      pane.prepareDirectoryTransition(connectionId, path);
       setCurrentPath(path);
       setViewInfo(null);
       onNavigatePath(path);
@@ -322,7 +323,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         document.activeElement.blur();
       }
     },
-    [onNavigatePath, setCurrentPath, setViewInfo]
+    [connectionId, onNavigatePath, pane, setCurrentPath, setViewInfo]
   );
 
   // ──────────────────────────────────────────────────────────────────────────

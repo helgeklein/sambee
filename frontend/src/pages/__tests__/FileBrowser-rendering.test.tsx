@@ -3,11 +3,24 @@
  * Tests for basic rendering, loading states, errors, and empty states
  */
 
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
+import { resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
+import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
+
+const expectDirectoryLoad = (connectionId: string, path: string) => {
+  expect(api.listDirectory).toHaveBeenCalledWith(
+    connectionId,
+    path,
+    expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    })
+  );
+};
 
 // Mock the API module
 vi.mock("../../services/api");
@@ -21,6 +34,7 @@ vi.mock("@tanstack/react-virtual", () => import("../../__mocks__/@tanstack/react
 describe("Browser Component - Rendering", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetBackendAvailabilityForTests();
     localStorage.setItem("access_token", "fake-token");
     localStorage.removeItem("selectedConnectionId");
 
@@ -56,7 +70,7 @@ describe("Browser Component - Rendering", () => {
 
     // Wait for directory listing to be called
     await waitFor(() => {
-      expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "");
+      expectDirectoryLoad("conn-1", "");
     });
 
     // Wait for directories and files to render
@@ -79,6 +93,22 @@ describe("Browser Component - Rendering", () => {
     await waitFor(() => {
       expect(api.listDirectory).toHaveBeenCalled();
     });
+  });
+
+  it("shows reconnecting banner while backend realtime connection is recovering", () => {
+    render(
+      <SambeeThemeProvider>
+        <FileBrowserAlerts
+          error={null}
+          loadingConnections={false}
+          connectionsCount={1}
+          isAdmin={true}
+          backendAvailabilityStatus="reconnecting"
+        />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByText(/reconnecting to backend/i)).toBeInTheDocument();
   });
 
   it("shows error state when API fails", async () => {

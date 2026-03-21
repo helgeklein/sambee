@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 
 import { useDirectorySearchProvider } from "../../components/FileBrowser/search";
 import api from "../../services/api";
+import { isLocalAbortOrClientTimeout } from "../../services/backendAvailability";
 import { isLocalDrive } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
@@ -124,6 +125,32 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const [openInAppLoading, setOpenInAppLoading] = useState(false);
 
+  const prepareDirectoryTransition = useCallback((nextConnectionId: string, nextPath: string): void => {
+    directoryLoadAbortRef.current?.abort();
+    directoryLoadAbortRef.current = null;
+
+    if (!nextConnectionId) {
+      setFiles([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const cacheKey = `${nextConnectionId}:${nextPath}`;
+    const cached = directoryCache.current.get(cacheKey);
+    const now = Date.now();
+
+    setError(null);
+
+    if (cached && now - cached.timestamp < DIRECTORY_CACHE_TTL_MS) {
+      setFiles(cached.items);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+  }, []);
+
   // ──────────────────────────────────────────────────────────────────────────
   // Search Provider
   // ──────────────────────────────────────────────────────────────────────────
@@ -131,6 +158,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const directorySearchProvider = useDirectorySearchProvider(
     connectionId,
     (path) => {
+      prepareDirectoryTransition(connectionIdRef.current, path);
       setCurrentPath(path);
       onNavigatePath?.(path);
     },
@@ -165,6 +193,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const currentPathRef = React.useRef<string>("");
   const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
   const latestLoadRequestIdRef = React.useRef(0);
+  const directoryLoadAbortRef = React.useRef<AbortController | null>(null);
 
   const pendingFocusedIndexRef = React.useRef<number | null>(null);
   const focusCommitRafRef = React.useRef<number | null>(null);
@@ -268,6 +297,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     async (path: string, forceRefresh = false) => {
       if (!connectionId) return;
 
+      directoryLoadAbortRef.current?.abort();
+
+      const abortController = new AbortController();
+      directoryLoadAbortRef.current = abortController;
+
       const targetConnectionId = connectionId;
       const targetPath = path;
       const cacheKey = `${targetConnectionId}:${targetPath}`;
@@ -291,7 +325,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       setError(null);
 
       try {
-        const listing = await api.listDirectory(targetConnectionId, targetPath);
+        const listing = await api.listDirectory(targetConnectionId, targetPath, { signal: abortController.signal });
         const items = listing.items ?? [];
         directoryCache.current.set(cacheKey, { items, timestamp: now });
 
@@ -316,6 +350,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         setFiles(items);
       } catch (err) {
+        if (abortController.signal.aborted || isLocalAbortOrClientTimeout(err)) {
+          return;
+        }
+
         const isStaleRequest =
           latestLoadRequestIdRef.current !== requestId ||
           connectionIdRef.current !== targetConnectionId ||
@@ -356,6 +394,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         setError(errorMessage);
       } finally {
+        if (directoryLoadAbortRef.current === abortController) {
+          directoryLoadAbortRef.current = null;
+        }
+
         const isLatestRequest =
           latestLoadRequestIdRef.current === requestId &&
           connectionIdRef.current === targetConnectionId &&
@@ -379,6 +421,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       loadFilesRef.current?.(currentPath);
     }
   }, [currentPath, connectionId]);
+
+  useEffect(() => {
+    return () => {
+      directoryLoadAbortRef.current?.abort();
+      directoryLoadAbortRef.current = null;
+    };
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Sort & Filter (computed)
@@ -664,17 +713,17 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const handleConnectionChange = useCallback(
     (newConnectionId: string) => {
       if (newConnectionId === connectionId) return;
+      prepareDirectoryTransition(newConnectionId, "");
       setConnectionId(newConnectionId);
       setCurrentPath("");
       setViewInfo(null);
-      setFiles([]);
       setSelectedFiles(new Set());
       directoryCache.current.clear();
       navigationHistory.current.clear();
       writeSelectedConnectionIdPreference(newConnectionId);
       onNavigateConnection?.(newConnectionId);
     },
-    [connectionId, onNavigateConnection]
+    [connectionId, onNavigateConnection, prepareDirectoryTransition]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -699,6 +748,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
         logger.info("Navigating to directory", { from: currentPath, to: newPath, directory: file.name }, "browser");
 
+        prepareDirectoryTransition(connectionIdRef.current, newPath);
         setCurrentPath(newPath);
         setViewInfo(null);
         onNavigatePath?.(newPath);
@@ -736,7 +786,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       }
     },
-    [currentPath, updateFocus, imageFiles, focusedIndex, onNavigatePath]
+    [currentPath, updateFocus, imageFiles, focusedIndex, onNavigatePath, prepareDirectoryTransition]
   );
 
   const handleViewIndexChange = useCallback((index: number) => {
@@ -904,10 +954,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
 
     const newPath = pathParts.slice(0, -1).join("/");
+    prepareDirectoryTransition(connectionIdRef.current, newPath);
     setCurrentPath(newPath);
     setViewInfo(null);
     onNavigatePath?.(newPath);
-  }, [onNavigatePath]);
+  }, [onNavigatePath, prepareDirectoryTransition]);
 
   /**
    * handleNavigateUp — Called by toolbar / breadcrumb "up" button.
@@ -1348,27 +1399,31 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
   }, []);
 
-  const applyLocation = useCallback((nextConnectionId: string, nextPath: string) => {
-    const connectionChanged = connectionIdRef.current !== nextConnectionId;
+  const applyLocation = useCallback(
+    (nextConnectionId: string, nextPath: string) => {
+      const connectionChanged = connectionIdRef.current !== nextConnectionId;
 
-    if (connectionChanged) {
-      setConnectionId(nextConnectionId);
-      setCurrentPath(nextPath);
-      setViewInfo(null);
-      setFiles([]);
-      setSelectedFiles(new Set());
-      directoryCache.current.clear();
-      navigationHistory.current.clear();
-      writeSelectedConnectionIdPreference(nextConnectionId || null);
-      return;
-    }
+      if (connectionChanged) {
+        prepareDirectoryTransition(nextConnectionId, nextPath);
+        setConnectionId(nextConnectionId);
+        setCurrentPath(nextPath);
+        setViewInfo(null);
+        setSelectedFiles(new Set());
+        directoryCache.current.clear();
+        navigationHistory.current.clear();
+        writeSelectedConnectionIdPreference(nextConnectionId || null);
+        return;
+      }
 
-    if (currentPathRef.current !== nextPath) {
-      setCurrentPath(nextPath);
-      setViewInfo(null);
-      setSelectedFiles(new Set());
-    }
-  }, []);
+      if (currentPathRef.current !== nextPath) {
+        prepareDirectoryTransition(nextConnectionId, nextPath);
+        setCurrentPath(nextPath);
+        setViewInfo(null);
+        setSelectedFiles(new Set());
+      }
+    },
+    [prepareDirectoryTransition]
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Incremental Search (keydown handler)
@@ -1518,6 +1573,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handlePageDown,
     handlePageUp,
     handleOpenFile,
+    prepareDirectoryTransition,
     handleNavigateUpDirectory,
     handleNavigateUp,
     handleClose,

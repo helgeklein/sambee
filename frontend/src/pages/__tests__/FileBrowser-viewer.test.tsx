@@ -11,6 +11,16 @@ import { type ApiMock, createMarkdownViewMock, createSettingsDialogMock, setupSu
 import { FileType } from "../../types";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
+const expectDirectoryLoad = (connectionId: string, path: string) => {
+  expect(api.listDirectory).toHaveBeenCalledWith(
+    connectionId,
+    path,
+    expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    })
+  );
+};
+
 // Mock the API module
 vi.mock("../../services/api");
 
@@ -186,7 +196,7 @@ describe("Browser Component - View and Advanced", () => {
       renderBrowser("/browse/smb/test-server-1/Documents");
 
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-1", "Documents");
+        expectDirectoryLoad("conn-1", "Documents");
       });
 
       // Switch to connection 2
@@ -198,7 +208,7 @@ describe("Browser Component - View and Advanced", () => {
 
       // Should fall back to root
       await waitFor(() => {
-        expect(api.listDirectory).toHaveBeenCalledWith("conn-2", "");
+        expectDirectoryLoad("conn-2", "");
       });
     });
   });

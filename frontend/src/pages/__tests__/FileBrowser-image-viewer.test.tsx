@@ -19,6 +19,25 @@ vi.mock("../../utils/FileTypeRegistry", async () => {
   const actual = await vi.importActual<typeof import("../../utils/FileTypeRegistry")>("../../utils/FileTypeRegistry");
   return {
     ...actual,
+    getViewerComponentLoadResult: vi.fn((mimeType: string) => {
+      if (mimeType?.startsWith("image/")) {
+        return Promise.resolve({
+          status: "loaded",
+          component: function ImageView() {
+            return <div data-testid="image-view">Image View</div>;
+          },
+        });
+      }
+      if (mimeType === "text/markdown") {
+        return Promise.resolve({
+          status: "loaded",
+          component: function MarkdownView() {
+            return <div data-testid="markdown-view">Markdown View</div>;
+          },
+        });
+      }
+      return Promise.resolve({ status: "unsupported" });
+    }),
     getViewerComponent: vi.fn((mimeType: string) => {
       if (mimeType?.startsWith("image/")) {
         return Promise.resolve(function ImageView() {
