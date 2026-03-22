@@ -68,6 +68,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Sync and verify version metadata
+        uses: ./.github/actions/sync-version-check
+
       # ── System dependencies (Linux only) ──
       - name: Install Tauri system dependencies (Linux)
         if: runner.os == 'Linux'

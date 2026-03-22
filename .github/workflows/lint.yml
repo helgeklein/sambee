@@ -36,6 +36,14 @@ jobs:
         import urllib.request
 
         output_path = os.environ["GITHUB_OUTPUT"]
+        frontend_extras = {
+          "VERSION",
+          "scripts/sync-version",
+        }
+        companion_extras = {
+          "VERSION",
+          "scripts/sync-version",
+        }
 
         def write_output(name: str, value: bool) -> None:
             with open(output_path, "a", encoding="utf-8") as handle:
@@ -104,8 +112,8 @@ jobs:
             raise SystemExit(f"Unsupported event for change detection: {event_name}")
 
         backend = any(name.startswith("backend/") for name in filenames)
-        frontend = any(name.startswith("frontend/") for name in filenames)
-        companion = any(name.startswith("companion/") for name in filenames)
+        frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
+        companion = any(name.startswith("companion/") or name in companion_extras for name in filenames)
 
         print(f"Detected {len(filenames)} changed files")
         print(f"backend={backend} frontend={frontend} companion={companion}")
@@ -154,6 +162,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
 
+    - name: Sync and verify version metadata
+      uses: ./.github/actions/sync-version-check
+
     - name: Set up Node.js
       uses: actions/setup-node@v5
       with:
@@ -183,6 +194,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v5
+
+    - name: Sync and verify version metadata
+      uses: ./.github/actions/sync-version-check
 
     - name: Install Tauri system dependencies
       run: |

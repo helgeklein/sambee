@@ -1,33 +1,120 @@
 #!/bin/bash
-# Sync version from root VERSION file to package.json and package-lock.json
+# Sync version from root VERSION file to frontend and companion metadata files.
 
-# Read and trim whitespace from VERSION file
-VERSION=$(cat "$(dirname "$0")/../VERSION" | tr -d '[:space:]')
+set -euo pipefail
 
-cd "$(dirname "$0")/../frontend"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+VERSION="$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")"
 
-echo "🔄 Syncing version $VERSION to frontend files..."
-
-# Update package.json with the version from VERSION file
-if command -v jq &> /dev/null; then
-    # Use jq if available (more reliable)
-    jq --arg ver "$VERSION" '.version = $ver' package.json > package.json.tmp && mv package.json.tmp package.json
-    echo "  ✅ Updated package.json"
-
-    # Also update package-lock.json (has version in two places)
-    if [ -f package-lock.json ]; then
-        jq --arg ver "$VERSION" '.version = $ver | .packages."".version = $ver' package-lock.json > package-lock.json.tmp && mv package-lock.json.tmp package-lock.json
-        echo "  ✅ Updated package-lock.json"
-    fi
-else
-    # Fallback to sed
-    sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
-    echo "  ✅ Updated package.json (using sed)"
-
-    if [ -f package-lock.json ]; then
-        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package-lock.json
-        echo "  ✅ Updated package-lock.json (using sed)"
-    fi
+if [ -z "$VERSION" ]; then
+    echo "Error: VERSION file is empty"
+    exit 1
 fi
+
+if command -v jq >/dev/null 2>&1; then
+    HAS_JQ=true
+else
+    HAS_JQ=false
+fi
+
+update_package_json() {
+    local file="$1"
+
+    if [ "$HAS_JQ" = true ]; then
+        jq --arg ver "$VERSION" '.version = $ver' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        echo "  ✅ Updated $file"
+    else
+        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$file"
+        echo "  ✅ Updated $file (using sed)"
+    fi
+}
+
+update_package_lock_json() {
+    local file="$1"
+
+    if [ ! -f "$file" ]; then
+        return
+    fi
+
+    if [ "$HAS_JQ" = true ]; then
+        jq --arg ver "$VERSION" '.version = $ver | .packages."".version = $ver' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        echo "  ✅ Updated $file"
+    else
+        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$file"
+        echo "  ✅ Updated $file (using sed)"
+    fi
+}
+
+update_cargo_toml() {
+    local file="$1"
+    local tmp
+    tmp="$(mktemp)"
+
+    awk -v ver="$VERSION" '
+        BEGIN { in_package = 0; updated = 0 }
+        /^\[package\]/ { in_package = 1; print; next }
+        /^\[/ && !/^\[package\]/ { in_package = 0 }
+        in_package && /^version[[:space:]]*=/ {
+            print "version = \"" ver "\""
+            updated = 1
+            next
+        }
+        { print }
+        END {
+            if (!updated) {
+                exit 2
+            }
+        }
+    ' "$file" > "$tmp"
+
+    mv "$tmp" "$file"
+    echo "  ✅ Updated $file"
+}
+
+update_cargo_lock() {
+    local file="$1"
+
+    if [ ! -f "$file" ]; then
+        return
+    fi
+
+    local tmp
+    tmp="$(mktemp)"
+
+    awk -v ver="$VERSION" '
+        BEGIN { in_target_pkg = 0; updated = 0 }
+        /^\[\[package\]\]$/ { in_target_pkg = 0; print; next }
+        /^name = "sambee-companion"$/ { in_target_pkg = 1; print; next }
+        in_target_pkg && /^version = "/ {
+            print "version = \"" ver "\""
+            updated = 1
+            in_target_pkg = 0
+            next
+        }
+        { print }
+        END {
+            if (!updated) {
+                exit 2
+            }
+        }
+    ' "$file" > "$tmp"
+
+    mv "$tmp" "$file"
+    echo "  ✅ Updated $file"
+}
+
+echo "🔄 Syncing version $VERSION across frontend and companion files..."
+
+echo "Frontend:"
+update_package_json "$REPO_ROOT/frontend/package.json"
+update_package_lock_json "$REPO_ROOT/frontend/package-lock.json"
+
+echo "Companion:"
+update_package_json "$REPO_ROOT/companion/package.json"
+update_package_lock_json "$REPO_ROOT/companion/package-lock.json"
+update_cargo_toml "$REPO_ROOT/companion/src-tauri/Cargo.toml"
+update_package_json "$REPO_ROOT/companion/src-tauri/tauri.conf.json"
+update_cargo_lock "$REPO_ROOT/companion/src-tauri/Cargo.lock"
 
 echo "✅ Version sync complete"
