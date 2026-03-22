@@ -68,6 +68,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      - name: Sync version metadata
+        run: ./scripts/sync-version
+
+      - name: Verify synced files are committed
+        run: git diff --exit-code -- frontend/package.json frontend/package-lock.json companion/package.json companion/package-lock.json companion/src-tauri/Cargo.toml companion/src-tauri/tauri.conf.json companion/src-tauri/Cargo.lock
+
       # ── System dependencies (Linux only) ──
       - name: Install Tauri system dependencies (Linux)
         if: runner.os == 'Linux'

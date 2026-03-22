@@ -43,4 +43,6 @@ __version__ = _version_file.read_text().strip()
 	- `companion/src-tauri/Cargo.lock` (the `sambee-companion` package version)
 - Run this script before npm install/build
 
-**CI/CD**: Remember to run `./scripts/sync-version` in your build pipeline before building frontend and companion artifacts.
+**CI/CD**:
+- GitHub Actions now runs `./scripts/sync-version` before frontend and companion lint/test/build jobs.
+- CI fails if the sync step produces uncommitted changes, which prevents `VERSION` drift from slipping through.
