@@ -7,9 +7,10 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
-import { translate } from "../i18n";
+import { type CompanionLocalizationState, getCurrentRegionalLocale, translate } from "../i18n";
 import { log } from "../lib/logger";
 import type { UploadConflictAction, UserPreferences } from "../stores/userPreferences";
 import { getUserPreferences, saveUserPreferences } from "../stores/userPreferences";
@@ -59,6 +60,7 @@ export function Preferences({ onClose }: PreferencesProps) {
   };
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
   const [pairedOrigins, setPairedOrigins] = useState<string[]>([]);
+  const [syncedLocalization, setSyncedLocalization] = useState<CompanionLocalizationState | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSaved, setShowSaved] = useState(false);
   const [changingAutostart, setChangingAutostart] = useState(false);
@@ -70,8 +72,12 @@ export function Preferences({ onClose }: PreferencesProps) {
   // ── Load preferences on mount ───────────────────────────────────────
 
   useEffect(() => {
-    Promise.all([getUserPreferences(), invoke<string[]>("get_paired_origins")])
-      .then(async ([storedPrefs, origins]) => {
+    Promise.all([
+      getUserPreferences(),
+      invoke<string[]>("get_paired_origins"),
+      invoke<CompanionLocalizationState | null>("get_synced_localization"),
+    ])
+      .then(async ([storedPrefs, origins, localization]) => {
         let autoStartOnLogin = storedPrefs.autoStartOnLogin;
 
         try {
@@ -84,6 +90,7 @@ export function Preferences({ onClose }: PreferencesProps) {
 
         setPrefs(resolvedPrefs);
         setPairedOrigins(origins);
+        setSyncedLocalization(localization);
         setLoading(false);
 
         if (resolvedPrefs !== storedPrefs) {
@@ -99,8 +106,16 @@ export function Preferences({ onClose }: PreferencesProps) {
         setLoading(false);
       });
 
+    const unlistenLocalization = listen<CompanionLocalizationState>("localization-updated", (event) => {
+      setSyncedLocalization(event.payload);
+    }).catch((err) => {
+      log.warn("Failed to subscribe to localization updates:", err);
+      return null;
+    });
+
     return () => {
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      void unlistenLocalization.then((fn) => fn?.());
     };
   }, []);
 
@@ -225,6 +240,13 @@ export function Preferences({ onClose }: PreferencesProps) {
     setPendingUnpairOrigin(null);
   }, [unpairingOrigin]);
 
+  const localizedUpdatedAt = syncedLocalization
+    ? new Date(syncedLocalization.updated_at).toLocaleString(getCurrentRegionalLocale(), {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
   // ── Render ──────────────────────────────────────────────────────────
 
   if (loading || !prefs) {
@@ -269,6 +291,41 @@ export function Preferences({ onClose }: PreferencesProps) {
             </div>
           ) : (
             <span class="preferences__server-empty">{translate("preferences.pairedBrowsersEmpty")}</span>
+          )}
+        </div>
+      </div>
+
+      <hr class="preferences__divider" />
+
+      {/* ── Localization Sync ── */}
+      <div class="preferences__section">
+        <div class="preferences__section-heading">
+          <span class="preferences__section-title">{translate("preferences.sections.localization")}</span>
+          <span class="preferences__status-badge">{translate("preferences.localizationStatus.syncedBadge")}</span>
+        </div>
+        <div class="preferences__field">
+          <span class="preferences__hint">{translate("preferences.localizationStatusHint")}</span>
+          {syncedLocalization ? (
+            <dl class="preferences__status-grid">
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.localizationStatus.languageLabel")}</dt>
+                <dd class="preferences__status-value">{syncedLocalization.language}</dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.localizationStatus.regionalLocaleLabel")}</dt>
+                <dd class="preferences__status-value">{syncedLocalization.regional_locale}</dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.localizationStatus.updatedAtLabel")}</dt>
+                <dd class="preferences__status-value">{localizedUpdatedAt ?? syncedLocalization.updated_at}</dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.localizationStatus.sourceOriginLabel")}</dt>
+                <dd class="preferences__status-value preferences__status-value--code">{syncedLocalization.source_origin}</dd>
+              </div>
+            </dl>
+          ) : (
+            <span class="preferences__server-empty">{translate("preferences.localizationStatus.empty")}</span>
           )}
         </div>
       </div>

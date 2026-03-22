@@ -111,6 +111,7 @@ export const EN_TRANSLATIONS = {
     closeTitle: "Close",
     sections: {
       pairedBrowsers: "Paired Browsers",
+      localization: "Localization",
       editingBehavior: "Editing Behavior",
       startup: "Startup",
       notifications: "Notifications",
@@ -118,6 +119,15 @@ export const EN_TRANSLATIONS = {
     },
     pairedBrowsersHint: "These browser origins can access local drives through this companion. Removing one forces it to pair again.",
     pairedBrowsersEmpty: "No browsers are currently paired with this companion.",
+    localizationStatusHint: "Shows the last localization synchronized from a paired Sambee browser.",
+    localizationStatus: {
+      syncedBadge: "Synced from browser",
+      languageLabel: "Language",
+      regionalLocaleLabel: "Regional locale",
+      updatedAtLabel: "Last updated",
+      sourceOriginLabel: "Source browser",
+      empty: "No browser localization has been synchronized yet.",
+    },
     unpairTitle: "Unpair browser",
     unpairButton: "Unpair",
     conflictResolutionLabel: "Upload conflict resolution",
