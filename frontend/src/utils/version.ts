@@ -8,8 +8,6 @@ import { formatLocalizedDateTime } from "./localeFormatting";
 
 const VERSION_FETCH_TIMEOUT_MS = 5_000;
 
-const VERSION_FETCH_TIMEOUT_MS = 5_000;
-
 export interface VersionInfo {
   version: string;
   build_time: string;
