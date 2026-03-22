@@ -6,6 +6,8 @@ from enum import StrEnum
 class UserSettingKey(StrEnum):
     APPEARANCE_THEME_ID = "appearance.theme_id"
     APPEARANCE_CUSTOM_THEMES = "appearance.custom_themes"
+    LOCALIZATION_LANGUAGE = "localization.language"
+    LOCALIZATION_REGIONAL_LOCALE = "localization.regional_locale"
     BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES = "browser.quick_nav_include_dot_directories"
     BROWSER_FILE_BROWSER_VIEW_MODE = "browser.file_browser_view_mode"
     BROWSER_PANE_MODE = "browser.pane_mode"
@@ -13,6 +15,8 @@ class UserSettingKey(StrEnum):
 
 
 DEFAULT_THEME_ID = "sambee-light"
+DEFAULT_LANGUAGE_PREFERENCE = "browser"
+DEFAULT_REGIONAL_LOCALE_PREFERENCE = "browser"
 DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES = False
 DEFAULT_FILE_BROWSER_VIEW_MODE = "list"
 DEFAULT_PANE_MODE = "single"

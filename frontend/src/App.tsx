@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { SettingsLayout } from "./components/Settings/SettingsLayout";
 import { useFocusTrap } from "./hooks/useFocusTrap";
 import { translate } from "./i18n";
+import { LocalePreferencesProvider } from "./i18n/LocalePreferencesProvider";
 import { AdvancedSettings } from "./pages/AdvancedSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
 import { PreferencesSettings } from "./pages/PreferencesSettings";
@@ -64,9 +65,11 @@ function AppContent() {
 function App() {
   return (
     <ErrorBoundary>
-      <SambeeThemeProvider>
-        <AppContent />
-      </SambeeThemeProvider>
+      <LocalePreferencesProvider>
+        <SambeeThemeProvider>
+          <AppContent />
+        </SambeeThemeProvider>
+      </LocalePreferencesProvider>
     </ErrorBoundary>
   );
 }

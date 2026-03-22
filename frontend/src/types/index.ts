@@ -3,6 +3,8 @@ import type { ThemeConfig } from "../theme/types";
 export type UserRole = "admin" | "regular";
 export type ConnectionScope = "shared" | "private";
 export type SystemSettingSource = "database" | "config_file" | "default";
+export type LanguagePreference = "browser" | "en" | "en-XA";
+export type RegionalLocalePreference = string;
 
 export interface User {
   id?: string;
@@ -127,6 +129,10 @@ export interface CurrentUserSettings {
     theme_id: string;
     custom_themes: ThemeConfig[];
   };
+  localization: {
+    language: LanguagePreference;
+    regional_locale: RegionalLocalePreference;
+  };
   browser: {
     quick_nav_include_dot_directories: boolean;
     file_browser_view_mode: "list" | "details";
@@ -139,6 +145,10 @@ export interface CurrentUserSettingsUpdate {
   appearance?: {
     theme_id?: string;
     custom_themes?: ThemeConfig[];
+  };
+  localization?: {
+    language?: LanguagePreference;
+    regional_locale?: RegionalLocalePreference;
   };
   browser?: {
     quick_nav_include_dot_directories?: boolean;

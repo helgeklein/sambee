@@ -13,6 +13,8 @@ class TestCurrentUserSettingsApi:
         data = response.json()
         assert data["appearance"]["theme_id"] == "sambee-light"
         assert data["appearance"]["custom_themes"] == []
+        assert data["localization"]["language"] == "browser"
+        assert data["localization"]["regional_locale"] == "browser"
         assert data["browser"]["quick_nav_include_dot_directories"] is False
         assert data["browser"]["file_browser_view_mode"] == "list"
         assert data["browser"]["pane_mode"] == "single"
@@ -34,6 +36,10 @@ class TestCurrentUserSettingsApi:
                         }
                     ],
                 },
+                "localization": {
+                    "language": "en",
+                    "regional_locale": "en-GB",
+                },
                 "browser": {
                     "quick_nav_include_dot_directories": True,
                     "file_browser_view_mode": "details",
@@ -47,6 +53,8 @@ class TestCurrentUserSettingsApi:
         data = response.json()
         assert data["appearance"]["theme_id"] == "sambee-dark"
         assert data["appearance"]["custom_themes"][0]["id"] == "custom-theme"
+        assert data["localization"]["language"] == "en"
+        assert data["localization"]["regional_locale"] == "en-GB"
         assert data["browser"]["quick_nav_include_dot_directories"] is True
         assert data["browser"]["file_browser_view_mode"] == "details"
         assert data["browser"]["pane_mode"] == "dual"
@@ -56,6 +64,8 @@ class TestCurrentUserSettingsApi:
         values = {row.key: row.value for row in rows}
         assert values[UserSettingKey.APPEARANCE_THEME_ID.value] == "sambee-dark"
         assert '"id":"custom-theme"' in values[UserSettingKey.APPEARANCE_CUSTOM_THEMES.value]
+        assert values[UserSettingKey.LOCALIZATION_LANGUAGE.value] == "en"
+        assert values[UserSettingKey.LOCALIZATION_REGIONAL_LOCALE.value] == "en-GB"
         assert values[UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES.value] == "true"
         assert values[UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value] == "details"
         assert values[UserSettingKey.BROWSER_PANE_MODE.value] == "dual"
@@ -175,3 +185,13 @@ class TestCurrentUserSettingsApi:
 
         assert response.status_code == 400
         assert response.json()["detail"] == "File browser view mode must be one of: list, details"
+
+    def test_update_rejects_invalid_regional_locale(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.put(
+            "/api/auth/me/settings",
+            headers=auth_headers_user,
+            json={"localization": {"regional_locale": "english_us"}},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Regional locale must be a valid locale identifier like en-US"

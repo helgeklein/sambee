@@ -44,13 +44,21 @@ If a future change breaks typed keys, these fixtures should fail typecheck.
 
 ## Locale Behavior
 
-- Locale selection is persisted in local storage under the app locale key.
+- Frontend language preference and regional formatting preference are separate concerns.
+- Frontend language preference is stored in `localization.language` in current-user settings and mirrored in local storage under the app locale key.
+- Frontend regional formatting preference is stored in `localization.regional_locale` in current-user settings and mirrored in local storage under `sambee.regional-locale`.
+- `browser` is the default value for both preferences, meaning:
+  - UI language resolves from the browser locale list against the supported translation set.
+  - Regional formatting resolves from the browser locale, preserving variants like `en-GB` vs `en-US`.
 - Both apps sync `document.documentElement.lang` and `dir` with the active locale.
 - Frontend date, number, and sorting helpers should use locale-aware helpers rather than browser-default formatting.
+- Frontend React trees that use localization preferences should be wrapped in [frontend/src/i18n/LocalePreferencesProvider.tsx](../frontend/src/i18n/LocalePreferencesProvider.tsx).
 
 Prefer these helpers where applicable:
 
 - [frontend/src/utils/localeFormatting.ts](../frontend/src/utils/localeFormatting.ts)
+
+The Preferences UI for these controls lives in [frontend/src/pages/PreferencesSettings.tsx](../frontend/src/pages/PreferencesSettings.tsx).
 
 ## Scope Rules
 

@@ -324,6 +324,10 @@ describe("Theme System - ThemeContext", () => {
             },
           ],
         },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
         browser: {
           quick_nav_include_dot_directories: false,
           file_browser_view_mode: "list",

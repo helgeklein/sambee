@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from sqlmodel import Field, SQLModel
 
@@ -19,6 +19,14 @@ class AppearanceUserSettingsRead(SQLModel):
     custom_themes: list[dict[str, Any]] = Field(default_factory=list)
 
 
+LanguagePreference = Literal["browser", "en", "en-XA"]
+
+
+class LocalizationUserSettingsRead(SQLModel):
+    language: LanguagePreference = "browser"
+    regional_locale: str = "browser"
+
+
 class BrowserUserSettingsRead(SQLModel):
     quick_nav_include_dot_directories: bool
     file_browser_view_mode: str
@@ -28,12 +36,18 @@ class BrowserUserSettingsRead(SQLModel):
 
 class CurrentUserSettingsRead(SQLModel):
     appearance: AppearanceUserSettingsRead
+    localization: LocalizationUserSettingsRead
     browser: BrowserUserSettingsRead
 
 
 class AppearanceUserSettingsUpdate(SQLModel):
     theme_id: Optional[str] = None
     custom_themes: Optional[list[dict[str, Any]]] = None
+
+
+class LocalizationUserSettingsUpdate(SQLModel):
+    language: Optional[LanguagePreference] = None
+    regional_locale: Optional[str] = None
 
 
 class BrowserUserSettingsUpdate(SQLModel):
@@ -45,4 +59,5 @@ class BrowserUserSettingsUpdate(SQLModel):
 
 class CurrentUserSettingsUpdate(SQLModel):
     appearance: Optional[AppearanceUserSettingsUpdate] = None
+    localization: Optional[LocalizationUserSettingsUpdate] = None
     browser: Optional[BrowserUserSettingsUpdate] = None
