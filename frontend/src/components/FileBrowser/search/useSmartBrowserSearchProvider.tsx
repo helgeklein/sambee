@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { SearchProvider, SearchResult, SearchSelectionBehavior, SearchStatusInfo } from "./types";
 
 interface SmartBrowserSearchProviderOptions {
@@ -36,6 +37,7 @@ function decodeValue(value: string): { prefix: ResultPrefix; rawValue: string } 
 }
 
 export function useSmartBrowserSearchProvider({ directoryProvider, commandsProvider }: SmartBrowserSearchProviderOptions): SearchProvider {
+  const { t } = useTranslation();
   const [isCommandQuery, setIsCommandQuery] = useState(false);
 
   const getMinQueryLength = useCallback(
@@ -127,10 +129,11 @@ export function useSmartBrowserSearchProvider({ directoryProvider, commandsProvi
 
     return (
       <>
-        ↑↓ navigate&ensp;↵ open&ensp;<kbd>&gt;</kbd> commands&ensp;<kbd>esc</kbd> close
+        ↑↓ {t("fileBrowser.search.footer.navigate")}&ensp;↵ {t("fileBrowser.search.footer.open")}&ensp;<kbd>&gt;</kbd>{" "}
+        {t("fileBrowser.search.footer.commands")}&ensp;<kbd>esc</kbd> {t("fileBrowser.search.footer.close")}
       </>
     );
-  }, [commandsProvider.footerHint, isCommandQuery]);
+  }, [commandsProvider.footerHint, isCommandQuery, t]);
 
   const footerInfo = useCallback(
     (resultCount: number): string | undefined => {
@@ -138,15 +141,16 @@ export function useSmartBrowserSearchProvider({ directoryProvider, commandsProvi
         return commandsProvider.footerInfo?.(resultCount);
       }
 
-      return `${resultCount} result${resultCount === 1 ? "" : "s"}`;
+      return t("fileBrowser.search.results.count", { count: resultCount });
     },
-    [commandsProvider, isCommandQuery]
+    [commandsProvider, isCommandQuery, t]
   );
 
   return {
     id: "smart-browser-search",
-    modeLabel: isCommandQuery ? "Commands" : "Navigate",
-    placeholder: isCommandQuery ? "Run a command" : "Go to any folder or type > for commands",
+    modeId: isCommandQuery ? "commands" : "navigate",
+    modeLabel: isCommandQuery ? t("fileBrowser.search.modes.commands") : t("fileBrowser.search.modes.navigate"),
+    placeholder: isCommandQuery ? t("fileBrowser.search.placeholders.command") : t("fileBrowser.search.placeholders.smart"),
     debounceMs: 0,
     minQueryLength: directoryProvider.minQueryLength,
     getMinQueryLength,
@@ -158,7 +162,7 @@ export function useSmartBrowserSearchProvider({ directoryProvider, commandsProvi
     onDeactivate,
     footerHint,
     footerInfo,
-    shortcutHint: isCommandQuery ? commandsProvider.shortcutHint : "Ctrl+K",
+    shortcutHint: isCommandQuery ? commandsProvider.shortcutHint : directoryProvider.shortcutHint,
     belowMinimumMessage: directoryProvider.belowMinimumMessage,
     getBelowMinimumMessage,
   };

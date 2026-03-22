@@ -1,6 +1,7 @@
 import { ArrowBack, ArrowForward, Close, Download, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { PAGE_INPUT, RESPONSIVE_FONT_SIZE, TOOLBAR_HEIGHT, Z_INDEX } from "../../theme/constants";
@@ -118,6 +119,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
   const [pageInput, setPageInput] = useState(pageNavigation ? pageNavigation.currentPage.toString() : "");
   const [localShowSearch, setLocalShowSearch] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -250,8 +252,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={navigation.onPrevious}
               disabled={navigation.currentIndex === 0}
-              title="Previous (Left arrow)"
-              aria-label="Previous"
+              title={withShortcut(COMMON_SHORTCUTS.PREVIOUS_ARROW)}
+              aria-label={t("viewer.controls.previous")}
               size={isMobile ? "small" : "medium"}
               sx={{
                 "&.Mui-disabled": {
@@ -266,8 +268,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={navigation.onNext}
               disabled={navigation.currentIndex === navigation.totalItems - 1}
-              title="Next (Right arrow)"
-              aria-label="Next"
+              title={withShortcut(COMMON_SHORTCUTS.NEXT_ARROW)}
+              aria-label={t("viewer.controls.next")}
               size={isMobile ? "small" : "medium"}
               sx={{
                 "&.Mui-disabled": {
@@ -293,8 +295,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={handlePreviousPage}
               disabled={pageNavigation.currentPage <= 1}
-              title="Previous page (Left arrow, Page Up)"
-              aria-label="Previous page"
+              title={withShortcut(COMMON_SHORTCUTS.PAGE_UP)}
+              aria-label={t("viewer.controls.previousPage")}
               size={isMobile ? "small" : "medium"}
               sx={{
                 "&.Mui-disabled": {
@@ -345,8 +347,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={handleNextPage}
               disabled={pageNavigation.currentPage >= pageNavigation.totalPages}
-              title="Next page (Right arrow, Page Down)"
-              aria-label="Next page"
+              title={withShortcut(COMMON_SHORTCUTS.PAGE_DOWN)}
+              aria-label={t("viewer.controls.nextPage")}
               size={isMobile ? "small" : "medium"}
               sx={{
                 "&.Mui-disabled": {
@@ -366,7 +368,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={zoom.onZoomOut}
               title={withShortcut(VIEWER_SHORTCUTS.ZOOM_OUT)}
-              aria-label="Zoom out"
+              aria-label={t("viewer.controls.zoomOut")}
               size="medium"
             >
               <ZoomOut />
@@ -376,7 +378,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={zoom.onZoomIn}
               title={withShortcut(VIEWER_SHORTCUTS.ZOOM_IN)}
-              aria-label="Zoom in"
+              aria-label={t("viewer.controls.zoomIn")}
               size="medium"
             >
               <ZoomIn />
@@ -392,7 +394,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 color="inherit"
                 onClick={rotation.onRotateLeft}
                 title={withShortcut(VIEWER_SHORTCUTS.ROTATE_LEFT)}
-                aria-label="Rotate left"
+                aria-label={t("viewer.controls.rotateLeft")}
                 size="medium"
               >
                 <RotateLeft />
@@ -403,7 +405,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={rotation.onRotateRight}
               title={withShortcut(VIEWER_SHORTCUTS.ROTATE_RIGHT)}
-              aria-label="Rotate right"
+              aria-label={t("viewer.controls.rotateRight")}
               size={isMobile ? "small" : "medium"}
             >
               <RotateRight fontSize={isMobile ? "small" : "medium"} />
@@ -416,12 +418,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           <IconButton
             color="inherit"
             onClick={() => setShowSearch(!showSearch)}
-            title={
-              search.isSearchable === false
-                ? "Search unavailable - PDF contains no text layer (may be a scanned image)"
-                : withShortcut(COMMON_SHORTCUTS.SEARCH)
-            }
-            aria-label="Search"
+            title={search.isSearchable === false ? t("viewer.controls.searchUnavailable") : withShortcut(COMMON_SHORTCUTS.SEARCH)}
+            aria-label={t("common.search.action")}
             size={isMobile ? "small" : "medium"}
             disabled={search.isSearchable === false}
             sx={{
@@ -441,7 +439,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             color="inherit"
             onClick={onDownload}
             title={withShortcut(COMMON_SHORTCUTS.DOWNLOAD)}
-            aria-label="Download"
+            aria-label={t("common.actions.download")}
             size="medium"
           >
             <Download />
@@ -453,7 +451,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           color="inherit"
           onClick={onClose}
           title={withShortcut(COMMON_SHORTCUTS.CLOSE)}
-          aria-label="Close"
+          aria-label={t("common.actions.close")}
           size={isMobile ? "small" : "medium"}
         >
           <Close fontSize={isMobile ? "small" : "medium"} />
@@ -486,7 +484,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 search.onSearchChange("");
               }
             }}
-            placeholder="Search"
+            placeholder={t("common.search.placeholder")}
             size="small"
             inputRef={searchInputRef}
             sx={{
@@ -520,8 +518,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={search.onSearchPrevious}
               disabled={!search.searchMatches || search.searchMatches === 0}
-              title="Previous match"
-              aria-label="Previous match"
+              title={t("common.search.previousMatch")}
+              aria-label={t("common.search.previousMatch")}
               size="small"
               sx={{
                 "&.Mui-disabled": {
@@ -538,8 +536,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               color="inherit"
               onClick={search.onSearchNext}
               disabled={!search.searchMatches || search.searchMatches === 0}
-              title="Next match"
-              aria-label="Next match"
+              title={t("common.search.nextMatch")}
+              aria-label={t("common.search.nextMatch")}
               size="small"
               sx={{
                 "&.Mui-disabled": {

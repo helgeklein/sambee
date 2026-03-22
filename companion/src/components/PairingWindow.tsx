@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "preact/hooks";
+import { useI18n } from "../i18n/useI18n";
 import { log } from "../lib/logger";
 import { PairingRequest } from "./PairingRequest";
 
@@ -21,6 +22,7 @@ type PairingViewState =
 
 /** Dedicated root component for the pairing approval window. */
 export function PairingWindow() {
+  const { t } = useI18n();
   const [view, setView] = useState<PairingViewState>({ kind: "idle" });
 
   const closeWindow = useCallback(async () => {
@@ -109,16 +111,16 @@ export function PairingWindow() {
       <div class="pairing-request">
         <div class="pairing-request__header">
           <div>
-            <p class="pairing-request__eyebrow">Pair with Browser</p>
-            <h1 class="pairing-request__title">Approval sent</h1>
+            <p class="pairing-request__eyebrow">{t("pairing.eyebrow")}</p>
+            <h1 class="pairing-request__title">{t("pairing.approved.title")}</h1>
           </div>
         </div>
 
-        <p class="pairing-request__body">The codes matched for {view.origin}.</p>
-        <p class="pairing-request__hint">Waiting for Sambee to finish storing the pairing.</p>
+        <p class="pairing-request__body">{t("pairing.approved.body", { origin: view.origin })}</p>
+        <p class="pairing-request__hint">{t("pairing.approved.hint")}</p>
 
         <div class="pairing-request__panel">
-          <span class="pairing-request__label">Verification code</span>
+          <span class="pairing-request__label">{t("pairing.labels.verificationCode")}</span>
           <div class="pairing-request__code">{view.pairingCode}</div>
         </div>
       </div>
@@ -130,17 +132,17 @@ export function PairingWindow() {
       <div class="pairing-request">
         <div class="pairing-request__header">
           <div>
-            <p class="pairing-request__eyebrow">Pair with Browser</p>
-            <h1 class="pairing-request__title">Pairing successful</h1>
+            <p class="pairing-request__eyebrow">{t("pairing.eyebrow")}</p>
+            <h1 class="pairing-request__title">{t("pairing.success.title")}</h1>
           </div>
         </div>
 
-        <p class="pairing-request__body">This browser is now paired with Sambee Companion and can access local drives.</p>
-        <p class="pairing-request__hint">This window will close automatically.</p>
+        <p class="pairing-request__body">{t("pairing.success.body")}</p>
+        <p class="pairing-request__hint">{t("pairing.success.hint")}</p>
 
         <div class="pairing-request__actions">
           <button type="button" class="pairing-request__primary-btn" onClick={handleClose}>
-            Close
+            {t("pairing.actions.close")}
           </button>
         </div>
       </div>
@@ -150,8 +152,8 @@ export function PairingWindow() {
   if (view.kind !== "pairing") {
     return (
       <div class="app">
-        <h1>Sambee Companion</h1>
-        <p>Waiting for a pairing request.</p>
+        <h1>{t("app.title")}</h1>
+        <p>{t("pairing.idleMessage")}</p>
       </div>
     );
   }

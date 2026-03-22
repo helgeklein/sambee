@@ -5,9 +5,10 @@
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { AppBar, Box, IconButton, Toolbar, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { SettingsSidebar } from "./SettingsSidebar";
-import { getSettingsCategoryByPath, getSettingsCategoryLabel } from "./settingsNavigation";
+import { getSettingsCategoryByPath, getSettingsViewTitle } from "./settingsNavigation";
 
 /**
  * SettingsLayout
@@ -21,6 +22,7 @@ export function SettingsLayout() {
   const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
 
   // On desktop, redirect from /settings to /settings/preferences (default page)
   useEffect(() => {
@@ -33,9 +35,9 @@ export function SettingsLayout() {
   const getPageTitle = () => {
     const category = getSettingsCategoryByPath(location.pathname);
     if (category) {
-      return getSettingsCategoryLabel(category);
+      return getSettingsViewTitle(category);
     }
-    return "Settings";
+    return getSettingsViewTitle("main");
   };
 
   if (isDesktop) {
@@ -62,7 +64,7 @@ export function SettingsLayout() {
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <AppBar position="static">
         <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-          <IconButton edge="start" color="inherit" onClick={() => navigate(-1)} aria-label="Go back">
+          <IconButton edge="start" color="inherit" onClick={() => navigate(-1)} aria-label={t("common.navigation.goBack")}>
             <ArrowBackIcon />
           </IconButton>
           <Typography variant="h6" component="h1" sx={{ ml: 2 }}>

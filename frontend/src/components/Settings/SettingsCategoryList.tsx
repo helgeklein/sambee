@@ -20,6 +20,7 @@ import {
   type TypographyProps,
 } from "@mui/material";
 import type { KeyboardEventHandler, Ref } from "react";
+import { useTranslation } from "react-i18next";
 import {
   getSettingsCategoryDescription,
   getSettingsCategoryLabel,
@@ -97,6 +98,8 @@ export function SettingsCategoryList({
   iconGlyphSx,
   primaryTypographyProps,
 }: SettingsCategoryListProps) {
+  useTranslation();
+
   return (
     <List sx={listSx} role={listRole} aria-label={listAriaLabel}>
       {sections.map((section) => (

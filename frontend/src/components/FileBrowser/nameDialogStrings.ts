@@ -7,16 +7,28 @@
  * Kept in one place in preparation for future translation / i18n.
  */
 
+import { translate } from "../../i18n";
+
 export const NAME_DIALOG_STRINGS = {
   // Validation messages (shared between rename and create)
-  VALIDATION_EMPTY: "Name must not be empty",
-  VALIDATION_INVALID_CHARS: "Name contains invalid characters",
-  VALIDATION_DOT_NAMES: "Name must not be '.' or '..'",
-  VALIDATION_TRAILING: "Name must not end with a space or period",
+  get VALIDATION_EMPTY() {
+    return translate("fileBrowser.nameDialog.validationEmpty");
+  },
+  get VALIDATION_INVALID_CHARS() {
+    return translate("fileBrowser.nameDialog.validationInvalidChars");
+  },
+  get VALIDATION_DOT_NAMES() {
+    return translate("fileBrowser.nameDialog.validationDotNames");
+  },
+  get VALIDATION_TRAILING() {
+    return translate("fileBrowser.nameDialog.validationTrailing");
+  },
 
   // Button labels
-  BUTTON_CANCEL: "Cancel",
-} as const;
+  get BUTTON_CANCEL() {
+    return translate("common.actions.cancel");
+  },
+};
 
 // Characters forbidden in SMB/NTFS file names
 export const INVALID_NAME_CHARS = /[\\/:*?"<>|]/;

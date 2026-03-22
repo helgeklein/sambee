@@ -2,6 +2,7 @@ import { Add as AddIcon } from "@mui/icons-material";
 import { Alert, AppBar, Box, Button, CircularProgress, Container, Paper, Snackbar, Toolbar, Typography } from "@mui/material";
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import ConnectionList from "../components/Admin/ConnectionList";
@@ -13,6 +14,7 @@ import { isAdminUser } from "../utils/userAccess";
 
 const AdminPanel: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -37,13 +39,13 @@ const AdminPanel: React.FC = () => {
     try {
       const user = await api.getCurrentUser();
       if (!isAdminUser(user)) {
-        showNotification("Access denied. Admin privileges required.", "error");
+        showNotification(t("settings.adminPanel.accessDenied"), "error");
         navigate("/browse");
       }
     } catch (_error) {
       navigate("/login");
     }
-  }, [navigate, showNotification]);
+  }, [navigate, showNotification, t]);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -51,12 +53,12 @@ const AdminPanel: React.FC = () => {
       const data = await api.getConnections();
       setConnections(data);
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to load connections");
+      const message = getApiErrorMessage(error, t("settings.adminPanel.notifications.loadFailed"));
       showNotification(message, "error");
     } finally {
       setLoading(false);
     }
-  }, [showNotification]);
+  }, [showNotification, t]);
 
   useEffect(() => {
     checkAuth();
@@ -84,7 +86,7 @@ const AdminPanel: React.FC = () => {
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to test connection");
+      const message = getApiErrorMessage(error, t("settings.adminPanel.notifications.testFailed"));
       showNotification(message, "error");
     } finally {
       setTesting(false);
@@ -96,14 +98,21 @@ const AdminPanel: React.FC = () => {
     if (savedConnection.scope !== requestedScope) {
       showNotification(
         savedConnection.scope === "private"
-          ? "Connection saved as private. Shared visibility requires admin access."
-          : `Connection ${selectedConnection ? "updated" : "created"} successfully`,
+          ? t("settings.connectionManagement.notifications.savedPrivateInfo")
+          : selectedConnection
+            ? t("settings.connectionManagement.notifications.updatedSuccess")
+            : t("settings.connectionManagement.notifications.createdSuccess"),
         savedConnection.scope === "private" ? "info" : "success"
       );
       return;
     }
 
-    showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
+    showNotification(
+      selectedConnection
+        ? t("settings.connectionManagement.notifications.updatedSuccess")
+        : t("settings.connectionManagement.notifications.createdSuccess"),
+      "success"
+    );
   };
 
   const handleDeleteConfirm = async () => {
@@ -114,9 +123,9 @@ const AdminPanel: React.FC = () => {
       setDeleteDialogOpen(false);
       setSelectedConnection(null);
       loadConnections();
-      showNotification("Connection deleted successfully", "success");
+      showNotification(t("settings.connectionManagement.notifications.deletedSuccess"), "success");
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to delete connection");
+      const message = getApiErrorMessage(error, t("settings.adminPanel.notifications.deleteFailed"));
       showNotification(message, "error");
     }
   };
@@ -130,10 +139,10 @@ const AdminPanel: React.FC = () => {
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Admin Panel - SMB Share Management
+            {t("settings.adminPanel.title")}
           </Typography>
           <Button color="inherit" startIcon={<AddIcon />} onClick={handleAddClick}>
-            Add Connection
+            {t("settings.connectionManagement.addConnectionButton")}
           </Button>
         </Toolbar>
       </AppBar>
@@ -156,8 +165,8 @@ const AdminPanel: React.FC = () => {
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={handleDeleteConfirm}
-        title="Delete Connection"
-        description="Are you sure you want to delete the connection"
+        title={t("settings.adminPanel.deleteDialogTitle")}
+        description={t("settings.adminPanel.deleteDialogDescription")}
         itemName={selectedConnection?.name ?? null}
       />
 

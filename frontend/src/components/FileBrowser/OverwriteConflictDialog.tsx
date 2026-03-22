@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fileNamePillSx } from "../../theme/commonStyles";
 import { type ConflictInfo, FileType } from "../../types";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
 import { OVERWRITE_CONFLICT_STRINGS as S } from "./overwriteConflictStrings";
 import { NoTransition } from "./transitions";
 
@@ -55,25 +56,25 @@ function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) return "—";
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  if (kb < 1024) return `${formatLocalizedNumber(kb, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} KB`;
   const mb = kb / 1024;
-  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  if (mb < 1024) return `${formatLocalizedNumber(mb, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
   const gb = mb / 1024;
-  return `${gb.toFixed(2)} GB`;
+  return `${formatLocalizedNumber(gb, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} GB`;
 }
 
-/** Format an ISO date string as DD.MM.YYYY, HH:MM:SS. */
+/** Format an ISO date string with the active application locale. */
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
-    const d = new Date(iso);
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, "0");
-    const minutes = String(d.getMinutes()).padStart(2, "0");
-    const seconds = String(d.getSeconds()).padStart(2, "0");
-    return `${day}.${month}.${year}, ${hours}:${minutes}:${seconds}`;
+    return formatLocalizedDateTime(iso, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
   } catch {
     return iso;
   }

@@ -1,3 +1,5 @@
+import { formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
+
 //
 // formatters
 //
@@ -15,7 +17,9 @@ export const formatFileSize = (bytes?: number): string => {
     size /= 1024;
     unitIndex++;
   }
-  return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+
+  const fractionDigits = unitIndex === 0 ? 0 : 1;
+  return `${formatLocalizedNumber(size, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits })} ${units[unitIndex]}`;
 };
 
 /**
@@ -23,8 +27,7 @@ export const formatFileSize = (bytes?: number): string => {
  */
 export const formatDate = (dateString?: string): string => {
   if (!dateString) return "";
-  const date = new Date(dateString);
-  return date.toLocaleString(undefined, {
+  return formatLocalizedDateTime(dateString, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

@@ -18,6 +18,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { translate } from "../i18n";
 import { log } from "../lib/logger";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
 import type { NativeApp } from "../types";
@@ -151,7 +152,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
     try {
       const selected = await openDialog({
-        title: "Browse for application",
+        title: translate("appPicker.browseDialogTitle"),
         multiple: false,
         directory: false,
       });
@@ -234,15 +235,15 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       includeDefaultPanelClass={false}
     >
       <h2 id={titleId} class="app-picker__header">
-        Choose an app to open this <span class="app-picker__extension">.{extension}</span> file
+        {translate("appPicker.title", { extension })}
       </h2>
 
-      {state.kind === "loading" && <div class="app-picker__loading">Loading available applications…</div>}
+      {state.kind === "loading" && <div class="app-picker__loading">{translate("appPicker.loading")}</div>}
 
       {state.kind === "error" && <div class="app-picker__error">{state.message}</div>}
 
       {state.kind === "loaded" && state.apps.length === 0 && (
-        <div class="app-picker__empty">No registered applications found for .{extension} files.</div>
+        <div class="app-picker__empty">{translate("appPicker.empty", { extension })}</div>
       )}
 
       {state.kind === "loaded" && state.apps.length > 0 && (
@@ -275,14 +276,18 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
                 }}
               >
                 {app.icon ? (
-                  <img class="app-picker__icon" src={`data:image/png;base64,${app.icon}`} alt={`${app.name} icon`} />
+                  <img
+                    class="app-picker__icon"
+                    src={`data:image/png;base64,${app.icon}`}
+                    alt={translate("appPicker.iconAlt", { appName: app.name })}
+                  />
                 ) : (
                   <div class="app-picker__icon-placeholder">📄</div>
                 )}
                 <div class="app-picker__info">
                   <span class="app-picker__name">
                     {app.name}
-                    {app.is_default && " (default)"}
+                    {app.is_default && ` ${translate("appPicker.defaultBadge")}`}
                   </span>
                   <span class="app-picker__path">{app.executable}</span>
                 </div>
@@ -292,18 +297,18 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
           <label class="app-picker__always-use">
             <input type="checkbox" checked={alwaysUse} onChange={(e) => setAlwaysUse((e.target as HTMLInputElement).checked)} />
-            Always use this app for .{extension} files
+            {translate("appPicker.alwaysUse", { extension })}
           </label>
         </>
       )}
 
       <div class="app-picker__actions">
         <button type="button" class="app-picker__browse-btn" onClick={handleBrowse} disabled={state.kind === "loading"}>
-          Browse for another app…
+          {translate("appPicker.browseButton")}
         </button>
         <div class="app-picker__btn-group">
           <button type="button" class="app-picker__btn" onClick={onCancel}>
-            Cancel
+            {translate("common.actions.cancel")}
           </button>
           <button
             type="button"
@@ -311,7 +316,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
             onClick={handleOpen}
             disabled={state.kind !== "loaded" || selectedIndex < 0}
           >
-            Open
+            {translate("common.actions.open")}
           </button>
         </div>
       </div>

@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { getSettingsCategoryByPath, getVisibleSettingsSections } from "../settingsNavigation";
+import { afterEach, describe, expect, it } from "vitest";
+import { setLocale } from "../../../i18n";
+import {
+  getSettingsCategoryByPath,
+  getSettingsCategoryLabel,
+  getSettingsViewTitle,
+  getVisibleSettingsSections,
+} from "../settingsNavigation";
 
 describe("settingsNavigation", () => {
+  afterEach(async () => {
+    await setLocale("en");
+  });
+
   it("returns the consolidated settings sections for regular users", () => {
     expect(getVisibleSettingsSections(false)).toEqual([
       {
@@ -40,5 +50,15 @@ describe("settingsNavigation", () => {
     expect(getSettingsCategoryByPath("/settings/smb-connections")).toBeNull();
     expect(getSettingsCategoryByPath("/settings/local-drives")).toBeNull();
     expect(getSettingsCategoryByPath("/settings/admin/advanced")).toBeNull();
+  });
+
+  it("returns translated labels when the locale changes", async () => {
+    expect(getSettingsCategoryLabel("preferences")).toBe("Preferences");
+    expect(getSettingsViewTitle("main")).toBe("Settings");
+
+    await setLocale("en-XA");
+
+    expect(getSettingsCategoryLabel("preferences")).toBe("[Ṕŕéƒéŕéńćéš]");
+    expect(getSettingsViewTitle("main")).toBe("[Šéťťíńğš]");
   });
 });

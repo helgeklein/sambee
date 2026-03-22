@@ -19,6 +19,6 @@
 - Search
 - Editing
 
-## Localization
+## All viewers
 
-- Make all UI strings translatable
+- Sharing (on mobile)

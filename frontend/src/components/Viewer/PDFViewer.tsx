@@ -1,9 +1,10 @@
 import { Alert, Box, CircularProgress, Dialog } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
-import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
@@ -60,6 +61,7 @@ interface PDFViewport {
  * Fetches PDFs via API with authentication headers, then creates blob URLs.
  */
 const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose }) => {
+  const { t } = useTranslation();
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<ZoomMode>("fit-page");
@@ -822,10 +824,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       },
       // Show help
       {
-        id: "show-help",
-        keys: ["?"],
-        label: "?",
-        description: "Show keyboard shortcuts",
+        ...BROWSER_SHORTCUTS.SHOW_HELP,
         handler: handleShowHelp,
       },
     ],
@@ -1076,7 +1075,12 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           )}
         </Box>
       </Box>
-      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={pdfShortcuts} title="PDF viewer shortcuts" />
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={pdfShortcuts}
+        title={t("keyboardShortcutsHelp.titles.pdfViewer")}
+      />
     </Dialog>
   );
 };

@@ -6,6 +6,7 @@ import ClearIcon from "@mui/icons-material/Clear";
 import SearchIcon from "@mui/icons-material/Search";
 import { IconButton, InputAdornment, Paper, TextField } from "@mui/material";
 import type React from "react";
+import { useTranslation } from "react-i18next";
 
 interface SearchBarProps {
   value: string;
@@ -28,6 +29,8 @@ interface SearchBarProps {
 // SearchBar
 //
 export function SearchBar({ value, onChange, inputRef, useCompactLayout = false, onBlurToFileList }: SearchBarProps) {
+  const { t } = useTranslation();
+
   //
   // handleKeyDown
   //
@@ -59,7 +62,7 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false,
       <TextField
         fullWidth
         size="small"
-        placeholder="Search"
+        placeholder={t("common.search.placeholder")}
         value={value}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -101,7 +104,7 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false,
                   minWidth: { xs: 44, sm: "auto" },
                   minHeight: { xs: 44, sm: "auto" },
                 }}
-                aria-label="Clear search"
+                aria-label={t("common.search.clear")}
               >
                 <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
               </IconButton>

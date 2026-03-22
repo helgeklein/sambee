@@ -2,7 +2,11 @@
  * Version and build information utilities
  */
 
+import { translate } from "../i18n";
 import { logger } from "../services/logger";
+import { formatLocalizedDateTime } from "./localeFormatting";
+
+const VERSION_FETCH_TIMEOUT_MS = 5_000;
 
 const VERSION_FETCH_TIMEOUT_MS = 5_000;
 
@@ -43,12 +47,11 @@ export async function fetchVersionInfo(): Promise<VersionInfo | null> {
  */
 export function formatBuildTime(buildTime: string): string {
   if (buildTime === "unknown") {
-    return "Unknown";
+    return translate("settings.shell.unknownValue");
   }
 
   try {
-    const date = new Date(buildTime);
-    return date.toLocaleString(undefined, {
+    return formatLocalizedDateTime(buildTime, {
       year: "numeric",
       month: "short",
       day: "numeric",

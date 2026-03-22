@@ -14,6 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import type React from "react";
+import { useTranslation } from "react-i18next";
 import type { Connection } from "../../types";
 
 interface ConnectionListProps {
@@ -25,10 +26,12 @@ interface ConnectionListProps {
 }
 
 const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, onDelete, onTest, loading = false }) => {
+  const { t } = useTranslation();
+
   if (loading) {
     return (
       <Box sx={{ p: 4, textAlign: "center" }}>
-        <Typography>Loading connections...</Typography>
+        <Typography>{t("fileBrowser.chrome.alerts.loadingConnections")}</Typography>
       </Box>
     );
   }
@@ -37,10 +40,10 @@ const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, on
     return (
       <Box sx={{ p: 4, textAlign: "center" }}>
         <Typography variant="h6" color="text.secondary">
-          No connections configured
+          {t("settings.connectionManagement.emptyTitle")}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Click "Add Connection" to create your first SMB share connection
+          {t("settings.connectionManagement.emptyAdminDescription")}
         </Typography>
       </Box>
     );
@@ -51,13 +54,13 @@ const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, on
       <Table>
         <TableHead>
           <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Host</TableCell>
-            <TableCell>Share Name</TableCell>
-            <TableCell>Username</TableCell>
-            <TableCell align="center">Port</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell align="right">Actions</TableCell>
+            <TableCell>{t("settings.connectionDialog.labels.name")}</TableCell>
+            <TableCell>{t("settings.connectionDialog.labels.host")}</TableCell>
+            <TableCell>{t("settings.connectionDialog.labels.shareName")}</TableCell>
+            <TableCell>{t("settings.connectionDialog.labels.username")}</TableCell>
+            <TableCell align="center">{t("settings.adminPanel.columns.port")}</TableCell>
+            <TableCell>{t("settings.adminPanel.columns.type")}</TableCell>
+            <TableCell align="right">{t("settings.adminPanel.columns.actions")}</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -74,18 +77,33 @@ const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, on
                 <Chip label={connection.type.toUpperCase()} size="small" />
               </TableCell>
               <TableCell align="right">
-                <Tooltip title="Test Connection">
-                  <IconButton size="small" onClick={() => onTest(connection)} color="primary">
+                <Tooltip title={t("settings.connectionManagement.tooltipTest")}>
+                  <IconButton
+                    size="small"
+                    onClick={() => onTest(connection)}
+                    color="primary"
+                    aria-label={t("settings.connectionManagement.ariaTest")}
+                  >
                     <TestIcon />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Edit">
-                  <IconButton size="small" onClick={() => onEdit(connection)} color="primary">
+                <Tooltip title={t("settings.connectionManagement.tooltipEdit")}>
+                  <IconButton
+                    size="small"
+                    onClick={() => onEdit(connection)}
+                    color="primary"
+                    aria-label={t("settings.connectionManagement.ariaEdit")}
+                  >
                     <EditIcon />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Delete">
-                  <IconButton size="small" onClick={() => onDelete(connection)} color="error">
+                <Tooltip title={t("settings.connectionManagement.tooltipDelete")}>
+                  <IconButton
+                    size="small"
+                    onClick={() => onDelete(connection)}
+                    color="error"
+                    aria-label={t("settings.connectionManagement.ariaDelete")}
+                  >
                     <DeleteIcon />
                   </IconButton>
                 </Tooltip>

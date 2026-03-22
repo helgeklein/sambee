@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../i18n";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { ThemeSelector, ThemeSelectorDialog } from "../ThemeSelector";
 
@@ -34,6 +35,10 @@ describe("ThemeSelector Component", () => {
   beforeEach(() => {
     localStorageMock.clear();
     vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await setLocale("en");
   });
 
   const renderWithProvider = (component: React.ReactElement) => {
@@ -75,6 +80,20 @@ describe("ThemeSelector Component", () => {
 
       // Tooltip should appear (MUI tooltips have a delay)
       await screen.findByText("Change theme", {}, { timeout: 2000 });
+    });
+
+    it("should use translated theme selector strings", async () => {
+      const user = userEvent.setup();
+      await setLocale("en-XA");
+
+      renderWithProvider(<ThemeSelector />);
+
+      const button = screen.getByRole("button", { name: "[Ćħåńğé ťħéḿé]" });
+      await user.click(button);
+
+      expect(screen.getByText("[Ćħóóšé Ťħéḿé]")).toBeInTheDocument();
+      expect(screen.getByText("[Šåḿƀéé ĺíğħť]")).toBeInTheDocument();
+      expect(screen.getByText("[Åṕṕĺíćåťíóń ďéƒåúĺť ĺíğħť ťħéḿé]")).toBeInTheDocument();
     });
   });
 

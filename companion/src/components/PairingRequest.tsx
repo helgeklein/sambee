@@ -1,4 +1,5 @@
 import "../styles/pairing-request.css";
+import { translate } from "../i18n";
 
 interface PairingRequestProps {
   origin: string;
@@ -14,32 +15,32 @@ export function PairingRequest({ origin, pairingCode, onConfirm, onReject, onClo
     <div class="pairing-request">
       <div class="pairing-request__header">
         <div>
-          <p class="pairing-request__eyebrow">Pair with Browser</p>
-          <h1 class="pairing-request__title">Confirm this pairing request</h1>
+          <p class="pairing-request__eyebrow">{translate("pairing.eyebrow")}</p>
+          <h1 class="pairing-request__title">{translate("pairing.title")}</h1>
         </div>
-        <button type="button" class="pairing-request__close-btn" onClick={onClose} title="Close">
+        <button type="button" class="pairing-request__close-btn" onClick={onClose} title={translate("pairing.closeTitle")}>
           ✕
         </button>
       </div>
 
-      <p class="pairing-request__body">Sambee in the browser wants to pair with this companion instance.</p>
+      <p class="pairing-request__body">{translate("pairing.body")}</p>
 
       <div class="pairing-request__panel">
-        <span class="pairing-request__label">Requesting origin</span>
+        <span class="pairing-request__label">{translate("pairing.labels.requestingOrigin")}</span>
         <div class="pairing-request__origin">{origin}</div>
 
-        <span class="pairing-request__label">Verification code</span>
+        <span class="pairing-request__label">{translate("pairing.labels.verificationCode")}</span>
         <div class="pairing-request__code">{pairingCode}</div>
       </div>
 
-      <p class="pairing-request__hint">Approve only if the same code is visible in the Sambee pairing dialog.</p>
+      <p class="pairing-request__hint">{translate("pairing.hint")}</p>
 
       <div class="pairing-request__actions">
         <button type="button" class="pairing-request__secondary-btn" onClick={onReject}>
-          Reject
+          {translate("pairing.actions.reject")}
         </button>
         <button type="button" class="pairing-request__primary-btn" onClick={onConfirm}>
-          Codes Match
+          {translate("pairing.actions.codesMatch")}
         </button>
       </div>
     </div>

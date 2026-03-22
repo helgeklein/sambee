@@ -1,10 +1,28 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../../i18n";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import { ViewModeSelector } from "../ViewModeSelector";
 
 describe("ViewModeSelector", () => {
+  afterEach(async () => {
+    await setLocale("en");
+  });
+
+  it("uses translated view mode strings", async () => {
+    await setLocale("en-XA");
+
+    render(
+      <SambeeThemeProvider>
+        <ViewModeSelector viewMode="details" onViewModeChange={vi.fn()} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByRole("button", { name: "[Ṽíéŵ ḿóďé óṕťíóńš]" })).toBeInTheDocument();
+    expect(screen.getByText("[Ďéťåíĺš]")).toBeInTheDocument();
+  });
+
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],

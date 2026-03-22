@@ -1,10 +1,28 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../../i18n";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import { SortControls } from "../SortControls";
 
 describe("SortControls", () => {
+  afterEach(async () => {
+    await setLocale("en");
+  });
+
+  it("uses translated sort labels", async () => {
+    await setLocale("en-XA");
+
+    render(
+      <SambeeThemeProvider>
+        <SortControls sortBy="size" onSortChange={vi.fn()} sortDirection="desc" onDirectionChange={vi.fn()} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByRole("button", { name: "[Šóŕť óṕťíóńš]" })).toBeInTheDocument();
+    expect(screen.getByText("[Šížé]")).toBeInTheDocument();
+  });
+
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],

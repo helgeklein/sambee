@@ -20,13 +20,6 @@
 import type React from "react";
 
 // ============================================================================
-// Constants
-// ============================================================================
-
-/** Shared placeholder text for directory search inputs */
-export const DIRECTORY_SEARCH_PLACEHOLDER = "Navigate to any directory";
-
-// ============================================================================
 // Result types
 // ============================================================================
 
@@ -62,6 +55,9 @@ export interface SearchSelectionBehavior {
 export interface SearchProvider {
   /** Unique identifier for this provider */
   id: string;
+
+  /** Stable mode identifier used for UI logic without coupling to translated labels. */
+  modeId?: string;
 
   /** Short visible label for the current quick-bar mode. */
   modeLabel?: string;

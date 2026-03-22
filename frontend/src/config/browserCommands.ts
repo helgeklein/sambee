@@ -1,4 +1,5 @@
 import type { KeyboardShortcut } from "../hooks/useKeyboardShortcuts";
+import { translate } from "../i18n";
 
 export interface BrowserCommandContext {
   isDualMode: boolean;
@@ -45,16 +46,29 @@ export interface BrowserCommandDefinition {
   run: (context: BrowserCommandContext) => void;
 }
 
-function createCommand(definition: BrowserCommandDefinition): BrowserCommandDefinition {
+interface BrowserCommandTemplate {
+  id: string;
+  titleKey: string;
+  categoryKey: string;
+  descriptionKey?: string;
+  keywords?: string[];
+  defaultShortcutIds?: string[];
+  shortcutLabel?: string;
+  selectionFocusTarget?: "file-list" | "quick-bar" | "none";
+  isEnabled: (context: BrowserCommandContext) => boolean;
+  run: (context: BrowserCommandContext) => void;
+}
+
+function createCommand(definition: BrowserCommandTemplate): BrowserCommandTemplate {
   return definition;
 }
 
-export const BROWSER_COMMANDS = [
+const BROWSER_COMMANDS = [
   createCommand({
     id: "browser.quickNav",
-    title: "Open Smart Navigation",
-    category: "Navigation",
-    description: "Jump to directories from the smart navigation bar",
+    titleKey: "fileBrowser.commands.items.quickNav.title",
+    categoryKey: "fileBrowser.commands.categories.navigation",
+    descriptionKey: "fileBrowser.commands.items.quickNav.description",
     keywords: ["smart", "navigation", "directory", "jump", "path"],
     defaultShortcutIds: ["quick-navigate"],
     shortcutLabel: "Ctrl+K",
@@ -64,9 +78,9 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.filterCurrentDirectory",
-    title: "Filter Current Directory",
-    category: "Navigation",
-    description: "Filter the active pane's file list",
+    titleKey: "fileBrowser.commands.items.filterCurrentDirectory.title",
+    categoryKey: "fileBrowser.commands.categories.navigation",
+    descriptionKey: "fileBrowser.commands.items.filterCurrentDirectory.description",
     keywords: ["filter", "find", "current", "directory", "files"],
     defaultShortcutIds: ["filter-current-directory"],
     shortcutLabel: "Ctrl+Alt+F",
@@ -76,9 +90,9 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.commandPalette",
-    title: "Show Commands",
-    category: "Navigation",
-    description: "Open the file browser command palette",
+    titleKey: "fileBrowser.commands.items.commandPalette.title",
+    categoryKey: "fileBrowser.commands.categories.navigation",
+    descriptionKey: "fileBrowser.commands.items.commandPalette.description",
     keywords: ["command", "palette", "actions", "f1", ">"],
     defaultShortcutIds: ["command-palette", "command-palette-alternate"],
     shortcutLabel: "Ctrl+P / F1",
@@ -88,8 +102,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.open",
-    title: "Open Focused Item",
-    category: "Files",
+    titleKey: "fileBrowser.commands.items.open.title",
+    categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["open", "enter"],
     defaultShortcutIds: ["open"],
     shortcutLabel: "Enter",
@@ -98,8 +112,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.navigateUp",
-    title: "Go Up One Directory",
-    category: "Navigation",
+    titleKey: "fileBrowser.commands.items.navigateUp.title",
+    categoryKey: "fileBrowser.commands.categories.navigation",
     keywords: ["parent", "up", "backspace"],
     defaultShortcutIds: ["navigate-up"],
     shortcutLabel: "Backspace",
@@ -108,8 +122,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.refresh",
-    title: "Refresh File List",
-    category: "View",
+    titleKey: "fileBrowser.commands.items.refresh.title",
+    categoryKey: "fileBrowser.commands.categories.view",
     keywords: ["reload", "refresh"],
     defaultShortcutIds: ["refresh"],
     shortcutLabel: "Ctrl+R",
@@ -118,8 +132,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.rename",
-    title: "Rename Focused Item",
-    category: "Files",
+    titleKey: "fileBrowser.commands.items.rename.title",
+    categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["rename", "f2"],
     defaultShortcutIds: ["rename-item"],
     shortcutLabel: "F2",
@@ -128,8 +142,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.delete",
-    title: "Delete Focused Item",
-    category: "Files",
+    titleKey: "fileBrowser.commands.items.delete.title",
+    categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["delete", "remove", "del"],
     defaultShortcutIds: ["delete-item"],
     shortcutLabel: "Del",
@@ -138,8 +152,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.newDirectory",
-    title: "Create New Directory",
-    category: "Files",
+    titleKey: "fileBrowser.commands.items.newDirectory.title",
+    categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["mkdir", "folder", "directory"],
     defaultShortcutIds: ["new-directory"],
     shortcutLabel: "F7",
@@ -148,8 +162,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.newFile",
-    title: "Create New File",
-    category: "Files",
+    titleKey: "fileBrowser.commands.items.newFile.title",
+    categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["file", "create"],
     defaultShortcutIds: ["new-file"],
     shortcutLabel: "Shift+F7",
@@ -158,8 +172,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.openInApp",
-    title: "Open Focused File In Companion App",
-    category: "Files",
+    titleKey: "fileBrowser.commands.items.openInApp.title",
+    categoryKey: "fileBrowser.commands.categories.files",
     keywords: ["companion", "open in app", "ctrl enter"],
     defaultShortcutIds: ["open-in-app"],
     shortcutLabel: "Ctrl+Enter",
@@ -168,8 +182,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.toggleDualPane",
-    title: "Toggle Dual-Pane View",
-    category: "Panes",
+    titleKey: "fileBrowser.commands.items.toggleDualPane.title",
+    categoryKey: "fileBrowser.commands.categories.panes",
     keywords: ["dual", "pane", "layout"],
     defaultShortcutIds: ["toggle-dual-pane"],
     shortcutLabel: "Ctrl+B",
@@ -178,8 +192,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.focusLeftPane",
-    title: "Focus Left Pane",
-    category: "Panes",
+    titleKey: "fileBrowser.commands.items.focusLeftPane.title",
+    categoryKey: "fileBrowser.commands.categories.panes",
     keywords: ["left", "pane", "focus"],
     defaultShortcutIds: ["focus-left-pane"],
     shortcutLabel: "Ctrl+1",
@@ -188,8 +202,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.focusRightPane",
-    title: "Focus Right Pane",
-    category: "Panes",
+    titleKey: "fileBrowser.commands.items.focusRightPane.title",
+    categoryKey: "fileBrowser.commands.categories.panes",
     keywords: ["right", "pane", "focus"],
     defaultShortcutIds: ["focus-right-pane"],
     shortcutLabel: "Ctrl+2",
@@ -198,8 +212,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.switchPane",
-    title: "Switch Active Pane",
-    category: "Panes",
+    titleKey: "fileBrowser.commands.items.switchPane.title",
+    categoryKey: "fileBrowser.commands.categories.panes",
     keywords: ["tab", "pane", "switch"],
     defaultShortcutIds: ["switch-pane"],
     shortcutLabel: "Tab",
@@ -208,8 +222,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.copyToOtherPane",
-    title: "Copy To Other Pane",
-    category: "Panes",
+    titleKey: "fileBrowser.commands.items.copyToOtherPane.title",
+    categoryKey: "fileBrowser.commands.categories.panes",
     keywords: ["copy", "f5"],
     defaultShortcutIds: ["copy-to-other"],
     shortcutLabel: "F5",
@@ -218,8 +232,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.moveToOtherPane",
-    title: "Move To Other Pane",
-    category: "Panes",
+    titleKey: "fileBrowser.commands.items.moveToOtherPane.title",
+    categoryKey: "fileBrowser.commands.categories.panes",
     keywords: ["move", "f6"],
     defaultShortcutIds: ["move-to-other"],
     shortcutLabel: "F6",
@@ -228,8 +242,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.openSettings",
-    title: "Open Settings",
-    category: "Settings",
+    titleKey: "fileBrowser.commands.items.openSettings.title",
+    categoryKey: "fileBrowser.commands.categories.settings",
     keywords: ["settings", "preferences", "config"],
     defaultShortcutIds: ["open-settings"],
     shortcutLabel: "Ctrl+,",
@@ -239,8 +253,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.openConnectionsSettings",
-    title: "Open Connections Settings",
-    category: "Settings",
+    titleKey: "fileBrowser.commands.items.openConnectionsSettings.title",
+    categoryKey: "fileBrowser.commands.categories.settings",
     keywords: ["connections", "connection settings", "shares", "companion", "local drive", "drives"],
     selectionFocusTarget: "none",
     isEnabled: () => true,
@@ -248,8 +262,8 @@ export const BROWSER_COMMANDS = [
   }),
   createCommand({
     id: "browser.showHelp",
-    title: "Show Keyboard Shortcuts",
-    category: "Help",
+    titleKey: "fileBrowser.commands.items.showHelp.title",
+    categoryKey: "fileBrowser.commands.categories.help",
     keywords: ["help", "shortcuts", "keyboard", "?"],
     defaultShortcutIds: ["show-help"],
     shortcutLabel: "?",
@@ -257,13 +271,28 @@ export const BROWSER_COMMANDS = [
     isEnabled: () => true,
     run: (context) => context.openHelp(),
   }),
-] as const satisfies readonly BrowserCommandDefinition[];
+] as const satisfies readonly BrowserCommandTemplate[];
 
-export function getEnabledBrowserCommands(context: BrowserCommandContext): BrowserCommandDefinition[] {
-  return BROWSER_COMMANDS.filter((command) => command.isEnabled(context));
+function localizeCommand(definition: BrowserCommandTemplate): BrowserCommandDefinition {
+  return {
+    id: definition.id,
+    title: translate(definition.titleKey),
+    category: translate(definition.categoryKey),
+    description: definition.descriptionKey ? translate(definition.descriptionKey) : undefined,
+    keywords: definition.keywords,
+    defaultShortcutIds: definition.defaultShortcutIds,
+    shortcutLabel: definition.shortcutLabel,
+    selectionFocusTarget: definition.selectionFocusTarget,
+    isEnabled: definition.isEnabled,
+    run: definition.run,
+  };
 }
 
-export type BrowserCommand = (typeof BROWSER_COMMANDS)[number];
+export function getEnabledBrowserCommands(context: BrowserCommandContext): BrowserCommandDefinition[] {
+  return BROWSER_COMMANDS.filter((command) => command.isEnabled(context)).map(localizeCommand);
+}
+
+export type BrowserCommand = BrowserCommandDefinition;
 
 export function toShortcutMap(shortcuts: KeyboardShortcut[]): Map<string, string> {
   const map = new Map<string, string>();

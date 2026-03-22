@@ -5,6 +5,7 @@
 import CloseIcon from "@mui/icons-material/Close";
 import { Box, Dialog, Divider, IconButton, Typography } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
@@ -32,6 +33,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
   const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>(initialCategory);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const { isAdmin } = useSettingsAccess(open);
+  const { t } = useTranslation();
 
   // Refs for category list items (for arrow key navigation and initial focus)
   const categoryRefs = useRef<Partial<Record<SettingsCategory, HTMLDivElement | null>>>({});
@@ -109,7 +111,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
       <IconButton
         onClick={onClose}
         size="small"
-        aria-label="Close settings"
+        aria-label={t("settings.shell.closeAriaLabel")}
         sx={{
           position: "absolute",
           right: 8,
@@ -134,7 +136,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
         >
           <Box sx={{ p: 2 }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              Settings
+              {t("settings.shell.title")}
             </Typography>
           </Box>
           <Divider sx={{ mb: 2 }} />
@@ -144,7 +146,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
             selectedCategory={selectedCategory}
             listSx={{ flex: 1, py: 0 }}
             listRole="listbox"
-            listAriaLabel="Settings categories"
+            listAriaLabel={t("settings.shell.categoriesAriaLabel")}
             sectionSx={{ mb: 1 }}
             subheaderSx={{ bgcolor: "transparent", lineHeight: 2.5, textTransform: "uppercase", letterSpacing: 0.8 }}
             wrapItemsInListItem
@@ -167,13 +169,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
               <Divider />
               <Box sx={{ p: 2, pt: 1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  Version: {versionInfo.version}
+                  {t("settings.shell.versionLabel")}: {versionInfo.version}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-                  Build: {versionInfo.build_time}
+                  {t("settings.shell.buildLabel")}: {versionInfo.build_time}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                  Commit: {versionInfo.git_commit.substring(0, 7)}
+                  {t("settings.shell.commitLabel")}: {versionInfo.git_commit.substring(0, 7)}
                 </Typography>
               </Box>
             </>

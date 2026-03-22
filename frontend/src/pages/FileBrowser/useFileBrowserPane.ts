@@ -28,6 +28,7 @@ import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
 import { FileType, isApiError } from "../../types";
 import { hasViewerSupport, isImageFile } from "../../utils/FileTypeRegistry";
+import { compareLocalizedStrings } from "../../utils/localeFormatting";
 import {
   useFileBrowserViewModePreference,
   useQuickNavIncludeDotDirectoriesPreference,
@@ -449,7 +450,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       let comparison = 0;
       switch (sortBy) {
         case "name":
-          comparison = a.name.localeCompare(b.name);
+          comparison = compareLocalizedStrings(a.name, b.name);
           break;
         case "size":
           comparison = (a.size || 0) - (b.size || 0);
@@ -463,9 +464,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         case "type": {
           const extA = a.name.includes(".") ? a.name.split(".").pop()?.toLowerCase() || "" : "";
           const extB = b.name.includes(".") ? b.name.split(".").pop()?.toLowerCase() || "" : "";
-          comparison = extA.localeCompare(extB);
+          comparison = compareLocalizedStrings(extA, extB);
           if (comparison === 0) {
-            comparison = a.name.localeCompare(b.name);
+            comparison = compareLocalizedStrings(a.name, b.name);
           }
           break;
         }

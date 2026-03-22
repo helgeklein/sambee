@@ -8,18 +8,32 @@
  * Kept in one place in preparation for future translation / i18n.
  */
 
+import { translate } from "../../i18n";
+
 export const RENAME_DIALOG_STRINGS = {
   // Dialog titles
-  TITLE_FILE: "Rename file",
-  TITLE_DIRECTORY: "Rename directory",
+  get TITLE_FILE() {
+    return translate("fileBrowser.rename.titleFile");
+  },
+  get TITLE_DIRECTORY() {
+    return translate("fileBrowser.rename.titleDirectory");
+  },
 
   // Input label
-  INPUT_LABEL: "New name",
+  get INPUT_LABEL() {
+    return translate("fileBrowser.rename.inputLabel");
+  },
 
   // Rename-specific validation
-  VALIDATION_SAME: "Name is unchanged",
+  get VALIDATION_SAME() {
+    return translate("fileBrowser.rename.validationSame");
+  },
 
   // Button labels
-  BUTTON_RENAME: "Rename",
-  BUTTON_RENAMING: "Renaming…",
-} as const;
+  get BUTTON_RENAME() {
+    return translate("common.actions.rename");
+  },
+  get BUTTON_RENAMING() {
+    return translate("fileBrowser.rename.buttonRenaming");
+  },
+};

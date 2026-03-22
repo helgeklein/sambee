@@ -4,6 +4,7 @@ import { Box, Button, Divider, Menu, MenuItem, Typography } from "@mui/material"
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import { pillButtonStyle } from "../../theme/commonStyles";
+import { VIEW_MODE_SELECTOR_STRINGS } from "./viewModeSelectorStrings";
 
 interface ViewModeSelectorProps {
   viewMode: ViewMode;
@@ -12,11 +13,6 @@ interface ViewModeSelectorProps {
   /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
   disableTabFocus?: boolean;
 }
-
-const VIEW_MODE_LABELS: Record<ViewMode, string> = {
-  list: "List",
-  details: "Details",
-};
 
 //
 // ViewModeSelector
@@ -31,7 +27,7 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
     handleClose();
   };
 
-  const currentLabel = VIEW_MODE_LABELS[viewMode];
+  const currentLabel = VIEW_MODE_SELECTOR_STRINGS.optionLabel(viewMode);
   const icon =
     viewMode === "list" ? <ViewList fontSize="small" sx={{ display: "flex" }} /> : <ViewModule fontSize="small" sx={{ display: "flex" }} />;
 
@@ -48,7 +44,7 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
           color: "text.secondary",
           px: 2,
         }}
-        aria-label="View mode options"
+        aria-label={VIEW_MODE_SELECTOR_STRINGS.ARIA_LABEL}
         aria-controls={open ? "view-mode-menu" : undefined}
         aria-haspopup="true"
         aria-expanded={open ? "true" : undefined}
@@ -83,12 +79,12 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
       >
         <MenuItem onClick={() => handleModeChange("list")} selected={viewMode === "list"} sx={{ display: "flex", gap: 1 }}>
           <ViewList fontSize="small" sx={{ display: "flex" }} />
-          List
+          {VIEW_MODE_SELECTOR_STRINGS.optionLabel("list")}
         </MenuItem>
         <Divider />
         <MenuItem onClick={() => handleModeChange("details")} selected={viewMode === "details"} sx={{ display: "flex", gap: 1 }}>
           <ViewModule fontSize="small" sx={{ display: "flex" }} />
-          Details
+          {VIEW_MODE_SELECTOR_STRINGS.optionLabel("details")}
         </MenuItem>
       </Menu>
     </Box>

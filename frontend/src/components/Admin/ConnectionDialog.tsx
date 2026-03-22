@@ -17,6 +17,7 @@ import {
 } from "@mui/material";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import api from "../../services/api";
 import type { Connection, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
@@ -31,27 +32,30 @@ interface ConnectionDialogProps {
   connection?: Connection | null;
 }
 
-const FALLBACK_VISIBILITY_OPTIONS: ConnectionVisibilityOption[] = [
-  {
-    value: "private",
-    label: "Private to me",
-    description: "Visible only to your account. You can fully manage it.",
-    available: true,
-    unavailable_reason: null,
-  },
-  {
-    value: "shared",
-    label: "Shared with everyone",
-    description: "Visible to all users. Only admins can manage it.",
-    available: true,
-    unavailable_reason: null,
-  },
-];
+function getFallbackVisibilityOptions(t: (key: string) => string): ConnectionVisibilityOption[] {
+  return [
+    {
+      value: "private",
+      label: t("settings.connectionDialog.visibility.privateLabel"),
+      description: t("settings.connectionDialog.visibility.privateDescription"),
+      available: true,
+      unavailable_reason: null,
+    },
+    {
+      value: "shared",
+      label: t("settings.connectionDialog.visibility.sharedLabel"),
+      description: t("settings.connectionDialog.visibility.sharedDescription"),
+      available: true,
+      unavailable_reason: null,
+    },
+  ];
+}
 
 const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSave, connection }) => {
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<ConnectionCreate>({
     name: "",
     type: "smb",
@@ -72,7 +76,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [visibilityOptions, setVisibilityOptions] = useState<ConnectionVisibilityOption[]>(FALLBACK_VISIBILITY_OPTIONS);
+  const [visibilityOptions, setVisibilityOptions] = useState<ConnectionVisibilityOption[]>(() => getFallbackVisibilityOptions(t));
 
   useEffect(() => {
     let isCancelled = false;
@@ -107,14 +111,14 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       })
       .catch(() => {
         if (!isCancelled) {
-          setVisibilityOptions(FALLBACK_VISIBILITY_OPTIONS);
+          setVisibilityOptions(getFallbackVisibilityOptions(t));
         }
       });
 
     return () => {
       isCancelled = true;
     };
-  }, [connection, formData.scope, open]);
+  }, [connection, formData.scope, open, t]);
 
   useEffect(() => {
     if (connection) {
@@ -203,7 +207,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         setTestResult(result as { status: "success" | "error"; message: string });
       }
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to test connection");
+      const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.testFailed"));
       setTestResult({
         status: "error",
         message,
@@ -240,7 +244,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       onSave(savedConnection, formData.scope);
       onClose();
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to save connection");
+      const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.saveFailed"));
       setTestResult({
         status: "error",
         message,
@@ -351,7 +355,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
       />
 
       <FormControl fullWidth variant="filled">
-        <InputLabel id="connection-scope-label">Visibility</InputLabel>
+        <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
         <Select
           labelId="connection-scope-label"
           value={formData.scope}

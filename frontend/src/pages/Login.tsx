@@ -1,12 +1,14 @@
 import { Alert, Box, Button, Container, Paper, TextField, Typography } from "@mui/material";
 import type React from "react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { login } from "../services/api";
 import { isAuthRequired } from "../services/authConfig";
 import { logger } from "../services/logger";
 
 const Login: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -48,7 +50,7 @@ const Login: React.FC = () => {
 
       navigate("/browse");
     } catch (_err) {
-      setError("Invalid username or password");
+      setError(t("auth.login.invalidCredentials"));
     }
   };
 
@@ -64,7 +66,7 @@ const Login: React.FC = () => {
             alignItems: "center",
           }}
         >
-          <Typography>Loading...</Typography>
+          <Typography>{t("app.loading")}</Typography>
         </Box>
       </Container>
     );
@@ -82,7 +84,7 @@ const Login: React.FC = () => {
       >
         <Paper elevation={3} sx={{ p: 4, width: "100%" }}>
           <Typography component="h1" variant="h5" align="center" gutterBottom>
-            Sambee Login
+            {t("auth.login.title")}
           </Typography>
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
@@ -94,7 +96,7 @@ const Login: React.FC = () => {
               margin="normal"
               required
               fullWidth
-              label="Username"
+              label={t("auth.login.usernameLabel")}
               autoComplete="username"
               autoFocus
               value={username}
@@ -104,14 +106,14 @@ const Login: React.FC = () => {
               margin="normal"
               required
               fullWidth
-              label="Password"
+              label={t("auth.login.passwordLabel")}
               type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
             <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
-              Sign In
+              {t("auth.login.submit")}
             </Button>
           </form>
         </Paper>

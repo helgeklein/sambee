@@ -22,6 +22,7 @@
 import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
@@ -50,6 +51,7 @@ import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
+import { compareLocalizedStrings } from "../utils/localeFormatting";
 import { isAdminUser } from "../utils/userAccess";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
@@ -88,6 +90,7 @@ const Browser: React.FC = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const theme = useTheme();
+  const { t } = useTranslation();
 
   // ──────────────────────────────────────────────────────────────────────────
   // Responsive Design
@@ -1177,8 +1180,9 @@ const Browser: React.FC = () => {
   const filterInputProvider = useMemo(
     () => ({
       id: "current-directory-filter-input",
-      modeLabel: "Filter",
-      placeholder: "Filter files in the current directory",
+      modeId: "filter",
+      modeLabel: t("fileBrowser.search.modes.filter"),
+      placeholder: t("fileBrowser.search.placeholders.filterCurrentDirectory"),
       debounceMs: 0,
       minQueryLength: 0,
       fetchResults: async () => [],
@@ -1186,7 +1190,7 @@ const Browser: React.FC = () => {
       getStatusInfo: () => null,
       shortcutHint: BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY.label,
     }),
-    []
+    [t]
   );
 
   const quickBarProvider = useMemo(() => {
@@ -1554,7 +1558,7 @@ const Browser: React.FC = () => {
 
       // Left pane's connection removed or no selection - select first alphabetically
       if (availableConnections.length > 0) {
-        const sortedByName = [...availableConnections].sort((a, b) => a.name.localeCompare(b.name));
+        const sortedByName = [...availableConnections].sort((a, b) => compareLocalizedStrings(a.name, b.name));
         const firstConnection = sortedByName[0];
         if (firstConnection) {
           navigateToBrowseState(
@@ -1793,7 +1797,7 @@ const Browser: React.FC = () => {
         open={showHelp}
         onClose={() => setShowHelp(false)}
         shortcuts={browserShortcuts}
-        title="File browser shortcuts"
+        title={t("keyboardShortcutsHelp.titles.fileBrowser")}
       />
       {/* Companion app guidance hint */}
       <Snackbar

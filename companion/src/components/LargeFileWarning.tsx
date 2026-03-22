@@ -13,6 +13,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
+import { translate } from "../i18n";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,23 +88,20 @@ export function LargeFileWarning({ info, onResolved }: LargeFileWarningProps) {
   return (
     <ModalDialog role="alertdialog" titleId="large-file-title">
       <h2 id="large-file-title" class="dialog-title dialog-title--warning">
-        ⚠ Large File
+        {translate("largeFileWarning.title")}
       </h2>
       <p class="dialog-subtitle">{info.filename}</p>
 
       <div class="dialog-body">
-        <p>
-          This file is <strong>{info.size_mb} MB</strong> (limit: {info.limit_mb} MB). Downloading and syncing large files may be slow and
-          use significant disk space.
-        </p>
+        <p>{translate("largeFileWarning.body", { sizeMb: info.size_mb, limitMb: info.limit_mb })}</p>
       </div>
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleContinue} disabled={loading}>
-          Continue Anyway
+          {translate("largeFileWarning.actions.continue")}
         </button>
         <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleCancel} disabled={loading}>
-          Cancel
+          {translate("largeFileWarning.actions.cancel")}
         </button>
       </div>
 

@@ -1,4 +1,5 @@
 import type { KeyboardShortcut } from "../hooks/useKeyboardShortcuts";
+import { translate } from "../i18n";
 
 /**
  * Centralized keyboard shortcut definitions for all viewers
@@ -21,20 +22,26 @@ export const COMMON_SHORTCUTS = {
   OPEN: {
     id: "open",
     keys: "Enter",
-    description: "Open",
+    get description() {
+      return translate("viewer.shortcuts.open");
+    },
     label: "Enter",
   },
   CLOSE: {
     id: "close",
     keys: "Escape",
-    description: "Close",
+    get description() {
+      return translate("viewer.shortcuts.close");
+    },
     label: "Esc",
     allowInInput: true,
   },
   DOWNLOAD: {
     id: "download",
     keys: "d",
-    description: "Download",
+    get description() {
+      return translate("viewer.shortcuts.download");
+    },
     label: "D",
   },
 
@@ -44,7 +51,9 @@ export const COMMON_SHORTCUTS = {
   SEARCH: {
     id: "search",
     keys: "f",
-    description: "Search",
+    get description() {
+      return translate("viewer.shortcuts.search");
+    },
     label: "Ctrl+F",
     ctrl: true,
     allowInInput: true,
@@ -52,14 +61,18 @@ export const COMMON_SHORTCUTS = {
   NEXT_MATCH: {
     id: "next-match",
     keys: "F3",
-    description: "Next match",
+    get description() {
+      return translate("viewer.shortcuts.nextMatch");
+    },
     label: "F3",
     allowInInput: true,
   },
   PREVIOUS_MATCH: {
     id: "previous-match",
     keys: "F3",
-    description: "Previous match",
+    get description() {
+      return translate("viewer.shortcuts.previousMatch");
+    },
     label: "Shift+F3",
     shift: true,
     allowInInput: true,
@@ -71,25 +84,33 @@ export const COMMON_SHORTCUTS = {
   FIRST_PAGE: {
     id: "first-page",
     keys: "Home",
-    description: "First page",
+    get description() {
+      return translate("viewer.shortcuts.firstPage");
+    },
     label: "Home",
   },
   LAST_PAGE: {
     id: "last-page",
     keys: "End",
-    description: "Last page",
+    get description() {
+      return translate("viewer.shortcuts.lastPage");
+    },
     label: "End",
   },
   PAGE_DOWN: {
     id: "page-down",
     keys: "PageDown",
-    description: "Next page",
+    get description() {
+      return translate("viewer.shortcuts.nextPage");
+    },
     label: "Page Down",
   },
   PAGE_UP: {
     id: "page-up",
     keys: "PageUp",
-    description: "Previous page",
+    get description() {
+      return translate("viewer.shortcuts.previousPage");
+    },
     label: "Page Up",
   },
 
@@ -99,13 +120,17 @@ export const COMMON_SHORTCUTS = {
   NEXT_ARROW: {
     id: "next-arrow",
     keys: "ArrowRight",
-    description: "Next",
+    get description() {
+      return translate("viewer.shortcuts.next");
+    },
     label: "Right",
   },
   PREVIOUS_ARROW: {
     id: "previous-arrow",
     keys: "ArrowLeft",
-    description: "Previous",
+    get description() {
+      return translate("viewer.shortcuts.previous");
+    },
     label: "Left",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -120,19 +145,25 @@ export const VIEWER_SHORTCUTS = {
   ZOOM_IN: {
     id: "zoom-in",
     keys: ["+"],
-    description: "Zoom in",
+    get description() {
+      return translate("viewer.shortcuts.zoomIn");
+    },
     label: "+",
   },
   ZOOM_OUT: {
     id: "zoom-out",
     keys: ["-"],
-    description: "Zoom out",
+    get description() {
+      return translate("viewer.shortcuts.zoomOut");
+    },
     label: "-",
   },
   ZOOM_RESET: {
     id: "zoom-reset",
     keys: "0",
-    description: "Reset zoom",
+    get description() {
+      return translate("viewer.shortcuts.resetZoom");
+    },
     label: "0",
   },
 
@@ -142,13 +173,17 @@ export const VIEWER_SHORTCUTS = {
   ROTATE_RIGHT: {
     id: "rotate-right",
     keys: "r",
-    description: "Rotate right",
+    get description() {
+      return translate("viewer.shortcuts.rotateRight");
+    },
     label: "R",
   },
   ROTATE_LEFT: {
     id: "rotate-left",
     keys: "R",
-    description: "Rotate left",
+    get description() {
+      return translate("viewer.shortcuts.rotateLeft");
+    },
     label: "Shift+R",
   },
 
@@ -158,7 +193,9 @@ export const VIEWER_SHORTCUTS = {
   FULLSCREEN: {
     id: "fullscreen",
     keys: ["f", "F"],
-    description: "Toggle fullscreen",
+    get description() {
+      return translate("viewer.shortcuts.toggleFullscreen");
+    },
     label: "F",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -173,19 +210,25 @@ export const BROWSER_SHORTCUTS = {
   NAVIGATE_UP: {
     id: "navigate-up",
     keys: "Backspace",
-    description: "Go up one directory",
+    get description() {
+      return translate("fileBrowser.shortcuts.navigateUp");
+    },
     label: "Backspace",
   },
   ARROW_DOWN: {
     id: "arrow-down",
     keys: "ArrowDown",
-    description: "Navigate down",
+    get description() {
+      return translate("fileBrowser.shortcuts.navigateDown");
+    },
     label: "Down",
   },
   ARROW_UP: {
     id: "arrow-up",
     keys: "ArrowUp",
-    description: "Navigate up",
+    get description() {
+      return translate("fileBrowser.shortcuts.navigateUpRow");
+    },
     label: "Up",
   },
 
@@ -195,7 +238,9 @@ export const BROWSER_SHORTCUTS = {
   QUICK_NAVIGATE: {
     id: "quick-navigate",
     keys: "k",
-    description: "Open smart navigation",
+    get description() {
+      return translate("fileBrowser.shortcuts.openSmartNavigation");
+    },
     label: "Ctrl+K",
     ctrl: true,
     allowInInput: true,
@@ -203,7 +248,9 @@ export const BROWSER_SHORTCUTS = {
   QUICK_NAVIGATE_LEGACY: {
     id: "quick-navigate-legacy",
     keys: "k",
-    description: "Open quick navigation",
+    get description() {
+      return translate("fileBrowser.shortcuts.openQuickNavigation");
+    },
     label: "Ctrl+K",
     ctrl: true,
     allowInInput: true,
@@ -211,7 +258,9 @@ export const BROWSER_SHORTCUTS = {
   FILTER_CURRENT_DIRECTORY: {
     id: "filter-current-directory",
     keys: "f",
-    description: "Filter the current directory",
+    get description() {
+      return translate("fileBrowser.shortcuts.filterCurrentDirectory");
+    },
     label: "Ctrl+Alt+F",
     ctrl: true,
     alt: true,
@@ -220,7 +269,9 @@ export const BROWSER_SHORTCUTS = {
   COMMAND_PALETTE: {
     id: "command-palette",
     keys: "p",
-    description: "Show commands",
+    get description() {
+      return translate("fileBrowser.shortcuts.showCommands");
+    },
     label: "Ctrl+P",
     ctrl: true,
     allowInInput: true,
@@ -228,14 +279,18 @@ export const BROWSER_SHORTCUTS = {
   COMMAND_PALETTE_ALTERNATE: {
     id: "command-palette-alternate",
     keys: "F1",
-    description: "Show commands",
+    get description() {
+      return translate("fileBrowser.shortcuts.showCommands");
+    },
     label: "F1",
     allowInInput: true,
   },
   FOCUS_CONNECTION_SELECTOR: {
     id: "focus-connection-selector",
     keys: "ArrowDown",
-    description: "Open connection selector",
+    get description() {
+      return translate("fileBrowser.shortcuts.openConnectionSelector");
+    },
     label: "Ctrl+Down",
     ctrl: true,
     allowInInput: true,
@@ -243,7 +298,9 @@ export const BROWSER_SHORTCUTS = {
   OPEN_SETTINGS: {
     id: "open-settings",
     keys: ",",
-    description: "Open settings",
+    get description() {
+      return translate("fileBrowser.shortcuts.openSettings");
+    },
     label: "Ctrl+,",
     ctrl: true,
     allowInInput: true,
@@ -251,45 +308,59 @@ export const BROWSER_SHORTCUTS = {
   SHOW_HELP: {
     id: "show-help",
     keys: "?",
-    description: "Show keyboard shortcuts",
+    get description() {
+      return translate("fileBrowser.shortcuts.showHelp");
+    },
     label: "?",
   },
   REFRESH: {
     id: "refresh",
     keys: "r",
-    description: "Refresh file list",
+    get description() {
+      return translate("fileBrowser.shortcuts.refresh");
+    },
     label: "Ctrl+R",
     ctrl: true,
   },
   DELETE_ITEM: {
     id: "delete-item",
     keys: "Delete",
-    description: "Delete file or directory",
+    get description() {
+      return translate("fileBrowser.shortcuts.deleteItem");
+    },
     label: "Del",
   },
   RENAME_ITEM: {
     id: "rename-item",
     keys: "F2",
-    description: "Rename file or directory",
+    get description() {
+      return translate("fileBrowser.shortcuts.renameItem");
+    },
     label: "F2",
   },
   OPEN_IN_APP: {
     id: "open-in-app",
     keys: "Enter",
-    description: "Open in companion app",
+    get description() {
+      return translate("fileBrowser.shortcuts.openInCompanion");
+    },
     label: "Ctrl+Enter",
     ctrl: true,
   },
   NEW_DIRECTORY: {
     id: "new-directory",
     keys: "F7",
-    description: "Create new directory",
+    get description() {
+      return translate("fileBrowser.shortcuts.createDirectory");
+    },
     label: "F7",
   },
   NEW_FILE: {
     id: "new-file",
     keys: "F7",
-    description: "Create new file",
+    get description() {
+      return translate("fileBrowser.shortcuts.createFile");
+    },
     label: "Shift+F7",
     shift: true,
   },
@@ -302,27 +373,35 @@ export const SELECTION_SHORTCUTS = {
   TOGGLE_SELECTION: {
     id: "toggle-selection",
     keys: ["Insert", " "],
-    description: "Toggle selection & move down",
+    get description() {
+      return translate("fileBrowser.shortcuts.toggleSelectionAndMoveDown");
+    },
     label: "Ins / Space",
   },
   SELECT_DOWN: {
     id: "select-down",
     keys: "ArrowDown",
-    description: "Select & move down",
+    get description() {
+      return translate("fileBrowser.shortcuts.selectAndMoveDown");
+    },
     label: "Shift+Down",
     shift: true,
   },
   SELECT_UP: {
     id: "select-up",
     keys: "ArrowUp",
-    description: "Select & move up",
+    get description() {
+      return translate("fileBrowser.shortcuts.selectAndMoveUp");
+    },
     label: "Shift+Up",
     shift: true,
   },
   SELECT_ALL: {
     id: "select-all",
     keys: "a",
-    description: "Select all files",
+    get description() {
+      return translate("fileBrowser.shortcuts.selectAllFiles");
+    },
     label: "Ctrl+A",
     ctrl: true,
   },
@@ -335,13 +414,17 @@ export const COPY_MOVE_SHORTCUTS = {
   COPY_TO_OTHER_PANE: {
     id: "copy-to-other",
     keys: "F5",
-    description: "Copy to other pane",
+    get description() {
+      return translate("fileBrowser.shortcuts.copyToOtherPane");
+    },
     label: "F5",
   },
   MOVE_TO_OTHER_PANE: {
     id: "move-to-other",
     keys: "F6",
-    description: "Move to other pane",
+    get description() {
+      return translate("fileBrowser.shortcuts.moveToOtherPane");
+    },
     label: "F6",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -353,28 +436,36 @@ export const PANE_SHORTCUTS = {
   TOGGLE_DUAL_PANE: {
     id: "toggle-dual-pane",
     keys: "b",
-    description: "Toggle dual-pane view",
+    get description() {
+      return translate("fileBrowser.shortcuts.toggleDualPane");
+    },
     label: "Ctrl+B",
     ctrl: true,
   },
   FOCUS_LEFT_PANE: {
     id: "focus-left-pane",
     keys: "1",
-    description: "Focus left pane",
+    get description() {
+      return translate("fileBrowser.shortcuts.focusLeftPane");
+    },
     label: "Ctrl+1",
     ctrl: true,
   },
   FOCUS_RIGHT_PANE: {
     id: "focus-right-pane",
     keys: "2",
-    description: "Focus right pane",
+    get description() {
+      return translate("fileBrowser.shortcuts.focusRightPane");
+    },
     label: "Ctrl+2",
     ctrl: true,
   },
   SWITCH_PANE: {
     id: "switch-pane",
     keys: "Tab",
-    description: "Switch active pane",
+    get description() {
+      return translate("fileBrowser.shortcuts.switchActivePane");
+    },
     label: "Tab",
   },
 } as const satisfies Record<string, ShortcutDefinition>;

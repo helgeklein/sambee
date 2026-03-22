@@ -22,6 +22,7 @@ import { LargeFileWarning } from "./components/LargeFileWarning";
 import { Preferences } from "./components/Preferences";
 import type { LeftoverInfo } from "./components/RecoveryDialog";
 import { RecoveryDialog } from "./components/RecoveryDialog";
+import { useI18n } from "./i18n/useI18n";
 import { log } from "./lib/logger";
 import type { NativeApp } from "./types";
 
@@ -43,6 +44,7 @@ type ViewState = { kind: "idle" } | { kind: "app-picker"; extension: string; req
  * Root component. Switches between idle and dialog views based on Tauri events.
  */
 export function App() {
+  const { t } = useI18n();
   const [view, setView] = useState<ViewState>({ kind: "idle" });
   const [leftovers, setLeftovers] = useState<LeftoverInfo[] | null>(null);
   const [largeFile, setLargeFile] = useState<LargeFileInfo | null>(null);
@@ -172,8 +174,8 @@ export function App() {
     default:
       return (
         <div class="app">
-          <h1>Sambee Companion</h1>
-          <p>Running in system tray. No active edit operations.</p>
+          <h1>{t("app.title")}</h1>
+          <p>{t("app.idleMessage")}</p>
         </div>
       );
   }

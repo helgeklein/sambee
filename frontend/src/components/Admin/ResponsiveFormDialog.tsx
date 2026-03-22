@@ -30,6 +30,8 @@ interface ResponsiveFormDialogProps {
   dialogZIndexOffset?: number;
 }
 
+import { useTranslation } from "react-i18next";
+
 export function ResponsiveFormDialog({
   open,
   onClose,
@@ -43,6 +45,7 @@ export function ResponsiveFormDialog({
 }: ResponsiveFormDialogProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
 
   if (isMobile) {
     return (
@@ -61,7 +64,7 @@ export function ResponsiveFormDialog({
         <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
           <AppBar position="static">
             <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-              <IconButton edge="start" color="inherit" onClick={onClose} aria-label="Go back">
+              <IconButton edge="start" color="inherit" onClick={onClose} aria-label={t("common.navigation.goBack")}>
                 <ArrowBackIcon />
               </IconButton>
               <Typography variant="h6" component="h1" sx={{ ml: 2 }}>

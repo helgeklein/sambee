@@ -1,11 +1,16 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "../../../i18n";
 import { CONNECTION_TYPE_LOCAL, LOCAL_DRIVE_PREFIX } from "../../../services/backendRouter";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import { ConnectionSelector } from "../ConnectionSelector";
 
 describe("ConnectionSelector", () => {
+  afterEach(async () => {
+    await setLocale("en");
+  });
+
   const connections = [
     {
       id: "server-1",
@@ -43,7 +48,7 @@ describe("ConnectionSelector", () => {
       </SambeeThemeProvider>
     );
 
-    const trigger = screen.getByRole("combobox", { name: "" });
+    const trigger = screen.getByRole("combobox", { name: "Select connection" });
     trigger.focus();
 
     await user.keyboard(sequence);
@@ -53,5 +58,18 @@ describe("ConnectionSelector", () => {
     });
 
     expect(screen.getByText("Office Share (fileserver/team)")).toBeInTheDocument();
+  });
+
+  it("uses translated fallback label when no connection is selected", async () => {
+    await setLocale("en-XA");
+
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSelector connections={connections} selectedConnectionId="missing" onConnectionChange={vi.fn()} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByRole("combobox", { name: "[Šéĺéćť ćóńńéćťíóń]" })).toBeInTheDocument();
+    expect(screen.getByText("[Šéĺéćť ćóńńéćťíóń]")).toBeInTheDocument();
   });
 });

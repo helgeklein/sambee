@@ -1,5 +1,6 @@
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import { IconButton, Typography } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import { SambeeLogo } from "../SambeeLogo";
 
 interface MobileToolbarProps {
@@ -13,6 +14,8 @@ interface MobileToolbarProps {
 // MobileToolbar
 //
 export function MobileToolbar({ currentDirectoryName, onOpenMenu, onNavigateUp, canNavigateUp }: MobileToolbarProps) {
+  const { t } = useTranslation();
+
   return (
     <>
       <IconButton
@@ -24,7 +27,7 @@ export function MobileToolbar({ currentDirectoryName, onOpenMenu, onNavigateUp, 
           minWidth: 44,
           minHeight: 44,
         }}
-        aria-label="Open menu"
+        aria-label={t("fileBrowser.chrome.mobileToolbar.openMenu")}
       >
         <SambeeLogo />
       </IconButton>
@@ -47,8 +50,8 @@ export function MobileToolbar({ currentDirectoryName, onOpenMenu, onNavigateUp, 
         color="inherit"
         onClick={onNavigateUp}
         disabled={!canNavigateUp}
-        title="Navigate up"
-        aria-label="Navigate to parent directory"
+        title={t("fileBrowser.chrome.mobileToolbar.navigateUpTitle")}
+        aria-label={t("fileBrowser.chrome.mobileToolbar.navigateUpAriaLabel")}
         sx={{
           minWidth: 44,
           minHeight: 44,

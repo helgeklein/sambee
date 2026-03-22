@@ -2,6 +2,7 @@ import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import FolderOutlinedIcon from "@mui/icons-material/FolderOutlined";
 import { ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
 import type { FileEntry } from "../../../types";
 import type { SearchProvider, SearchResult, SearchStatusInfo } from "./types";
@@ -12,6 +13,8 @@ interface CurrentDirectoryFilterProviderOptions {
 }
 
 function FilterResultRow({ file }: { file: FileEntry }) {
+  const { t } = useTranslation();
+
   return (
     <>
       <ListItemIcon sx={{ minWidth: 36 }}>
@@ -23,13 +26,15 @@ function FilterResultRow({ file }: { file: FileEntry }) {
       </ListItemIcon>
       <ListItemText
         primary={<Typography variant="body2">{file.name}</Typography>}
-        secondary={file.type === "directory" ? "Directory" : "File"}
+        secondary={file.type === "directory" ? t("fileBrowser.search.itemTypes.directory") : t("fileBrowser.search.itemTypes.file")}
       />
     </>
   );
 }
 
 export function useCurrentDirectoryFilterProvider({ files, onSelect }: CurrentDirectoryFilterProviderOptions): SearchProvider {
+  const { t } = useTranslation();
+
   const fetchResults = useCallback(
     async (query: string): Promise<SearchResult[]> => {
       const normalizedQuery = query.trim().toLowerCase();
@@ -58,8 +63,9 @@ export function useCurrentDirectoryFilterProvider({ files, onSelect }: CurrentDi
 
   return {
     id: "current-directory-filter",
-    modeLabel: "Filter",
-    placeholder: "Filter files in the current directory",
+    modeId: "filter",
+    modeLabel: t("fileBrowser.search.modes.filter"),
+    placeholder: t("fileBrowser.search.placeholders.filterCurrentDirectory"),
     debounceMs: 0,
     minQueryLength: 0,
     fetchResults,
@@ -67,10 +73,14 @@ export function useCurrentDirectoryFilterProvider({ files, onSelect }: CurrentDi
     getStatusInfo,
     footerHint: (
       <>
-        ↑↓ navigate&ensp;↵ open&ensp;<kbd>esc</kbd> close
+        ↑↓ {t("fileBrowser.search.footer.navigate")}&ensp;↵ {t("fileBrowser.search.footer.open")}&ensp;<kbd>esc</kbd>{" "}
+        {t("fileBrowser.search.footer.close")}
       </>
     ),
-    footerInfo: (resultCount) => `${resultCount} result${resultCount === 1 ? "" : "s"}`,
+    footerInfo: (resultCount) =>
+      t("fileBrowser.search.results.count", {
+        count: resultCount,
+      }),
     shortcutHint: BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY.label,
   };
 }

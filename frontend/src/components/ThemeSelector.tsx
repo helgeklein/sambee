@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { useSambeeTheme } from "../theme";
+import { THEME_SELECTOR_STRINGS } from "./themeSelectorStrings";
 
 //
 // ThemeSelector
@@ -31,8 +32,13 @@ export function ThemeSelector() {
 
   return (
     <>
-      <Tooltip title="Change theme">
-        <IconButton onClick={() => setOpen(true)} color="inherit" size={isMobile ? "small" : "medium"}>
+      <Tooltip title={THEME_SELECTOR_STRINGS.OPEN_BUTTON_LABEL}>
+        <IconButton
+          aria-label={THEME_SELECTOR_STRINGS.OPEN_BUTTON_LABEL}
+          onClick={() => setOpen(true)}
+          color="inherit"
+          size={isMobile ? "small" : "medium"}
+        >
           <PaletteIcon />
         </IconButton>
       </Tooltip>
@@ -63,7 +69,7 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Choose Theme</DialogTitle>
+      <DialogTitle>{THEME_SELECTOR_STRINGS.DIALOG_TITLE}</DialogTitle>
       <DialogContent>
         <Box
           sx={{
@@ -87,12 +93,12 @@ export function ThemeSelectorDialog({ open, onClose }: ThemeSelectorDialogProps)
                   <Box sx={{ display: "flex", alignItems: "center", mb: 1 }}>
                     <Radio checked={currentTheme.id === theme.id} />
                     <Typography variant="h6" sx={{ ml: 1 }}>
-                      {theme.name}
+                      {THEME_SELECTOR_STRINGS.themeName(theme)}
                     </Typography>
                   </Box>
                   {theme.description && (
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                      {currentTheme.description}
+                      {THEME_SELECTOR_STRINGS.themeDescription(theme)}
                     </Typography>
                   )}
                   <ThemePreview theme={theme} />
@@ -121,7 +127,7 @@ function ThemePreview({ theme }: ThemePreviewProps) {
   return (
     <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
       <Typography variant="caption" color="text.secondary" sx={{ minWidth: 60 }}>
-        {theme.mode === "dark" ? "Dark" : "Light"}
+        {THEME_SELECTOR_STRINGS.modeLabel(theme.mode)}
       </Typography>
       <Box
         sx={{
@@ -139,7 +145,7 @@ function ThemePreview({ theme }: ThemePreviewProps) {
             border: "1px solid",
             borderColor: "divider",
           }}
-          title="Primary color"
+          title={THEME_SELECTOR_STRINGS.PRIMARY_COLOR_PREVIEW}
         />
       </Box>
     </Box>

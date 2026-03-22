@@ -6,6 +6,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { AppBar, Box, Drawer, IconButton, Toolbar, Typography } from "@mui/material";
 import type React from "react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SettingsCategoryContent } from "../Settings/SettingsCategoryContent";
 import { SettingsCategoryList } from "../Settings/SettingsCategoryList";
 import { getSettingsViewTitle, getVisibleSettingsSections, type MobileSettingsView } from "../Settings/settingsNavigation";
@@ -34,6 +35,7 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
 }) => {
   const [currentView, setCurrentView] = useState<MobileSettingsView>(initialView);
   const { isAdmin } = useSettingsAccess(open);
+  const { t } = useTranslation();
 
   // Set view to initialView when drawer opens, reset when closes
   useEffect(() => {
@@ -66,7 +68,7 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
         {/* AppBar */}
         <AppBar position="static">
           <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-            <IconButton edge="start" color="inherit" onClick={handleBack} aria-label="Go back">
+            <IconButton edge="start" color="inherit" onClick={handleBack} aria-label={t("common.navigation.goBack")}>
               <ArrowBackIcon />
             </IconButton>
             <Typography variant="h6" component="h1" sx={{ ml: 2 }}>

@@ -1,6 +1,9 @@
 import { ArrowBack, ArrowForward, Close, Download, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 
 type ZoomMode = "fit-page" | "fit-width" | number;
 
@@ -45,6 +48,7 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
   const [pageInput, setPageInput] = useState(currentPage.toString());
   const [showSearch, setShowSearch] = useState(false);
 
@@ -159,8 +163,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               color="inherit"
               onClick={handlePreviousPage}
               disabled={currentPage <= 1}
-              title="Previous page (Left arrow, Page Up)"
-              aria-label="Previous page"
+              title={withShortcut(COMMON_SHORTCUTS.PAGE_UP)}
+              aria-label={t("viewer.controls.previousPage")}
               size={isMobile ? "small" : "medium"}
             >
               <ArrowBack fontSize={isMobile ? "small" : "medium"} />
@@ -203,8 +207,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               color="inherit"
               onClick={handleNextPage}
               disabled={currentPage >= totalPages}
-              title="Next page (Right arrow, Page Down)"
-              aria-label="Next page"
+              title={withShortcut(COMMON_SHORTCUTS.PAGE_DOWN)}
+              aria-label={t("viewer.controls.nextPage")}
               size={isMobile ? "small" : "medium"}
             >
               <ArrowForward fontSize={isMobile ? "small" : "medium"} />
@@ -215,11 +219,23 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
         {/* Zoom controls */}
         {!isMobile && (
           <Box sx={{ display: "flex", gap: 0 }}>
-            <IconButton color="inherit" onClick={handleZoomOut} title="Zoom out (-)" aria-label="Zoom out" size="medium">
+            <IconButton
+              color="inherit"
+              onClick={handleZoomOut}
+              title={withShortcut(VIEWER_SHORTCUTS.ZOOM_OUT)}
+              aria-label={t("viewer.controls.zoomOut")}
+              size="medium"
+            >
               <ZoomOut />
             </IconButton>
 
-            <IconButton color="inherit" onClick={handleZoomIn} title="Zoom in (+)" aria-label="Zoom in" size="medium">
+            <IconButton
+              color="inherit"
+              onClick={handleZoomIn}
+              title={withShortcut(VIEWER_SHORTCUTS.ZOOM_IN)}
+              aria-label={t("viewer.controls.zoomIn")}
+              size="medium"
+            >
               <ZoomIn />
             </IconButton>
           </Box>
@@ -229,8 +245,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
         <IconButton
           color="inherit"
           onClick={() => setShowSearch(!showSearch)}
-          title="Search"
-          aria-label="Search"
+          title={withShortcut(COMMON_SHORTCUTS.SEARCH)}
+          aria-label={t("common.search.action")}
           size={isMobile ? "small" : "medium"}
         >
           <Search fontSize={isMobile ? "small" : "medium"} />
@@ -238,13 +254,25 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
 
         {/* Download button */}
         {!isMobile && (
-          <IconButton color="inherit" onClick={onDownload} title="Download" aria-label="Download" size="medium">
+          <IconButton
+            color="inherit"
+            onClick={onDownload}
+            title={withShortcut(COMMON_SHORTCUTS.DOWNLOAD)}
+            aria-label={t("common.actions.download")}
+            size="medium"
+          >
             <Download />
           </IconButton>
         )}
 
         {/* Close button */}
-        <IconButton color="inherit" onClick={onClose} title="Close (Esc)" aria-label="Close" size={isMobile ? "small" : "medium"}>
+        <IconButton
+          color="inherit"
+          onClick={onClose}
+          title={withShortcut(COMMON_SHORTCUTS.CLOSE)}
+          aria-label={t("common.actions.close")}
+          size={isMobile ? "small" : "medium"}
+        >
           <Close fontSize={isMobile ? "small" : "medium"} />
         </IconButton>
       </Box>
@@ -263,7 +291,7 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
           <TextField
             value={searchText}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search in PDF..."
+            placeholder={t("viewer.controls.pdfSearchPlaceholder")}
             size="small"
             autoFocus
             sx={{
@@ -296,8 +324,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
             color="inherit"
             onClick={onSearchPrevious}
             disabled={searchMatches === 0}
-            title="Previous match"
-            aria-label="Previous match"
+            title={t("common.search.previousMatch")}
+            aria-label={t("common.search.previousMatch")}
             size="small"
           >
             <ArrowBack fontSize="small" />
@@ -307,8 +335,8 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
             color="inherit"
             onClick={onSearchNext}
             disabled={searchMatches === 0}
-            title="Next match"
-            aria-label="Next match"
+            title={t("common.search.nextMatch")}
+            aria-label={t("common.search.nextMatch")}
             size="small"
           >
             <ArrowForward fontSize="small" />

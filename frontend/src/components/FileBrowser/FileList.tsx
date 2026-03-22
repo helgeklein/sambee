@@ -1,6 +1,7 @@
 import { Box, Typography } from "@mui/material";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import React from "react";
+import { useTranslation } from "react-i18next";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
 import { FileRow } from "./FileRow";
@@ -43,6 +44,7 @@ export const FileList = React.memo(
     onOpenInApp,
     onRename,
   }: FileListProps) => {
+    const { t } = useTranslation();
     const virtualItemsForRender = rowVirtualizer.getVirtualItems();
 
     return (
@@ -65,7 +67,7 @@ export const FileList = React.memo(
       >
         {files.length === 0 ? (
           <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
-            <Typography color="text.secondary">This directory is empty</Typography>
+            <Typography color="text.secondary">{t("fileBrowser.list.emptyDirectory")}</Typography>
           </Box>
         ) : (
           <div

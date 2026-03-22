@@ -12,6 +12,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
+import { translate } from "../i18n";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,9 +175,9 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
   return (
     <ModalDialog titleId="recovery-dialog-title">
       <h2 id="recovery-dialog-title" class="dialog-title dialog-title--warning">
-        Unsaved Files Found
+        {translate("recovery.title")}
       </h2>
-      <p class="dialog-subtitle">{pendingLeftovers.length} file(s) from a previous session need attention.</p>
+      <p class="dialog-subtitle">{translate("recovery.subtitle", { count: pendingLeftovers.length })}</p>
 
       <div class="recovery-list">
         {pendingLeftovers.map((leftover) => {
@@ -187,7 +188,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
                 <span class="recovery-item-filename">{leftover.filename}</span>
               </div>
               <div class="recovery-item-detail">
-                {leftover.remote_path} — modified {leftover.local_modified}
+                {translate("recovery.detail", { remotePath: leftover.remote_path, localModified: leftover.local_modified })}
               </div>
               <div class="recovery-item-actions">
                 <button
@@ -196,7 +197,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
                   onClick={() => handleUpload(leftover.operation_dir)}
                   disabled={state?.loading}
                 >
-                  Upload
+                  {translate("recovery.actions.upload")}
                 </button>
                 <button
                   type="button"
@@ -204,7 +205,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
                   onClick={() => handleDiscard(leftover.operation_dir)}
                   disabled={state?.loading}
                 >
-                  Discard
+                  {translate("recovery.actions.discard")}
                 </button>
                 <button
                   type="button"
@@ -212,7 +213,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
                   onClick={() => handleDismiss(leftover.operation_dir)}
                   disabled={state?.loading}
                 >
-                  Later
+                  {translate("recovery.actions.later")}
                 </button>
               </div>
               {state?.error && <p class="dialog-error">{state.error}</p>}
@@ -223,7 +224,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
 
       <div class="dialog-actions dialog-actions--row">
         <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleDismissAll}>
-          Dismiss All
+          {translate("recovery.actions.dismissAll")}
         </button>
       </div>
     </ModalDialog>

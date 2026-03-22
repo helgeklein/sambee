@@ -7,6 +7,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
 import React, { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { ViewMode } from "../../pages/FileBrowser/types";
 import type { FileEntry } from "../../types";
@@ -45,9 +46,12 @@ export const FileRow = React.memo(
       { file, index, isSelected, isMultiSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp, onRename },
       ref
     ) => {
+      const { t } = useTranslation();
       const isListMode = viewMode === "list";
       const isFile = file.type !== "directory";
       const hasContextMenu = !!(onRename || (isFile && onOpenInApp));
+      const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
+      const ariaLabel = `${itemTypeLabel}: ${file.name}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
 
       // Compute the correct row style based on focused + multi-selected state
       const rowStyle =
@@ -106,7 +110,7 @@ export const FileRow = React.memo(
             onContextMenu={handleContextMenu}
             sx={rowStyle}
             data-selected={isSelected ? "true" : undefined}
-            aria-label={`${file.type === "directory" ? "Folder" : "File"}: ${file.name}${isMultiSelected ? " (selected)" : ""}`}
+            aria-label={ariaLabel}
           >
             {/* Icon: show checkmark when multi-selected, file icon otherwise */}
             {(() => {
@@ -171,7 +175,7 @@ export const FileRow = React.memo(
                   <ListItemIcon>
                     <EditIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText>Rename</ListItemText>
+                  <ListItemText>{t("common.actions.rename")}</ListItemText>
                 </MenuItem>
               )}
               {isFile && onOpenInApp && (
@@ -179,7 +183,7 @@ export const FileRow = React.memo(
                   <ListItemIcon>
                     <OpenInNewIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText>Open in companion app</ListItemText>
+                  <ListItemText>{t("fileBrowser.row.openInCompanionApp")}</ListItemText>
                 </MenuItem>
               )}
             </Menu>

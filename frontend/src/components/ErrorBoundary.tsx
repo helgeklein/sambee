@@ -1,5 +1,6 @@
 import { Alert, Box, Button, Container, Typography } from "@mui/material";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { translate } from "../i18n";
 import { logger } from "../services/logger";
 
 interface Props {
@@ -69,10 +70,10 @@ class ErrorBoundary extends Component<Props, State> {
         <Container maxWidth="md" sx={{ mt: 4 }}>
           <Alert severity="error" sx={{ mb: 2 }}>
             <Typography variant="h6" gutterBottom>
-              Something went wrong
+              {translate("app.errorBoundary.title")}
             </Typography>
             <Typography variant="body2" gutterBottom>
-              An unexpected error occurred. The error has been logged.
+              {translate("app.errorBoundary.description")}
             </Typography>
             {this.state.error && (
               <Typography variant="body2" sx={{ mt: 2, fontFamily: "monospace", fontSize: "0.875rem" }}>
@@ -83,17 +84,17 @@ class ErrorBoundary extends Component<Props, State> {
 
           <Box sx={{ display: "flex", gap: 2 }}>
             <Button variant="contained" onClick={this.handleReset}>
-              Try Again
+              {translate("app.errorBoundary.tryAgain")}
             </Button>
             <Button variant="outlined" onClick={this.handleReload}>
-              Reload Page
+              {translate("app.errorBoundary.reloadPage")}
             </Button>
           </Box>
 
           {import.meta.env.DEV && this.state.errorInfo && (
             <Box sx={{ mt: 4 }}>
               <Typography variant="h6" gutterBottom>
-                Error Details (Development Only)
+                {translate("app.errorBoundary.developmentDetails")}
               </Typography>
               <Box
                 component="pre"

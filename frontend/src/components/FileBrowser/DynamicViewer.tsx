@@ -1,6 +1,8 @@
 import CloseIcon from "@mui/icons-material/Close";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { translate } from "../../i18n";
 import { logger } from "../../services/logger";
 import type { ViewerComponentLoadResult, ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
 import { getViewerComponentLoadResult } from "../../utils/FileTypeRegistry";
@@ -26,17 +28,17 @@ type DynamicViewerLoadState =
 
 function getViewerLoadFailureMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
-    return `${error.message} The viewer code could not be loaded.`;
+    return translate("viewer.fallback.failedMessageWithError", { message: error.message.trim() });
   }
 
   if (typeof error === "object" && error !== null && "message" in error) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string" && message.trim()) {
-      return `${message} The viewer code could not be loaded.`;
+      return translate("viewer.fallback.failedMessageWithError", { message: message.trim() });
     }
   }
 
-  return "The viewer code could not be loaded. This can happen if the backend or asset host is temporarily unavailable.";
+  return translate("viewer.fallback.failedMessageGeneric");
 }
 
 interface ViewerFallbackDialogProps {
@@ -48,17 +50,20 @@ interface ViewerFallbackDialogProps {
 }
 
 function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFallbackDialogProps) {
+  const { t } = useTranslation();
   const filename = path.split("/").pop() || path;
-  const message =
-    mode === "failed"
-      ? getViewerLoadFailureMessage(error)
-      : "This file type does not have an available viewer in the current frontend runtime.";
+  const message = mode === "failed" ? getViewerLoadFailureMessage(error) : t("viewer.fallback.unsupportedMessage");
 
   return (
     <Dialog open={true} onClose={onClose} fullScreen aria-labelledby="viewer-fallback-title">
       <DialogTitle id="viewer-fallback-title" sx={{ pr: 7 }}>
-        {mode === "failed" ? "Viewer unavailable" : "Viewer unsupported"}
-        <IconButton aria-label="Close viewer error" onClick={onClose} size="small" sx={{ position: "absolute", top: 12, right: 12 }}>
+        {mode === "failed" ? t("viewer.fallback.failedTitle") : t("viewer.fallback.unsupportedTitle")}
+        <IconButton
+          aria-label={t("viewer.fallback.closeAriaLabel")}
+          onClick={onClose}
+          size="small"
+          sx={{ position: "absolute", top: 12, right: 12 }}
+        >
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -68,15 +73,15 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
           <Alert severity={mode === "failed" ? "warning" : "info"}>{message}</Alert>
           <Box>
             <Typography variant="body2" color="text.secondary">
-              The file browser is still available. You can close this dialog and continue working elsewhere in the app.
+              {t("viewer.fallback.stillAvailable")}
             </Typography>
           </Box>
         </Stack>
       </DialogContent>
       <DialogActions>
-        {mode === "failed" && onRetry ? <Button onClick={onRetry}>Retry</Button> : null}
+        {mode === "failed" && onRetry ? <Button onClick={onRetry}>{t("viewer.fallback.retry")}</Button> : null}
         <Button variant="contained" onClick={onClose}>
-          Close
+          {t("common.actions.close")}
         </Button>
       </DialogActions>
     </Dialog>

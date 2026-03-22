@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserRouter } from "react-router-dom";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import "../../../i18n";
 import HamburgerMenu from "../../../components/Mobile/HamburgerMenu";
 import { SambeeThemeProvider } from "../../../theme/ThemeContext";
 import type { Connection } from "../../../types";

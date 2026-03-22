@@ -1,4 +1,5 @@
 import { Box } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { ConnectionSettings } from "./ConnectionSettings";
@@ -15,6 +16,8 @@ export function ConnectionsSettings({
   dialogSafeHeader = false,
   forceDesktopLayout = false,
 }: ConnectionsSettingsProps) {
+  const { t } = useTranslation();
+
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
@@ -28,14 +31,14 @@ export function ConnectionsSettings({
           forceDesktopLayout={forceDesktopLayout}
           showHeader={false}
           showMobileFab={false}
-          sectionTitle="SMB connections"
-          sectionDescription="Browse shared connections and manage your private SMB share connections."
+          sectionTitle={t("settings.connectionsPage.smbSectionTitle")}
+          sectionDescription={t("settings.connectionsPage.smbSectionDescription")}
         />
         <LocalDrivesSettings
           onConnectionsChanged={onConnectionsChanged}
           showHeader={false}
-          sectionTitle="Local drives"
-          sectionDescription="Pair Sambee Companion and control local-drive access from this browser."
+          sectionTitle={t("settings.connectionsPage.localDrivesSectionTitle")}
+          sectionDescription={t("settings.connectionsPage.localDrivesSectionDescription")}
         />
       </Box>
     </Box>

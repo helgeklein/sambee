@@ -1,3 +1,5 @@
+import { translate } from "../../i18n";
+
 export type SettingsCategory = "preferences" | "connections" | "admin-users" | "admin-system";
 
 export type SettingsSection = "personal" | "administration";
@@ -26,33 +28,53 @@ export const SETTINGS_ROUTE_BY_CATEGORY: Record<SettingsCategory, string> = {
 };
 
 export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
-  personal: "Personal",
-  administration: "Administration",
+  get personal() {
+    return translate("settings.sections.personal");
+  },
+  get administration() {
+    return translate("settings.sections.administration");
+  },
 };
 
 export const SETTINGS_CATEGORY_META: Record<SettingsCategory, SettingsCategoryMeta> = {
   preferences: {
-    label: "Preferences",
-    description: "Choose your theme and browser defaults.",
+    get label() {
+      return translate("settings.categories.preferences.label");
+    },
+    get description() {
+      return translate("settings.categories.preferences.description");
+    },
     route: SETTINGS_ROUTE_BY_CATEGORY.preferences,
     section: "personal",
   },
   connections: {
-    label: "Connections",
-    description: "Manage SMB shares and local-drive access in one place.",
+    get label() {
+      return translate("settings.categories.connections.label");
+    },
+    get description() {
+      return translate("settings.categories.connections.description");
+    },
     route: SETTINGS_ROUTE_BY_CATEGORY.connections,
     section: "personal",
   },
   "admin-users": {
-    label: "User Management",
-    description: "Create accounts, assign roles, and issue password resets.",
+    get label() {
+      return translate("settings.categories.adminUsers.label");
+    },
+    get description() {
+      return translate("settings.categories.adminUsers.description");
+    },
     route: SETTINGS_ROUTE_BY_CATEGORY["admin-users"],
     section: "administration",
     adminOnly: true,
   },
   "admin-system": {
-    label: "System",
-    description: "Manage system-wide SMB and preprocessing runtime settings.",
+    get label() {
+      return translate("settings.categories.adminSystem.label");
+    },
+    get description() {
+      return translate("settings.categories.adminSystem.description");
+    },
     route: SETTINGS_ROUTE_BY_CATEGORY["admin-system"],
     section: "administration",
     adminOnly: true,
@@ -66,7 +88,7 @@ export function getSettingsCategoryLabel(category: SettingsCategory): string {
 }
 
 export function getSettingsViewTitle(view: MobileSettingsView): string {
-  return view === "main" ? "Settings" : getSettingsCategoryLabel(view);
+  return view === "main" ? translate("settings.shell.title") : getSettingsCategoryLabel(view);
 }
 
 export function getSettingsCategoryDescription(category: SettingsCategory): string {

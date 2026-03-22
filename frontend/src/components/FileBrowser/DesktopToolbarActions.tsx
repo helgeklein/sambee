@@ -1,5 +1,6 @@
 import SettingsIcon from "@mui/icons-material/Settings";
 import { IconButton } from "@mui/material";
+import { translate } from "../../i18n";
 import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 //
@@ -20,7 +21,8 @@ export function DesktopToolbarActions({ onOpenSettings, onEscape, disableTabFocu
       color="inherit"
       onClick={onOpenSettings}
       onKeyDown={createEscapeHandler(onEscape)}
-      title="Settings"
+      title={translate("fileBrowser.chrome.toolbar.openSettings")}
+      aria-label={translate("fileBrowser.chrome.toolbar.openSettings")}
       tabIndex={disableTabFocus ? -1 : undefined}
     >
       <SettingsIcon />

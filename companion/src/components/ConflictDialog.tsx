@@ -14,6 +14,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
+import { translate } from "../i18n";
 import "../styles/dialog.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,30 +98,30 @@ export function ConflictDialog({ conflict, onResolved }: ConflictDialogProps) {
 
   return (
     <div class="done-editing-window">
-      <h2 class="dialog-title dialog-title--warning">⚠ Conflict Detected</h2>
+      <h2 class="dialog-title dialog-title--warning">{translate("conflictDialog.title")}</h2>
       <p class="dialog-subtitle">{conflict.filename}</p>
 
       <div class="dialog-body">
-        <p>This file was modified on the server by another user while you were editing it.</p>
+        <p>{translate("conflictDialog.body")}</p>
         <div class="dialog-detail">
           <div>
-            <strong>Your download:</strong> {conflict.download_modified}
+            <strong>{translate("conflictDialog.labels.yourDownload")}</strong> {conflict.download_modified}
           </div>
           <div>
-            <strong>Server version:</strong> {conflict.server_modified}
+            <strong>{translate("conflictDialog.labels.serverVersion")}</strong> {conflict.server_modified}
           </div>
         </div>
       </div>
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleOverwrite} disabled={loading}>
-          Overwrite Server Version
+          {translate("conflictDialog.actions.overwrite")}
         </button>
         <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleSaveAsCopy} disabled={loading}>
-          Save as Copy
+          {translate("conflictDialog.actions.saveCopy")}
         </button>
         <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleCancel} disabled={loading}>
-          Cancel
+          {translate("conflictDialog.actions.cancel")}
         </button>
       </div>
 

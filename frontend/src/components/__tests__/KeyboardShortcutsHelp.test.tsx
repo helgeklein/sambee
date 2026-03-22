@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { KeyboardShortcut } from "../../hooks/useKeyboardShortcuts";
+import { setLocale } from "../../i18n";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 
 describe("KeyboardShortcutsHelp", () => {
@@ -9,6 +10,10 @@ describe("KeyboardShortcutsHelp", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await setLocale("en");
   });
 
   const createShortcuts = (): KeyboardShortcut[] => [
@@ -67,6 +72,16 @@ describe("KeyboardShortcutsHelp", () => {
       render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={[]} />);
 
       expect(screen.getByText("No keyboard shortcuts available")).toBeInTheDocument();
+    });
+
+    it("should use translated default strings", async () => {
+      await setLocale("en-XA");
+
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={[]} />);
+
+      expect(screen.getByText("[Ķéýƀóåŕď Šħóŕťćúťš]")).toBeInTheDocument();
+      expect(screen.getByText("[Ńó ķéýƀóåŕď šħóŕťćúťš åṽåíĺåƀĺé]")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "[Ćĺóšé]" })).toBeInTheDocument();
     });
 
     it("should hide shortcuts that are currently disabled", () => {

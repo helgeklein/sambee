@@ -29,6 +29,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
@@ -44,11 +45,6 @@ import { useSettingsAccess } from "../components/Settings/useSettingsAccess";
 import api from "../services/api";
 import type { Connection } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
-
-const CONNECTION_SETTINGS_HEADER = {
-  title: "SMB Connections",
-  description: "Browse shared connections and manage your private SMB share connections.",
-};
 
 /**
  * ConnectionSettings
@@ -85,6 +81,7 @@ export function ConnectionSettings({
 }: ConnectionSettingsProps) {
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
+  const { t } = useTranslation();
   const { isAdmin: detectedIsAdmin } = useSettingsAccess();
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
@@ -118,12 +115,12 @@ export function ConnectionSettings({
       const data = await api.getConnections();
       setConnections(data);
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to load connections");
+      const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.loadFailed"));
       showNotification(message, "error");
     } finally {
       setLoading(false);
     }
-  }, [showNotification]);
+  }, [showNotification, t]);
 
   useEffect(() => {
     loadConnections();
@@ -156,12 +153,19 @@ export function ConnectionSettings({
     if (savedConnection.scope !== requestedScope) {
       showNotification(
         savedConnection.scope === "private"
-          ? "Connection saved as private. Shared visibility requires admin access."
-          : `Connection ${selectedConnection ? "updated" : "created"} successfully`,
+          ? t("settings.connectionManagement.notifications.savedPrivateInfo")
+          : selectedConnection
+            ? t("settings.connectionManagement.notifications.updatedSuccess")
+            : t("settings.connectionManagement.notifications.createdSuccess"),
         savedConnection.scope === "private" ? "info" : "success"
       );
     } else {
-      showNotification(`Connection ${selectedConnection ? "updated" : "created"} successfully`, "success");
+      showNotification(
+        selectedConnection
+          ? t("settings.connectionManagement.notifications.updatedSuccess")
+          : t("settings.connectionManagement.notifications.createdSuccess"),
+        "success"
+      );
     }
     handleConnectionDialogClose();
     onConnectionsChanged?.();
@@ -172,13 +176,13 @@ export function ConnectionSettings({
 
     try {
       await api.deleteConnection(selectedConnection.id);
-      showNotification("Connection deleted successfully", "success");
+      showNotification(t("settings.connectionManagement.notifications.deletedSuccess"), "success");
       await loadConnections();
       setDeleteDialogOpen(false);
       setSelectedConnection(null);
       onConnectionsChanged?.();
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to delete connection");
+      const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.deleteFailed"));
       showNotification(message, "error");
     }
   };
@@ -190,7 +194,7 @@ export function ConnectionSettings({
       const result = await api.testConnection(connection.id);
       showNotification(result.message, result.status as "success" | "error");
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Connection test failed");
+      const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.testFailed"));
       showNotification(message, "error");
     }
   };
@@ -260,12 +264,21 @@ export function ConnectionSettings({
                     {connection.name}
                   </Typography>
                   <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
-                  <Chip label={connection.scope.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                  <Chip
+                    label={
+                      connection.scope === "shared"
+                        ? t("settings.connectionManagement.scope.sharedChip")
+                        : t("settings.connectionManagement.scope.privateChip")
+                    }
+                    size="small"
+                    variant="outlined"
+                    sx={settingsMetadataChipSx}
+                  />
                 </Box>
 
                 <Box sx={{ display: "flex", mb: -0.5 }}>
                   <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                    User:
+                    {t("settings.connectionManagement.userLabel")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {connection.username}
@@ -282,7 +295,7 @@ export function ConnectionSettings({
                 >
                   <Box sx={{ display: "flex" }}>
                     <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                      Path:
+                      {t("settings.connectionManagement.pathLabel")}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                       \\{connection.host}\{connection.share_name}
@@ -291,24 +304,28 @@ export function ConnectionSettings({
                   </Box>
                   {connection.can_manage ? (
                     <Box sx={{ display: "flex", gap: 1, ml: 2 }}>
-                      <Tooltip title="Test Connection">
+                      <Tooltip title={t("settings.connectionManagement.tooltipTest")}>
                         <IconButton
                           onClick={() => handleTestConnection(connection)}
-                          aria-label="Test connection"
+                          aria-label={t("settings.connectionManagement.ariaTest")}
                           sx={settingsUtilityIconButtonSx}
                         >
                           <TestIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Edit">
-                        <IconButton onClick={() => handleEdit(connection)} aria-label="Edit connection" sx={settingsUtilityIconButtonSx}>
+                      <Tooltip title={t("settings.connectionManagement.tooltipEdit")}>
+                        <IconButton
+                          onClick={() => handleEdit(connection)}
+                          aria-label={t("settings.connectionManagement.ariaEdit")}
+                          sx={settingsUtilityIconButtonSx}
+                        >
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Delete">
+                      <Tooltip title={t("settings.connectionManagement.tooltipDelete")}>
                         <IconButton
                           onClick={() => handleDeleteClick(connection)}
-                          aria-label="Delete connection"
+                          aria-label={t("settings.connectionManagement.ariaDelete")}
                           sx={settingsDestructiveIconButtonSx}
                         >
                           <DeleteIcon />
@@ -360,13 +377,22 @@ export function ConnectionSettings({
                     {connection.name}
                   </Typography>
                   <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
-                  <Chip label={connection.scope.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                  <Chip
+                    label={
+                      connection.scope === "shared"
+                        ? t("settings.connectionManagement.scope.sharedChip")
+                        : t("settings.connectionManagement.scope.privateChip")
+                    }
+                    size="small"
+                    variant="outlined"
+                    sx={settingsMetadataChipSx}
+                  />
                 </Box>
                 {connection.can_manage ? (
                   <IconButton
                     size="small"
                     onClick={(e) => handleMenuOpen(e, connection)}
-                    aria-label="Connection actions"
+                    aria-label={t("settings.connectionManagement.connectionActionsAriaLabel")}
                     sx={{
                       ...settingsUtilityIconButtonSx,
                       mt: 0,
@@ -381,7 +407,7 @@ export function ConnectionSettings({
 
               <Box sx={{ display: "flex", mb: 1 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                  User:
+                  {t("settings.connectionManagement.userLabel")}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {connection.username}
@@ -390,7 +416,7 @@ export function ConnectionSettings({
 
               <Box sx={{ display: "flex" }}>
                 <Typography variant="body2" color="text.secondary" sx={{ minWidth: 48 }}>
-                  Path:
+                  {t("settings.connectionManagement.pathLabel")}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   \\{connection.host}\{connection.share_name}
@@ -437,14 +463,14 @@ export function ConnectionSettings({
     >
       {showHeader ? (
         <SettingsSectionHeader
-          title={CONNECTION_SETTINGS_HEADER.title}
-          description={CONNECTION_SETTINGS_HEADER.description}
+          title={t("settings.connectionManagement.headerTitle")}
+          description={t("settings.connectionManagement.headerDescription")}
           dialogSafe={forceDesktopLayout}
           showTitle={isDesktop}
           actions={
             isDesktop ? (
               <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-                Add Connection
+                {t("settings.connectionManagement.addConnectionButton")}
               </Button>
             ) : undefined
           }
@@ -457,7 +483,7 @@ export function ConnectionSettings({
             actions={
               isDesktop ? (
                 <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
-                  Add Connection
+                  {t("settings.connectionManagement.addConnectionButton")}
                 </Button>
               ) : null
             }
@@ -474,27 +500,27 @@ export function ConnectionSettings({
         ) : connections.length === 0 ? (
           <Box sx={{ p: 4, textAlign: "center" }}>
             <Typography variant="h6" color="text.secondary">
-              No connections configured
+              {t("settings.connectionManagement.emptyTitle")}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
               {effectiveIsAdmin
-                ? `Click ${isDesktop ? "the + button" : "the + button in the toolbar"} to create a shared or private SMB connection`
-                : `Click ${isDesktop ? "the + button" : "the + button in the toolbar"} to create your first private SMB connection`}
+                ? t("settings.connectionManagement.emptyAdminDescription")
+                : t("settings.connectionManagement.emptyRegularDescription")}
             </Typography>
           </Box>
         ) : (
           <>
             {renderSection(
-              "Shared connections",
-              "Admins can create these for everyone. You can browse them, but only admins can change them.",
+              t("settings.connectionManagement.sharedSectionTitle"),
+              t("settings.connectionManagement.sharedSectionDescription"),
               sharedConnections,
-              "No shared connections are available."
+              t("settings.connectionManagement.sharedSectionEmpty")
             )}
             {renderSection(
-              "My connections",
-              "These connections are visible only to your account.",
+              t("settings.connectionManagement.privateSectionTitle"),
+              t("settings.connectionManagement.privateSectionDescription"),
               privateConnections,
-              "You have no private connections yet."
+              t("settings.connectionManagement.privateSectionEmpty")
             )}
           </>
         )}
@@ -502,7 +528,12 @@ export function ConnectionSettings({
 
       {/* Mobile: FAB for adding connections */}
       {!isDesktop && showMobileFab && (
-        <Fab color="primary" aria-label="add connection" onClick={handleAddClick} sx={settingsPrimaryFabSx}>
+        <Fab
+          color="primary"
+          aria-label={t("settings.connectionManagement.addConnectionFabAriaLabel")}
+          onClick={handleAddClick}
+          sx={settingsPrimaryFabSx}
+        >
           <AddIcon />
         </Fab>
       )}
@@ -531,15 +562,15 @@ export function ConnectionSettings({
       >
         <MenuItem onClick={handleMenuTest}>
           <TestIcon fontSize="small" sx={{ mr: 1.5, color: "primary.main" }} />
-          Test Connection
+          {t("settings.connectionManagement.menuTest")}
         </MenuItem>
         <MenuItem onClick={handleMenuEdit}>
           <EditIcon fontSize="small" sx={{ mr: 1.5, color: "primary.main" }} />
-          Edit
+          {t("settings.connectionManagement.menuEdit")}
         </MenuItem>
         <MenuItem onClick={handleMenuDelete} sx={{ color: "error.main" }}>
           <DeleteIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Delete
+          {t("settings.connectionManagement.menuDelete")}
         </MenuItem>
       </Menu>
 
@@ -559,8 +590,8 @@ export function ConnectionSettings({
           setSelectedConnection(null);
         }}
         onConfirm={handleDeleteConfirm}
-        title="Delete Connection"
-        description="Are you sure you want to delete the connection"
+        title={t("settings.connectionManagement.deleteDialogTitle")}
+        description={t("settings.connectionManagement.deleteDialogDescription")}
         itemName={selectedConnection?.name ?? null}
       />
 

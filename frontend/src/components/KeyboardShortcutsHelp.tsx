@@ -1,4 +1,5 @@
 import { Box, Button, Dialog, DialogContent, DialogTitle, Table, TableBody, TableCell, TableRow } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import type { KeyboardShortcut } from "../hooks/useKeyboardShortcuts";
 
 interface KeyboardShortcutsHelpProps {
@@ -22,8 +23,10 @@ interface GroupedShortcut {
  * The enabled property controls whether shortcuts function, not whether they appear in help
  * Groups shortcuts with the same description into a single row
  */
-export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ open, onClose, shortcuts, title = "Keyboard Shortcuts" }) => {
+export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ open, onClose, shortcuts, title }) => {
+  const { t } = useTranslation();
   const visibleShortcuts = shortcuts.filter((shortcut) => shortcut.enabled !== false);
+  const dialogTitle = title ?? t("keyboardShortcutsHelp.defaultTitle");
 
   // Group shortcuts by description
   const groupedShortcuts: GroupedShortcut[] = [];
@@ -63,11 +66,11 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
         },
       }}
     >
-      <DialogTitle>{title}</DialogTitle>
+      <DialogTitle>{dialogTitle}</DialogTitle>
       <DialogContent sx={{ bgcolor: "background.default" }}>
         {groupedShortcuts.length === 0 ? (
           <Box sx={{ py: 2, textAlign: "center", backgroundColor: "background.default", color: "text.secondary" }}>
-            No keyboard shortcuts available
+            {t("keyboardShortcutsHelp.emptyState")}
           </Box>
         ) : (
           <Table size="small">
@@ -85,7 +88,7 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
         )}
         <Box sx={{ mt: 2, textAlign: "center" }}>
           <Button variant="contained" onClick={onClose}>
-            Close
+            {t("common.actions.close")}
           </Button>
         </Box>
       </DialogContent>

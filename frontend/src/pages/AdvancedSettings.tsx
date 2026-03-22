@@ -13,10 +13,12 @@ import {
   useTheme,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { settingsPrimaryButtonSx } from "../components/Settings/settingsButtonStyles";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { translate } from "../i18n";
 import api from "../services/api";
 import type { AdvancedSystemSettings, AdvancedSystemSettingsUpdate, IntegerSystemSetting } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
@@ -92,19 +94,28 @@ function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsForm
 
 function validateIntegerSetting(setting: IntegerSystemSetting, value: number | null, unitLabel?: string): string | null {
   if (value === null) {
-    return `Enter ${setting.label}`;
+    return translate("settings.advanced.validation.enterLabel", { label: setting.label });
   }
 
   if (!Number.isInteger(value)) {
-    return `${setting.label} must be a whole number`;
+    return translate("settings.advanced.validation.wholeNumber", { label: setting.label });
   }
 
   if (value < setting.min_value || value > setting.max_value) {
     if (unitLabel) {
-      return `${setting.label} must be between ${formatInteger(setting.min_value)} and ${formatInteger(setting.max_value)} ${unitLabel}`;
+      return translate("settings.advanced.validation.betweenRangeWithUnit", {
+        label: setting.label,
+        min: formatInteger(setting.min_value),
+        max: formatInteger(setting.max_value),
+        unit: unitLabel,
+      });
     }
 
-    return `${setting.label} must be between ${formatInteger(setting.min_value)} and ${formatInteger(setting.max_value)}`;
+    return translate("settings.advanced.validation.betweenRange", {
+      label: setting.label,
+      min: formatInteger(setting.min_value),
+      max: formatInteger(setting.max_value),
+    });
   }
 
   return null;
@@ -112,15 +123,19 @@ function validateIntegerSetting(setting: IntegerSystemSetting, value: number | n
 
 function validateByteSizeSetting(setting: IntegerSystemSetting, value: number | null): string | null {
   if (value === null) {
-    return `Enter ${setting.label}`;
+    return translate("settings.advanced.validation.enterLabel", { label: setting.label });
   }
 
   if (!Number.isInteger(value)) {
-    return `${setting.label} must be a whole number`;
+    return translate("settings.advanced.validation.wholeNumber", { label: setting.label });
   }
 
   if (value < setting.min_value || value > setting.max_value) {
-    return `${setting.label} must be between ${formatByteSize(setting.min_value)} and ${formatByteSize(setting.max_value)}`;
+    return translate("settings.advanced.validation.betweenRange", {
+      label: setting.label,
+      min: formatByteSize(setting.min_value),
+      max: formatByteSize(setting.max_value),
+    });
   }
 
   return null;
@@ -165,6 +180,7 @@ function SettingField({
   errorText?: string | null;
   showErrors?: boolean;
 }) {
+  const { t } = useTranslation();
   const [displayValue, setDisplayValue] = useState<string>(value === null ? "" : String(value));
   const [touched, setTouched] = useState(false);
 
@@ -180,7 +196,7 @@ function SettingField({
         <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
         {setting.source === "database" && onReset ? (
           <Button size="small" variant="text" onClick={onReset} disabled={resetDisabled}>
-            Reset override
+            {t("settings.advanced.resetOverride")}
           </Button>
         ) : null}
       </Stack>
@@ -211,7 +227,12 @@ function SettingField({
         helperText={
           displayError
             ? errorText
-            : `${setting.description} Default: ${setting.default_value}. Range: ${setting.min_value} - ${setting.max_value}.`
+            : t("settings.advanced.helperText.integer", {
+                description: setting.description,
+                defaultValue: setting.default_value,
+                minValue: setting.min_value,
+                maxValue: setting.max_value,
+              })
         }
       />
     </Box>
@@ -235,6 +256,7 @@ function ByteSizeSettingField({
   errorText?: string | null;
   showErrors?: boolean;
 }) {
+  const { t } = useTranslation();
   const [unit, setUnit] = useState<ByteUnitLabel>(() => getPreferredByteUnit(value ?? setting.min_value));
   const [displayValue, setDisplayValue] = useState<string>(() =>
     value === null ? "" : String(Math.round(value / getByteUnitFactor(getPreferredByteUnit(value))))
@@ -296,9 +318,12 @@ function ByteSizeSettingField({
   const availableUnits = BYTE_UNITS.filter((option) => option.factor <= Math.max(value ?? 0, setting.min_value) || option.label === unit);
   const helperMessage = displayError
     ? errorText
-    : `${setting.description} Default: ${formatBytesWithExactValue(setting.default_value)}. Range: ${formatByteSize(
-        setting.min_value
-      )} to ${formatByteSize(setting.max_value)}.`;
+    : t("settings.advanced.helperText.byteSize", {
+        description: setting.description,
+        defaultValue: formatBytesWithExactValue(setting.default_value),
+        minValue: formatByteSize(setting.min_value),
+        maxValue: formatByteSize(setting.max_value),
+      });
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
@@ -306,7 +331,7 @@ function ByteSizeSettingField({
         <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
         {setting.source === "database" && onReset ? (
           <Button size="small" variant="text" onClick={onReset} disabled={resetDisabled}>
-            Reset override
+            {t("settings.advanced.resetOverride")}
           </Button>
         ) : null}
       </Stack>
@@ -317,7 +342,7 @@ function ByteSizeSettingField({
       >
         <TextField
           type="text"
-          label="Value"
+          label={t("settings.advanced.fields.value")}
           value={displayValue}
           onChange={(event) => handleValueChange(event.target.value)}
           onBlur={handleValueBlur}
@@ -328,7 +353,7 @@ function ByteSizeSettingField({
         />
         <TextField
           select
-          label="Unit"
+          label={t("settings.advanced.fields.unit")}
           value={unit}
           onChange={(event) => handleUnitChange(event.target.value as ByteUnitLabel)}
           variant="filled"
@@ -355,6 +380,7 @@ function ByteSizeSettingField({
 export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<AdvancedSystemSettings | null>(null);
   const [formState, setFormState] = useState<AdvancedSettingsFormState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -372,11 +398,11 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       setFormState(createFormState(response));
       setSubmitAttempted(false);
     } catch (loadError: unknown) {
-      setError(getApiErrorMessage(loadError, "Failed to load advanced settings"));
+      setError(getApiErrorMessage(loadError, t("settings.advanced.loadFailed")));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void loadSettings();
@@ -404,7 +430,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       imagemagickTimeoutSeconds: validateIntegerSetting(
         settings.preprocessors.imagemagick.timeout_seconds,
         formState.imagemagickTimeoutSeconds,
-        "seconds"
+        t("settings.advanced.fields.seconds")
       ),
       graphicsmagickMaxFileSizeBytes: validateByteSizeSetting(
         settings.preprocessors.graphicsmagick.max_file_size_bytes,
@@ -413,10 +439,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       graphicsmagickTimeoutSeconds: validateIntegerSetting(
         settings.preprocessors.graphicsmagick.timeout_seconds,
         formState.graphicsmagickTimeoutSeconds,
-        "seconds"
+        t("settings.advanced.fields.seconds")
       ),
     };
-  }, [formState, settings]);
+  }, [formState, settings, t]);
 
   const hasValidationErrors = useMemo(() => {
     if (!validationErrors) {
@@ -440,10 +466,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       const updated = await api.updateAdvancedSettings(buildUpdatePayload(formState));
       setSettings(updated);
       setFormState(createFormState(updated));
-      setSuccessMessage("Advanced settings saved");
+      setSuccessMessage(t("settings.advanced.saveSuccess"));
       setSubmitAttempted(false);
     } catch (saveError: unknown) {
-      setError(getApiErrorMessage(saveError, "Failed to save advanced settings"));
+      setError(getApiErrorMessage(saveError, t("settings.advanced.saveFailed")));
     } finally {
       setSaving(false);
     }
@@ -457,10 +483,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       const updated = await api.updateAdvancedSettings({ reset_keys: [key] });
       setSettings(updated);
       setFormState(createFormState(updated));
-      setSuccessMessage(`${label} reset to inherited value`);
+      setSuccessMessage(t("settings.advanced.resetSuccess", { label }));
       setSubmitAttempted(false);
     } catch (resetError: unknown) {
-      setError(getApiErrorMessage(resetError, "Failed to reset setting override"));
+      setError(getApiErrorMessage(resetError, t("settings.advanced.resetFailed")));
     } finally {
       setSaving(false);
     }
@@ -483,7 +509,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         showTitle={!isMobile}
         actions={
           <Button onClick={handleSave} disabled={!hasUnsavedChanges || saving || loading} variant="contained" sx={settingsPrimaryButtonSx}>
-            {saving ? <CircularProgress size={18} color="inherit" /> : "Save changes"}
+            {saving ? <CircularProgress size={18} color="inherit" /> : t("settings.advanced.saveChanges")}
           </Button>
         }
       />
@@ -508,7 +534,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
         {!loading && settings && formState && (
           <Stack spacing={4}>
-            <SettingsGroup title="SMB backends">
+            <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
               <ByteSizeSettingField
                 setting={settings.smb.read_chunk_size_bytes}
                 value={formState.smbReadChunkSizeBytes}
@@ -520,9 +546,9 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
               />
             </SettingsGroup>
 
-            <SettingsGroup title="Preprocessors">
+            <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
               <Stack spacing={3.5}>
-                <SettingsGroup title="ImageMagick" titleVariant="subtitle2" titleSx={subsectionHeadingSx}>
+                <SettingsGroup title={t("settings.advanced.sections.imageMagick")} titleVariant="subtitle2" titleSx={subsectionHeadingSx}>
                   <ByteSizeSettingField
                     setting={settings.preprocessors.imagemagick.max_file_size_bytes}
                     value={formState.imagemagickMaxFileSizeBytes}
@@ -545,7 +571,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                     onChange={(value) => setFormState((current) => (current ? { ...current, imagemagickTimeoutSeconds: value } : current))}
                     errorText={validationErrors?.imagemagickTimeoutSeconds}
                     showErrors={submitAttempted}
-                    unitAdornment="seconds"
+                    unitAdornment={t("settings.advanced.fields.seconds")}
                     onReset={() =>
                       handleReset(
                         settings.preprocessors.imagemagick.timeout_seconds.key,
@@ -556,7 +582,11 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                   />
                 </SettingsGroup>
 
-                <SettingsGroup title="GraphicsMagick" titleVariant="subtitle2" titleSx={subsectionHeadingSx}>
+                <SettingsGroup
+                  title={t("settings.advanced.sections.graphicsMagick")}
+                  titleVariant="subtitle2"
+                  titleSx={subsectionHeadingSx}
+                >
                   <ByteSizeSettingField
                     setting={settings.preprocessors.graphicsmagick.max_file_size_bytes}
                     value={formState.graphicsmagickMaxFileSizeBytes}
@@ -581,7 +611,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                     }
                     errorText={validationErrors?.graphicsmagickTimeoutSeconds}
                     showErrors={submitAttempted}
-                    unitAdornment="seconds"
+                    unitAdornment={t("settings.advanced.fields.seconds")}
                     onReset={() =>
                       handleReset(
                         settings.preprocessors.graphicsmagick.timeout_seconds.key,

@@ -3,6 +3,7 @@
 //
 
 import { Box, Typography } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 import { SettingsCategoryList } from "./SettingsCategoryList";
 import { getSettingsCategoryByPath, getVisibleSettingsSections, SETTINGS_CATEGORY_META } from "./settingsNavigation";
@@ -18,6 +19,7 @@ export function SettingsSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAdmin } = useSettingsAccess();
+  const { t } = useTranslation();
 
   // Determine active category from current route
   const activePath = location.pathname;
@@ -39,7 +41,7 @@ export function SettingsSidebar() {
       {/* Sidebar Header */}
       <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
         <Typography variant="h6" component="h2" sx={{ fontWeight: 600 }}>
-          Settings
+          {t("settings.shell.title")}
         </Typography>
       </Box>
 

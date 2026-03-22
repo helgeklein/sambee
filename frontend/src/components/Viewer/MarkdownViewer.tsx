@@ -1,9 +1,10 @@
 import { Alert, Box, CircularProgress, Dialog } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { checkIsTransientError, getTransientErrorMessage, useApiRetry } from "../../hooks/useApiRetry";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
@@ -24,6 +25,7 @@ import "highlight.js/styles/github.css";
  * Integrated with ViewerControls and keyboard shortcuts system.
  */
 export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose }) => {
+  const { t } = useTranslation();
   const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,10 +178,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       },
       // Show help
       {
-        id: "show-help",
-        keys: ["?"],
-        label: "?",
-        description: "Show keyboard shortcuts",
+        ...BROWSER_SHORTCUTS.SHOW_HELP,
         handler: handleShowHelp,
       },
     ],
@@ -312,7 +311,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         open={showHelp}
         onClose={() => setShowHelp(false)}
         shortcuts={markdownShortcuts}
-        title="Markdown viewer shortcuts"
+        title={t("keyboardShortcutsHelp.titles.markdownViewer")}
       />
     </>
   );

@@ -199,6 +199,10 @@ Available fixtures:
 cd frontend && npm test
 ```
 
+## Localization
+
+For translation system conventions, key-safety rules, and pseudo-locale guidance, see [LOCALIZATION.md](./LOCALIZATION.md).
+
 ## CI/CD and GitHub Actions
 
 The project uses GitHub Actions for continuous integration. Tests run automatically on pushes and pull requests to the `main` branch.

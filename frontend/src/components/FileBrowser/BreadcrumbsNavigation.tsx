@@ -4,6 +4,7 @@
 
 import { Breadcrumbs, Link, Typography } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { createEscapeHandler } from "../../utils/keyboardUtils";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -295,6 +296,7 @@ export function BreadcrumbsNavigation({
   disableTabFocus,
   showActiveIndicator,
 }: BreadcrumbsNavigationProps) {
+  const { t } = useTranslation();
   const pathParts = currentPath ? currentPath.split("/").filter(Boolean) : [];
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(800);
@@ -406,7 +408,7 @@ export function BreadcrumbsNavigation({
           onKeyDown={createEscapeHandler(onEscape)}
           tabIndex={disableTabFocus ? -1 : undefined}
           sx={{ fontWeight: "regular", color: "inherit", opacity: 0.85 }}
-          aria-label="Navigate to root directory"
+          aria-label={t("fileBrowser.chrome.breadcrumb.navigateRoot")}
         >
           {connectionName}
         </Link>
@@ -452,7 +454,7 @@ export function BreadcrumbsNavigation({
             onClick={() => handleBreadcrumbClick(segment.pathIndex)}
             onKeyDown={createEscapeHandler(onEscape)}
             tabIndex={disableTabFocus ? -1 : undefined}
-            aria-label={`Navigate to ${segment.fullLabel}`}
+            aria-label={t("fileBrowser.chrome.breadcrumb.navigateTo", { path: segment.fullLabel })}
             title={segment.fullLabel}
             sx={{
               overflow: "hidden",

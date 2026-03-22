@@ -1,6 +1,7 @@
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
 import type React from "react";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { fileNamePillSx } from "../../theme/commonStyles";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 
@@ -22,10 +23,13 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
   title,
   description,
   itemName,
-  confirmLabel = "Delete",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
 }) => {
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
+  const { t } = useTranslation();
+  const resolvedConfirmLabel = confirmLabel ?? t("common.actions.delete");
+  const resolvedCancelLabel = cancelLabel ?? t("common.actions.cancel");
 
   return (
     <Dialog
@@ -45,10 +49,10 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} sx={{ color: "warning.main" }}>
-          {cancelLabel}
+          {resolvedCancelLabel}
         </Button>
         <Button onClick={onConfirm} color="error" variant="contained">
-          {confirmLabel}
+          {resolvedConfirmLabel}
         </Button>
       </DialogActions>
     </Dialog>

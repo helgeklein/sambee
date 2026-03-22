@@ -2,6 +2,8 @@
 // connectionDialogConstants
 //
 
+import { translate } from "../../i18n";
+
 /**
  * Centralized strings and labels for Connection Dialog
  * Used by both mobile and desktop versions to ensure consistency
@@ -9,40 +11,89 @@
 
 export const CONNECTION_DIALOG_STRINGS = {
   // Dialog titles
-  TITLE_ADD: "Add Connection",
-  TITLE_EDIT: "Edit Connection",
+  get TITLE_ADD() {
+    return translate("settings.connectionDialog.titles.add");
+  },
+  get TITLE_EDIT() {
+    return translate("settings.connectionDialog.titles.edit");
+  },
 
   // Field labels
-  LABEL_NAME: "Connection name",
-  LABEL_HOST: "Host",
-  LABEL_SHARE_NAME: "Share name",
-  LABEL_USERNAME: "User name",
-  LABEL_PASSWORD: "Password",
-  LABEL_PATH_PREFIX: "Path prefix",
+  get LABEL_NAME() {
+    return translate("settings.connectionDialog.labels.name");
+  },
+  get LABEL_HOST() {
+    return translate("settings.connectionDialog.labels.host");
+  },
+  get LABEL_SHARE_NAME() {
+    return translate("settings.connectionDialog.labels.shareName");
+  },
+  get LABEL_USERNAME() {
+    return translate("settings.connectionDialog.labels.username");
+  },
+  get LABEL_PASSWORD() {
+    return translate("settings.connectionDialog.labels.password");
+  },
+  get LABEL_PATH_PREFIX() {
+    return translate("settings.connectionDialog.labels.pathPrefix");
+  },
 
   // Helper text / descriptions
-  HELPER_HOST: "IP address or hostname of the SMB server",
-  HELPER_SHARE_NAME: "Name of the share on the server",
-  HELPER_PASSWORD_EDIT: "Leave blank to keep existing password",
-  HELPER_PATH_PREFIX: "Base path within the share (optional)",
-  HELPER_USERNAME: "Use DOMAIN\\USER format if needed",
-  HELPER_VISIBILITY_ADMIN: "Admins can create shared connections for everyone or private connections for themselves.",
-  HELPER_VISIBILITY_REGULAR:
-    "Shared connections require admin access. If you choose shared without admin access, the server will save it as private.",
+  get HELPER_HOST() {
+    return translate("settings.connectionDialog.helpers.host");
+  },
+  get HELPER_SHARE_NAME() {
+    return translate("settings.connectionDialog.helpers.shareName");
+  },
+  get HELPER_PASSWORD_EDIT() {
+    return translate("settings.connectionDialog.helpers.passwordEdit");
+  },
+  get HELPER_PATH_PREFIX() {
+    return translate("settings.connectionDialog.helpers.pathPrefix");
+  },
+  get HELPER_USERNAME() {
+    return translate("settings.connectionDialog.helpers.username");
+  },
+  get HELPER_VISIBILITY_ADMIN() {
+    return translate("settings.connectionDialog.helpers.visibilityAdmin");
+  },
+  get HELPER_VISIBILITY_REGULAR() {
+    return translate("settings.connectionDialog.helpers.visibilityRegular");
+  },
 
   // Error messages
-  ERROR_NAME_REQUIRED: "Connection name is required",
-  ERROR_HOST_REQUIRED: "Host is required",
-  ERROR_SHARE_NAME_REQUIRED: "Share name is required",
-  ERROR_USERNAME_REQUIRED: "Username is required",
-  ERROR_PASSWORD_REQUIRED: "Password is required",
+  get ERROR_NAME_REQUIRED() {
+    return translate("settings.connectionDialog.errors.nameRequired");
+  },
+  get ERROR_HOST_REQUIRED() {
+    return translate("settings.connectionDialog.errors.hostRequired");
+  },
+  get ERROR_SHARE_NAME_REQUIRED() {
+    return translate("settings.connectionDialog.errors.shareNameRequired");
+  },
+  get ERROR_USERNAME_REQUIRED() {
+    return translate("settings.connectionDialog.errors.usernameRequired");
+  },
+  get ERROR_PASSWORD_REQUIRED() {
+    return translate("settings.connectionDialog.errors.passwordRequired");
+  },
 
   // Button labels
-  BUTTON_TEST: "Test Connection",
-  BUTTON_CANCEL: "Cancel",
-  BUTTON_SAVE: "Save",
+  get BUTTON_TEST() {
+    return translate("settings.connectionManagement.menuTest");
+  },
+  get BUTTON_CANCEL() {
+    return translate("common.actions.cancel");
+  },
+  get BUTTON_SAVE() {
+    return translate("settings.connectionDialog.actions.save");
+  },
 
   // ARIA labels
-  ARIA_TOGGLE_PASSWORD: "toggle password visibility",
-  ARIA_GO_BACK: "Go back",
+  get ARIA_TOGGLE_PASSWORD() {
+    return translate("settings.connectionDialog.aria.togglePassword");
+  },
+  get ARIA_GO_BACK() {
+    return translate("common.navigation.goBack");
+  },
 } as const;

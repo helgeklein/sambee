@@ -5,6 +5,7 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-d
 import ErrorBoundary from "./components/ErrorBoundary";
 import { SettingsLayout } from "./components/Settings/SettingsLayout";
 import { useFocusTrap } from "./hooks/useFocusTrap";
+import { translate } from "./i18n";
 import { AdvancedSettings } from "./pages/AdvancedSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
 import { PreferencesSettings } from "./pages/PreferencesSettings";
@@ -33,7 +34,7 @@ function AppContent() {
       <CssBaseline />
       <div ref={appRef}>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-          <Suspense fallback={<div>Loading...</div>}>
+          <Suspense fallback={<div>{translate("app.loading")}</div>}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />

@@ -37,6 +37,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { SearchProvider, SearchResult, SearchSelectionBehavior } from "./search/types";
 
 // ============================================================================
@@ -56,7 +57,7 @@ const DROPDOWN_WIDTH_PX = 700;
 const PAGE_JUMP_SIZE = 10;
 
 /** The default quick-bar mode should read as the baseline, not a tagged variant. */
-const DEFAULT_MODE_LABEL = "Navigate";
+const DEFAULT_MODE_ID = "navigate";
 
 /** Preserve touch comfort on mobile while tightening desktop density slightly. */
 const MOBILE_INPUT_PADDING = "10px 14px";
@@ -119,6 +120,7 @@ export function UnifiedSearchBar({
   const [isSearchPending, setIsSearchPending] = useState(false);
 
   const theme = useTheme();
+  const { t } = useTranslation();
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -193,7 +195,7 @@ export function UnifiedSearchBar({
     );
   }, [provider.shortcutHint, useCompactLayout, theme.palette.mode]);
 
-  const shouldShowModeBadge = !!provider.modeLabel && provider.modeLabel !== DEFAULT_MODE_LABEL && query.length === 0;
+  const shouldShowModeBadge = !!provider.modeLabel && provider.modeId !== DEFAULT_MODE_ID && query.length === 0;
 
   const modeBadge = useMemo(() => {
     if (!provider.modeLabel || !shouldShowModeBadge) return null;
@@ -268,7 +270,7 @@ export function UnifiedSearchBar({
                 minWidth: { xs: 44, sm: "auto" },
                 minHeight: { xs: 44, sm: "auto" },
               }}
-              aria-label="Clear search"
+              aria-label={t("common.search.clear")}
             >
               <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
             </IconButton>
@@ -278,7 +280,7 @@ export function UnifiedSearchBar({
         </Box>
       </InputAdornment>
     );
-  }, [effectiveInputRef, isFocused, isLoading, kbdBadge, query, setQuery, useCompactLayout]);
+  }, [effectiveInputRef, isFocused, isLoading, kbdBadge, query, setQuery, t, useCompactLayout]);
 
   // ── Search execution ───────────────────────────────────────────────────
 
@@ -819,7 +821,7 @@ export function UnifiedSearchBar({
             {showNoResults && (
               <Box sx={{ px: 2, py: 2, textAlign: "center" }}>
                 <Typography variant="body2" color="text.secondary">
-                  No results found for &ldquo;{query}&rdquo;
+                  {t("fileBrowser.search.results.none", { query })}
                 </Typography>
               </Box>
             )}

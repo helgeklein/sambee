@@ -33,6 +33,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
@@ -55,6 +56,7 @@ import type {
 } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../utils/keyboardUtils";
+import { formatLocalizedDateTime } from "../utils/localeFormatting";
 
 interface UserFormState {
   username: string;
@@ -79,6 +81,7 @@ const DEFAULT_USER_FORM: UserFormState = {
 export function UserManagementSettings({ dialogSafeHeader = false }: UserManagementSettingsProps) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
+  const { t } = useTranslation();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -125,12 +128,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       setUsers(userList);
       setCurrentUserId(currentUser.id ?? null);
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to load users");
+      const message = getApiErrorMessage(error, t("settings.userManagement.notifications.loadFailed"));
       showNotification(message, "error");
     } finally {
       setLoading(false);
     }
-  }, [showNotification]);
+  }, [showNotification, t]);
 
   useEffect(() => {
     loadUsers();
@@ -168,7 +171,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const handleSave = useCallback(async () => {
     const username = formState.username.trim();
     if (!username) {
-      setFormError("Username is required");
+      setFormError(t("settings.userManagement.notifications.usernameRequired"));
       return;
     }
 
@@ -183,7 +186,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           is_active: formState.isActive,
         };
         await api.updateUser(selectedUser.id, updatePayload);
-        showNotification("User updated successfully", "success");
+        showNotification(t("settings.userManagement.notifications.userUpdated"), "success");
       } else {
         const createPayload: AdminUserCreateInput = {
           username,
@@ -192,14 +195,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           password: formState.password.trim() ? formState.password : undefined,
         };
         const result: AdminUserCreateResult = await api.createUser(createPayload);
-        showNotification("User created successfully", "success");
+        showNotification(t("settings.userManagement.notifications.userCreated"), "success");
         if (result.temporary_password) {
           setCredentialsDialog({
             open: true,
-            title: "Temporary Password Created",
+            title: t("settings.userManagement.credentialsDialog.createTitle"),
             username: result.username,
             temporaryPassword: result.temporary_password,
-            description: "Share this temporary password securely. The user will be required to change it after signing in.",
+            description: t("settings.userManagement.credentialsDialog.createDescription"),
           });
         }
       }
@@ -207,12 +210,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       closeEditor();
       await loadUsers();
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, isEditing ? "Failed to update user" : "Failed to create user");
+      const message = getApiErrorMessage(
+        error,
+        isEditing ? t("settings.userManagement.notifications.updateFailed") : t("settings.userManagement.notifications.createFailed")
+      );
       setFormError(message);
     } finally {
       setSubmitting(false);
     }
-  }, [closeEditor, formState, isEditing, loadUsers, selectedUser, showNotification]);
+  }, [closeEditor, formState, isEditing, loadUsers, selectedUser, showNotification, t]);
 
   const handleEditorKeyDown = useMemo(
     () =>
@@ -235,15 +241,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       const result: AdminUserPasswordResetResult = await api.resetUserPassword(user.id);
       setCredentialsDialog({
         open: true,
-        title: "Temporary Password Reset",
+        title: t("settings.userManagement.credentialsDialog.resetTitle"),
         username: user.username,
         temporaryPassword: result.temporary_password,
-        description: "The existing password was replaced and all current sessions were invalidated.",
+        description: t("settings.userManagement.credentialsDialog.resetDescription"),
       });
       showNotification(result.message, "success");
       await loadUsers();
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to reset password");
+      const message = getApiErrorMessage(error, t("settings.userManagement.notifications.resetFailed"));
       showNotification(message, "error");
     }
   };
@@ -255,12 +261,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
     try {
       await api.deleteUser(selectedUser.id);
-      showNotification("User deleted successfully", "success");
+      showNotification(t("settings.userManagement.notifications.userDeleted"), "success");
       setDeleteDialogOpen(false);
       setSelectedUser(null);
       await loadUsers();
     } catch (error: unknown) {
-      const message = getApiErrorMessage(error, "Failed to delete user");
+      const message = getApiErrorMessage(error, t("settings.userManagement.notifications.deleteFailed"));
       showNotification(message, "error");
     }
   };
@@ -279,10 +285,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           },
         }}
       >
-        Cancel
+        {t("common.actions.cancel")}
       </Button>
       <Button onClick={handleSave} variant="contained" disabled={submitting} sx={{ textTransform: "none" }}>
-        {submitting ? <CircularProgress size={20} /> : isEditing ? "Save Changes" : "Create User"}
+        {submitting ? (
+          <CircularProgress size={20} />
+        ) : isEditing ? (
+          t("settings.userManagement.actions.saveChanges")
+        ) : (
+          t("settings.userManagement.actions.createUser")
+        )}
       </Button>
     </>
   );
@@ -290,13 +302,11 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const editorContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isDesktop ? 1 : 0 }}>
       <DialogContentText>
-        {isEditing
-          ? "Update account details and access level. Password resets are handled separately."
-          : "Create a new account. Leave the password blank to generate a temporary password automatically."}
+        {isEditing ? t("settings.userManagement.editor.descriptionEdit") : t("settings.userManagement.editor.descriptionCreate")}
       </DialogContentText>
       {formError && <Alert severity="error">{formError}</Alert>}
       <TextField
-        label="Username"
+        label={t("settings.userManagement.editor.usernameLabel")}
         value={formState.username}
         onChange={(event) => setFormState((current) => ({ ...current, username: event.target.value }))}
         autoFocus
@@ -307,16 +317,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         }}
       />
       <FormControl fullWidth variant="filled">
-        <InputLabel id="user-role-label">Role</InputLabel>
+        <InputLabel id="user-role-label">{t("settings.userManagement.editor.roleLabel")}</InputLabel>
         <Select
           labelId="user-role-label"
-          label="Role"
+          label={t("settings.userManagement.editor.roleLabel")}
           value={formState.role}
           disabled={isEditingSelf}
           onChange={(event) => setFormState((current) => ({ ...current, role: event.target.value as UserRole }))}
         >
-          <MenuItem value="regular">Regular</MenuItem>
-          <MenuItem value="admin">Admin</MenuItem>
+          <MenuItem value="regular">{t("settings.userManagement.regularRole")}</MenuItem>
+          <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
         </Select>
       </FormControl>
       {isEditing ? (
@@ -328,16 +338,16 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
               onChange={(event) => setFormState((current) => ({ ...current, isActive: event.target.checked }))}
             />
           }
-          label="Account is active"
+          label={t("settings.userManagement.editor.accountActiveLabel")}
         />
       ) : (
         <>
           <TextField
-            label="Initial Password"
+            label={t("settings.userManagement.editor.initialPasswordLabel")}
             type="password"
             value={formState.password}
             onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
-            helperText="Optional. If left blank, the server will generate a secure temporary password."
+            helperText={t("settings.userManagement.editor.initialPasswordHelp")}
             fullWidth
             variant="filled"
             FormHelperTextProps={{
@@ -351,7 +361,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 onChange={(event) => setFormState((current) => ({ ...current, mustChangePassword: event.target.checked }))}
               />
             }
-            label="Require password change after next sign-in"
+            label={t("settings.userManagement.editor.requirePasswordChangeLabel")}
           />
         </>
       )}
@@ -366,7 +376,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         variant="contained"
         sx={{ textTransform: "none" }}
       >
-        Close
+        {t("settings.userManagement.actions.close")}
       </Button>
     </>
   );
@@ -374,9 +384,15 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const credentialsDialogContent = (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isDesktop ? 1 : 0 }}>
       <DialogContentText>{credentialsDialog.description}</DialogContentText>
-      <TextField label="Username" value={credentialsDialog.username} InputProps={{ readOnly: true }} fullWidth variant="filled" />
       <TextField
-        label="Temporary Password"
+        label={t("settings.userManagement.credentialsDialog.usernameLabel")}
+        value={credentialsDialog.username}
+        InputProps={{ readOnly: true }}
+        fullWidth
+        variant="filled"
+      />
+      <TextField
+        label={t("settings.userManagement.credentialsDialog.temporaryPasswordLabel")}
         value={credentialsDialog.temporaryPassword}
         InputProps={{ readOnly: true }}
         fullWidth
@@ -403,7 +419,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         actions={
           isDesktop ? (
             <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog} sx={settingsPrimaryButtonSx}>
-              Add User
+              {t("settings.userManagement.addUserButton")}
             </Button>
           ) : undefined
         }
@@ -411,8 +427,18 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
       <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 2 }}>
         <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: "wrap" }}>
-          <Chip label={`${users.length} total users`} size="small" variant="outlined" sx={settingsMetadataChipSx} />
-          <Chip label={`${activeAdminCount} active admins`} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+          <Chip
+            label={t("settings.userManagement.totalUsers", { count: users.length })}
+            size="small"
+            variant="outlined"
+            sx={settingsMetadataChipSx}
+          />
+          <Chip
+            label={t("settings.userManagement.activeAdmins", { count: activeAdminCount })}
+            size="small"
+            variant="outlined"
+            sx={settingsMetadataChipSx}
+          />
         </Stack>
       </Box>
 
@@ -424,10 +450,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         ) : users.length === 0 ? (
           <Box sx={{ py: 6, textAlign: "center" }}>
             <Typography variant="h6" color="text.secondary">
-              No users found
+              {t("settings.userManagement.emptyTitle")}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Create the first user account to start delegating access.
+              {t("settings.userManagement.emptyDescription")}
             </Typography>
           </Box>
         ) : (
@@ -454,29 +480,55 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       {user.username}
                     </Typography>
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", mt: 0.75, mb: 1 }}>
-                      {isSelf && <Chip size="small" label="You" variant="outlined" sx={settingsMetadataChipSx} />}
+                      {isSelf && (
+                        <Chip
+                          size="small"
+                          label={t("settings.userManagement.currentUserChip")}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
+                      )}
                       <Chip
                         size="small"
                         icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
-                        label={user.role === "admin" ? "Admin" : "Regular"}
+                        label={user.role === "admin" ? t("settings.userManagement.adminRole") : t("settings.userManagement.regularRole")}
                         variant="outlined"
                         sx={settingsMetadataChipSx}
                       />
-                      <Chip size="small" label={user.is_active ? "Active" : "Disabled"} variant="outlined" sx={settingsMetadataChipSx} />
+                      <Chip
+                        size="small"
+                        label={user.is_active ? t("settings.userManagement.activeStatus") : t("settings.userManagement.disabledStatus")}
+                        variant="outlined"
+                        sx={settingsMetadataChipSx}
+                      />
                       {user.must_change_password && (
-                        <Chip size="small" label="Password reset pending" variant="outlined" sx={settingsMetadataChipSx} />
+                        <Chip
+                          size="small"
+                          label={t("settings.userManagement.passwordResetPending")}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
                       )}
                     </Stack>
                     <Typography variant="body2" color="text.secondary">
-                      Created {new Date(user.created_at).toLocaleString()}
+                      {t("settings.userManagement.createdAt", {
+                        timestamp: formatLocalizedDateTime(user.created_at, {
+                          year: "numeric",
+                          month: "numeric",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        }),
+                      })}
                     </Typography>
                   </Box>
 
                   <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: "stretch", sm: "center" } }}>
-                    <Tooltip title="Edit user">
+                    <Tooltip title={t("settings.userManagement.actions.editUser")}>
                       <span>
                         <IconButton
-                          aria-label={`Edit ${user.username}`}
+                          aria-label={t("settings.userManagement.aria.editUser", { username: user.username })}
                           onClick={() => openEditDialog(user)}
                           sx={settingsUtilityIconButtonSx}
                         >
@@ -484,10 +536,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         </IconButton>
                       </span>
                     </Tooltip>
-                    <Tooltip title="Reset password">
+                    <Tooltip title={t("settings.userManagement.actions.resetPassword")}>
                       <span>
                         <IconButton
-                          aria-label={`Reset password for ${user.username}`}
+                          aria-label={t("settings.userManagement.aria.resetPassword", { username: user.username })}
                           onClick={() => handleResetPassword(user)}
                           sx={settingsUtilityIconButtonSx}
                         >
@@ -495,10 +547,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         </IconButton>
                       </span>
                     </Tooltip>
-                    <Tooltip title={isSelf ? "You cannot delete your own account here" : "Delete user"}>
+                    <Tooltip
+                      title={
+                        isSelf ? t("settings.userManagement.actions.deleteSelfDisabled") : t("settings.userManagement.actions.deleteUser")
+                      }
+                    >
                       <span>
                         <IconButton
-                          aria-label={`Delete ${user.username}`}
+                          aria-label={t("settings.userManagement.aria.deleteUser", { username: user.username })}
                           disabled={isSelf}
                           onClick={() => {
                             setSelectedUser(user);
@@ -519,7 +575,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       </Box>
 
       {!isDesktop && (
-        <Fab color="primary" aria-label="Add user" onClick={openCreateDialog} sx={settingsPrimaryFabSx}>
+        <Fab
+          color="primary"
+          aria-label={t("settings.userManagement.addUserFabAriaLabel")}
+          onClick={openCreateDialog}
+          sx={settingsPrimaryFabSx}
+        >
           <AddIcon />
         </Fab>
       )}
@@ -527,7 +588,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <ResponsiveFormDialog
         open={editorOpen}
         onClose={handleEditorClose}
-        title={isEditing ? "Edit User" : "Create User"}
+        title={isEditing ? t("settings.userManagement.editor.titleEdit") : t("settings.userManagement.editor.titleCreate")}
         actions={editorActions}
         onKeyDown={handleEditorKeyDown}
       >
@@ -538,8 +599,12 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
         onConfirm={handleDeleteUser}
-        title="Delete User"
-        description={selectedUser ? `Delete ${selectedUser.username}? This immediately removes their access.` : "Delete this user?"}
+        title={t("settings.userManagement.deleteDialog.title")}
+        description={
+          selectedUser
+            ? t("settings.userManagement.deleteDialog.descriptionWithName", { username: selectedUser.username })
+            : t("settings.userManagement.deleteDialog.descriptionFallback")
+        }
         itemName={selectedUser?.username ?? null}
       />
 

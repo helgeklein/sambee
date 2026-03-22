@@ -1,6 +1,7 @@
 import ComputerIcon from "@mui/icons-material/Computer";
 import LanIcon from "@mui/icons-material/Lan";
 import { Box, Button, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import type { CompanionStatus } from "../../hooks/useCompanion";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { CONNECTION_TYPE_LOCAL, isLocalDrive } from "../../services/backendRouter";
@@ -37,6 +38,7 @@ export function ConnectionSelector({
   onOpenConnectionsSettings,
   buttonRef,
 }: ConnectionSelectorProps) {
+  const { t } = useTranslation();
   const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onAfterChange);
 
   if (connections.length === 0) {
@@ -73,6 +75,7 @@ export function ConnectionSelector({
         onKeyUp={handleKeyUp}
         role="combobox"
         size="small"
+        aria-label={t("fileBrowser.chrome.mobileMenu.selectConnectionAriaLabel")}
         aria-expanded={open}
         aria-haspopup="listbox"
         aria-controls={open ? "connection-menu" : undefined}
@@ -86,7 +89,7 @@ export function ConnectionSelector({
         <Box display="flex" alignItems="center" gap={0.5}>
           <ActiveIcon fontSize="small" sx={{ display: "flex" }} />
           <Typography variant="body2" sx={{ lineHeight: 1.43 }}>
-            {selectedConnection?.name || "Select Connection"}
+            {selectedConnection?.name || t("fileBrowser.chrome.connectionSelector.placeholder")}
           </Typography>
         </Box>
       </Button>
@@ -141,7 +144,7 @@ export function ConnectionSelector({
               <ListItemIcon>
                 <ComputerIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>{LOCAL_DRIVES_MENU_ACTION_LABEL}</ListItemText>
+              <ListItemText>{String(LOCAL_DRIVES_MENU_ACTION_LABEL)}</ListItemText>
             </MenuItem>
           </>
         )}

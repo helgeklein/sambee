@@ -63,7 +63,7 @@ describe("Browser Component - Interactions", () => {
       });
 
       // Find settings button - it should be clickable
-      const settingsButton = screen.getByTitle("Settings");
+      const settingsButton = screen.getByRole("button", { name: /open settings/i });
       expect(settingsButton).toBeInTheDocument();
 
       // Click is handled by navigation, which we can't fully test here
@@ -269,7 +269,7 @@ describe("Browser Component - Interactions", () => {
         expect(documentsElements.length).toBeGreaterThan(0);
       });
 
-      const settingsButton = screen.getByTitle("Settings");
+      const settingsButton = screen.getByRole("button", { name: /open settings/i });
       settingsButton.focus();
       expect(settingsButton).toHaveFocus();
 

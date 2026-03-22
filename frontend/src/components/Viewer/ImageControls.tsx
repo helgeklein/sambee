@@ -1,6 +1,9 @@
 import { ArrowBack, ArrowForward, Close, RotateLeft, RotateRight, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, Typography, useMediaQuery, useTheme } from "@mui/material";
 import type React from "react";
+import { useTranslation } from "react-i18next";
+import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 
 interface ImageControlsProps {
   filename: string;
@@ -32,6 +35,7 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
 
   return (
     <Box
@@ -89,8 +93,8 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
             color="inherit"
             onClick={onPrevious}
             disabled={currentIndex === 0}
-            title="Previous image (Left arrow)"
-            aria-label="Previous image"
+            title={withShortcut(COMMON_SHORTCUTS.PREVIOUS_ARROW)}
+            aria-label={t("viewer.controls.previousImage")}
             size={isMobile ? "small" : "medium"}
           >
             <ArrowBack fontSize={isMobile ? "small" : "medium"} />
@@ -100,8 +104,8 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
             color="inherit"
             onClick={onNext}
             disabled={currentIndex === totalImages - 1}
-            title="Next image (Right arrow)"
-            aria-label="Next image"
+            title={withShortcut(COMMON_SHORTCUTS.NEXT_ARROW)}
+            aria-label={t("viewer.controls.nextImage")}
             size={isMobile ? "small" : "medium"}
           >
             <ArrowForward fontSize={isMobile ? "small" : "medium"} />
@@ -112,18 +116,36 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
       {/* Zoom controls - hide zoom out on mobile to save space */}
       {!isMobile && (
         <Box sx={{ display: "flex", gap: 0 }}>
-          <IconButton color="inherit" onClick={() => onScale(scale * 0.8)} title="Zoom out (-)" aria-label="Zoom out" size="medium">
+          <IconButton
+            color="inherit"
+            onClick={() => onScale(scale * 0.8)}
+            title={withShortcut(VIEWER_SHORTCUTS.ZOOM_OUT)}
+            aria-label={t("viewer.controls.zoomOut")}
+            size="medium"
+          >
             <ZoomOut />
           </IconButton>
 
-          <IconButton color="inherit" onClick={() => onScale(scale * 1.2)} title="Zoom in (+)" aria-label="Zoom in" size="medium">
+          <IconButton
+            color="inherit"
+            onClick={() => onScale(scale * 1.2)}
+            title={withShortcut(VIEWER_SHORTCUTS.ZOOM_IN)}
+            aria-label={t("viewer.controls.zoomIn")}
+            size="medium"
+          >
             <ZoomIn />
           </IconButton>
         </Box>
       )}
 
       {isMobile && (
-        <IconButton color="inherit" onClick={() => onScale(scale * 1.2)} title="Zoom in (+)" aria-label="Zoom in" size="small">
+        <IconButton
+          color="inherit"
+          onClick={() => onScale(scale * 1.2)}
+          title={withShortcut(VIEWER_SHORTCUTS.ZOOM_IN)}
+          aria-label={t("viewer.controls.zoomIn")}
+          size="small"
+        >
           <ZoomIn fontSize="small" />
         </IconButton>
       )}
@@ -133,8 +155,8 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
         <IconButton
           color="inherit"
           onClick={() => onRotate(rotate - 90)}
-          title="Rotate left (Shift+R)"
-          aria-label="Rotate left"
+          title={withShortcut(VIEWER_SHORTCUTS.ROTATE_LEFT)}
+          aria-label={t("viewer.controls.rotateLeft")}
           size={isMobile ? "small" : "medium"}
         >
           <RotateLeft fontSize={isMobile ? "small" : "medium"} />
@@ -144,15 +166,21 @@ export const ImageControls: React.FC<ImageControlsProps> = ({
       <IconButton
         color="inherit"
         onClick={() => onRotate(rotate + 90)}
-        title="Rotate right (R)"
-        aria-label="Rotate right"
+        title={withShortcut(VIEWER_SHORTCUTS.ROTATE_RIGHT)}
+        aria-label={t("viewer.controls.rotateRight")}
         size={isMobile ? "small" : "medium"}
       >
         <RotateRight fontSize={isMobile ? "small" : "medium"} />
       </IconButton>
 
       {/* Close button */}
-      <IconButton color="inherit" onClick={onClose} title="Close (Escape)" aria-label="Close" size={isMobile ? "small" : "medium"}>
+      <IconButton
+        color="inherit"
+        onClick={onClose}
+        title={withShortcut(COMMON_SHORTCUTS.CLOSE)}
+        aria-label={t("common.actions.close")}
+        size={isMobile ? "small" : "medium"}
+      >
         <Close fontSize={isMobile ? "small" : "medium"} />
       </IconButton>
     </Box>

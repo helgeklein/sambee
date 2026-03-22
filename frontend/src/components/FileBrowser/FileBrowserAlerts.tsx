@@ -3,6 +3,7 @@
 //
 
 import { Alert, Box, Link, Typography } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
 import { useSambeeTheme } from "../../theme/ThemeContext";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
@@ -35,6 +36,7 @@ export function FileBrowserAlerts({
   onOpenConnectionsSettings,
 }: FileBrowserAlertsProps) {
   const { currentTheme } = useSambeeTheme();
+  const { t } = useTranslation();
   const alertStyles = currentTheme.components?.alert;
 
   // Get themed alert colors with fallbacks
@@ -70,12 +72,12 @@ export function FileBrowserAlerts({
         <EmptyStateIllustration width={180} sx={{ mb: 3, color: "text.secondary" }} />
 
         <Typography variant="h5" gutterBottom sx={{ fontWeight: 500 }}>
-          Welcome to Sambee!
+          {t("fileBrowser.chrome.alerts.welcomeTitle")}
         </Typography>
 
         {isAdmin ? (
           <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 400 }}>
-            Get started by{" "}
+            {t("fileBrowser.chrome.alerts.adminOnboardingPrefix")}
             {onOpenConnectionsSettings ? (
               <Link
                 component="button"
@@ -87,16 +89,16 @@ export function FileBrowserAlerts({
                   verticalAlign: "baseline",
                 }}
               >
-                adding your first SMB network share
+                {t("fileBrowser.chrome.alerts.adminOnboardingLink")}
               </Link>
             ) : (
-              "adding your first SMB network share"
+              t("fileBrowser.chrome.alerts.adminOnboardingLink")
             )}
-            . You'll be able to browse and view files from your network storage.
+            {t("fileBrowser.chrome.alerts.adminOnboardingSuffix")}
           </Typography>
         ) : (
           <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 400 }}>
-            Sambee lets you browse and view files from network shares. Please contact an administrator to set up network shares.
+            {t("fileBrowser.chrome.alerts.regularOnboarding")}
           </Typography>
         )}
       </Box>
@@ -113,19 +115,19 @@ export function FileBrowserAlerts({
 
       {backendAvailabilityStatus === "unavailable" && (
         <Alert severity="warning" sx={{ mb: 2, mx: 2, ...getAlertStyles("warning") }}>
-          Backend connection lost. The current UI remains available, but refreshes and live updates may fail until the connection returns.
+          {t("fileBrowser.chrome.alerts.backendUnavailable")}
         </Alert>
       )}
 
       {backendAvailabilityStatus === "reconnecting" && (
         <Alert severity="info" sx={{ mb: 2, mx: 2, ...getAlertStyles("info") }}>
-          Reconnecting to backend. Live updates may be delayed for a moment.
+          {t("fileBrowser.chrome.alerts.backendReconnecting")}
         </Alert>
       )}
 
       {loadingConnections && !error && (
         <Alert severity="info" sx={{ mb: 2, mx: 2, ...getAlertStyles("info") }}>
-          Loading connections...
+          {t("fileBrowser.chrome.alerts.loadingConnections")}
         </Alert>
       )}
     </>

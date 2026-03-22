@@ -3,6 +3,7 @@ import { render } from "preact";
 import { App } from "./App";
 import { DoneEditingWindow } from "./components/DoneEditingWindow";
 import { PairingWindow } from "./components/PairingWindow";
+import "./i18n";
 import { applyFallbackTheme, applyThemeFromBase64 } from "./lib/theme";
 import { scheduleUpdateCheck } from "./lib/updateCheck";
 import "./styles/global.css";

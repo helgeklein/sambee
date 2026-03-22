@@ -20,13 +20,13 @@ import FolderIcon from "@mui/icons-material/Folder";
 import { Box, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import type React from "react";
 import { useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
 import api from "../../../services/api";
 import { logger } from "../../../services/logger";
 import type { DirectorySearchResult } from "../../../types";
 import { normalizeQuerySeparators } from "./normalizeQuerySeparators";
 import type { SearchProvider, SearchResult, SearchStatusInfo } from "./types";
-import { DIRECTORY_SEARCH_PLACEHOLDER } from "./types";
 
 // ============================================================================
 // Constants
@@ -309,6 +309,7 @@ export function useDirectorySearchProvider(
   onNavigate: (path: string) => void,
   options: DirectorySearchProviderOptions = {}
 ): SearchProvider {
+  const { t } = useTranslation();
   const [cacheState, setCacheState] = useState<string>("empty");
   const [directoryCount, setDirectoryCount] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
@@ -369,22 +370,22 @@ export function useDirectorySearchProvider(
     switch (cacheState) {
       case "building":
         return {
-          label: `Indexing... (${directoryCount} directories found)`,
+          label: t("fileBrowser.search.status.indexing", { count: directoryCount }),
           showSpinner: true,
         };
       case "updating":
         return {
-          label: `Updating index... (${directoryCount} directories)`,
+          label: t("fileBrowser.search.status.updating", { count: directoryCount }),
           showSpinner: true,
         };
       case "empty":
-        return { label: "Starting index...", showSpinner: true };
+        return { label: t("fileBrowser.search.status.startingIndex"), showSpinner: true };
       case "ready":
         return null;
       default:
         return null;
     }
-  }, [cacheState, directoryCount]);
+  }, [cacheState, directoryCount, t]);
 
   //
   // onActivate
@@ -417,18 +418,24 @@ export function useDirectorySearchProvider(
     (resultCount: number): string | undefined => {
       if (resultCount > 0) {
         const isTruncated = totalMatches > resultCount;
-        const countLabel = isTruncated ? `${resultCount}+` : `${resultCount}`;
-        return `${countLabel} result${resultCount === 1 && !isTruncated ? "" : "s"}`;
+        if (isTruncated) {
+          return t("fileBrowser.search.results.countTruncated", { count: resultCount });
+        }
+
+        return t("fileBrowser.search.results.count", { count: resultCount });
       }
-      return cacheState === "ready" && directoryCount > 0 ? `${directoryCount.toLocaleString()} directories indexed` : undefined;
+      return cacheState === "ready" && directoryCount > 0
+        ? t("fileBrowser.search.results.directoriesIndexed", { count: directoryCount })
+        : undefined;
     },
-    [cacheState, directoryCount, totalMatches]
+    [cacheState, directoryCount, t, totalMatches]
   );
 
   return {
     id: "directory-search",
-    modeLabel: "Quick Nav",
-    placeholder: DIRECTORY_SEARCH_PLACEHOLDER,
+    modeId: "quick-nav",
+    modeLabel: t("fileBrowser.search.modes.quickNav"),
+    placeholder: t("fileBrowser.search.placeholders.directory"),
     debounceMs: DIRECTORY_SEARCH_DEBOUNCE_MS,
     minQueryLength: DIRECTORY_MIN_QUERY_LENGTH,
     fetchResults,
@@ -437,11 +444,12 @@ export function useDirectorySearchProvider(
     onActivate,
     footerHint: (
       <>
-        ↑↓ navigate&ensp;↵ open&ensp;<kbd>esc</kbd> close
+        ↑↓ {t("fileBrowser.search.footer.navigate")}&ensp;↵ {t("fileBrowser.search.footer.open")}&ensp;<kbd>esc</kbd>{" "}
+        {t("fileBrowser.search.footer.close")}
       </>
     ),
     footerInfo,
     shortcutHint: BROWSER_SHORTCUTS.QUICK_NAVIGATE.label,
-    belowMinimumMessage: `Type at least ${DIRECTORY_MIN_QUERY_LENGTH} characters to search`,
+    belowMinimumMessage: t("fileBrowser.search.belowMinimum", { count: DIRECTORY_MIN_QUERY_LENGTH }),
   };
 }

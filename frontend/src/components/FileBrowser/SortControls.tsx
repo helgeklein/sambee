@@ -4,6 +4,7 @@ import { Box, Button, Divider, Menu, MenuItem, Typography, useMediaQuery, useThe
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { SortField } from "../../pages/FileBrowser/types";
 import { pillButtonStyle } from "../../theme/commonStyles";
+import { SORT_CONTROLS_STRINGS } from "./sortControlsStrings";
 
 interface SortControlsProps {
   sortBy: SortField;
@@ -14,13 +15,6 @@ interface SortControlsProps {
   /** Remove from Tab order (dual-pane mode uses Tab for pane switching) */
   disableTabFocus?: boolean;
 }
-
-const SORT_LABELS: Record<SortField, string> = {
-  name: "Name",
-  size: "Size",
-  modified: "Modified",
-  type: "Type",
-};
 
 //
 // SortControls
@@ -49,7 +43,7 @@ export function SortControls({
     handleClose();
   };
 
-  const currentLabel = SORT_LABELS[sortBy];
+  const currentLabel = SORT_CONTROLS_STRINGS.fieldLabel(sortBy);
   const directionIcon = sortDirection === "asc" ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />;
 
   return (
@@ -66,7 +60,7 @@ export function SortControls({
           minHeight: isMobile ? "44px" : undefined,
           px: 2,
         }}
-        aria-label="Sort options"
+        aria-label={SORT_CONTROLS_STRINGS.ARIA_LABEL}
         aria-controls={open ? "sort-menu" : undefined}
         aria-haspopup="true"
         aria-expanded={open ? "true" : undefined}
@@ -98,16 +92,16 @@ export function SortControls({
         }}
       >
         <MenuItem onClick={() => handleCriterionChange("name")} selected={sortBy === "name"}>
-          Name
+          {SORT_CONTROLS_STRINGS.fieldLabel("name")}
         </MenuItem>
         <MenuItem onClick={() => handleCriterionChange("size")} selected={sortBy === "size"}>
-          Size
+          {SORT_CONTROLS_STRINGS.fieldLabel("size")}
         </MenuItem>
         <MenuItem onClick={() => handleCriterionChange("modified")} selected={sortBy === "modified"}>
-          Modified
+          {SORT_CONTROLS_STRINGS.fieldLabel("modified")}
         </MenuItem>
         <MenuItem onClick={() => handleCriterionChange("type")} selected={sortBy === "type"}>
-          Type
+          {SORT_CONTROLS_STRINGS.fieldLabel("type")}
         </MenuItem>
         <Divider />
         <MenuItem
@@ -119,7 +113,7 @@ export function SortControls({
           }}
         >
           <ArrowUpwardIcon fontSize="small" />
-          Ascending
+          {SORT_CONTROLS_STRINGS.ASCENDING}
         </MenuItem>
         <MenuItem
           onClick={handleDirectionToggle}
@@ -130,7 +124,7 @@ export function SortControls({
           }}
         >
           <ArrowDownwardIcon fontSize="small" />
-          Descending
+          {SORT_CONTROLS_STRINGS.DESCENDING}
         </MenuItem>
       </Menu>
     </Box>

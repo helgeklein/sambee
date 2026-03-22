@@ -17,11 +17,6 @@ import companionService, {
 } from "../services/companion";
 import { logger } from "../services/logger";
 
-const LOCAL_DRIVES_SETTINGS_HEADER = {
-  title: "Local Drives",
-  description: "Pair Sambee Companion and control local-drive access from this browser.",
-};
-
 interface LocalDrivesSettingsProps {
   onConnectionsChanged?: () => void;
   dialogSafeHeader?: boolean;
@@ -240,8 +235,8 @@ export function LocalDrivesSettings({
     >
       {showHeader ? (
         <SettingsSectionHeader
-          title={LOCAL_DRIVES_SETTINGS_HEADER.title}
-          description={LOCAL_DRIVES_SETTINGS_HEADER.description}
+          title={LOCAL_DRIVES_PAGE_COPY.headerTitle}
+          description={LOCAL_DRIVES_PAGE_COPY.headerDescription}
           dialogSafe={dialogSafeHeader}
           showTitle={!isMobile}
           actions={actionButtons}

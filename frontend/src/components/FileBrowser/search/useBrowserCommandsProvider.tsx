@@ -1,6 +1,7 @@
 import KeyboardCommandKeyIcon from "@mui/icons-material/KeyboardCommandKey";
 import { Box, ListItemIcon, ListItemText, Typography } from "@mui/material";
 import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import type { BrowserCommandDefinition } from "../../../config/browserCommands";
 import { BROWSER_SHORTCUTS } from "../../../config/keyboardShortcuts";
 import type { SearchProvider, SearchResult, SearchSelectionBehavior, SearchStatusInfo } from "./types";
@@ -56,6 +57,7 @@ function CommandResultRow({ command }: { command: BrowserCommandDefinition }) {
 }
 
 export function useBrowserCommandsProvider({ commands, onSelect }: BrowserCommandsProviderOptions): SearchProvider {
+  const { t } = useTranslation();
   const commandMap = useMemo(() => new Map(commands.map((command) => [command.id, command])), [commands]);
 
   const fetchResults = useCallback(
@@ -97,8 +99,9 @@ export function useBrowserCommandsProvider({ commands, onSelect }: BrowserComman
 
   return {
     id: "browser-commands",
-    modeLabel: "Commands",
-    placeholder: "Run a command",
+    modeId: "commands",
+    modeLabel: t("fileBrowser.search.modes.commands"),
+    placeholder: t("fileBrowser.search.placeholders.command"),
     debounceMs: 0,
     minQueryLength: 0,
     fetchResults,
@@ -106,10 +109,14 @@ export function useBrowserCommandsProvider({ commands, onSelect }: BrowserComman
     getStatusInfo,
     footerHint: (
       <>
-        ↑↓ navigate&ensp;↵ run&ensp;<kbd>esc</kbd> close
+        ↑↓ {t("fileBrowser.search.footer.navigate")}&ensp;↵ {t("fileBrowser.search.footer.run")}&ensp;<kbd>esc</kbd>{" "}
+        {t("fileBrowser.search.footer.close")}
       </>
     ),
-    footerInfo: (resultCount) => `${resultCount} command${resultCount === 1 ? "" : "s"}`,
+    footerInfo: (resultCount) =>
+      t("fileBrowser.search.results.commandCount", {
+        count: resultCount,
+      }),
     shortcutHint: `${BROWSER_SHORTCUTS.COMMAND_PALETTE.label} / ${BROWSER_SHORTCUTS.COMMAND_PALETTE_ALTERNATE.label}`,
   };
 }

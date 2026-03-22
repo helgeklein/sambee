@@ -3,6 +3,7 @@ import { createTheme, ThemeProvider } from "@mui/material/styles";
 import { type RenderOptions, render as rtlRender } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { BrowserRouter } from "react-router-dom";
+import "../../i18n";
 
 const theme = createTheme({
   palette: {

@@ -15,6 +15,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { translate } from "../i18n";
+import { useI18n } from "../i18n/useI18n";
 import type { ConflictInfo } from "./ConflictDialog";
 import { ConflictDialog } from "./ConflictDialog";
 import "../styles/done-editing.css";
@@ -25,6 +27,9 @@ import "../styles/done-editing.css";
 
 /** Hold duration in milliseconds before action fires. */
 const HOLD_DURATION_MS = 1500;
+
+/** Hold duration in seconds for translated assistive labels. */
+const HOLD_DURATION_SECONDS = HOLD_DURATION_MS / 1000;
 
 /** Prefix returned by `finish_editing` when a conflict is detected. */
 const CONFLICT_PREFIX = "conflict:";
@@ -54,6 +59,7 @@ type FileStatus = { kind: "unchanged" } | { kind: "modified"; modifiedAt: string
  * Main component for the Done Editing secondary window.
  */
 export function DoneEditingWindow() {
+  const { t } = useI18n();
   const [context, setContext] = useState<EditContext | null>(null);
   const [fileStatus, setFileStatus] = useState<FileStatus>({
     kind: "unchanged",
@@ -186,7 +192,7 @@ export function DoneEditingWindow() {
           setConflict(info);
           setProcessing(false);
         } catch {
-          setError("Failed to parse conflict info");
+          setError(translate("doneEditing.parseConflictError"));
           setProcessing(false);
         }
         return;
@@ -250,18 +256,18 @@ export function DoneEditingWindow() {
 
   const doneButtonLabel = processing
     ? isModified
-      ? "✓ Uploading…"
-      : "✓ Closing…"
+      ? t("doneEditing.buttons.uploading")
+      : t("doneEditing.buttons.closing")
     : isModified
-      ? "✓ Done Editing — Hold to Upload"
-      : "✓ Done Editing — Hold to Close";
+      ? t("doneEditing.buttons.doneUpload")
+      : t("doneEditing.buttons.doneClose");
 
   // ── Render ───────────────────────────────────────────────────────────
 
   if (!context) {
     return (
       <div class="done-editing-window done-editing-window--loading">
-        <p>Waiting for edit context…</p>
+        <p>{t("doneEditing.waitingForContext")}</p>
       </div>
     );
   }
@@ -282,11 +288,14 @@ export function DoneEditingWindow() {
   return (
     <div class="done-editing-window">
       <h2 class="done-editing-title">✎ {context.filename}</h2>
-      <p class="done-editing-app">Opened in: {context.app_name}</p>
+      <p class="done-editing-app">{t("doneEditing.openedIn", { appName: context.app_name })}</p>
 
       {/* Live file change status */}
       <p class={`file-status ${isModified ? "file-status--modified" : "file-status--unchanged"}`}>
-        Status: {isModified && fileStatus.kind === "modified" ? `Modified at ${fileStatus.modifiedAt}` : "Unchanged"}
+        {t("doneEditing.statusLabel")}{" "}
+        {isModified && fileStatus.kind === "modified"
+          ? t("doneEditing.modifiedAt", { time: fileStatus.modifiedAt })
+          : t("doneEditing.unchanged")}
       </p>
 
       {/* Error display */}
@@ -297,7 +306,11 @@ export function DoneEditingWindow() {
         class="btn-primary"
         {...doneHandlers}
         disabled={processing}
-        aria-label={isModified ? "Hold for 1.5 seconds to confirm upload" : "Hold for 1.5 seconds to close and release lock"}
+        aria-label={
+          isModified
+            ? t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
+            : t("doneEditing.aria.confirmClose", { seconds: HOLD_DURATION_SECONDS })
+        }
       >
         {doneButtonLabel}
       </button>
@@ -314,7 +327,7 @@ export function DoneEditingWindow() {
           role="progressbar"
           aria-valuenow={Math.round(uploadProgress * 100)}
           aria-valuemax={100}
-          aria-label="Upload progress"
+          aria-label={t("doneEditing.aria.uploadProgress")}
         >
           <div class="upload-progress-fill" style={{ width: `${uploadProgress * 100}%` }} />
         </div>
@@ -327,9 +340,9 @@ export function DoneEditingWindow() {
             class="btn-secondary btn-small"
             {...discardHandlers}
             disabled={processing}
-            aria-label="Hold for 1.5 seconds to discard changes"
+            aria-label={t("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_SECONDS })}
           >
-            Discard Changes — Hold
+            {t("doneEditing.buttons.discardHold")}
           </button>
           {discardHoldProgress > 0 && (
             <div

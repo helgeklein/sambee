@@ -1,12 +1,13 @@
 import { Box, CircularProgress, Dialog } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import Lightbox, { type Slide } from "yet-another-react-lightbox";
 import Fullscreen from "yet-another-react-lightbox/plugins/fullscreen";
 import Zoom from "yet-another-react-lightbox/plugins/zoom";
 import "yet-another-react-lightbox/styles.css";
 import "./ImageViewer.css";
 
-import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { useCachedImageGallery } from "../../hooks/useCachedImageGallery";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
@@ -63,6 +64,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   onCurrentIndexChange,
   sessionId,
 }) => {
+  const { t } = useTranslation();
   const [rotate, setRotate] = useState(0);
   const [hideControls, setHideControls] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -374,10 +376,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         handler: handleEscape,
       },
       {
-        id: "show-help",
-        keys: ["?"],
-        label: "?",
-        description: "Show keyboard shortcuts",
+        ...BROWSER_SHORTCUTS.SHOW_HELP,
         handler: handleShowHelp,
       },
     ],
@@ -561,7 +560,12 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
         </Box>
       </Dialog>
 
-      <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} shortcuts={imageShortcuts} title="Image viewer shortcuts" />
+      <KeyboardShortcutsHelp
+        open={showHelp}
+        onClose={() => setShowHelp(false)}
+        shortcuts={imageShortcuts}
+        title={t("keyboardShortcutsHelp.titles.imageViewer")}
+      />
     </>
   );
 };

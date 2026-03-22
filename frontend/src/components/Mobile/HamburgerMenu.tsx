@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import type React from "react";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
@@ -42,6 +43,7 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   onLogout,
 }) => {
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const { t } = useTranslation();
 
   // Fetch version info on mount
   useEffect(() => {
@@ -86,14 +88,14 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
         {connections.length > 0 && (
           <Box sx={{ mb: 2 }}>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: "block" }}>
-              Connection
+              {t("common.labels.connection")}
             </Typography>
             <FormControl fullWidth size="small">
               <Select
                 value={selectedConnectionId}
                 onChange={(e) => handleConnectionChange(e.target.value)}
                 displayEmpty
-                aria-label="Select connection"
+                aria-label={t("fileBrowser.chrome.mobileMenu.selectConnectionAriaLabel")}
               >
                 {connections.map((conn) => (
                   <MenuItem key={conn.id} value={conn.id}>
@@ -121,12 +123,12 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               onNavigateToRoot();
               onClose();
             }}
-            aria-label="Navigate to root directory"
+            aria-label={t("fileBrowser.chrome.mobileMenu.navigateRootAriaLabel")}
           >
             <ListItemIcon>
               <HomeIcon />
             </ListItemIcon>
-            <ListItemText primary="Root" />
+            <ListItemText primary={t("common.labels.root")} />
           </ListItemButton>
         </ListItem>
 
@@ -136,21 +138,21 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               onOpenSettings();
               onClose();
             }}
-            aria-label="Open settings"
+            aria-label={t("fileBrowser.chrome.mobileMenu.openSettingsAriaLabel")}
           >
             <ListItemIcon>
               <SettingsIcon />
             </ListItemIcon>
-            <ListItemText primary="Settings" />
+            <ListItemText primary={t("common.labels.settings")} />
           </ListItemButton>
         </ListItem>
 
         <ListItem disablePadding>
-          <ListItemButton onClick={onLogout} aria-label="Logout">
+          <ListItemButton onClick={onLogout} aria-label={t("fileBrowser.chrome.mobileMenu.logoutAriaLabel")}>
             <ListItemIcon>
               <LogoutIcon />
             </ListItemIcon>
-            <ListItemText primary="Logout" />
+            <ListItemText primary={t("common.actions.logout")} />
           </ListItemButton>
         </ListItem>
       </List>
@@ -162,13 +164,13 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           <Divider />
           <Box sx={{ p: 2, pt: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Version: {versionInfo.version}
+              {t("settings.shell.versionLabel")}: {versionInfo.version}
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Build: {versionInfo.build_time}
+              {t("settings.shell.buildLabel")}: {versionInfo.build_time}
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              Commit: {versionInfo.git_commit.substring(0, 7)}
+              {t("settings.shell.commitLabel")}: {versionInfo.git_commit.substring(0, 7)}
             </Typography>
           </Box>
         </>

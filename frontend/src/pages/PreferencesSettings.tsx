@@ -11,19 +11,12 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useSambeeTheme } from "../theme";
 import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
-
-const PREFERENCES_COPY = {
-  appearanceTitle: "Appearance",
-  browserTitle: "Browser",
-  quickNavigationTitle: "Quick navigation",
-  includeDotDirectoriesLabel: "Include dot directories in quick nav",
-  includeDotDirectoriesDescription: "Show folders like .git, .cache, and other dot-prefixed directories in quick navigation results.",
-};
 
 function ThemePreview({
   theme,
@@ -77,6 +70,7 @@ export function PreferencesSettings() {
   const [includeDotDirectories, setIncludeDotDirectories] = useQuickNavIncludeDotDirectoriesPreference();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useTranslation();
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
@@ -87,8 +81,8 @@ export function PreferencesSettings() {
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         <SettingsGroup
-          title={PREFERENCES_COPY.appearanceTitle}
-          description="Choose the application theme and visual defaults."
+          title={t("settings.preferencesPage.appearanceTitle")}
+          description={t("settings.preferencesPage.appearanceDescription")}
           sx={{ mb: 4 }}
         >
           {isMobile ? (
@@ -160,13 +154,13 @@ export function PreferencesSettings() {
           )}
         </SettingsGroup>
 
-        <SettingsGroup title={PREFERENCES_COPY.browserTitle} description="Set defaults for how the file browser behaves.">
+        <SettingsGroup title={t("settings.preferencesPage.browserTitle")} description={t("settings.preferencesPage.browserDescription")}>
           <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
-            {PREFERENCES_COPY.quickNavigationTitle}
+            {t("settings.preferencesPage.quickNavigationTitle")}
           </Typography>
           <FormControlLabel
             control={<Switch checked={includeDotDirectories} onChange={(_event, checked) => setIncludeDotDirectories(checked)} />}
-            label={PREFERENCES_COPY.includeDotDirectoriesLabel}
+            label={t("settings.preferencesPage.includeDotDirectoriesLabel")}
             sx={{ alignItems: "flex-start", m: 0 }}
             slotProps={{
               typography: {
@@ -178,7 +172,7 @@ export function PreferencesSettings() {
             }}
           />
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 640 }}>
-            {PREFERENCES_COPY.includeDotDirectoriesDescription}
+            {t("settings.preferencesPage.includeDotDirectoriesDescription")}
           </Typography>
         </SettingsGroup>
       </Box>

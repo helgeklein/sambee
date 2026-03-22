@@ -5,6 +5,7 @@
 import { Box, Typography } from "@mui/material";
 import { formatDate, formatFileSize } from "../../pages/FileBrowser/formatters";
 import type { FileEntry } from "../../types";
+import { STATUS_BAR_STRINGS } from "./statusBarStrings";
 
 /** Shared height constant so breadcrumb bar and status bar match exactly. */
 export const STATUS_BAR_HEIGHT = 32;
@@ -56,7 +57,7 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
                   opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.7),
                 }}
               >
-                No selection
+                {STATUS_BAR_STRINGS.NO_SELECTION}
               </Typography>
             );
 
@@ -102,7 +103,7 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
               opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.85),
             }}
           >
-            Filtered by: {activeFilter}
+            {STATUS_BAR_STRINGS.filteredBy(activeFilter)}
           </Typography>
         )}
 
@@ -114,7 +115,7 @@ export function StatusBar({ files, focusedIndex, activeFilter }: StatusBarProps)
             opacity: (theme) => (theme.palette.statusBar?.textSecondary ? 1 : 0.7),
           }}
         >
-          {files.length} item{files.length !== 1 ? "s" : ""}
+          {STATUS_BAR_STRINGS.itemCount(files.length)}
         </Typography>
       </Box>
     </Box>
