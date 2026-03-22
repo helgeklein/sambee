@@ -16,6 +16,7 @@ import { fetchVersionInfo } from "../utils/version";
 
 const UPDATE_CHECK_INTERVAL_MS = 5 * 60_000;
 const VISIBILITY_RECHECK_DELAY_MS = 1_500;
+const UPDATE_CHECKS_ENABLED = import.meta.env.MODE !== "development";
 
 export function AppUpdatePrompt() {
   const [availableUpdate, setAvailableUpdate] = useState<VersionInfo | null>(null);
@@ -23,6 +24,10 @@ export function AppUpdatePrompt() {
   const loggedFingerprintRef = useRef<string | null>(null);
 
   const checkForUpdate = useCallback(async () => {
+    if (!UPDATE_CHECKS_ENABLED) {
+      return;
+    }
+
     const versionInfo = await fetchVersionInfo();
     if (!versionInfo || !hasBuildMismatch(versionInfo)) {
       return;
@@ -47,6 +52,10 @@ export function AppUpdatePrompt() {
   }, []);
 
   useEffect(() => {
+    if (!UPDATE_CHECKS_ENABLED) {
+      return;
+    }
+
     void checkForUpdate();
 
     const intervalId = window.setInterval(() => {
@@ -59,6 +68,10 @@ export function AppUpdatePrompt() {
   }, [checkForUpdate]);
 
   useEffect(() => {
+    if (!UPDATE_CHECKS_ENABLED) {
+      return;
+    }
+
     const scheduleVisibleCheck = () => {
       if (document.visibilityState !== "visible") {
         return;
@@ -93,6 +106,10 @@ export function AppUpdatePrompt() {
   const handleLater = useCallback(() => {
     setAvailableUpdate(null);
   }, []);
+
+  if (!UPDATE_CHECKS_ENABLED) {
+    return null;
+  }
 
   return (
     <Dialog open={availableUpdate !== null} onClose={handleLater} aria-labelledby="app-update-title">
