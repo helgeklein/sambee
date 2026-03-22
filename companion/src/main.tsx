@@ -1,9 +1,10 @@
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { render } from "preact";
 import { App } from "./App";
 import { DoneEditingWindow } from "./components/DoneEditingWindow";
 import { PairingWindow } from "./components/PairingWindow";
-import "./i18n";
+import { applyCompanionLocalization, type CompanionLocalizationState } from "./i18n";
 import { applyFallbackTheme, applyThemeFromBase64 } from "./lib/theme";
 import { scheduleUpdateCheck } from "./lib/updateCheck";
 import "./styles/global.css";
@@ -39,6 +40,22 @@ window.addEventListener("keydown", preventReloadShortcut, true);
 listen<string>("apply-theme", (event) => {
   applyThemeFromBase64(event.payload);
 });
+
+listen<CompanionLocalizationState>("localization-updated", (event) => {
+  void applyCompanionLocalization(event.payload);
+});
+
+void invoke<CompanionLocalizationState | null>("get_synced_localization")
+  .then((state) => {
+    if (!state) {
+      return;
+    }
+
+    return applyCompanionLocalization(state);
+  })
+  .catch(() => {
+    // Ignore hydration failures; the companion falls back to local defaults.
+  });
 
 const root = document.getElementById("app");
 if (root) {

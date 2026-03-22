@@ -47,3 +47,45 @@ describe("companionService.confirmPairing", () => {
     expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("companionService.syncLocalization", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+    localStorage.setItem("companion_secret", "shared-secret");
+  });
+
+  it("sends authenticated localization updates to the companion", async () => {
+    mockAxiosInstance.post.mockResolvedValueOnce({
+      data: {
+        applied: true,
+        language: "en-XA",
+        regional_locale: "en-GB",
+        updated_at: "2026-03-22T12:00:00.000Z",
+        source_origin: "http://localhost:5173",
+      },
+    });
+
+    const result = await companionService.syncLocalization({
+      language: "en-XA",
+      regional_locale: "en-GB",
+      updated_at: "2026-03-22T12:00:00.000Z",
+    });
+
+    expect(result.applied).toBe(true);
+    expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+      "/localization",
+      {
+        language: "en-XA",
+        regional_locale: "en-GB",
+        updated_at: "2026-03-22T12:00:00.000Z",
+      },
+      {
+        headers: expect.objectContaining({
+          "X-Companion-Secret": expect.any(String),
+          "X-Companion-Timestamp": expect.any(String),
+        }),
+      }
+    );
+  });
+});

@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import companionService, { type DriveInfo, hasStoredSecret } from "../services/companion";
+import { syncCurrentLocalizationToCompanion } from "../services/companionLocalizationSync";
 import { logger } from "../services/logger";
 
 /** Companion availability and pairing status. */
@@ -138,6 +139,7 @@ export function useCompanion(): UseCompanionResult {
   const confirmPairing = useCallback(
     async (pairingId: string) => {
       await companionService.confirmPairing(pairingId);
+      await syncCurrentLocalizationToCompanion();
       // After pairing, re-detect to load drives
       await detect();
     },

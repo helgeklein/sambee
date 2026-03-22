@@ -765,6 +765,36 @@ Stored via `tauri-plugin-store` in a persistent JSON file:
 
 The Preferences panel is accessible from the system tray menu. The current Preferences UI exposes paired browser management for local-drive access; the older `allowedServers` store field remains only for compatibility.
 
+### Browser-synced localization
+
+The companion also keeps a separate persisted localization record synchronized from paired Sambee browser sessions.
+
+This record is not part of the local `tauri-plugin-store` preferences object because it is written by the authenticated localhost HTTP server, not by the companion UI itself.
+
+Stored state includes:
+
+```json
+{
+    "language": "en",
+    "regional_locale": "en-GB",
+    "updated_at": "2026-03-22T12:00:00Z",
+    "source_origin": "https://sambee.example.com"
+}
+```
+
+- `language`: resolved companion UI language (`en`, `en-XA`, etc.)
+- `regional_locale`: resolved regional locale used for locale-sensitive formatting
+- `updated_at`: browser-provided timestamp used for conflict resolution
+- `source_origin`: paired browser origin that last wrote the state
+
+Conflict resolution is last-writer-wins: if multiple paired browser origins send localization updates, the companion keeps the record with the newest `updated_at` timestamp.
+
+Runtime behavior:
+
+- The browser sends localization updates to `POST /api/localization` using the existing HMAC-authenticated companion channel.
+- The companion persists accepted updates on the Rust side and emits a `localization-updated` event to open webview windows.
+- Companion windows hydrate the latest synced localization through a Tauri command on startup and mirror it into local storage so the locale is available before future renders.
+
 ---
 
 ## 13. Auto-Updater

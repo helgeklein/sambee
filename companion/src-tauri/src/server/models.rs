@@ -98,6 +98,31 @@ pub struct PairTestResponse {
     pub origin: String,
 }
 
+/// Browser-sourced localization update payload.
+#[derive(Debug, Deserialize)]
+pub struct LocalizationSyncRequest {
+    pub language: String,
+    pub regional_locale: String,
+    pub updated_at: String,
+}
+
+/// Companion localization state synchronized from the browser.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompanionLocalizationState {
+    pub language: String,
+    pub regional_locale: String,
+    pub updated_at: DateTime<Utc>,
+    pub source_origin: String,
+}
+
+/// Response after attempting to sync browser localization.
+#[derive(Debug, Serialize)]
+pub struct LocalizationSyncResponse {
+    pub applied: bool,
+    #[serde(flatten)]
+    pub state: CompanionLocalizationState,
+}
+
 /// Response from `POST /api/browse/{drive}/upload`.
 /// Matches the backend `UploadResponse` Pydantic model.
 #[derive(Debug, Serialize)]

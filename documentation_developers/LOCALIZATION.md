@@ -53,6 +53,11 @@ If a future change breaks typed keys, these fixtures should fail typecheck.
 - Both apps sync `document.documentElement.lang` and `dir` with the active locale.
 - Frontend date, number, and sorting helpers should use locale-aware helpers rather than browser-default formatting.
 - Frontend React trees that use localization preferences should be wrapped in [frontend/src/i18n/LocalePreferencesProvider.tsx](../frontend/src/i18n/LocalePreferencesProvider.tsx).
+- When the browser is paired with Sambee Companion, the frontend also pushes its effective localization to the companion over the authenticated localhost API.
+- Companion localization sync uses concrete effective values, not raw `browser` preferences. That means the companion receives resolved values such as `en` and `en-GB`, so it mirrors the browser's current result even when the Sambee preference is `browser`.
+- Companion localization is persisted on the Rust side and mirrored into companion local storage for fast startup.
+- Companion localization sync is global within the desktop app and uses a last-writer-wins rule based on the browser-provided `updated_at` timestamp. The persisted state also records the source browser origin.
+- Open companion windows listen for localization update events and apply the new locale immediately.
 
 Prefer these helpers where applicable:
 
@@ -76,3 +81,10 @@ cd companion && npx tsc --noEmit && npm run lint
 ```
 
 For higher-confidence UI changes, also run the relevant test suites.
+
+For browser-to-companion localization sync changes, also validate:
+
+```bash
+cd frontend && npm test -- src/services/__tests__/companionService.test.ts
+cd companion && npm test -- src/i18n/__tests__/index.test.ts src/components/__tests__/Preferences.test.tsx
+```

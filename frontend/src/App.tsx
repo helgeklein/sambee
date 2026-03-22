@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { SettingsLayout } from "./components/Settings/SettingsLayout";
 import { useFocusTrap } from "./hooks/useFocusTrap";
 import { translate } from "./i18n";
+import { CompanionLocalizationSync } from "./i18n/CompanionLocalizationSync";
 import { LocalePreferencesProvider } from "./i18n/LocalePreferencesProvider";
 import { AdvancedSettings } from "./pages/AdvancedSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
@@ -35,6 +36,7 @@ function AppContent() {
     <ThemeProvider theme={muiTheme}>
       <CssBaseline />
       <AppUpdatePrompt />
+      <CompanionLocalizationSync />
       <div ref={appRef}>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Suspense fallback={<div>{translate("app.loading")}</div>}>

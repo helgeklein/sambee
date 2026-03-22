@@ -16,6 +16,7 @@ use axum::Json;
 use chrono::{DateTime, Utc};
 use log::{info, warn};
 use serde::Deserialize;
+use tauri::Emitter;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
@@ -252,6 +253,25 @@ pub async fn pair_confirm(
     show_pairing_success(&state.app);
 
     Ok(Json(PairConfirmResponse { secret }))
+}
+
+/// `POST /api/localization` — synchronize browser localization to the companion.
+pub async fn sync_localization(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<LocalizationSyncRequest>,
+) -> Result<Json<LocalizationSyncResponse>, ApiError> {
+    let origin = extract_origin(&headers)?;
+    let (current, applied) = state
+        .localization
+        .apply_update(&state.app, &origin, body)
+        .map_err(ApiError::BadRequest)?;
+
+    if applied {
+        let _ = state.app.emit("localization-updated", &current);
+    }
+
+    Ok(Json(LocalizationSyncResponse { applied, state: current }))
 }
 
 /// `GET /api/pair/status` — pairing status for the current browser origin.

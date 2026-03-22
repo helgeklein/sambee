@@ -60,6 +60,17 @@ export interface PairTestResponse {
   origin: string;
 }
 
+export interface CompanionLocalizationPayload {
+  language: string;
+  regional_locale: string;
+  updated_at: string;
+}
+
+export interface CompanionLocalizationSyncResponse extends CompanionLocalizationPayload {
+  applied: boolean;
+  source_origin: string;
+}
+
 /** Drive/volume information returned by the companion. */
 export interface DriveInfo {
   id: string;
@@ -303,6 +314,13 @@ class CompanionService {
   async testPairing(): Promise<PairTestResponse> {
     const headers = await this.buildAuthHeaders();
     const response = await this.client.post<PairTestResponse>("/pair/test", undefined, { headers });
+    return response.data;
+  }
+
+  /** Synchronize the current browser localization to the companion. */
+  async syncLocalization(payload: CompanionLocalizationPayload): Promise<CompanionLocalizationSyncResponse> {
+    const headers = await this.buildAuthHeaders();
+    const response = await this.client.post<CompanionLocalizationSyncResponse>("/localization", payload, { headers });
     return response.data;
   }
 
