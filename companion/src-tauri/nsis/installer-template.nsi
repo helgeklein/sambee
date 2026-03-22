@@ -67,6 +67,7 @@ Var UpdateMode
 Var NoShortcutMode
 Var WixMode
 Var OldMainBinaryName
+Var ExistingVersion
 Var SambeeAutostartCheckbox
 
 Name "${PRODUCTNAME}"
@@ -206,7 +207,9 @@ Function PageReinstall
   ${Else}
     ReadRegStr $R0 SHCTX "${UNINSTKEY}" "DisplayVersion"
   ${EndIf}
+  StrCpy $ExistingVersion $R0
   ${IfThen} $R0 == "" ${|} StrCpy $R4 "$(unknown)" ${|}
+  ${IfThen} $ExistingVersion == "" ${|} StrCpy $ExistingVersion "$(unknown)" ${|}
 
   nsis_tauri_utils::SemverCompare "${VERSION}" $R0
   Pop $R0
@@ -218,10 +221,10 @@ Function PageReinstall
     !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(chooseMaintenanceOption)"
   ; Upgrading
   ${ElseIf} $R0 = 1
-    StrCpy $R1 "$(olderOrUnknownVersionInstalled)"
-    StrCpy $R2 "$(uninstallBeforeInstalling)"
-    StrCpy $R3 "$(dontUninstall)"
-    !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "$(choowHowToInstall)"
+    StrCpy $R1 "${PRODUCTNAME} $ExistingVersion is installed. Select Upgrade to replace it with ${VERSION}, or Cancel Setup to exit without making changes."
+    StrCpy $R2 "Upgrade to ${VERSION}"
+    StrCpy $R3 "Cancel Setup"
+    !insertmacro MUI_HEADER_TEXT "$(alreadyInstalled)" "Upgrade ${PRODUCTNAME}"
   ; Downgrading
   ${ElseIf} $R0 = -1
     StrCpy $R1 "$(newerVersionInstalled)"
@@ -309,10 +312,11 @@ Function PageLeaveReinstall
       Goto reinst_uninstall
     ${EndIf}
   ${ElseIf} $R0 = 1 ; Upgrading
-    ${If} $R1 = 1              ; User chose to uninstall
-      Goto reinst_uninstall
+    ${If} $R1 = 1              ; User chose to upgrade
+      StrCpy $UpdateMode 1
+      Goto reinst_done
     ${Else}
-      Goto reinst_done         ; User chose NOT to uninstall
+      Quit                     ; User chose not to upgrade
     ${EndIf}
   ${ElseIf} $R0 = -1 ; Downgrading
     ${If} $R1 = 1              ; User chose to uninstall
