@@ -2,6 +2,7 @@ import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider } from "@mui/material/styles";
 import { lazy, Suspense, useRef } from "react";
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
+import AppUpdatePrompt from "./components/AppUpdatePrompt";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { SettingsLayout } from "./components/Settings/SettingsLayout";
 import { useFocusTrap } from "./hooks/useFocusTrap";
@@ -32,6 +33,7 @@ function AppContent() {
   return (
     <ThemeProvider theme={muiTheme}>
       <CssBaseline />
+      <AppUpdatePrompt />
       <div ref={appRef}>
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Suspense fallback={<div>{translate("app.loading")}</div>}>

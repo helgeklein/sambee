@@ -4,6 +4,8 @@ import threading
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from os import PathLike
+from os import stat_result as os_stat_result
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -12,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, select
+from starlette.types import Scope
 
 from app import __version__
 from app.api import admin, auth, browser, companion, connections, logs, system_settings, viewer, websocket
@@ -72,6 +75,82 @@ logging.getLogger("app.storage.smb_pool").setLevel(logging.WARNING)
 
 # Logger for this module
 logger = logging.getLogger(__name__)
+
+SPA_DOCUMENT_CACHE_CONTROL = "no-store"
+REVALIDATED_STATIC_CACHE_CONTROL = "no-cache, max-age=0, must-revalidate"
+IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+LEGACY_NO_CACHE_HEADER_VALUE = "no-cache"
+LEGACY_EXPIRES_HEADER_VALUE = "0"
+APP_ROOT = Path(__file__).resolve().parents[2]
+
+
+def apply_cache_headers(response: Response, cache_control: str) -> Response:
+    """Apply cache-control headers to a static response."""
+
+    response.headers["Cache-Control"] = cache_control
+
+    if "no-store" in cache_control or "no-cache" in cache_control:
+        response.headers["Pragma"] = LEGACY_NO_CACHE_HEADER_VALUE
+        response.headers["Expires"] = LEGACY_EXPIRES_HEADER_VALUE
+    else:
+        if "Pragma" in response.headers:
+            del response.headers["Pragma"]
+        if "Expires" in response.headers:
+            del response.headers["Expires"]
+
+    return response
+
+
+def read_first_available_text(paths: list[Path], fallback: str = "unknown") -> str:
+    """Read and return the first non-empty text value from the given paths."""
+
+    for path in paths:
+        if not path.exists():
+            continue
+
+        try:
+            value = path.read_text().strip()
+        except (OSError, ValueError):
+            continue
+
+        if value:
+            return value
+
+    return fallback
+
+
+class CacheControlledStaticFiles(StaticFiles):
+    """Static file handler that applies explicit cache headers."""
+
+    def __init__(
+        self,
+        directory: str | PathLike[str] | None = None,
+        packages: list[str | tuple[str, str]] | None = None,
+        html: bool = False,
+        check_dir: bool = True,
+        follow_symlink: bool = False,
+        *,
+        cache_control: str,
+    ) -> None:
+        super().__init__(
+            directory=directory,
+            packages=packages,
+            html=html,
+            check_dir=check_dir,
+            follow_symlink=follow_symlink,
+        )
+        self._cache_control = cache_control
+
+    def file_response(
+        self,
+        full_path: str | PathLike[str],
+        stat_result: os_stat_result,
+        scope: Scope,
+        status_code: int = 200,
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        return apply_cache_headers(response, self._cache_control)
+
 
 # ---------------------------------------------------------------------------
 # Work around a known smbprotocol bug: when an SMB connection times out, the
@@ -374,23 +453,8 @@ async def health_check() -> dict[str, str]:
 async def version_info() -> dict[str, str]:
     """Return version and build information"""
 
-    # Read build time from file created during Docker build
-    build_time = "unknown"
-    build_time_file = Path("/BUILD_TIME")
-    if build_time_file.exists():
-        try:
-            build_time = build_time_file.read_text().strip()
-        except (OSError, ValueError):
-            pass
-
-    # Read git commit from file created during Docker build
-    git_commit = "unknown"
-    git_commit_file = Path("/GIT_COMMIT")
-    if git_commit_file.exists():
-        try:
-            git_commit = git_commit_file.read_text().strip()
-        except (OSError, ValueError):
-            pass
+    build_time = read_first_available_text([Path("/BUILD_TIME")])
+    git_commit = read_first_available_text([Path("/GIT_COMMIT"), APP_ROOT / "GIT_COMMIT"])
 
     return {
         "version": __version__,
@@ -402,21 +466,29 @@ async def version_info() -> dict[str, str]:
 # Serve static files in production
 static_path = Path("/app/static")
 if static_path.exists():
-    app.mount("/assets", StaticFiles(directory=static_path / "assets"), name="assets")
-    app.mount("/icons", StaticFiles(directory=static_path / "icons"), name="icons")
+    app.mount(
+        "/assets",
+        CacheControlledStaticFiles(directory=static_path / "assets", cache_control=IMMUTABLE_ASSET_CACHE_CONTROL),
+        name="assets",
+    )
+    app.mount(
+        "/icons",
+        CacheControlledStaticFiles(directory=static_path / "icons", cache_control=REVALIDATED_STATIC_CACHE_CONTROL),
+        name="icons",
+    )
 
     #
     # serve_spa
     #
     @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str) -> FileResponse:
+    async def serve_spa(full_path: str) -> Response:
         """Serve React SPA for all non-API routes"""
 
         # Serve manifest.json and other root-level files
         if full_path in ["manifest.json", "robots.txt"]:
             file_path = static_path / full_path
             if file_path.exists():
-                return FileResponse(file_path)
+                return apply_cache_headers(FileResponse(file_path), REVALIDATED_STATIC_CACHE_CONTROL)
 
         # Only serve for non-API routes (API routes are registered with higher priority)
-        return FileResponse(static_path / "index.html")
+        return apply_cache_headers(FileResponse(static_path / "index.html"), SPA_DOCUMENT_CACHE_CONTROL)

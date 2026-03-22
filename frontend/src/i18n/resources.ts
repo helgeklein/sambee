@@ -72,6 +72,14 @@ export const EN_TRANSLATIONS = {
       reloadPage: "Reload Page",
       developmentDetails: "Error Details (Development Only)",
     },
+    updateAvailable: {
+      title: "Update available",
+      description: "A newer version of Sambee is available.",
+      currentBuild: "Current build: v{{version}} ({{commit}})",
+      latestBuild: "Latest build: v{{version}} ({{commit}})",
+      later: "Later",
+      reload: "Reload now",
+    },
   },
   auth: {
     login: {

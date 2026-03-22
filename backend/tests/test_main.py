@@ -13,6 +13,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import Response
 from fastapi.testclient import TestClient
 
 
@@ -228,6 +229,43 @@ class TestAPIDocumentation:
 @pytest.mark.integration
 class TestStaticFileServing:
     """Test static file serving for SPA."""
+
+    def test_apply_cache_headers_sets_no_store_headers(self):
+        """SPA shell responses should bypass caches."""
+        from app.main import SPA_DOCUMENT_CACHE_CONTROL, apply_cache_headers
+
+        response = Response()
+        apply_cache_headers(response, SPA_DOCUMENT_CACHE_CONTROL)
+
+        assert response.headers["Cache-Control"] == SPA_DOCUMENT_CACHE_CONTROL
+        assert response.headers["Pragma"] == "no-cache"
+        assert response.headers["Expires"] == "0"
+
+    def test_apply_cache_headers_clears_legacy_headers_for_immutable_assets(self):
+        """Immutable assets should not retain no-cache compatibility headers."""
+        from app.main import IMMUTABLE_ASSET_CACHE_CONTROL, apply_cache_headers
+
+        response = Response(headers={"Pragma": "no-cache", "Expires": "0"})
+        apply_cache_headers(response, IMMUTABLE_ASSET_CACHE_CONTROL)
+
+        assert response.headers["Cache-Control"] == IMMUTABLE_ASSET_CACHE_CONTROL
+        assert "Pragma" not in response.headers
+        assert "Expires" not in response.headers
+
+
+@pytest.mark.integration
+class TestVersionInfo:
+    """Test version metadata resolution."""
+
+    def test_read_first_available_text_uses_fallback_repo_commit_file(self, tmp_path):
+        """Version metadata should fall back to the repo file in dev environments."""
+        from app.main import read_first_available_text
+
+        missing_path = tmp_path / "missing.txt"
+        repo_commit_path = tmp_path / "GIT_COMMIT"
+        repo_commit_path.write_text("345dc98\n")
+
+        assert read_first_available_text([missing_path, repo_commit_path]) == "345dc98"
 
     @patch("app.main.static_path")
     def test_spa_serving_returns_index_for_root(self, mock_static_path):
