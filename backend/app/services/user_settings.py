@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from json import JSONDecodeError
@@ -11,8 +12,10 @@ from sqlmodel import Session, select
 from app.core.logging import get_logger
 from app.core.user_setting_definitions import (
     DEFAULT_FILE_BROWSER_VIEW_MODE,
+    DEFAULT_LANGUAGE_PREFERENCE,
     DEFAULT_PANE_MODE,
     DEFAULT_QUICK_NAV_INCLUDE_DOT_DIRECTORIES,
+    DEFAULT_REGIONAL_LOCALE_PREFERENCE,
     DEFAULT_THEME_ID,
     UserSettingKey,
 )
@@ -21,6 +24,7 @@ from app.models.user_settings import (
     BrowserUserSettingsRead,
     CurrentUserSettingsRead,
     CurrentUserSettingsUpdate,
+    LocalizationUserSettingsRead,
     UserSetting,
 )
 
@@ -31,6 +35,8 @@ FALSE_VALUES = {"0", "false", "no", "off"}
 VALID_FILE_BROWSER_VIEW_MODES = {"list", "details"}
 VALID_PANE_MODES = {"single", "dual"}
 VALID_THEME_MODES = {"light", "dark"}
+VALID_LANGUAGE_PREFERENCES = {DEFAULT_LANGUAGE_PREFERENCE, "en", "en-XA"}
+REGIONAL_LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 
 
 def _load_user_setting_map(user_id: uuid.UUID, session: Session) -> dict[str, str]:
@@ -48,6 +54,43 @@ def _parse_theme_id(raw_value: str | None) -> str:
         return DEFAULT_THEME_ID
 
     return theme_id
+
+
+def _parse_language_preference(raw_value: str | None) -> str:
+    if raw_value is None:
+        return DEFAULT_LANGUAGE_PREFERENCE
+
+    normalized = raw_value.strip()
+    if normalized in VALID_LANGUAGE_PREFERENCES:
+        return normalized
+
+    logger.error(f"Invalid stored language preference for user settings: {raw_value}")
+    return DEFAULT_LANGUAGE_PREFERENCE
+
+
+def _normalize_regional_locale(raw_value: str | None) -> str:
+    if raw_value is None:
+        return DEFAULT_REGIONAL_LOCALE_PREFERENCE
+
+    normalized = raw_value.strip()
+    if not normalized:
+        return DEFAULT_REGIONAL_LOCALE_PREFERENCE
+
+    if normalized == DEFAULT_REGIONAL_LOCALE_PREFERENCE:
+        return DEFAULT_REGIONAL_LOCALE_PREFERENCE
+
+    if REGIONAL_LOCALE_PATTERN.fullmatch(normalized):
+        return normalized
+
+    raise ValueError("Regional locale must be a valid locale identifier like en-US")
+
+
+def _parse_regional_locale_preference(raw_value: str | None) -> str:
+    try:
+        return _normalize_regional_locale(raw_value)
+    except ValueError:
+        logger.error(f"Invalid stored regional locale preference for user settings: {raw_value}")
+        return DEFAULT_REGIONAL_LOCALE_PREFERENCE
 
 
 def _parse_bool(raw_value: str | None, *, key: UserSettingKey, default: bool) -> bool:
@@ -137,6 +180,10 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
             theme_id=_parse_theme_id(values.get(UserSettingKey.APPEARANCE_THEME_ID.value)),
             custom_themes=_parse_custom_themes(values.get(UserSettingKey.APPEARANCE_CUSTOM_THEMES.value)),
         ),
+        localization=LocalizationUserSettingsRead(
+            language=_parse_language_preference(values.get(UserSettingKey.LOCALIZATION_LANGUAGE.value)),
+            regional_locale=_parse_regional_locale_preference(values.get(UserSettingKey.LOCALIZATION_REGIONAL_LOCALE.value)),
+        ),
         browser=BrowserUserSettingsRead(
             quick_nav_include_dot_directories=_parse_bool(
                 values.get(UserSettingKey.BROWSER_QUICK_NAV_INCLUDE_DOT_DIRECTORIES.value),
@@ -207,6 +254,26 @@ def update_current_user_settings(*, user_id: uuid.UUID, payload: CurrentUserSett
                 session=session,
             )
 
+        has_updates = True
+
+    if payload.localization and "language" in payload.localization.model_fields_set:
+        language = _parse_language_preference(payload.localization.language)
+        _upsert_user_setting(
+            user_id=user_id,
+            key=UserSettingKey.LOCALIZATION_LANGUAGE,
+            value=language,
+            session=session,
+        )
+        has_updates = True
+
+    if payload.localization and "regional_locale" in payload.localization.model_fields_set:
+        regional_locale = _normalize_regional_locale(payload.localization.regional_locale)
+        _upsert_user_setting(
+            user_id=user_id,
+            key=UserSettingKey.LOCALIZATION_REGIONAL_LOCALE,
+            value=regional_locale,
+            session=session,
+        )
         has_updates = True
 
     if payload.browser and payload.browser.quick_nav_include_dot_directories is not None:

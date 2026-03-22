@@ -4,6 +4,7 @@ import { type RenderOptions, render as rtlRender } from "@testing-library/react"
 import type { ReactElement } from "react";
 import { BrowserRouter } from "react-router-dom";
 import "../../i18n";
+import { LocalePreferencesProvider } from "../../i18n/LocalePreferencesProvider";
 
 const theme = createTheme({
   palette: {
@@ -23,10 +24,12 @@ interface AllProvidersProps {
 
 function AllProviders({ children }: AllProvidersProps) {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{children}</BrowserRouter>
-    </ThemeProvider>
+    <LocalePreferencesProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{children}</BrowserRouter>
+      </ThemeProvider>
+    </LocalePreferencesProvider>
   );
 }
 

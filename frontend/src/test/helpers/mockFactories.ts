@@ -33,6 +33,10 @@ export interface ApiMock {
 export function setupSuccessfulApiMocks(api: ApiMock): void {
   const defaultUserSettings: CurrentUserSettings = {
     appearance: { theme_id: "sambee-light", custom_themes: [] },
+    localization: {
+      language: "browser",
+      regional_locale: "browser",
+    },
     browser: {
       quick_nav_include_dot_directories: false,
       file_browser_view_mode: "list",
@@ -121,6 +125,10 @@ export function setupErrorApiMocks(api: ApiMock, status = 500): void {
 export function setupNavigationApiMocks(api: ApiMock): void {
   const defaultUserSettings: CurrentUserSettings = {
     appearance: { theme_id: "sambee-light", custom_themes: [] },
+    localization: {
+      language: "browser",
+      regional_locale: "browser",
+    },
     browser: {
       quick_nav_include_dot_directories: false,
       file_browser_view_mode: "list",

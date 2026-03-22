@@ -7,11 +7,21 @@ import { VIEW_MODE_SELECTOR_STRINGS } from "../../components/FileBrowser/viewMod
 import { LOCAL_DRIVES_PAGE_COPY } from "../../components/Settings/localDrivesCopy";
 import { THEME_SELECTOR_STRINGS } from "../../components/themeSelectorStrings";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../../config/keyboardShortcuts";
-import { LOCALE_STORAGE_KEY, setLocale, translate } from "../index";
+import { compareLocalizedStrings, formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
+import {
+  getAvailableLanguages,
+  isPseudoLanguageEnabled,
+  LOCALE_STORAGE_KEY,
+  REGIONAL_LOCALE_STORAGE_KEY,
+  setLocale,
+  setRegionalLocalePreference,
+  translate,
+} from "../index";
 
 describe("frontend i18n", () => {
   afterEach(async () => {
     await setLocale("en");
+    await setRegionalLocalePreference("browser");
   });
 
   it("switches File Browser dialog strings when the locale changes", async () => {
@@ -57,5 +67,22 @@ describe("frontend i18n", () => {
     expect(document.documentElement.lang).toBe("en-XA");
     expect(document.documentElement.dir).toBe("ltr");
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("en-XA");
+  });
+
+  it("updates regional formatting independently from the display language", async () => {
+    await setLocale("en");
+    await setRegionalLocalePreference("de-DE");
+
+    expect(formatLocalizedNumber(1234567.89)).toBe(new Intl.NumberFormat("de-DE").format(1234567.89));
+    expect(formatLocalizedDateTime("2026-03-22T14:35:00Z", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" })).toBe(
+      new Date("2026-03-22T14:35:00Z").toLocaleString("de-DE", { timeZone: "UTC", year: "numeric", month: "2-digit", day: "2-digit" })
+    );
+    expect(compareLocalizedStrings("ä", "z")).toBe("ä".localeCompare("z", "de-DE", undefined));
+    expect(window.localStorage.getItem(REGIONAL_LOCALE_STORAGE_KEY)).toBe("de-DE");
+  });
+
+  it("hides the pseudo locale from production language options", () => {
+    expect(isPseudoLanguageEnabled(false)).toBe(false);
+    expect(getAvailableLanguages(false)).toEqual(["en"]);
   });
 });

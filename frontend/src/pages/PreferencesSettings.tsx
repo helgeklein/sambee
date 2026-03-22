@@ -1,22 +1,50 @@
 import {
   Box,
   Divider,
+  FormControl,
   FormControlLabel,
+  InputLabel,
   List,
   ListItem,
   ListItemButton,
+  MenuItem,
   Radio,
+  Select,
   Switch,
   Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import type { SelectChangeEvent } from "@mui/material/Select";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getAvailableLanguages } from "../i18n";
+import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
+import { PSEUDO_LANGUAGE } from "../i18n/resources";
+import { patchCurrentUserSettings } from "../services/userSettingsSync";
 import { useSambeeTheme } from "../theme";
+import type { LanguagePreference } from "../types";
+import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
 import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
+
+const REGIONAL_LOCALE_OPTIONS = ["en-US", "en-GB", "de-DE", "fr-FR", "ja-JP"] as const;
+const REGIONAL_LOCALE_LABEL_KEYS = {
+  "en-US": "settings.preferencesPage.regionalLocaleOptions.enUS",
+  "en-GB": "settings.preferencesPage.regionalLocaleOptions.enGB",
+  "de-DE": "settings.preferencesPage.regionalLocaleOptions.deDE",
+  "fr-FR": "settings.preferencesPage.regionalLocaleOptions.frFR",
+  "ja-JP": "settings.preferencesPage.regionalLocaleOptions.jaJP",
+} as const satisfies Record<(typeof REGIONAL_LOCALE_OPTIONS)[number], string>;
+const PREVIEW_DATE = new Date("2026-03-22T14:35:00Z");
+
+function getLanguageOptionLabel(t: ReturnType<typeof useTranslation>["t"], language: string): string {
+  return language === PSEUDO_LANGUAGE
+    ? t("settings.preferencesPage.pseudoLanguageOption")
+    : t("settings.preferencesPage.englishLanguageOption");
+}
 
 function ThemePreview({
   theme,
@@ -71,6 +99,58 @@ export function PreferencesSettings() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
+  const { languagePreference, regionalLocalePreference, setLanguagePreference, setRegionalLocalePreference } = useLocalePreferences();
+  const availableLanguages = getAvailableLanguages();
+
+  const languageOptions = useMemo(
+    () => [
+      { value: "browser", label: t("settings.preferencesPage.browserDefaultOption") },
+      ...availableLanguages.map((language) => ({
+        value: language,
+        label: getLanguageOptionLabel(t, language),
+      })),
+    ],
+    [availableLanguages, t]
+  );
+
+  const regionalLocaleOptions = useMemo(() => {
+    const options = [
+      {
+        value: "browser",
+        label: t("settings.preferencesPage.browserDefaultOption"),
+      },
+      ...REGIONAL_LOCALE_OPTIONS.map((locale) => ({
+        value: locale,
+        label: t(REGIONAL_LOCALE_LABEL_KEYS[locale]),
+      })),
+    ];
+
+    if (regionalLocalePreference !== "browser" && !options.some((option) => option.value === regionalLocalePreference)) {
+      options.push({ value: regionalLocalePreference, label: regionalLocalePreference });
+    }
+
+    return options;
+  }, [regionalLocalePreference, t]);
+
+  const handleLanguageChange = (event: SelectChangeEvent<string>) => {
+    const nextLanguagePreference = event.target.value as LanguagePreference;
+    void setLanguagePreference(nextLanguagePreference);
+    void patchCurrentUserSettings({
+      localization: {
+        language: nextLanguagePreference,
+      },
+    });
+  };
+
+  const handleRegionalLocaleChange = (event: SelectChangeEvent<string>) => {
+    const nextRegionalLocalePreference = event.target.value;
+    void setRegionalLocalePreference(nextRegionalLocalePreference);
+    void patchCurrentUserSettings({
+      localization: {
+        regional_locale: nextRegionalLocalePreference,
+      },
+    });
+  };
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
@@ -152,6 +232,77 @@ export function PreferencesSettings() {
               ))}
             </Box>
           )}
+        </SettingsGroup>
+
+        <SettingsGroup
+          title={t("settings.preferencesPage.localizationTitle")}
+          description={t("settings.preferencesPage.localizationDescription")}
+          sx={{ mb: 4 }}
+        >
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
+            <FormControl fullWidth>
+              <InputLabel id="preferences-language-label">{t("settings.preferencesPage.languageLabel")}</InputLabel>
+              <Select
+                labelId="preferences-language-label"
+                value={languagePreference}
+                label={t("settings.preferencesPage.languageLabel")}
+                onChange={handleLanguageChange}
+              >
+                {languageOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {t("settings.preferencesPage.languageDescription")}
+              </Typography>
+            </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel id="preferences-regional-locale-label">{t("settings.preferencesPage.regionalLocaleLabel")}</InputLabel>
+              <Select
+                labelId="preferences-regional-locale-label"
+                value={regionalLocalePreference}
+                label={t("settings.preferencesPage.regionalLocaleLabel")}
+                onChange={handleRegionalLocaleChange}
+              >
+                {regionalLocaleOptions.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {t("settings.preferencesPage.regionalLocaleDescription")}
+              </Typography>
+            </FormControl>
+          </Box>
+
+          <Box
+            sx={{
+              mt: 2.5,
+              p: 2,
+              borderRadius: 1,
+              border: "1px solid",
+              borderColor: "divider",
+            }}
+          >
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
+              {t("settings.preferencesPage.regionalSettingsPreviewTitle")}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {formatLocalizedDateTime(PREVIEW_DATE, {
+                dateStyle: "full",
+                timeStyle: "short",
+              })}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+              {formatLocalizedNumber(1234567.89, {
+                maximumFractionDigits: 2,
+              })}
+            </Typography>
+          </Box>
         </SettingsGroup>
 
         <SettingsGroup title={t("settings.preferencesPage.browserTitle")} description={t("settings.preferencesPage.browserDescription")}>

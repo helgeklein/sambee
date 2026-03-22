@@ -8,6 +8,7 @@ pub mod auth;
 pub mod drives;
 pub mod errors;
 pub mod handlers;
+pub mod localization;
 pub mod models;
 pub mod pairing;
 pub mod watcher;
@@ -21,6 +22,7 @@ use tauri::AppHandle;
 use tower_http::cors::CorsLayer;
 
 use self::auth::AuthState;
+use self::localization::LocalizationState;
 use self::pairing::PairingState;
 use self::watcher::DirectoryWatcher;
 
@@ -32,6 +34,7 @@ pub const SERVER_PORT: u16 = 21549;
 pub struct AppState {
     pub app: AppHandle,
     pub pairing: Arc<PairingState>,
+    pub localization: Arc<LocalizationState>,
     pub auth: AuthState,
     pub watcher: DirectoryWatcher,
 }
@@ -42,18 +45,23 @@ pub struct AppState {
 /// `127.0.0.1:21549` (localhost only — no remote access).
 ///
 /// Designed to be called from the Tauri `setup()` hook.
-pub fn start_server(app: AppHandle, pairing: Arc<PairingState>) {
+pub fn start_server(app: AppHandle, pairing: Arc<PairingState>, localization: Arc<LocalizationState>) {
     tauri::async_runtime::spawn(async {
-        if let Err(e) = run_server(app, pairing).await {
+        if let Err(e) = run_server(app, pairing, localization).await {
             error!("Local API server failed: {e}");
         }
     });
 }
 
-async fn run_server(app: AppHandle, pairing: Arc<PairingState>) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_server(
+    app: AppHandle,
+    pairing: Arc<PairingState>,
+    localization: Arc<LocalizationState>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(AppState {
         app,
         pairing,
+        localization,
         auth: AuthState::new(),
         watcher: DirectoryWatcher::new(),
     });
@@ -84,6 +92,7 @@ fn build_router(state: Arc<AppState>) -> Router {
 
     let authenticated_routes = Router::new()
         .route("/api/pair/test", axum::routing::post(handlers::test_pairing))
+        .route("/api/localization", axum::routing::post(handlers::sync_localization))
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
         .route("/api/browse/{drive}/info", axum::routing::get(handlers::browse_info))

@@ -225,7 +225,11 @@ describe("Browser Component - Navigation", () => {
   it("prefers the persisted user setting over local storage when no URL param", async () => {
     localStorage.setItem("selectedConnectionId", "conn-2");
     vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
-      appearance: { theme_id: "sambee-light" },
+      appearance: { theme_id: "sambee-light", custom_themes: [] },
+      localization: {
+        language: "browser",
+        regional_locale: "browser",
+      },
       browser: {
         quick_nav_include_dot_directories: false,
         file_browser_view_mode: "list",

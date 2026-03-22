@@ -21,6 +21,7 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
+use crate::server::localization::LocalizationState;
 use crate::server::pairing::PairingState;
 use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
 use crate::uri::SambeeUri;
@@ -815,8 +816,10 @@ pub fn run() {
         .manage(PendingConfirmations::default())
         .manage(PendingAppSelections::default())
         .manage(Arc::new(PairingState::new()))
+        .manage(Arc::new(LocalizationState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::app_picker::get_apps_for_file,
+            commands::localization::get_synced_localization,
             commands::open_file::get_done_editing_context,
             commands::open_file::finish_editing,
             commands::open_file::discard_editing,
@@ -867,8 +870,10 @@ pub fn run() {
 
             // Start the local companion HTTP server with shared pairing state
             let pairing_state = app.state::<Arc<PairingState>>().inner().clone();
+            let localization_state = app.state::<Arc<LocalizationState>>().inner().clone();
             pairing_state.load_from_keychain();
-            server::start_server(app.handle().clone(), pairing_state);
+            localization_state.load_from_disk(app.handle());
+            server::start_server(app.handle().clone(), pairing_state, localization_state);
 
             // Process deep-link if app was cold-started via a URI
             if let Ok(Some(urls)) = app.deep_link().get_current() {

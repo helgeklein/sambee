@@ -54,6 +54,10 @@ let currentUserSettingsResponse: CurrentUserSettings = {
     theme_id: "sambee-light",
     custom_themes: [],
   },
+  localization: {
+    language: "browser",
+    regional_locale: "browser",
+  },
   browser: {
     quick_nav_include_dot_directories: false,
     file_browser_view_mode: "list",
@@ -212,6 +216,7 @@ export const handlers = [
 
     const body = (await request.json()) as Record<string, unknown>;
     const appearance = body["appearance"] as Record<string, unknown> | undefined;
+    const localization = body["localization"] as Record<string, unknown> | undefined;
     const browser = body["browser"] as Record<string, unknown> | undefined;
 
     if (typeof appearance?.["theme_id"] === "string") {
@@ -230,6 +235,26 @@ export const handlers = [
         appearance: {
           ...currentUserSettingsResponse.appearance,
           custom_themes: appearance["custom_themes"] as CurrentUserSettings["appearance"]["custom_themes"],
+        },
+      };
+    }
+
+    if (localization?.["language"] === "browser" || localization?.["language"] === "en" || localization?.["language"] === "en-XA") {
+      currentUserSettingsResponse = {
+        ...currentUserSettingsResponse,
+        localization: {
+          ...currentUserSettingsResponse.localization,
+          language: localization["language"],
+        },
+      };
+    }
+
+    if (typeof localization?.["regional_locale"] === "string") {
+      currentUserSettingsResponse = {
+        ...currentUserSettingsResponse,
+        localization: {
+          ...currentUserSettingsResponse.localization,
+          regional_locale: localization["regional_locale"],
         },
       };
     }

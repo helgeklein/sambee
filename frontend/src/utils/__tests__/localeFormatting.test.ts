@@ -1,15 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { setLocale } from "../../i18n";
+import { setLocale, setRegionalLocalePreference } from "../../i18n";
 import { compareLocalizedStrings, formatLocalizedDateTime, formatLocalizedNumber } from "../localeFormatting";
 
 describe("localeFormatting", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await setLocale("en");
+    await setRegionalLocalePreference("browser");
   });
 
-  it("uses the active i18n locale for dates, numbers, and comparisons", async () => {
+  it("uses the active regional locale for dates, numbers, and comparisons", async () => {
     await setLocale("en-XA");
+    await setRegionalLocalePreference("en-XA");
 
     const toLocaleStringSpy = vi.spyOn(Date.prototype, "toLocaleString").mockReturnValue("formatted-date");
     const localeCompareSpy = vi.spyOn(String.prototype, "localeCompare");

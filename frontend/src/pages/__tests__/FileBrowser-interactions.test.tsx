@@ -467,6 +467,10 @@ describe("Browser Component - Interactions", () => {
       localStorage.setItem(QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY, "true");
       vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
         appearance: { theme_id: "sambee-light", custom_themes: [] },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
         browser: {
           quick_nav_include_dot_directories: true,
           file_browser_view_mode: "list",

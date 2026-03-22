@@ -156,6 +156,10 @@ describe("API Service", () => {
             },
           ],
         },
+        localization: {
+          language: "en",
+          regional_locale: "en-GB",
+        },
         browser: {
           quick_nav_include_dot_directories: true,
           file_browser_view_mode: "details",
@@ -186,6 +190,10 @@ describe("API Service", () => {
               primary: { main: "#123456" },
             },
           ],
+        },
+        localization: {
+          language: "en",
+          regional_locale: "en-GB",
         },
         browser: {
           quick_nav_include_dot_directories: true,

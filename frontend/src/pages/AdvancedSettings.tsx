@@ -22,6 +22,7 @@ import { translate } from "../i18n";
 import api from "../services/api";
 import type { AdvancedSystemSettings, AdvancedSystemSettingsUpdate, IntegerSystemSetting } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
+import { formatLocalizedNumber } from "../utils/localeFormatting";
 
 interface AdvancedSettingsProps {
   dialogSafeHeader?: boolean;
@@ -60,7 +61,7 @@ const BYTE_UNITS = [
 type ByteUnitLabel = (typeof BYTE_UNITS)[number]["label"];
 
 function formatInteger(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
+  return formatLocalizedNumber(value);
 }
 
 function formatByteSize(bytes: number): string {

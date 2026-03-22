@@ -6,6 +6,7 @@
 
 import { render } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { LocalePreferencesProvider } from "../../i18n/LocalePreferencesProvider";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import FileBrowser from "../FileBrowser";
 
@@ -22,14 +23,16 @@ export {
 // Helper function to render FileBrowser component with routing
 export const renderBrowser = (initialPath = "/browse") => {
   return render(
-    <SambeeThemeProvider>
-      <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Routes>
-          <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
-          <Route path="/browse" element={<FileBrowser />} />
-          <Route path="/login" element={<div>Login Page</div>} />
-        </Routes>
-      </MemoryRouter>
-    </SambeeThemeProvider>
+    <LocalePreferencesProvider>
+      <SambeeThemeProvider>
+        <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <Routes>
+            <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
+            <Route path="/browse" element={<FileBrowser />} />
+            <Route path="/login" element={<div>Login Page</div>} />
+          </Routes>
+        </MemoryRouter>
+      </SambeeThemeProvider>
+    </LocalePreferencesProvider>
   );
 };

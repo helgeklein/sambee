@@ -125,6 +125,23 @@ export const EN_TRANSLATIONS = {
     preferencesPage: {
       appearanceTitle: "Appearance",
       appearanceDescription: "Choose the application theme and visual defaults.",
+      localizationTitle: "Localization",
+      localizationDescription: "Choose the display language and how dates and numbers are formatted.",
+      languageLabel: "Language",
+      languageDescription: "Pick a display language for the interface.",
+      regionalLocaleLabel: "Regional settings",
+      regionalLocaleDescription: "Choose the locale used for dates, times, number formatting, and sorting.",
+      browserDefaultOption: "Browser default",
+      englishLanguageOption: "English",
+      pseudoLanguageOption: "Pseudo-English (for localization testing)",
+      regionalLocaleOptions: {
+        enUS: "English (United States)",
+        enGB: "English (United Kingdom)",
+        deDE: "German (Germany)",
+        frFR: "French (France)",
+        jaJP: "Japanese (Japan)",
+      },
+      regionalSettingsPreviewTitle: "Preview",
       browserTitle: "Browser",
       browserDescription: "Set defaults for how the file browser behaves.",
       quickNavigationTitle: "Quick navigation",
@@ -772,12 +789,13 @@ const PSEUDO_TRANSLATIONS = createPseudoLocaleTranslations(EN_TRANSLATIONS);
 export type FrontendTranslations = typeof EN_TRANSLATIONS;
 
 export const DEFAULT_LANGUAGE = "en";
+export const PSEUDO_LANGUAGE = "en-XA";
 
 export const resources = {
   en: {
     translation: EN_TRANSLATIONS,
   },
-  "en-XA": {
+  [PSEUDO_LANGUAGE]: {
     translation: PSEUDO_TRANSLATIONS,
   },
 } as const;
