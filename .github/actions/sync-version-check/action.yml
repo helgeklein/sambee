@@ -1,0 +1,21 @@
+name: Sync Version Check
+description: Run version sync and fail if synced metadata files are out of date.
+
+runs:
+  using: composite
+  steps:
+    - name: Sync version metadata
+      shell: bash
+      run: ./scripts/sync-version
+
+    - name: Verify synced files are committed
+      shell: bash
+      run: |
+        git diff --exit-code -- \
+          frontend/package.json \
+          frontend/package-lock.json \
+          companion/package.json \
+          companion/package-lock.json \
+          companion/src-tauri/Cargo.toml \
+          companion/src-tauri/tauri.conf.json \
+          companion/src-tauri/Cargo.lock

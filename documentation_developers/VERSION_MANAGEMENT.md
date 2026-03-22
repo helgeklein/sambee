@@ -45,4 +45,5 @@ __version__ = _version_file.read_text().strip()
 
 **CI/CD**:
 - GitHub Actions now runs `./scripts/sync-version` before frontend and companion lint/test/build jobs.
+- That enforcement is centralized in the composite action `.github/actions/sync-version-check`.
 - CI fails if the sync step produces uncommitted changes, which prevents `VERSION` drift from slipping through.
