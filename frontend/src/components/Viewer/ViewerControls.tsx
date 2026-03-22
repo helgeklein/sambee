@@ -1,4 +1,4 @@
-import { ArrowBack, ArrowForward, Close, Download, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
+import { ArrowBack, ArrowForward, Close, Download, IosShare, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +23,8 @@ export interface ViewerControlsConfig {
   search?: boolean;
   /** Show download button */
   download?: boolean;
+  /** Show share button */
+  share?: boolean;
 }
 
 /**
@@ -94,6 +96,12 @@ export interface ViewerControlsProps {
   search?: SearchState;
   /** Download handler (optional) */
   onDownload?: () => void;
+  /** Share handler (optional) */
+  onShare?: () => void;
+  /** Warm share payload on early user intent (optional) */
+  onShareIntent?: () => void;
+  /** Disable share button while work is in progress */
+  shareDisabled?: boolean;
   /** Toolbar background color from theme */
   toolbarBackground?: string;
   /** Toolbar text color from theme */
@@ -114,6 +122,9 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   rotation,
   search,
   onDownload,
+  onShare,
+  onShareIntent,
+  shareDisabled = false,
   toolbarBackground = VIEWER_DEFAULTS.TOOLBAR_BG,
   toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT,
 }) => {
@@ -246,7 +257,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         </Typography>
 
         {/* Gallery navigation */}
-        {config.navigation && navigation && navigation.totalItems > 1 && (
+        {config.navigation && navigation && navigation.totalItems > 1 && !isMobile && (
           <>
             <IconButton
               color="inherit"
@@ -443,6 +454,21 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             size="medium"
           >
             <Download />
+          </IconButton>
+        )}
+
+        {/* Share button */}
+        {config.share && onShare && isMobile && (
+          <IconButton
+            color="inherit"
+            onClick={onShare}
+            onPointerDown={onShareIntent}
+            aria-label={t("common.actions.share")}
+            title={t("common.actions.share")}
+            size="small"
+            disabled={shareDisabled}
+          >
+            <IosShare fontSize="small" />
           </IconButton>
         )}
 

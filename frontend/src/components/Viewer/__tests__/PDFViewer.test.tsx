@@ -71,6 +71,23 @@ const mockRevokeObjectURL = vi.fn();
 global.URL.createObjectURL = mockCreateObjectURL;
 global.URL.revokeObjectURL = mockRevokeObjectURL;
 
+function mockMatchMedia(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 // Mock ResizeObserver
 global.ResizeObserver = class MockResizeObserver {
   callback: ResizeObserverCallback;
@@ -119,6 +136,13 @@ describe("PDFViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateObjectURL.mockReturnValue("blob:mock-url");
+    mockMatchMedia(false);
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        ...globalThis.navigator,
+      },
+    });
 
     // Mock successful API response by default
     (apiService.getPdfBlob as Mock).mockResolvedValue(new Blob(["mock pdf content"], { type: "application/pdf" }));
@@ -217,6 +241,38 @@ describe("PDFViewer", () => {
         },
         { timeout: 2000 }
       );
+    });
+
+    it("reuses the loaded PDF blob for mobile share", async () => {
+      mockMatchMedia(true);
+      const share = vi.fn().mockResolvedValue(undefined);
+      const canShare = vi.fn().mockReturnValue(true);
+
+      Object.defineProperty(globalThis, "navigator", {
+        configurable: true,
+        value: {
+          ...globalThis.navigator,
+          share,
+          canShare,
+        },
+      });
+
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-document")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByLabelText("Share"));
+
+      await waitFor(() => {
+        expect(share).toHaveBeenCalledWith({
+          files: [expect.any(File)],
+          title: "document.pdf",
+        });
+      });
+
+      expect(apiService.getPdfBlob).toHaveBeenCalledTimes(1);
     });
   });
 

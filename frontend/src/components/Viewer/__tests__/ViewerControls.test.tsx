@@ -1,8 +1,29 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ViewerControls } from "../ViewerControls";
 
+function mockMobileMode(isMobile: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: isMobile,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 describe("ViewerControls", () => {
+  beforeEach(() => {
+    mockMobileMode(false);
+  });
+
   it("renders filename", () => {
     const mockClose = vi.fn();
     render(<ViewerControls filename="test.pdf" config={{}} onClose={mockClose} />);
@@ -33,7 +54,33 @@ describe("ViewerControls", () => {
     expect(screen.getByLabelText("Previous")).toBeInTheDocument();
   });
 
-  it("renders zoom controls when configured", () => {
+  it("hides gallery arrows on mobile", () => {
+    mockMobileMode(true);
+    const mockClose = vi.fn();
+    const mockNext = vi.fn();
+    const mockPrevious = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="test.pdf"
+        config={{ navigation: true }}
+        onClose={mockClose}
+        navigation={{
+          currentIndex: 0,
+          totalItems: 3,
+          onNext: mockNext,
+          onPrevious: mockPrevious,
+        }}
+      />
+    );
+
+    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Next")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Previous")).not.toBeInTheDocument();
+  });
+
+  it("hides zoom controls on mobile", () => {
+    mockMobileMode(true);
     const mockClose = vi.fn();
     const mockZoomIn = vi.fn();
     const mockZoomOut = vi.fn();
@@ -50,11 +97,12 @@ describe("ViewerControls", () => {
       />
     );
 
-    expect(screen.getByLabelText("Zoom in")).toBeInTheDocument();
-    expect(screen.getByLabelText("Zoom out")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Zoom in")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Zoom out")).not.toBeInTheDocument();
   });
 
-  it("renders rotation controls when configured", () => {
+  it("renders only rotate-right control on mobile", () => {
+    mockMobileMode(true);
     const mockClose = vi.fn();
     const mockRotateLeft = vi.fn();
     const mockRotateRight = vi.fn();
@@ -71,7 +119,7 @@ describe("ViewerControls", () => {
       />
     );
 
-    expect(screen.getByLabelText("Rotate left")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Rotate left")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Rotate right")).toBeInTheDocument();
   });
 
@@ -116,13 +164,14 @@ describe("ViewerControls", () => {
     expect(screen.getByLabelText("Search")).toBeInTheDocument();
   });
 
-  it("renders download button when configured", () => {
+  it("hides download button on mobile", () => {
+    mockMobileMode(true);
     const mockClose = vi.fn();
     const mockDownload = vi.fn();
 
     render(<ViewerControls filename="test.pdf" config={{ download: true }} onClose={mockClose} onDownload={mockDownload} />);
 
-    expect(screen.getByLabelText("Download")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Download")).not.toBeInTheDocument();
   });
 
   it("calls onClose when close button clicked", () => {
@@ -134,7 +183,8 @@ describe("ViewerControls", () => {
     expect(mockClose).toHaveBeenCalledOnce();
   });
 
-  it("calls zoom handlers when zoom buttons clicked", () => {
+  it("does not render zoom buttons on mobile", () => {
+    mockMobileMode(true);
     const mockClose = vi.fn();
     const mockZoomIn = vi.fn();
     const mockZoomOut = vi.fn();
@@ -151,14 +201,14 @@ describe("ViewerControls", () => {
       />
     );
 
-    fireEvent.click(screen.getByLabelText("Zoom in"));
-    expect(mockZoomIn).toHaveBeenCalledOnce();
-
-    fireEvent.click(screen.getByLabelText("Zoom out"));
-    expect(mockZoomOut).toHaveBeenCalledOnce();
+    expect(screen.queryByLabelText("Zoom in")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Zoom out")).not.toBeInTheDocument();
+    expect(mockZoomIn).not.toHaveBeenCalled();
+    expect(mockZoomOut).not.toHaveBeenCalled();
   });
 
-  it("calls rotation handlers when rotation buttons clicked", () => {
+  it("calls rotate-right handler on mobile", () => {
+    mockMobileMode(true);
     const mockClose = vi.fn();
     const mockRotateLeft = vi.fn();
     const mockRotateRight = vi.fn();
@@ -175,11 +225,9 @@ describe("ViewerControls", () => {
       />
     );
 
-    fireEvent.click(screen.getByLabelText("Rotate left"));
-    expect(mockRotateLeft).toHaveBeenCalledOnce();
-
     fireEvent.click(screen.getByLabelText("Rotate right"));
     expect(mockRotateRight).toHaveBeenCalledOnce();
+    expect(mockRotateLeft).not.toHaveBeenCalled();
   });
 
   it("toggles search panel when search button clicked", () => {
@@ -207,5 +255,48 @@ describe("ViewerControls", () => {
     // Click again to hide
     fireEvent.click(screen.getByLabelText("Search"));
     expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+  });
+
+  it("renders share button on mobile when configured", () => {
+    mockMobileMode(true);
+    const mockClose = vi.fn();
+    const mockShare = vi.fn();
+
+    render(<ViewerControls filename="test.pdf" config={{ share: true }} onClose={mockClose} onShare={mockShare} />);
+
+    expect(screen.getByLabelText("Share")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Download")).not.toBeInTheDocument();
+  });
+
+  it("disables share button when shareDisabled is true", () => {
+    mockMobileMode(true);
+    const mockClose = vi.fn();
+    const mockShare = vi.fn();
+
+    render(<ViewerControls filename="test.pdf" config={{ share: true }} onClose={mockClose} onShare={mockShare} shareDisabled />);
+
+    expect(screen.getByLabelText("Share")).toBeDisabled();
+  });
+
+  it("warms share payload on pointer intent before click", () => {
+    mockMobileMode(true);
+    const mockClose = vi.fn();
+    const mockShare = vi.fn();
+    const mockShareIntent = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="test.pdf"
+        config={{ share: true }}
+        onClose={mockClose}
+        onShare={mockShare}
+        onShareIntent={mockShareIntent}
+      />
+    );
+
+    fireEvent.pointerDown(screen.getByLabelText("Share"));
+
+    expect(mockShareIntent).toHaveBeenCalledOnce();
+    expect(mockShare).not.toHaveBeenCalled();
   });
 });

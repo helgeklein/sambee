@@ -15,6 +15,7 @@ export const EN_TRANSLATIONS = {
       move: "Move",
       rename: "Rename",
       replace: "Replace",
+      share: "Share",
       skip: "Skip",
     },
     labels: {
@@ -670,8 +671,14 @@ export const EN_TRANSLATIONS = {
       zoomOut: "Zoom out",
       rotateLeft: "Rotate left",
       rotateRight: "Rotate right",
+      shareUnavailable: "Sharing is not available on this device or browser",
       searchUnavailable: "Search unavailable - PDF contains no text layer (may be a scanned image)",
       pdfSearchPlaceholder: "Search in PDF...",
+    },
+    share: {
+      preparing: "Preparing file to share...",
+      failed: "Failed to share file",
+      unsupported: "Sharing is not available on this device or browser",
     },
     shortcuts: {
       open: "Open",

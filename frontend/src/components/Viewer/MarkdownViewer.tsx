@@ -1,4 +1,4 @@
-import { Alert, Box, CircularProgress, Dialog } from "@mui/material";
+import { Alert, Box, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -15,6 +15,7 @@ import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
+import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 import "highlight.js/styles/github.css";
@@ -29,12 +30,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const prefetchedShareFileRef = useRef<File | null>(null);
+  const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
+  const muiTheme = useTheme();
+  const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
+  const shareEnabled = isMobile && supportsNativeShare();
+  const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const { viewerBg, toolbarBg, toolbarText, viewerText } = getViewerColors(currentTheme, "markdown");
 
   // Extract filename from path
@@ -105,6 +114,67 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     },
     [connectionId, path, filename]
   );
+
+  const loadShareFile = useCallback(
+    async (signal?: AbortSignal) => {
+      if (prefetchedShareFileRef.current) {
+        return prefetchedShareFileRef.current;
+      }
+
+      if (sharePrefetchPromiseRef.current) {
+        return sharePrefetchPromiseRef.current;
+      }
+
+      const shareFilePromise = apiService.getFileBlob(connectionId, path, { signal }).then((blob) => createShareFile(blob, filename));
+      sharePrefetchPromiseRef.current = shareFilePromise;
+
+      try {
+        return await shareFilePromise;
+      } finally {
+        if (sharePrefetchPromiseRef.current === shareFilePromise) {
+          sharePrefetchPromiseRef.current = null;
+        }
+      }
+    },
+    [connectionId, filename, path]
+  );
+
+  useEffect(() => {
+    void loadShareFile;
+    prefetchedShareFileRef.current = null;
+    sharePrefetchPromiseRef.current = null;
+  }, [loadShareFile]);
+
+  const handleShareIntent = useCallback(() => {
+    if (!shareWarmEnabled) {
+      return;
+    }
+
+    void loadShareFile();
+  }, [shareWarmEnabled, loadShareFile]);
+
+  const handleShare = useCallback(async () => {
+    setShareError(null);
+    setSharing(true);
+
+    try {
+      const shareFile = await loadShareFile();
+      const result = await shareNativeContent({
+        file: shareFile,
+        title: filename,
+        text: content,
+      });
+
+      if (result === "unsupported") {
+        setShareError(t("viewer.share.unsupported"));
+      }
+    } catch (err) {
+      logError("Failed to share markdown", { error: err, path, connectionId });
+      setShareError(t("viewer.share.failed"));
+    } finally {
+      setSharing(false);
+    }
+  }, [connectionId, content, filename, loadShareFile, path, t]);
 
   // Toggle fullscreen mode
   const handleToggleFullscreen = useCallback(() => {
@@ -258,11 +328,21 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               toolbarText={toolbarText}
               config={{
                 download: true,
+                share: shareEnabled,
               }}
               onClose={onClose}
               onDownload={handleDownload}
+              onShare={handleShare}
+              onShareIntent={handleShareIntent}
+              shareDisabled={sharing}
             />
           </Box>
+
+          {shareError && (
+            <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>
+              {shareError}
+            </Alert>
+          )}
 
           {/* Markdown content area - flex grows to fill remaining space */}
           <Box

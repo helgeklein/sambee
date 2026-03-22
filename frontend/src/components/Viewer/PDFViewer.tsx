@@ -1,4 +1,4 @@
-import { Alert, Box, CircularProgress, Dialog } from "@mui/material";
+import { Alert, Box, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -15,6 +15,7 @@ import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
+import { createShareFile, shareNativeContent, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { ViewerControls } from "./ViewerControls";
 
@@ -66,8 +67,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<ZoomMode>("fit-page");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [shareFile, setShareFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [searchText, setSearchText] = useState<string>("");
   const [currentMatch, setCurrentMatch] = useState<number>(0);
   const [containerWidth, setContainerWidth] = useState<number>(0);
@@ -88,9 +91,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [isSearchable, setIsSearchable] = useState(true); // Assume searchable until proven otherwise
   const [showHelp, setShowHelp] = useState(false);
   const [pageRenderTrigger, setPageRenderTrigger] = useState(0); // Increments when page renders
+  const [sharing, setSharing] = useState(false);
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
+  const muiTheme = useTheme();
+  const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
+  const shareEnabled = isMobile && supportsNativeShare();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
 
   // Extract filename from path
@@ -115,6 +122,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       try {
         setLoading(true);
         setError(null);
+        setShareFile(null);
 
         const blob = await fetchWithRetry(
           () =>
@@ -136,6 +144,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
 
         blobUrl = URL.createObjectURL(blob);
         setPdfUrl(blobUrl);
+        setShareFile(createShareFile(blob, filename));
       } catch (err) {
         if (!isMounted) return;
 
@@ -169,7 +178,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry]);
+  }, [connectionId, path, fetchWithRetry, filename]);
 
   // Measure container dimensions with ResizeObserver
   // Trigger after PDF loads to ensure container is in DOM
@@ -370,6 +379,28 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     },
     [connectionId, path, filename]
   );
+
+  const handleShare = useCallback(async () => {
+    setShareError(null);
+    setSharing(true);
+
+    try {
+      const fileToShare = shareFile ?? createShareFile(await apiService.getPdfBlob(connectionId, path), filename);
+      const result = await shareNativeContent({
+        file: fileToShare,
+        title: filename,
+      });
+
+      if (result === "unsupported") {
+        setShareError(t("viewer.share.unsupported"));
+      }
+    } catch (err) {
+      logError("Failed to share PDF", { error: err, path, connectionId });
+      setShareError(t("viewer.share.failed"));
+    } finally {
+      setSharing(false);
+    }
+  }, [connectionId, filename, path, shareFile, t]);
 
   /**
    * Perform search across all extracted page texts using simple regex approach.
@@ -908,6 +939,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               rotation: true,
               search: true,
               download: true,
+              share: shareEnabled,
             }}
             onClose={onClose}
             pageNavigation={{
@@ -947,8 +979,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
               isSearchable,
             }}
             onDownload={handleDownload}
+            onShare={handleShare}
+            shareDisabled={sharing || (shareEnabled && !shareFile)}
           />
         </Box>
+
+        {shareError && (
+          <Alert severity="error" sx={{ m: 2, flexShrink: 0 }}>
+            {shareError}
+          </Alert>
+        )}
 
         {/* PDF content area */}
         <Box

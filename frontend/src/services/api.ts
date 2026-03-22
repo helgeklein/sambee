@@ -676,6 +676,63 @@ class ApiService {
     return `${baseUrl}/viewer/${segment}/download?path=${encodeURIComponent(path)}&token=${token}`;
   }
 
+  async getFileBlob(connectionId: string, path: string, options: { signal?: AbortSignal } = {}): Promise<Blob> {
+    try {
+      const segment = getBrowseSegment(connectionId);
+      const { client, extraConfig } = await this.getClientConfig(connectionId);
+      const response = await client.get<ArrayBuffer>(`/viewer/${segment}/file`, {
+        ...extraConfig,
+        params: { path },
+        responseType: "arraybuffer",
+        signal: options.signal,
+      });
+
+      const contentType = response.headers["content-type"] ?? "application/octet-stream";
+      const data = response.data instanceof ArrayBuffer ? response.data : new ArrayBuffer(0);
+      return new Blob([data], { type: contentType });
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (typeof error.response?.data === "string") {
+          try {
+            const json = JSON.parse(error.response.data);
+            throw {
+              ...error,
+              response: {
+                ...error.response,
+                data: json,
+              },
+            };
+          } catch {
+            // Ignore parsing failures and continue to the ArrayBuffer branch.
+          }
+        }
+      }
+
+      if (axios.isAxiosError(error) && error.response?.data instanceof ArrayBuffer) {
+        const decoder = new TextDecoder();
+        const text = decoder.decode(error.response.data);
+        try {
+          const json = JSON.parse(text);
+          const newError = {
+            ...error,
+            response: {
+              ...error.response,
+              data: json,
+            },
+          };
+          throw newError;
+        } catch (parseError) {
+          if (parseError instanceof SyntaxError) {
+            throw error;
+          }
+          throw parseError;
+        }
+      }
+
+      throw error;
+    }
+  }
+
   async downloadFile(connectionId: string, path: string, filename: string): Promise<void> {
     const baseUrl = getBaseUrl(connectionId);
     const segment = getBrowseSegment(connectionId);

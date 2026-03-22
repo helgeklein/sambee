@@ -19,6 +19,10 @@
 - Search
 - Editing
 
-## All viewers
+## Localization
 
-- Sharing (on mobile)
+- Default locale seems to be en-us.
+- Can we change that to the browser default?
+- Add a UI to switch:
+  - Language
+  - Regional settings (e.g., date formats)
