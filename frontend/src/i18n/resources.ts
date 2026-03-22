@@ -142,8 +142,6 @@ export const EN_TRANSLATIONS = {
         jaJP: "Japanese (Japan)",
       },
       regionalSettingsPreviewTitle: "Preview",
-      regionalSettingsPreviewDateLabel: "Date and time",
-      regionalSettingsPreviewNumberLabel: "Number",
       browserTitle: "Browser",
       browserDescription: "Set defaults for how the file browser behaves.",
       quickNavigationTitle: "Quick navigation",
@@ -791,12 +789,13 @@ const PSEUDO_TRANSLATIONS = createPseudoLocaleTranslations(EN_TRANSLATIONS);
 export type FrontendTranslations = typeof EN_TRANSLATIONS;
 
 export const DEFAULT_LANGUAGE = "en";
+export const PSEUDO_LANGUAGE = "en-XA";
 
 export const resources = {
   en: {
     translation: EN_TRANSLATIONS,
   },
-  "en-XA": {
+  [PSEUDO_LANGUAGE]: {
     translation: PSEUDO_TRANSLATIONS,
   },
 } as const;

@@ -1,6 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
-import { DEFAULT_LANGUAGE, resources, SUPPORTED_LANGUAGES, type SupportedLanguage } from "./resources";
+import { DEFAULT_LANGUAGE, PSEUDO_LANGUAGE, resources, SUPPORTED_LANGUAGES, type SupportedLanguage } from "./resources";
 
 export const LOCALE_STORAGE_KEY = "sambee.locale";
 export const REGIONAL_LOCALE_STORAGE_KEY = "sambee.regional-locale";
@@ -17,6 +17,16 @@ let localeSideEffectsRegistered = false;
 let currentLanguagePreference: LanguagePreference = DEFAULT_LANGUAGE_PREFERENCE;
 let currentRegionalLocalePreference: RegionalLocalePreference = DEFAULT_REGIONAL_LOCALE_PREFERENCE;
 let currentRegionalLocale = DEFAULT_LANGUAGE;
+
+export function isPseudoLanguageEnabled(isDevelopment: boolean = import.meta.env.DEV): boolean {
+  return isDevelopment;
+}
+
+export function getAvailableLanguages(isDevelopment: boolean = import.meta.env.DEV): SupportedLanguage[] {
+  return isPseudoLanguageEnabled(isDevelopment)
+    ? SUPPORTED_LANGUAGES
+    : SUPPORTED_LANGUAGES.filter((supportedLanguage) => supportedLanguage !== PSEUDO_LANGUAGE);
+}
 
 function getBrowserLocales(): string[] {
   if (typeof navigator === "undefined") {

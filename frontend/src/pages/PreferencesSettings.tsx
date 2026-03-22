@@ -21,14 +21,15 @@ import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { getAvailableLanguages } from "../i18n";
 import { useLocalePreferences } from "../i18n/LocalePreferencesProvider";
+import { PSEUDO_LANGUAGE } from "../i18n/resources";
 import { patchCurrentUserSettings } from "../services/userSettingsSync";
 import { useSambeeTheme } from "../theme";
 import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
 import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
 
-const LANGUAGE_OPTIONS = ["en", "en-XA"] as const;
 const REGIONAL_LOCALE_OPTIONS = ["en-US", "en-GB", "de-DE", "fr-FR", "ja-JP"] as const;
 const REGIONAL_LOCALE_LABEL_KEYS = {
   "en-US": "settings.preferencesPage.regionalLocaleOptions.enUS",
@@ -39,34 +40,10 @@ const REGIONAL_LOCALE_LABEL_KEYS = {
 } as const satisfies Record<(typeof REGIONAL_LOCALE_OPTIONS)[number], string>;
 const PREVIEW_DATE = new Date("2026-03-22T14:35:00Z");
 
-function getBrowserLanguageLabel(t: ReturnType<typeof useTranslation>["t"]): string {
-  if (typeof navigator === "undefined") {
-    return t("settings.preferencesPage.browserDefaultOption");
-  }
-
-  const locales = Array.isArray(navigator.languages) && navigator.languages.length > 0 ? navigator.languages : [navigator.language];
-  const browserLocale = locales.find(Boolean);
-
-  const resolvedLanguage =
-    locales
-      .filter((locale): locale is string => Boolean(locale))
-      .map((locale) => {
-        const exactMatch = LANGUAGE_OPTIONS.find((supportedLanguage) => supportedLanguage.toLowerCase() === locale.toLowerCase());
-        if (exactMatch) {
-          return exactMatch;
-        }
-
-        const baseLanguage = locale.split("-")[0]?.toLowerCase();
-        return LANGUAGE_OPTIONS.find((supportedLanguage) => supportedLanguage.toLowerCase() === baseLanguage) ?? null;
-      })
-      .find((language): language is (typeof LANGUAGE_OPTIONS)[number] => Boolean(language)) ?? "en";
-
-  const resolvedLanguageLabel =
-    resolvedLanguage === "en-XA" ? t("settings.preferencesPage.pseudoLanguageOption") : t("settings.preferencesPage.englishLanguageOption");
-
-  return browserLocale
-    ? `${t("settings.preferencesPage.browserDefaultOption")} (${browserLocale} -> ${resolvedLanguageLabel})`
-    : t("settings.preferencesPage.browserDefaultOption");
+function getLanguageOptionLabel(t: ReturnType<typeof useTranslation>["t"], language: string): string {
+  return language === PSEUDO_LANGUAGE
+    ? t("settings.preferencesPage.pseudoLanguageOption")
+    : t("settings.preferencesPage.englishLanguageOption");
 }
 
 function ThemePreview({
@@ -123,24 +100,24 @@ export function PreferencesSettings() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
   const { languagePreference, regionalLocalePreference, setLanguagePreference, setRegionalLocalePreference } = useLocalePreferences();
+  const availableLanguages = getAvailableLanguages();
 
   const languageOptions = useMemo(
     () => [
-      { value: "browser", label: getBrowserLanguageLabel(t) },
-      { value: "en", label: t("settings.preferencesPage.englishLanguageOption") },
-      { value: "en-XA", label: t("settings.preferencesPage.pseudoLanguageOption") },
+      { value: "browser", label: t("settings.preferencesPage.browserDefaultOption") },
+      ...availableLanguages.map((language) => ({
+        value: language,
+        label: getLanguageOptionLabel(t, language),
+      })),
     ],
-    [t]
+    [availableLanguages, t]
   );
 
   const regionalLocaleOptions = useMemo(() => {
-    const browserLocale = typeof navigator === "undefined" ? null : navigator.language || null;
     const options = [
       {
         value: "browser",
-        label: browserLocale
-          ? `${t("settings.preferencesPage.browserDefaultOption")} (${browserLocale})`
-          : t("settings.preferencesPage.browserDefaultOption"),
+        label: t("settings.preferencesPage.browserDefaultOption"),
       },
       ...REGIONAL_LOCALE_OPTIONS.map((locale) => ({
         value: locale,
@@ -309,21 +286,18 @@ export function PreferencesSettings() {
               borderRadius: 1,
               border: "1px solid",
               borderColor: "divider",
-              bgcolor: "action.selected",
             }}
           >
             <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
               {t("settings.preferencesPage.regionalSettingsPreviewTitle")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {t("settings.preferencesPage.regionalSettingsPreviewDateLabel")}:{" "}
               {formatLocalizedDateTime(PREVIEW_DATE, {
                 dateStyle: "full",
                 timeStyle: "short",
               })}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-              {t("settings.preferencesPage.regionalSettingsPreviewNumberLabel")}:{" "}
               {formatLocalizedNumber(1234567.89, {
                 maximumFractionDigits: 2,
               })}

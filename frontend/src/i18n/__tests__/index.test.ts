@@ -8,7 +8,15 @@ import { LOCAL_DRIVES_PAGE_COPY } from "../../components/Settings/localDrivesCop
 import { THEME_SELECTOR_STRINGS } from "../../components/themeSelectorStrings";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { compareLocalizedStrings, formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
-import { LOCALE_STORAGE_KEY, REGIONAL_LOCALE_STORAGE_KEY, setLocale, setRegionalLocalePreference, translate } from "../index";
+import {
+  getAvailableLanguages,
+  isPseudoLanguageEnabled,
+  LOCALE_STORAGE_KEY,
+  REGIONAL_LOCALE_STORAGE_KEY,
+  setLocale,
+  setRegionalLocalePreference,
+  translate,
+} from "../index";
 
 describe("frontend i18n", () => {
   afterEach(async () => {
@@ -71,5 +79,10 @@ describe("frontend i18n", () => {
     );
     expect(compareLocalizedStrings("ä", "z")).toBe("ä".localeCompare("z", "de-DE", undefined));
     expect(window.localStorage.getItem(REGIONAL_LOCALE_STORAGE_KEY)).toBe("de-DE");
+  });
+
+  it("hides the pseudo locale from production language options", () => {
+    expect(isPseudoLanguageEnabled(false)).toBe(false);
+    expect(getAvailableLanguages(false)).toEqual(["en"]);
   });
 });

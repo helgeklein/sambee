@@ -73,17 +73,21 @@ describe("PreferencesSettings", () => {
     expect(screen.getByRole("combobox", { name: "Language" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Regional settings" })).toBeInTheDocument();
     expect(screen.getByText("Preview")).toBeInTheDocument();
-    expect(screen.getByText(/Date and time:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Number:/i)).toBeInTheDocument();
   });
 
-  it("shows the browser locale and resolved language in the browser-default language option", async () => {
+  it("uses plain browser-default labels for both localization dropdowns", async () => {
     const user = userEvent.setup();
     render(<PreferencesSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Language" }));
 
-    expect(await screen.findByRole("option", { name: "Browser default (en-US -> English)" })).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "Browser default" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("combobox", { name: "Regional settings" }));
+
+    expect(await screen.findByRole("option", { name: "Browser default" })).toBeInTheDocument();
   });
 
   it("persists the selected language preference", async () => {
