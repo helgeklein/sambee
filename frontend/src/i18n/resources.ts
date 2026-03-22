@@ -133,7 +133,7 @@ export const EN_TRANSLATIONS = {
       regionalLocaleDescription: "Choose the locale used for dates, times, number formatting, and sorting.",
       browserDefaultOption: "Browser default",
       englishLanguageOption: "English",
-      pseudoLanguageOption: "Pseudo-localized English (testing)",
+      pseudoLanguageOption: "Pseudo-English (for localization testing)",
       regionalLocaleOptions: {
         enUS: "English (United States)",
         enGB: "English (United Kingdom)",

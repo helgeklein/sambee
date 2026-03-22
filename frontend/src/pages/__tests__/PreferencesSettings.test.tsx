@@ -46,15 +46,22 @@ vi.mock("../../services/userSettingsSync", () => ({
 }));
 
 describe("PreferencesSettings", () => {
+  const originalNavigatorLanguage = navigator.language;
+  const originalNavigatorLanguages = navigator.languages;
+
   beforeEach(async () => {
     vi.clearAllMocks();
     loadCurrentUserSettingsMock.mockResolvedValue(null);
     patchCurrentUserSettingsMock.mockResolvedValue(null);
+    Object.defineProperty(navigator, "language", { configurable: true, value: "en-US" });
+    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en-US", "en"] });
     await setLocale("en");
     await setRegionalLocalePreference("browser");
   });
 
   afterEach(async () => {
+    Object.defineProperty(navigator, "language", { configurable: true, value: originalNavigatorLanguage });
+    Object.defineProperty(navigator, "languages", { configurable: true, value: originalNavigatorLanguages });
     await setLocale("en");
     await setRegionalLocalePreference("browser");
   });
@@ -70,12 +77,21 @@ describe("PreferencesSettings", () => {
     expect(screen.getByText(/Number:/i)).toBeInTheDocument();
   });
 
+  it("shows the browser locale and resolved language in the browser-default language option", async () => {
+    const user = userEvent.setup();
+    render(<PreferencesSettings />);
+
+    await user.click(screen.getByRole("combobox", { name: "Language" }));
+
+    expect(await screen.findByRole("option", { name: "Browser default (en-US -> English)" })).toBeInTheDocument();
+  });
+
   it("persists the selected language preference", async () => {
     const user = userEvent.setup();
     render(<PreferencesSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Language" }));
-    await user.click(await screen.findByRole("option", { name: "Pseudo-localized English (testing)" }));
+    await user.click(await screen.findByRole("option", { name: "Pseudo-English (for localization testing)" }));
 
     await waitFor(() => {
       expect(patchCurrentUserSettingsMock).toHaveBeenCalledWith({

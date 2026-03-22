@@ -28,6 +28,7 @@ import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
 import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
 
+const LANGUAGE_OPTIONS = ["en", "en-XA"] as const;
 const REGIONAL_LOCALE_OPTIONS = ["en-US", "en-GB", "de-DE", "fr-FR", "ja-JP"] as const;
 const REGIONAL_LOCALE_LABEL_KEYS = {
   "en-US": "settings.preferencesPage.regionalLocaleOptions.enUS",
@@ -37,6 +38,36 @@ const REGIONAL_LOCALE_LABEL_KEYS = {
   "ja-JP": "settings.preferencesPage.regionalLocaleOptions.jaJP",
 } as const satisfies Record<(typeof REGIONAL_LOCALE_OPTIONS)[number], string>;
 const PREVIEW_DATE = new Date("2026-03-22T14:35:00Z");
+
+function getBrowserLanguageLabel(t: ReturnType<typeof useTranslation>["t"]): string {
+  if (typeof navigator === "undefined") {
+    return t("settings.preferencesPage.browserDefaultOption");
+  }
+
+  const locales = Array.isArray(navigator.languages) && navigator.languages.length > 0 ? navigator.languages : [navigator.language];
+  const browserLocale = locales.find(Boolean);
+
+  const resolvedLanguage =
+    locales
+      .filter((locale): locale is string => Boolean(locale))
+      .map((locale) => {
+        const exactMatch = LANGUAGE_OPTIONS.find((supportedLanguage) => supportedLanguage.toLowerCase() === locale.toLowerCase());
+        if (exactMatch) {
+          return exactMatch;
+        }
+
+        const baseLanguage = locale.split("-")[0]?.toLowerCase();
+        return LANGUAGE_OPTIONS.find((supportedLanguage) => supportedLanguage.toLowerCase() === baseLanguage) ?? null;
+      })
+      .find((language): language is (typeof LANGUAGE_OPTIONS)[number] => Boolean(language)) ?? "en";
+
+  const resolvedLanguageLabel =
+    resolvedLanguage === "en-XA" ? t("settings.preferencesPage.pseudoLanguageOption") : t("settings.preferencesPage.englishLanguageOption");
+
+  return browserLocale
+    ? `${t("settings.preferencesPage.browserDefaultOption")} (${browserLocale} -> ${resolvedLanguageLabel})`
+    : t("settings.preferencesPage.browserDefaultOption");
+}
 
 function ThemePreview({
   theme,
@@ -95,7 +126,7 @@ export function PreferencesSettings() {
 
   const languageOptions = useMemo(
     () => [
-      { value: "browser", label: t("settings.preferencesPage.browserDefaultOption") },
+      { value: "browser", label: getBrowserLanguageLabel(t) },
       { value: "en", label: t("settings.preferencesPage.englishLanguageOption") },
       { value: "en-XA", label: t("settings.preferencesPage.pseudoLanguageOption") },
     ],
@@ -278,7 +309,7 @@ export function PreferencesSettings() {
               borderRadius: 1,
               border: "1px solid",
               borderColor: "divider",
-              bgcolor: "background.paper",
+              bgcolor: "action.selected",
             }}
           >
             <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
