@@ -3,7 +3,7 @@ Single source of truth for all image conversion settings.
 
 These settings apply to both:
 - Direct conversions (libvips)
-- Preprocessed conversions (ImageMagick/GraphicsMagick → target format)
+- Preprocessed conversions (ImageMagick → target format)
 
 This module centralizes all image quality, compression, and format settings
 to ensure consistency across the entire image processing pipeline.
@@ -19,7 +19,7 @@ class ImageConversionSettings:
 
     All settings are optimized for web delivery with a balance between
     quality and file size. These settings are used by both libvips and
-    external preprocessors (ImageMagick/GraphicsMagick).
+    external preprocessors (ImageMagick).
     """
 
     # JPEG settings
@@ -96,63 +96,6 @@ def get_imagemagick_png_args(
     """
     # ImageMagick PNG quality mapping to get zlib compression level 6:
     # We use quality 92 which results in zlib compression 6
-    png_quality = 92
-
-    args = [
-        "-quality",
-        str(png_quality),
-    ]
-    if settings.strip_metadata:
-        args.append("-strip")
-    return args
-
-
-def get_graphicsmagick_jpeg_args(
-    settings: ImageConversionSettings = IMAGE_SETTINGS,
-) -> list[str]:
-    """
-    Get GraphicsMagick command arguments for JPEG output.
-
-    GraphicsMagick uses similar syntax to ImageMagick for JPEG encoding.
-
-    Args:
-        settings: Image conversion settings to use
-
-    Returns:
-        List of command arguments (e.g., ['-quality', '85', '-strip'])
-
-    Example:
-        >>> args = get_graphicsmagick_jpeg_args()
-        >>> # Use in GM command: gm convert input.psd -flatten [args...] output.jpg
-    """
-    args = [
-        "-quality",
-        str(settings.jpeg_quality),
-    ]
-    if settings.strip_metadata:
-        args.append("-strip")
-    return args
-
-
-def get_graphicsmagick_png_args(
-    settings: ImageConversionSettings = IMAGE_SETTINGS,
-) -> list[str]:
-    """
-    Get GraphicsMagick command arguments for PNG output.
-
-    GraphicsMagick PNG quality works similarly to ImageMagick.
-
-    Args:
-        settings: Image conversion settings to use
-
-    Returns:
-        List of command arguments (e.g., ['-quality', '92', '-strip'])
-
-    Example:
-        >>> args = get_graphicsmagick_png_args()
-        >>> # Use in GM command: gm convert input.psd -flatten [args...] output.png
-    """
-    # GraphicsMagick PNG quality (same as ImageMagick)
     png_quality = 92
 
     args = [

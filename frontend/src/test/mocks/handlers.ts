@@ -44,30 +44,6 @@ function createAdvancedSettingsResponse() {
           step: 1,
         },
       },
-      graphicsmagick: {
-        max_file_size_bytes: {
-          key: "preprocessors.graphicsmagick.max_file_size_bytes",
-          label: "Maximum file size",
-          description: "Largest input file GraphicsMagick is allowed to preprocess.",
-          value: 104857600,
-          source: "default",
-          default_value: 104857600,
-          min_value: 1048576,
-          max_value: 1073741824,
-          step: 1048576,
-        },
-        timeout_seconds: {
-          key: "preprocessors.graphicsmagick.timeout_seconds",
-          label: "Conversion timeout",
-          description: "Maximum time allowed for a GraphicsMagick preprocessing run.",
-          value: 30,
-          source: "default",
-          default_value: 30,
-          min_value: 5,
-          max_value: 600,
-          step: 1,
-        },
-      },
     },
   };
 }
@@ -502,8 +478,6 @@ export const handlers = [
 
     const preprocessors = body["preprocessors"] as Record<string, unknown> | undefined;
     const imagemagick = preprocessors?.["imagemagick"] as Record<string, unknown> | undefined;
-    const graphicsmagick = preprocessors?.["graphicsmagick"] as Record<string, unknown> | undefined;
-
     if (!resetKeys.includes("preprocessors.imagemagick.max_file_size_bytes")) {
       const value = imagemagick?.["max_file_size_bytes"];
       if (typeof value === "number") {
@@ -517,22 +491,6 @@ export const handlers = [
       if (typeof value === "number") {
         nextResponse.preprocessors.imagemagick.timeout_seconds.value = value;
         nextResponse.preprocessors.imagemagick.timeout_seconds.source = "database";
-      }
-    }
-
-    if (!resetKeys.includes("preprocessors.graphicsmagick.max_file_size_bytes")) {
-      const value = graphicsmagick?.["max_file_size_bytes"];
-      if (typeof value === "number") {
-        nextResponse.preprocessors.graphicsmagick.max_file_size_bytes.value = value;
-        nextResponse.preprocessors.graphicsmagick.max_file_size_bytes.source = "database";
-      }
-    }
-
-    if (!resetKeys.includes("preprocessors.graphicsmagick.timeout_seconds")) {
-      const value = graphicsmagick?.["timeout_seconds"];
-      if (typeof value === "number") {
-        nextResponse.preprocessors.graphicsmagick.timeout_seconds.value = value;
-        nextResponse.preprocessors.graphicsmagick.timeout_seconds.source = "database";
       }
     }
 

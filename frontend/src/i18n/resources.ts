@@ -333,7 +333,6 @@ export const EN_TRANSLATIONS = {
         smbBackends: "SMB backends",
         preprocessors: "Preprocessors",
         imageMagick: "ImageMagick",
-        graphicsMagick: "GraphicsMagick",
       },
       fields: {
         value: "Value",

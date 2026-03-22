@@ -150,14 +150,6 @@ def build_advanced_system_settings_read() -> AdvancedSystemSettingsRead:
                 ),
                 timeout_seconds=_build_integer_read(SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS]),
             ),
-            "graphicsmagick": PreprocessorAdvancedSettingsRead(
-                max_file_size_bytes=_build_integer_read(
-                    SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_MAX_FILE_SIZE_BYTES]
-                ),
-                timeout_seconds=_build_integer_read(
-                    SYSTEM_SETTING_DEFINITIONS[SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_TIMEOUT_SECONDS]
-                ),
-            ),
         },
     )
 
@@ -175,13 +167,6 @@ def _extract_updates(payload: AdvancedSystemSettingsUpdate) -> dict[SystemSettin
             updates[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_MAX_FILE_SIZE_BYTES] = imagemagick.max_file_size_bytes
         if imagemagick.timeout_seconds is not None:
             updates[SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS] = imagemagick.timeout_seconds
-
-    if preprocessors and preprocessors.graphicsmagick:
-        graphicsmagick = preprocessors.graphicsmagick
-        if graphicsmagick.max_file_size_bytes is not None:
-            updates[SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_MAX_FILE_SIZE_BYTES] = graphicsmagick.max_file_size_bytes
-        if graphicsmagick.timeout_seconds is not None:
-            updates[SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_TIMEOUT_SECONDS] = graphicsmagick.timeout_seconds
 
     return updates
 

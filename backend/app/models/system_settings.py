@@ -53,7 +53,6 @@ class PreprocessorAdvancedSettingsUpdate(SQLModel):
 
 class AdvancedSystemSettingsPreprocessorsUpdate(SQLModel):
     imagemagick: Optional[PreprocessorAdvancedSettingsUpdate] = None
-    graphicsmagick: Optional[PreprocessorAdvancedSettingsUpdate] = None
 
 
 class AdvancedSystemSettingsUpdate(SQLModel):

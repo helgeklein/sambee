@@ -327,7 +327,7 @@ showpage
         assert mime_type == "image/png"
         assert len(result_bytes) > 0
         assert result_bytes.startswith(b"\x89PNG")  # PNG magic number
-        assert converter_name in {"GraphicsMagick", "ImageMagick"}
+        assert converter_name == "ImageMagick"
         assert duration_ms > 0
 
     def test_convert_ai_to_jpeg(self):
@@ -368,7 +368,7 @@ startxref
         assert mime_type == "image/png"
         assert len(result_bytes) > 0
         assert result_bytes.startswith(b"\x89PNG")  # PNG magic number
-        assert converter_name in {"GraphicsMagick", "ImageMagick"}
+        assert converter_name == "ImageMagick"
         assert duration_ms > 0
 
     def test_small_image_no_downscaling(self):

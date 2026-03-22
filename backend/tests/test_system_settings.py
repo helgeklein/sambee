@@ -48,7 +48,6 @@ class TestAdvancedSystemSettingsApi:
                 "smb": {"read_chunk_size_bytes": 2 * 1024 * 1024},
                 "preprocessors": {
                     "imagemagick": {"timeout_seconds": 45},
-                    "graphicsmagick": {"max_file_size_bytes": 200 * 1024 * 1024},
                 },
             },
         )
@@ -58,7 +57,6 @@ class TestAdvancedSystemSettingsApi:
         assert data["smb"]["read_chunk_size_bytes"]["value"] == 2 * 1024 * 1024
         assert data["smb"]["read_chunk_size_bytes"]["source"] == "database"
         assert data["preprocessors"]["imagemagick"]["timeout_seconds"]["value"] == 45
-        assert data["preprocessors"]["graphicsmagick"]["max_file_size_bytes"]["value"] == 200 * 1024 * 1024
 
         stored = session.get(SystemSetting, SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES.value)
         assert stored is not None

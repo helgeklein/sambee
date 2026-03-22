@@ -31,8 +31,6 @@ interface AdvancedSettingsFormState {
   smbReadChunkSizeBytes: number | null;
   imagemagickMaxFileSizeBytes: number | null;
   imagemagickTimeoutSeconds: number | null;
-  graphicsmagickMaxFileSizeBytes: number | null;
-  graphicsmagickTimeoutSeconds: number | null;
 }
 
 const DESKTOP_FIELD_ROW_MAX_WIDTH = 440;
@@ -87,8 +85,6 @@ function createFormState(settings: AdvancedSystemSettings): AdvancedSettingsForm
     smbReadChunkSizeBytes: settings.smb.read_chunk_size_bytes.value,
     imagemagickMaxFileSizeBytes: settings.preprocessors.imagemagick.max_file_size_bytes.value,
     imagemagickTimeoutSeconds: settings.preprocessors.imagemagick.timeout_seconds.value,
-    graphicsmagickMaxFileSizeBytes: settings.preprocessors.graphicsmagick.max_file_size_bytes.value,
-    graphicsmagickTimeoutSeconds: settings.preprocessors.graphicsmagick.timeout_seconds.value,
   };
 }
 
@@ -152,10 +148,6 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
       imagemagick: {
         max_file_size_bytes: toOptionalNumber(formState.imagemagickMaxFileSizeBytes),
         timeout_seconds: toOptionalNumber(formState.imagemagickTimeoutSeconds),
-      },
-      graphicsmagick: {
-        max_file_size_bytes: toOptionalNumber(formState.graphicsmagickMaxFileSizeBytes),
-        timeout_seconds: toOptionalNumber(formState.graphicsmagickTimeoutSeconds),
       },
     },
   };
@@ -432,15 +424,6 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         formState.imagemagickTimeoutSeconds,
         t("settings.advanced.fields.seconds")
       ),
-      graphicsmagickMaxFileSizeBytes: validateByteSizeSetting(
-        settings.preprocessors.graphicsmagick.max_file_size_bytes,
-        formState.graphicsmagickMaxFileSizeBytes
-      ),
-      graphicsmagickTimeoutSeconds: validateIntegerSetting(
-        settings.preprocessors.graphicsmagick.timeout_seconds,
-        formState.graphicsmagickTimeoutSeconds,
-        t("settings.advanced.fields.seconds")
-      ),
     };
   }, [formState, settings, t]);
 
@@ -576,46 +559,6 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
                       handleReset(
                         settings.preprocessors.imagemagick.timeout_seconds.key,
                         settings.preprocessors.imagemagick.timeout_seconds.label
-                      )
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
-                  />
-                </SettingsGroup>
-
-                <SettingsGroup
-                  title={t("settings.advanced.sections.graphicsMagick")}
-                  titleVariant="subtitle2"
-                  titleSx={subsectionHeadingSx}
-                >
-                  <ByteSizeSettingField
-                    setting={settings.preprocessors.graphicsmagick.max_file_size_bytes}
-                    value={formState.graphicsmagickMaxFileSizeBytes}
-                    onChange={(value) =>
-                      setFormState((current) => (current ? { ...current, graphicsmagickMaxFileSizeBytes: value } : current))
-                    }
-                    errorText={validationErrors?.graphicsmagickMaxFileSizeBytes}
-                    showErrors={submitAttempted}
-                    onReset={() =>
-                      handleReset(
-                        settings.preprocessors.graphicsmagick.max_file_size_bytes.key,
-                        settings.preprocessors.graphicsmagick.max_file_size_bytes.label
-                      )
-                    }
-                    resetDisabled={saving || loading || hasUnsavedChanges}
-                  />
-                  <SettingField
-                    setting={settings.preprocessors.graphicsmagick.timeout_seconds}
-                    value={formState.graphicsmagickTimeoutSeconds}
-                    onChange={(value) =>
-                      setFormState((current) => (current ? { ...current, graphicsmagickTimeoutSeconds: value } : current))
-                    }
-                    errorText={validationErrors?.graphicsmagickTimeoutSeconds}
-                    showErrors={submitAttempted}
-                    unitAdornment={t("settings.advanced.fields.seconds")}
-                    onReset={() =>
-                      handleReset(
-                        settings.preprocessors.graphicsmagick.timeout_seconds.key,
-                        settings.preprocessors.graphicsmagick.timeout_seconds.label
                       )
                     }
                     resetDisabled={saving || loading || hasUnsavedChanges}

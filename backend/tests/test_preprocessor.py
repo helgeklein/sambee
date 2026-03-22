@@ -1,23 +1,11 @@
-"""
-Tests for image preprocessing service.
-
-These tests verify that the preprocessor can:
-1. Detect available preprocessor tools (GraphicsMagick, ImageMagick)
-2. Convert PSD/PSB files to intermediate formats
-3. Handle errors gracefully (missing tools, corrupt files, timeouts)
-4. Clean up temporary files properly
-5. Validate inputs (file size, format, existence)
-6. Registry-based format lookups and preprocessor selection
-"""
+"""Tests for the ImageMagick-based preprocessing service."""
 
 import os
-import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.services.preprocessor import (
-    GraphicsMagickPreprocessor,
     ImageMagickPreprocessor,
     PreprocessorError,
     PreprocessorFactory,
@@ -58,14 +46,10 @@ class TestPreprocessorRegistry:
 
     def test_get_preprocessor_for_format_psd(self):
         """Test getting preprocessor for PSD format."""
-        # This will use GraphicsMagick if available
-        try:
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
-            assert preprocessor is not None
-            assert hasattr(preprocessor, "convert_to_final_format")
-        except PreprocessorError:
-            # It's okay if no preprocessor is available in test environment
-            pytest.skip("No preprocessor available in test environment")
+        assert isinstance(preprocessor, ImageMagickPreprocessor)
+        assert hasattr(preprocessor, "convert_to_final_format")
 
     def test_get_preprocessor_for_format_invalid(self):
         """Test that invalid format raises PreprocessorError."""
@@ -74,19 +58,15 @@ class TestPreprocessorRegistry:
 
     def test_get_preprocessor_for_format_with_override(self):
         """Test that preprocessor_type override works."""
-        try:
-            # Try to get ImageMagick explicitly
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd", preprocessor_type="imagemagick")
-            assert isinstance(preprocessor, ImageMagickPreprocessor)
-        except PreprocessorError:
-            # ImageMagick not available
-            pytest.skip("ImageMagick not available in test environment")
+        assert isinstance(preprocessor, ImageMagickPreprocessor)
 
     def test_register_format_dynamic(self):
         """Test dynamic format registration."""
 
         # Create a mock preprocessor class
-        class MockPreprocessor(GraphicsMagickPreprocessor):
+        class MockPreprocessor(ImageMagickPreprocessor):
             SUPPORTED_FORMATS = {"mock"}
 
         # Register new format
@@ -114,36 +94,23 @@ class TestPreprocessorRegistry:
 
     def test_get_preprocessor_for_eps(self):
         """Test getting preprocessor for EPS format."""
-        try:
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format("eps")
-            assert preprocessor is not None
-            assert "eps" in preprocessor.SUPPORTED_FORMATS
-        except PreprocessorError:
-            pytest.skip("No preprocessor available for EPS")
+        assert isinstance(preprocessor, ImageMagickPreprocessor)
+        assert "eps" in preprocessor.SUPPORTED_FORMATS
 
     def test_get_preprocessor_for_ai(self):
         """Test getting preprocessor for AI format."""
-        try:
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format("ai")
-            assert preprocessor is not None
-            assert "ai" in preprocessor.SUPPORTED_FORMATS
-        except PreprocessorError:
-            pytest.skip("No preprocessor available for AI")
-
-    def test_fallback_when_preferred_unavailable(self):
-        """Test that registry falls back to alternative preprocessor."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=False):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
-                # Should fall back to ImageMagick
-                preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
-                assert isinstance(preprocessor, ImageMagickPreprocessor)
+        assert isinstance(preprocessor, ImageMagickPreprocessor)
+        assert "ai" in preprocessor.SUPPORTED_FORMATS
 
     def test_no_preprocessor_available_raises_error(self):
         """Test that PreprocessorError is raised when no preprocessor is available."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=False):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=False):
-                with pytest.raises(PreprocessorError, match="No available preprocessor"):
-                    PreprocessorRegistry.get_preprocessor_for_format("psd")
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=False):
+            with pytest.raises(PreprocessorError, match="No available preprocessor"):
+                PreprocessorRegistry.get_preprocessor_for_format("psd")
 
 
 class TestPreprocessorInterface:
@@ -151,7 +118,7 @@ class TestPreprocessorInterface:
 
     def test_validate_input_file_not_found(self, tmp_path):
         """Test that validate_input raises PreprocessorError for empty bytes."""
-        preprocessor = GraphicsMagickPreprocessor()
+        preprocessor = ImageMagickPreprocessor()
         empty_bytes = b""
 
         with pytest.raises(PreprocessorError, match="Empty input data"):
@@ -159,7 +126,7 @@ class TestPreprocessorInterface:
 
     def test_validate_input_file_too_large(self, tmp_path):
         """Test that validate_input raises PreprocessorError for data exceeding MAX_FILE_SIZE."""
-        preprocessor = GraphicsMagickPreprocessor()
+        preprocessor = ImageMagickPreprocessor()
 
         # Create data that exceeds max size
         large_data = b"x" * (preprocessor.MAX_FILE_SIZE + 1)
@@ -169,7 +136,7 @@ class TestPreprocessorInterface:
 
     def test_validate_input_unsupported_format(self, tmp_path):
         """Test that validate_input raises PreprocessorError for unsupported formats."""
-        preprocessor = GraphicsMagickPreprocessor()
+        preprocessor = ImageMagickPreprocessor()
 
         # Test with unsupported extension
         test_data = b"test content"
@@ -179,7 +146,7 @@ class TestPreprocessorInterface:
 
     def test_validate_input_success(self, tmp_path):
         """Test that validate_input passes for valid files."""
-        preprocessor = GraphicsMagickPreprocessor()
+        preprocessor = ImageMagickPreprocessor()
 
         # Create valid PSD data
         valid_data = b"8BPS" + b"x" * 100  # PSD signature + data
@@ -189,7 +156,7 @@ class TestPreprocessorInterface:
 
     def test_create_temp_file(self):
         """Test that _create_temp_file creates a temporary file with correct suffix."""
-        preprocessor = GraphicsMagickPreprocessor()
+        preprocessor = ImageMagickPreprocessor()
 
         temp_file = preprocessor._create_temp_file(".png")
 
@@ -201,104 +168,6 @@ class TestPreprocessorInterface:
             # Cleanup
             if temp_file.exists():
                 temp_file.unlink()
-
-
-class TestGraphicsMagickPreprocessor:
-    """Test GraphicsMagick preprocessor implementation."""
-
-    def test_supported_formats(self):
-        """Test that GraphicsMagick supports PSD, PSB, EPS, and AI formats."""
-        preprocessor = GraphicsMagickPreprocessor()
-        assert preprocessor.SUPPORTED_FORMATS == {"psd", "psb", "eps", "ai"}
-
-    def test_check_availability_not_installed(self):
-        """Test availability check when GraphicsMagick is not installed."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            assert preprocessor.check_availability() is False
-
-    def test_check_availability_installed(self):
-        """Test availability check when GraphicsMagick is installed."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-
-        with patch("subprocess.run", return_value=mock_result):
-            assert preprocessor.check_availability() is True
-
-    def test_convert_tool_not_available(self, tmp_path):
-        """Test conversion fails gracefully when GraphicsMagick is not available."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        # Create dummy PSD data
-        psd_data = b"8BPS" + b"x" * 100
-
-        with patch.object(preprocessor, "check_availability", return_value=False):
-            with pytest.raises(PreprocessorError, match="GraphicsMagick is not installed"):
-                preprocessor.convert_to_final_format(psd_data, "test.psd")
-
-    def test_convert_invalid_output_format(self, tmp_path):
-        """Test conversion fails for invalid output format."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        psd_data = b"8BPS" + b"x" * 100
-
-        with patch.object(preprocessor, "check_availability", return_value=True):
-            with pytest.raises(PreprocessorError, match="Invalid output format"):
-                preprocessor.convert_to_final_format(psd_data, "test.psd", output_format="invalid")
-
-    def test_convert_successful(self, tmp_path):
-        """Test successful PSD to JPEG conversion returning bytes."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        # Create dummy PSD data
-        psd_data = b"8BPS" + b"x" * 100
-
-        # Mock successful conversion with stdout output
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stderr = b""
-        mock_result.stdout = b"\xff\xd8\xff" + b"x" * 100  # Fake JPEG bytes
-
-        with patch.object(preprocessor, "check_availability", return_value=True):
-            with patch("subprocess.run", return_value=mock_result):
-                result = preprocessor.convert_to_final_format(psd_data, "test.psd")
-
-                # Should return bytes, not a Path
-                assert isinstance(result, bytes)
-                assert len(result) > 0
-                # Should start with JPEG magic bytes
-                assert result[:3] == b"\xff\xd8\xff"
-
-    def test_convert_command_fails(self, tmp_path):
-        """Test conversion fails gracefully when GraphicsMagick command fails."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        psd_data = b"8BPS" + b"x" * 100
-
-        # Mock CalledProcessError since we use check=True
-        mock_error = subprocess.CalledProcessError(1, "gm")
-        mock_error.stderr = b"GraphicsMagick: unable to open image"
-
-        with patch.object(preprocessor, "check_availability", return_value=True):
-            with patch("subprocess.run", side_effect=mock_error):
-                with pytest.raises(PreprocessorError, match="GraphicsMagick conversion failed"):
-                    preprocessor.convert_to_final_format(psd_data, "test.psd")
-
-    def test_convert_timeout(self, tmp_path):
-        """Test conversion handles timeout gracefully."""
-        preprocessor = GraphicsMagickPreprocessor()
-
-        psd_data = b"8BPS" + b"x" * 100
-
-        import subprocess
-
-        with patch.object(preprocessor, "check_availability", return_value=True):
-            with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("gm", 30)):
-                with pytest.raises(PreprocessorError, match="timed out"):
-                    preprocessor.convert_to_final_format(psd_data, "test.psd")
 
 
 class TestImageMagickPreprocessor:
@@ -370,38 +239,17 @@ class TestImageMagickPreprocessor:
 class TestPreprocessorFactory:
     """Test the preprocessor factory."""
 
-    def test_create_auto_prefers_graphicsmagick(self):
-        """Test that auto mode prefers GraphicsMagick over ImageMagick."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=True):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
-                preprocessor = PreprocessorFactory.create("auto")
-                assert isinstance(preprocessor, GraphicsMagickPreprocessor)
-
-    def test_create_auto_falls_back_to_imagemagick(self):
-        """Test that auto mode falls back to ImageMagick if GM not available."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=False):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
-                preprocessor = PreprocessorFactory.create("auto")
-                assert isinstance(preprocessor, ImageMagickPreprocessor)
+    def test_create_auto_uses_imagemagick(self):
+        """Test that auto mode returns ImageMagick when available."""
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
+            preprocessor = PreprocessorFactory.create("auto")
+            assert isinstance(preprocessor, ImageMagickPreprocessor)
 
     def test_create_auto_fails_if_none_available(self):
         """Test that auto mode raises error if no preprocessor available."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=False):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=False):
-                with pytest.raises(PreprocessorError, match="No preprocessor available"):
-                    PreprocessorFactory.create("auto")
-
-    def test_create_graphicsmagick_explicit(self):
-        """Test creating GraphicsMagick preprocessor explicitly."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=True):
-            preprocessor = PreprocessorFactory.create("graphicsmagick")
-            assert isinstance(preprocessor, GraphicsMagickPreprocessor)
-
-    def test_create_graphicsmagick_not_available(self):
-        """Test error when GraphicsMagick explicitly requested but not available."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=False):
-            with pytest.raises(PreprocessorError, match="GraphicsMagick not available"):
-                PreprocessorFactory.create("graphicsmagick")
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=False):
+            with pytest.raises(PreprocessorError, match="No preprocessor available"):
+                PreprocessorFactory.create("auto")
 
     def test_create_imagemagick_explicit(self):
         """Test creating ImageMagick preprocessor explicitly."""
@@ -422,21 +270,19 @@ class TestPreprocessorFactory:
 
     def test_create_from_env_var(self):
         """Test creating preprocessor from PREPROCESSOR environment variable."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=True):
-            with patch.dict(os.environ, {"PREPROCESSOR": "graphicsmagick"}):
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
+            with patch.dict(os.environ, {"PREPROCESSOR": "imagemagick"}):
                 preprocessor = PreprocessorFactory.create()
-                assert isinstance(preprocessor, GraphicsMagickPreprocessor)
+                assert isinstance(preprocessor, ImageMagickPreprocessor)
 
-    def test_get_supported_formats_both_available(self):
-        """Test getting supported formats when both tools are available."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=True):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
-                formats = PreprocessorFactory.get_supported_formats()
-                assert formats == {"psd", "psb", "eps", "ai"}
+    def test_get_supported_formats_available(self):
+        """Test getting supported formats when ImageMagick is available."""
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=True):
+            formats = PreprocessorFactory.get_supported_formats()
+            assert formats == {"psd", "psb", "eps", "ai"}
 
     def test_get_supported_formats_none_available(self):
         """Test getting supported formats when no tools are available."""
-        with patch.object(GraphicsMagickPreprocessor, "check_availability", return_value=False):
-            with patch.object(ImageMagickPreprocessor, "check_availability", return_value=False):
-                formats = PreprocessorFactory.get_supported_formats()
-                assert formats == set()
+        with patch.object(ImageMagickPreprocessor, "check_availability", return_value=False):
+            formats = PreprocessorFactory.get_supported_formats()
+            assert formats == set()

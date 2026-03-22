@@ -2,15 +2,14 @@
 Image preprocessing service for formats not natively supported by libvips.
 
 This module provides a preprocessing pipeline that converts exotic image formats
-(like PSD, PSB) directly into browser-ready formats (JPEG, PNG). The preprocessor
-uses external tools (ImageMagick, GraphicsMagick) to handle formats that libvips
-doesn't natively support.
+(like PSD, PSB, EPS, and AI) directly into browser-ready formats (JPEG, PNG).
+The preprocessor uses ImageMagick to handle formats that libvips doesn't
+natively support.
 
 Architecture:
 - PreprocessorInterface: Abstract base class for all preprocessors
-- ImageMagickPreprocessor: Primary implementation using ImageMagick
-- GraphicsMagickPreprocessor: Fallback implementation using GraphicsMagick
-- PreprocessorRegistry: Maps file formats to appropriate preprocessors
+- ImageMagickPreprocessor: ImageMagick-based implementation
+- PreprocessorRegistry: Maps file formats to preprocessors
 - PreprocessorFactory: Creates preprocessor instances based on configuration
 
 Design Principles:
@@ -27,14 +26,11 @@ import subprocess
 import tempfile
 import time
 from abc import ABC, abstractmethod
-from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 from app.core.exceptions import SambeeError
 from app.core.image_settings import (
-    get_graphicsmagick_jpeg_args,
-    get_graphicsmagick_png_args,
     get_imagemagick_jpeg_args,
     get_imagemagick_png_args,
 )
@@ -42,13 +38,6 @@ from app.core.system_setting_definitions import SystemSettingKey
 from app.services.system_settings import get_integer_setting_value
 
 logger = logging.getLogger(__name__)
-
-
-class PreprocessorType(Enum):
-    """Available preprocessor implementations."""
-
-    GRAPHICSMAGICK = "graphicsmagick"
-    IMAGEMAGICK = "imagemagick"
 
 
 class PreprocessorError(SambeeError):
@@ -172,181 +161,14 @@ class PreprocessorInterface(ABC):
         return self.get_timeout_seconds()
 
 
-class GraphicsMagickPreprocessor(PreprocessorInterface):
-    """
-    GraphicsMagick-based preprocessor for exotic image formats.
-
-    GraphicsMagick is preferred over ImageMagick for:
-    - Better performance (2-3x faster for typical PSD files)
-    - Lower memory usage (~50% less)
-    - Simpler, more focused tool with smaller attack surface
-    - More stable command-line interface
-
-    Supported formats:
-    - PSD, PSB (Photoshop Document, Photoshop Big)
-    - EPS (Encapsulated PostScript)
-    - AI (Adobe Illustrator)
-    """
-
-    SUPPORTED_FORMATS = {"psd", "psb", "eps", "ai"}
-    MAX_FILE_SIZE_SETTING_KEY = SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_MAX_FILE_SIZE_BYTES
-    TIMEOUT_SECONDS_SETTING_KEY = SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_TIMEOUT_SECONDS
-
-    #
-    # __init__
-    #
-    def __init__(self) -> None:
-        """Initialize the GraphicsMagick preprocessor."""
-
-        self.gm_command = "gm"
-
-    #
-    # check_availability
-    #
-    def check_availability(self) -> bool:
-        """Check if GraphicsMagick is installed and accessible."""
-
-        try:
-            result = subprocess.run(
-                [self.gm_command, "version"],
-                capture_output=True,
-                timeout=5,
-                check=False,
-            )
-            return result.returncode == 0
-        except (subprocess.SubprocessError, FileNotFoundError):
-            return False
-
-    #
-    # convert_to_final_format
-    #
-    def convert_to_final_format(self, input_data: bytes, filename: str, output_format: str = "jpeg") -> bytes:
-        """
-        Convert PSD/PSB directly to browser-ready format using GraphicsMagick.
-
-        Applies browser-optimized settings from IMAGE_SETTINGS.
-        Returns image bytes in memory without writing to disk.
-        Operates entirely in memory - no disk I/O.
-
-        Args:
-            input_data: Raw PSD/PSB file bytes
-            filename: Original filename (for logging and validation)
-            output_format: Browser format (jpeg, png). Default: jpeg
-
-        Returns:
-            Converted image bytes (in-memory)
-
-        Raises:
-            PreprocessorError: If conversion fails
-        """
-
-        # Validate input
-        self.validate_input(input_data, filename)
-
-        # Check tool availability
-        if not self.check_availability():
-            raise PreprocessorError("GraphicsMagick is not installed or not accessible. Install with: apt-get install graphicsmagick")
-
-        # Validate output format
-        valid_formats = {"png", "jpeg", "jpg"}
-        if output_format.lower() not in valid_formats:
-            raise PreprocessorError(f"Invalid output format: {output_format}. Valid formats: {', '.join(sorted(valid_formats))}")
-
-        # Normalize format
-        if output_format.lower() == "jpg":
-            output_format = "jpeg"
-
-        try:
-            # Get file extension for format hint
-            extension = Path(filename).suffix.lower().lstrip(".")
-
-            # Build GraphicsMagick command
-            # gm convert {format}:- [options] {format}:-
-            # First "-" reads from stdin, second "-" writes to stdout
-            command = [
-                self.gm_command,
-                "convert",
-            ]
-
-            # For vector formats (EPS, AI), set density for quality rendering
-            # 300 DPI is standard for print quality and looks good on screen
-            if extension in {"eps", "ai"}:
-                command.extend(["-density", "300"])
-
-            # Input from stdin with format hint
-            command.append(f"{extension}:-[0]")  # [0] selects the flattened composite
-
-            # Flatten layers for PSD/PSB (merge all layers)
-            # Don't flatten EPS/AI to preserve transparency
-            if extension in {"psd", "psb"}:
-                command.append("-flatten")
-                # Convert CMYK to sRGB for PSD/PSB files
-                # sRGB ensures proper color profile conversion (not just metadata change)
-                command.extend(["-colorspace", "sRGB"])
-
-            # Add browser-optimized settings from centralized config
-            if output_format == "jpeg":
-                command.extend(get_graphicsmagick_jpeg_args())
-            elif output_format == "png":
-                command.extend(get_graphicsmagick_png_args())
-
-            # Output to stdout in specified format
-            command.append(f"{output_format}:-")
-
-            logger.debug(f"Converting {filename} to {output_format.upper()} with GraphicsMagick (in-memory)")
-            logger.debug(f"Command: {' '.join(command)}")
-
-            # Execute conversion - pipe input via stdin, capture stdout
-            start_time = time.perf_counter()
-            try:
-                result = subprocess.run(
-                    command,
-                    input=input_data,  # Send data via stdin
-                    capture_output=True,
-                    timeout=self.get_timeout_seconds(),
-                    check=True,
-                )
-            except subprocess.CalledProcessError as e:
-                error_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
-                raise PreprocessorError(f"GraphicsMagick conversion failed: {error_msg}") from None
-
-            duration_ms = (time.perf_counter() - start_time) * 1000
-
-            # Verify output was produced
-            if not result.stdout or len(result.stdout) == 0:
-                raise PreprocessorError("Conversion produced no output")
-
-            output_bytes = result.stdout
-
-            logger.debug(
-                f"Converted (ImageMagick): {filename} ({len(input_data) / 1024:.0f} KB) → "
-                f"{output_format.upper()} ({len(output_bytes) / 1024:.0f} KB) "
-                f"in {duration_ms:.0f} ms"
-            )
-
-            return output_bytes
-
-        except subprocess.TimeoutExpired:
-            timeout_seconds = self.get_timeout_seconds()
-            raise PreprocessorError(f"Conversion timed out after {timeout_seconds} seconds. File may be too complex or corrupted.")
-
-
 class ImageMagickPreprocessor(PreprocessorInterface):
     """
-    ImageMagick-based preprocessor for PSD and PSB files.
-
-    This is a fallback preprocessor for cases where GraphicsMagick is unavailable
-    or when dealing with complex PSD files that GraphicsMagick struggles with.
+    ImageMagick-based preprocessor for formats libvips cannot decode directly.
 
     ImageMagick advantages:
     - Better support for complex PSD features (adjustment layers, smart objects)
     - More actively maintained
     - Better font rendering
-
-    ImageMagick disadvantages:
-    - Slower than GraphicsMagick (2-3x)
-    - Higher memory usage
-    - Larger attack surface (more CVEs historically)
 
     Supported formats:
     - PSD, PSB (Photoshop Document, Photoshop Big)
@@ -628,12 +450,10 @@ class PreprocessorRegistry:
     # Format-to-preprocessor-type mapping
     # This is the single source of truth for preprocessor registrations
     _FORMAT_REGISTRY: dict[str, type[PreprocessorInterface]] = {
-        # Adobe Photoshop formats - handled by ImageMagick (preferred) or GraphicsMagick
-        # ImageMagick is preferred as it has better PSD delegate support across distributions
+        # Adobe Photoshop formats - handled by ImageMagick
         "psd": ImageMagickPreprocessor,
         "psb": ImageMagickPreprocessor,
-        # PostScript-based vector formats - handled by ImageMagick (preferred) or GraphicsMagick
-        # Both use Ghostscript as delegate for PS/EPS/AI rendering
+        # PostScript-based vector formats - handled by ImageMagick via Ghostscript
         "eps": ImageMagickPreprocessor,  # Encapsulated PostScript
         "ai": ImageMagickPreprocessor,  # Adobe Illustrator
     }
@@ -668,7 +488,7 @@ class PreprocessorRegistry:
         Args:
             extension: File extension (with or without dot, case-insensitive)
             preprocessor_type: Optional override for preprocessor type
-                              ("graphicsmagick", "imagemagick", "auto")
+                              ("imagemagick", "auto")
                               If None, uses default for this format.
 
         Returns:
@@ -697,23 +517,7 @@ class PreprocessorRegistry:
         # Create instance and check availability
         instance = preprocessor_class()
         if not instance.check_availability():
-            # Try fallback options if the default isn't available
-            logger.warning(f"{preprocessor_class.__name__} not available, trying fallbacks")
-            # For PSD/PSB, try alternate preprocessor
-            fallback: PreprocessorInterface | None = None
-            if isinstance(instance, ImageMagickPreprocessor):
-                fallback = GraphicsMagickPreprocessor()
-                if fallback.check_availability():
-                    logger.info("Falling back to GraphicsMagick")
-                    return fallback
-            elif isinstance(instance, GraphicsMagickPreprocessor):
-                fallback = ImageMagickPreprocessor()
-                if fallback.check_availability():
-                    logger.info("Falling back to ImageMagick")
-                    return fallback
-
-            # No fallback available
-            raise PreprocessorError(f"No available preprocessor for format '{ext}'. Install GraphicsMagick or ImageMagick.")
+            raise PreprocessorError(f"No available preprocessor for format '{ext}'. Install ImageMagick.")
 
         return instance
 
@@ -760,9 +564,8 @@ class PreprocessorFactory:
     Factory for creating preprocessor instances based on configuration.
 
     Configuration is controlled by the PREPROCESSOR environment variable:
-    - "graphicsmagick" (default): Use GraphicsMagick
     - "imagemagick": Use ImageMagick
-    - "auto": Auto-detect available tool (prefers GraphicsMagick)
+    - "auto": Auto-detect available tool
 
     Note: For format-specific preprocessing, use PreprocessorRegistry instead.
     This factory is primarily for manual preprocessor creation.
@@ -772,8 +575,7 @@ class PreprocessorFactory:
         preprocessor = PreprocessorRegistry.get_preprocessor_for_format("psd")
 
         # Alternative: Manual creation with factory
-        preprocessor = PreprocessorFactory.create("graphicsmagick")
-        intermediate_file = preprocessor.convert_to_intermediate(psd_file)
+        preprocessor = PreprocessorFactory.create("imagemagick")
     """
 
     #
@@ -787,7 +589,7 @@ class PreprocessorFactory:
         Args:
             preprocessor_type: Type of preprocessor to create.
                               If None, reads from PREPROCESSOR env var.
-                              Valid values: "graphicsmagick", "imagemagick", "auto"
+                              Valid values: "imagemagick", "auto"
 
         Returns:
             PreprocessorInterface instance
@@ -802,31 +604,14 @@ class PreprocessorFactory:
 
         logger.debug(f"Creating preprocessor: {preprocessor_type}")
 
-        # Auto-detect: prefer GraphicsMagick, fallback to ImageMagick
+        # Auto-detect the single supported preprocessor.
         if preprocessor_type == "auto":
-            gm = GraphicsMagickPreprocessor()
-            if gm.check_availability():
-                logger.info("Using GraphicsMagick preprocessor (auto-detected)")
-                return gm
-
             im = ImageMagickPreprocessor()
             if im.check_availability():
                 logger.info("Using ImageMagick preprocessor (auto-detected)")
                 return im
 
-            raise PreprocessorError(
-                "No preprocessor available. Install GraphicsMagick or ImageMagick:\n"
-                "  apt-get install graphicsmagick  (recommended)\n"
-                "  apt-get install imagemagick      (alternative)"
-            )
-
-        # GraphicsMagick explicitly requested
-        elif preprocessor_type == "graphicsmagick":
-            gm = GraphicsMagickPreprocessor()
-            if not gm.check_availability():
-                raise PreprocessorError("GraphicsMagick not available. Install with: apt-get install graphicsmagick")
-            logger.info("Using GraphicsMagick preprocessor")
-            return gm
+            raise PreprocessorError("No preprocessor available. Install ImageMagick: apt-get install imagemagick")
 
         # ImageMagick explicitly requested
         elif preprocessor_type == "imagemagick":
@@ -837,7 +622,7 @@ class PreprocessorFactory:
             return im
 
         else:
-            raise PreprocessorError(f"Invalid preprocessor type: {preprocessor_type}. Valid values: graphicsmagick, imagemagick, auto")
+            raise PreprocessorError(f"Invalid preprocessor type: {preprocessor_type}. Valid values: imagemagick, auto")
 
     #
     # get_supported_formats
@@ -852,11 +637,6 @@ class PreprocessorFactory:
         """
 
         formats = set()
-
-        # Check GraphicsMagick
-        gm = GraphicsMagickPreprocessor()
-        if gm.check_availability():
-            formats.update(gm.SUPPORTED_FORMATS)
 
         # Check ImageMagick
         im = ImageMagickPreprocessor()

@@ -124,13 +124,6 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
             if "timeout_seconds" in imagemagick:
                 flat_config["preprocessor_imagemagick_timeout_seconds"] = imagemagick["timeout_seconds"]
 
-        graphicsmagick = preprocessors.get("graphicsmagick")
-        if isinstance(graphicsmagick, dict):
-            if "max_file_size_bytes" in graphicsmagick:
-                flat_config["preprocessor_graphicsmagick_max_file_size_bytes"] = graphicsmagick["max_file_size_bytes"]
-            if "timeout_seconds" in graphicsmagick:
-                flat_config["preprocessor_graphicsmagick_timeout_seconds"] = graphicsmagick["timeout_seconds"]
-
     return flat_config
 
 
@@ -218,19 +211,11 @@ class Settings(BaseModel):
     preprocessor_imagemagick_timeout_seconds: int = SYSTEM_SETTING_DEFINITIONS[
         SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS
     ].default_value
-    preprocessor_graphicsmagick_max_file_size_bytes: int = SYSTEM_SETTING_DEFINITIONS[
-        SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_MAX_FILE_SIZE_BYTES
-    ].default_value
-    preprocessor_graphicsmagick_timeout_seconds: int = SYSTEM_SETTING_DEFINITIONS[
-        SystemSettingKey.PREPROCESSOR_GRAPHICSMAGICK_TIMEOUT_SECONDS
-    ].default_value
 
     @field_validator(
         "smb_read_chunk_size_bytes",
         "preprocessor_imagemagick_max_file_size_bytes",
         "preprocessor_imagemagick_timeout_seconds",
-        "preprocessor_graphicsmagick_max_file_size_bytes",
-        "preprocessor_graphicsmagick_timeout_seconds",
     )
     @classmethod
     def validate_integer_system_setting(cls, value: int, info: Any) -> int:

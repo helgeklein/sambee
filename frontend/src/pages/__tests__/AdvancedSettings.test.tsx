@@ -53,30 +53,6 @@ const mockAdvancedSettings: AdvancedSystemSettings = {
         step: 1,
       },
     },
-    graphicsmagick: {
-      max_file_size_bytes: {
-        key: "preprocessors.graphicsmagick.max_file_size_bytes",
-        label: "Maximum file size",
-        description: "Largest input file GraphicsMagick is allowed to preprocess.",
-        value: 104857600,
-        source: "default",
-        default_value: 104857600,
-        min_value: 1048576,
-        max_value: 1073741824,
-        step: 1048576,
-      },
-      timeout_seconds: {
-        key: "preprocessors.graphicsmagick.timeout_seconds",
-        label: "Conversion timeout",
-        description: "Maximum time allowed for a GraphicsMagick preprocessing run.",
-        value: 30,
-        source: "default",
-        default_value: 30,
-        min_value: 5,
-        max_value: 600,
-        step: 1,
-      },
-    },
   },
 };
 
@@ -142,10 +118,6 @@ describe("AdvancedSettings", () => {
         smb: { read_chunk_size_bytes: 2097152 },
         preprocessors: {
           imagemagick: {
-            max_file_size_bytes: 104857600,
-            timeout_seconds: 30,
-          },
-          graphicsmagick: {
             max_file_size_bytes: 104857600,
             timeout_seconds: 30,
           },

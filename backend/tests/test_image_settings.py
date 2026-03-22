@@ -5,8 +5,6 @@ import pytest
 from app.core.image_settings import (
     IMAGE_SETTINGS,
     ImageConversionSettings,
-    get_graphicsmagick_jpeg_args,
-    get_graphicsmagick_png_args,
     get_imagemagick_jpeg_args,
     get_imagemagick_png_args,
     get_libvips_jpeg_kwargs,
@@ -77,31 +75,6 @@ class TestImageMagickArgs:
         assert "-strip" not in args
 
 
-class TestGraphicsMagickArgs:
-    """Test GraphicsMagick command argument generation."""
-
-    def test_jpeg_args_default(self):
-        """Verify default JPEG arguments for GraphicsMagick."""
-        args = get_graphicsmagick_jpeg_args()
-        assert "-quality" in args
-        assert "85" in args
-        assert "-strip" in args
-
-    def test_jpeg_args_custom_quality(self):
-        """Verify custom quality setting for GraphicsMagick."""
-        settings = ImageConversionSettings(jpeg_quality=90)
-        args = get_graphicsmagick_jpeg_args(settings)
-        assert "-quality" in args
-        assert "90" in args
-
-    def test_png_args_default(self):
-        """Verify default PNG arguments for GraphicsMagick."""
-        args = get_graphicsmagick_png_args()
-        assert "-quality" in args
-        assert "92" in args
-        assert "-strip" in args
-
-
 class TestLibvipsKwargs:
     """Test libvips keyword argument generation."""
 
@@ -154,43 +127,36 @@ class TestSettingsConsistency:
     """Test consistency across different conversion backends."""
 
     def test_jpeg_quality_consistent(self):
-        """JPEG quality should be same across all backends."""
+        """JPEG quality should be same across supported backends."""
         im_args = get_imagemagick_jpeg_args()
-        gm_args = get_graphicsmagick_jpeg_args()
         vips_kwargs = get_libvips_jpeg_kwargs()
 
         # Extract quality values
         im_quality = im_args[im_args.index("-quality") + 1]
-        gm_quality = gm_args[gm_args.index("-quality") + 1]
         vips_quality = str(vips_kwargs["Q"])
 
-        assert im_quality == gm_quality == vips_quality == "85"
+        assert im_quality == vips_quality == "85"
 
     def test_metadata_stripping_consistent(self):
-        """Metadata stripping should be consistent across backends."""
+        """Metadata stripping should be consistent across supported backends."""
         im_args = get_imagemagick_jpeg_args()
-        gm_args = get_graphicsmagick_jpeg_args()
         vips_kwargs = get_libvips_jpeg_kwargs()
 
         # All should strip metadata by default
         assert "-strip" in im_args
-        assert "-strip" in gm_args
         assert vips_kwargs["keep"] == 0
 
     def test_custom_settings_applied_consistently(self):
-        """Custom settings should apply to all backends."""
+        """Custom settings should apply to all supported backends."""
         custom = ImageConversionSettings(jpeg_quality=90, strip_metadata=False)
 
         im_args = get_imagemagick_jpeg_args(custom)
-        gm_args = get_graphicsmagick_jpeg_args(custom)
         vips_kwargs = get_libvips_jpeg_kwargs(custom)
 
         # Quality should be 90 everywhere
         assert "90" in im_args
-        assert "90" in gm_args
         assert vips_kwargs["Q"] == 90
 
         # Metadata should be kept everywhere
         assert "-strip" not in im_args
-        assert "-strip" not in gm_args
         assert vips_kwargs["keep"] == 1

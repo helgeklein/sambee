@@ -106,7 +106,6 @@ export interface AdvancedSystemSettings {
   };
   preprocessors: {
     imagemagick: PreprocessorAdvancedSettings;
-    graphicsmagick: PreprocessorAdvancedSettings;
   };
 }
 
@@ -116,10 +115,6 @@ export interface AdvancedSystemSettingsUpdate {
   };
   preprocessors?: {
     imagemagick?: {
-      max_file_size_bytes?: number;
-      timeout_seconds?: number;
-    };
-    graphicsmagick?: {
       max_file_size_bytes?: number;
       timeout_seconds?: number;
     };

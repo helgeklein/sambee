@@ -6,7 +6,7 @@ Examples::
 - TIFF/TIF → JPEG
 - ICO → PNG (preserves transparency)
 - JPEG → preserved (browser-native)
-- PSD/PSB → PNG (via GraphicsMagick preprocessor)
+- PSD/PSB → PNG (via ImageMagick preprocessor)
 
 Uses libvips for:
 - Fast conversion
@@ -14,8 +14,8 @@ Uses libvips for:
 - Streaming, tiled processing
 - Automatic multi-threading
 
-For formats libvips doesn't natively support (PSD, PSB), we use preprocessors
-(GraphicsMagick or ImageMagick) to convert to an intermediate format first.
+For formats libvips doesn't natively support (PSD, PSB), we use
+ImageMagick-based preprocessors to convert directly to a browser-ready format.
 """
 
 import logging
@@ -77,7 +77,7 @@ def convert_image_for_viewer(
         Tuple of (converted_bytes, mime_type, converter_name, duration_ms)
         - converted_bytes: The converted image bytes
         - mime_type: MIME type of the output (e.g., "image/webp")
-        - converter_name: Name of converter used ("ImageMagick", "GraphicsMagick", or "libvips")
+        - converter_name: Name of converter used ("ImageMagick" or "libvips")
         - duration_ms: Conversion duration in milliseconds
 
     Raises:
@@ -103,7 +103,7 @@ def convert_image_for_viewer(
             preprocessor = PreprocessorRegistry.get_preprocessor_for_format(extension)
 
             # Get converter name from preprocessor class
-            converter_name = preprocessor.__class__.__name__.replace("Preprocessor", "")  # "ImageMagick" or "GraphicsMagick"
+            converter_name = preprocessor.__class__.__name__.replace("Preprocessor", "")
 
             # Convert DIRECTLY to final browser-ready format (in-memory)
             # PSD/PSB files don't have alpha channel, so use JPEG
