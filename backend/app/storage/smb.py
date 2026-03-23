@@ -344,8 +344,6 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
-                loop = asyncio.get_event_loop()
-
                 # Open file with retry logic for file locking issues
                 # SMB can throw "file in use" errors when multiple requests access the same file
                 max_retries = 3
