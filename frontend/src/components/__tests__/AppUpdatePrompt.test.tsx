@@ -2,9 +2,23 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
-import { CURRENT_BUILD_INFO } from "../../utils/buildInfo";
+import { CURRENT_BUILD_INFO, hasBuildMismatchFor } from "../../utils/buildInfo";
 import { fetchVersionInfo } from "../../utils/version";
 import { AppUpdatePrompt } from "../AppUpdatePrompt";
+
+vi.mock("../../utils/buildInfo", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../utils/buildInfo")>();
+  const currentBuildInfo = {
+    version: "0.5.0",
+    git_commit: "345dc98",
+  };
+
+  return {
+    ...actual,
+    CURRENT_BUILD_INFO: currentBuildInfo,
+    hasBuildMismatch: (versionInfo: { version: string; git_commit: string }) => actual.hasBuildMismatchFor(currentBuildInfo, versionInfo),
+  };
+});
 
 vi.mock("../../utils/version", () => ({
   fetchVersionInfo: vi.fn(),
@@ -25,6 +39,10 @@ function renderWithProvider() {
 }
 
 describe("AppUpdatePrompt", () => {
+  it("does not report an update when the current build version is unknown", () => {
+    expect(hasBuildMismatchFor({ version: "unknown", git_commit: "unknown" }, { version: "0.5.0", git_commit: "06b44a9" })).toBe(false);
+  });
+
   it("stays hidden when the running build matches the server build", async () => {
     vi.mocked(fetchVersionInfo).mockResolvedValue({
       version: CURRENT_BUILD_INFO.version,

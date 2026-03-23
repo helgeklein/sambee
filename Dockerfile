@@ -5,6 +5,10 @@ WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+# Provide build metadata to the frontend bundle so client-side version checks
+# use the same values the backend reports at runtime.
+COPY VERSION /VERSION
+COPY GIT_COMMIT /GIT_COMMIT
 RUN npm run build
 
 # Stage 2: Python backend with built frontend

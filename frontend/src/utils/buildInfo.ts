@@ -29,19 +29,34 @@ function isKnownBuildValue(value: string): boolean {
   return Boolean(value.trim()) && normalizeBuildValue(value) !== UNKNOWN_BUILD_VALUE;
 }
 
-export function hasBuildMismatch(versionInfo: Pick<VersionInfo, "version" | "git_commit">): boolean {
-  if (versionInfo.version !== CURRENT_BUILD_INFO.version) {
+export function hasKnownCurrentBuildInfo(): boolean {
+  return isKnownBuildValue(CURRENT_BUILD_INFO.version);
+}
+
+export function hasBuildMismatchFor(
+  currentBuildInfo: Pick<BuildInfo, "version" | "git_commit">,
+  versionInfo: Pick<VersionInfo, "version" | "git_commit">
+): boolean {
+  if (!isKnownBuildValue(currentBuildInfo.version) || !isKnownBuildValue(versionInfo.version)) {
+    return false;
+  }
+
+  if (versionInfo.version !== currentBuildInfo.version) {
     return true;
   }
 
-  const currentCommitKnown = isKnownBuildValue(CURRENT_BUILD_INFO.git_commit);
+  const currentCommitKnown = isKnownBuildValue(currentBuildInfo.git_commit);
   const serverCommitKnown = isKnownBuildValue(versionInfo.git_commit);
 
   if (!currentCommitKnown || !serverCommitKnown) {
     return false;
   }
 
-  return normalizeBuildValue(versionInfo.git_commit) !== normalizeBuildValue(CURRENT_BUILD_INFO.git_commit);
+  return normalizeBuildValue(versionInfo.git_commit) !== normalizeBuildValue(currentBuildInfo.git_commit);
+}
+
+export function hasBuildMismatch(versionInfo: Pick<VersionInfo, "version" | "git_commit">): boolean {
+  return hasBuildMismatchFor(CURRENT_BUILD_INFO, versionInfo);
 }
 
 export function shortenCommit(commit: string): string {
