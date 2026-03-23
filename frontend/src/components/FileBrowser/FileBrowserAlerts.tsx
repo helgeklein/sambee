@@ -2,7 +2,7 @@
 // FileBrowserAlerts
 //
 
-import { Alert, Box, Link, Typography } from "@mui/material";
+import { Alert, Box, Button, Link, Typography } from "@mui/material";
 import { useTranslation } from "react-i18next";
 import type { BackendAvailabilityStatus } from "../../services/backendAvailability";
 import { useSambeeTheme } from "../../theme/ThemeContext";
@@ -16,6 +16,7 @@ interface FileBrowserAlertsProps {
   backendAvailabilityStatus: BackendAvailabilityStatus;
   /** Callback when user wants to open settings with connections tab */
   onOpenConnectionsSettings?: () => void;
+  onRetry?: () => void;
 }
 
 /**
@@ -34,6 +35,7 @@ export function FileBrowserAlerts({
   isAdmin,
   backendAvailabilityStatus,
   onOpenConnectionsSettings,
+  onRetry,
 }: FileBrowserAlertsProps) {
   const { currentTheme } = useSambeeTheme();
   const { t } = useTranslation();
@@ -108,7 +110,17 @@ export function FileBrowserAlerts({
   return (
     <>
       {error && (
-        <Alert severity="error" sx={{ mb: 2, mx: 2, ...getAlertStyles("error") }}>
+        <Alert
+          severity="error"
+          sx={{ mb: 2, mx: 2, ...getAlertStyles("error") }}
+          action={
+            onRetry ? (
+              <Button color="inherit" size="small" onClick={onRetry}>
+                {t("common.actions.retry")}
+              </Button>
+            ) : undefined
+          }
+        >
           {error}
         </Alert>
       )}

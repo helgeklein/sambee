@@ -41,7 +41,7 @@ vi.mock("axios", () => {
 // Get reference to the mocked functions for assertions
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
-import apiService from "../api";
+import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE } from "../api";
 
 const mockedAxios = vi.mocked(axios);
 const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
@@ -52,15 +52,20 @@ const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.
 };
 
 describe("API Service", () => {
+  const fetchMock = vi.fn();
+
   beforeEach(() => {
     // Clear localStorage
     localStorage.clear();
+
+    vi.stubGlobal("fetch", fetchMock);
 
     // Reset all mock function calls
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -553,6 +558,7 @@ describe("API Service", () => {
       expect(result).toEqual(mockListing);
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/conn1/list", {
         params: { path: "" },
+        timeout: 40000,
       });
     });
 
@@ -582,6 +588,20 @@ describe("API Service", () => {
       expect(result).toEqual(mockListing);
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/conn1/list", {
         params: { path: "/Documents/Work" },
+        timeout: 40000,
+      });
+    });
+
+    it("listDirectory() accepts a custom timeout", async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: { path: "/", items: [], total: 0 },
+      } as AxiosResponse);
+
+      await apiService.listDirectory("conn1", "/", { timeoutMs: 1500 });
+
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/conn1/list", {
+        params: { path: "/" },
+        timeout: 1500,
       });
     });
 
@@ -644,6 +664,120 @@ describe("API Service", () => {
         params: { path: "/readme.txt" },
         responseType: "text",
       });
+    });
+
+    it("supportsEditLocks() reports server and local-drive support correctly", () => {
+      expect(apiService.supportsEditLocks("conn1")).toBe(true);
+      expect(apiService.supportsEditLocks("local-drive:c")).toBe(false);
+    });
+
+    it("saveTextFile() uploads text content to the same path", async () => {
+      localStorage.setItem("access_token", "save-token");
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+      });
+
+      await apiService.saveTextFile("conn1", "/notes/readme.md", "# Updated\n");
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, options] = fetchMock.mock.calls[0] as [string, { method: string; headers: Record<string, string>; body: FormData }];
+      expect(url).toBe("http://localhost:3000/api/browse/conn1/upload?path=%2Fnotes%2Freadme.md");
+      expect(options.method).toBe("POST");
+      expect(options.headers).toEqual({ Authorization: "Bearer save-token" });
+      expect(options.body).toBeInstanceOf(FormData);
+
+      const uploadedFile = options.body.get("file");
+      expect(uploadedFile).toBeInstanceOf(File);
+      expect((uploadedFile as File).name).toBe("readme.md");
+      expect((uploadedFile as File).type).toBe("text/plain;charset=utf-8");
+      expect((uploadedFile as File).size).toBeGreaterThan(0);
+    });
+
+    it("acquireEditLock() calls the companion lock endpoint for server connections", async () => {
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: {
+          lock_id: "lock-1",
+          file_path: "/docs/readme.md",
+          locked_by: "alice",
+          locked_at: "2026-03-23T12:00:00Z",
+        },
+      } as AxiosResponse);
+
+      const result = await apiService.acquireEditLock("conn1", "/docs/readme.md", "session-1");
+
+      expect(result).toEqual({
+        lock_id: "lock-1",
+        file_path: "/docs/readme.md",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
+      });
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/companion/conn1/lock",
+        { companion_session: "session-1" },
+        { params: { path: "/docs/readme.md" } }
+      );
+    });
+
+    it("heartbeatEditLock() refreshes the server-side lock heartbeat", async () => {
+      mockAxiosInstance.post.mockResolvedValueOnce({ data: { status: "ok" } } as AxiosResponse);
+
+      await apiService.heartbeatEditLock("conn1", "/docs/readme.md");
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/companion/conn1/lock/heartbeat", undefined, {
+        params: { path: "/docs/readme.md" },
+      });
+    });
+
+    it("releaseEditLock() releases the server-side lock", async () => {
+      mockAxiosInstance.delete.mockResolvedValueOnce({ data: { status: "ok" } } as AxiosResponse);
+
+      await apiService.releaseEditLock("conn1", "/docs/readme.md");
+
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/companion/conn1/lock", {
+        params: { path: "/docs/readme.md" },
+      });
+    });
+
+    it("getEditLockStatus() reads server-side lock state", async () => {
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: {
+          locked: true,
+          locked_by: "alice",
+          locked_at: "2026-03-23T12:00:00Z",
+          companion_session: "session-1",
+        },
+      } as AxiosResponse);
+
+      const result = await apiService.getEditLockStatus("conn1", "/docs/readme.md");
+
+      expect(result).toEqual({
+        locked: true,
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
+        companion_session: "session-1",
+      });
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/companion/conn1/lock-status", {
+        params: { path: "/docs/readme.md" },
+      });
+    });
+
+    it("getEditLockStatus() treats local drives as unlocked", async () => {
+      const result = await apiService.getEditLockStatus("local-drive:c", "/docs/readme.md");
+
+      expect(result).toEqual({ locked: false });
+      expect(mockAxiosInstance.get).not.toHaveBeenCalled();
+    });
+
+    it("edit lock mutations reject for local drives", async () => {
+      await expect(apiService.acquireEditLock("local-drive:c", "/docs/readme.md", "session-1")).rejects.toThrow(
+        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
+      );
+      await expect(apiService.heartbeatEditLock("local-drive:c", "/docs/readme.md")).rejects.toThrow(
+        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
+      );
+      await expect(apiService.releaseEditLock("local-drive:c", "/docs/readme.md")).rejects.toThrow(
+        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
+      );
     });
   });
 
@@ -736,6 +870,7 @@ describe("API Service", () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/connections");
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/conn1/list", {
         params: { path: "/test" },
+        timeout: 40000,
       });
     });
 

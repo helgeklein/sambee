@@ -274,6 +274,39 @@ class SMBConnectionPool:
             self._connections.clear()
             logger.info("All SMB connections closed")
 
+    async def invalidate_connection(
+        self,
+        host: str,
+        port: int,
+        username: str,
+        share_name: str,
+        reason: str | None = None,
+    ) -> None:
+        """Remove a pooled connection and delete its underlying smbclient session."""
+
+        pool_key = self._get_pool_key(host, port, username, share_name)
+
+        async with self._lock:
+            conn = self._connections.pop(pool_key, None)
+
+        if conn is None:
+            return
+
+        try:
+            logger.warning(
+                "Invalidating pooled connection: %s:%s/%s%s",
+                conn.host,
+                conn.port,
+                conn.share_name,
+                f" ({reason})" if reason else "",
+            )
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                partial(smbclient.delete_session, conn.host, port=conn.port),
+            )
+        except Exception as e:
+            logger.warning(f"Error invalidating connection {conn.host}:{conn.port}: {e}")
+
     #
     # get_stats
     #

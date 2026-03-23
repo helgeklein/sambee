@@ -198,6 +198,15 @@ export function createNetworkError() {
 }
 
 /**
+ * Create a mock for client timeout errors
+ */
+export function createTimeoutError() {
+  const error = new Error("timeout of 40000ms exceeded") as Error & { code?: string };
+  error.code = "ECONNABORTED";
+  return error;
+}
+
+/**
  * Mock API factory - creates a fresh set of vi.fn() mocks
  */
 export function createMockApi(): ApiMock {

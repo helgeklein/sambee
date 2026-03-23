@@ -15,6 +15,8 @@ import type {
   CurrentUserSettingsUpdate,
   DirectoryListing,
   DirectorySearchResult,
+  EditLockInfo,
+  EditLockStatus,
   FileInfo,
   User,
 } from "../types";
@@ -31,6 +33,9 @@ export interface DirectorySearchOptions {
 }
 
 const CONNECTIONS_API_BASE = "/connections";
+const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
+const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
+
 function normalizeUser(user: User): User {
   return {
     ...user,
@@ -227,6 +232,16 @@ class ApiService {
     return { client: this.api, extraConfig: {} };
   }
 
+  private assertEditLocksSupported(connectionId: string): void {
+    if (isLocalDrive(connectionId)) {
+      throw new Error(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
+    }
+  }
+
+  supportsEditLocks(connectionId: string): boolean {
+    return !isLocalDrive(connectionId);
+  }
+
   // Auth endpoints
   async login(username: string, password: string): Promise<AuthToken> {
     logger.info("Login attempt", { username }, "api");
@@ -353,12 +368,17 @@ class ApiService {
   }
 
   // Browse endpoints
-  async listDirectory(connectionId: string, path: string = "", options?: { signal?: AbortSignal }): Promise<DirectoryListing> {
+  async listDirectory(
+    connectionId: string,
+    path: string = "",
+    options?: { signal?: AbortSignal; timeoutMs?: number }
+  ): Promise<DirectoryListing> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
     const response = await client.get<DirectoryListing>(`/browse/${segment}/list`, {
       ...extraConfig,
       params: { path },
+      timeout: options?.timeoutMs ?? DIRECTORY_LIST_REQUEST_TIMEOUT_MS,
       ...(options?.signal ? { signal: options.signal } : {}),
     });
     return response.data;
@@ -773,6 +793,74 @@ class ApiService {
     return response.data;
   }
 
+  async saveTextFile(
+    connectionId: string,
+    path: string,
+    content: string,
+    options: { filename?: string; mimeType?: string } = {}
+  ): Promise<void> {
+    const filename = options.filename ?? path.split("/").pop() ?? path;
+    const mimeType = options.mimeType ?? "text/plain;charset=utf-8";
+    const blob = new Blob([content], { type: mimeType });
+    await this.uploadFileBlob(connectionId, path, blob, filename);
+  }
+
+  async acquireEditLock(connectionId: string, path: string, sessionId: string): Promise<EditLockInfo> {
+    this.assertEditLocksSupported(connectionId);
+
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.post<EditLockInfo>(
+      `/companion/${segment}/lock`,
+      {
+        companion_session: sessionId,
+      },
+      {
+        ...extraConfig,
+        params: { path },
+      }
+    );
+
+    return response.data;
+  }
+
+  async heartbeatEditLock(connectionId: string, path: string): Promise<void> {
+    this.assertEditLocksSupported(connectionId);
+
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.post(`/companion/${segment}/lock/heartbeat`, undefined, {
+      ...extraConfig,
+      params: { path },
+    });
+  }
+
+  async releaseEditLock(connectionId: string, path: string): Promise<void> {
+    this.assertEditLocksSupported(connectionId);
+
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.delete(`/companion/${segment}/lock`, {
+      ...extraConfig,
+      params: { path },
+    });
+  }
+
+  async getEditLockStatus(connectionId: string, path: string): Promise<EditLockStatus> {
+    if (isLocalDrive(connectionId)) {
+      return { locked: false };
+    }
+
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    const response = await client.get<EditLockStatus>(`/companion/${segment}/lock-status`, {
+      ...extraConfig,
+      params: { path },
+    });
+
+    return response.data;
+  }
+
   /**
    * Fetch image as blob with authentication headers.
    * Returns blob data that can be used to create object URLs.
@@ -1039,6 +1127,7 @@ class ApiService {
 
 export const apiService = new ApiService();
 export default apiService;
+export { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE };
 
 // Export convenience functions
 export const login = (username: string, password: string) => apiService.login(username, password);

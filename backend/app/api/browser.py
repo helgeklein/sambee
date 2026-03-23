@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely, require_share_name
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
@@ -29,12 +30,7 @@ from app.storage.smb import SMBBackend
 router = APIRouter()
 logger = get_logger(__name__)
 
-
-def _require_share_name(connection: Connection) -> str:
-    """Return a validated share name for typed SMB backend construction."""
-
-    assert connection.share_name is not None
-    return connection.share_name
+DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
 
 
 #
@@ -55,18 +51,17 @@ async def list_directory(
     connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
-        listing = await backend.list_directory(path or "")
-        await backend.disconnect()
+        try:
+            listing = await asyncio.wait_for(backend.list_directory(path or ""), timeout=DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"list request: connection_id={connection_id}, path='{path}'",
+            )
 
         # Feed discovered directories into the directory cache (if active)
         _update_directory_cache_from_listing(str(connection_id), listing)
@@ -74,6 +69,14 @@ async def list_directory(
         logger.info(f"Successfully listed directory: connection_id={connection_id}, path='{path}', items={len(listing.items)}")
         return listing
 
+    except asyncio.TimeoutError:
+        logger.error(
+            f"Timed out listing directory: connection_id={connection_id}, path='{path}', host={connection.host}, share={connection.share_name}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Directory listing timed out. The remote share did not respond in time.",
+        )
     except Exception as e:
         logger.error(
             f"Failed to list directory: connection_id={connection_id}, path='{path}', "
@@ -107,18 +110,17 @@ async def get_file_info(
     connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
-        file_info = await backend.get_file_info(path)
-        await backend.disconnect()
+        try:
+            file_info = await backend.get_file_info(path)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"file info request: connection_id={connection_id}, path='{path}'",
+            )
 
         logger.info(f"Successfully retrieved file info: connection_id={connection_id}, path='{path}', type={file_info.type}")
         return file_info
@@ -127,6 +129,11 @@ async def get_file_info(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Path not found: {path}",
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="File info request timed out. The remote share did not respond in time.",
         )
     except Exception as e:
         logger.error(
@@ -171,7 +178,7 @@ async def search_directories(
         cache = await cache_manager.get_or_create_cache(
             connection_id=str(connection_id),
             host=connection.host,
-            share_name=_require_share_name(connection),
+            share_name=require_share_name(connection),
             username=connection.username,
             password=decrypt_password(connection.password_encrypted),
             port=connection.port or 445,
@@ -236,21 +243,20 @@ async def upload_file(
     connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
-        bytes_written = await backend.write_file(path, file.file)
+        try:
+            bytes_written = await backend.write_file(path, file.file)
 
-        # Re-read metadata after write for the response
-        updated_info = await backend.get_file_info(path)
-        await backend.disconnect()
+            # Re-read metadata after write for the response
+            updated_info = await backend.get_file_info(path)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"upload request: connection_id={connection_id}, path='{path}'",
+            )
 
         logger.info(f"Upload complete: connection_id={connection_id}, path='{path}', size={bytes_written}")
         return UploadResponse(
@@ -258,6 +264,11 @@ async def upload_file(
             path=path,
             size=bytes_written,
             last_modified=updated_info.modified_at.isoformat() if updated_info.modified_at else None,
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Upload timed out. The remote share did not respond in time.",
         )
     except IOError as e:
         logger.warning(f"Upload blocked (file locked): connection_id={connection_id}, path='{path}'")
@@ -315,18 +326,17 @@ async def delete_item(
         # instead of removing it immediately.
         _stop_monitors_for_path(str(connection_id), path)
 
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
-        await backend.delete_item(path)
-        await backend.disconnect()
+        try:
+            await backend.delete_item(path)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"delete request: connection_id={connection_id}, path='{path}'",
+            )
 
         # Remove from directory cache if it was a directory
         _remove_from_directory_cache(str(connection_id), path)
@@ -337,6 +347,11 @@ async def delete_item(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Item not found: {path}",
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Delete timed out. The remote share did not respond in time.",
         )
     except OSError as e:
         logger.error(
@@ -439,25 +454,24 @@ async def rename_item(
     connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
-        await backend.rename_item(path, new_name)
+        try:
+            await backend.rename_item(path, new_name)
 
-        # Build the new path (same parent, different leaf)
-        parent = path.rsplit("/", 1)[0] if "/" in path else ""
-        new_path = f"{parent}/{new_name}" if parent else new_name
+            # Build the new path (same parent, different leaf)
+            parent = path.rsplit("/", 1)[0] if "/" in path else ""
+            new_path = f"{parent}/{new_name}" if parent else new_name
 
-        # Fetch updated file info for the response
-        file_info = await backend.get_file_info(new_path)
-        await backend.disconnect()
+            # Fetch updated file info for the response
+            file_info = await backend.get_file_info(new_path)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"rename request: connection_id={connection_id}, path='{path}', new_name='{new_name}'",
+            )
 
         # Update directory cache if renamed item was a directory
         _rename_in_directory_cache(str(connection_id), path, new_path)
@@ -479,6 +493,11 @@ async def rename_item(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Rename timed out. The remote share did not respond in time.",
         )
     except OSError as e:
         logger.error(
@@ -534,25 +553,23 @@ async def create_item(
     connection = _get_connection_or_404(session, current_user, connection_id)
 
     try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
+        try:
+            if body.type == FileType.DIRECTORY:
+                await backend.create_directory(new_item_path)
+            else:
+                await backend.create_file(new_item_path)
 
-        if body.type == FileType.DIRECTORY:
-            await backend.create_directory(new_item_path)
-        else:
-            await backend.create_file(new_item_path)
-
-        # Fetch file info for the response
-        file_info = await backend.get_file_info(new_item_path)
-        await backend.disconnect()
+            # Fetch file info for the response
+            file_info = await backend.get_file_info(new_item_path)
+        finally:
+            await disconnect_backend_safely(
+                backend,
+                logger=logger,
+                context=f"create request: connection_id={connection_id}, path='{new_item_path}'",
+            )
 
         # Update directory cache if a new directory was created
         if body.type == FileType.DIRECTORY:
@@ -575,6 +592,11 @@ async def create_item(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Create timed out. The remote share did not respond in time.",
         )
     except OSError as e:
         logger.error(
@@ -599,24 +621,6 @@ async def create_item(
 # ============================================================================
 # Copy file or directory
 # ============================================================================
-
-
-def _build_backend(connection: Connection) -> SMBBackend:
-    """Create an SMBBackend instance from a Connection model.
-
-    Assumes connection.share_name has already been validated
-    (e.g. by _get_connection_or_404).
-    """
-    return SMBBackend(
-        host=connection.host,
-        share_name=_require_share_name(connection),
-        username=connection.username,
-        password=decrypt_password(connection.password_encrypted),
-        port=connection.port,
-        path_prefix=connection.path_prefix or "/",
-    )
-
-
 def _validate_copy_move_paths(source_path: str, dest_path: str) -> tuple[str, str]:
     """Validate and normalize source and dest paths for copy/move.
 
@@ -669,13 +673,13 @@ async def _conflict_response(
 
     try:
         # Determine which backend to use for each path
-        source_backend = _build_backend(connection)
+        source_backend = build_smb_backend(connection, backend_factory=SMBBackend)
         await source_backend.connect()
 
         is_cross = bool(body.dest_connection_id and str(body.dest_connection_id) != str(connection_id))
         if is_cross:
             dest_connection = _get_connection_or_404(session, current_user, uuid.UUID(str(body.dest_connection_id)))
-            dest_backend = _build_backend(dest_connection)
+            dest_backend = build_smb_backend(dest_connection, backend_factory=SMBBackend)
             await dest_backend.connect()
         else:
             dest_backend = source_backend
@@ -694,9 +698,17 @@ async def _conflict_response(
                 detail=conflict.model_dump(mode="json"),
             )
         finally:
-            await source_backend.disconnect()
+            await disconnect_backend_safely(
+                source_backend,
+                logger=logger,
+                context=f"conflict metadata lookup for source '{source}'",
+            )
             if is_cross:
-                await dest_backend.disconnect()
+                await disconnect_backend_safely(
+                    dest_backend,
+                    logger=logger,
+                    context=f"conflict metadata lookup for destination '{dest}'",
+                )
 
     except Exception as info_err:
         # If we can't fetch metadata, fall back to a plain 409
@@ -769,10 +781,16 @@ async def copy_item(
                 overwrite=body.overwrite,
             )
         else:
-            backend = _build_backend(connection)
+            backend = build_smb_backend(connection, backend_factory=SMBBackend)
             await backend.connect()
-            await backend.copy_item(source, dest, overwrite=body.overwrite)
-            await backend.disconnect()
+            try:
+                await backend.copy_item(source, dest, overwrite=body.overwrite)
+            finally:
+                await disconnect_backend_safely(
+                    backend,
+                    logger=logger,
+                    context=f"copy request: connection_id={connection_id}, source='{source}', dest='{dest}'",
+                )
 
             # If a directory was copied, add it to the cache
             _add_to_directory_cache(str(connection_id), dest)
@@ -788,6 +806,11 @@ async def copy_item(
         raise await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
     except HTTPException:
         raise
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Copy timed out. The remote share did not respond in time.",
+        )
     except OSError as e:
         logger.error(
             f"Failed to copy item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
@@ -861,10 +884,16 @@ async def move_item(
                 overwrite=body.overwrite,
             )
         else:
-            backend = _build_backend(connection)
+            backend = build_smb_backend(connection, backend_factory=SMBBackend)
             await backend.connect()
-            await backend.move_item(source, dest, overwrite=body.overwrite)
-            await backend.disconnect()
+            try:
+                await backend.move_item(source, dest, overwrite=body.overwrite)
+            finally:
+                await disconnect_backend_safely(
+                    backend,
+                    logger=logger,
+                    context=f"move request: connection_id={connection_id}, source='{source}', dest='{dest}'",
+                )
 
             # Update directory cache: remove old path, add new path
             _remove_from_directory_cache(str(connection_id), source)
@@ -881,6 +910,11 @@ async def move_item(
         raise await _conflict_response(connection, body, connection_id, source, dest, current_user, session)
     except HTTPException:
         raise
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Move timed out. The remote share did not respond in time.",
+        )
     except OSError as e:
         logger.error(
             f"Failed to move item: connection_id={connection_id}, '{source}' -> '{dest}', error={type(e).__name__}: {e}",
@@ -924,8 +958,8 @@ async def _cross_connection_copy(
 
     from app.api.websocket import notify_transfer_progress
 
-    source_backend = _build_backend(src_conn)
-    dest_backend = _build_backend(dst_conn)
+    source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
+    dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
 
     await source_backend.connect()
     await dest_backend.connect()
@@ -990,8 +1024,16 @@ async def _cross_connection_copy(
         _add_to_directory_cache(dst_conn_id, dest_path)
 
     finally:
-        await source_backend.disconnect()
-        await dest_backend.disconnect()
+        await disconnect_backend_safely(
+            source_backend,
+            logger=logger,
+            context=f"cross-connection copy source cleanup: '{source_path}' -> '{dest_path}'",
+        )
+        await disconnect_backend_safely(
+            dest_backend,
+            logger=logger,
+            context=f"cross-connection copy destination cleanup: '{source_path}' -> '{dest_path}'",
+        )
 
 
 async def _cross_connection_move(
@@ -1008,8 +1050,8 @@ async def _cross_connection_move(
 
     from app.api.websocket import notify_transfer_progress
 
-    source_backend = _build_backend(src_conn)
-    dest_backend = _build_backend(dst_conn)
+    source_backend = build_smb_backend(src_conn, backend_factory=SMBBackend)
+    dest_backend = build_smb_backend(dst_conn, backend_factory=SMBBackend)
 
     await source_backend.connect()
     await dest_backend.connect()
@@ -1069,8 +1111,16 @@ async def _cross_connection_move(
         _add_to_directory_cache(dst_conn_id, dest_path)
 
     finally:
-        await source_backend.disconnect()
-        await dest_backend.disconnect()
+        await disconnect_backend_safely(
+            source_backend,
+            logger=logger,
+            context=f"cross-connection move source cleanup: '{source_path}' -> '{dest_path}'",
+        )
+        await disconnect_backend_safely(
+            dest_backend,
+            logger=logger,
+            context=f"cross-connection move destination cleanup: '{source_path}' -> '{dest_path}'",
+        )
 
 
 # ============================================================================

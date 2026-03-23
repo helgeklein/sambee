@@ -5,6 +5,7 @@ import apiService from "../../../services/api";
 import * as logger from "../../../services/logger";
 import { SambeeThemeProvider } from "../../../theme";
 import PDFViewer from "../PDFViewer";
+import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 
 // Mock react-pdf components
 vi.mock("react-pdf", () => ({
@@ -19,6 +20,14 @@ vi.mock("react-pdf", () => ({
       numPages: number;
       getPage: (pageNum: number) => Promise<{
         getViewport: (params: { scale: number }) => { width: number; height: number };
+        getTextContent: () => Promise<{
+          items: Array<{
+            str: string;
+            transform: number[];
+            width: number;
+            height: number;
+          }>;
+        }>;
       }>;
     }) => void;
     onLoadError?: (error: Error) => void;
@@ -32,6 +41,17 @@ vi.mock("react-pdf", () => ({
           getPage: () =>
             Promise.resolve({
               getViewport: () => ({ width: 612, height: 792 }),
+              getTextContent: () =>
+                Promise.resolve({
+                  items: [
+                    {
+                      str: "Page sample text",
+                      transform: [1, 0, 0, 1, 0, 0],
+                      width: 120,
+                      height: 12,
+                    },
+                  ],
+                }),
             }),
         };
         onLoadSuccess?.(mockPdf);
@@ -126,6 +146,8 @@ global.ResizeObserver = class MockResizeObserver {
 } as unknown as typeof ResizeObserver;
 
 describe("PDFViewer", () => {
+  const viewerSearch = createViewerSearchTestDriver();
+
   const mockOnClose = vi.fn();
   const defaultProps = {
     connectionId: "test-conn-id",
@@ -559,6 +581,21 @@ describe("PDFViewer", () => {
       fireEvent.keyDown(document, { key: "Escape" });
 
       expect(mockOnClose).toHaveBeenCalled();
+    });
+
+    it("closes search instead of the viewer when Escape is pressed in the search input", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      await viewerSearch.expectEscapeClosesSearch({
+        searchTerm: "page",
+        assertViewerStillOpen: () => {
+          expect(mockOnClose).not.toHaveBeenCalled();
+        },
+      });
     });
 
     it("zooms in on Plus/Equals", async () => {

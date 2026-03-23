@@ -135,6 +135,81 @@ Each control type has a corresponding state interface:
 - Search match counter
 - Download button
 
+## Search Architecture Notes
+
+The search UI in `ViewerControls` is shared, but the search engine itself is viewer-specific.
+
+- **PDF viewer:** Uses extracted PDF text plus page-level match tracking and overlay highlights.
+- **Rendered Markdown/text viewers:** Use the shared DOM text search utility in `frontend/src/utils/domTextSearch.ts`.
+- **Markdown edit mode:** Uses MDXEditor's `searchPlugin` and `useEditorSearch` hook through a bridge in `frontend/src/components/Viewer/MarkdownRichEditor.tsx`.
+
+### DOM Text Search Utility
+
+The DOM text search utility exists so rendered text viewers can share one implementation for:
+
+- search term matching
+- match counting
+- current-match activation
+- DOM highlight cleanup
+
+### Why Inline Boundaries Are Searchable
+
+Rendered Markdown often splits visible text across inline elements such as:
+
+- emphasis (`<em>`)
+- strong text (`<strong>`)
+- links (`<a>`)
+- inline code wrappers
+
+Users still perceive that content as one continuous string, so the DOM text search utility builds a logical text index across inline nodes and maps logical matches back to one or more physical highlight elements.
+
+Example:
+
+```html
+sam<strong>bee</strong>
+```
+
+Searching for `sambee` should count as one match, not two partial matches.
+
+### Why Block Boundaries Are Not Searchable
+
+The DOM text search utility intentionally inserts logical separators between block-level elements such as paragraphs, list items, table cells, and headings.
+
+This prevents false positives where text from separate visual blocks would otherwise be concatenated into a single searchable string.
+
+Example:
+
+```html
+<p>sam</p>
+<p>bee</p>
+```
+
+Searching for `sambee` should **not** match across those two paragraphs.
+
+### Guidance for Future Text-Based Viewers
+
+If you add another rendered text viewer:
+
+- reuse `ViewerControls` for the search panel and navigation controls
+- reuse `frontend/src/utils/domTextSearch.ts` for rendered-content matching
+- preserve the same rule: inline boundaries are searchable, block boundaries are not
+
+If you add an editor search experience later, keep it separate from the rendered-view DOM search utility.
+
+### Markdown Edit-Mode Search
+
+Markdown edit mode deliberately does not reuse `domTextSearch.ts`.
+
+- The rendered-view search utility mutates the rendered DOM with highlight wrappers, which is correct for read-only content.
+- MDXEditor is an active Lexical editor, so edit-mode search uses the editor's own search primitives and CSS highlight ranges instead.
+- The outer viewer still owns the search row in `ViewerControls`, but `MarkdownViewer` routes that UI to different backends depending on mode.
+
+Current behavior:
+
+- **Rendered mode:** `MarkdownViewer` drives `domTextSearch.ts`.
+- **Edit mode, rich-text view:** `MarkdownViewer` passes search state into `MarkdownRichEditor`, which bridges it to MDXEditor's `searchPlugin`.
+- **Edit mode, source/diff view:** The shared viewer search action is disabled because the rich-text search plugin does not reliably cover embedded CodeMirror editors.
+
 ## Layout
 
 The toolbar uses a two-row layout:

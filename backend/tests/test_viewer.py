@@ -310,6 +310,25 @@ class TestViewerFile:
 
             assert response.status_code == 404
 
+    def test_view_file_info_timeout_returns_gateway_timeout(self, client, auth_headers_user, test_connection):
+        """Timeouts while loading viewer metadata should surface as 504."""
+        with patch("app.api.viewer.SMBBackend") as mock:
+            backend_instance = AsyncMock()
+            backend_instance.connect.return_value = None
+            backend_instance.get_file_info.side_effect = TimeoutError("SMB operation timed out during get_file_info")
+            backend_instance.disconnect.return_value = None
+            mock.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/file",
+                headers=auth_headers_user,
+                params={"path": "/slow.txt"},
+            )
+
+            assert response.status_code == 504
+            assert response.json()["detail"] == "Timeout reading file from network share"
+            backend_instance.disconnect.assert_called_once()
+
 
 class TestDownloadFile:
     """Test cases for the file download endpoint."""
@@ -457,6 +476,25 @@ class TestDownloadFile:
             assert response.status_code == 200
             # Content-Length header should not be set
             assert "content-length" not in response.headers
+
+    def test_download_file_info_timeout_returns_gateway_timeout(self, client, auth_headers_user, test_connection):
+        """Timeouts while loading download metadata should surface as 504."""
+        with patch("app.api.viewer.SMBBackend") as mock:
+            backend_instance = AsyncMock()
+            backend_instance.connect.return_value = None
+            backend_instance.get_file_info.side_effect = TimeoutError("SMB operation timed out during get_file_info")
+            backend_instance.disconnect.return_value = None
+            mock.return_value = backend_instance
+
+            response = client.get(
+                f"/api/viewer/{test_connection.id}/download",
+                headers=auth_headers_user,
+                params={"path": "/slow.txt"},
+            )
+
+            assert response.status_code == 504
+            assert response.json()["detail"] == "Timeout reading file from network share"
+            backend_instance.disconnect.assert_called_once()
 
 
 class TestViewerAuthentication:

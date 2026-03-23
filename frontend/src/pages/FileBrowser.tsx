@@ -1680,6 +1680,7 @@ const Browser: React.FC = () => {
           connectionsCount={connections.length}
           isAdmin={isAdmin}
           backendAvailabilityStatus={backendAvailability.status}
+          onRetry={leftPane.handleRefresh}
           onOpenConnectionsSettings={() => {
             if (useCompactLayout) {
               setMobileSettingsInitialView("connections");

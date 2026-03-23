@@ -1,10 +1,10 @@
 import asyncio
 import logging
 import stat
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from datetime import datetime
 from pathlib import PurePosixPath
-from typing import BinaryIO
+from typing import BinaryIO, TypeVar
 
 import smbclient
 from smbclient._os import FileAttributes
@@ -17,6 +17,16 @@ from app.storage.smb_pool import get_connection_pool
 from app.utils.file_type_registry import get_mime_type
 
 logger = logging.getLogger(__name__)
+
+SMB_LIST_DIRECTORY_TIMEOUT_SECONDS = 30.0
+SMB_FILE_INFO_TIMEOUT_SECONDS = 10.0
+SMB_FILE_OPEN_TIMEOUT_SECONDS = 15.0
+SMB_READ_CHUNK_TIMEOUT_SECONDS = 30.0
+SMB_FILE_CLOSE_TIMEOUT_SECONDS = 5.0
+SMB_WRITE_FILE_TIMEOUT_SECONDS = 120.0
+SMB_EXISTS_TIMEOUT_SECONDS = 10.0
+
+BlockingResultT = TypeVar("BlockingResultT")
 
 
 class SMBBackend(StorageBackend):
@@ -131,6 +141,45 @@ class SMBBackend(StorageBackend):
             return f"{self._base_path}\\{full_rel.replace('/', '\\')}"
         return self._base_path
 
+    async def _invalidate_pooled_connection(self, reason: str) -> None:
+        pool = await get_connection_pool()
+        await pool.invalidate_connection(
+            host=self.host,
+            port=self.port,
+            username=self.username,
+            share_name=self.share_name,
+            reason=reason,
+        )
+
+    async def _run_blocking_smb_call(
+        self,
+        operation_name: str,
+        operation: Callable[[], BlockingResultT],
+        timeout_seconds: float,
+        *,
+        smb_path: str,
+    ) -> BlockingResultT:
+        loop = asyncio.get_running_loop()
+
+        try:
+            return await asyncio.wait_for(loop.run_in_executor(None, operation), timeout=timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "Timeout during SMB %s for '%s' after %.1fs",
+                operation_name,
+                smb_path,
+                timeout_seconds,
+            )
+            try:
+                await self._invalidate_pooled_connection(f"timeout during {operation_name}")
+            except Exception:
+                logger.warning(
+                    "Failed to invalidate pooled SMB connection after timeout during %s",
+                    operation_name,
+                    exc_info=True,
+                )
+            raise TimeoutError(f"SMB operation timed out during {operation_name}") from exc
+
     #
     # list_directory
     #
@@ -151,9 +200,6 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
-                # Run in executor to avoid blocking
-                loop = asyncio.get_event_loop()
-
                 # Use scandir for better performance - all info from ONE SMB query_directory call
                 def _scan_directory() -> list[FileInfo]:
                     result = []
@@ -199,16 +245,22 @@ class SMBBackend(StorageBackend):
                             )
                     return result
 
-                # Add timeout to prevent indefinite hangs (30 seconds for directory listing)
-                items = await asyncio.wait_for(loop.run_in_executor(None, _scan_directory), timeout=30.0)
+                items = await self._run_blocking_smb_call(
+                    "list_directory",
+                    _scan_directory,
+                    SMB_LIST_DIRECTORY_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
+                )
 
                 # NOTE: No sorting here - frontend handles sorting based on user preference
                 # Avoiding unnecessary work on the backend for large directories
 
                 return DirectoryListing(path=path or "/", items=items, total=len(items))
 
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout listing directory '{path}' (smb_path='{smb_path}') after 30 seconds")
+        except TimeoutError:
+            logger.error(
+                f"Timeout listing directory '{path}' (smb_path='{smb_path}') after {SMB_LIST_DIRECTORY_TIMEOUT_SECONDS:.0f} seconds"
+            )
             raise TimeoutError(f"SMB operation timed out while listing directory: {path}")
         except Exception as e:
             logger.error(
@@ -236,9 +288,12 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
-                # Get file stats with a timeout to avoid blocking
-                loop = asyncio.get_event_loop()
-                stat_info = await asyncio.wait_for(loop.run_in_executor(None, lambda: smbclient.stat(smb_path)), timeout=10.0)
+                stat_info = await self._run_blocking_smb_call(
+                    "get_file_info",
+                    lambda: smbclient.stat(smb_path),
+                    SMB_FILE_INFO_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
+                )
 
                 # Derive directory status from stat_info.st_mode (already fetched above)
                 # instead of calling smbclient.path.isdir() which would make a redundant
@@ -299,9 +354,11 @@ class SMBBackend(StorageBackend):
 
                 for attempt in range(max_retries):
                     try:
-                        file_handle = await asyncio.wait_for(
-                            loop.run_in_executor(None, lambda: smbclient.open_file(smb_path, mode="rb", share_access="rwd")),
-                            timeout=15.0,
+                        file_handle = await self._run_blocking_smb_call(
+                            "open_file_for_read",
+                            lambda: smbclient.open_file(smb_path, mode="rb", share_access="rwd"),
+                            SMB_FILE_OPEN_TIMEOUT_SECONDS,
+                            smb_path=smb_path,
                         )
                         if attempt > 0:
                             logger.info(f"Successfully opened file after {attempt + 1} attempts: {path}")
@@ -328,8 +385,12 @@ class SMBBackend(StorageBackend):
                 try:
                     while True:
                         try:
-                            # Add timeout to prevent indefinite hangs (30 seconds per chunk)
-                            chunk = await asyncio.wait_for(loop.run_in_executor(None, file_handle.read, chunk_size), timeout=30.0)
+                            chunk = await self._run_blocking_smb_call(
+                                "read_file_chunk",
+                                lambda: file_handle.read(chunk_size),
+                                SMB_READ_CHUNK_TIMEOUT_SECONDS,
+                                smb_path=smb_path,
+                            )
                             if not chunk:
                                 break
                             yield chunk
@@ -354,7 +415,12 @@ class SMBBackend(StorageBackend):
                                 raise
                 finally:
                     try:
-                        await asyncio.wait_for(loop.run_in_executor(None, file_handle.close), timeout=5.0)
+                        await self._run_blocking_smb_call(
+                            "close_file_after_read",
+                            file_handle.close,
+                            SMB_FILE_CLOSE_TIMEOUT_SECONDS,
+                            smb_path=smb_path,
+                        )
                     except Exception as close_error:
                         # Log but don't raise - we're already in cleanup
                         logger.warning(f"Error closing file handle for {path}: {close_error}")
@@ -399,7 +465,6 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
-                loop = asyncio.get_event_loop()
 
                 def _write() -> int:
                     bytes_written = 0
@@ -412,16 +477,18 @@ class SMBBackend(StorageBackend):
                             bytes_written += len(chunk)
                     return bytes_written
 
-                bytes_written = await asyncio.wait_for(
-                    loop.run_in_executor(None, _write),
-                    timeout=120.0,
+                bytes_written = await self._run_blocking_smb_call(
+                    "write_file",
+                    _write,
+                    SMB_WRITE_FILE_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
                 )
 
                 logger.info(f"Successfully wrote {bytes_written} bytes: path='{path}'")
                 return bytes_written
 
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout writing '{path}' after 120 seconds")
+        except TimeoutError:
+            logger.error(f"Timeout writing '{path}' after {SMB_WRITE_FILE_TIMEOUT_SECONDS:.0f} seconds")
             raise TimeoutError(f"SMB operation timed out while writing: {path}")
         except OSError as e:
             error_str = str(e)
@@ -453,17 +520,11 @@ class SMBBackend(StorageBackend):
                 password=self.password,
                 share_name=self.share_name,
             ):
-                loop = asyncio.get_event_loop()
-                # Don't pass username/password - use the registered session from pool
-                # Add timeout to prevent indefinite hangs (10 seconds for exists check)
-                exists = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: smbclient.path.exists(  # pyright: ignore[reportAttributeAccessIssue]
-                            smb_path
-                        ),
-                    ),
-                    timeout=10.0,
+                exists = await self._run_blocking_smb_call(
+                    "file_exists",
+                    lambda: smbclient.path.exists(smb_path),  # pyright: ignore[reportAttributeAccessIssue]
+                    SMB_EXISTS_TIMEOUT_SECONDS,
+                    smb_path=smb_path,
                 )
                 return bool(exists)
         except Exception:

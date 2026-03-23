@@ -34,7 +34,6 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.close");
     },
     label: "Esc",
-    allowInInput: true,
   },
   DOWNLOAD: {
     id: "download",
@@ -43,6 +42,24 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.download");
     },
     label: "D",
+  },
+  EDIT: {
+    id: "edit",
+    keys: "e",
+    get description() {
+      return translate("viewer.shortcuts.edit");
+    },
+    label: "E",
+  },
+  SAVE: {
+    id: "save",
+    keys: "s",
+    get description() {
+      return translate("viewer.shortcuts.save");
+    },
+    label: "Ctrl+S",
+    ctrl: true,
+    allowInInput: true,
   },
 
   //
@@ -197,6 +214,31 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.toggleFullscreen");
     },
     label: "F",
+  },
+} as const satisfies Record<string, ShortcutDefinition>;
+
+export const MARKDOWN_EDITOR_SHORTCUTS = {
+  INLINE_CODE: {
+    id: "markdown-inline-code",
+    keys: ["e", "E"],
+    ctrl: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.shortcuts.inlineCode");
+    },
+    label: "Ctrl+E",
+  },
+  CODE_BLOCK: {
+    id: "markdown-code-block",
+    keys: ["e", "E"],
+    ctrl: true,
+    shift: true,
+    allowInInput: true,
+    priority: 1,
+    get description() {
+      return translate("viewer.shortcuts.insertCodeBlock");
+    },
+    label: "Ctrl+Shift+E",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 

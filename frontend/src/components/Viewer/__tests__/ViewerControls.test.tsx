@@ -1,3 +1,4 @@
+import { Edit } from "@mui/icons-material";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ViewerControls } from "../ViewerControls";
@@ -298,5 +299,92 @@ describe("ViewerControls", () => {
 
     expect(mockShareIntent).toHaveBeenCalledOnce();
     expect(mockShare).not.toHaveBeenCalled();
+  });
+
+  it("renders and invokes generic toolbar actions", () => {
+    const mockClose = vi.fn();
+    const mockEdit = vi.fn();
+    const mockSave = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="notes.md"
+        config={{}}
+        onClose={mockClose}
+        actions={[
+          { id: "edit", label: "Edit", onClick: mockEdit },
+          { id: "save", label: "Save", onClick: mockSave, disabled: true },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(mockEdit).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("renders icon toolbar actions when requested", () => {
+    const mockClose = vi.fn();
+    const mockEdit = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="notes.md"
+        config={{}}
+        onClose={mockClose}
+        actions={[
+          {
+            id: "edit",
+            kind: "icon",
+            label: "Edit",
+            ariaLabel: "Edit markdown",
+            icon: <Edit />,
+            onClick: mockEdit,
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit markdown" }));
+
+    expect(mockEdit).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Edit")).not.toBeInTheDocument();
+  });
+
+  it("supports mixed text and icon toolbar actions", () => {
+    const mockClose = vi.fn();
+    const mockEdit = vi.fn();
+    const mockSave = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="notes.md"
+        config={{}}
+        onClose={mockClose}
+        actions={[
+          {
+            id: "edit",
+            kind: "icon",
+            label: "Edit",
+            ariaLabel: "Edit markdown",
+            icon: <Edit />,
+            onClick: mockEdit,
+          },
+          {
+            id: "save",
+            label: "Save",
+            onClick: mockSave,
+            variant: "outlined",
+          },
+        ]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit markdown" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(mockEdit).toHaveBeenCalledOnce();
+    expect(mockSave).toHaveBeenCalledOnce();
   });
 });

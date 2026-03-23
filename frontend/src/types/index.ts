@@ -188,6 +188,20 @@ export interface DirectorySearchResult {
   directory_count: number;
 }
 
+export interface EditLockInfo {
+  lock_id: string;
+  file_path: string;
+  locked_by: string;
+  locked_at: string;
+}
+
+export interface EditLockStatus {
+  locked: boolean;
+  locked_by?: string | null;
+  locked_at?: string | null;
+  companion_session?: string | null;
+}
+
 export interface AuthToken {
   access_token: string;
   token_type: string;

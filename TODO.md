@@ -14,7 +14,6 @@
   - TIFF
   - ICO (test with uberAgent icon)
 
-## Markdown viewer
+## Text viewer and editor
 
-- Search
-- Editing
+- Support various text-based files
