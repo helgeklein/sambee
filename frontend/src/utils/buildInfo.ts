@@ -5,24 +5,16 @@ export interface BuildInfo {
   git_commit: string;
 }
 
-type SambeeBuildGlobals = typeof globalThis & {
-  __SAMBEE_VERSION__?: string;
-  __SAMBEE_GIT_COMMIT__?: string;
-};
-
 const SHORT_COMMIT_LENGTH = 7;
 const UNKNOWN_BUILD_VALUE = "unknown";
 
-const buildGlobals = globalThis as SambeeBuildGlobals;
-
-function readBuildGlobal(key: keyof Pick<SambeeBuildGlobals, "__SAMBEE_VERSION__" | "__SAMBEE_GIT_COMMIT__">): string {
-  const value = buildGlobals[key];
+function readBuildValue(value: string | undefined): string {
   return typeof value === "string" && value.trim() ? value : UNKNOWN_BUILD_VALUE;
 }
 
 export const CURRENT_BUILD_INFO: BuildInfo = Object.freeze({
-  version: readBuildGlobal("__SAMBEE_VERSION__"),
-  git_commit: readBuildGlobal("__SAMBEE_GIT_COMMIT__"),
+  version: readBuildValue(typeof __SAMBEE_VERSION__ !== "undefined" ? __SAMBEE_VERSION__ : undefined),
+  git_commit: readBuildValue(typeof __SAMBEE_GIT_COMMIT__ !== "undefined" ? __SAMBEE_GIT_COMMIT__ : undefined),
 });
 
 export function getBuildFingerprint(buildInfo: Pick<BuildInfo, "version" | "git_commit">): string {
