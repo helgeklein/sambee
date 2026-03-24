@@ -35,10 +35,47 @@
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
+import { forwardRef, useImperativeHandle } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import MarkdownViewer from "../../components/Viewer/MarkdownViewer";
 import apiService from "../../services/api";
 import { SambeeThemeProvider } from "../../theme";
+
+vi.mock("../../components/Viewer/MarkdownRichEditor", () => {
+  const MockMarkdownRichEditor = forwardRef<
+    {
+      focus: () => void;
+      nextSearchResult: () => void;
+      previousSearchResult: () => void;
+      toggleInlineCode: () => void;
+      insertCodeBlock: () => void;
+    },
+    {
+      markdown: string;
+      onChange: (markdown: string) => void;
+      ariaLabel: string;
+      readOnly?: boolean;
+      className?: string;
+    }
+  >(({ markdown, onChange, ariaLabel, readOnly = false, className }, ref) => {
+    useImperativeHandle(ref, () => ({
+      focus: () => {},
+      nextSearchResult: () => {},
+      previousSearchResult: () => {},
+      toggleInlineCode: () => {},
+      insertCodeBlock: () => {},
+    }));
+
+    return <textarea aria-label={ariaLabel} className={className} readOnly={readOnly} value={markdown} onChange={(event) => onChange(event.target.value)} />;
+  });
+
+  MockMarkdownRichEditor.displayName = "MockMarkdownRichEditor";
+
+  return {
+    __esModule: true,
+    default: MockMarkdownRichEditor,
+  };
+});
 
 describe("Browse → View Flow", () => {
   beforeEach(() => {
