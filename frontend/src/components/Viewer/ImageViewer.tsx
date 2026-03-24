@@ -1,5 +1,5 @@
 import { Alert, Box, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Lightbox, { type Slide } from "yet-another-react-lightbox";
 import Fullscreen from "yet-another-react-lightbox/plugins/fullscreen";
@@ -651,4 +651,4 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     </>
   );
 };
-export default ImageViewer;
+export default memo(ImageViewer);

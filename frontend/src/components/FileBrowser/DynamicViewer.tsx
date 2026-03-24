@@ -1,6 +1,6 @@
 import CloseIcon from "@mui/icons-material/Close";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { translate } from "../../i18n";
 import { logger } from "../../services/logger";
@@ -91,7 +91,7 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
 //
 // DynamicViewer
 //
-export function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }: DynamicViewerProps) {
+export const DynamicViewer = memo(function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }: DynamicViewerProps) {
   const [loadState, setLoadState] = useState<DynamicViewerLoadState>({ status: "loading" });
   const [retryToken, setRetryToken] = useState(0);
 
@@ -191,4 +191,4 @@ export function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }
       sessionId={viewInfo.sessionId}
     />
   );
-}
+});

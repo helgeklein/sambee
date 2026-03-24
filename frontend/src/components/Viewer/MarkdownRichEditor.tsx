@@ -3,15 +3,13 @@ import {
   applyFormat$,
   BlockTypeSelect,
   ButtonWithTooltip,
-  CreateLink,
   codeBlockPlugin,
   codeMirrorPlugin,
   currentFormat$,
   DiffSourceToggleWrapper,
   diffSourcePlugin,
+  editorInTable$,
   headingsPlugin,
-  InsertTable,
-  InsertThematicBreak,
   IS_APPLE,
   IS_BOLD,
   IS_CODE,
@@ -19,6 +17,8 @@ import {
   IS_UNDERLINE,
   iconComponentFor$,
   insertCodeBlock$,
+  insertTable$,
+  insertThematicBreak$,
   ListsToggle,
   linkDialogPlugin,
   linkPlugin,
@@ -27,6 +27,7 @@ import {
   type MDXEditorMethods,
   MultipleChoiceToggleGroup,
   markdownShortcutPlugin,
+  openLinkEditDialog$,
   quotePlugin,
   Separator,
   searchPlugin,
@@ -40,15 +41,19 @@ import {
 import "@mdxeditor/editor/style.css";
 import { mergeRegister } from "@lexical/utils";
 import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
+import { Box } from "@mui/material";
 import { CAN_REDO_COMMAND, CAN_UNDO_COMMAND, COMMAND_PRIORITY_CRITICAL, REDO_COMMAND, UNDO_COMMAND } from "lexical";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { useSambeeTheme } from "../../theme";
 import { Z_INDEX } from "../../theme/constants";
+import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
+const MARKDOWN_EDITOR_CONTENT_CLASS = "sambee-markdown-editor-content";
 const MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE = "txt";
 const MARKDOWN_CODE_BLOCK_LANGUAGES = {
   txt: "Plain text",
@@ -63,6 +68,9 @@ export interface MarkdownRichEditorHandle {
   focus: () => void;
   nextSearchResult: () => void;
   previousSearchResult: () => void;
+  createLink: () => void;
+  insertTable: () => void;
+  insertThematicBreak: () => void;
   toggleInlineCode: () => void;
   insertCodeBlock: () => void;
 }
@@ -95,7 +103,10 @@ interface MarkdownRichEditorSearchCommands {
   previousSearchResult: () => void;
 }
 
-interface MarkdownRichEditorFormattingCommands {
+interface MarkdownRichEditorCommands {
+  createLink: () => void;
+  insertTable: () => void;
+  insertThematicBreak: () => void;
   toggleInlineCode: () => void;
   insertCodeBlock: () => void;
 }
@@ -112,7 +123,10 @@ const NOOP_SEARCH_COMMANDS: MarkdownRichEditorSearchCommands = {
   previousSearchResult: () => {},
 };
 
-const NOOP_FORMATTING_COMMANDS: MarkdownRichEditorFormattingCommands = {
+const NOOP_EDITOR_COMMANDS: MarkdownRichEditorCommands = {
+  createLink: () => {},
+  insertTable: () => {},
+  insertThematicBreak: () => {},
   toggleInlineCode: () => {},
   insertCodeBlock: () => {},
 };
@@ -129,16 +143,28 @@ function formatEditorTooltip(label: string, shortcutLabel?: string): string {
   return shortcutLabel ? `${label} (${shortcutLabel})` : label;
 }
 
-const MarkdownRichEditorFormattingBridge = ({
+const MarkdownRichEditorCommandBridge = ({
   onCommandsChange,
 }: {
-  onCommandsChange: (commands: MarkdownRichEditorFormattingCommands | null) => void;
+  onCommandsChange: (commands: MarkdownRichEditorCommands | null) => void;
 }) => {
   const applyFormat = usePublisher(applyFormat$);
   const insertCodeBlock = usePublisher(insertCodeBlock$);
+  const insertTable = usePublisher(insertTable$);
+  const insertThematicBreak = usePublisher(insertThematicBreak$);
+  const openLinkDialog = usePublisher(openLinkEditDialog$);
 
   useEffect(() => {
     onCommandsChange({
+      createLink: () => {
+        openLinkDialog();
+      },
+      insertTable: () => {
+        insertTable({ rows: 3, columns: 3 });
+      },
+      insertThematicBreak: () => {
+        insertThematicBreak();
+      },
       toggleInlineCode: () => {
         applyFormat("code");
       },
@@ -150,7 +176,7 @@ const MarkdownRichEditorFormattingBridge = ({
     return () => {
       onCommandsChange(null);
     };
-  }, [applyFormat, insertCodeBlock, onCommandsChange]);
+  }, [applyFormat, insertCodeBlock, insertTable, insertThematicBreak, onCommandsChange, openLinkDialog]);
 
   return null;
 };
@@ -314,6 +340,62 @@ const InsertCodeBlockButton = () => {
   );
 };
 
+const CreateLinkButton = () => {
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.CREATE_LINK);
+
+  return (
+    <ButtonWithTooltip
+      title={title}
+      aria-label={title}
+      onClick={() => {
+        openLinkDialog();
+      }}
+    >
+      {iconComponentFor("link")}
+    </ButtonWithTooltip>
+  );
+};
+
+const InsertTableButton = () => {
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const insertTable = usePublisher(insertTable$);
+  const isDisabled = useCellValue(editorInTable$);
+  const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.INSERT_TABLE);
+
+  return (
+    <ButtonWithTooltip
+      title={title}
+      aria-label={title}
+      onClick={() => {
+        insertTable({ rows: 3, columns: 3 });
+      }}
+      {...(isDisabled ? { "aria-disabled": true, "data-disabled": true, disabled: true } : {})}
+    >
+      {iconComponentFor("table")}
+    </ButtonWithTooltip>
+  );
+};
+
+const InsertThematicBreakButton = () => {
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const insertThematicBreak = usePublisher(insertThematicBreak$);
+  const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.INSERT_THEMATIC_BREAK);
+
+  return (
+    <ButtonWithTooltip
+      title={title}
+      aria-label={title}
+      onClick={() => {
+        insertThematicBreak();
+      }}
+    >
+      {iconComponentFor("horizontal_rule")}
+    </ButtonWithTooltip>
+  );
+};
+
 const MarkdownRichEditorSearchBridge = ({
   searchText,
   searchOpen,
@@ -397,7 +479,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const editorRef = useRef<MDXEditorMethods>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
-    const formattingCommandsRef = useRef<MarkdownRichEditorFormattingCommands>(NOOP_FORMATTING_COMMANDS);
+    const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
+    const { currentTheme } = useSambeeTheme();
+    const { viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
     const editorRootClassName = [className, MARKDOWN_EDITOR_POPUP_CLASS].filter(Boolean).join(" ");
 
     const syncPopupContainerLayering = useCallback(() => {
@@ -437,11 +521,20 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         previousSearchResult: () => {
           searchCommandsRef.current.previousSearchResult();
         },
+        createLink: () => {
+          commandsRef.current.createLink();
+        },
+        insertTable: () => {
+          commandsRef.current.insertTable();
+        },
+        insertThematicBreak: () => {
+          commandsRef.current.insertThematicBreak();
+        },
         toggleInlineCode: () => {
-          formattingCommandsRef.current.toggleInlineCode();
+          commandsRef.current.toggleInlineCode();
         },
         insertCodeBlock: () => {
-          formattingCommandsRef.current.insertCodeBlock();
+          commandsRef.current.insertCodeBlock();
         },
       }),
       [focusEditableArea]
@@ -584,9 +677,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                   searchCommandsRef.current = commands ?? NOOP_SEARCH_COMMANDS;
                 }}
               />
-              <MarkdownRichEditorFormattingBridge
+              <MarkdownRichEditorCommandBridge
                 onCommandsChange={(commands) => {
-                  formattingCommandsRef.current = commands ?? NOOP_FORMATTING_COMMANDS;
+                  commandsRef.current = commands ?? NOOP_EDITOR_COMMANDS;
                 }}
               />
               <DiffSourceToggleWrapper>
@@ -599,9 +692,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 <Separator />
                 <ListsToggle />
                 <Separator />
-                <CreateLink />
-                <InsertTable />
-                <InsertThematicBreak />
+                <CreateLinkButton />
+                <InsertTableButton />
+                <InsertThematicBreakButton />
                 <Separator />
                 <InsertCodeBlockButton />
               </DiffSourceToggleWrapper>
@@ -613,17 +706,24 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     );
 
     return (
-      <div ref={containerRef} className={className}>
+      <Box
+        ref={containerRef}
+        className={className}
+        sx={{
+          [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: getMarkdownEditorContentStyles(viewerText, linkColor, linkHoverColor),
+        }}
+      >
         <MDXEditor
           ref={editorRef}
           className={editorRootClassName}
+          contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
           markdown={markdown}
           onChange={onChange}
           autoFocus={autoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
           readOnly={readOnly}
           plugins={plugins}
         />
-      </div>
+      </Box>
     );
   }
 );

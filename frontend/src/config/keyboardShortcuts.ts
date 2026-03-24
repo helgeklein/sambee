@@ -218,6 +218,38 @@ export const VIEWER_SHORTCUTS = {
 } as const satisfies Record<string, ShortcutDefinition>;
 
 export const MARKDOWN_EDITOR_SHORTCUTS = {
+  CREATE_LINK: {
+    id: "markdown-create-link",
+    keys: ["k", "K"],
+    ctrl: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.shortcuts.createLink");
+    },
+    label: "Ctrl+K",
+  },
+  INSERT_TABLE: {
+    id: "markdown-insert-table",
+    keys: ["t", "T"],
+    ctrl: true,
+    alt: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.shortcuts.insertTable");
+    },
+    label: "Ctrl+Alt+T",
+  },
+  INSERT_THEMATIC_BREAK: {
+    id: "markdown-insert-thematic-break",
+    keys: ["h", "H"],
+    ctrl: true,
+    alt: true,
+    allowInInput: true,
+    get description() {
+      return translate("viewer.shortcuts.insertThematicBreak");
+    },
+    label: "Ctrl+Alt+H",
+  },
   INLINE_CODE: {
     id: "markdown-inline-code",
     keys: ["e", "E"],

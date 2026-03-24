@@ -93,9 +93,9 @@
   "editor.codeLens": false,
   "editor.hover.delay": 1000,
   // TypeScript/JavaScript Settings
-  "typescript.tsdk": "frontend/node_modules/typescript/lib",
-  "typescript.enablePromptUseWorkspaceTsdk": true,
-  "javascript.suggestionActions.enabled": false,
+  "js/ts.tsdk.path": "frontend/node_modules/typescript/lib",
+  "js/ts.tsdk.promptToUseWorkspaceVersion": true,
+  "js/ts.suggestionActions.enabled": false,
   // GitHub Copilot Auto-Approve Commands
   "chat.tools.terminal.autoApprove": {
     "awk": true,

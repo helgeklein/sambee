@@ -1,8 +1,8 @@
 import type { SxProps, Theme } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import { getContainedButtonFocusVisibleBoxShadow, getElevatedButtonFocusRing } from "../../theme/commonStyles";
 
 const SETTINGS_BUTTON_MIN_HEIGHT_PX = 40;
-const SETTINGS_BUTTON_FOCUS_RING_PX = 3;
 const SETTINGS_ICON_BUTTON_SIZE_PX = 36;
 const SETTINGS_FAB_OFFSET_PX = 16;
 
@@ -15,9 +15,7 @@ function getSettingsSurfaceTint(theme: Theme): string {
 }
 
 function getSettingsFocusRing(theme: Theme): string {
-  const ringColor = alpha(getSettingsAccentColor(theme), theme.palette.mode === "dark" ? 0.38 : 0.24);
-
-  return `0 0 0 ${SETTINGS_BUTTON_FOCUS_RING_PX}px ${ringColor}`;
+  return getElevatedButtonFocusRing(theme);
 }
 
 function getUtilityBorderColor(theme: Theme): string {
@@ -52,10 +50,6 @@ export const settingsPrimaryButtonSx: SxProps<Theme> = {
   boxShadow: 2,
   "&:hover": {
     boxShadow: 3,
-  },
-  "&.Mui-focusVisible": {
-    outline: "none",
-    boxShadow: (theme) => `${theme.shadows[3]}, ${getSettingsFocusRing(theme)}`,
   },
 };
 
@@ -137,6 +131,6 @@ export const settingsPrimaryFabSx: SxProps<Theme> = {
   },
   "&.Mui-focusVisible": {
     outline: "none",
-    boxShadow: (theme) => `${theme.shadows[5]}, ${getSettingsFocusRing(theme)}`,
+    boxShadow: (theme) => getContainedButtonFocusVisibleBoxShadow(theme, 5),
   },
 };

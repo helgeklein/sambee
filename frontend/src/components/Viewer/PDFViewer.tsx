@@ -1,5 +1,5 @@
 import { Alert, Box, CircularProgress, Dialog, useMediaQuery, useTheme } from "@mui/material";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -1125,4 +1125,4 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   );
 };
 
-export default PDFViewer;
+export default memo(PDFViewer);

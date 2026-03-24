@@ -1,6 +1,7 @@
 import { createTheme, type Theme } from "@mui/material/styles";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { loadCurrentUserSettings, patchCurrentUserSettings } from "../services/userSettingsSync";
+import { getContainedButtonFocusVisibleBoxShadow } from "./commonStyles";
 import { builtInThemes, getDefaultTheme } from "./themes";
 import type { ThemeConfig } from "./types";
 
@@ -99,7 +100,9 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const appBarFocus = currentTheme.components?.appBar?.focus ?? appBarText ?? currentTheme.primary.contrastText;
 
     // Focus color for general use
-    const focusColor = currentTheme.action?.focus ?? currentTheme.primary.main;
+    const focusColor =
+      currentTheme.action?.focus ??
+      (isDark ? (currentTheme.primary.light ?? currentTheme.primary.main) : (currentTheme.primary.dark ?? currentTheme.primary.main));
 
     // Scrollbar colors derived from theme
     const scrollbarThumb = isDark ? "#6b6b6b" : "#c1c1c1";
@@ -109,7 +112,6 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
     const buttonFocusOutline = {
       outline: `${FOCUS_OUTLINE_WIDTH_PX}px solid ${focusColor}`,
       outlineOffset: `${FOCUS_OUTLINE_OFFSET_PX}px`,
-      boxShadow: "none",
     };
 
     return createTheme({
@@ -267,8 +269,12 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
                 ...(isDark && { color: currentTheme.primary.main }),
               },
             },
-            // Contained buttons keep their fill color on focus — only the
-            // outline ring (from root) is added.
+            contained: ({ theme }) => ({
+              "&.Mui-focusVisible": {
+                outline: "none",
+                boxShadow: getContainedButtonFocusVisibleBoxShadow(theme),
+              },
+            }),
           },
         },
         // Focus styles for IconButton - clean outline ring (keyboard nav only)

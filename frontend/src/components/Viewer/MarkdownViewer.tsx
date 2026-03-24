@@ -11,7 +11,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { type ErrorInfo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ErrorInfo, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -48,6 +48,27 @@ const MARKDOWN_SEARCH_MATCH_COLOR = "rgba(255, 255, 0, 0.4)";
 const MARKDOWN_SEARCH_CURRENT_MATCH_COLOR = "rgba(255, 152, 0, 0.4)";
 const MDX_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(MdxSearch)";
 const MDX_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(MdxFocusSearch)";
+const MARKDOWN_HASH_PREFIX = "#";
+const MARKDOWN_SUPPORTED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+function resolveMarkdownLinkHref(href: string): string | null {
+  const trimmedHref = href.trim();
+
+  if (!trimmedHref) {
+    return null;
+  }
+
+  if (trimmedHref.startsWith(MARKDOWN_HASH_PREFIX)) {
+    return trimmedHref;
+  }
+
+  try {
+    const resolvedUrl = new URL(trimmedHref, window.location.href);
+    return MARKDOWN_SUPPORTED_LINK_PROTOCOLS.has(resolvedUrl.protocol) ? resolvedUrl.toString() : null;
+  } catch {
+    return null;
+  }
+}
 
 function isViewerSearchInputFocused(): boolean {
   return document.activeElement instanceof HTMLElement && document.activeElement.getAttribute(VIEWER_SEARCH_INPUT_ATTRIBUTE) === "true";
@@ -114,6 +135,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const contentRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<MarkdownRichEditorHandle | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const unsavedChangesCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const lockHeldRef = useRef(false);
   const hasUserEditedRef = useRef(false);
   const pendingBaselineSyncTimeoutRef = useRef<number | null>(null);
@@ -129,10 +151,40 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const shareEnabled = isMobile && supportsNativeShare();
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const supportsEditLocks = apiService.supportsEditLocks(connectionId);
-  const { viewerBg, toolbarBg, toolbarText, viewerText } = getViewerColors(currentTheme, "markdown");
+  const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
+
+  const focusViewerContent = useCallback(() => {
+    if (isEditing) {
+      return;
+    }
+
+    contentRef.current?.focus({ preventScroll: true });
+  }, [isEditing]);
+
+  const restoreEditingFocus = useCallback(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    const timeoutIds = [0, 32].map((delayMs) =>
+      window.setTimeout(() => {
+        editorRef.current?.focus();
+
+        if (!isMarkdownEditorTextInputFocused()) {
+          contentRef.current?.focus({ preventScroll: true });
+        }
+      }, delayMs)
+    );
+
+    return () => {
+      for (const timeoutId of timeoutIds) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [isEditing]);
 
   // Load markdown content
   useEffect(() => {
@@ -187,10 +239,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     if (!loading && !error && !isEditing && contentRef.current) {
       // Small delay to ensure dialog transition is complete
       setTimeout(() => {
-        contentRef.current?.focus();
+        focusViewerContent();
       }, 100);
     }
-  }, [loading, error, isEditing]);
+  }, [error, focusViewerContent, isEditing, loading]);
 
   useEffect(() => {
     if (!isEditing || !editorRef.current) {
@@ -211,8 +263,26 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     };
   }, [isEditing]);
 
-  const hasUnsavedChanges = isEditing && hasUserEditedRef.current && draftContent !== editBaselineContent;
+  const hasUnsavedChanges = isEditing && draftContent !== editBaselineContent;
   const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
+  const unsavedChangesIndicator = hasUnsavedChanges ? (
+    <Box
+      component="span"
+      role="status"
+      aria-label={t("viewer.edit.unsavedIndicatorAria")}
+      title={t("viewer.edit.unsavedIndicator")}
+      sx={{
+        width: isMobile ? 7 : 8,
+        height: isMobile ? 7 : 8,
+        borderRadius: "50%",
+        backgroundColor: toolbarText,
+        opacity: 1,
+        flexShrink: 0,
+        alignSelf: "flex-start",
+        mt: "-0.26em",
+      }}
+    />
+  ) : null;
 
   const clearPendingBaselineSync = useCallback(() => {
     if (pendingBaselineSyncTimeoutRef.current !== null) {
@@ -511,6 +581,27 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     setPendingUnsavedChangesAction(null);
   }, [isSaving]);
 
+  const handleUnsavedChangesDialogExited = useCallback(() => {
+    const cleanupFocus = restoreEditingFocus();
+
+    if (!cleanupFocus) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      cleanupFocus();
+    }, 120);
+  }, [restoreEditingFocus]);
+
+  const handleUnsavedChangesDialogEntered = useCallback(() => {
+    const focusCancelButton = () => {
+      unsavedChangesCancelButtonRef.current?.focus();
+    };
+
+    focusCancelButton();
+    window.requestAnimationFrame(focusCancelButton);
+  }, []);
+
   const handleUnsavedChangesDiscard = useCallback(async () => {
     if (pendingUnsavedChangesAction === "close-viewer") {
       await closeViewer();
@@ -620,6 +711,24 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     });
   }, [runEditorCommand, t]);
 
+  const handleCreateLink = useCallback(() => {
+    runEditorCommand(t("viewer.shortcuts.createLink"), () => {
+      editorRef.current?.createLink();
+    });
+  }, [runEditorCommand, t]);
+
+  const handleInsertTable = useCallback(() => {
+    runEditorCommand(t("viewer.shortcuts.insertTable"), () => {
+      editorRef.current?.insertTable();
+    });
+  }, [runEditorCommand, t]);
+
+  const handleInsertThematicBreak = useCallback(() => {
+    runEditorCommand(t("viewer.shortcuts.insertThematicBreak"), () => {
+      editorRef.current?.insertThematicBreak();
+    });
+  }, [runEditorCommand, t]);
+
   const handleInsertCodeBlock = useCallback(() => {
     runEditorCommand(t("viewer.shortcuts.insertCodeBlock"), () => {
       editorRef.current?.insertCodeBlock();
@@ -702,6 +811,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
    */
   const handlePaperKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
+      if (unsavedChangesDialogOpen) {
+        return;
+      }
+
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -712,7 +825,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       if (blurActiveToolbarControl(contentRef)) return;
       handleEscape();
     },
-    [handleEscape]
+    [handleEscape, unsavedChangesDialogOpen]
   );
 
   const handleShowHelp = useCallback(() => {
@@ -759,6 +872,21 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         enabled: isEditing && !isSaving,
       },
       {
+        ...MARKDOWN_EDITOR_SHORTCUTS.CREATE_LINK,
+        handler: handleCreateLink,
+        enabled: isEditing && !isSaving,
+      },
+      {
+        ...MARKDOWN_EDITOR_SHORTCUTS.INSERT_TABLE,
+        handler: handleInsertTable,
+        enabled: isEditing && !isSaving,
+      },
+      {
+        ...MARKDOWN_EDITOR_SHORTCUTS.INSERT_THEMATIC_BREAK,
+        handler: handleInsertThematicBreak,
+        enabled: isEditing && !isSaving,
+      },
+      {
         ...MARKDOWN_EDITOR_SHORTCUTS.INLINE_CODE,
         handler: handleToggleInlineCode,
         enabled: isEditing && !isSaving,
@@ -778,6 +906,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         ...COMMON_SHORTCUTS.CLOSE,
         handler: handleEscape,
         allowInInput: false,
+        enabled: !unsavedChangesDialogOpen,
       },
       // Show help
       {
@@ -787,6 +916,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     ],
     [
       handleDownload,
+      handleCreateLink,
       handleEnterEditMode,
       handleEscape,
       handleOpenSearch,
@@ -795,6 +925,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       handleSearchPrevious,
       handleShowHelp,
       handleInsertCodeBlock,
+      handleInsertTable,
+      handleInsertThematicBreak,
       handleToggleFullscreen,
       handleToggleInlineCode,
       editorSearchState.isSearchable,
@@ -803,6 +935,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       isSaving,
       loading,
       searchMatches,
+      unsavedChangesDialogOpen,
     ]
   );
 
@@ -914,6 +1047,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           >
             <ViewerControls
               filename={filename}
+              filenameAdornment={unsavedChangesIndicator}
               toolbarBackground={toolbarBg}
               toolbarText={toolbarText}
               actions={toolbarActions}
@@ -1038,7 +1172,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               <Box
                 data-markdown-search-root="true"
                 sx={{
-                  ...getMarkdownContentStyles(viewerText),
+                  ...getMarkdownContentStyles(viewerText, linkColor, linkHoverColor),
                   [`& ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}`]: {
                     backgroundColor: MARKDOWN_SEARCH_MATCH_COLOR,
                     borderRadius: 0.5,
@@ -1053,7 +1187,43 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeHighlight]}
                   components={{
-                    a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+                    // Destructure `node` (injected by react-markdown's passNode)
+                    // so it is not spread onto the native <a> DOM element.
+                    a: ({ href, node: _node, ...props }) => {
+                      if (typeof href !== "string") {
+                        return <a {...props} />;
+                      }
+
+                      const resolvedHref = resolveMarkdownLinkHref(href);
+
+                      if (!resolvedHref) {
+                        return <span>{props.children}</span>;
+                      }
+
+                      const opensNewTab = !resolvedHref.startsWith(MARKDOWN_HASH_PREFIX);
+
+                      const handleLinkClick = opensNewTab
+                        ? (event: React.MouseEvent) => {
+                            event.preventDefault();
+                            window.open(resolvedHref, "_blank", "noopener,noreferrer");
+
+                            // External links leave focus on the clicked anchor.
+                            // Restore focus to the viewer surface so single-key
+                            // shortcuts keep working when the user returns.
+                            focusViewerContent();
+                          }
+                        : undefined;
+
+                      return (
+                        <a
+                          {...props}
+                          href={resolvedHref}
+                          rel={opensNewTab ? "noopener noreferrer" : undefined}
+                          target={opensNewTab ? "_blank" : undefined}
+                          onClick={handleLinkClick}
+                        />
+                      );
+                    },
                   }}
                 >
                   {content}
@@ -1064,7 +1234,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         </Box>
       </Dialog>
 
-      <Dialog open={unsavedChangesDialogOpen} onClose={handleUnsavedChangesDialogClose} aria-labelledby="markdown-unsaved-changes-title">
+      <Dialog
+        open={unsavedChangesDialogOpen}
+        onClose={handleUnsavedChangesDialogClose}
+        aria-labelledby="markdown-unsaved-changes-title"
+        TransitionProps={{ onEntered: handleUnsavedChangesDialogEntered, onExited: handleUnsavedChangesDialogExited }}
+      >
         <DialogTitle id="markdown-unsaved-changes-title">{t("viewer.edit.unsavedChangesTitle")}</DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ color: "text.primary" }}>
@@ -1074,7 +1249,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleUnsavedChangesDialogClose} disabled={isSaving} autoFocus>
+          <Button ref={unsavedChangesCancelButtonRef} onClick={handleUnsavedChangesDialogClose} disabled={isSaving} autoFocus>
             {t("common.actions.cancel")}
           </Button>
           <Button onClick={() => void handleUnsavedChangesDiscard()} disabled={isSaving} color="warning">
@@ -1097,4 +1272,4 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   );
 };
 
-export default MarkdownViewer;
+export default memo(MarkdownViewer);

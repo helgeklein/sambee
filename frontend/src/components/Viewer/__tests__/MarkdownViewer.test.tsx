@@ -13,6 +13,9 @@ const mockMarkdownEditorBehavior = {
 };
 
 const mockMarkdownEditorCommands = {
+  createLink: vi.fn(),
+  insertTable: vi.fn(),
+  insertThematicBreak: vi.fn(),
   insertCodeBlock: vi.fn(),
   toggleInlineCode: vi.fn(),
 };
@@ -23,6 +26,9 @@ vi.mock("../MarkdownRichEditor", () => {
       focus: () => void;
       nextSearchResult: () => void;
       previousSearchResult: () => void;
+      createLink: () => void;
+      insertTable: () => void;
+      insertThematicBreak: () => void;
       toggleInlineCode: () => void;
       insertCodeBlock: () => void;
     },
@@ -95,6 +101,15 @@ vi.mock("../MarkdownRichEditor", () => {
 
           setCurrentMatch((previousMatch) => (previousMatch <= 1 ? 2 : previousMatch - 1));
         },
+        createLink: () => {
+          mockMarkdownEditorCommands.createLink();
+        },
+        insertTable: () => {
+          mockMarkdownEditorCommands.insertTable();
+        },
+        insertThematicBreak: () => {
+          mockMarkdownEditorCommands.insertThematicBreak();
+        },
         toggleInlineCode: () => {
           mockMarkdownEditorCommands.toggleInlineCode();
         },
@@ -151,6 +166,9 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
     mockMarkdownEditorBehavior.throwOnInsertCodeBlock = false;
     mockMarkdownEditorBehavior.throwOnRender = false;
+    mockMarkdownEditorCommands.createLink.mockReset();
+    mockMarkdownEditorCommands.insertTable.mockReset();
+    mockMarkdownEditorCommands.insertThematicBreak.mockReset();
     mockMarkdownEditorCommands.insertCodeBlock.mockReset();
     mockMarkdownEditorCommands.toggleInlineCode.mockReset();
   });
@@ -354,6 +372,66 @@ describe("MarkdownViewer", () => {
     });
   });
 
+  it("opens rendered markdown links in a new tab while in viewer mode", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("[Docs](https://example.com/docs)\n");
+
+    renderViewer();
+
+    const link = await screen.findByRole("link", { name: "Docs" });
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("opens a markdown link on the first click even before viewer autofocus settles", async () => {
+    const windowOpenSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("[Docs](https://example.com/docs)\n");
+
+    renderViewer();
+
+    const link = await screen.findByRole("link", { name: "Docs" });
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
+    expect(link).toHaveAttribute("target", "_blank");
+
+    // The onClick handler on external links calls window.open() directly,
+    // ensuring the link opens even if the browser misses the native
+    // <a target="_blank"> navigation due to mid-event React re-renders.
+    fireEvent.click(link);
+    expect(windowOpenSpy).toHaveBeenCalledWith("https://example.com/docs", "_blank", "noopener,noreferrer");
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("restores viewer focus after opening an external markdown link so shortcuts still work", async () => {
+    vi.spyOn(window, "open").mockImplementation(() => null);
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("[Docs](https://example.com/docs)\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    const link = await screen.findByRole("link", { name: "Docs" });
+    const viewerContent = link.closest('[tabindex="0"]');
+
+    expect(viewerContent).not.toBeNull();
+
+    act(() => {
+      link.focus();
+    });
+    expect(link).toHaveFocus();
+
+    fireEvent.click(link);
+
+    await waitFor(() => {
+      expect(viewerContent).toHaveFocus();
+    });
+
+    fireEvent.keyDown(document, { key: "e" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    });
+  });
+
   it("keeps edit mode open when discard confirmation is rejected", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
@@ -415,6 +493,80 @@ describe("MarkdownViewer", () => {
     });
 
     expect(await screen.findByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+  });
+
+  it("shows an unsaved indicator in the header when the markdown draft is dirty", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+
+    fireEvent.change(editor, { target: { value: "# Readme\nUpdated\n" } });
+
+    expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("prompts again after dismissing the unsaved changes dialog with Escape", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    const releaseSpy = vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+
+    fireEvent.keyDown(editor, { key: "Escape" });
+    const unsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
+    await waitFor(() => {
+      expect(within(unsavedDialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    });
+
+    fireEvent.keyDown(unsavedDialog, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Unsaved changes" })).not.toBeInTheDocument();
+    });
+
+    const editorAfterDismiss = await screen.findByRole("textbox", { name: "Markdown editor" });
+    await waitFor(() => {
+      expect(document.activeElement).not.toBeNull();
+    });
+
+    expect(releaseSpy).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document.activeElement ?? editorAfterDismiss, { key: "Escape" });
+
+    const reopenedUnsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
+    await waitFor(() => {
+      expect(within(reopenedUnsavedDialog).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    });
+
+    expect(reopenedUnsavedDialog).toBeInTheDocument();
+    expect(releaseSpy).not.toHaveBeenCalled();
   });
 
   it("discards and closes from the unsaved changes dialog", async () => {
@@ -570,6 +722,51 @@ describe("MarkdownViewer", () => {
     fireEvent.keyDown(document, { key: "e", ctrlKey: true });
 
     expect(mockMarkdownEditorCommands.toggleInlineCode).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the create-link dialog from the markdown shortcut", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+
+    expect(mockMarkdownEditorCommands.createLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("inserts a table from the markdown shortcut", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    fireEvent.keyDown(document, { key: "t", ctrlKey: true, altKey: true });
+
+    expect(mockMarkdownEditorCommands.insertTable).toHaveBeenCalledTimes(1);
+  });
+
+  it("inserts a thematic break from the markdown shortcut", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    fireEvent.keyDown(document, { key: "h", ctrlKey: true, altKey: true });
+
+    expect(mockMarkdownEditorCommands.insertThematicBreak).toHaveBeenCalledTimes(1);
   });
 
   it("inserts a code block from the markdown shortcut", async () => {

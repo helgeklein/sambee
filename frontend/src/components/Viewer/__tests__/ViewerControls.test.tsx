@@ -31,6 +31,15 @@ describe("ViewerControls", () => {
     expect(screen.getByText("test.pdf")).toBeInTheDocument();
   });
 
+  it("renders a filename adornment next to the filename", () => {
+    const mockClose = vi.fn();
+
+    render(<ViewerControls filename="test.pdf" filenameAdornment={<span>Unsaved</span>} config={{}} onClose={mockClose} />);
+
+    expect(screen.getByText("test.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+  });
+
   it("renders navigation buttons when configured", () => {
     const mockClose = vi.fn();
     const mockNext = vi.fn();

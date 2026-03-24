@@ -1478,8 +1478,26 @@ const Browser: React.FC = () => {
    * Hides focus ring for mouse/touch to reduce visual clutter.
    */
   useLayoutEffect(() => {
-    const handleKeyDown = () => setIsUsingKeyboard(true);
-    const handlePointerDown = () => setIsUsingKeyboard(false);
+    let rafId = 0;
+
+    const handleKeyDown = () => {
+      // Cancel any pending pointer-triggered update so a quick
+      // key-after-click doesn't get overridden.
+      cancelAnimationFrame(rafId);
+      setIsUsingKeyboard(true);
+    };
+
+    const handlePointerDown = () => {
+      // Defer the state update until after the current event cycle.
+      // Without this, React assigns SyncLane to the update (pointerdown
+      // is a discrete event) and flushes it via microtask between the
+      // pointerdown and click events.  The synchronous re-render cascades
+      // through non-memoised viewer components, causing DOM mutations
+      // (e.g. react-markdown's `node` prop) on the click target that
+      // make the browser lose the click.
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => setIsUsingKeyboard(false));
+    };
 
     // Use capture phase to ensure these run before any other handlers
     window.addEventListener("keydown", handleKeyDown, true);
@@ -1488,6 +1506,7 @@ const Browser: React.FC = () => {
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("pointerdown", handlePointerDown, true);
+      cancelAnimationFrame(rafId);
     };
   }, []);
 

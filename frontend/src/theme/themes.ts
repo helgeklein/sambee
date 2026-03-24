@@ -44,8 +44,8 @@ export const builtInThemes: ThemeConfig[] = [
         textSecondary: "#1F262BB3", // 70% opacity
       },
       link: {
-        main: "#D4A020", // Darker yellow
-        hover: "#F4C430", // Golden yellow on hover
+        main: "#C24400", // Dark for readability
+        hover: "#FF5900", // Lighter on hover for visual feedback
       },
       pdfViewer: {
         viewerBackground: "#F6F1E8", // Default background

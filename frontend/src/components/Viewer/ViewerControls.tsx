@@ -1,6 +1,6 @@
 import { ArrowBack, ArrowForward, Close, Download, IosShare, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
 import { Box, Button, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
@@ -83,6 +83,8 @@ export interface SearchState {
 export interface ViewerControlsProps {
   /** Filename to display in the toolbar */
   filename: string;
+  /** Optional adornment rendered next to the filename */
+  filenameAdornment?: React.ReactNode;
   /** Configuration for which controls to show */
   config: ViewerControlsConfig;
   /** Close handler */
@@ -145,6 +147,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   navigation,
   pageNavigation,
   zoom,
+  filenameAdornment,
   rotation,
   search,
   actions,
@@ -179,17 +182,6 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     }
   }, [pageNavigation]);
 
-  // Focus search input when panel opens
-  useEffect(() => {
-    if (showSearch && searchInputRef.current) {
-      // Use requestAnimationFrame to ensure DOM has updated
-      requestAnimationFrame(() => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
-      });
-    }
-  }, [showSearch]);
-
   const handlePageInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setPageInput(event.target.value);
   };
@@ -200,7 +192,6 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     if (pageNum >= 1 && pageNum <= pageNavigation.totalPages) {
       pageNavigation.onPageChange(pageNum);
     } else {
-      // Reset to current page if invalid
       setPageInput(pageNavigation.currentPage.toString());
     }
   };
@@ -295,33 +286,57 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           minWidth: 0,
         }}
       >
-        <Typography
-          variant={isMobile ? "body2" : "h6"}
+        <Box
           sx={{
             flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            fontSize: RESPONSIVE_FONT_SIZE.BODY,
             minWidth: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: isMobile ? theme.spacing(0.75) : theme.spacing(1),
           }}
         >
-          {filename}
+          <Typography
+            component="span"
+            variant={isMobile ? "body2" : "h6"}
+            sx={{
+              flexShrink: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontSize: RESPONSIVE_FONT_SIZE.BODY,
+              minWidth: 0,
+            }}
+          >
+            {filename}
+          </Typography>
+
+          {filenameAdornment && (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              {filenameAdornment}
+            </Box>
+          )}
+
           {navigation && navigation.totalItems > 1 && (
             <Typography
               component="span"
               variant="caption"
               sx={{
-                ml: { xs: 0.5, sm: 2 },
                 opacity: 0.7,
                 fontSize: RESPONSIVE_FONT_SIZE.CAPTION,
-                display: { xs: "block", sm: "inline" },
+                whiteSpace: "nowrap",
+                flexShrink: 0,
               }}
             >
               {navigation.currentIndex + 1} / {navigation.totalItems}
             </Typography>
           )}
-        </Typography>
+        </Box>
 
         {/* Gallery navigation */}
         {config.navigation && navigation && navigation.totalItems > 1 && !isMobile && (

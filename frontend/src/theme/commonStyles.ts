@@ -1,4 +1,5 @@
 import type { SxProps, Theme } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 
 /**
  * Common reusable style patterns for consistent UI
@@ -6,6 +7,25 @@ import type { SxProps, Theme } from "@mui/material";
 
 /** Focus ring width to match FOCUS_OUTLINE_WIDTH_PX from theme constants */
 const FOCUS_RING_WIDTH = 3;
+const CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH = 1;
+
+function getPrimaryAccentColor(theme: Theme): string {
+  return theme.palette.primary.dark ?? theme.palette.primary.main;
+}
+
+function getContainedButtonFocusAccentColor(theme: Theme): string {
+  return theme.palette.action.focus ?? getPrimaryAccentColor(theme);
+}
+
+export function getElevatedButtonFocusRing(theme: Theme): string {
+  const ringColor = alpha(getPrimaryAccentColor(theme), theme.palette.mode === "dark" ? 0.38 : 0.24);
+
+  return `0 0 0 ${FOCUS_RING_WIDTH}px ${ringColor}`;
+}
+
+export function getContainedButtonFocusVisibleBoxShadow(theme: Theme, shadowIndex = 3): string {
+  return `${theme.shadows[shadowIndex]}, 0 0 0 ${CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH}px ${getContainedButtonFocusAccentColor(theme)}`;
+}
 
 /**
  * fileNamePillSx

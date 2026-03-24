@@ -46,6 +46,8 @@ export interface ViewerColors {
 /** Extended colors for markdown viewer (includes text color) */
 export interface MarkdownViewerColors extends ViewerColors {
   viewerText: string;
+  linkColor: string;
+  linkHoverColor: string;
 }
 
 //
@@ -91,6 +93,8 @@ export function getViewerColors(theme: ThemeConfig, viewerType: "image" | "pdf" 
         toolbarBg: theme.components?.markdownViewer?.toolbarBackground || VIEWER_DEFAULTS.TOOLBAR_BG,
         toolbarText: theme.components?.markdownViewer?.toolbarText || VIEWER_DEFAULTS.TOOLBAR_TEXT,
         viewerText: theme.components?.markdownViewer?.viewerText || VIEWER_DEFAULTS.MARKDOWN_VIEWER_TEXT,
+        linkColor: theme.components?.link?.main || theme.primary.main,
+        linkHoverColor: theme.components?.link?.hover || theme.primary.dark || theme.primary.main,
       };
   }
 }
@@ -101,8 +105,6 @@ export function getViewerColors(theme: ThemeConfig, viewerType: "image" | "pdf" 
 
 /**
  * GitHub-flavored markdown styling colors.
- * Currently uses fixed colors for consistent GitHub-like appearance.
- * Future enhancement: could support light/dark mode variants.
  */
 export const MARKDOWN_COLORS = {
   /** Code block and inline code background */
@@ -117,41 +119,42 @@ export const MARKDOWN_COLORS = {
   ROW_BG_ALT: "#f6f8fa",
   /** Blockquote text color */
   MUTED_TEXT: "#6a737d",
-  /** Link color */
-  LINK: "#0366d6",
   /** Heading border */
   HEADING_BORDER: "#eaecef",
 } as const;
 
-//
-// getMarkdownContentStyles
-//
-
-/**
- * Get the sx prop for styling markdown content.
- * Encapsulates all GitHub-flavored markdown styling.
- *
- * @param viewerText - Text color for the markdown content
- * @returns SxProps for the markdown container
- */
-export function getMarkdownContentStyles(viewerText: string): SxProps<Theme> {
+function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
   return {
-    // Layout
-    minHeight: 0,
-    minWidth: 0,
-    width: "100%",
-    maxWidth: "100%",
-    p: { xs: 2, sm: 4 },
     color: viewerText,
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    lineHeight: 1.5,
 
-    // Ensure all children respect container width
+    // Ensure all children respect container width.
     "& *": {
       boxSizing: "border-box",
       minWidth: 0,
       maxWidth: "100%",
     },
 
-    // Code blocks: fixed width with internal scrolling
+    // Keep block spacing consistent between viewer and editor.
+    "& p, & ul, & ol, & blockquote, & pre, & table": {
+      marginTop: 0,
+      marginBottom: "16px",
+    },
+    "& ul, & ol": {
+      paddingLeft: "2em",
+    },
+    "& ul ul, & ul ol, & ol ul, & ol ol": {
+      marginTop: 0,
+      marginBottom: 0,
+    },
+    "& li": {
+      marginTop: "0.25em",
+      marginBottom: "0.25em",
+    },
+
+    // Code blocks: fixed width with internal scrolling.
     "& pre": {
       backgroundColor: MARKDOWN_COLORS.CODE_BG,
       borderRadius: 1,
@@ -160,7 +163,7 @@ export function getMarkdownContentStyles(viewerText: string): SxProps<Theme> {
       width: "100%",
     },
 
-    // Inline code: break long words
+    // Inline code: break long words.
     "& code": {
       backgroundColor: MARKDOWN_COLORS.CODE_BG,
       padding: "0.2em 0.4em",
@@ -169,25 +172,24 @@ export function getMarkdownContentStyles(viewerText: string): SxProps<Theme> {
       overflowWrap: "break-word",
     },
 
-    // Code inside pre: preserve formatting (don't break)
+    // Code inside pre: preserve formatting (don't break).
     "& pre code": {
       padding: 0,
       backgroundColor: "transparent",
       overflowWrap: "normal",
     },
 
-    // Images: scale to fit
+    // Images: scale to fit.
     "& img": {
       maxWidth: "100%",
       height: "auto",
       display: "block",
     },
 
-    // Tables: horizontal scroll if too wide
+    // Tables: horizontal scroll if too wide.
     "& table": {
       borderCollapse: "collapse",
       width: "100%",
-      marginBottom: "16px",
       display: "block",
       overflowX: "auto",
     },
@@ -203,15 +205,16 @@ export function getMarkdownContentStyles(viewerText: string): SxProps<Theme> {
       backgroundColor: MARKDOWN_COLORS.ROW_BG_ALT,
     },
 
-    // Blockquotes
+    // Blockquotes.
     "& blockquote": {
       borderLeft: `4px solid ${MARKDOWN_COLORS.BORDER}`,
-      margin: "0",
+      marginTop: 0,
+      marginBottom: "16px",
       paddingLeft: "16px",
       color: MARKDOWN_COLORS.MUTED_TEXT,
     },
 
-    // Headings: break long words
+    // Headings: break long words.
     "& h1, & h2, & h3, & h4, & h5, & h6": {
       marginTop: "24px",
       marginBottom: "16px",
@@ -233,14 +236,48 @@ export function getMarkdownContentStyles(viewerText: string): SxProps<Theme> {
       fontSize: "1.25em",
     },
 
-    // Links
+    // Links.
     "& a": {
-      color: MARKDOWN_COLORS.LINK,
+      color: linkColor,
       textDecoration: "none",
       overflowWrap: "break-word",
       "&:hover": {
-        textDecoration: "underline",
+        color: linkHoverColor,
       },
     },
+  };
+}
+
+//
+// getMarkdownContentStyles
+//
+
+/**
+ * Get the sx prop for styling markdown content.
+ * Encapsulates all GitHub-flavored markdown styling.
+ *
+ * @param viewerText - Text color for the markdown content
+ * @param linkColor - Default color for markdown links
+ * @param linkHoverColor - Hover color for markdown links
+ * @returns SxProps for the markdown container
+ */
+export function getMarkdownContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+  return {
+    // Layout
+    minHeight: 0,
+    minWidth: 0,
+    width: "100%",
+    maxWidth: "100%",
+    p: { xs: 2, sm: 4 },
+    ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
+  };
+}
+
+export function getMarkdownEditorContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+  return {
+    minHeight: "100%",
+    padding: 0,
+    caretColor: viewerText,
+    ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
   };
 }

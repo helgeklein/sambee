@@ -2,12 +2,12 @@
 
 - Use defensive programming.
 - Follow the DRY principle.
-- Favor simply, robust, elegant solutions.
+- Favor simple, robust, elegant solutions.
 - Don't use hacks. Find the root cause and fix problems properly.
 
 ### Error handling and logging
 
-- All potential errors should be handled. The user should not see stack traces, but clear, concise log messages.
+- All potential errors, exceptions, and return values must be handled properly.
 - Log messages should be specific to the situation and contain actionable info for the user.
 
 ## AI behavior
@@ -16,7 +16,8 @@
 
 ## Correctness
 
-- Always run lint after making changes and fix any warnings or errors.
+- Always run lint and relevant tests after making changes and fix any warnings or errors.
+- Run individual test with plain commands only.
 
 ## Coding style
 

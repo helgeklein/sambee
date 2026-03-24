@@ -1,6 +1,7 @@
 import { render, waitFor } from "@testing-library/react";
-import { type ForwardedRef, forwardRef } from "react";
+import { type ComponentProps, type ForwardedRef, forwardRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { SambeeThemeProvider } from "../../../theme";
 import MarkdownRichEditor from "../MarkdownRichEditor";
 
 const { mockCodeBlockPlugin, mockCodeMirrorPlugin } = vi.hoisted(() => ({
@@ -9,7 +10,10 @@ const { mockCodeBlockPlugin, mockCodeMirrorPlugin } = vi.hoisted(() => ({
 }));
 
 const mockApplyFormat = vi.fn();
+const mockCreateLink = vi.fn();
 const mockInsertCodeBlock = vi.fn();
+const mockInsertTable = vi.fn();
+const mockInsertThematicBreak = vi.fn();
 const mockDispatchCommand = vi.fn();
 const mockRegisterCommand = vi.fn(() => vi.fn());
 
@@ -29,8 +33,20 @@ vi.mock("@mdxeditor/gurx", () => ({
     return [0, (iconName: string) => iconName];
   },
   usePublisher: (signal: unknown) => {
+    if (String(signal).includes("openLinkEditDialog")) {
+      return mockCreateLink;
+    }
+
     if (String(signal).includes("insertCodeBlock")) {
       return mockInsertCodeBlock;
+    }
+
+    if (String(signal).includes("insertTable")) {
+      return mockInsertTable;
+    }
+
+    if (String(signal).includes("insertThematicBreak")) {
+      return mockInsertThematicBreak;
     }
 
     return mockApplyFormat;
@@ -62,7 +78,11 @@ vi.mock("@mdxeditor/editor", () => {
     ListsToggle: passthroughComponent,
     MDXEditor: forwardRef(
       (
-        props: { plugins?: Array<{ type?: string; params?: { toolbarContents?: () => unknown } }>; autoFocus?: boolean | object },
+        props: {
+          plugins?: Array<{ type?: string; params?: { toolbarContents?: () => unknown } }>;
+          autoFocus?: boolean | object;
+          contentEditableClassName?: string;
+        },
         _ref: ForwardedRef<unknown>
       ) => (
         <div data-testid="mock-mdx-editor">
@@ -77,13 +97,14 @@ vi.mock("@mdxeditor/editor", () => {
                 <div key={plugin.type}>{plugin.params?.toolbarContents?.()}</div>
               ))}
           </div>
-          <textarea aria-label="Mock editor input" defaultValue="" />
+          <textarea aria-label="Mock editor input" className={props.contentEditableClassName} defaultValue="" />
         </div>
       )
     ),
     Separator: passthroughComponent,
     UndoRedo: passthroughComponent,
     diffSourcePlugin: (params?: unknown) => ({ type: "diffSourcePlugin", params }),
+    editorInTable$: Symbol("editorInTable"),
     headingsPlugin: (params?: unknown) => ({ type: "headingsPlugin", params }),
     linkDialogPlugin: () => ({ type: "linkDialogPlugin" }),
     linkPlugin: () => ({ type: "linkPlugin" }),
@@ -103,11 +124,13 @@ vi.mock("@mdxeditor/editor", () => {
         {children}
       </button>
     ),
-    useCellValue: () => "rich-text",
+    useCellValue: (signal: unknown) => (String(signal).includes("editorInTable") ? false : "rich-text"),
     useEditorSearch: () => mockSearchState,
     currentFormat$: Symbol("currentFormat"),
     iconComponentFor$: Symbol("iconComponentFor"),
     insertCodeBlock$: Symbol("insertCodeBlock"),
+    insertTable$: Symbol("insertTable"),
+    insertThematicBreak$: Symbol("insertThematicBreak"),
     IS_APPLE: false,
     IS_BOLD: 1,
     IS_CODE: 16,
@@ -123,15 +146,27 @@ vi.mock("@mdxeditor/editor", () => {
       </div>
     ),
     viewMode$: Symbol("viewMode"),
+    openLinkEditDialog$: Symbol("openLinkEditDialog"),
   };
 });
 
 describe("MarkdownRichEditor", () => {
+  function renderEditor(props: ComponentProps<typeof MarkdownRichEditor>) {
+    return render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor {...props} />
+      </SambeeThemeProvider>
+    );
+  }
+
   beforeEach(() => {
     mockApplyFormat.mockReset();
+    mockCreateLink.mockReset();
     mockCodeBlockPlugin.mockClear();
     mockCodeMirrorPlugin.mockClear();
     mockInsertCodeBlock.mockReset();
+    mockInsertTable.mockReset();
+    mockInsertThematicBreak.mockReset();
     mockDispatchCommand.mockReset();
     mockRegisterCommand.mockClear();
     mockSearchState.closeSearch.mockReset();
@@ -146,7 +181,7 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("activates the first search result when a new query has matches", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", searchText: "alpha", searchOpen: true });
 
     await waitFor(() => {
       expect(mockSearchState.setSearch).toHaveBeenCalledWith("alpha");
@@ -156,15 +191,23 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("passes native autofocus through to MDXEditor when requested", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" autoFocus={true} />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", autoFocus: true });
 
     await waitFor(() => {
       expect(document.querySelector('[data-testid="mock-mdx-editor-autofocus"]')).toHaveTextContent("true");
     });
   });
 
+  it("applies the shared markdown content class to the editor surface", async () => {
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(document.querySelector('textarea[aria-label="Mock editor input"]')).toHaveClass("sambee-markdown-editor-content");
+    });
+  });
+
   it("stops autofocus after the editor input is focused so toolbar interactions keep focus", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" autoFocus={true} />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", autoFocus: true });
 
     const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
     const toolbarButton = document.querySelector(".mdxeditor-toolbar [data-toolbar-item]");
@@ -187,7 +230,7 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("uses editor tooltip metadata instead of native title attributes", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
 
     await waitFor(() => {
       expect(document.querySelector('[data-editor-tooltip="Bold (Ctrl+B)"]')).toBeInTheDocument();
@@ -196,16 +239,19 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("renders inline code and code block toolbar buttons with shortcut titles", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
 
     await waitFor(() => {
+      expect(document.querySelector('[data-editor-tooltip="Create link (Ctrl+K)"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-editor-tooltip="Insert table (Ctrl+Alt+T)"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-editor-tooltip="Insert thematic break (Ctrl+Alt+H)"]')).toBeInTheDocument();
       expect(document.querySelector('[data-editor-tooltip="Inline code format (Ctrl+E)"]')).toBeInTheDocument();
       expect(document.querySelector('[data-editor-tooltip="Insert code block (Ctrl+Shift+E)"]')).toBeInTheDocument();
     });
   });
 
   it("registers a default plain-text code block editor for inserted code blocks", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
 
     await waitFor(() => {
       expect(mockCodeBlockPlugin).toHaveBeenCalledWith({ defaultCodeBlockLanguage: "txt" });
@@ -223,7 +269,7 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("formats undo redo and inline formatting tooltips consistently", async () => {
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
 
     await waitFor(() => {
       expect(document.querySelector('[data-editor-tooltip="Undo (Ctrl+Z)"]')).toBeInTheDocument();
@@ -238,7 +284,7 @@ describe("MarkdownRichEditor", () => {
     popupContainer.className = "mdxeditor-popup-container sambee-markdown-editor-popup";
     document.body.appendChild(popupContainer);
 
-    render(<MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" className="sambee-markdown-editor" />);
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", className: "sambee-markdown-editor" });
 
     await waitFor(() => {
       expect(popupContainer.style.zIndex).toBe("10000");
