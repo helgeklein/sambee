@@ -95,10 +95,23 @@ These formats are automatically converted to JPEG/PNG on the server for browser 
 - **Markdown** (`.md`, `.markdown`) - `text/markdown`
 
 **Features:**
+- Read-only rendered Markdown view by default
 - Syntax highlighting for code blocks
 - GitHub-flavored Markdown support
 - Responsive formatting
 - Link handling
+- In-view search with match navigation
+- Explicit edit mode with rich Markdown editing
+- In-edit search with match navigation in rich-text mode
+- Save and cancel actions for editing
+- Keyboard shortcuts for search, edit, save, and match navigation
+
+**Notes:**
+- Search works in the rendered viewer and highlights visible Markdown content
+- Editing is entered explicitly from the viewer
+- While editing, the shared viewer search bar searches the rich-text editor content
+- The shared viewer search bar is unavailable in Markdown source and diff modes; those modes rely on the editor's own source-mode search behavior
+- Edit locking is supported for server-backed connections to avoid concurrent edits
 
 ## Unsupported File Types
 

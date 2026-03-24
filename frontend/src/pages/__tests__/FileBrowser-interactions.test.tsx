@@ -14,6 +14,7 @@ import {
   createMarkdownViewerMock,
   createNetworkError,
   createNotFoundError,
+  createTimeoutError,
   createUnauthorizedError,
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
@@ -1079,7 +1080,15 @@ describe("Browser Component - Interactions", () => {
 
       renderBrowser("/browse/smb/test-server-1");
 
-      expect(await screen.findByText(/Failed to load directory contents. Please try again/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Failed to load files. Please check your connection settings/i)).toBeInTheDocument();
+    });
+
+    it("handles timeout errors with a dedicated message", async () => {
+      vi.mocked(api.listDirectory).mockRejectedValue(createTimeoutError());
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      expect(await screen.findByText(/Directory listing timed out. The remote share took too long to respond/i)).toBeInTheDocument();
     });
   });
 

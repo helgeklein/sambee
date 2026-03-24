@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
+from app.api._smb_helpers import build_smb_backend_from_details, disconnect_backend_safely
 from app.core.logging import get_logger, set_user
 from app.core.security import decrypt_password, encrypt_password, get_current_user_with_auth_check
 from app.db.database import get_session
@@ -39,20 +40,34 @@ async def _test_connection_details(
     password: str,
     port: int,
     path_prefix: str | None,
-) -> None:
+) -> int:
     """Validate that a connection can authenticate and list its base directory."""
 
-    backend = SMBBackend(
+    backend = build_smb_backend_from_details(
         host=host,
         share_name=share_name,
         username=username,
         password=password,
         port=port,
-        path_prefix=path_prefix or "/",
+        path_prefix=path_prefix,
+        backend_factory=SMBBackend,
     )
     await backend.connect()
-    await backend.list_directory("")
-    await backend.disconnect()
+    try:
+        listing = await backend.list_directory("")
+    finally:
+        await disconnect_backend_safely(
+            backend,
+            logger=logger,
+            context=f"connection validation for //{host}:{port}/{share_name}",
+        )
+
+    total = getattr(listing, "total", None)
+    if isinstance(total, int):
+        return total
+    if hasattr(listing, "__len__"):
+        return len(listing)
+    return 0
 
 
 @router.get("/connections", response_model=list[ConnectionRead])
@@ -99,6 +114,15 @@ async def test_connection_config(
             port=connection_data.port,
             path_prefix=connection_data.path_prefix,
         )
+    except TimeoutError as error:
+        logger.error(
+            f"Connection test timed out: host={connection_data.host}, share={connection_data.share_name}, user={current_user.username}, error={error}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Connection test timed out. The remote share did not respond in time.",
+        )
     except Exception as error:
         logger.error(
             f"Connection test failed: host={connection_data.host}, share={connection_data.share_name}, user={current_user.username}, error={type(error).__name__}: {error}",
@@ -136,6 +160,15 @@ async def create_connection(
             path_prefix=connection_data.path_prefix,
         )
         logger.info(f"Connection test successful: name={connection_data.name}")
+    except TimeoutError as error:
+        logger.error(
+            f"Connection test timed out: name={connection_data.name}, host={connection_data.host}, share={connection_data.share_name}, error={error}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Connection test timed out. The remote share did not respond in time.",
+        )
     except Exception as error:
         logger.error(
             f"Connection test failed: name={connection_data.name}, host={connection_data.host}, "
@@ -222,6 +255,11 @@ async def update_connection(
                 port=test_port,
                 path_prefix=update_dict.get("path_prefix", connection.path_prefix),
             )
+        except TimeoutError:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Connection test timed out. The remote share did not respond in time.",
+            )
         except Exception as error:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -293,7 +331,7 @@ async def test_connection(
         )
 
     try:
-        await _test_connection_details(
+        listing_total = await _test_connection_details(
             host=connection.host,
             share_name=connection.share_name,
             username=connection.username,
@@ -301,21 +339,15 @@ async def test_connection(
             port=connection.port,
             path_prefix=connection.path_prefix,
         )
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=connection.share_name,
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
-        await backend.connect()
-        listing = await backend.list_directory("")
-        await backend.disconnect()
 
         return {
             "status": "success",
-            "message": f"Successfully connected. Found {listing.total} items in root directory.",
+            "message": f"Successfully connected. Found {listing_total} items in root directory.",
         }
+    except TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Connection test timed out. The remote share did not respond in time.",
+        )
     except Exception as error:
         return {"status": "error", "message": str(error)}

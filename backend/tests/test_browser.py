@@ -228,6 +228,27 @@ class TestGetFileInfo:
         assert response.status_code == 404
         assert response.json()["detail"] == "Path not found: /missing.txt"
 
+    def test_get_file_info_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Timed out SMB file-info requests should surface as 504 responses."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.get_file_info.side_effect = TimeoutError("SMB operation timed out during get_file_info")
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/info",
+            headers=auth_headers_user,
+            params={"path": "/slow.txt"},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "File info request timed out. The remote share did not respond in time."
+        mock_instance.disconnect.assert_called_once()
+
 
 @pytest.mark.unit
 class TestFileInfoModel:
@@ -434,6 +455,27 @@ class TestDeleteItem:
         )
         assert response.status_code == 500
 
+    def test_delete_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Timed out SMB deletes should surface as 504 responses."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.delete_item.side_effect = TimeoutError("SMB operation timed out while deleting: /document.txt")
+
+        response = client.delete(
+            f"/api/browse/{test_connection.id}/item",
+            headers=auth_headers_user,
+            params={"path": "/document.txt"},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Delete timed out. The remote share did not respond in time."
+        mock_instance.disconnect.assert_called_once()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Rename file or directory
@@ -637,6 +679,27 @@ class TestRenameItem:
             json={"path": "/document.txt", "new_name": "renamed.txt"},
         )
         assert response.status_code == 500
+
+    def test_rename_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Timed out SMB renames should surface as 504 responses."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.rename_item.side_effect = TimeoutError("SMB operation timed out while renaming: /document.txt")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/rename",
+            headers=auth_headers_user,
+            json={"path": "/document.txt", "new_name": "renamed.txt"},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Rename timed out. The remote share did not respond in time."
+        mock_instance.disconnect.assert_called_once()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -869,6 +932,27 @@ class TestCreateItem:
             json={"parent_path": "/", "name": "folder", "type": "directory"},
         )
         assert response.status_code == 500
+
+    def test_create_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Timed out SMB creates should surface as 504 responses."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.create_directory.side_effect = TimeoutError("SMB operation timed out while creating directory: folder")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/create",
+            headers=auth_headers_user,
+            json={"parent_path": "/", "name": "folder", "type": "directory"},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Create timed out. The remote share did not respond in time."
+        mock_instance.disconnect.assert_called_once()
 
     def test_create_strips_whitespace_from_name(
         self,
@@ -1131,6 +1215,30 @@ class TestUploadFile:
 
         assert response.status_code == 500
 
+    def test_upload_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        test_connection: Connection,
+    ):
+        """Timed out SMB uploads should surface as 504 responses."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            instance = AsyncMock()
+            instance.write_file = AsyncMock(side_effect=TimeoutError("SMB operation timed out while writing: /docs/report.docx"))
+            MockBackend.return_value = instance
+
+            response = client.post(
+                f"/api/browse/{test_connection.id}/upload",
+                params={"path": "/docs/report.docx"},
+                files={"file": ("report.docx", b"content", "application/octet-stream")},
+                headers=auth_headers_admin,
+            )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Upload timed out. The remote share did not respond in time."
+        instance.disconnect.assert_called_once()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Copy file or directory
@@ -1318,6 +1426,27 @@ class TestCopyItem:
             json={"source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 500
+
+    def test_copy_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Timed out SMB copies should surface as 504 responses."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.copy_item.side_effect = TimeoutError("SMB operation timed out while copying: a.txt")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/copy",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Copy timed out. The remote share did not respond in time."
+        mock_instance.disconnect.assert_called_once()
 
     def test_copy_cross_connection_success(
         self,
@@ -1552,6 +1681,27 @@ class TestMoveItem:
             json={"source_path": "a.txt", "dest_path": "b.txt"},
         )
         assert response.status_code == 500
+
+    def test_move_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Timed out SMB moves should surface as 504 responses."""
+        mock_class, mock_instance = mock_smb_backend
+        mock_instance.move_item.side_effect = TimeoutError("SMB operation timed out while moving: a.txt")
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/move",
+            headers=auth_headers_user,
+            json={"source_path": "a.txt", "dest_path": "b.txt"},
+        )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Move timed out. The remote share did not respond in time."
+        mock_instance.disconnect.assert_called_once()
 
     def test_move_cross_connection_success(
         self,

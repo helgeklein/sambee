@@ -21,7 +21,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 
 import { useDirectorySearchProvider } from "../../components/FileBrowser/search";
 import api from "../../services/api";
-import { isLocalAbortOrClientTimeout } from "../../services/backendAvailability";
+import { isClientTimeoutError, isLocalAbortError } from "../../services/backendAvailability";
 import { isLocalDrive } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
@@ -48,6 +48,9 @@ const DIRECTORY_CACHE_TTL_MS = 30_000;
  * reloads within this window are suppressed to avoid double-fetches.
  */
 const RELOAD_DEDUP_WINDOW_MS = 2_000;
+const DIRECTORY_LOAD_GENERIC_ERROR = "Failed to load directory contents. Please try again.";
+const DIRECTORY_LOAD_NETWORK_ERROR = "Failed to load files. Please check your connection settings.";
+const DIRECTORY_LOAD_TIMEOUT_ERROR = "Directory listing timed out. The remote share took too long to respond.";
 
 // ============================================================================
 // Helpers
@@ -351,7 +354,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         setFiles(items);
       } catch (err) {
-        if (abortController.signal.aborted || isLocalAbortOrClientTimeout(err)) {
+        if (abortController.signal.aborted || isLocalAbortError(err)) {
           return;
         }
 
@@ -376,18 +379,31 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
         logger.error("Error loading directory", { error: err, connectionId: targetConnectionId, path: targetPath }, "browser");
 
-        let errorMessage = "Failed to load directory contents. Please try again.";
+        let errorMessage = DIRECTORY_LOAD_GENERIC_ERROR;
 
-        if (err && typeof err === "object" && "message" in err && !isApiError(err)) {
+        if (isClientTimeoutError(err)) {
+          errorMessage = DIRECTORY_LOAD_TIMEOUT_ERROR;
+        } else if (err && typeof err === "object" && "message" in err) {
           const error = err as Error & { code?: string };
           const message = error.message;
           if (message.includes("Network Error") || message.includes("ECONNREFUSED") || error.code === "ECONNREFUSED") {
-            errorMessage = "Failed to load files. Please check your connection settings.";
+            errorMessage = DIRECTORY_LOAD_NETWORK_ERROR;
+          } else if (isApiError(err)) {
+            if (err.response?.status === 404) {
+              const detail = err.response?.data?.detail;
+              errorMessage = detail || "Directory not found. It may have been removed or renamed.";
+            } else if (err.response?.status === 504) {
+              errorMessage = err.response?.data?.detail || DIRECTORY_LOAD_TIMEOUT_ERROR;
+            } else if (err.response?.data?.detail) {
+              errorMessage = err.response.data.detail;
+            }
           }
         } else if (isApiError(err)) {
           if (err.response?.status === 404) {
             const detail = err.response?.data?.detail;
             errorMessage = detail || "Directory not found. It may have been removed or renamed.";
+          } else if (err.response?.status === 504) {
+            errorMessage = err.response?.data?.detail || DIRECTORY_LOAD_TIMEOUT_ERROR;
           } else if (err.response?.data?.detail) {
             errorMessage = err.response.data.detail;
           }

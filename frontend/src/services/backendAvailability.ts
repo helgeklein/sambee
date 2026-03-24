@@ -117,9 +117,9 @@ function getErrorMessage(error: unknown): string {
   return "";
 }
 
-export function isLocalAbortOrClientTimeout(error: unknown): boolean {
+export function isLocalAbortError(error: unknown): boolean {
   const code = getErrorCode(error);
-  if (code && ["ERR_CANCELED", "ECONNABORTED"].includes(code)) {
+  if (code === "ERR_CANCELED") {
     return true;
   }
 
@@ -129,7 +129,21 @@ export function isLocalAbortOrClientTimeout(error: unknown): boolean {
   }
 
   const message = getErrorMessage(error).toLowerCase();
-  return message.includes("timeout of") || message.includes("aborted");
+  return message.includes("aborted");
+}
+
+export function isClientTimeoutError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  if (code === "ECONNABORTED") {
+    return true;
+  }
+
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes("timeout of") || message.includes("timed out");
+}
+
+export function isLocalAbortOrClientTimeout(error: unknown): boolean {
+  return isLocalAbortError(error) || isClientTimeoutError(error);
 }
 
 export function isBackendConnectivityError(error: unknown): boolean {

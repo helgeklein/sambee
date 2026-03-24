@@ -1,0 +1,633 @@
+import {
+  activeEditor$,
+  applyFormat$,
+  BlockTypeSelect,
+  ButtonWithTooltip,
+  CreateLink,
+  codeBlockPlugin,
+  codeMirrorPlugin,
+  currentFormat$,
+  DiffSourceToggleWrapper,
+  diffSourcePlugin,
+  headingsPlugin,
+  InsertTable,
+  InsertThematicBreak,
+  IS_APPLE,
+  IS_BOLD,
+  IS_CODE,
+  IS_ITALIC,
+  IS_UNDERLINE,
+  iconComponentFor$,
+  insertCodeBlock$,
+  ListsToggle,
+  linkDialogPlugin,
+  linkPlugin,
+  listsPlugin,
+  MDXEditor,
+  type MDXEditorMethods,
+  MultipleChoiceToggleGroup,
+  markdownShortcutPlugin,
+  quotePlugin,
+  Separator,
+  searchPlugin,
+  tablePlugin,
+  thematicBreakPlugin,
+  toolbarPlugin,
+  useCellValue,
+  useEditorSearch,
+  viewMode$,
+} from "@mdxeditor/editor";
+import "@mdxeditor/editor/style.css";
+import { mergeRegister } from "@lexical/utils";
+import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
+import { CAN_REDO_COMMAND, CAN_UNDO_COMMAND, COMMAND_PRIORITY_CRITICAL, REDO_COMMAND, UNDO_COMMAND } from "lexical";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
+import { withShortcut } from "../../hooks/useKeyboardShortcuts";
+import { Z_INDEX } from "../../theme/constants";
+
+const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
+const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
+const MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE = "txt";
+const MARKDOWN_CODE_BLOCK_LANGUAGES = {
+  txt: "Plain text",
+  css: "CSS",
+  js: "JavaScript",
+  jsx: "JavaScript (React)",
+  ts: "TypeScript",
+  tsx: "TypeScript (React)",
+} as const;
+
+export interface MarkdownRichEditorHandle {
+  focus: () => void;
+  nextSearchResult: () => void;
+  previousSearchResult: () => void;
+  toggleInlineCode: () => void;
+  insertCodeBlock: () => void;
+}
+
+export interface MarkdownRichEditorSearchState {
+  searchText: string;
+  searchMatches: number;
+  currentMatch: number;
+  isSearchOpen: boolean;
+  isSearchable: boolean;
+  viewMode: "rich-text" | "source" | "diff";
+}
+
+export interface MarkdownRichEditorProps {
+  markdown: string;
+  diffMarkdown?: string;
+  onChange: (markdown: string) => void;
+  onUserEdit?: () => void;
+  ariaLabel: string;
+  autoFocus?: boolean;
+  readOnly?: boolean;
+  className?: string;
+  searchText?: string;
+  searchOpen?: boolean;
+  onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
+}
+
+interface MarkdownRichEditorSearchCommands {
+  nextSearchResult: () => void;
+  previousSearchResult: () => void;
+}
+
+interface MarkdownRichEditorFormattingCommands {
+  toggleInlineCode: () => void;
+  insertCodeBlock: () => void;
+}
+
+interface MarkdownRichEditorSearchBridgeProps {
+  searchText: string;
+  searchOpen: boolean;
+  onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
+  onCommandsChange: (commands: MarkdownRichEditorSearchCommands | null) => void;
+}
+
+const NOOP_SEARCH_COMMANDS: MarkdownRichEditorSearchCommands = {
+  nextSearchResult: () => {},
+  previousSearchResult: () => {},
+};
+
+const NOOP_FORMATTING_COMMANDS: MarkdownRichEditorFormattingCommands = {
+  toggleInlineCode: () => {},
+  insertCodeBlock: () => {},
+};
+
+const MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS = {
+  bold: "Ctrl+B",
+  italic: "Ctrl+I",
+  underline: "Ctrl+U",
+  undo: IS_APPLE ? "Cmd+Z" : "Ctrl+Z",
+  redo: IS_APPLE ? "Cmd+Y" : "Ctrl+Y",
+} as const;
+
+function formatEditorTooltip(label: string, shortcutLabel?: string): string {
+  return shortcutLabel ? `${label} (${shortcutLabel})` : label;
+}
+
+const MarkdownRichEditorFormattingBridge = ({
+  onCommandsChange,
+}: {
+  onCommandsChange: (commands: MarkdownRichEditorFormattingCommands | null) => void;
+}) => {
+  const applyFormat = usePublisher(applyFormat$);
+  const insertCodeBlock = usePublisher(insertCodeBlock$);
+
+  useEffect(() => {
+    onCommandsChange({
+      toggleInlineCode: () => {
+        applyFormat("code");
+      },
+      insertCodeBlock: () => {
+        insertCodeBlock({});
+      },
+    });
+
+    return () => {
+      onCommandsChange(null);
+    };
+  }, [applyFormat, insertCodeBlock, onCommandsChange]);
+
+  return null;
+};
+
+interface MarkdownFormattingToggleDefinition {
+  format: number;
+  formatName: "bold" | "italic" | "underline";
+  icon: string;
+  shortcutLabel: string;
+  addLabel: string;
+  removeLabel: string;
+}
+
+const MarkdownInlineFormattingToggles = () => {
+  const { t } = useTranslation();
+  const [currentFormat, iconComponentFor] = useCellValues(currentFormat$, iconComponentFor$);
+  const applyFormat = usePublisher(applyFormat$);
+  const toggleDefinitions: MarkdownFormattingToggleDefinition[] = [
+    {
+      format: IS_BOLD,
+      formatName: "bold",
+      icon: "format_bold",
+      shortcutLabel: MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.bold,
+      addLabel: t("viewer.edit.bold", { defaultValue: "Bold" }),
+      removeLabel: t("viewer.edit.removeBold", { defaultValue: "Remove bold" }),
+    },
+    {
+      format: IS_ITALIC,
+      formatName: "italic",
+      icon: "format_italic",
+      shortcutLabel: MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.italic,
+      addLabel: t("viewer.edit.italic", { defaultValue: "Italic" }),
+      removeLabel: t("viewer.edit.removeItalic", { defaultValue: "Remove italic" }),
+    },
+    {
+      format: IS_UNDERLINE,
+      formatName: "underline",
+      icon: "format_underlined",
+      shortcutLabel: MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.underline,
+      addLabel: t("viewer.edit.underline", { defaultValue: "Underline" }),
+      removeLabel: t("viewer.edit.removeUnderline", { defaultValue: "Remove underline" }),
+    },
+  ];
+
+  return (
+    <MultipleChoiceToggleGroup
+      items={toggleDefinitions.map(({ addLabel, format, formatName, icon, removeLabel, shortcutLabel }) => {
+        const active = (currentFormat & format) !== 0;
+
+        return {
+          title: formatEditorTooltip(active ? removeLabel : addLabel, shortcutLabel),
+          contents: iconComponentFor(icon),
+          active,
+          onChange: () => {
+            applyFormat(formatName);
+          },
+        };
+      })}
+    />
+  );
+};
+
+const MarkdownUndoRedoControls = () => {
+  const { t } = useTranslation();
+  const [iconComponentFor, activeEditor] = useCellValues(iconComponentFor$, activeEditor$);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  useEffect(() => {
+    if (!activeEditor) {
+      return;
+    }
+
+    return mergeRegister(
+      activeEditor.registerCommand(
+        CAN_UNDO_COMMAND,
+        (payload) => {
+          setCanUndo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL
+      ),
+      activeEditor.registerCommand(
+        CAN_REDO_COMMAND,
+        (payload) => {
+          setCanRedo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL
+      )
+    );
+  }, [activeEditor]);
+
+  return (
+    <MultipleChoiceToggleGroup
+      items={[
+        {
+          title: formatEditorTooltip(t("viewer.edit.undo", { defaultValue: "Undo" }), MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.undo),
+          disabled: !canUndo,
+          contents: iconComponentFor("undo"),
+          active: false,
+          onChange: () => {
+            activeEditor?.dispatchCommand(UNDO_COMMAND, undefined);
+          },
+        },
+        {
+          title: formatEditorTooltip(t("viewer.edit.redo", { defaultValue: "Redo" }), MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.redo),
+          disabled: !canRedo,
+          contents: iconComponentFor("redo"),
+          active: false,
+          onChange: () => {
+            activeEditor?.dispatchCommand(REDO_COMMAND, undefined);
+          },
+        },
+      ]}
+    />
+  );
+};
+
+const InlineCodeToggle = () => {
+  const { t } = useTranslation();
+  const [currentFormat, iconComponentFor] = useCellValues(currentFormat$, iconComponentFor$);
+  const applyFormat = usePublisher(applyFormat$);
+  const codeIsOn = (currentFormat & IS_CODE) !== 0;
+  const label = codeIsOn
+    ? t("viewer.edit.removeInlineCode", { defaultValue: "Remove code format" })
+    : t("viewer.edit.inlineCode", { defaultValue: "Inline code format" });
+  const title = formatEditorTooltip(label, MARKDOWN_EDITOR_SHORTCUTS.INLINE_CODE.label);
+
+  return (
+    <MultipleChoiceToggleGroup
+      items={[
+        {
+          title,
+          contents: iconComponentFor("code"),
+          active: codeIsOn,
+          onChange: () => {
+            applyFormat("code");
+          },
+        },
+      ]}
+    />
+  );
+};
+
+const InsertCodeBlockButton = () => {
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const insertCodeBlock = usePublisher(insertCodeBlock$);
+  const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.CODE_BLOCK);
+
+  return (
+    <ButtonWithTooltip
+      title={title}
+      aria-label={title}
+      onClick={() => {
+        insertCodeBlock({});
+      }}
+    >
+      {iconComponentFor("frame_source")}
+    </ButtonWithTooltip>
+  );
+};
+
+const MarkdownRichEditorSearchBridge = ({
+  searchText,
+  searchOpen,
+  onSearchStateChange,
+  onCommandsChange,
+}: MarkdownRichEditorSearchBridgeProps) => {
+  const { closeSearch, cursor, isSearchOpen, next, openSearch, prev, search, setSearch, total } = useEditorSearch();
+  const viewMode = useCellValue(viewMode$);
+  const isSearchable = viewMode === "rich-text";
+
+  useEffect(() => {
+    onCommandsChange(isSearchable ? { nextSearchResult: next, previousSearchResult: prev } : NOOP_SEARCH_COMMANDS);
+
+    return () => {
+      onCommandsChange(null);
+    };
+  }, [isSearchable, next, onCommandsChange, prev]);
+
+  useEffect(() => {
+    if (!isSearchable) {
+      closeSearch();
+      setSearch(null);
+      return;
+    }
+
+    setSearch(searchText || null);
+  }, [closeSearch, isSearchable, searchText, setSearch]);
+
+  useEffect(() => {
+    if (!isSearchable) {
+      return;
+    }
+
+    if (searchOpen) {
+      openSearch();
+      return;
+    }
+
+    closeSearch();
+  }, [closeSearch, isSearchable, openSearch, searchOpen]);
+
+  useEffect(() => {
+    if (!isSearchable || !searchOpen || !search.trim() || total === 0 || cursor !== 0) {
+      return;
+    }
+
+    next();
+  }, [cursor, isSearchable, next, search, searchOpen, total]);
+
+  useEffect(() => {
+    onSearchStateChange?.({
+      searchText: search,
+      searchMatches: total,
+      currentMatch: total > 0 ? Math.max(cursor, 1) : 0,
+      isSearchOpen,
+      isSearchable,
+      viewMode,
+    });
+  }, [cursor, isSearchOpen, isSearchable, onSearchStateChange, search, total, viewMode]);
+
+  return null;
+};
+
+const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEditorProps>(
+  (
+    {
+      markdown,
+      diffMarkdown = markdown,
+      onChange,
+      onUserEdit,
+      ariaLabel,
+      autoFocus = false,
+      readOnly = false,
+      className,
+      searchText = "",
+      searchOpen = false,
+      onSearchStateChange,
+    },
+    ref
+  ) => {
+    const editorRef = useRef<MDXEditorMethods>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
+    const formattingCommandsRef = useRef<MarkdownRichEditorFormattingCommands>(NOOP_FORMATTING_COMMANDS);
+    const editorRootClassName = [className, MARKDOWN_EDITOR_POPUP_CLASS].filter(Boolean).join(" ");
+
+    const syncPopupContainerLayering = useCallback(() => {
+      const popupContainers = document.querySelectorAll<HTMLElement>(`.mdxeditor-popup-container.${MARKDOWN_EDITOR_POPUP_CLASS}`);
+
+      popupContainers.forEach((popupContainer) => {
+        const zIndex = String(MARKDOWN_EDITOR_POPUP_Z_INDEX);
+        if (popupContainer.style.zIndex !== zIndex) {
+          popupContainer.style.zIndex = zIndex;
+        }
+      });
+    }, []);
+
+    const focusEditableArea = useCallback(() => {
+      const editable = containerRef.current?.querySelector('[contenteditable="true"], textarea');
+
+      if (!(editable instanceof HTMLElement)) {
+        return false;
+      }
+
+      editable.focus();
+      return document.activeElement === editable;
+    }, []);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        focus: () => {
+          editorRef.current?.focus();
+          requestAnimationFrame(() => {
+            focusEditableArea();
+          });
+        },
+        nextSearchResult: () => {
+          searchCommandsRef.current.nextSearchResult();
+        },
+        previousSearchResult: () => {
+          searchCommandsRef.current.previousSearchResult();
+        },
+        toggleInlineCode: () => {
+          formattingCommandsRef.current.toggleInlineCode();
+        },
+        insertCodeBlock: () => {
+          formattingCommandsRef.current.insertCodeBlock();
+        },
+      }),
+      [focusEditableArea]
+    );
+
+    useEffect(() => {
+      syncPopupContainerLayering();
+
+      const observer = new MutationObserver(() => {
+        syncPopupContainerLayering();
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true });
+
+      return () => {
+        observer.disconnect();
+      };
+    }, [syncPopupContainerLayering]);
+
+    useEffect(() => {
+      if (!autoFocus || readOnly) {
+        return;
+      }
+
+      let autofocusComplete = false;
+
+      const stopAutoFocus = () => {
+        if (autofocusComplete) {
+          return;
+        }
+
+        autofocusComplete = true;
+        observer.disconnect();
+        interactionRoot?.removeEventListener("focusin", handleFocusIn);
+
+        for (const timeoutId of timeoutIds) {
+          window.clearTimeout(timeoutId);
+        }
+      };
+
+      const attemptFocus = () => {
+        if (autofocusComplete) {
+          return;
+        }
+
+        if (focusEditableArea()) {
+          stopAutoFocus();
+        }
+      };
+
+      const handleFocusIn = (event: FocusEvent) => {
+        const target = event.target;
+
+        if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
+          stopAutoFocus();
+        }
+      };
+
+      const focusDelayMs = [0, 25, 75, 150, 300];
+      const timeoutIds = focusDelayMs.map((delayMs) => window.setTimeout(attemptFocus, delayMs));
+      const interactionRoot = containerRef.current;
+
+      const observer = new MutationObserver(() => {
+        attemptFocus();
+      });
+
+      if (interactionRoot) {
+        interactionRoot.addEventListener("focusin", handleFocusIn);
+        observer.observe(interactionRoot, { childList: true, subtree: true });
+      }
+
+      return () => {
+        stopAutoFocus();
+      };
+    }, [autoFocus, focusEditableArea, readOnly]);
+
+    useEffect(() => {
+      if (readOnly || !onUserEdit) {
+        return;
+      }
+
+      const interactionRoot = containerRef.current;
+
+      if (!interactionRoot) {
+        return;
+      }
+
+      const handleUserEdit = () => {
+        onUserEdit();
+      };
+
+      const eventNames = ["beforeinput", "input", "paste", "cut", "drop"];
+      for (const eventName of eventNames) {
+        interactionRoot.addEventListener(eventName, handleUserEdit);
+      }
+
+      return () => {
+        for (const eventName of eventNames) {
+          interactionRoot.removeEventListener(eventName, handleUserEdit);
+        }
+      };
+    }, [onUserEdit, readOnly]);
+
+    useEffect(() => {
+      const currentMarkdown = editorRef.current?.getMarkdown();
+      if (editorRef.current && currentMarkdown !== markdown) {
+        editorRef.current.setMarkdown(markdown);
+      }
+    }, [markdown]);
+
+    useEffect(() => {
+      const editable = containerRef.current?.querySelector('[contenteditable="true"]');
+      if (editable instanceof HTMLElement) {
+        editable.setAttribute("aria-label", ariaLabel);
+      }
+    }, [ariaLabel]);
+
+    const plugins = useMemo(
+      () => [
+        headingsPlugin({ allowedHeadingLevels: [1, 2, 3] }),
+        listsPlugin(),
+        quotePlugin(),
+        thematicBreakPlugin(),
+        tablePlugin(),
+        codeBlockPlugin({ defaultCodeBlockLanguage: MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE }),
+        codeMirrorPlugin({ codeBlockLanguages: MARKDOWN_CODE_BLOCK_LANGUAGES }),
+        linkPlugin(),
+        linkDialogPlugin(),
+        markdownShortcutPlugin(),
+        searchPlugin(),
+        diffSourcePlugin({ viewMode: "rich-text", diffMarkdown }),
+        toolbarPlugin({
+          toolbarContents: () => (
+            <>
+              <MarkdownRichEditorSearchBridge
+                searchText={searchText}
+                searchOpen={searchOpen}
+                onSearchStateChange={onSearchStateChange}
+                onCommandsChange={(commands) => {
+                  searchCommandsRef.current = commands ?? NOOP_SEARCH_COMMANDS;
+                }}
+              />
+              <MarkdownRichEditorFormattingBridge
+                onCommandsChange={(commands) => {
+                  formattingCommandsRef.current = commands ?? NOOP_FORMATTING_COMMANDS;
+                }}
+              />
+              <DiffSourceToggleWrapper>
+                <MarkdownUndoRedoControls />
+                <Separator />
+                <BlockTypeSelect />
+                <Separator />
+                <MarkdownInlineFormattingToggles />
+                <InlineCodeToggle />
+                <Separator />
+                <ListsToggle />
+                <Separator />
+                <CreateLink />
+                <InsertTable />
+                <InsertThematicBreak />
+                <Separator />
+                <InsertCodeBlockButton />
+              </DiffSourceToggleWrapper>
+            </>
+          ),
+        }),
+      ],
+      [diffMarkdown, onSearchStateChange, searchOpen, searchText]
+    );
+
+    return (
+      <div ref={containerRef} className={className}>
+        <MDXEditor
+          ref={editorRef}
+          className={editorRootClassName}
+          markdown={markdown}
+          onChange={onChange}
+          autoFocus={autoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
+          readOnly={readOnly}
+          plugins={plugins}
+        />
+      </div>
+    );
+  }
+);
+
+MarkdownRichEditor.displayName = "MarkdownRichEditor";
+
+export default MarkdownRichEditor;

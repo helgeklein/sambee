@@ -1,11 +1,13 @@
 import { ArrowBack, ArrowForward, Close, Download, IosShare, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
-import { Box, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Button, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { PAGE_INPUT, RESPONSIVE_FONT_SIZE, TOOLBAR_HEIGHT, Z_INDEX } from "../../theme/constants";
 import { VIEWER_DEFAULTS } from "../../theme/viewerStyles";
+
+export const VIEWER_SEARCH_INPUT_ATTRIBUTE = "data-viewer-search-input";
 
 /**
  * Configuration for which controls to display
@@ -75,6 +77,7 @@ export interface SearchState {
   searchPanelOpen?: boolean;
   onSearchPanelToggle?: (open: boolean) => void;
   isSearchable?: boolean;
+  searchUnavailableTitle?: string;
 }
 
 export interface ViewerControlsProps {
@@ -94,6 +97,8 @@ export interface ViewerControlsProps {
   rotation?: RotationState;
   /** Search state (optional) */
   search?: SearchState;
+  /** Generic viewer actions rendered as text buttons or icon buttons */
+  actions?: ViewerToolbarAction[];
   /** Download handler (optional) */
   onDownload?: () => void;
   /** Share handler (optional) */
@@ -108,6 +113,27 @@ export interface ViewerControlsProps {
   toolbarText?: string;
 }
 
+interface ViewerToolbarActionBase {
+  id: string;
+  onClick: () => void;
+  label: string;
+  ariaLabel?: string;
+  title?: string;
+  disabled?: boolean;
+}
+
+export interface ViewerButtonToolbarAction extends ViewerToolbarActionBase {
+  kind?: "button";
+  variant?: "text" | "outlined" | "contained";
+}
+
+export interface ViewerIconToolbarAction extends ViewerToolbarActionBase {
+  kind: "icon";
+  icon: React.ReactNode;
+}
+
+export type ViewerToolbarAction = ViewerButtonToolbarAction | ViewerIconToolbarAction;
+
 /**
  * Centralized viewer controls component
  * Shared toolbar for image and PDF viewers with configurable buttons
@@ -121,6 +147,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   zoom,
   rotation,
   search,
+  actions,
   onDownload,
   onShare,
   onShareIntent,
@@ -196,6 +223,46 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     if (pageNavigation.currentPage < pageNavigation.totalPages) {
       pageNavigation.onPageChange(pageNavigation.currentPage + 1);
     }
+  };
+
+  const renderToolbarAction = (action: ViewerToolbarAction) => {
+    if (action.kind === "icon") {
+      return (
+        <IconButton
+          key={action.id}
+          color="inherit"
+          onClick={action.onClick}
+          aria-label={action.ariaLabel ?? action.label}
+          title={action.title ?? action.label}
+          disabled={action.disabled}
+          size={isMobile ? "small" : "medium"}
+        >
+          {action.icon}
+        </IconButton>
+      );
+    }
+
+    return (
+      <Button
+        key={action.id}
+        color="inherit"
+        onClick={action.onClick}
+        aria-label={action.ariaLabel ?? action.label}
+        title={action.title ?? action.label}
+        disabled={action.disabled}
+        size={isMobile ? "small" : "medium"}
+        variant={action.variant ?? "text"}
+        sx={{
+          color: toolbarText,
+          borderColor: `${toolbarText}66`,
+          whiteSpace: "nowrap",
+          minWidth: 0,
+          px: isMobile ? 1 : 1.5,
+        }}
+      >
+        {action.label}
+      </Button>
+    );
   };
 
   return (
@@ -429,7 +496,11 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           <IconButton
             color="inherit"
             onClick={() => setShowSearch(!showSearch)}
-            title={search.isSearchable === false ? t("viewer.controls.searchUnavailable") : withShortcut(COMMON_SHORTCUTS.SEARCH)}
+            title={
+              search.isSearchable === false
+                ? (search.searchUnavailableTitle ?? t("viewer.controls.searchUnavailable"))
+                : withShortcut(COMMON_SHORTCUTS.SEARCH)
+            }
             aria-label={t("common.search.action")}
             size={isMobile ? "small" : "medium"}
             disabled={search.isSearchable === false}
@@ -472,6 +543,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           </IconButton>
         )}
 
+        {actions?.map(renderToolbarAction)}
+
         {/* Close button */}
         <IconButton
           color="inherit"
@@ -513,6 +586,9 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             placeholder={t("common.search.placeholder")}
             size="small"
             inputRef={searchInputRef}
+            inputProps={{
+              [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
+            }}
             sx={{
               flex: 1,
               minWidth: 0,

@@ -8,7 +8,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
 import { resetBackendAvailabilityForTests } from "../../services/backendAvailability";
-import { type ApiMock, createMarkdownViewerMock, createSettingsDialogMock, setupSuccessfulApiMocks } from "../../test/helpers";
+import {
+  type ApiMock,
+  createMarkdownViewerMock,
+  createSettingsDialogMock,
+  createTimeoutError,
+  setupSuccessfulApiMocks,
+} from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
@@ -120,6 +126,20 @@ describe("Browser Component - Rendering", () => {
 
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/Connection failed/i)).toBeInTheDocument();
+  });
+
+  it("shows retryable timeout state when directory loading times out", async () => {
+    vi.mocked(api.listDirectory).mockRejectedValueOnce(createTimeoutError()).mockResolvedValueOnce(mockDirectoryListing);
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    expect(await screen.findByText(/Directory listing timed out. The remote share took too long to respond/i)).toBeInTheDocument();
+
+    const retryButton = screen.getByRole("button", { name: "Retry" });
+    retryButton.click();
+
+    expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
+    expect(api.listDirectory).toHaveBeenCalledTimes(2);
   });
 
   it("shows message when no connections are configured", async () => {

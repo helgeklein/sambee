@@ -361,3 +361,53 @@ class TestTestConnection:
 
         assert response.status_code == 200
         assert response.json()["status"] == "success"
+
+    def test_test_config_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+    ) -> None:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
+            mock_instance = AsyncMock()
+            mock_instance.connect.return_value = None
+            mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.side_effect = TimeoutError("SMB operation timed out during list_directory")
+            mock_backend.return_value = mock_instance
+
+            response = client.post(
+                "/api/connections/test-config",
+                headers=auth_headers_user,
+                json={
+                    "name": "Slow Preview",
+                    "host": "preview.local",
+                    "share_name": "preview-share",
+                    "username": "preview-user",
+                    "password": "previewpass123",
+                    "port": 445,
+                    "scope": "private",
+                },
+            )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Connection test timed out. The remote share did not respond in time."
+
+    def test_persisted_test_timeout_returns_gateway_timeout(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        user_private_connection: Connection,
+    ) -> None:
+        with patch("app.api.connections.SMBBackend") as mock_backend:
+            mock_instance = AsyncMock()
+            mock_instance.connect.return_value = None
+            mock_instance.disconnect.return_value = None
+            mock_instance.list_directory.side_effect = TimeoutError("SMB operation timed out during list_directory")
+            mock_backend.return_value = mock_instance
+
+            response = client.post(
+                f"/api/connections/{user_private_connection.id}/test",
+                headers=auth_headers_user,
+            )
+
+        assert response.status_code == 504
+        assert response.json()["detail"] == "Connection test timed out. The remote share did not respond in time."

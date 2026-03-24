@@ -7,8 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
 from sqlmodel import Session
 
+from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
 from app.core.logging import get_logger, set_user
-from app.core.security import decrypt_password, get_current_user_with_auth_check
+from app.core.security import get_current_user_with_auth_check
 from app.db.database import get_session
 from app.models.connection import Connection
 from app.models.file import FileType
@@ -25,13 +26,6 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
-
-
-def _require_share_name(connection: Connection) -> str:
-    """Return a validated share name for typed SMB backend construction."""
-
-    assert connection.share_name is not None
-    return connection.share_name
 
 
 #
@@ -62,7 +56,7 @@ def create_file_streamer(backend: SMBBackend, path: str) -> AsyncIterator[bytes]
             # Can't raise HTTPException mid-stream, connection will be closed
             raise
         finally:
-            await backend.disconnect()
+            await disconnect_backend_safely(backend, logger=logger, context=f"streaming '{path}'")
 
     return file_streamer()
 
@@ -91,11 +85,12 @@ async def read_and_convert_image(
     try:
         # Read file into memory
         chunks = []
-        async for chunk in backend.read_file(path):
-            chunks.append(chunk)
+        try:
+            async for chunk in backend.read_file(path):
+                chunks.append(chunk)
+        finally:
+            await disconnect_backend_safely(backend, logger=logger, context=f"image conversion read for '{path}'")
         image_bytes = b"".join(chunks)
-
-        await backend.disconnect()
 
         # Convert to browser-ready format with optional resizing
         # If no_resizing=True, don't resize
@@ -203,11 +198,12 @@ async def read_and_normalize_pdf(
     try:
         # Read file into memory
         chunks = []
-        async for chunk in backend.read_file(path):
-            chunks.append(chunk)
+        try:
+            async for chunk in backend.read_file(path):
+                chunks.append(chunk)
+        finally:
+            await disconnect_backend_safely(backend, logger=logger, context=f"pdf normalization read for '{path}'")
         pdf_bytes = b"".join(chunks)
-
-        await backend.disconnect()
 
         # Run Ghostscript PDF normalization in a thread pool to avoid
         # blocking the async event loop (which would stall all other requests).
@@ -290,14 +286,7 @@ async def view_file(
 
     try:
         # Create SMB backend...
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
         # ...and connect
         await backend.connect()
 
@@ -305,12 +294,22 @@ async def view_file(
         try:
             file_info = await backend.get_file_info(path)
             if file_info.type == FileType.DIRECTORY:
-                await backend.disconnect()
+                await disconnect_backend_safely(backend, logger=logger, context=f"view file directory check for '{path}'")
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot view a directory")
         except HTTPException:
             raise
+        except TimeoutError as e:
+            await disconnect_backend_safely(backend, logger=logger, context=f"view file info timeout for '{path}'")
+            logger.error(f"Timeout getting file info: connection_id={connection_id}, path='{path}', error={e}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Timeout reading file from network share",
+            )
+        except FileNotFoundError:
+            await disconnect_backend_safely(backend, logger=logger, context=f"view file missing path '{path}'")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {path}")
         except Exception as e:
-            await backend.disconnect()
+            await disconnect_backend_safely(backend, logger=logger, context=f"view file info failure for '{path}'")
             logger.error(f"Failed to get file info: connection_id={connection_id}, path='{path}', error={type(e).__name__}: {e}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {path}")
 
@@ -387,22 +386,27 @@ async def download_file(
         )
 
     try:
-        backend = SMBBackend(
-            host=connection.host,
-            share_name=_require_share_name(connection),
-            username=connection.username,
-            password=decrypt_password(connection.password_encrypted),
-            port=connection.port,
-            path_prefix=connection.path_prefix or "/",
-        )
+        backend = build_smb_backend(connection, backend_factory=SMBBackend)
 
         await backend.connect()
 
         # Get file info
-        file_info = await backend.get_file_info(path)
+        try:
+            file_info = await backend.get_file_info(path)
+        except TimeoutError as e:
+            await disconnect_backend_safely(backend, logger=logger, context=f"download file info timeout for '{path}'")
+            logger.error(f"Timeout getting download file info: connection_id={connection_id}, path='{path}', error={e}")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="Timeout reading file from network share",
+            )
+        except FileNotFoundError:
+            await disconnect_backend_safely(backend, logger=logger, context=f"download missing path '{path}'")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {path}")
 
         if file_info.type != "file":
             logger.warning(f"Path is not a file: connection_id={connection_id}, path='{path}', type={file_info.type}")
+            await disconnect_backend_safely(backend, logger=logger, context=f"download directory check for '{path}'")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Path is not a file")
 
         # Stream the file
