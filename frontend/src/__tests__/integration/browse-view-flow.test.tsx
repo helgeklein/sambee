@@ -66,7 +66,15 @@ vi.mock("../../components/Viewer/MarkdownRichEditor", () => {
       insertCodeBlock: () => {},
     }));
 
-    return <textarea aria-label={ariaLabel} className={className} readOnly={readOnly} value={markdown} onChange={(event) => onChange(event.target.value)} />;
+    return (
+      <textarea
+        aria-label={ariaLabel}
+        className={className}
+        readOnly={readOnly}
+        value={markdown}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    );
   });
 
   MockMarkdownRichEditor.displayName = "MockMarkdownRichEditor";
