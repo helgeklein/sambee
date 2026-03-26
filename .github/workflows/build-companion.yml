@@ -2,6 +2,9 @@ name: Build Companion
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  COMPANION_RELEASE_REPO_OWNER: helgeklein
+  COMPANION_RELEASE_REPO_NAME: sambee-companion
+  COMPANION_RELEASE_REPO_BRANCH: main
 
 on:
   push:
@@ -167,7 +170,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         id: tauri-build
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
           # Force sparse protocol for crates.io index (avoids git auth issues)
           CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
           # Code signing for macOS
@@ -190,6 +193,9 @@ jobs:
           projectPath: companion
           # -v enables verbose bundler logging for easier CI debugging.
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
+          owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
+          repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
+          releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
           updaterJsonPreferNsis: true
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
