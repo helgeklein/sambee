@@ -7,6 +7,8 @@
   "editor.formatOnSave": false,
   "editor.formatOnPaste": false,
   "editor.formatOnType": false,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": false,
   // ============================================================================
   // Biome Configuration
   // ============================================================================

@@ -166,7 +166,7 @@ When this work is complete:
 - fail if no booleans are selected
 - fail if the resolved release is missing, unpublished, or still a draft
 - fail if required assets or `.sig` files are missing
-- generate strict Tauri-compatible JSON for each selected Companion channel
+- generate strict Tauri-compatible JSON for each selected Companion channejl
 - generate separate Sambee download metadata JSON when `sambee=true`
 - ensure Sambee-specific fields never appear in Tauri feed files
 - make generation idempotent and log exactly which files will change
