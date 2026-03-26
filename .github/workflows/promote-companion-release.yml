@@ -1,0 +1,105 @@
+name: Promote Companion Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Companion release tag or GitHub release URL
+        required: true
+        type: string
+      companion_channel_test:
+        description: Update feeds/companion/tauri/test/latest.json
+        required: true
+        type: boolean
+        default: false
+      companion_channel_beta:
+        description: Update feeds/companion/tauri/beta/latest.json
+        required: true
+        type: boolean
+        default: false
+      companion_channel_stable:
+        description: Update feeds/companion/tauri/stable/latest.json
+        required: true
+        type: boolean
+        default: false
+      sambee:
+        description: Update feeds/sambee/companion/latest.json
+        required: true
+        type: boolean
+        default: false
+
+env:
+  COMPANION_RELEASE_REPO_OWNER: helgeklein
+  COMPANION_RELEASE_REPO_NAME: sambee-companion
+  COMPANION_RELEASE_REPO_BRANCH: main
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate selection
+        run: |
+          if [[ "${{ github.event.inputs.companion_channel_test }}" != "true" && \
+                "${{ github.event.inputs.companion_channel_beta }}" != "true" && \
+                "${{ github.event.inputs.companion_channel_stable }}" != "true" && \
+                "${{ github.event.inputs.sambee }}" != "true" ]]; then
+            echo "At least one promotion target must be selected." >&2
+            exit 1
+          fi
+
+      - name: Checkout sambee
+        uses: actions/checkout@v5
+
+      - name: Checkout release repository
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.COMPANION_RELEASE_REPO_OWNER }}/${{ env.COMPANION_RELEASE_REPO_NAME }}
+          ref: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
+          token: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+          path: release-repo
+
+      - name: Generate feed files
+        env:
+          GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
+        run: |
+          args=()
+          if [[ "${{ github.event.inputs.companion_channel_test }}" == "true" ]]; then
+            args+=(--companion-channel-test)
+          fi
+          if [[ "${{ github.event.inputs.companion_channel_beta }}" == "true" ]]; then
+            args+=(--companion-channel-beta)
+          fi
+          if [[ "${{ github.event.inputs.companion_channel_stable }}" == "true" ]]; then
+            args+=(--companion-channel-stable)
+          fi
+          if [[ "${{ github.event.inputs.sambee }}" == "true" ]]; then
+            args+=(--sambee)
+          fi
+
+          python3 .github/scripts/promote_companion_release.py \
+            --release-ref "${{ github.event.inputs.release_ref }}" \
+            --release-owner "${{ env.COMPANION_RELEASE_REPO_OWNER }}" \
+            --release-repo "${{ env.COMPANION_RELEASE_REPO_NAME }}" \
+            --release-repo-path "$PWD/release-repo" \
+            "${args[@]}"
+
+      - name: Commit and push feed updates
+        run: |
+          release_ref="${{ github.event.inputs.release_ref }}"
+          release_tag="${release_ref##*/}"
+
+          git -C release-repo config user.name "github-actions[bot]"
+          git -C release-repo config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C release-repo add docs/feeds
+
+          if git -C release-repo diff --cached --quiet; then
+            echo "No feed changes to commit."
+            exit 0
+          fi
+
+          git -C release-repo commit -m "Promote ${release_tag} release feeds"
+          git -C release-repo push origin HEAD:${{ env.COMPANION_RELEASE_REPO_BRANCH }}

@@ -83,12 +83,19 @@ When this work is complete:
   - update the source-repo workflow to use that secret for release creation and asset upload instead of assuming the default `GITHUB_TOKEN` can write cross-repo
     - ✅: `.github/workflows/build-companion.yml` now uses `COMPANION_RELEASE_REPO_TOKEN` for the Tauri release step and targets `helgeklein/sambee-companion`
   - validate the token with a small test workflow or temporary script that creates and then deletes a draft release in `helgeklein/sambee-companion`
-  - after validation, remove any temporary test release so the repository stays clean
-- configure credentials so release-repo automation can commit feed updates
-  - if the promotion workflow runs in the release repository, the repository `GITHUB_TOKEN` is usually sufficient for committing feed changes in the same repository
-  - if branch protection prevents direct pushes, decide whether the workflow should bypass protection, push to a separate branch, or open pull requests instead
-  - verify that the workflow permissions include `contents: write`
-- verify that existing signing secrets and platform-signing credentials are available in the correct repositories
+    - ✅
+- configure credentials so the promotion workflow in `sambee` can commit feed updates to the release repository
+  - because all workflows stay in `sambee`, the default repository `GITHUB_TOKEN` is not sufficient for writing to `helgeklein/sambee-companion`
+  - reuse `COMPANION_RELEASE_REPO_TOKEN` for feed updates as well
+    - ✅
+  - check out `helgeklein/sambee-companion` into a subdirectory using the cross-repo token
+    - ✅: `.github/workflows/promote-companion-release.yml`
+  - configure the workflow git identity explicitly before committing, for example `github-actions[bot]` with the standard noreply email
+    - ✅: `.github/workflows/promote-companion-release.yml`
+  - commit the changed feed files in the checked-out release repository working tree and push them back to `main`
+    - ✅: direct push
+  - branch protection does not block direct pushes for this automation path
+    - ✅
 
 ### AI can do
 
@@ -136,13 +143,15 @@ When this work is complete:
   - `feeds/companion/tauri/beta/latest.json`
   - `feeds/companion/tauri/stable/latest.json`
   - `feeds/sambee/companion/latest.json`
-- implement the manual `workflow_dispatch` promotion workflow
+- implement the manual `workflow_dispatch` promotion workflow in the `sambee` repository
+  - ✅: `.github/workflows/promote-companion-release.yml`
 - add the required inputs:
   - `release_ref`
   - `companion_channel_test`
   - `companion_channel_beta`
   - `companion_channel_stable`
   - `sambee`
+  - ✅: `.github/workflows/promote-companion-release.yml`
 - resolve `release_ref` as either a tag or GitHub release URL
 - fail if no booleans are selected
 - fail if the resolved release is missing, unpublished, or still a draft
@@ -158,6 +167,7 @@ When this work is complete:
   - direct push is simpler and usually appropriate if the promotion workflow is already manual and limited to trusted operators
   - pull requests are safer if you want review history or if branch protection blocks workflow pushes
   - decide this before the workflow is implemented because it changes how the workflow writes files and how operators complete promotions
+  - ✅: direct push
 - run the promotion workflow in GitHub after a release is published
 - confirm the updated feed files point at the intended release
   - verify that only the selected feed files changed
