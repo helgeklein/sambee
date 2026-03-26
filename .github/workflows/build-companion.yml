@@ -4,6 +4,7 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   COMPANION_RELEASE_REPO_OWNER: helgeklein
   COMPANION_RELEASE_REPO_NAME: sambee-companion
+  COMPANION_RELEASE_REPO_BRANCH: main
 
 on:
   push:
@@ -194,7 +195,7 @@ jobs:
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} -v
           owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
           repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
-          releaseCommitish: ${{ github.sha }}
+          releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
           updaterJsonPreferNsis: true
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
