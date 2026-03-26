@@ -196,6 +196,7 @@ jobs:
           owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
           repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
           releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
+          uploadUpdaterSignatures: true
           updaterJsonPreferNsis: true
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'

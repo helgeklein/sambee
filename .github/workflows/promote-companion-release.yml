@@ -8,22 +8,22 @@ on:
         required: true
         type: string
       companion_channel_test:
-        description: Update feeds/companion/tauri/test/latest.json
+        description: Update Companion test channel feed
         required: true
         type: boolean
         default: false
       companion_channel_beta:
-        description: Update feeds/companion/tauri/beta/latest.json
+        description: Update Companion beta channel feed
         required: true
         type: boolean
         default: false
       companion_channel_stable:
-        description: Update feeds/companion/tauri/stable/latest.json
+        description: Update Companion stable channel feed
         required: true
         type: boolean
         default: false
       sambee:
-        description: Update feeds/sambee/companion/latest.json
+        description: Update Sambee Companion feed
         required: true
         type: boolean
         default: false

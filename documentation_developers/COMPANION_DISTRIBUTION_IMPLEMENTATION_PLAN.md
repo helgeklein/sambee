@@ -96,6 +96,16 @@ When this work is complete:
     - ✅: direct push
   - branch protection does not block direct pushes for this automation path
     - ✅
+- create a Tauri updater signing keypair before enabling updater-based releases
+  - generate a new Tauri keypair once because no prior updater key appears to be in active use today
+    - ✅: generated locally on 2026-03-26
+  - keep the private key in GitHub secrets as `TAURI_SIGNING_PRIVATE_KEY`
+    - pending manual step
+  - keep the optional private-key password in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+    - not needed for the currently generated unencrypted key
+  - commit the matching public key directly in `companion/src-tauri/tauri.conf.json` under `plugins.updater.pubkey`
+    - ✅
+  - keep that public key stable across releases unless you are intentionally doing key rotation
 
 ### AI can do
 
