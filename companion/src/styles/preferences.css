@@ -125,6 +125,62 @@
   color: var(--text-secondary, #1f262bb3);
 }
 
+.preferences__update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.preferences__action-btn {
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    box-shadow 0.12s ease,
+    color 0.12s ease;
+}
+
+.preferences__action-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent-dark, #d4a020);
+  box-shadow: 0 0 0 2px var(--accent-light, #f6e58d);
+}
+
+.preferences__action-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.preferences__action-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.preferences__action-btn--secondary {
+  background: var(--btn-bg, #f3f4f6);
+  color: var(--text-color, #1f262b);
+}
+
+.preferences__action-btn--secondary:hover:not(:disabled) {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.preferences__action-btn--primary {
+  background: var(--accent-color, #f4c430);
+  border-color: var(--accent-dark, #d4a020);
+  color: var(--accent-contrast, #231700);
+}
+
+.preferences__action-btn--primary:hover:not(:disabled) {
+  background: var(--accent-dark, #d4a020);
+  color: #fff8e1;
+}
+
 /* ── Checkbox row ──────────────────────────────────────────────────────── */
 
 .preferences__checkbox-row {
@@ -276,6 +332,14 @@
 
 .preferences__status-value--code {
   font-family: monospace;
+}
+
+.preferences__status-value--multiline {
+  white-space: pre-wrap;
+}
+
+.preferences__status-grid--updates {
+  margin-top: 0.25rem;
 }
 
 /* ── Divider ───────────────────────────────────────────────────────────── */

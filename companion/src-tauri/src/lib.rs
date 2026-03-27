@@ -835,6 +835,8 @@ pub fn run() {
             commands::pairing::reject_pending_pairing,
             commands::pairing::get_paired_origins,
             commands::pairing::unpair_origin,
+            commands::update::check_for_companion_update,
+            commands::update::install_companion_update,
             logging::log_from_frontend,
         ])
         .setup(|app| {

@@ -167,7 +167,7 @@ jobs:
 
       # ── Build with tauri-action ──
       - name: Build Tauri application
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.6.2
         id: tauri-build
         env:
           GITHUB_TOKEN: ${{ secrets.COMPANION_RELEASE_REPO_TOKEN }}
@@ -196,8 +196,7 @@ jobs:
           owner: ${{ env.COMPANION_RELEASE_REPO_OWNER }}
           repo: ${{ env.COMPANION_RELEASE_REPO_NAME }}
           releaseCommitish: ${{ env.COMPANION_RELEASE_REPO_BRANCH }}
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: true
+          includeUpdaterJson: false
           tagName: companion-v__VERSION__
           releaseName: 'Sambee Companion v__VERSION__'
           releaseBody: 'See the assets below to download and install.'

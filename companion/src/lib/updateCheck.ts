@@ -1,18 +1,24 @@
 /**
  * Auto-update check for the Sambee Companion.
  *
- * Uses the Tauri updater plugin to poll the configured endpoint on startup.
+ * Uses a Rust-side Tauri updater command to poll the promoted feed for the
+ * currently selected update channel on startup.
  * If an update is available and no file-editing operation is in progress,
  * the update is silently downloaded and installed. If an editing session is
  * active, the install is deferred until the user finishes.
- *
- * The updater endpoint and public key are configured in `tauri.conf.json`
- * under the `plugins.updater` section.
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { check } from "@tauri-apps/plugin-updater";
+import { type CompanionUpdateChannel, getUserPreferences } from "../stores/userPreferences";
 import { log } from "./logger";
+
+export interface CompanionUpdateStatus {
+  available: boolean;
+  currentVersion: string;
+  version: string | null;
+  notes: string | null;
+  publishedAt: string | null;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -95,13 +101,17 @@ export function scheduleUpdateCheck(): void {
  */
 export async function checkForUpdate(): Promise<boolean> {
   try {
-    const update = await check();
-    if (!update) {
+    const prefs = await getUserPreferences();
+    const updateStatus = await fetchCompanionUpdateStatus(prefs.companionUpdateChannel);
+
+    if (!updateStatus.available) {
       log.info("No companion update available.");
       return false;
     }
 
-    log.info(`Companion update available: ${update.version}`);
+    log.info(
+      `Companion update available on ${prefs.companionUpdateChannel} channel: ${updateStatus.currentVersion} -> ${updateStatus.version ?? "unknown"}.`
+    );
 
     // Wait for any active editing sessions to finish before installing.
     if (await isEditing()) {
@@ -110,10 +120,22 @@ export async function checkForUpdate(): Promise<boolean> {
       log.info("Editing finished — proceeding with update install.");
     }
 
-    await update.downloadAndInstall();
+    await installCompanionUpdate(prefs.companionUpdateChannel);
     return true;
   } catch (err) {
     log.warn("Update check error:", err);
     return false;
   }
+}
+
+export async function fetchCompanionUpdateStatus(channel: CompanionUpdateChannel): Promise<CompanionUpdateStatus> {
+  return invoke<CompanionUpdateStatus>("check_for_companion_update", {
+    channel,
+  });
+}
+
+export async function installCompanionUpdate(channel: CompanionUpdateChannel): Promise<void> {
+  await invoke("install_companion_update", {
+    channel,
+  });
 }

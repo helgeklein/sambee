@@ -12,7 +12,8 @@ import { disable as disableAutostart, enable as enableAutostart, isEnabled as is
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { type CompanionLocalizationState, getCurrentRegionalLocale, translate } from "../i18n";
 import { log } from "../lib/logger";
-import type { UploadConflictAction, UserPreferences } from "../stores/userPreferences";
+import { type CompanionUpdateStatus, fetchCompanionUpdateStatus, installCompanionUpdate } from "../lib/updateCheck";
+import type { CompanionUpdateChannel, UploadConflictAction, UserPreferences } from "../stores/userPreferences";
 import { getUserPreferences, saveUserPreferences } from "../stores/userPreferences";
 import { ModalDialog } from "./ModalDialog";
 import "../styles/preferences.css";
@@ -39,6 +40,27 @@ interface PreferencesProps {
   onClose: () => void;
 }
 
+type UpdateActionState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "up-to-date"; currentVersion: string; checkedChannel: CompanionUpdateChannel }
+  | { kind: "available"; status: CompanionUpdateStatus; checkedChannel: CompanionUpdateChannel }
+  | { kind: "installing"; status: CompanionUpdateStatus; checkedChannel: CompanionUpdateChannel }
+  | { kind: "installed"; version: string | null; checkedChannel: CompanionUpdateChannel }
+  | { kind: "error"; message: string; checkedChannel: CompanionUpdateChannel };
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+
+  return translate("preferences.updateStatus.unknownError");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
@@ -58,6 +80,11 @@ export function Preferences({ onClose }: PreferencesProps) {
     overwrite: translate("preferences.conflictActions.overwrite"),
     "save-copy": translate("preferences.conflictActions.saveCopy"),
   };
+  const updateChannelLabels: Record<CompanionUpdateChannel, string> = {
+    stable: translate("preferences.updateChannels.stable"),
+    beta: translate("preferences.updateChannels.beta"),
+    test: translate("preferences.updateChannels.test"),
+  };
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
   const [pairedOrigins, setPairedOrigins] = useState<string[]>([]);
   const [syncedLocalization, setSyncedLocalization] = useState<CompanionLocalizationState | null>(null);
@@ -66,8 +93,12 @@ export function Preferences({ onClose }: PreferencesProps) {
   const [changingAutostart, setChangingAutostart] = useState(false);
   const [pendingUnpairOrigin, setPendingUnpairOrigin] = useState<string | null>(null);
   const [unpairingOrigin, setUnpairingOrigin] = useState<string | null>(null);
+  const [pendingUpdateChannel, setPendingUpdateChannel] = useState<CompanionUpdateChannel | null>(null);
+  const [updateActionState, setUpdateActionState] = useState<UpdateActionState>({ kind: "idle" });
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelUnpairButtonRef = useRef<HTMLButtonElement | null>(null);
+  const cancelUpdateChannelButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // ── Load preferences on mount ───────────────────────────────────────
 
@@ -126,6 +157,23 @@ export function Preferences({ onClose }: PreferencesProps) {
 
     cancelUnpairButtonRef.current?.focus();
   }, [pendingUnpairOrigin]);
+
+  useEffect(() => {
+    if (!pendingUpdateChannel) {
+      return;
+    }
+
+    cancelUpdateChannelButtonRef.current?.focus();
+  }, [pendingUpdateChannel]);
+
+  useEffect(() => {
+    if (!prefs) {
+      return;
+    }
+
+    setUpdateActionState({ kind: "idle" });
+    setLastCheckedAt(null);
+  }, [prefs?.companionUpdateChannel]);
 
   // ── Auto-save helper ────────────────────────────────────────────────
 
@@ -187,6 +235,86 @@ export function Preferences({ onClose }: PreferencesProps) {
     }
   }, [changingAutostart, persistPrefs, prefs]);
 
+  const handleUpdateChannelChange = useCallback(
+    (e: Event) => {
+      if (!prefs) {
+        return;
+      }
+
+      const nextChannel = (e.target as HTMLSelectElement).value as CompanionUpdateChannel;
+      if (nextChannel === prefs.companionUpdateChannel) {
+        return;
+      }
+
+      if (prefs.companionUpdateChannel === "stable" && nextChannel !== "stable") {
+        setPendingUpdateChannel(nextChannel);
+        return;
+      }
+
+      setUpdateActionState({ kind: "idle" });
+      void persistPrefs({ ...prefs, companionUpdateChannel: nextChannel });
+    },
+    [persistPrefs, prefs]
+  );
+
+  const handleCheckForUpdates = useCallback(async () => {
+    if (!prefs || updateActionState.kind === "checking" || updateActionState.kind === "installing") {
+      return;
+    }
+
+    const checkedChannel = prefs.companionUpdateChannel;
+    setUpdateActionState({ kind: "checking" });
+
+    try {
+      const status = await fetchCompanionUpdateStatus(checkedChannel);
+      setLastCheckedAt(new Date().toISOString());
+
+      if (status.available) {
+        log.info(`Manual companion update check found ${status.version ?? "an update"} on ${checkedChannel}.`);
+        setUpdateActionState({ kind: "available", status, checkedChannel });
+      } else {
+        setUpdateActionState({
+          kind: "up-to-date",
+          currentVersion: status.currentVersion,
+          checkedChannel,
+        });
+      }
+    } catch (err) {
+      log.error("Failed to check for companion updates:", err);
+      setLastCheckedAt(new Date().toISOString());
+      setUpdateActionState({
+        kind: "error",
+        message: getErrorMessage(err),
+        checkedChannel,
+      });
+    }
+  }, [prefs, updateActionState.kind]);
+
+  const handleInstallUpdate = useCallback(async () => {
+    if (updateActionState.kind !== "available") {
+      return;
+    }
+
+    const { checkedChannel, status } = updateActionState;
+    setUpdateActionState({ kind: "installing", status, checkedChannel });
+
+    try {
+      await installCompanionUpdate(checkedChannel);
+      setUpdateActionState({
+        kind: "installed",
+        version: status.version,
+        checkedChannel,
+      });
+    } catch (err) {
+      log.error("Failed to install companion update:", err);
+      setUpdateActionState({
+        kind: "error",
+        message: getErrorMessage(err),
+        checkedChannel,
+      });
+    }
+  }, [updateActionState]);
+
   //
   // handleConflictActionChange
   //
@@ -239,6 +367,42 @@ export function Preferences({ onClose }: PreferencesProps) {
 
     setPendingUnpairOrigin(null);
   }, [unpairingOrigin]);
+
+  const handleConfirmUpdateChannel = useCallback(async () => {
+    if (!prefs || !pendingUpdateChannel) {
+      return;
+    }
+
+    await persistPrefs({
+      ...prefs,
+      companionUpdateChannel: pendingUpdateChannel,
+    });
+    setPendingUpdateChannel(null);
+  }, [pendingUpdateChannel, persistPrefs, prefs]);
+
+  const handleCancelUpdateChannel = useCallback(() => {
+    setPendingUpdateChannel(null);
+  }, []);
+
+  const updateStatusPublishedAt =
+    updateActionState.kind === "available" || updateActionState.kind === "installing" ? updateActionState.status.publishedAt : null;
+
+  const localizedUpdatePublishedAt = updateStatusPublishedAt
+    ? new Date(updateStatusPublishedAt).toLocaleString(getCurrentRegionalLocale(), {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
+  const localizedLastCheckedAt = lastCheckedAt
+    ? new Date(lastCheckedAt).toLocaleString(getCurrentRegionalLocale(), {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : null;
+
+  const showInstallButton = updateActionState.kind === "available" || updateActionState.kind === "installing";
+  const isUpdateBusy = updateActionState.kind === "checking" || updateActionState.kind === "installing";
 
   const localizedUpdatedAt = syncedLocalization
     ? new Date(syncedLocalization.updated_at).toLocaleString(getCurrentRegionalLocale(), {
@@ -368,6 +532,146 @@ export function Preferences({ onClose }: PreferencesProps) {
 
       {/* ── Notifications ── */}
       <div class="preferences__section">
+        <span class="preferences__section-title">{translate("preferences.sections.updates")}</span>
+        <div class="preferences__field">
+          <label class="preferences__label" htmlFor="update-channel">
+            {translate("preferences.updateChannelLabel")}
+          </label>
+          <select id="update-channel" class="preferences__select" value={prefs.companionUpdateChannel} onChange={handleUpdateChannelChange}>
+            {(Object.entries(updateChannelLabels) as [CompanionUpdateChannel, string][]).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span class="preferences__hint">{translate("preferences.updateChannelHint")}</span>
+          {prefs.companionUpdateChannel !== "stable" && (
+            <span class="preferences__hint">
+              {translate("preferences.preReleaseWarning", { channel: updateChannelLabels[prefs.companionUpdateChannel] })}
+            </span>
+          )}
+          <div class="preferences__update-actions">
+            <button
+              type="button"
+              class="preferences__action-btn preferences__action-btn--secondary"
+              onClick={() => {
+                void handleCheckForUpdates();
+              }}
+              disabled={isUpdateBusy}
+            >
+              {translate(
+                updateActionState.kind === "checking" ? "preferences.updateActions.checking" : "preferences.updateActions.checkNow"
+              )}
+            </button>
+            {showInstallButton && (
+              <button
+                type="button"
+                class="preferences__action-btn preferences__action-btn--primary"
+                onClick={() => {
+                  void handleInstallUpdate();
+                }}
+                disabled={updateActionState.kind !== "available"}
+              >
+                {translate(
+                  updateActionState.kind === "installing" ? "preferences.updateActions.installing" : "preferences.updateActions.install"
+                )}
+              </button>
+            )}
+          </div>
+          {localizedLastCheckedAt && (
+            <span class="preferences__hint">{translate("preferences.updateStatus.lastChecked", { time: localizedLastCheckedAt })}</span>
+          )}
+          {updateActionState.kind === "up-to-date" && (
+            <dl class="preferences__status-grid preferences__status-grid--updates" aria-live="polite">
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.statusLabel")}</dt>
+                <dd class="preferences__status-value">
+                  {translate("preferences.updateStatus.upToDate", {
+                    channel: updateChannelLabels[updateActionState.checkedChannel],
+                  })}
+                </dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.currentVersionLabel")}</dt>
+                <dd class="preferences__status-value">{updateActionState.currentVersion}</dd>
+              </div>
+            </dl>
+          )}
+          {(updateActionState.kind === "available" || updateActionState.kind === "installing") && (
+            <dl class="preferences__status-grid preferences__status-grid--updates" aria-live="polite">
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.statusLabel")}</dt>
+                <dd class="preferences__status-value">
+                  {translate(
+                    updateActionState.kind === "installing"
+                      ? "preferences.updateStatus.installing"
+                      : "preferences.updateStatus.updateAvailable",
+                    {
+                      channel: updateChannelLabels[updateActionState.checkedChannel],
+                      version: updateActionState.status.version ?? translate("preferences.updateStatus.unknownVersion"),
+                    }
+                  )}
+                </dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.currentVersionLabel")}</dt>
+                <dd class="preferences__status-value">{updateActionState.status.currentVersion}</dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.latestVersionLabel")}</dt>
+                <dd class="preferences__status-value">
+                  {updateActionState.status.version ?? translate("preferences.updateStatus.unknownVersion")}
+                </dd>
+              </div>
+              {updateActionState.status.publishedAt && (
+                <div class="preferences__status-row">
+                  <dt class="preferences__status-label">{translate("preferences.updateStatus.publishedAtLabel")}</dt>
+                  <dd class="preferences__status-value">{localizedUpdatePublishedAt ?? updateActionState.status.publishedAt}</dd>
+                </div>
+              )}
+              {updateActionState.status.notes && (
+                <div class="preferences__status-row">
+                  <dt class="preferences__status-label">{translate("preferences.updateStatus.notesLabel")}</dt>
+                  <dd class="preferences__status-value preferences__status-value--multiline">{updateActionState.status.notes}</dd>
+                </div>
+              )}
+            </dl>
+          )}
+          {updateActionState.kind === "installed" && (
+            <dl class="preferences__status-grid preferences__status-grid--updates" aria-live="polite">
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.statusLabel")}</dt>
+                <dd class="preferences__status-value">
+                  {translate("preferences.updateStatus.installed", {
+                    version: updateActionState.version ?? translate("preferences.updateStatus.unknownVersion"),
+                  })}
+                </dd>
+              </div>
+            </dl>
+          )}
+          {updateActionState.kind === "error" && (
+            <dl class="preferences__status-grid preferences__status-grid--updates" aria-live="polite">
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.statusLabel")}</dt>
+                <dd class="preferences__status-value">
+                  {translate("preferences.updateStatus.checkFailed", {
+                    channel: updateChannelLabels[updateActionState.checkedChannel],
+                  })}
+                </dd>
+              </div>
+              <div class="preferences__status-row">
+                <dt class="preferences__status-label">{translate("preferences.updateStatus.errorLabel")}</dt>
+                <dd class="preferences__status-value preferences__status-value--multiline">{updateActionState.message}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </div>
+
+      <hr class="preferences__divider" />
+
+      {/* ── Notifications ── */}
+      <div class="preferences__section">
         <span class="preferences__section-title">{translate("preferences.sections.notifications")}</span>
         <label class="preferences__checkbox-row">
           <input type="checkbox" checked={prefs.showNotifications} onChange={handleNotificationsChange} />
@@ -434,6 +738,46 @@ export function Preferences({ onClose }: PreferencesProps) {
               disabled={Boolean(unpairingOrigin)}
             >
               {unpairingOrigin ? translate("preferences.confirmUnpair.unpairing") : translate("preferences.unpairButton")}
+            </button>
+          </div>
+        </ModalDialog>
+      )}
+
+      {pendingUpdateChannel && (
+        <ModalDialog
+          role="alertdialog"
+          titleId="update-channel-dialog-title"
+          onRequestClose={handleCancelUpdateChannel}
+          initialFocusRef={cancelUpdateChannelButtonRef}
+          panelClassName="preferences__confirm-panel"
+        >
+          <h3 id="update-channel-dialog-title" class="preferences__confirm-title">
+            {translate("preferences.confirmUpdateChannel.title")}
+          </h3>
+          <p class="preferences__confirm-body">
+            <strong>
+              {translate("preferences.confirmUpdateChannel.body", {
+                channel: updateChannelLabels[pendingUpdateChannel],
+              })}
+            </strong>
+          </p>
+          <div class="preferences__confirm-actions">
+            <button
+              type="button"
+              class="preferences__confirm-btn preferences__confirm-btn--ghost"
+              ref={cancelUpdateChannelButtonRef}
+              onClick={handleCancelUpdateChannel}
+            >
+              {translate("common.actions.cancel")}
+            </button>
+            <button
+              type="button"
+              class="preferences__confirm-btn"
+              onClick={() => {
+                void handleConfirmUpdateChannel();
+              }}
+            >
+              {translate("preferences.confirmUpdateChannel.confirm")}
             </button>
           </div>
         </ModalDialog>

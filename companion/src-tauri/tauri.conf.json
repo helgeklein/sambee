@@ -19,7 +19,7 @@
     },
     "updater": {
       "endpoints": [
-        "https://releases.sambee.app/companion/{{target}}/{{arch}}/{{current_version}}"
+        "https://release-feeds.sambee.net/feeds/companion/tauri/stable/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJBQ0E5QzA0RDg3MUFCMTUKUldRVnEzSFlCSnpLS3QxbXNCTW1Sbkp0UWJQbnJ6RFBocktyUTJkbGh0NzErRTBCZmduZDh2YWcK"
     }

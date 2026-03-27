@@ -10,6 +10,7 @@
  * - uploadConflictAction: "ask" | "overwrite" | "save-copy"
  * - autoStartOnLogin: whether the companion starts automatically at sign-in
  * - showNotifications: whether to show desktop notifications
+ * - companionUpdateChannel: which promoted feed the updater should use
  * - tempFileRetentionDays: how long recycled temp files are kept
  */
 
@@ -35,6 +36,9 @@ const DEFAULT_TEMP_RETENTION_DAYS = 7;
 /** How to handle upload conflicts when the server copy has changed. */
 export type UploadConflictAction = "ask" | "overwrite" | "save-copy";
 
+/** Release channel used for Companion self-updates. */
+export type CompanionUpdateChannel = "stable" | "beta" | "test";
+
 /**
  * Full user preferences object.
  */
@@ -51,6 +55,9 @@ export interface UserPreferences {
   /** Whether to show desktop notifications for edit events. */
   showNotifications: boolean;
 
+  /** Which promoted update feed the companion should use. */
+  companionUpdateChannel: CompanionUpdateChannel;
+
   /** How many days to retain recycled temp files before deletion. */
   tempFileRetentionDays: number;
 }
@@ -61,6 +68,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   uploadConflictAction: "ask",
   autoStartOnLogin: false,
   showNotifications: true,
+  companionUpdateChannel: "stable",
   tempFileRetentionDays: DEFAULT_TEMP_RETENTION_DAYS,
 };
 

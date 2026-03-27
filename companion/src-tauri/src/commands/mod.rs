@@ -10,4 +10,5 @@ pub mod file_info;
 pub mod localization;
 pub mod open_file;
 pub mod pairing;
+pub mod update;
 pub mod upload;

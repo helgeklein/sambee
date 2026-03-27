@@ -48,70 +48,31 @@ When this work is complete:
 - Sambee reads only the Sambee download metadata feed for download links by default
 - Sambee can still support an optional explicit pin override
 
+## Current Status
+
+- Phase 1 completed: release repository, Pages hosting, cross-repo auth, and updater key setup are in place
+- Phase 2 completed: Companion tags build draft releases in `helgeklein/sambee-companion`
+- Phase 3 completed: manual promotion generates and publishes the four feed JSON files correctly
+- Phase 4 not started: Companion still needs to consume the new promoted Tauri feeds in app code
+- Phase 5 not started: Sambee still needs to consume the separate metadata feed in app code
+- Phase 6 partially completed: the build and promotion flow has been validated end to end for the current Windows x64 release
+
 ## Phase 1: Release Repository And Access
+
+Status: completed
 
 ### Manual
 
-- create the dedicated Companion release repository if it does not already exist
-  - ✅: https://github.com/helgeklein/sambee-companion
-- enable GitHub Releases in that repository
-  - ✅
-- decide whether feed files live on the default branch or a dedicated Pages branch
-  - simplest: keep feed files in the default branch and let GitHub Pages publish directly from that branch
-  - cleaner separation: keep release automation on the default branch and publish feed files from a dedicated Pages branch
-  - choose the default-branch option unless you already expect stricter review or separate publishing controls for the feed content
-  - ✅: on the default branch
-- enable GitHub Pages if Pages is part of the final hosting setup
-  - configure the repository to publish from the chosen branch and folder
-    - ✅: `main` and `/docs`
-  - attach the public Sambee domain under `sambee.net`
-  - decide the exact production host and path under that domain, for example a subdomain such as `downloads.sambee.net` or a path such as `sambee.net/feeds`
-    - ✅: release-feeds.sambee.net
-  - verify that the published site serves JSON with stable public URLs
-    - ✅
-- configure credentials so source-repo automation can create and update releases in the release repository
-  - create a fine-grained personal access token owned by your personal GitHub account
-    - ✅
-  - restrict the token to the single target repository: `helgeklein/sambee-companion`
-    - ✅
-  - grant only the repository permissions needed for this workflow:
-    - `Contents: Read and write`
-    - `Metadata: Read`
-    - ✅
-  - store the token as a secret in the source repository, using a clear name such as `COMPANION_RELEASE_REPO_TOKEN`
-    - ✅: `COMPANION_RELEASE_REPO_TOKEN`
-  - update the source-repo workflow to use that secret for release creation and asset upload instead of assuming the default `GITHUB_TOKEN` can write cross-repo
-    - ✅: `.github/workflows/build-companion.yml` now uses `COMPANION_RELEASE_REPO_TOKEN` for the Tauri release step and targets `helgeklein/sambee-companion`
-  - validate the token with a small test workflow or temporary script that creates and then deletes a draft release in `helgeklein/sambee-companion`
-    - ✅
-- configure credentials so the promotion workflow in `sambee` can commit feed updates to the release repository
-  - because all workflows stay in `sambee`, the default repository `GITHUB_TOKEN` is not sufficient for writing to `helgeklein/sambee-companion`
-  - reuse `COMPANION_RELEASE_REPO_TOKEN` for feed updates as well
-    - ✅
-  - check out `helgeklein/sambee-companion` into a subdirectory using the cross-repo token
-    - ✅: `.github/workflows/promote-companion-release.yml`
-  - configure the workflow git identity explicitly before committing, for example `github-actions[bot]` with the standard noreply email
-    - ✅: `.github/workflows/promote-companion-release.yml`
-  - commit the changed feed files in the checked-out release repository working tree and push them back to `main`
-    - ✅: direct push
-  - branch protection does not block direct pushes for this automation path
-    - ✅
-- create a Tauri updater signing keypair before enabling updater-based releases
-  - generate a new Tauri keypair once because no prior updater key appears to be in active use today
-    - ✅: generated locally on 2026-03-26
-  - keep the private key in GitHub secrets as `TAURI_SIGNING_PRIVATE_KEY`
-    - pending manual step
-  - keep the optional private-key password in `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
-    - not needed for the currently generated unencrypted key
-  - commit the matching public key directly in `companion/src-tauri/tauri.conf.json` under `plugins.updater.pubkey`
-    - ✅
-  - keep that public key stable across releases unless you are intentionally doing key rotation
+- completed
+- release repo: `helgeklein/sambee-companion`
+- Pages host: `https://release-feeds.sambee.net` from `main:/docs`
+- cross-repo automation secret: `COMPANION_RELEASE_REPO_TOKEN`
+- updater public key is committed in Companion config
+- updater private key secret still must remain configured in GitHub for future builds
 
 ### AI can do
 
-- document the expected repository layout
-- prepare workflow changes once the target repository name and auth mechanism are known
-- add or update developer documentation that describes the required secrets and permissions
+- completed
 
 ### Exit Criteria
 
@@ -120,25 +81,19 @@ When this work is complete:
 
 ## Phase 2: Release Build Pipeline
 
+Status: completed
+
 ### AI can do
 
-- update the existing Companion build workflow so draft releases are created in the dedicated release repository
-- preserve the current build structure and tag format `companion-vX.Y.Z`
-- ensure installer assets, updater artifacts, and `.sig` files continue to be uploaded
-- define the expected asset contract that the promotion workflow will validate
-- update related documentation and CI comments as needed
+- completed
+- draft releases are published cross-repo to `helgeklein/sambee-companion`
+- tag format remains `companion-vX.Y.Z`
+- updater artifacts and `.sig` uploads are enabled
 
 ### Manual
 
-- confirm the final target repository name and release ownership model
-- run the updated workflow in GitHub
-- inspect the produced draft release and confirm the expected assets are present
-  - verify that the release is created in the dedicated release repository, not the source repository
-  - verify that the tag name matches `companion-vX.Y.Z`
-  - verify that each intended platform asset is present with the expected filename pattern
-  - verify that required `.sig` files are attached for updater-managed platforms
-  - verify that release notes are populated and usable for feed generation
-  - verify that the release remains a draft until a human publishes it
+- completed for the current validated release flow
+- future releases still need normal operator inspection before publication
 
 ### Exit Criteria
 
@@ -146,45 +101,25 @@ When this work is complete:
 
 ## Phase 3: Feed Layout And Promotion Workflow
 
+Status: completed
+
 ### AI can do
 
-- add the feed file layout in the release repository:
+- completed
+- implemented in `.github/workflows/promote-companion-release.yml` and `.github/scripts/promote_companion_release.py`
+- generated feeds:
   - `feeds/companion/tauri/test/latest.json`
   - `feeds/companion/tauri/beta/latest.json`
   - `feeds/companion/tauri/stable/latest.json`
   - `feeds/sambee/companion/latest.json`
-- implement the manual `workflow_dispatch` promotion workflow in the `sambee` repository
-  - ✅: `.github/workflows/promote-companion-release.yml`
-- add the required inputs:
-  - `release_ref`
-  - `companion_channel_test`
-  - `companion_channel_beta`
-  - `companion_channel_stable`
-  - `sambee`
-  - ✅: `.github/workflows/promote-companion-release.yml`
-- resolve `release_ref` as either a tag or GitHub release URL
-- fail if no booleans are selected
-- fail if the resolved release is missing, unpublished, or still a draft
-- fail if required assets or `.sig` files are missing
-- generate strict Tauri-compatible JSON for each selected Companion channejl
-- generate separate Sambee download metadata JSON when `sambee=true`
-- ensure Sambee-specific fields never appear in Tauri feed files
-- make generation idempotent and log exactly which files will change
+- promotion supports tag or release URL input, validates release state, and writes idempotent JSON
+- Tauri feeds now tolerate partial platform coverage as long as each included platform has both bundle and signature
 
 ### Manual
 
-- decide whether feed files are pushed directly or updated through pull requests
-  - direct push is simpler and usually appropriate if the promotion workflow is already manual and limited to trusted operators
-  - pull requests are safer if you want review history or if branch protection blocks workflow pushes
-  - decide this before the workflow is implemented because it changes how the workflow writes files and how operators complete promotions
-  - ✅: direct push
-- run the promotion workflow in GitHub after a release is published
-- confirm the updated feed files point at the intended release
-  - verify that only the selected feed files changed
-  - verify that each changed Tauri feed contains the expected `version`, `pub_date`, `notes`, platform URLs, and signatures
-  - verify that the Sambee metadata file contains only the intended download fields and no Tauri-only structure
-  - verify that all generated URLs point to immutable assets in the published release
-  - rerun the workflow with the same inputs once to confirm idempotent behavior
+- completed
+- direct push was chosen and validated
+- published feeds at `release-feeds.sambee.net` were verified against `companion-v0.5.0`
 
 ### Exit Criteria
 
@@ -257,6 +192,8 @@ When this work is complete:
 
 ## Phase 6: Validation, Rollout, And Operations
 
+Status: partially completed
+
 ### AI can do
 
 - add or update operator-facing documentation for draft publication, release promotion, rollback, and pinning
@@ -265,19 +202,9 @@ When this work is complete:
 
 ### Manual
 
-- build a test Companion release
-- verify a draft release appears in the release repo
-- publish the release manually
-- run the promotion workflow with only `companion_channel_test=true`
-- verify Companion on the `test` channel discovers the update
-- run the promotion workflow again with `sambee=true`
-- verify Sambee displays the expected download link
-- rehearse promotion through `test`, then `beta`, then `stable`
-- confirm `feeds/sambee/companion/latest.json` is updated only when intended
-  - record the exact release used for the dry run so future regressions can be compared against it
-  - verify that promoting to `test` does not implicitly change `beta`, `stable`, or the Sambee metadata file
-  - verify that promoting to `sambee=true` does not implicitly change any Tauri channel feed
-  - verify rollback by repointing one feed to the previous known-good release
+- completed so far
+- build, publication, promotion, and hosted feed verification succeeded for `companion-v0.5.0`
+- remaining validation is in-product behavior inside Companion and Sambee after their application changes are implemented
 
 ### Exit Criteria
 
@@ -285,13 +212,11 @@ When this work is complete:
 
 ## Suggested Implementation Order
 
-1. Complete the manual repository, secret, and hosting prerequisites.
-2. Have AI update the Companion build workflow to publish draft releases there.
-3. Have AI implement the promotion workflow and feed generation.
-4. Run a manual release-pipeline test in GitHub.
-5. Have AI update Companion to use the new Tauri feed URLs.
-6. Have AI update Sambee to use the new download metadata feed and pin override.
-7. Perform a manual end-to-end dry run before enabling stable rollout.
+1. Update Companion to use the promoted Tauri feed URLs.
+2. Update Sambee to use the separate download metadata feed and pin override.
+3. Verify Companion update behavior against promoted test, beta, and stable feeds.
+4. Verify Sambee download-link behavior against the promoted metadata feed.
+5. Perform a final end-to-end rollout rehearsal after the app changes are complete.
 
 ## Open Implementation Decisions
 
@@ -300,35 +225,25 @@ These are remaining product or operational decisions that may still be open afte
 - the exact Sambee pin configuration schema and storage location
 - whether Linux installers should also be exposed in Sambee UI or only desktop platforms that Sambee officially supports
 
-## Manual Prerequisites Before Asking AI To Implement
+## Remaining Manual Prerequisites
 
-These are the decisions and setup tasks that should be completed before asking AI to implement the first non-placeholder version.
+These are the remaining operator decisions needed before the application-integration phases are implemented.
 
-- create or confirm the dedicated release repository
-- decide the feed-hosting model
-  - choose between default-branch Pages publishing and dedicated-branch Pages publishing
-  - use `sambee.net` as the public domain namespace
-  - decide the exact subdomain or path that will host the feeds
-- configure the required GitHub secrets and permissions
-- decide the base URLs for production and development
-  - write down the exact URLs, not just the hosting approach
-- decide whether workflow-generated feed changes push directly or go through pull requests
-
-The goal of this section is to establish the concrete repo names, auth model, feed host, and write path so the initial implementation does not need placeholders.
-
-Without those decisions, AI can still draft code and workflow files, but the implementation will contain placeholders that must be reconciled later.
+- confirm the production and development feed base URLs that Companion and Sambee should use in code
+- decide the Sambee pin schema and where that override is configured
+- decide whether Linux download links should appear in Sambee UI once Linux assets are published
 
 ## Completion Checklist
 
-- [ ] release repository exists and is writable by automation
-- [ ] Companion build workflow publishes draft releases to the release repository
-- [ ] release assets and signatures are complete and validated
-- [ ] promotion workflow exists with `release_ref` and four booleans
-- [ ] promotion workflow generates Tauri feed JSON correctly
-- [ ] promotion workflow generates Sambee metadata JSON correctly
+- [x] release repository exists and is writable by automation
+- [x] Companion build workflow publishes draft releases to the release repository
+- [x] release assets and signatures are complete and validated for the current tested release
+- [x] promotion workflow exists with `release_ref` and four booleans
+- [x] promotion workflow generates Tauri feed JSON correctly
+- [x] promotion workflow generates Sambee metadata JSON correctly
 - [ ] Companion updater uses the new feed layout
 - [ ] Companion channel selection works end-to-end
 - [ ] Sambee resolves download metadata from the new source
 - [ ] Sambee optional pin override works
-- [ ] one full dry run has been completed
+- [x] one infrastructure dry run has been completed
 - [ ] operator-facing documentation has been updated
