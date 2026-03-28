@@ -3,8 +3,9 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.core.auth_methods import AuthMethod
 from app.core.environment import IS_DEVELOPMENT
@@ -12,6 +13,7 @@ from app.core.exceptions import ConfigurationError
 from app.core.system_setting_definitions import SYSTEM_SETTING_DEFINITIONS, SystemSettingKey
 
 configured_setting_keys: frozenset[str] = frozenset()
+DEFAULT_COMPANION_METADATA_FEED_URL = "https://release-feeds.sambee.net/feeds/sambee/companion/latest.json"
 
 
 #
@@ -124,6 +126,29 @@ def load_toml_config(config_file: Path) -> dict[str, Any]:
             if "timeout_seconds" in imagemagick:
                 flat_config["preprocessor_imagemagick_timeout_seconds"] = imagemagick["timeout_seconds"]
 
+    # Companion download metadata settings
+    if "companion_downloads" in toml_data:
+        companion_downloads = toml_data["companion_downloads"]
+        if "metadata_feed_url" in companion_downloads:
+            flat_config["companion_metadata_feed_url"] = companion_downloads["metadata_feed_url"]
+
+        pin = companion_downloads.get("pin")
+        if isinstance(pin, dict):
+            if "version" in pin:
+                flat_config["companion_pin_version"] = pin["version"]
+            if "published_at" in pin:
+                flat_config["companion_pin_published_at"] = pin["published_at"]
+            if "notes" in pin:
+                flat_config["companion_pin_notes"] = pin["notes"]
+            if "windows_x64_url" in pin:
+                flat_config["companion_pin_windows_x64_url"] = pin["windows_x64_url"]
+            if "windows_arm64_url" in pin:
+                flat_config["companion_pin_windows_arm64_url"] = pin["windows_arm64_url"]
+            if "macos_arm64_url" in pin:
+                flat_config["companion_pin_macos_arm64_url"] = pin["macos_arm64_url"]
+            if "linux_x64_url" in pin:
+                flat_config["companion_pin_linux_x64_url"] = pin["linux_x64_url"]
+
     return flat_config
 
 
@@ -212,6 +237,16 @@ class Settings(BaseModel):
         SystemSettingKey.PREPROCESSOR_IMAGEMAGICK_TIMEOUT_SECONDS
     ].default_value
 
+    # Companion download metadata settings
+    companion_metadata_feed_url: str = DEFAULT_COMPANION_METADATA_FEED_URL
+    companion_pin_version: str | None = None
+    companion_pin_published_at: str | None = None
+    companion_pin_notes: str = ""
+    companion_pin_windows_x64_url: str | None = None
+    companion_pin_windows_arm64_url: str | None = None
+    companion_pin_macos_arm64_url: str | None = None
+    companion_pin_linux_x64_url: str | None = None
+
     @field_validator(
         "smb_read_chunk_size_bytes",
         "preprocessor_imagemagick_max_file_size_bytes",
@@ -226,6 +261,50 @@ class Settings(BaseModel):
         if value < definition.min_value or value > definition.max_value:
             raise ValueError(f"{definition.config_attr} must be between {definition.min_value} and {definition.max_value}")
         return value
+
+    @field_validator(
+        "companion_metadata_feed_url",
+        "companion_pin_windows_x64_url",
+        "companion_pin_windows_arm64_url",
+        "companion_pin_macos_arm64_url",
+        "companion_pin_linux_x64_url",
+    )
+    @classmethod
+    def validate_companion_urls(cls, value: str | None, info: Any) -> str | None:
+        if value is None:
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            if info.field_name == "companion_metadata_feed_url":
+                raise ValueError("companion_metadata_feed_url cannot be empty")
+            return None
+
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(f"{info.field_name} must be an absolute http or https URL")
+        if parsed.username or parsed.password:
+            raise ValueError(f"{info.field_name} must not include embedded credentials")
+
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.params, parsed.query, ""))
+
+    @model_validator(mode="after")
+    def validate_companion_pin_configuration(self) -> "Settings":
+        pin_asset_urls = [
+            self.companion_pin_windows_x64_url,
+            self.companion_pin_windows_arm64_url,
+            self.companion_pin_macos_arm64_url,
+            self.companion_pin_linux_x64_url,
+        ]
+        has_pin_assets = any(pin_asset_urls)
+        has_pin_configuration = has_pin_assets or bool(self.companion_pin_version) or bool(self.companion_pin_published_at)
+
+        if has_pin_configuration and not self.companion_pin_version:
+            raise ValueError("companion_downloads.pin.version is required when a companion pin override is configured")
+        if self.companion_pin_version and not has_pin_assets:
+            raise ValueError("companion_downloads.pin must define at least one asset URL when a companion pin override is configured")
+
+        return self
 
 
 #

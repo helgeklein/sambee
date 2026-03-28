@@ -77,6 +77,9 @@ const MAIN_WINDOW_FOCUS_RETRY_DELAY_MS: u64 = 150;
 /// Time to keep the pairing window temporarily above other windows.
 const PAIRING_ALWAYS_ON_TOP_MS: u64 = 1500;
 
+/// Delay before hiding the pairing window after success is shown.
+const PAIRING_SUCCESS_AUTO_HIDE_DELAY_MS: u64 = 2500;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Theme state — stores the latest theme received from the web app
 // ─────────────────────────────────────────────────────────────────────────────
@@ -605,6 +608,15 @@ pub(crate) fn show_pairing_window(app: &tauri::AppHandle, pairing_id: &str, orig
 /// Notify the dedicated pairing window that the current pairing completed.
 pub(crate) fn show_pairing_success(app: &tauri::AppHandle) {
     let _ = app.emit_to(PAIRING_WINDOW_LABEL, "pairing-completed", ());
+
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(PAIRING_SUCCESS_AUTO_HIDE_DELAY_MS)).await;
+
+        if let Some(win) = app_handle.get_webview_window(PAIRING_WINDOW_LABEL) {
+            let _ = win.hide();
+        }
+    });
 }
 
 //

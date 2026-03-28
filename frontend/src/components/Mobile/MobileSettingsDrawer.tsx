@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsCategoryContent } from "../Settings/SettingsCategoryContent";
 import { SettingsCategoryList } from "../Settings/SettingsCategoryList";
+import { prefetchSettingsDataForItems } from "../Settings/settingsDataSources";
 import { getSettingsViewTitle, getVisibleSettingsSections, type MobileSettingsView } from "../Settings/settingsNavigation";
 import { useSettingsAccess } from "../Settings/useSettingsAccess";
 
@@ -41,8 +42,9 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
   useEffect(() => {
     if (open) {
       setCurrentView(initialView);
+      prefetchSettingsDataForItems(getVisibleSettingsSections(isAdmin).flatMap((section) => section.categories));
     }
-  }, [open, initialView]);
+  }, [initialView, isAdmin, open]);
 
   const handleBack = () => {
     if (currentView === "main") {
@@ -84,21 +86,19 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
               <SettingsCategoryList
                 sections={getVisibleSettingsSections(isAdmin)}
                 onSelect={setCurrentView}
-                showChevron
                 showDividers
                 wrapItemsInListItem
                 listSx={{ py: 0 }}
                 subheaderSx={{ bgcolor: "background.default", textTransform: "uppercase", letterSpacing: 0.8 }}
                 itemButtonSx={{ py: 2 }}
                 itemIconSx={{ color: "primary.main" }}
-                iconGlyphSx={{ fontSize: 28 }}
-                primaryTypographyProps={{ variant: "h6", fontWeight: "medium" }}
+                primaryTypographyProps={{ fontWeight: "medium" }}
               />
             </Box>
           )}
 
           {currentView !== "main" && (
-            <SettingsCategoryContent category={currentView} isAdmin={isAdmin} onConnectionsChanged={onConnectionsChanged} />
+            <SettingsCategoryContent item={currentView} isAdmin={isAdmin} onConnectionsChanged={onConnectionsChanged} />
           )}
         </Box>
       </Box>

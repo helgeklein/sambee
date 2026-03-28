@@ -6,8 +6,6 @@ import { useI18n } from "../i18n/useI18n";
 import { log } from "../lib/logger";
 import { PairingRequest } from "./PairingRequest";
 
-const SUCCESS_AUTO_CLOSE_DELAY_MS = 2500;
-
 interface PairingEventPayload {
   pairing_id: string;
   origin: string;
@@ -52,20 +50,6 @@ export function PairingWindow() {
       unlistenCompleted.then((fn) => fn());
     };
   }, []);
-
-  useEffect(() => {
-    if (view.kind !== "success") {
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      void closeWindow();
-    }, SUCCESS_AUTO_CLOSE_DELAY_MS);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [closeWindow, view.kind]);
 
   const handleConfirm = useCallback(async (pairingId: string) => {
     try {

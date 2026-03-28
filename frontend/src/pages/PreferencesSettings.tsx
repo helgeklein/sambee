@@ -2,7 +2,6 @@ import {
   Box,
   Divider,
   FormControl,
-  FormControlLabel,
   InputLabel,
   List,
   ListItem,
@@ -10,7 +9,6 @@ import {
   MenuItem,
   Radio,
   Select,
-  Switch,
   Typography,
   useMediaQuery,
   useTheme,
@@ -28,22 +26,21 @@ import { patchCurrentUserSettings } from "../services/userSettingsSync";
 import { useSambeeTheme } from "../theme";
 import type { LanguagePreference } from "../types";
 import { formatLocalizedDateTime, formatLocalizedNumber } from "../utils/localeFormatting";
-import { useQuickNavIncludeDotDirectoriesPreference } from "./FileBrowser/preferences";
 
 const REGIONAL_LOCALE_OPTIONS = ["en-US", "en-GB", "de-DE", "fr-FR", "ja-JP"] as const;
 const REGIONAL_LOCALE_LABEL_KEYS = {
-  "en-US": "settings.preferencesPage.regionalLocaleOptions.enUS",
-  "en-GB": "settings.preferencesPage.regionalLocaleOptions.enGB",
-  "de-DE": "settings.preferencesPage.regionalLocaleOptions.deDE",
-  "fr-FR": "settings.preferencesPage.regionalLocaleOptions.frFR",
-  "ja-JP": "settings.preferencesPage.regionalLocaleOptions.jaJP",
+  "en-US": "settings.appearancePage.regionalLocaleOptions.enUS",
+  "en-GB": "settings.appearancePage.regionalLocaleOptions.enGB",
+  "de-DE": "settings.appearancePage.regionalLocaleOptions.deDE",
+  "fr-FR": "settings.appearancePage.regionalLocaleOptions.frFR",
+  "ja-JP": "settings.appearancePage.regionalLocaleOptions.jaJP",
 } as const satisfies Record<(typeof REGIONAL_LOCALE_OPTIONS)[number], string>;
 const PREVIEW_DATE = new Date("2026-03-22T14:35:00Z");
 
 function getLanguageOptionLabel(t: ReturnType<typeof useTranslation>["t"], language: string): string {
   return language === PSEUDO_LANGUAGE
-    ? t("settings.preferencesPage.pseudoLanguageOption")
-    : t("settings.preferencesPage.englishLanguageOption");
+    ? t("settings.appearancePage.pseudoLanguageOption")
+    : t("settings.appearancePage.englishLanguageOption");
 }
 
 function ThemePreview({
@@ -93,9 +90,8 @@ function ThemePreview({
   );
 }
 
-export function PreferencesSettings() {
+export function AppearanceSettings() {
   const { currentTheme, availableThemes, setThemeById } = useSambeeTheme();
-  const [includeDotDirectories, setIncludeDotDirectories] = useQuickNavIncludeDotDirectoriesPreference();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
@@ -104,7 +100,7 @@ export function PreferencesSettings() {
 
   const languageOptions = useMemo(
     () => [
-      { value: "browser", label: t("settings.preferencesPage.browserDefaultOption") },
+      { value: "browser", label: t("settings.appearancePage.browserDefaultOption") },
       ...availableLanguages.map((language) => ({
         value: language,
         label: getLanguageOptionLabel(t, language),
@@ -117,7 +113,7 @@ export function PreferencesSettings() {
     const options = [
       {
         value: "browser",
-        label: t("settings.preferencesPage.browserDefaultOption"),
+        label: t("settings.appearancePage.browserDefaultOption"),
       },
       ...REGIONAL_LOCALE_OPTIONS.map((locale) => ({
         value: locale,
@@ -155,14 +151,14 @@ export function PreferencesSettings() {
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
       <SettingsSectionHeader
-        title={getSettingsCategoryLabel("preferences")}
-        description={getSettingsCategoryDescription("preferences")}
+        title={getSettingsCategoryLabel("appearance")}
+        description={getSettingsCategoryDescription("appearance")}
         showTitle={!isMobile}
       />
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         <SettingsGroup
-          title={t("settings.preferencesPage.appearanceTitle")}
-          description={t("settings.preferencesPage.appearanceDescription")}
+          title={t("settings.appearancePage.themeTitle")}
+          description={t("settings.appearancePage.themeDescription")}
           sx={{ mb: 4 }}
         >
           {isMobile ? (
@@ -235,17 +231,17 @@ export function PreferencesSettings() {
         </SettingsGroup>
 
         <SettingsGroup
-          title={t("settings.preferencesPage.localizationTitle")}
-          description={t("settings.preferencesPage.localizationDescription")}
+          title={t("settings.appearancePage.localizationTitle")}
+          description={t("settings.appearancePage.localizationDescription")}
           sx={{ mb: 4 }}
         >
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }}>
             <FormControl fullWidth>
-              <InputLabel id="preferences-language-label">{t("settings.preferencesPage.languageLabel")}</InputLabel>
+              <InputLabel id="appearance-language-label">{t("settings.appearancePage.languageLabel")}</InputLabel>
               <Select
-                labelId="preferences-language-label"
+                labelId="appearance-language-label"
                 value={languagePreference}
-                label={t("settings.preferencesPage.languageLabel")}
+                label={t("settings.appearancePage.languageLabel")}
                 onChange={handleLanguageChange}
               >
                 {languageOptions.map((option) => (
@@ -255,16 +251,16 @@ export function PreferencesSettings() {
                 ))}
               </Select>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {t("settings.preferencesPage.languageDescription")}
+                {t("settings.appearancePage.languageDescription")}
               </Typography>
             </FormControl>
 
             <FormControl fullWidth>
-              <InputLabel id="preferences-regional-locale-label">{t("settings.preferencesPage.regionalLocaleLabel")}</InputLabel>
+              <InputLabel id="appearance-regional-locale-label">{t("settings.appearancePage.regionalLocaleLabel")}</InputLabel>
               <Select
-                labelId="preferences-regional-locale-label"
+                labelId="appearance-regional-locale-label"
                 value={regionalLocalePreference}
-                label={t("settings.preferencesPage.regionalLocaleLabel")}
+                label={t("settings.appearancePage.regionalLocaleLabel")}
                 onChange={handleRegionalLocaleChange}
               >
                 {regionalLocaleOptions.map((option) => (
@@ -274,7 +270,7 @@ export function PreferencesSettings() {
                 ))}
               </Select>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {t("settings.preferencesPage.regionalLocaleDescription")}
+                {t("settings.appearancePage.regionalLocaleDescription")}
               </Typography>
             </FormControl>
           </Box>
@@ -289,7 +285,7 @@ export function PreferencesSettings() {
             }}
           >
             <Typography variant="body2" fontWeight={600} sx={{ mb: 1.5 }}>
-              {t("settings.preferencesPage.regionalSettingsPreviewTitle")}
+              {t("settings.appearancePage.regionalSettingsPreviewTitle")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {formatLocalizedDateTime(PREVIEW_DATE, {
@@ -303,28 +299,6 @@ export function PreferencesSettings() {
               })}
             </Typography>
           </Box>
-        </SettingsGroup>
-
-        <SettingsGroup title={t("settings.preferencesPage.browserTitle")} description={t("settings.preferencesPage.browserDescription")}>
-          <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>
-            {t("settings.preferencesPage.quickNavigationTitle")}
-          </Typography>
-          <FormControlLabel
-            control={<Switch checked={includeDotDirectories} onChange={(_event, checked) => setIncludeDotDirectories(checked)} />}
-            label={t("settings.preferencesPage.includeDotDirectoriesLabel")}
-            sx={{ alignItems: "flex-start", m: 0 }}
-            slotProps={{
-              typography: {
-                sx: {
-                  fontWeight: 500,
-                  mt: 0.25,
-                },
-              },
-            }}
-          />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1, maxWidth: 640 }}>
-            {t("settings.preferencesPage.includeDotDirectoriesDescription")}
-          </Typography>
         </SettingsGroup>
       </Box>
     </Box>

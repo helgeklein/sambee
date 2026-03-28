@@ -84,6 +84,11 @@ interface PairInitiateResponse {
   nonce_companion: string;
 }
 
+interface PairInitiateRequest {
+  nonce_browser: string;
+  origin?: string;
+}
+
 /** Pairing confirmation response from the companion. */
 interface PairConfirmResponse {
   secret: string;
@@ -186,6 +191,18 @@ class CompanionService {
       baseURL: COMPANION_BASE_URL,
       timeout: 10_000,
     });
+
+    this.checkHealth = this.checkHealth.bind(this);
+    this.initiatePairing = this.initiatePairing.bind(this);
+    this.confirmPairing = this.confirmPairing.bind(this);
+    this.getPairStatus = this.getPairStatus.bind(this);
+    this.listPairings = this.listPairings.bind(this);
+    this.unpairOrigin = this.unpairOrigin.bind(this);
+    this.testPairing = this.testPairing.bind(this);
+    this.syncLocalization = this.syncLocalization.bind(this);
+    this.getDrives = this.getDrives.bind(this);
+    this.listDirectory = this.listDirectory.bind(this);
+    this.getFileInfo = this.getFileInfo.bind(this);
   }
 
   // ── Auth Header Construction ─────────────────────────────────────────────
@@ -247,10 +264,12 @@ class CompanionService {
     nonceBrowser: string;
   }> {
     const nonceBrowser = generateNonce();
-
-    const response = await this.client.post<PairInitiateResponse>("/pair/initiate", {
+    const requestBody: PairInitiateRequest = {
       nonce_browser: nonceBrowser,
-    });
+      origin: window.location.origin || undefined,
+    };
+
+    const response = await this.client.post<PairInitiateResponse>("/pair/initiate", requestBody);
 
     const { pairing_id, nonce_companion } = response.data;
 

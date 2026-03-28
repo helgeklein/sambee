@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
 import type { AdvancedSystemSettings } from "../../types";
 import { AdvancedSettings } from "../AdvancedSettings";
@@ -70,6 +71,7 @@ const mockAdvancedSettingsWithOverride: AdvancedSystemSettings = {
 describe("AdvancedSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearCachedAsyncData();
     vi.mocked(api.getAdvancedSettings).mockResolvedValue(mockAdvancedSettings);
     vi.mocked(api.updateAdvancedSettings).mockResolvedValue(mockAdvancedSettings);
   });

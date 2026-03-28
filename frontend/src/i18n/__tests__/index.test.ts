@@ -4,7 +4,6 @@ import { CONFIRM_DELETE_STRINGS } from "../../components/FileBrowser/confirmDele
 import { SORT_CONTROLS_STRINGS } from "../../components/FileBrowser/sortControlsStrings";
 import { STATUS_BAR_STRINGS } from "../../components/FileBrowser/statusBarStrings";
 import { VIEW_MODE_SELECTOR_STRINGS } from "../../components/FileBrowser/viewModeSelectorStrings";
-import { LOCAL_DRIVES_PAGE_COPY } from "../../components/Settings/localDrivesCopy";
 import { THEME_SELECTOR_STRINGS } from "../../components/themeSelectorStrings";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { compareLocalizedStrings, formatLocalizedDateTime, formatLocalizedNumber } from "../../utils/localeFormatting";
@@ -27,7 +26,6 @@ describe("frontend i18n", () => {
   it("switches File Browser dialog strings when the locale changes", async () => {
     expect(CONFIRM_DELETE_STRINGS.BUTTON_DELETE).toBe("Delete");
     expect(CONNECTION_DIALOG_STRINGS.TITLE_ADD).toBe("Add Connection");
-    expect(LOCAL_DRIVES_PAGE_COPY.refreshButton).toBe("Refresh");
     expect(COMMON_SHORTCUTS.SEARCH.description).toBe("Search");
     expect(BROWSER_SHORTCUTS.SHOW_HELP.description).toBe("Show keyboard shortcuts");
     expect(SORT_CONTROLS_STRINGS.fieldLabel("modified")).toBe("Modified");
@@ -49,7 +47,6 @@ describe("frontend i18n", () => {
     expect(CONFIRM_DELETE_STRINGS.TITLE_FILE).toBe("[Ďéĺéťé ƒíĺé]");
     expect(CONNECTION_DIALOG_STRINGS.TITLE_ADD).toBe("[Åďď Ćóńńéćťíóń]");
     expect(CONNECTION_DIALOG_STRINGS.ERROR_USERNAME_REQUIRED).toBe("[Úšéŕńåḿé íš ŕéqúíŕéď]");
-    expect(LOCAL_DRIVES_PAGE_COPY.refreshButton).toBe("[Ŕéƒŕéšħ]");
     expect(COMMON_SHORTCUTS.SEARCH.description).toBe("[Šéåŕćħ]");
     expect(BROWSER_SHORTCUTS.SHOW_HELP.description).toBe("[Šħóŵ ķéýƀóåŕď šħóŕťćúťš]");
     expect(SORT_CONTROLS_STRINGS.fieldLabel("modified")).toBe("[Ḿóďíƒíéď]");

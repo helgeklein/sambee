@@ -32,7 +32,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
@@ -44,7 +44,9 @@ import {
   settingsPrimaryFabSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
+import { loadUserManagementSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import type {
   AdminUser,
@@ -82,9 +84,36 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const { t } = useTranslation();
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [notification, setNotification] = useState<{
+    open: boolean;
+    message: string;
+    severity: "success" | "error" | "info";
+  }>({
+    open: false,
+    message: "",
+    severity: "success",
+  });
+  const showNotification = useCallback((message: string, severity: "success" | "error" | "info") => {
+    setNotification({ open: true, message, severity });
+  }, []);
+  const handleUsersLoadError = useCallback(
+    (error: unknown) => {
+      const message = getApiErrorMessage(error, t("settings.userManagement.notifications.loadFailed"));
+      showNotification(message, "error");
+    },
+    [showNotification, t]
+  );
+  const {
+    data: cachedUserManagementData,
+    loading,
+    refresh,
+  } = useCachedAsyncData({
+    cacheKey: SETTINGS_DATA_CACHE_KEYS.adminUsers,
+    load: loadUserManagementSettingsData,
+    onError: handleUsersLoadError,
+  });
+  const users = cachedUserManagementData?.users ?? [];
+  const currentUserId = cachedUserManagementData?.currentUserId ?? null;
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
@@ -104,41 +133,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     temporaryPassword: "",
     description: "",
   });
-  const [notification, setNotification] = useState<{
-    open: boolean;
-    message: string;
-    severity: "success" | "error" | "info";
-  }>({
-    open: false,
-    message: "",
-    severity: "success",
-  });
 
   const isEditing = Boolean(selectedUser);
   const isEditingSelf = Boolean(selectedUser && currentUserId && selectedUser.id === currentUserId);
-
-  const showNotification = useCallback((message: string, severity: "success" | "error" | "info") => {
-    setNotification({ open: true, message, severity });
-  }, []);
-
-  const loadUsers = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [userList, currentUser] = await Promise.all([api.getUsers(), api.getCurrentUser()]);
-      setUsers(userList);
-      setCurrentUserId(currentUser.id ?? null);
-    } catch (error: unknown) {
-      const message = getApiErrorMessage(error, t("settings.userManagement.notifications.loadFailed"));
-      showNotification(message, "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [showNotification, t]);
-
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
-
   const activeAdminCount = useMemo(() => users.filter((user) => user.role === "admin" && user.is_active !== false).length, [users]);
 
   const openCreateDialog = () => {
@@ -208,7 +205,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       }
 
       closeEditor();
-      await loadUsers();
+      await refresh();
     } catch (error: unknown) {
       const message = getApiErrorMessage(
         error,
@@ -218,7 +215,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     } finally {
       setSubmitting(false);
     }
-  }, [closeEditor, formState, isEditing, loadUsers, selectedUser, showNotification, t]);
+  }, [closeEditor, formState, isEditing, refresh, selectedUser, showNotification, t]);
 
   const handleEditorKeyDown = useMemo(
     () =>
@@ -247,7 +244,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         description: t("settings.userManagement.credentialsDialog.resetDescription"),
       });
       showNotification(result.message, "success");
-      await loadUsers();
+      await refresh();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.resetFailed"));
       showNotification(message, "error");
@@ -264,7 +261,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       showNotification(t("settings.userManagement.notifications.userDeleted"), "success");
       setDeleteDialogOpen(false);
       setSelectedUser(null);
-      await loadUsers();
+      await refresh();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.deleteFailed"));
       showNotification(message, "error");

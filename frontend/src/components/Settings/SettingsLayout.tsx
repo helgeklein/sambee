@@ -8,7 +8,15 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { SettingsSidebar } from "./SettingsSidebar";
-import { getSettingsCategoryByPath, getSettingsViewTitle } from "./settingsNavigation";
+import { prefetchSettingsDataForItems } from "./settingsDataSources";
+import {
+  DEFAULT_SETTINGS_CATEGORY,
+  getSettingsNavItemByPath,
+  getSettingsViewTitle,
+  getVisibleSettingsNavItems,
+  SETTINGS_ROUTE_BY_CATEGORY,
+} from "./settingsNavigation";
+import { useSettingsAccess } from "./useSettingsAccess";
 
 /**
  * SettingsLayout
@@ -22,22 +30,31 @@ export function SettingsLayout() {
   const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const navigate = useNavigate();
   const location = useLocation();
+  const { isAdmin } = useSettingsAccess();
   const { t } = useTranslation();
 
-  // On desktop, redirect from /settings to /settings/preferences (default page)
+  // On desktop, redirect from /settings to the topmost settings page.
   useEffect(() => {
     if (isDesktop && location.pathname === "/settings") {
-      navigate("/settings/preferences", { replace: true });
+      navigate(SETTINGS_ROUTE_BY_CATEGORY[DEFAULT_SETTINGS_CATEGORY], { replace: true });
     }
   }, [isDesktop, location.pathname, navigate]);
 
+  useEffect(() => {
+    prefetchSettingsDataForItems(getVisibleSettingsNavItems(isAdmin));
+  }, [isAdmin]);
+
   // Get page title from current route
   const getPageTitle = () => {
-    const category = getSettingsCategoryByPath(location.pathname);
-    if (category) {
-      return getSettingsViewTitle(category);
+    const item = getSettingsNavItemByPath(location.pathname);
+    if (item) {
+      return getSettingsViewTitle(item);
     }
     return getSettingsViewTitle("main");
+  };
+
+  const handleMobileBack = () => {
+    navigate(-1);
   };
 
   if (isDesktop) {
@@ -64,7 +81,7 @@ export function SettingsLayout() {
     <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <AppBar position="static">
         <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
-          <IconButton edge="start" color="inherit" onClick={() => navigate(-1)} aria-label={t("common.navigation.goBack")}>
+          <IconButton edge="start" color="inherit" onClick={handleMobileBack} aria-label={t("common.navigation.goBack")}>
             <ArrowBackIcon />
           </IconButton>
           <Typography variant="h6" component="h1" sx={{ ml: 2 }}>

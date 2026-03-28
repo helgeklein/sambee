@@ -5,6 +5,7 @@ export type ConnectionScope = "shared" | "private";
 export type SystemSettingSource = "database" | "config_file" | "default";
 export type LanguagePreference = "browser" | "en" | "en-XA";
 export type RegionalLocalePreference = string;
+export type CompanionDownloadPlatform = "windows-x64" | "windows-arm64" | "macos-arm64" | "linux-x64";
 
 export interface User {
   id?: string;
@@ -210,6 +211,14 @@ export interface AuthToken {
   role?: UserRole;
   is_admin: boolean;
   must_change_password?: boolean;
+}
+
+export interface CompanionDownloadMetadata {
+  source: "feed" | "pin";
+  version: string;
+  published_at?: string | null;
+  notes: string;
+  assets: Partial<Record<CompanionDownloadPlatform, string>>;
 }
 
 // Alias for compatibility

@@ -213,6 +213,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> 
 #[derive(Deserialize)]
 pub struct PairInitiateRequest {
     pub nonce_browser: String,
+    pub origin: Option<String>,
 }
 
 /// `POST /api/pair/initiate` — start a pairing exchange.
@@ -221,7 +222,7 @@ pub async fn pair_initiate(
     headers: HeaderMap,
     Json(body): Json<PairInitiateRequest>,
 ) -> Result<Json<PairInitiateResponse>, ApiError> {
-    let origin = extract_origin(&headers)?;
+    let origin = extract_origin(&headers).or_else(|_| extract_origin_from_pair_initiate_request(&body))?;
 
     let (pairing_id, nonce_companion, code) = state.pairing.initiate(&body.nonce_browser, &origin).map_err(ApiError::BadRequest)?;
 
@@ -1104,6 +1105,15 @@ fn extract_origin(headers: &HeaderMap) -> Result<String, ApiError> {
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .ok_or_else(|| ApiError::BadRequest("Missing Origin header".to_string()))
+}
+
+fn extract_origin_from_pair_initiate_request(body: &PairInitiateRequest) -> Result<String, ApiError> {
+    body.origin
+        .as_deref()
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing request".to_string()))
 }
 
 /// Map an I/O error to an appropriate API error with context.

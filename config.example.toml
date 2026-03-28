@@ -90,3 +90,24 @@ username = "admin"
 
 # Maximum time allowed for ImageMagick conversions, in seconds.
 # timeout_seconds = 30
+
+[companion_downloads]
+# Backend-managed Companion installer metadata.
+# Sambee resolves Companion download links from this feed unless a pin override
+# is configured below.
+# metadata_feed_url = "https://release-feeds.sambee.net/feeds/sambee/companion/latest.json"
+
+[companion_downloads.pin]
+# Optional deterministic override for environments that must not follow the
+# promoted latest feed automatically.
+#
+# When enabled, define a version plus at least one fully resolved asset URL.
+# Sambee will expose these URLs directly to the frontend and will not fetch the
+# promoted feed.
+# version = "0.5.0"
+# published_at = "2026-03-27T12:00:00Z"
+# notes = "Pinned for validation"
+# windows_x64_url = "https://downloads.example.test/Sambee-Companion_0.5.0_windows_x64-setup.exe"
+# windows_arm64_url = "https://downloads.example.test/Sambee-Companion_0.5.0_windows_arm64-setup.exe"
+# macos_arm64_url = "https://downloads.example.test/Sambee-Companion_0.5.0_macos_arm64.dmg"
+# linux_x64_url = "https://downloads.example.test/Sambee-Companion_0.5.0_linux_x64.AppImage"

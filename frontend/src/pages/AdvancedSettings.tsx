@@ -17,7 +17,9 @@ import { useTranslation } from "react-i18next";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { settingsPrimaryButtonSx } from "../components/Settings/settingsButtonStyles";
+import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
+import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import { translate } from "../i18n";
 import api from "../services/api";
 import type { AdvancedSystemSettings, AdvancedSystemSettingsUpdate, IntegerSystemSetting } from "../types";
@@ -374,32 +376,26 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
-  const [settings, setSettings] = useState<AdvancedSystemSettings | null>(null);
+  const handleAdvancedSettingsLoadError = useCallback(
+    (loadError: unknown) => {
+      setError(getApiErrorMessage(loadError, t("settings.advanced.loadFailed")));
+    },
+    [t]
+  );
+  const {
+    data: settings,
+    loading,
+    setData: setCachedSettings,
+  } = useCachedAsyncData<AdvancedSystemSettings>({
+    cacheKey: SETTINGS_DATA_CACHE_KEYS.adminSystem,
+    load: loadAdvancedSettingsData,
+    onError: handleAdvancedSettingsLoadError,
+  });
   const [formState, setFormState] = useState<AdvancedSettingsFormState | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [submitAttempted, setSubmitAttempted] = useState(false);
-
-  const loadSettings = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await api.getAdvancedSettings();
-      setSettings(response);
-      setFormState(createFormState(response));
-      setSubmitAttempted(false);
-    } catch (loadError: unknown) {
-      setError(getApiErrorMessage(loadError, t("settings.advanced.loadFailed")));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    void loadSettings();
-  }, [loadSettings]);
 
   const hasUnsavedChanges = useMemo(() => {
     if (!settings || !formState) {
@@ -408,6 +404,25 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
     return JSON.stringify(createFormState(settings)) !== JSON.stringify(formState);
   }, [formState, settings]);
+
+  useEffect(() => {
+    if (!settings) {
+      return;
+    }
+
+    setError(null);
+    setFormState((current) => {
+      if (current === null || !hasUnsavedChanges) {
+        return createFormState(settings);
+      }
+
+      return current;
+    });
+
+    if (!hasUnsavedChanges) {
+      setSubmitAttempted(false);
+    }
+  }, [hasUnsavedChanges, settings]);
 
   const validationErrors = useMemo(() => {
     if (!settings || !formState) {
@@ -448,7 +463,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       setError(null);
       setSuccessMessage(null);
       const updated = await api.updateAdvancedSettings(buildUpdatePayload(formState));
-      setSettings(updated);
+      setCachedSettings(updated);
       setFormState(createFormState(updated));
       setSuccessMessage(t("settings.advanced.saveSuccess"));
       setSubmitAttempted(false);
@@ -465,7 +480,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       setError(null);
       setSuccessMessage(null);
       const updated = await api.updateAdvancedSettings({ reset_keys: [key] });
-      setSettings(updated);
+      setCachedSettings(updated);
       setFormState(createFormState(updated));
       setSuccessMessage(t("settings.advanced.resetSuccess", { label }));
       setSubmitAttempted(false);
@@ -499,24 +514,24 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       />
 
       <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 3, overflow: "auto" }}>
-        {loading && (
+        {loading && !settings && (
           <Box sx={{ py: 6, display: "flex", justifyContent: "center" }}>
             <CircularProgress />
           </Box>
         )}
 
-        {!loading && error && (
+        {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
-        {!loading && successMessage && (
+        {successMessage && (
           <Alert severity="success" sx={{ mb: 2 }}>
             {successMessage}
           </Alert>
         )}
 
-        {!loading && settings && formState && (
+        {settings && formState && (
           <Stack spacing={4}>
             <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
               <ByteSizeSettingField

@@ -77,7 +77,7 @@ describe("PairingWindow", () => {
     expect(screen.getByText(translate("pairing.idleMessage"))).toBeInTheDocument();
   });
 
-  it("renders translated pairing states and auto-closes after success", async () => {
+  it("renders translated pairing states and lets the user close the success view", async () => {
     await setLocale("en-XA");
     invokeMock.mockResolvedValue(undefined);
 
@@ -111,7 +111,7 @@ describe("PairingWindow", () => {
     emitEvent("pairing-completed", undefined);
 
     expect(await screen.findByRole("heading", { name: translate("pairing.success.title") })).toBeInTheDocument();
-    vi.advanceTimersByTime(2500);
+    fireEvent.click(screen.getByRole("button", { name: translate("pairing.actions.close") }));
 
     await waitFor(() => {
       expect(closeWindowMock).toHaveBeenCalledTimes(1);

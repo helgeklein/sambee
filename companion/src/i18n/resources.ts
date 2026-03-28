@@ -28,7 +28,7 @@ export const EN_TRANSLATIONS = {
     actions: {
       reject: "Reject",
       codesMatch: "Codes Match",
-      close: "Close",
+      close: "Close now",
     },
     approved: {
       title: "Approval sent",
@@ -38,7 +38,7 @@ export const EN_TRANSLATIONS = {
     success: {
       title: "Pairing successful",
       body: "This browser is now paired with Sambee Companion and can access local drives.",
-      hint: "This window will close automatically.",
+      hint: "This window will close automatically in a moment.",
     },
   },
   doneEditing: {

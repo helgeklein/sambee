@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
 import { ConnectionSettings } from "../ConnectionSettings";
 
@@ -39,6 +40,7 @@ const mockVisibilityOptions = [
 describe("ConnectionSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearCachedAsyncData();
     vi.mocked(api.getCurrentUser).mockResolvedValue({
       id: "admin-id",
       username: "admin",
@@ -55,6 +57,15 @@ describe("ConnectionSettings", () => {
         <ConnectionSettings isAdmin={false} />
       </SambeeThemeProvider>
     );
+
+  it("shows a loading state instead of flashing the empty state before connections load", () => {
+    vi.mocked(api.getConnections).mockReturnValue(new Promise(() => undefined));
+
+    renderSettings();
+
+    expect(screen.queryByText(/no connections configured/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
 
   it("shows backend-defined visibility options when the dialog opens", async () => {
     const user = userEvent.setup();

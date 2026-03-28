@@ -27,6 +27,7 @@ from app.core.security import create_access_token
 from app.models.connection import Connection
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.user import User
+from app.services.companion_downloads import CompanionDownloadResolutionError, ResolvedCompanionDownloadMetadata
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Fixtures
@@ -651,6 +652,50 @@ class TestVersionCheck:
         )
         assert response.status_code == 200
         assert response.json()["compatible"] is False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Companion download metadata
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class TestCompanionDownloads:
+    """Tests for GET /api/companion/downloads"""
+
+    def test_downloads_require_auth(self, client: TestClient):
+        response = client.get("/api/companion/downloads")
+        assert response.status_code == 401
+
+    def test_downloads_returns_resolved_metadata(self, client: TestClient, auth_headers_admin: dict):
+        resolved = ResolvedCompanionDownloadMetadata(
+            source="feed",
+            version="0.5.0",
+            published_at="2026-03-27T12:00:00Z",
+            notes="Release notes",
+            assets={"windows-x64": "https://downloads.example.test/Sambee-Companion.exe"},
+        )
+
+        with patch("app.api.companion.resolve_companion_download_metadata", return_value=resolved):
+            response = client.get("/api/companion/downloads", headers=auth_headers_admin)
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "source": "feed",
+            "version": "0.5.0",
+            "published_at": "2026-03-27T12:00:00Z",
+            "notes": "Release notes",
+            "assets": {"windows-x64": "https://downloads.example.test/Sambee-Companion.exe"},
+        }
+
+    def test_downloads_surfaces_resolution_errors(self, client: TestClient, auth_headers_admin: dict):
+        with patch(
+            "app.api.companion.resolve_companion_download_metadata",
+            side_effect=CompanionDownloadResolutionError("Companion download metadata feed request timed out."),
+        ):
+            response = client.get("/api/companion/downloads", headers=auth_headers_admin)
+
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Companion download metadata feed request timed out."
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import type {
   AdvancedSystemSettings,
   AdvancedSystemSettingsUpdate,
   AuthToken,
+  CompanionDownloadMetadata,
   Connection,
   ConnectionCreate,
   ConnectionVisibilityOption,
@@ -359,6 +360,11 @@ class ApiService {
 
   async getAdvancedSettings(): Promise<AdvancedSystemSettings> {
     const response = await this.api.get<AdvancedSystemSettings>("/admin/settings/advanced");
+    return response.data;
+  }
+
+  async getCompanionDownloads(): Promise<CompanionDownloadMetadata> {
+    const response = await this.api.get<CompanionDownloadMetadata>("/companion/downloads");
     return response.data;
   }
 

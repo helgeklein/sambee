@@ -10,7 +10,14 @@ import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
 import { SettingsCategoryContent } from "./SettingsCategoryContent";
 import { SettingsCategoryList } from "./SettingsCategoryList";
-import { getVisibleSettingsCategories, getVisibleSettingsSections, type SettingsCategory } from "./settingsNavigation";
+import { prefetchSettingsDataForItems } from "./settingsDataSources";
+import {
+  DEFAULT_SETTINGS_CATEGORY,
+  getVisibleSettingsNavItems,
+  getVisibleSettingsSections,
+  type SettingsCategory,
+  type SettingsNavItem,
+} from "./settingsNavigation";
 import { useSettingsAccess } from "./useSettingsAccess";
 
 interface SettingsDialogProps {
@@ -27,23 +34,28 @@ interface SettingsDialogProps {
  *
  * Modal dialog for settings on desktop.
  * Contains sidebar navigation and content area for the consolidated
- * Preferences, Connections, User Management, and System settings.
+ * Appearance, Connections, User Management, and System settings.
  */
-const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialCategory = "preferences", onConnectionsChanged }) => {
-  const [selectedCategory, setSelectedCategory] = useState<SettingsCategory>(initialCategory);
+const SettingsDialog: React.FC<SettingsDialogProps> = ({
+  open,
+  onClose,
+  initialCategory = DEFAULT_SETTINGS_CATEGORY,
+  onConnectionsChanged,
+}) => {
+  const [selectedItem, setSelectedItem] = useState<SettingsNavItem>(initialCategory);
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
   const { isAdmin } = useSettingsAccess(open);
   const { t } = useTranslation();
 
   // Refs for category list items (for arrow key navigation and initial focus)
-  const categoryRefs = useRef<Partial<Record<SettingsCategory, HTMLDivElement | null>>>({});
+  const categoryRefs = useRef<Partial<Record<SettingsNavItem, HTMLDivElement | null>>>({});
 
-  // Build list of available categories based on admin status
-  const availableCategories = useMemo(() => getVisibleSettingsCategories(isAdmin), [isAdmin]);
+  // Build list of available items based on admin status
+  const availableItems = useMemo(() => getVisibleSettingsNavItems(isAdmin), [isAdmin]);
   const visibleSections = useMemo(() => getVisibleSettingsSections(isAdmin), [isAdmin]);
 
-  const focusCategoryButton = useCallback((category: SettingsCategory) => {
-    categoryRefs.current[category]?.focus();
+  const focusCategoryButton = useCallback((item: SettingsNavItem) => {
+    categoryRefs.current[item]?.focus();
   }, []);
 
   //
@@ -56,28 +68,30 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
       }
 
       e.preventDefault();
-      const currentIndex = availableCategories.indexOf(selectedCategory);
+      const currentIndex = availableItems.indexOf(selectedItem);
       let newIndex = currentIndex;
 
       if (e.key === "ArrowDown") {
-        newIndex = Math.min(currentIndex + 1, availableCategories.length - 1);
+        newIndex = Math.min(currentIndex + 1, availableItems.length - 1);
       } else if (e.key === "ArrowUp") {
         newIndex = Math.max(currentIndex - 1, 0);
       }
 
       if (newIndex !== currentIndex) {
-        const newCategory = availableCategories[newIndex];
-        if (newCategory) {
-          setSelectedCategory(newCategory);
-          focusCategoryButton(newCategory);
+        const newItem = availableItems[newIndex];
+        if (newItem) {
+          setSelectedItem(newItem);
+          focusCategoryButton(newItem);
         }
       }
     },
-    [availableCategories, focusCategoryButton, selectedCategory]
+    [availableItems, focusCategoryButton, selectedItem]
   );
 
   useEffect(() => {
     if (open) {
+      prefetchSettingsDataForItems(availableItems);
+
       // Fetch version info
       void fetchVersionInfo().then((info) => {
         if (info) {
@@ -85,25 +99,25 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
         }
       });
     }
-  }, [open]);
+  }, [availableItems, open]);
 
   // Set category when dialog opens (use initialCategory prop)
   useEffect(() => {
     if (open) {
-      setSelectedCategory(availableCategories.includes(initialCategory) ? initialCategory : (availableCategories[0] ?? "preferences"));
+      setSelectedItem(availableItems.includes(initialCategory) ? initialCategory : (availableItems[0] ?? DEFAULT_SETTINGS_CATEGORY));
     }
-  }, [availableCategories, initialCategory, open]);
+  }, [availableItems, initialCategory, open]);
 
   // Focus the initial category button when dialog opens
   useEffect(() => {
     if (open) {
       // Use setTimeout to ensure the dialog is fully rendered
       const timeoutId = setTimeout(() => {
-        focusCategoryButton(availableCategories.includes(initialCategory) ? initialCategory : (availableCategories[0] ?? "preferences"));
+        focusCategoryButton(availableItems.includes(initialCategory) ? initialCategory : (availableItems[0] ?? DEFAULT_SETTINGS_CATEGORY));
       }, 0);
       return () => clearTimeout(timeoutId);
     }
-  }, [availableCategories, focusCategoryButton, initialCategory, open]);
+  }, [availableItems, focusCategoryButton, initialCategory, open]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { height: "80vh", bgcolor: "background.default" } }}>
@@ -142,25 +156,25 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
           <Divider sx={{ mb: 2 }} />
           <SettingsCategoryList
             sections={visibleSections}
-            onSelect={setSelectedCategory}
-            selectedCategory={selectedCategory}
+            onSelect={setSelectedItem}
+            selectedItem={selectedItem}
             listSx={{ flex: 1, py: 0 }}
             listRole="listbox"
             listAriaLabel={t("settings.shell.categoriesAriaLabel")}
             sectionSx={{ mb: 1 }}
-            subheaderSx={{ bgcolor: "transparent", lineHeight: 2.5, textTransform: "uppercase", letterSpacing: 0.8 }}
             wrapItemsInListItem
-            getItemRef={(category) => (element) => {
-              categoryRefs.current[category] = element;
+            getItemRef={(item) => (element) => {
+              categoryRefs.current[item] = element;
             }}
-            getItemTabIndex={(category) => (selectedCategory === category ? 0 : -1)}
-            getItemAriaSelected={(category) => selectedCategory === category}
+            getItemTabIndex={(item) => (selectedItem === item ? 0 : -1)}
+            getItemAriaSelected={(item) => selectedItem === item}
             itemRole="option"
             onItemKeyDown={handleCategoryKeyDown}
-            itemButtonSx={{ py: 1.5, px: 2 }}
-            itemIconSx={(selected) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
-            iconGlyphSx={{ fontSize: 28 }}
-            primaryTypographyProps={(selected) => ({ variant: "h6", fontWeight: selected ? "medium" : "normal" })}
+            itemButtonSx={() => ({ py: 0.5, px: 1.5 })}
+            itemIconSx={(selected: boolean) => ({ minWidth: 40, color: selected ? "primary.main" : "text.secondary" })}
+            primaryTypographyProps={(selected) => ({
+              fontWeight: selected ? "medium" : "normal",
+            })}
           />
 
           {/* Version Information */}
@@ -193,7 +207,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({ open, onClose, initialC
           }}
         >
           <SettingsCategoryContent
-            category={selectedCategory}
+            item={selectedItem}
             isAdmin={isAdmin}
             onConnectionsChanged={onConnectionsChanged}
             dialogSafeHeader

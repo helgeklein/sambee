@@ -1,9 +1,7 @@
-import { Box } from "@mui/material";
-import { useTranslation } from "react-i18next";
+import { Box, useMediaQuery, useTheme } from "@mui/material";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { ConnectionSettings } from "./ConnectionSettings";
-import { LocalDrivesSettings } from "./LocalDrivesSettings";
 
 interface ConnectionsSettingsProps {
   onConnectionsChanged?: () => void;
@@ -16,29 +14,26 @@ export function ConnectionsSettings({
   dialogSafeHeader = false,
   forceDesktopLayout = false,
 }: ConnectionsSettingsProps) {
-  const { t } = useTranslation();
+  const theme = useTheme();
+  const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
+  const isDesktop = forceDesktopLayout || isLargeScreen;
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      <SettingsSectionHeader
-        title={getSettingsCategoryLabel("connections")}
-        description={getSettingsCategoryDescription("connections")}
-        dialogSafe={dialogSafeHeader}
-      />
-      <Box sx={{ flex: 1, overflow: "auto", pb: 3 }}>
+      {isDesktop && (
+        <SettingsSectionHeader
+          title={getSettingsCategoryLabel("connections")}
+          description={getSettingsCategoryDescription("connections")}
+          dialogSafe={dialogSafeHeader}
+        />
+      )}
+
+      <Box sx={{ flex: 1, minWidth: 0, overflow: isDesktop ? "hidden" : "auto" }}>
         <ConnectionSettings
           onConnectionsChanged={onConnectionsChanged}
           forceDesktopLayout={forceDesktopLayout}
           showHeader={false}
-          showMobileFab={false}
-          sectionTitle={t("settings.connectionsPage.smbSectionTitle")}
-          sectionDescription={t("settings.connectionsPage.smbSectionDescription")}
-        />
-        <LocalDrivesSettings
-          onConnectionsChanged={onConnectionsChanged}
-          showHeader={false}
-          sectionTitle={t("settings.connectionsPage.localDrivesSectionTitle")}
-          sectionDescription={t("settings.connectionsPage.localDrivesSectionDescription")}
+          showMobileFab={!isDesktop}
         />
       </Box>
     </Box>

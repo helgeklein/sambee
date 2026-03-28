@@ -28,7 +28,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
@@ -41,7 +41,9 @@ import {
   settingsPrimaryFabSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
+import { loadConnectionsSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { useSettingsAccess } from "../components/Settings/useSettingsAccess";
+import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
 import api from "../services/api";
 import type { Connection } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
@@ -86,15 +88,6 @@ export function ConnectionSettings({
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
-  const [menuAnchor, setMenuAnchor] = useState<{
-    element: HTMLElement;
-    connection: Connection;
-  } | null>(null);
   const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
@@ -104,28 +97,33 @@ export function ConnectionSettings({
     message: "",
     severity: "success",
   });
-
   const showNotification = useCallback((message: string, severity: "success" | "error" | "info") => {
     setNotification({ open: true, message, severity });
   }, []);
-
-  const loadConnections = useCallback(async () => {
-    try {
-      setLoading(true);
-      const data = await api.getConnections();
-      setConnections(data);
-    } catch (error: unknown) {
+  const handleConnectionsLoadError = useCallback(
+    (error: unknown) => {
       const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.loadFailed"));
       showNotification(message, "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [showNotification, t]);
-
-  useEffect(() => {
-    loadConnections();
-  }, [loadConnections]);
-
+    },
+    [showNotification, t]
+  );
+  const {
+    data: cachedConnections,
+    loading,
+    refresh,
+  } = useCachedAsyncData<Connection[]>({
+    cacheKey: SETTINGS_DATA_CACHE_KEYS.connections,
+    load: loadConnectionsSettingsData,
+    onError: handleConnectionsLoadError,
+  });
+  const connections = cachedConnections ?? [];
+  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{
+    element: HTMLElement;
+    connection: Connection;
+  } | null>(null);
   const handleAddClick = () => {
     setSelectedConnection(null);
     setConnectionDialogOpen(true);
@@ -149,7 +147,7 @@ export function ConnectionSettings({
   };
 
   const handleConnectionSave = (savedConnection: Connection, requestedScope: "shared" | "private") => {
-    loadConnections();
+    void refresh();
     if (savedConnection.scope !== requestedScope) {
       showNotification(
         savedConnection.scope === "private"
@@ -177,7 +175,7 @@ export function ConnectionSettings({
     try {
       await api.deleteConnection(selectedConnection.id);
       showNotification(t("settings.connectionManagement.notifications.deletedSuccess"), "success");
-      await loadConnections();
+      await refresh();
       setDeleteDialogOpen(false);
       setSelectedConnection(null);
       onConnectionsChanged?.();
@@ -476,7 +474,7 @@ export function ConnectionSettings({
           }
         />
       ) : (
-        <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 2 }}>
+        <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 2 }}>
           <SettingsGroup
             title={sectionTitle}
             description={sectionDescription}

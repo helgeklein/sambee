@@ -19,6 +19,81 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get intro() {
     return translate("settings.localDrives.intro");
   },
+  get summaryTitle() {
+    return translate("settings.localDrives.summaryTitle");
+  },
+  get summaryDescription() {
+    return translate("settings.localDrives.summaryDescription");
+  },
+  get statusLabelReady() {
+    return translate("settings.localDrives.statusLabelReady");
+  },
+  get statusLabelActionRequired() {
+    return translate("settings.localDrives.statusLabelActionRequired");
+  },
+  get statusLabelUnavailable() {
+    return translate("settings.localDrives.statusLabelUnavailable");
+  },
+  get summaryReadyTitle() {
+    return translate("settings.localDrives.summaryReadyTitle");
+  },
+  get summaryPairingRequiredTitle() {
+    return translate("settings.localDrives.summaryPairingRequiredTitle");
+  },
+  get summaryRepairTitle() {
+    return translate("settings.localDrives.summaryRepairTitle");
+  },
+  get summaryUnavailableTitle() {
+    return translate("settings.localDrives.summaryUnavailableTitle");
+  },
+  get companionRunningChecklistLabel() {
+    return translate("settings.localDrives.companionRunningChecklistLabel");
+  },
+  get browserFullyPairedChecklistLabel() {
+    return translate("settings.localDrives.browserFullyPairedChecklistLabel");
+  },
+  get accessSectionTitle() {
+    return translate("settings.localDrives.accessSectionTitle");
+  },
+  get accessSectionDescription() {
+    return translate("settings.localDrives.accessSectionDescription");
+  },
+  get pairingSectionTitle() {
+    return translate("settings.localDrives.pairingSectionTitle");
+  },
+  get pairingSectionDescription() {
+    return translate("settings.localDrives.pairingSectionDescription");
+  },
+  get pairingSectionReady() {
+    return translate("settings.localDrives.pairingSectionReady");
+  },
+  get pairingSectionUnavailable() {
+    return translate("settings.localDrives.pairingSectionUnavailable");
+  },
+  get pairingSectionRequired() {
+    return translate("settings.localDrives.pairingSectionRequired");
+  },
+  get verificationSectionTitle() {
+    return translate("settings.localDrives.verificationSectionTitle");
+  },
+  get verificationSectionDescription() {
+    return translate("settings.localDrives.verificationSectionDescription");
+  },
+  get verificationSectionReady() {
+    return translate("settings.localDrives.verificationSectionReady");
+  },
+  get verificationSectionBlocked() {
+    return translate("settings.localDrives.verificationSectionBlocked");
+  },
+  get troubleshootingSectionTitle() {
+    return translate("settings.localDrives.troubleshootingSectionTitle");
+  },
+  get troubleshootingSectionDescription() {
+    return translate("settings.localDrives.troubleshootingSectionDescription");
+  },
+  get troubleshootingSectionReady() {
+    return translate("settings.localDrives.troubleshootingSectionReady");
+  },
   get loadError() {
     return translate("settings.localDrives.loadError");
   },
@@ -46,8 +121,38 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get statusUnpaired() {
     return translate("settings.localDrives.statusUnpaired");
   },
-  get refreshButton() {
-    return translate("settings.localDrives.refreshButton");
+  get downloadSectionTitle() {
+    return translate("settings.localDrives.downloadSectionTitle");
+  },
+  get downloadSectionDescription() {
+    return translate("settings.localDrives.downloadSectionDescription");
+  },
+  get downloadVersionLabel() {
+    return translate("settings.localDrives.downloadVersionLabel");
+  },
+  get downloadSectionSourcePrefix() {
+    return translate("settings.localDrives.downloadSectionSourcePrefix");
+  },
+  get downloadFeedSourceLabel() {
+    return translate("settings.localDrives.downloadFeedSourceLabel");
+  },
+  get downloadPinSourceLabel() {
+    return translate("settings.localDrives.downloadPinSourceLabel");
+  },
+  get downloadPrimaryButton() {
+    return translate("settings.localDrives.downloadPrimaryButton");
+  },
+  get downloadOtherPlatformsLabel() {
+    return translate("settings.localDrives.downloadOtherPlatformsLabel");
+  },
+  get downloadRecommendedLabel() {
+    return translate("settings.localDrives.downloadRecommendedLabel");
+  },
+  get downloadUnavailable() {
+    return translate("settings.localDrives.downloadUnavailable");
+  },
+  get downloadLoadFailed() {
+    return translate("settings.localDrives.downloadLoadFailed");
   },
   get testCurrentPairingButton() {
     return translate("settings.localDrives.testCurrentPairingButton");

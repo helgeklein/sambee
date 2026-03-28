@@ -1,33 +1,46 @@
 import { AdvancedSettings } from "../../pages/AdvancedSettings";
 import { ConnectionsSettings } from "../../pages/ConnectionsSettings";
-import { PreferencesSettings } from "../../pages/PreferencesSettings";
+import { FileBrowserSettings } from "../../pages/FileBrowserSettings";
+import { LocalDrivesSettings } from "../../pages/LocalDrivesSettings";
+import { AppearanceSettings } from "../../pages/PreferencesSettings";
 import { UserManagementSettings } from "../../pages/UserManagementSettings";
-import type { SettingsCategory } from "./settingsNavigation";
+import { getSettingsNavItemDescription, getSettingsNavItemLabel, type SettingsNavItem } from "./settingsNavigation";
 
 interface SettingsCategoryContentProps {
-  category: SettingsCategory;
+  item: SettingsNavItem;
   isAdmin: boolean;
   onConnectionsChanged?: () => void;
   dialogSafeHeader?: boolean;
   forceDesktopLayout?: boolean;
+  setMobileBackHandler?: (handler: (() => void) | null) => void;
 }
 
 export function SettingsCategoryContent({
-  category,
+  item,
   isAdmin,
   onConnectionsChanged,
   dialogSafeHeader = false,
   forceDesktopLayout = false,
 }: SettingsCategoryContentProps) {
-  switch (category) {
-    case "preferences":
-      return <PreferencesSettings />;
+  switch (item) {
+    case "appearance":
+      return <AppearanceSettings />;
+    case "file-browser":
+      return <FileBrowserSettings />;
     case "connections":
       return (
         <ConnectionsSettings
           onConnectionsChanged={onConnectionsChanged}
           dialogSafeHeader={dialogSafeHeader}
           forceDesktopLayout={forceDesktopLayout}
+        />
+      );
+    case "local-drives":
+      return (
+        <LocalDrivesSettings
+          onConnectionsChanged={onConnectionsChanged}
+          sectionTitle={getSettingsNavItemLabel("local-drives")}
+          sectionDescription={getSettingsNavItemDescription("local-drives")}
         />
       );
     case "admin-system":

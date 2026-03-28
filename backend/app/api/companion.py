@@ -26,6 +26,7 @@ Edit locking:
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -40,6 +41,10 @@ from app.core.security import (
 from app.db.database import get_session
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.user import User
+from app.services.companion_downloads import (
+    CompanionDownloadResolutionError,
+    resolve_companion_download_metadata,
+)
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -152,6 +157,16 @@ class VersionCheckResponse(BaseModel):
     compatible: bool
     min_companion_version: str
     latest_version: str
+
+
+class CompanionDownloadMetadataResponse(BaseModel):
+    """Resolved installer metadata used by Sambee to render Companion downloads."""
+
+    source: Literal["feed", "pin"]
+    version: str
+    published_at: str | None = None
+    notes: str
+    assets: dict[str, str]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -496,7 +511,38 @@ async def get_lock_status(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. Version compatibility check
+# 5. Companion download metadata for Sambee
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/downloads", response_model=CompanionDownloadMetadataResponse)
+async def get_companion_downloads(
+    current_user: User = Depends(get_current_user_with_auth_check),
+) -> CompanionDownloadMetadataResponse:
+    """Resolve Companion installer metadata for the Sambee frontend."""
+
+    set_user(current_user.username)
+
+    try:
+        metadata = resolve_companion_download_metadata()
+    except CompanionDownloadResolutionError as error:
+        logger.warning(f"Failed to resolve companion downloads for user={current_user.username}: {error}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(error),
+        ) from error
+
+    return CompanionDownloadMetadataResponse(
+        source=metadata.source,
+        version=metadata.version,
+        published_at=metadata.published_at,
+        notes=metadata.notes,
+        assets=metadata.assets,
+    )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. Version compatibility check
 # ──────────────────────────────────────────────────────────────────────────────
 
 # Minimum companion version that this backend supports

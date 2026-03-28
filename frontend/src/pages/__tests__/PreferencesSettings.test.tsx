@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, setRegionalLocalePreference } from "../../i18n";
 import { render } from "../../test/utils/test-utils";
-import { PreferencesSettings } from "../PreferencesSettings";
+import { AppearanceSettings } from "../PreferencesSettings";
 
 const { setThemeByIdMock, setIncludeDotDirectoriesMock, patchCurrentUserSettingsMock, loadCurrentUserSettingsMock } = vi.hoisted(() => ({
   setThemeByIdMock: vi.fn(),
@@ -45,7 +45,7 @@ vi.mock("../../services/userSettingsSync", () => ({
   patchCurrentUserSettings: patchCurrentUserSettingsMock,
 }));
 
-describe("PreferencesSettings", () => {
+describe("AppearanceSettings", () => {
   const originalNavigatorLanguage = navigator.language;
   const originalNavigatorLanguages = navigator.languages;
 
@@ -67,17 +67,18 @@ describe("PreferencesSettings", () => {
   });
 
   it("renders localization controls and preview text", async () => {
-    render(<PreferencesSettings />);
+    render(<AppearanceSettings />);
 
     expect(screen.getByText("Localization")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Language" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Regional settings" })).toBeInTheDocument();
     expect(screen.getByText("Preview")).toBeInTheDocument();
+    expect(screen.queryByText("Quick navigation")).not.toBeInTheDocument();
   });
 
   it("uses plain browser-default labels for both localization dropdowns", async () => {
     const user = userEvent.setup();
-    render(<PreferencesSettings />);
+    render(<AppearanceSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Language" }));
 
@@ -92,7 +93,7 @@ describe("PreferencesSettings", () => {
 
   it("persists the selected language preference", async () => {
     const user = userEvent.setup();
-    render(<PreferencesSettings />);
+    render(<AppearanceSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Language" }));
     await user.click(await screen.findByRole("option", { name: "Pseudo-English (for localization testing)" }));
@@ -108,7 +109,7 @@ describe("PreferencesSettings", () => {
 
   it("persists the selected regional locale preference", async () => {
     const user = userEvent.setup();
-    render(<PreferencesSettings />);
+    render(<AppearanceSettings />);
 
     await user.click(screen.getByRole("combobox", { name: "Regional settings" }));
     await user.click(await screen.findByRole("option", { name: "German (Germany)" }));

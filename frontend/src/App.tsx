@@ -11,7 +11,9 @@ import { CompanionLocalizationSync } from "./i18n/CompanionLocalizationSync";
 import { LocalePreferencesProvider } from "./i18n/LocalePreferencesProvider";
 import { AdvancedSettings } from "./pages/AdvancedSettings";
 import { ConnectionsSettings } from "./pages/ConnectionsSettings";
-import { PreferencesSettings } from "./pages/PreferencesSettings";
+import { FileBrowserSettings } from "./pages/FileBrowserSettings";
+import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
+import { AppearanceSettings } from "./pages/PreferencesSettings";
 import { Settings } from "./pages/Settings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
 import { SambeeThemeProvider, useSambeeTheme } from "./theme";
@@ -46,8 +48,12 @@ function AppContent() {
               <Route path="/browse" element={<FileBrowser />} />
               <Route path="/settings" element={<SettingsLayout />}>
                 <Route index element={<Settings />} />
-                <Route path="preferences" element={<PreferencesSettings />} />
+                <Route path="appearance" element={<AppearanceSettings />} />
+                <Route path="file-browser" element={<FileBrowserSettings />} />
+                <Route path="preferences" element={<Navigate to="/settings/appearance" replace />} />
                 <Route path="connections" element={<ConnectionsSettings />} />
+                <Route path="connections/local-drives" element={<LocalDrivesSettings />} />
+                <Route path="connections/smb" element={<Navigate to="/settings/connections" replace />} />
                 <Route path="admin/users" element={<UserManagementSettings />} />
                 <Route path="admin/system" element={<AdvancedSettings />} />
               </Route>

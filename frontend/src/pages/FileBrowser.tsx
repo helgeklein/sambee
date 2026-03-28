@@ -36,7 +36,7 @@ import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
 import SettingsDialog from "../components/Settings/SettingsDialog";
-import type { MobileSettingsView, SettingsCategory } from "../components/Settings/settingsNavigation";
+import { DEFAULT_SETTINGS_CATEGORY, type MobileSettingsView, type SettingsCategory } from "../components/Settings/settingsNavigation";
 import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
 import { useCompanion } from "../hooks/useCompanion";
@@ -117,7 +117,7 @@ const Browser: React.FC = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>("preferences");
+  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsCategory>(DEFAULT_SETTINGS_CATEGORY);
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<MobileSettingsView>("main");
   const [showHelp, setShowHelp] = useState(false);
@@ -1075,7 +1075,7 @@ const Browser: React.FC = () => {
       return;
     }
 
-    setSettingsInitialCategory("preferences");
+    setSettingsInitialCategory(DEFAULT_SETTINGS_CATEGORY);
     setSettingsOpen(true);
   }, [useCompactLayout]);
 

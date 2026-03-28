@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   AdvancedSystemSettings,
   AuthToken,
+  CompanionDownloadMetadata,
   Connection,
   ConnectionCreate,
   CurrentUserSettings,
@@ -519,6 +520,27 @@ describe("API Service", () => {
 
       expect(result).toEqual(mockStatus);
       expect(mockAxiosInstance.post).toHaveBeenCalledWith("/connections/1/test");
+    });
+
+    it("getCompanionDownloads() returns backend-managed installer metadata", async () => {
+      const metadata: CompanionDownloadMetadata = {
+        source: "feed",
+        version: "0.5.0",
+        published_at: "2026-03-27T12:00:00Z",
+        notes: "Release notes",
+        assets: {
+          "windows-x64": "https://downloads.example.test/Sambee-Companion.exe",
+        },
+      };
+
+      mockAxiosInstance.get.mockResolvedValueOnce({
+        data: metadata,
+      } as AxiosResponse);
+
+      const result = await apiService.getCompanionDownloads();
+
+      expect(result).toEqual(metadata);
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/companion/downloads");
     });
   });
 

@@ -244,7 +244,7 @@ const BROWSER_COMMANDS = [
     id: "browser.openSettings",
     titleKey: "fileBrowser.commands.items.openSettings.title",
     categoryKey: "fileBrowser.commands.categories.settings",
-    keywords: ["settings", "preferences", "config"],
+    keywords: ["settings", "appearance", "preferences", "config"],
     defaultShortcutIds: ["open-settings"],
     shortcutLabel: "Ctrl+,",
     selectionFocusTarget: "none",
