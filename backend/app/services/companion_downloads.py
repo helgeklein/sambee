@@ -18,9 +18,7 @@ CompanionDownloadMetadataSource: TypeAlias = Literal["feed", "pin"]
 COMPANION_DOWNLOADS_SOURCE_FEED: Final[Literal["feed"]] = "feed"
 COMPANION_DOWNLOADS_SOURCE_PIN: Final[Literal["pin"]] = "pin"
 COMPANION_METADATA_REQUEST_TIMEOUT_SECONDS: Final[int] = 10
-SUPPORTED_COMPANION_DOWNLOAD_PLATFORMS: Final[frozenset[str]] = frozenset(
-    {"windows-x64", "windows-arm64", "macos-arm64", "linux-x64"}
-)
+SUPPORTED_COMPANION_DOWNLOAD_PLATFORMS: Final[frozenset[str]] = frozenset({"windows-x64", "windows-arm64", "macos-arm64", "linux-x64"})
 
 
 class CompanionDownloadResolutionError(RuntimeError):
@@ -64,9 +62,7 @@ def _build_pinned_metadata() -> ResolvedCompanionDownloadMetadata:
     }
 
     if not assets:
-        raise CompanionDownloadResolutionError(
-            "Companion pin override is configured without any usable installer URLs."
-        )
+        raise CompanionDownloadResolutionError("Companion pin override is configured without any usable installer URLs.")
 
     return ResolvedCompanionDownloadMetadata(
         source=COMPANION_DOWNLOADS_SOURCE_PIN,
@@ -91,9 +87,7 @@ def _fetch_feed_metadata(feed_url: str) -> ResolvedCompanionDownloadMetadata:
 
     assets = _normalize_asset_map(assets_payload)
     if not assets:
-        raise CompanionDownloadResolutionError(
-            "Companion download metadata feed did not include any supported installer assets."
-        )
+        raise CompanionDownloadResolutionError("Companion download metadata feed did not include any supported installer assets.")
 
     return ResolvedCompanionDownloadMetadata(
         source=COMPANION_DOWNLOADS_SOURCE_FEED,
@@ -118,13 +112,9 @@ def _request_json(url: str) -> object:
             charset = response.headers.get_content_charset("utf-8")
             return json.loads(response.read().decode(charset))
     except urllib.error.HTTPError as error:
-        raise CompanionDownloadResolutionError(
-            f"Companion download metadata feed request failed with HTTP {error.code}."
-        ) from error
+        raise CompanionDownloadResolutionError(f"Companion download metadata feed request failed with HTTP {error.code}.") from error
     except urllib.error.URLError as error:
-        raise CompanionDownloadResolutionError(
-            f"Companion download metadata feed is unreachable: {error.reason}."
-        ) from error
+        raise CompanionDownloadResolutionError(f"Companion download metadata feed is unreachable: {error.reason}.") from error
     except socket.timeout as error:
         raise CompanionDownloadResolutionError("Companion download metadata feed request timed out.") from error
     except json.JSONDecodeError as error:
@@ -138,9 +128,7 @@ def _normalize_asset_map(assets_payload: dict[object, object]) -> dict[str, str]
         if not isinstance(platform_key, str) or platform_key not in SUPPORTED_COMPANION_DOWNLOAD_PLATFORMS:
             continue
         if not isinstance(raw_url, str):
-            raise CompanionDownloadResolutionError(
-                f"Companion download metadata feed contains a non-string asset URL for {platform_key}."
-            )
+            raise CompanionDownloadResolutionError(f"Companion download metadata feed contains a non-string asset URL for {platform_key}.")
         normalized_assets[platform_key] = _normalize_asset_url(raw_url, f"asset URL for {platform_key}")
 
     return normalized_assets
