@@ -46,7 +46,8 @@ The Sambee Companion is a lightweight desktop application (Tauri v2 + Preact) th
 - ~3–6 MB binary (Tauri v2 uses the system WebView instead of bundling Chromium).
 - Primarily on-demand, but can also auto-start at user sign-in. This keeps Local Drives available without requiring a manual launch while still avoiding a background service.
 - Single-instance — subsequent `sambee://` URIs are routed to the running instance.
-- System tray presence while active editing sessions are open.
+- System tray presence while active editing sessions are open and while the localhost companion API is available for Local Drives.
+- Two major responsibilities: deep-link-driven SMB edit flows and a paired localhost API for Local Drives, pairing, and localization sync.
 
 ---
 
@@ -85,28 +86,48 @@ The Sambee Companion is a lightweight desktop application (Tauri v2 + Preact) th
 
 ### 2.2 Communication overview
 
-| From → To              | Protocol / Mechanism                     |
-|-------------------------|------------------------------------------|
-| Browser → Companion     | `sambee://` URI scheme (OS-mediated)     |
-| Companion → Sambee API  | HTTPS (reqwest)                          |
-| Companion → Native App  | OS shell open / `open` / `xdg-open`     |
-| Sambee API → SMB Share  | SMB (smbprotocol)                        |
-| Companion ↔ User        | Tauri WebView (Preact UI) + system tray  |
+| From → To                    | Protocol / Mechanism                          |
+|-----------------------------|-----------------------------------------------|
+| Browser → Companion         | `sambee://` URI scheme (OS-mediated)          |
+| Companion → Sambee API      | HTTPS (`reqwest`)                             |
+| Browser → Companion local API | `http://localhost:21549/api` + HMAC auth    |
+| Companion → Native App      | OS shell open / direct spawn                  |
+| Sambee API → SMB Share      | SMB (`smbprotocol`)                           |
+| Companion ↔ User            | Tauri WebView (Preact UI) + system tray       |
+| Companion local API → Browser | WebSocket notifications for local drives    |
 
-### 2.3 Backend API endpoints used by the companion
+### 2.3 APIs used by the companion ecosystem
 
-| Endpoint                                         | Method   | Purpose                           |
-|--------------------------------------------------|----------|-----------------------------------|
-| `POST /api/companion/token`                      | POST     | Exchange URI token for session JWT |
-| `GET  /api/companion/{connId}/file-info`         | GET      | File metadata (size, modified)     |
-| `GET  /api/viewer/{connId}/download`             | GET      | Download file content              |
-| `POST /api/viewer/{connId}/upload`               | POST     | Upload modified file               |
-| `POST /api/companion/{connId}/lock`              | POST     | Acquire edit lock                  |
-| `POST /api/companion/{connId}/lock/heartbeat`    | POST     | Refresh lock heartbeat             |
-| `DELETE /api/companion/{connId}/lock`             | DELETE   | Release edit lock                  |
-| `DELETE /api/companion/{connId}/lock/force`       | DELETE   | Force-unlock (admin only)          |
-| `GET  /api/viewer/{connId}/lock-status`          | GET      | Check lock status                  |
-| `POST /api/companion/uri-token`                  | POST     | Generate short-lived URI token     |
+#### Sambee backend API used by the deep-link edit flow
+
+| Endpoint                                      | Method | Purpose                              |
+|-----------------------------------------------|--------|--------------------------------------|
+| `POST /api/companion/uri-token`               | POST   | Generate short-lived URI token       |
+| `POST /api/companion/token?token=...`         | POST   | Exchange URI token for session JWT   |
+| `GET /api/browse/{connId}/info`               | GET    | File metadata (size, modified time)  |
+| `GET /api/viewer/{connId}/download`           | GET    | Download file content                |
+| `POST /api/viewer/{connId}/upload`            | POST   | Upload modified file                 |
+| `POST /api/companion/{connId}/lock`           | POST   | Acquire edit lock                    |
+| `POST /api/companion/{connId}/lock/heartbeat` | POST   | Refresh lock heartbeat               |
+| `DELETE /api/companion/{connId}/lock`         | DELETE | Release edit lock                    |
+| `DELETE /api/companion/{connId}/lock/force`   | DELETE | Force-unlock                         |
+| `GET /api/viewer/{connId}/lock-status`        | GET    | Check lock status                    |
+
+#### Companion localhost API used by the browser
+
+| Endpoint                           | Method | Purpose                                        |
+|------------------------------------|--------|------------------------------------------------|
+| `/api/health`                      | GET    | Detect whether the companion is reachable      |
+| `/api/pair/initiate`               | POST   | Start browser-to-companion pairing             |
+| `/api/pair/confirm`                | POST   | Complete pairing after user confirmation       |
+| `/api/pair/status`                 | GET    | Query whether the current origin is paired     |
+| `/api/pairings`                    | GET    | List all paired origins                        |
+| `/api/pairings?origin=...`         | DELETE | Unpair a browser origin                        |
+| `/api/pair/test`                   | POST   | Validate current origin's pairing              |
+| `/api/localization`                | POST   | Sync browser localization into the companion   |
+| `/api/drives`                      | GET    | Enumerate local drives                         |
+| `/api/browse/{drive}/...`          | varied | Local-drive browse, file, and file-management operations |
+| `/api/ws`                          | GET    | WebSocket notifications for local-drive changes |
 
 ---
 
@@ -121,20 +142,30 @@ companion/
 ├── src/                       # Preact frontend
 │   ├── main.tsx               # Entry point, update check scheduling
 │   ├── App.tsx                # View router (idle, app-picker, preferences, recovery, large-file)
+│   ├── i18n/                  # Companion translations and locale helpers
+│   ├── lib/
+│   │   ├── logger.ts          # Frontend logging bridge
+│   │   ├── theme.ts           # Theme application from browser / deep link
+│   │   └── updateCheck.ts     # Auto-update check logic
+│   ├── stores/
+│   │   ├── appPreferences.ts  # Per-extension preferred app mapping
+│   │   └── userPreferences.ts # Companion user preference store
 │   ├── components/
 │   │   ├── AppPicker.tsx      # Native app selection UI
+│   │   ├── PairingWindow.tsx  # Dedicated browser-pairing window
+│   │   ├── PairingRequest.tsx # Pairing approval UI
 │   │   ├── DoneEditingWindow.tsx
 │   │   ├── ConflictDialog.tsx
 │   │   ├── LargeFileWarning.tsx
 │   │   ├── RecoveryDialog.tsx
+│   │   ├── ModalDialog.tsx
 │   │   └── Preferences.tsx    # User preferences panel
-│   ├── stores/
-│   │   └── userPreferences.ts # Tauri store wrapper
 │   ├── styles/
-│   │   ├── app.css
-│   │   └── preferences.css
-│   └── lib/
-│       └── updateCheck.ts     # Auto-update check logic
+│   │   ├── global.css
+│   │   ├── preferences.css
+│   │   ├── pairing-request.css
+│   │   └── done-editing.css
+│   └── test/                  # Frontend test setup
 └── src-tauri/                 # Rust backend
     ├── Cargo.toml
     ├── tauri.conf.json
@@ -147,16 +178,35 @@ companion/
     │   └── 128x128@2x.png
     └── src/
         ├── lib.rs             # Tauri setup, plugin wiring, tray menu
+        ├── logging.rs         # File logging and frontend log bridge
         ├── commands/
+        │   ├── app_picker.rs  # Native app enumeration for the picker
+        │   ├── download.rs    # File download helpers
+        │   ├── file_info.rs   # Server-side file metadata queries
+        │   ├── localization.rs# Localization state bridge to the UI
         │   ├── open_file.rs   # Download + open + track lifecycle
-        │   └── upload.rs      # Upload modified file to server
+        │   ├── pairing.rs     # Companion-side pairing actions
+        │   ├── update.rs      # Channel-aware self-update commands
+        │   └── upload.rs      # Upload, lock, and heartbeat helpers
         ├── app_registry/
         │   ├── mod.rs         # AppInfo trait + platform dispatch
         │   ├── windows.rs     # Windows COM / Registry enumeration
         │   ├── macos.rs       # macOS Core Services (LSCopyApplicationURLsForURL)
         │   └── linux.rs       # Linux XDG mimeapps.list / .desktop files
-        ├── uri_parser.rs      # Parse + validate sambee:// URIs
-        └── models.rs          # FileOperation, OperationStatus
+        ├── server/            # Localhost API for pairing and local drives
+        │   ├── auth.rs
+        │   ├── drives.rs
+        │   ├── handlers.rs
+        │   ├── localization.rs
+        │   ├── models.rs
+        │   ├── pairing.rs
+        │   └── watcher.rs
+        ├── sync/
+        │   ├── operations.rs  # FileOperation, OperationStatus, sidecars
+        │   ├── recycle.rs     # Recycle-bin retention logic
+        │   └── temp.rs        # Temp directory helpers and leftover scan
+        ├── token/             # URI-token exchange helper
+        └── uri/               # Parse + validate sambee:// URIs
 ```
 
 ---
@@ -268,7 +318,7 @@ The endpoint writes the uploaded file to the SMB share at the specified path. It
 ### 5.2 File info
 
 ```
-GET /api/companion/{connId}/file-info?path=/docs/report.docx
+GET /api/browse/{connId}/info?path=/docs/report.docx
 Authorization: Bearer <companion_jwt>
 
 → 200 {
@@ -285,11 +335,9 @@ Used by the companion to check file size before download (for the large-file war
 
 ```
 POST /api/companion/token
-Content-Type: application/json
+Query: ?token=<short-lived-jwt>
 
-{ "uri_token": "<short-lived-jwt>" }
-
-→ 200 { "session_token": "<long-lived-jwt>", "expires_in": 3600 }
+→ 200 { "token": "<long-lived-jwt>", "expires_in": 3600 }
 → 401 { "error": "Token expired or already used" }
 ```
 
@@ -371,28 +419,30 @@ All platforms provide a "Browse…" button (native file dialog via `tauri-plugin
 ### 7.1 Data model
 
 ```rust
-// models.rs
+// sync/operations.rs
 
 struct FileOperation {
     id: Uuid,
     server_url: String,
     connection_id: String,
     remote_path: String,
-    local_temp_path: PathBuf,
-    original_mtime: DateTime<Utc>,    // Server file mtime at download time
+    local_path: PathBuf,
+    token: String,                    // Companion session JWT
+    downloaded_at: SystemTime,
+    original_mtime: SystemTime,       // Temp-file mtime at download time
     status: OperationStatus,
-    opened_with: Option<AppInfo>,
-    token: String,                    // Session JWT
-    downloaded_at: DateTime<Utc>,
+    opened_with_app: Option<String>,
+    lock_id: Option<String>,
+    server_last_modified: Option<String>,
 }
 
 enum OperationStatus {
     Downloading,
-    Editing,          // File open in native app
-    Uploading,
+    Editing,
+    Uploading(f32),
+    UploadFailed(String),
     Completed,
-    Discarded,        // User chose "Discard Changes"
-    Error(String),
+    Discarded,
 }
 ```
 
@@ -405,7 +455,7 @@ User clicks               Browser generates           OS dispatches to
 "Open in app…"  ──>  sambee://open?... URI  ──>  Companion (Tauri)
     │
     ▼
-Parse URI, validate server against allowlist
+Parse URI and validate required deep-link parameters
     │
     ▼
 Exchange URI token for session JWT
@@ -413,7 +463,7 @@ POST /api/companion/token
     │
     ▼
 Fetch file metadata
-GET /api/companion/{connId}/file-info
+GET /api/browse/{connId}/info
     │
     ▼ (if file > threshold)
 Show large-file warning dialog
@@ -462,7 +512,7 @@ The sync-back model uses **explicit user action** (the "Done Editing" hold gestu
 
 ### 7.4 Conflict detection
 
-Before uploading a modified file, the companion compares the server's current `last_modified` timestamp against the `original_mtime` stored at download time. If they differ, a conflict dialog is shown:
+Before uploading a modified file, the companion compares the server's current `modified_at` timestamp against the `server_last_modified` value captured at download time. If they differ, a conflict dialog is shown:
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -494,7 +544,7 @@ The "Done Editing" window is a Tauri `WebviewWindow` that stays visible while a 
 
 | Property       | Value                    |
 |----------------|--------------------------|
-| Size           | 340 × 260 px (fixed)     |
+| Size           | 340 × 200 px (fixed)     |
 | Resizable      | No                       |
 | Always on top  | Yes                      |
 | Closable       | No (prevent accidental close) |
@@ -613,7 +663,7 @@ The UI updates the status text and conditionally shows/hides the "Discard Change
 | Original filename  | Temp copy name         |
 |--------------------|------------------------|
 | `report.docx`     | `report-copy.docx`    |
-| `archive.tar.gz`  | `archive-copy.tar.gz` |
+| `archive.tar.gz`  | `archive.tar-copy.gz` |
 | `Makefile`         | `Makefile-copy`        |
 
 The `-copy` suffix makes it clear to the user this is a working copy, not the original.
@@ -654,7 +704,7 @@ On startup, the companion scans `{temp}/sambee-companion/` for leftover temp fil
 
 The recovery dialog is non-blocking: new `sambee://` URIs are processed normally while recovery dialogs are open.
 
-**Persisted metadata:** Each `FileOperation` is written as `operation.json` alongside the temp file, storing `server_url`, `connection_id`, `remote_path`, `token` (encrypted), `downloaded_at`, and `opened_with_app`.
+**Persisted metadata:** Each `FileOperation` is written as `operation.json` alongside the temp file, storing the data needed for recovery, including `server_url`, `connection_id`, `remote_path`, `token`, `downloaded_at`, and `opened_with_app`.
 
 ---
 
@@ -662,7 +712,7 @@ The recovery dialog is non-blocking: new `sambee://` URIs are processed normally
 
 Editing files through the companion involves downloading a full copy and uploading modifications back. For very large files, this is slow and error-prone.
 
-**Soft limit: 50 MB (configurable)**
+**Soft limit: 50 MB (current built-in default)**
 
 When a file exceeds the threshold, the companion shows a warning **before** downloading:
 
@@ -678,8 +728,8 @@ When a file exceeds the threshold, the companion shows a warning **before** down
 ```
 
 - The user can always proceed (soft limit, not a hard block).
-- The threshold is configurable in the Preferences panel (stored via `tauri-plugin-store`, default: 50 MB).
-- The `/api/companion/{connId}/file-info` endpoint provides `size_bytes` for this check.
+- The threshold is currently the built-in Rust constant `DEFAULT_MAX_FILE_SIZE_MB = 50`.
+- The `GET /api/browse/{connId}/info` endpoint provides the size data used for this check.
 
 ---
 
@@ -716,52 +766,74 @@ async function getCompanionUri(connectionId: string, path: string): Promise<stri
 | `FileRow.tsx`                   | "Open in app" in right-click context menu           |
 | `FileBrowser.tsx`               | `Ctrl+Enter` / `Cmd+Enter` keyboard shortcut        |
 
-### 11.3 Companion detection
+For SMB-backed files, these actions request a URI token from the Sambee backend and open a `sambee://open?...` deep link.
 
-The companion exposes a localhost HTTP endpoint for browser-side detection:
+For local-drive files, these actions bypass the deep-link flow and call the companion localhost API directly to open the file with the system default application.
+
+### 11.3 Companion detection and pairing
+
+The browser detects the companion through its localhost API:
 
 ```
-GET http://localhost:21549/status
-→ 200 { "version": "0.1.0", "activeFiles": [...] }
+GET http://localhost:21549/api/health
+→ 200 { "status": "healthy", "paired": true | false }
 ```
 
 **Detection flow:**
 
-1. On page load, the web UI attempts `fetch("http://localhost:21549/status")`.
-2. Success → show "Companion connected" indicator, enable per-file editing status.
-3. Failure → companion not running. Show "Open in app" buttons anyway (fall through to URI scheme; the OS handles it).
+1. The web UI probes `http://localhost:21549/api/health` with a short timeout.
+2. Success means the companion is reachable on localhost.
+3. Pairing state is resolved through the `/api/pair/*` endpoints.
+4. Failure means the companion is not reachable; SMB deep links can still be attempted and install guidance can still be shown.
 
-**CORS:** The companion's localhost server includes `Access-Control-Allow-Origin` for the Sambee web origin.
+### 11.4 Localhost companion API
 
-**Note:** Companion detection is a post-MVP enhancement. The MVP always shows the "Open in app" button regardless.
+The companion embeds an Axum server on `127.0.0.1:21549` that supports:
+
+- browser pairing with numeric comparison
+- HMAC-authenticated requests from paired browser origins
+- localization sync from the browser into the companion UI
+- local-drive enumeration and browse operations
+- direct local-file opening
+- WebSocket notifications for local-drive directory changes
+
+This local API mirrors backend response shapes where practical so the frontend can reuse more of its existing browse and viewer logic.
 
 ---
 
 ## 12. User Preferences
 
-Stored via `tauri-plugin-store` in a persistent JSON file:
+The companion currently uses two separate Tauri store files.
+
+### 12.1 User preferences
+
+Stored in `user-preferences.json`:
 
 ```json
 {
-    "allowedServers": ["https://sambee.example.com"],
-    "appPreferences": {
-        ".docx": "/usr/bin/libreoffice",
-        ".xlsx": "/usr/bin/libreoffice",
-        ".psd": "/opt/gimp/bin/gimp"
-    },
-    "tempFileRetentionDays": 7,
+    "allowedServers": [],
     "uploadConflictAction": "ask",
-    "showNotifications": true
+    "autoStartOnLogin": false,
+    "showNotifications": true,
+    "companionUpdateChannel": "stable",
+    "tempFileRetentionDays": 7
 }
 ```
 
 | Setting                  | Type       | Default                | Description                              |
 |--------------------------|------------|------------------------|------------------------------------------|
 | `allowedServers`         | `string[]` | `[]`                   | Legacy trusted server list (not shown in current Preferences UI) |
-| `appPreferences`         | `object`   | `{}`                   | Per-extension app overrides              |
-| `tempFileRetentionDays`  | `number`   | `7`                    | Days before recycled files are deleted   |
 | `uploadConflictAction`   | `string`   | `"ask"`                | `"ask"` / `"overwrite"` / `"save-copy"` |
+| `autoStartOnLogin`       | `boolean`  | `false`                | Whether the companion starts at sign-in  |
 | `showNotifications`      | `boolean`  | `true`                 | Desktop notifications enabled            |
+| `companionUpdateChannel` | `string`   | `"stable"`           | Selected self-update channel             |
+| `tempFileRetentionDays`  | `number`   | `7`                    | Days before recycled files are deleted   |
+
+### 12.2 App preferences
+
+Stored separately in `app-preferences.json` as a map from file extension to executable path.
+
+This store backs the app picker's “Always use this app” behavior and is intentionally separate from the user-preferences store.
 
 The Preferences panel is accessible from the system tray menu. The current Preferences UI exposes paired browser management for local-drive access; the older `allowedServers` store field remains only for compatibility.
 
@@ -799,22 +871,18 @@ Runtime behavior:
 
 ## 13. Auto-Updater
 
-The companion uses `tauri-plugin-updater` with a static JSON endpoint:
+Detailed Companion distribution and update behavior now lives in `COMPANION_DISTRIBUTION_AND_UPDATE_PLAN.md`.
 
-```json
-// https://sambee.example.com/companion/update.json
-{
-    "version": "0.2.0",
-    "platforms": {
-        "windows-x86_64":  { "url": "https://.../companion-0.2.0-x64-setup.nsis.zip", "signature": "..." },
-        "windows-aarch64": { "url": "https://.../companion-0.2.0-arm64-setup.nsis.zip", "signature": "..." },
-        "linux-x86_64":    { "url": "https://.../companion-0.2.0-amd64.AppImage.tar.gz", "signature": "..." },
-        "darwin-aarch64":   { "url": "https://.../companion-0.2.0-aarch64.dmg", "signature": "..." }
-    }
-}
-```
+That document covers:
 
-On startup, the companion checks for updates in the background and prompts the user if a newer version is available.
+- release repositories and public feed hosting
+- draft release creation and manual promotion
+- Tauri channel manifests and Sambee download metadata
+- runtime channel selection and update preferences
+- automatic and manual update behavior in the Companion UI
+- updater signing and feed validation
+
+This architecture document intentionally keeps only the high-level note here to avoid the updater design drifting across two documents.
 
 ---
 
@@ -861,7 +929,7 @@ A GitHub Actions workflow (`build-companion.yml`) builds the companion for all s
 | Windows x86_64    | `windows-latest` |
 | Windows ARM64     | `windows-latest` |
 
-The workflow runs on pushes to `main` and on tags matching `companion-v*`.
+The workflow runs on tags matching `companion-v*` and on manual `workflow_dispatch` runs.
 
 ---
 
@@ -872,30 +940,23 @@ The workflow runs on pushes to `main` and on tags matching `companion-v*`.
 The `sambee://` URI is visible in browser history and potentially in logs. Mitigations:
 
 1. **Short-lived token:** The `uri_token` expires in **60 seconds** and is **single-use**.
-2. **Immediate exchange:** The companion exchanges the URI token for a session JWT via `POST /api/companion/token`. The URI token is invalidated after first use.
+2. **Immediate exchange:** The companion exchanges the URI token for a session JWT via `POST /api/companion/token?token=...`. The URI token is invalidated after first use.
 3. **Scoped claims:** The URI token's JWT claims contain the specific `connection_id` and `path`, preventing reuse for other files.
-4. **Session JWT:** The exchanged session JWT is stored only in memory (or Tauri secure store). It has a 1-hour TTL scoped to companion operations only.
+4. **Session JWT:** The exchanged session JWT has a 1-hour TTL scoped to companion operations. It is held in the active operation state and also persisted in the recovery sidecar so unfinished sessions can be recovered after a crash.
 
-### 15.2 Server allowlist
+### 15.2 Browser pairing and localhost authentication
 
-On first use of a new server, the companion shows a trust dialog:
+The localhost companion API uses a separate trust model from the deep-link edit flow.
 
-```
-┌───────────────────────────────────────────────────────────┐
-│  Trust this Sambee server?                                │
-│                                                           │
-│  https://sambee.example.com                               │
-│                                                           │
-│  This server wants to open files using Sambee Companion.  │
-│  Only trust servers you recognize.                        │
-│                                                           │
-│  ☐ Always trust this server                               │
-│                                                           │
-│  [Trust Once]    [Always Trust]    [Deny]                 │
-└───────────────────────────────────────────────────────────┘
-```
+Current design:
 
-Trusted servers are persisted in the user preferences store.
+1. The browser initiates pairing with `/api/pair/initiate`.
+2. The browser and companion derive the same 6-character pairing code from exchanged nonces.
+3. The user confirms the matching code in the companion UI.
+4. The companion generates a shared secret and stores it in the OS keychain.
+5. The browser stores the secret locally and authenticates future localhost API requests with `HMAC-SHA256(secret, timestamp)`.
+
+Paired browser origins are tracked separately from the legacy `allowedServers` preference field.
 
 ### 15.3 Temp file security
 
@@ -905,10 +966,10 @@ Trusted servers are persisted in the user preferences store.
 
 ### 15.4 Input validation
 
-- URI parser validates all parameters against expected patterns.
-- `server` must use `https://` (or `http://localhost` for dev).
-- `path` is validated to prevent path traversal (`..`).
-- Token format is validated before any network request.
+- The URI parser validates the deep-link scheme, action, and presence of required query parameters.
+- Localhost API requests validate HMAC credentials, timestamps, and origin information.
+- Localization sync validates RFC 3339 timestamps before accepting updates.
+- Request and path validation for local-drive operations is handled in the Axum localhost API layer.
 
 ---
 
@@ -1044,13 +1105,15 @@ When a file is locked, the file browser shows:
 
 **Permissions:** Only **admin users** and the **lock holder** can force-unlock.
 
-### 16.6 Impact on existing code
+### 16.6 Current implementation notes
 
-| File | Change required |
-|------|-----------------|
-| `backend/app/storage/smb.py` | New `lock_file_for_edit()` / `unlock_file_for_edit()` methods (open with `share_access="r"`, hold handle) |
-| `backend/app/storage/smb.py` | Improve `STATUS_SHARING_VIOLATION` error message to include lock holder info |
-| `backend/app/storage/smb_pool.py` | Exclude edit-locked handles from pool cleanup |
+The current implementation enforces Tier 2 locking through the SMB storage layer's use of `share_access="r"` during companion-backed writes.
+
+The architecture-level behavior described above remains correct, but the important point for this document is the externally visible contract:
+
+- companion edit locks are heartbeat-based and user-visible in the Sambee backend
+- SMB writes from competing clients receive sharing violations while the file is locked
+- force-unlock releases both the application-level lock and the SMB enforcement layer
 
 ---
 
@@ -1078,13 +1141,11 @@ When the companion is not installed and "Open in app" is clicked:
 │  Sambee Companion                       │
 │  ─────────────────────────────────────  │
 │  Active files:                          │
-│    📄 report.docx (editing in Word)     │
-│    📊 data.xlsx (uploading… 45%)        │
+│    Editing: report.docx                 │
+│    Uploading (45%): data.xlsx           │
 │  ─────────────────────────────────────  │
 │  Preferences…                           │
-│  Check for updates                      │
-│  ─────────────────────────────────────  │
-│  Quit                                   │
+│  Quit Sambee Companion                  │
 └─────────────────────────────────────────┘
 ```
 
@@ -1111,7 +1172,8 @@ When the companion is not installed and "Open in app" is clicked:
 | ~~Electron~~                  | Rejected          | ~150–200 MB (bundles Chromium), overkill for a background helper app         |
 | ~~Go CLI~~                    | Rejected          | No native UI without extra libraries; manual protocol registration           |
 | UI framework                  | Preact            | 3 KB gzip, React-compatible API (team already uses React), familiar JSX/hooks |
-| ~~File system watcher~~       | Removed           | Adds complexity (debouncing, atomic saves); single upload on "Done Editing" is simpler and sufficient |
+| Edit-lifecycle file watcher   | Rejected          | The edit flow still uses explicit "Done Editing" instead of auto-uploading local edits via a file-system watcher |
+| Local-drive directory watcher | Implemented       | The localhost API uses a watcher plus WebSocket notifications so browser views can react to local filesystem changes |
 | HTTP client                   | `reqwest`         | Async, multipart upload, TLS built-in                                        |
 | App enumeration               | Per-OS Rust       | Must call platform-native APIs; no cross-platform abstraction exists         |
 | Token in URI                  | Short-lived JWT   | Avoids storing secrets in URI; exchanged immediately for session token        |
@@ -1119,7 +1181,7 @@ When the companion is not installed and "Open in app" is clicked:
 | Editor close detection        | "Done Editing" window | No production software reliably detects arbitrary editor closes. Explicit user action is the only universal approach. |
 | ~~Process monitoring~~        | Rejected          | `sysinfo` process scan + OS file-lock detection are fragile heuristics       |
 | Temp file naming              | `-copy` suffix    | Makes clear the file is a working copy; avoids confusion with the original   |
-| File size limit               | Soft 50 MB        | Warns user but doesn't block; threshold configurable                         |
+| File size limit               | Soft 50 MB        | Warns user but doesn't block; current implementation uses a built-in default |
 | Accidental-click prevention   | Hold-to-confirm   | 1.5s press-and-hold with progress bar; works for mouse and keyboard          |
 | Temp file lifecycle           | Recycle bin (7 days) | Files never deleted — moved to recycle bin with timestamp; protects against data loss |
 | Startup recovery              | Leftover scan + dialog | Scan orphaned temp files on launch; prompt to upload, discard, or keep       |
@@ -1130,7 +1192,7 @@ When the companion is not installed and "Open in app" is clicked:
 
 ### 19.1 Backend tests
 
-- Unit tests for endpoints: `upload`, `file-info`, `companion/token`, `companion/uri-token`.
+- Unit tests for endpoints: `upload`, `browse/info`, `companion/token`, `companion/uri-token`.
 - Integration tests with mock SMB backend.
 - Token lifecycle tests: generation, single-use enforcement, expiration.
 
@@ -1140,6 +1202,7 @@ When the companion is not installed and "Open in app" is clicked:
 - Unit tests for app registry (mock registry data for each platform).
 - Upload/download tests with mock HTTP server.
 - Change detection tests (modified vs. unmodified file).
+- Tests for pairing, localization state handling, and local-drive HTTP helpers.
 
 ### 19.3 Companion UI tests
 
@@ -1150,6 +1213,7 @@ When the companion is not installed and "Open in app" is clicked:
 
 - Unit tests for `getCompanionUri()` (correct encoding, token embedding).
 - Component tests for "Open in app" button visibility and behavior.
+- Browser-side tests for companion pairing, local-drive metadata loading, and companion download UI.
 
 ### 19.5 Cross-platform testing
 
@@ -1173,13 +1237,13 @@ _¹ js-framework-benchmark weighted geometric mean vs vanilla JS (1.00×)._
 
 Preact is the smallest bundle (3 KB gzip), has a React-compatible API matching the team's existing skills, and the performance gap vs Solid.js is irrelevant for dialogs that render once and wait for user input.
 
-### 20.2 Localhost status endpoint → Post-MVP
+### 20.2 Localhost health endpoint → Implemented
 
-The companion exposes `http://localhost:21549/status` for browser-side detection. This is a post-MVP enhancement — core functionality does not depend on it.
+The companion exposes `http://localhost:21549/api/health` for browser-side detection and pairing-state checks.
 
 ### 20.3 Multiple simultaneous servers → Supported passively
 
-The architecture supports multiple servers (each `FileOperation` carries its own `server_url`). No special work is needed — the preferences UI has a "Trusted Servers" list for managing allowlisted servers.
+The architecture supports multiple servers (each `FileOperation` carries its own `server_url`). No special work is needed in the edit lifecycle. The legacy `allowedServers` preference field remains for compatibility, but current localhost trust is handled through browser pairing rather than a dedicated server-allowlist UI.
 
 ### 20.4 Mobile companion → Not planned
 
