@@ -25,6 +25,15 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get summaryDescription() {
     return translate("settings.localDrives.summaryDescription");
   },
+  get unsupportedMobileTitle() {
+    return translate("settings.localDrives.unsupportedMobileTitle");
+  },
+  get unsupportedMobileDescription() {
+    return translate("settings.localDrives.unsupportedMobileDescription");
+  },
+  get unsupportedMobileAlert() {
+    return translate("settings.localDrives.unsupportedMobileAlert");
+  },
   get statusLabelReady() {
     return translate("settings.localDrives.statusLabelReady");
   },

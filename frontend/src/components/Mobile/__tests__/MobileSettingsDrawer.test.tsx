@@ -9,8 +9,10 @@ vi.mock("../../Settings/settingsDataSources", () => ({
   prefetchSettingsDataForItems: vi.fn(),
 }));
 
+const mockUseSettingsAccess = vi.fn(() => ({ isAdmin: false }));
+
 vi.mock("../../Settings/useSettingsAccess", () => ({
-  useSettingsAccess: () => ({ isAdmin: false }),
+  useSettingsAccess: () => mockUseSettingsAccess(),
 }));
 
 vi.mock("../../../pages/ConnectionSettings", () => ({
@@ -32,6 +34,10 @@ function renderDrawer() {
 }
 
 describe("MobileSettingsDrawer", () => {
+  beforeEach(() => {
+    mockUseSettingsAccess.mockReturnValue({ isAdmin: false });
+  });
+
   it("shows local drives as a top-level settings item and returns to the list from its page", async () => {
     const user = userEvent.setup();
 
@@ -50,5 +56,21 @@ describe("MobileSettingsDrawer", () => {
     expect(screen.getByText(/^Connections$/i)).toBeInTheDocument();
     expect(screen.queryByText("Local Drives Content: Local Drives")).not.toBeInTheDocument();
     expect(screen.getByText(/^Appearance$/i)).toBeInTheDocument();
+  });
+
+  it("does not show category descriptions in the mobile settings list", () => {
+    renderDrawer();
+
+    expect(screen.queryByText(/manage smb shares and local-drive access in one place\./i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/customize the application theme and language behavior\./i)).not.toBeInTheDocument();
+  });
+
+  it("adds breathing room above the mobile section headers", () => {
+    mockUseSettingsAccess.mockReturnValue({ isAdmin: true });
+
+    renderDrawer();
+
+    expect(screen.getByRole("list")).toHaveStyle({ paddingTop: "8px" });
+    expect(screen.getByText(/^Administration$/i).parentElement).toHaveStyle({ marginTop: "16px" });
   });
 });

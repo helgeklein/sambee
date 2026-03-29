@@ -47,10 +47,36 @@ vi.mock("../../services/companion", () => ({
   hasStoredSecret: mockHasStoredSecret,
 }));
 
+function mockNavigatorDevice({
+  userAgent,
+  platform = "Linux x86_64",
+  maxTouchPoints = 0,
+}: {
+  userAgent: string;
+  platform?: string;
+  maxTouchPoints?: number;
+}) {
+  Object.defineProperty(window.navigator, "userAgent", {
+    configurable: true,
+    value: userAgent,
+  });
+  Object.defineProperty(window.navigator, "platform", {
+    configurable: true,
+    value: platform,
+  });
+  Object.defineProperty(window.navigator, "maxTouchPoints", {
+    configurable: true,
+    value: maxTouchPoints,
+  });
+}
+
 describe("LocalDrivesSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearCachedAsyncData();
+    mockNavigatorDevice({
+      userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    });
     mockCheckHealth.mockResolvedValue({ status: "ok", paired: true });
     mockGetCompanionDownloads.mockResolvedValue({
       source: "feed",
@@ -199,5 +225,27 @@ describe("LocalDrivesSettings", () => {
       },
       { timeout: 3_500 }
     );
+  });
+
+  it("hides Companion install and pairing UI on unsupported mobile platforms", async () => {
+    mockNavigatorDevice({
+      userAgent:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Mobile/15E148 Safari/604.1",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+    });
+    mockHasStoredSecret.mockReturnValue(false);
+
+    renderSettings();
+
+    expect(await screen.findByText(LOCAL_DRIVES_PAGE_COPY.unsupportedMobileTitle)).toBeInTheDocument();
+    expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.unsupportedMobileAlert)).toBeInTheDocument();
+    expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.summaryTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle)).not.toBeInTheDocument();
+    expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle)).not.toBeInTheDocument();
+    expect(mockCheckHealth).not.toHaveBeenCalled();
+    expect(mockGetCompanionDownloads).not.toHaveBeenCalled();
+    expect(mockGetPairStatus).not.toHaveBeenCalled();
   });
 });

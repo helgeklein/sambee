@@ -38,6 +38,9 @@ const COMPANION_PLATFORM_LABELS: Record<CompanionDownloadPlatform, string> = {
 
 const COMPANION_PLATFORM_ORDER: CompanionDownloadPlatform[] = ["windows-x64", "windows-arm64", "macos-arm64", "linux-x64"];
 const LOCAL_DRIVES_STATUS_POLL_INTERVAL_MS = 1_000;
+const IOS_USER_AGENT_TOKENS = ["iphone", "ipad", "ipod"] as const;
+const MAC_PLATFORM_TOKEN = "macintel";
+const ANDROID_USER_AGENT_TOKEN = "android";
 
 function detectCurrentPlatform(): CompanionDownloadPlatform | null {
   const userAgent = window.navigator.userAgent.toLowerCase();
@@ -51,6 +54,18 @@ function detectCurrentPlatform(): CompanionDownloadPlatform | null {
     return "linux-x64";
   }
   return null;
+}
+
+function isUnsupportedMobileCompanionPlatform(): boolean {
+  const userAgent = window.navigator.userAgent.toLowerCase();
+  const platform = window.navigator.platform.toLowerCase();
+  const maxTouchPoints = window.navigator.maxTouchPoints;
+
+  const isAndroid = userAgent.includes(ANDROID_USER_AGENT_TOKEN);
+  const isIos = IOS_USER_AGENT_TOKENS.some((token) => userAgent.includes(token));
+  const isIpadOs = platform === MAC_PLATFORM_TOKEN && maxTouchPoints > 1;
+
+  return isAndroid || isIos || isIpadOs;
 }
 
 interface LocalDrivesSettingsProps {
@@ -75,6 +90,7 @@ const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
 export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectionDescription }: LocalDrivesSettingsProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const companionUnsupportedOnCurrentDevice = useMemo(() => isUnsupportedMobileCompanionPlatform(), []);
   const [testing, setTesting] = useState(false);
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
   const [unpairing, setUnpairing] = useState(false);
@@ -95,6 +111,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   } = useCachedAsyncData<LocalDrivesSettingsData>({
     cacheKey: SETTINGS_DATA_CACHE_KEYS.localDrives,
     load: loadLocalDrivesSettingsData,
+    enabled: !companionUnsupportedOnCurrentDevice,
   });
   const state = cachedState ?? EMPTY_LOCAL_DRIVES_STATE;
 
@@ -103,6 +120,10 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   }, []);
 
   useEffect(() => {
+    if (companionUnsupportedOnCurrentDevice) {
+      return;
+    }
+
     let intervalId: number | null = null;
 
     const stopPolling = () => {
@@ -139,7 +160,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopPolling();
     };
-  }, [refresh]);
+  }, [companionUnsupportedOnCurrentDevice, refresh]);
 
   const handleConfirmPairing = useCallback(
     async (pairingId: string) => {
@@ -301,209 +322,229 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       />
 
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
-        <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.summaryTitle} description={LOCAL_DRIVES_PAGE_COPY.summaryDescription} sx={{ mb: 4 }}>
-          <Box sx={{ ...sectionCardSx, px: { xs: 2, sm: 3 }, py: 3 }}>
-            {showStatusContent ? (
-              <Stack spacing={2.5}>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
-                  <Chip label={summaryState.badgeLabel} size="small" variant="outlined" sx={summaryBadgeSx} />
-                </Stack>
-
-                <Box>
-                  <Typography variant="h6" fontWeight="medium">
-                    {summaryState.title}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 720 }}>
-                    {summaryState.message}
-                  </Typography>
-                </Box>
-
-                <Stack spacing={1}>
-                  {statusChecklist.map((item) => (
-                    <Stack key={item.label} direction="row" spacing={1.25} alignItems="center">
-                      {item.complete ? (
-                        <CheckCircleOutlineIcon color="success" fontSize="small" />
-                      ) : (
-                        <RadioButtonUncheckedIcon sx={{ color: "text.disabled" }} fontSize="small" />
-                      )}
-                      <Typography variant="body2" color={item.complete ? "text.primary" : "text.secondary"}>
-                        {item.label}
-                      </Typography>
-                    </Stack>
-                  ))}
-                </Stack>
-              </Stack>
-            ) : (
-              <SettingsLoadingState compact />
-            )}
-          </Box>
-        </SettingsGroup>
-
-        {shouldShowInstallSection && (
+        {companionUnsupportedOnCurrentDevice ? (
           <SettingsGroup
-            title={LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle}
-            description={LOCAL_DRIVES_PAGE_COPY.downloadSectionDescription}
-            sx={{ mb: 4 }}
-          >
-            <Box sx={sectionCardSx}>
-              <Stack spacing={2}>
-                {state.downloadMetadata ? (
-                  <Stack spacing={1.5}>
-                    <Typography variant="body2" color="text.secondary">
-                      {LOCAL_DRIVES_PAGE_COPY.downloadVersionLabel}: {state.downloadMetadata.version}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {LOCAL_DRIVES_PAGE_COPY.downloadSectionSourcePrefix}: {downloadSourceLabel}
-                    </Typography>
-
-                    {primaryDownload && (
-                      <Stack spacing={1} alignItems="flex-start">
-                        <Chip
-                          label={LOCAL_DRIVES_PAGE_COPY.downloadRecommendedLabel}
-                          size="small"
-                          variant="outlined"
-                          sx={settingsMetadataChipSx}
-                        />
-                        <Button
-                          component="a"
-                          href={primaryDownload[1]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          variant="contained"
-                          startIcon={<DownloadIcon />}
-                          sx={settingsPrimaryButtonSx}
-                        >
-                          {LOCAL_DRIVES_PAGE_COPY.downloadPrimaryButton} ({COMPANION_PLATFORM_LABELS[primaryDownload[0]]})
-                        </Button>
-                      </Stack>
-                    )}
-
-                    {alternateDownloads.length > 0 && (
-                      <Stack spacing={1}>
-                        <Typography variant="body2" color="text.secondary">
-                          {LOCAL_DRIVES_PAGE_COPY.downloadOtherPlatformsLabel}
-                        </Typography>
-                        <Box sx={cardActionRowSx}>
-                          {alternateDownloads.map(([platformKey, assetUrl]) => (
-                            <Button
-                              key={platformKey}
-                              component="a"
-                              href={assetUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              variant="outlined"
-                              startIcon={<OpenInNewIcon />}
-                              sx={settingsUtilityButtonSx}
-                            >
-                              {COMPANION_PLATFORM_LABELS[platformKey]}
-                            </Button>
-                          ))}
-                        </Box>
-                      </Stack>
-                    )}
-                  </Stack>
-                ) : state.downloadError ? (
-                  <SettingsInlineAlert severity="warning" sx={{ mb: 0 }}>
-                    {state.downloadError}
-                  </SettingsInlineAlert>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    {LOCAL_DRIVES_PAGE_COPY.downloadUnavailable}
-                  </Typography>
-                )}
-              </Stack>
-            </Box>
-          </SettingsGroup>
-        )}
-
-        {shouldShowPairingSection && (
-          <SettingsGroup
-            title={LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle}
-            description={LOCAL_DRIVES_PAGE_COPY.pairingSectionDescription}
-            sx={{ mb: 4 }}
-          >
-            <Box sx={sectionCardSx}>
-              <Stack spacing={2}>
-                <Typography variant="body2" color="text.secondary">
-                  {LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
-                </Typography>
-                <Box sx={cardActionRowSx}>
-                  <Button
-                    variant="contained"
-                    startIcon={<UsbIcon />}
-                    onClick={() => setPairingDialogOpen(true)}
-                    sx={settingsPrimaryButtonSx}
-                  >
-                    {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
-                  </Button>
-                </Box>
-              </Stack>
-            </Box>
-          </SettingsGroup>
-        )}
-
-        {shouldShowVerificationSection && (
-          <SettingsGroup
-            title={LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle}
-            description={LOCAL_DRIVES_PAGE_COPY.verificationSectionDescription}
-            sx={{ mb: 4 }}
-          >
-            <Box sx={sectionCardSx}>
-              <Stack spacing={2}>
-                <Typography variant="body2" color="text.secondary">
-                  {LOCAL_DRIVES_PAGE_COPY.verificationSectionReady}
-                </Typography>
-                <Box sx={cardActionRowSx}>
-                  <Button
-                    variant="contained"
-                    startIcon={<ComputerIcon />}
-                    onClick={() => void handleTestPairing()}
-                    disabled={testing}
-                    sx={settingsPrimaryButtonSx}
-                  >
-                    {testing ? LOCAL_DRIVES_PAGE_COPY.testingButton : LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton}
-                  </Button>
-                </Box>
-              </Stack>
-            </Box>
-          </SettingsGroup>
-        )}
-
-        {showUnpairAction && (
-          <SettingsGroup
-            title={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionTitle}
-            description={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionDescription}
+            title={LOCAL_DRIVES_PAGE_COPY.unsupportedMobileTitle}
+            description={LOCAL_DRIVES_PAGE_COPY.unsupportedMobileDescription}
             sx={{ mb: 0 }}
           >
-            <Box sx={sectionCardSx}>
-              <Stack spacing={2}>
-                <Typography variant="body2" color="text.secondary">
-                  {LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionReady}
-                </Typography>
-                <Box sx={cardActionRowSx}>
-                  <Button
-                    color="error"
-                    variant="outlined"
-                    startIcon={<LinkOffIcon />}
-                    onClick={() => void handleUnpairCurrentBrowser()}
-                    disabled={unpairing}
-                    sx={settingsDestructiveButtonSx}
-                  >
-                    {unpairing ? LOCAL_DRIVES_PAGE_COPY.unpairingButton : LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton}
-                  </Button>
-                </Box>
-              </Stack>
-            </Box>
+            <SettingsInlineAlert severity="info" sx={{ mb: 0 }}>
+              {LOCAL_DRIVES_PAGE_COPY.unsupportedMobileAlert}
+            </SettingsInlineAlert>
           </SettingsGroup>
+        ) : (
+          <>
+            <SettingsGroup
+              title={LOCAL_DRIVES_PAGE_COPY.summaryTitle}
+              description={LOCAL_DRIVES_PAGE_COPY.summaryDescription}
+              sx={{ mb: 4 }}
+            >
+              <Box sx={{ ...sectionCardSx, px: { xs: 2, sm: 3 }, py: 3 }}>
+                {showStatusContent ? (
+                  <Stack spacing={2.5}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
+                      <Chip label={summaryState.badgeLabel} size="small" variant="outlined" sx={summaryBadgeSx} />
+                    </Stack>
+
+                    <Box>
+                      <Typography variant="h6" fontWeight="medium">
+                        {summaryState.title}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 720 }}>
+                        {summaryState.message}
+                      </Typography>
+                    </Box>
+
+                    <Stack spacing={1}>
+                      {statusChecklist.map((item) => (
+                        <Stack key={item.label} direction="row" spacing={1.25} alignItems="center">
+                          {item.complete ? (
+                            <CheckCircleOutlineIcon color="success" fontSize="small" />
+                          ) : (
+                            <RadioButtonUncheckedIcon sx={{ color: "text.disabled" }} fontSize="small" />
+                          )}
+                          <Typography variant="body2" color={item.complete ? "text.primary" : "text.secondary"}>
+                            {item.label}
+                          </Typography>
+                        </Stack>
+                      ))}
+                    </Stack>
+                  </Stack>
+                ) : (
+                  <SettingsLoadingState compact />
+                )}
+              </Box>
+            </SettingsGroup>
+
+            {shouldShowInstallSection && (
+              <SettingsGroup
+                title={LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle}
+                description={LOCAL_DRIVES_PAGE_COPY.downloadSectionDescription}
+                sx={{ mb: 4 }}
+              >
+                <Box sx={sectionCardSx}>
+                  <Stack spacing={2}>
+                    {state.downloadMetadata ? (
+                      <Stack spacing={1.5}>
+                        <Typography variant="body2" color="text.secondary">
+                          {LOCAL_DRIVES_PAGE_COPY.downloadVersionLabel}: {state.downloadMetadata.version}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {LOCAL_DRIVES_PAGE_COPY.downloadSectionSourcePrefix}: {downloadSourceLabel}
+                        </Typography>
+
+                        {primaryDownload && (
+                          <Stack spacing={1} alignItems="flex-start">
+                            <Chip
+                              label={LOCAL_DRIVES_PAGE_COPY.downloadRecommendedLabel}
+                              size="small"
+                              variant="outlined"
+                              sx={settingsMetadataChipSx}
+                            />
+                            <Button
+                              component="a"
+                              href={primaryDownload[1]}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              variant="contained"
+                              startIcon={<DownloadIcon />}
+                              sx={settingsPrimaryButtonSx}
+                            >
+                              {LOCAL_DRIVES_PAGE_COPY.downloadPrimaryButton} ({COMPANION_PLATFORM_LABELS[primaryDownload[0]]})
+                            </Button>
+                          </Stack>
+                        )}
+
+                        {alternateDownloads.length > 0 && (
+                          <Stack spacing={1}>
+                            <Typography variant="body2" color="text.secondary">
+                              {LOCAL_DRIVES_PAGE_COPY.downloadOtherPlatformsLabel}
+                            </Typography>
+                            <Box sx={cardActionRowSx}>
+                              {alternateDownloads.map(([platformKey, assetUrl]) => (
+                                <Button
+                                  key={platformKey}
+                                  component="a"
+                                  href={assetUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  variant="outlined"
+                                  startIcon={<OpenInNewIcon />}
+                                  sx={settingsUtilityButtonSx}
+                                >
+                                  {COMPANION_PLATFORM_LABELS[platformKey]}
+                                </Button>
+                              ))}
+                            </Box>
+                          </Stack>
+                        )}
+                      </Stack>
+                    ) : state.downloadError ? (
+                      <SettingsInlineAlert severity="warning" sx={{ mb: 0 }}>
+                        {state.downloadError}
+                      </SettingsInlineAlert>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        {LOCAL_DRIVES_PAGE_COPY.downloadUnavailable}
+                      </Typography>
+                    )}
+                  </Stack>
+                </Box>
+              </SettingsGroup>
+            )}
+
+            {shouldShowPairingSection && (
+              <SettingsGroup
+                title={LOCAL_DRIVES_PAGE_COPY.pairingSectionTitle}
+                description={LOCAL_DRIVES_PAGE_COPY.pairingSectionDescription}
+                sx={{ mb: 4 }}
+              >
+                <Box sx={sectionCardSx}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" color="text.secondary">
+                      {LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
+                    </Typography>
+                    <Box sx={cardActionRowSx}>
+                      <Button
+                        variant="contained"
+                        startIcon={<UsbIcon />}
+                        onClick={() => setPairingDialogOpen(true)}
+                        sx={settingsPrimaryButtonSx}
+                      >
+                        {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
+                      </Button>
+                    </Box>
+                  </Stack>
+                </Box>
+              </SettingsGroup>
+            )}
+
+            {shouldShowVerificationSection && (
+              <SettingsGroup
+                title={LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle}
+                description={LOCAL_DRIVES_PAGE_COPY.verificationSectionDescription}
+                sx={{ mb: 4 }}
+              >
+                <Box sx={sectionCardSx}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" color="text.secondary">
+                      {LOCAL_DRIVES_PAGE_COPY.verificationSectionReady}
+                    </Typography>
+                    <Box sx={cardActionRowSx}>
+                      <Button
+                        variant="contained"
+                        startIcon={<ComputerIcon />}
+                        onClick={() => void handleTestPairing()}
+                        disabled={testing}
+                        sx={settingsPrimaryButtonSx}
+                      >
+                        {testing ? LOCAL_DRIVES_PAGE_COPY.testingButton : LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton}
+                      </Button>
+                    </Box>
+                  </Stack>
+                </Box>
+              </SettingsGroup>
+            )}
+
+            {showUnpairAction && (
+              <SettingsGroup
+                title={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionTitle}
+                description={LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionDescription}
+                sx={{ mb: 0 }}
+              >
+                <Box sx={sectionCardSx}>
+                  <Stack spacing={2}>
+                    <Typography variant="body2" color="text.secondary">
+                      {LOCAL_DRIVES_PAGE_COPY.troubleshootingSectionReady}
+                    </Typography>
+                    <Box sx={cardActionRowSx}>
+                      <Button
+                        color="error"
+                        variant="outlined"
+                        startIcon={<LinkOffIcon />}
+                        onClick={() => void handleUnpairCurrentBrowser()}
+                        disabled={unpairing}
+                        sx={settingsDestructiveButtonSx}
+                      >
+                        {unpairing ? LOCAL_DRIVES_PAGE_COPY.unpairingButton : LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton}
+                      </Button>
+                    </Box>
+                  </Stack>
+                </Box>
+              </SettingsGroup>
+            )}
+          </>
         )}
       </Box>
 
-      <CompanionPairingDialog
-        open={pairingDialogOpen}
-        onClose={() => setPairingDialogOpen(false)}
-        onInitiate={companionService.initiatePairing}
-        onConfirm={handleConfirmPairing}
-      />
+      {!companionUnsupportedOnCurrentDevice && (
+        <CompanionPairingDialog
+          open={pairingDialogOpen}
+          onClose={() => setPairingDialogOpen(false)}
+          onInitiate={companionService.initiatePairing}
+          onConfirm={handleConfirmPairing}
+        />
+      )}
 
       <SettingsNotificationSnackbar
         notification={notification}

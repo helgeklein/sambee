@@ -20,6 +20,23 @@ vi.mock("../../services/api", () => ({
 
 import api from "../../services/api";
 
+function mockMobileMode(isMobile: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: isMobile ? !query.includes("min-width") : query.includes("min-width"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 const mockVisibilityOptions = [
   {
     value: "private" as const,
@@ -40,6 +57,7 @@ const mockVisibilityOptions = [
 describe("ConnectionSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMobileMode(false);
     clearCachedAsyncData();
     vi.mocked(api.getCurrentUser).mockResolvedValue({
       id: "admin-id",
@@ -87,5 +105,64 @@ describe("ConnectionSettings", () => {
     expect(await screen.findByRole("option", { name: /private to me/i })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /shared with everyone/i })).toBeInTheDocument();
     expect(api.getConnectionVisibilityOptions).toHaveBeenCalled();
+  });
+
+  it("does not render an empty padded header block in headerless mobile mode", async () => {
+    mockMobileMode(true);
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "shared-1",
+        name: "Accounting",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "accounting",
+        username: "sambee",
+        path_prefix: "/",
+        scope: "shared",
+        can_manage: false,
+      },
+    ]);
+
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSettings isAdmin={false} showHeader={false} />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("Shared connections");
+
+    expect(screen.queryByTestId("connection-settings-inline-header")).not.toBeInTheDocument();
+    expect(screen.getByTestId("connection-settings-shared-section")).toHaveStyle({ marginTop: "0px" });
+    expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "24px" });
+  });
+
+  it("does not add top margin before the first section in headerless desktop mode", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "shared-1",
+        name: "Accounting",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "accounting",
+        username: "sambee",
+        path_prefix: "/",
+        scope: "shared",
+        can_manage: true,
+      },
+    ]);
+
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSettings isAdmin={true} showHeader={false} />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("Shared connections");
+
+    expect(screen.getByTestId("connection-settings-inline-header")).toBeInTheDocument();
+    expect(screen.getByTestId("connection-settings-shared-section")).toHaveStyle({ marginTop: "0px" });
+    expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "24px" });
   });
 });

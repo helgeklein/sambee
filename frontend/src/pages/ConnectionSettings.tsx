@@ -86,6 +86,7 @@ export function ConnectionSettings({
   const { isAdmin: detectedIsAdmin } = useSettingsAccess();
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
+  const shouldRenderInlineGroupHeader = Boolean(sectionTitle || sectionDescription || isDesktop);
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
   const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
@@ -408,8 +409,14 @@ export function ConnectionSettings({
     );
   };
 
-  const renderSection = (title: string, description: string, sectionConnections: Connection[], emptyMessage: string) => (
-    <Box sx={{ mt: 3 }}>
+  const renderSection = (
+    title: string,
+    description: string,
+    sectionConnections: Connection[],
+    emptyMessage: string,
+    options?: { disableTopMargin?: boolean; testId?: string }
+  ) => (
+    <Box data-testid={options?.testId} sx={{ mt: options?.disableTopMargin ? 0 : 3 }}>
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
         {title}
       </Typography>
@@ -448,8 +455,8 @@ export function ConnectionSettings({
             ) : undefined
           }
         />
-      ) : (
-        <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 2 }}>
+      ) : shouldRenderInlineGroupHeader ? (
+        <Box data-testid="connection-settings-inline-header" sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 2 }}>
           <SettingsGroup
             title={sectionTitle}
             description={sectionDescription}
@@ -462,7 +469,7 @@ export function ConnectionSettings({
             }
           />
         </Box>
-      )}
+      ) : null}
 
       {/* Connection List */}
       <Box sx={{ flex: showHeader ? 1 : undefined, overflow: showHeader ? "auto" : "visible", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
@@ -483,13 +490,20 @@ export function ConnectionSettings({
               t("settings.connectionManagement.sharedSectionTitle"),
               t("settings.connectionManagement.sharedSectionDescription"),
               sharedConnections,
-              t("settings.connectionManagement.sharedSectionEmpty")
+              t("settings.connectionManagement.sharedSectionEmpty"),
+              {
+                disableTopMargin: !showHeader,
+                testId: "connection-settings-shared-section",
+              }
             )}
             {renderSection(
               t("settings.connectionManagement.privateSectionTitle"),
               t("settings.connectionManagement.privateSectionDescription"),
               privateConnections,
-              t("settings.connectionManagement.privateSectionEmpty")
+              t("settings.connectionManagement.privateSectionEmpty"),
+              {
+                testId: "connection-settings-private-section",
+              }
             )}
           </>
         )}

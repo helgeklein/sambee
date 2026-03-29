@@ -90,11 +90,11 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
               <SettingsCategoryList
                 sections={getVisibleSettingsSections(isAdmin)}
                 onSelect={setCurrentView}
-                showDescriptions
                 showChevron
                 showDividers
                 wrapItemsInListItem
-                listSx={{ py: 0 }}
+                listSx={{ py: 0, pt: 1 }}
+                sectionSx={{ "&:not(:first-of-type)": { mt: 2 } }}
                 subheaderSx={{ bgcolor: "background.default", textTransform: "uppercase", letterSpacing: 0.8 }}
                 itemButtonSx={{ py: 2 }}
                 itemIconSx={{ color: "primary.main" }}

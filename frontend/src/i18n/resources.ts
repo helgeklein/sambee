@@ -121,7 +121,7 @@ export const EN_TRANSLATIONS = {
       },
       connections: {
         label: "Connections",
-        description: "Manage SMB shares and local-drive access in one place.",
+        description: "Manage shared and private SMB connections.",
       },
       adminUsers: {
         label: "User Management",
@@ -182,6 +182,10 @@ export const EN_TRANSLATIONS = {
       intro: "Manage Sambee Companion pairing for this browser and verify local-drive access on this computer.",
       summaryTitle: "Current status",
       summaryDescription: "See whether local drives are ready and take the next recommended action.",
+      unsupportedMobileTitle: "Local drives require a desktop browser",
+      unsupportedMobileDescription: "Sambee Companion is not available on iOS or Android.",
+      unsupportedMobileAlert:
+        "Use Sambee in a desktop browser on Windows, macOS, or Linux to install Companion, pair this browser, and access local drives.",
       statusLabelReady: "Ready",
       statusLabelActionRequired: "Action required",
       statusLabelUnavailable: "Companion unavailable",
