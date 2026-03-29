@@ -248,4 +248,51 @@ describe("SettingsDialog Component", () => {
 
     expect(screen.getByText("System Settings Content")).toBeInTheDocument();
   });
+
+  it("supports Home and End keyboard navigation in the category list", async () => {
+    const user = userEvent.setup();
+
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    const connectionsOption = screen.getByRole("option", { name: /^connections$/i });
+    connectionsOption.focus();
+
+    await user.keyboard("{End}");
+
+    expect(screen.getByText("Local Drives Settings Content")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /local drives/i })).toHaveFocus();
+
+    await user.keyboard("{Home}");
+
+    expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /appearance/i })).toHaveFocus();
+  });
+
+  it("supports PageUp and PageDown keyboard navigation in the category list", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+    const user = userEvent.setup();
+
+    renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
+
+    await waitFor(() => {
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    const appearanceOption = screen.getByRole("option", { name: /appearance/i });
+    appearanceOption.focus();
+
+    await user.keyboard("{PageDown}");
+
+    expect(screen.getByText("System Settings Content")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /system/i })).toHaveFocus();
+
+    await user.keyboard("{PageUp}");
+
+    expect(screen.getByText("Appearance Settings Content")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /appearance/i })).toHaveFocus();
+  });
 });

@@ -20,6 +20,7 @@ function renderSettingsLayout(initialEntries: string[]) {
         <Routes>
           <Route path="/settings" element={<SettingsLayout />}>
             <Route index element={<div>Settings home</div>} />
+            <Route path="appearance" element={<div>Appearance page</div>} />
             <Route path="connections" element={<div>Connections page</div>} />
             <Route path="connections/local-drives" element={<div>Local Drives page</div>} />
           </Route>
@@ -30,16 +31,29 @@ function renderSettingsLayout(initialEntries: string[]) {
 }
 
 describe("SettingsLayout", () => {
-  it("returns from a child settings page to the settings list on mobile", async () => {
+  it("returns from a nested settings page to its parent settings page on mobile", async () => {
     const user = userEvent.setup();
 
-    renderSettingsLayout(["/settings", "/settings/connections/local-drives"]);
+    renderSettingsLayout(["/settings/connections/local-drives"]);
 
     expect(screen.getByText("Local Drives page")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /go back/i }));
 
-    expect(screen.getByText("Settings home")).toBeInTheDocument();
+    expect(screen.getByText("Connections page")).toBeInTheDocument();
     expect(screen.queryByText("Local Drives page")).not.toBeInTheDocument();
+  });
+
+  it("returns from a top-level settings page to the settings list on mobile", async () => {
+    const user = userEvent.setup();
+
+    renderSettingsLayout(["/settings/appearance"]);
+
+    expect(screen.getByText("Appearance page")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /go back/i }));
+
+    expect(screen.getByText("Settings home")).toBeInTheDocument();
+    expect(screen.queryByText("Appearance page")).not.toBeInTheDocument();
   });
 });

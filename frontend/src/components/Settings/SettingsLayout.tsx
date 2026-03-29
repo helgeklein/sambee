@@ -7,10 +7,17 @@ import { AppBar, Box, IconButton, Toolbar, Typography, useMediaQuery, useTheme }
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  getMobileViewportShellSx,
+  mobileSafeAreaAppBarSx,
+  mobileSafeAreaToolbarSx,
+  mobileScrollableContentSx,
+} from "../../theme/mobileShell";
 import { SettingsSidebar } from "./SettingsSidebar";
 import { prefetchSettingsDataForItems } from "./settingsDataSources";
 import {
   DEFAULT_SETTINGS_CATEGORY,
+  getSettingsMobileBackTarget,
   getSettingsNavItemByPath,
   getSettingsViewTitle,
   getVisibleSettingsNavItems,
@@ -54,7 +61,18 @@ export function SettingsLayout() {
   };
 
   const handleMobileBack = () => {
-    navigate(-1);
+    if (location.pathname === "/settings") {
+      navigate(-1);
+      return;
+    }
+
+    const backTarget = getSettingsMobileBackTarget(location.pathname);
+    if (backTarget) {
+      navigate(backTarget);
+      return;
+    }
+
+    navigate("/settings");
   };
 
   if (isDesktop) {
@@ -78,9 +96,9 @@ export function SettingsLayout() {
 
   // Mobile: Full-page with AppBar (edge-to-edge layout)
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <AppBar position="static">
-        <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
+    <Box sx={getMobileViewportShellSx(true)}>
+      <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
+        <Toolbar sx={mobileSafeAreaToolbarSx}>
           <IconButton edge="start" color="inherit" onClick={handleMobileBack} aria-label={t("common.navigation.goBack")}>
             <ArrowBackIcon />
           </IconButton>
@@ -89,7 +107,7 @@ export function SettingsLayout() {
           </Typography>
         </Toolbar>
       </AppBar>
-      <Box sx={{ flex: 1, overflow: "auto" }}>
+      <Box sx={mobileScrollableContentSx}>
         <Outlet />
       </Box>
     </Box>

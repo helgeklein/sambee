@@ -472,10 +472,12 @@ export const handlers = [
     });
   }),
 
-  http.post(`${API_BASE}/admin/users/:id/reset-password`, ({ params }) => {
+  http.post(`${API_BASE}/admin/users/:id/reset-password`, async ({ request, params }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+
     return HttpResponse.json({
       message: `Password reset for ${params["id"]}`,
-      temporary_password: "ResetPass123!",
+      must_change_password: body["must_change_password"] ?? true,
     });
   }),
 

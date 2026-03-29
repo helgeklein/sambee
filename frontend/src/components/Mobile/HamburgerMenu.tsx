@@ -17,6 +17,7 @@ import {
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SAFE_AREA_INSET } from "../../theme/mobileShell";
 import type { Connection } from "../../types";
 import type { VersionInfo } from "../../utils/version";
 import { fetchVersionInfo } from "../../utils/version";
@@ -73,6 +74,9 @@ const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
           display: "flex",
           flexDirection: "column",
           bgcolor: "background.default",
+          pt: SAFE_AREA_INSET.TOP,
+          pl: SAFE_AREA_INSET.LEFT,
+          pb: SAFE_AREA_INSET.BOTTOM,
         },
       }}
     >

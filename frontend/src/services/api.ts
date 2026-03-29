@@ -3,6 +3,7 @@ import type {
   AdminUser,
   AdminUserCreateInput,
   AdminUserCreateResult,
+  AdminUserPasswordResetInput,
   AdminUserPasswordResetResult,
   AdminUserUpdateInput,
   AdvancedSystemSettings,
@@ -349,8 +350,8 @@ class ApiService {
     return response.data;
   }
 
-  async resetUserPassword(userId: string): Promise<AdminUserPasswordResetResult> {
-    const response = await this.api.post<AdminUserPasswordResetResult>(`/admin/users/${userId}/reset-password`);
+  async resetUserPassword(userId: string, payload: AdminUserPasswordResetInput): Promise<AdminUserPasswordResetResult> {
+    const response = await this.api.post<AdminUserPasswordResetResult>(`/admin/users/${userId}/reset-password`, payload);
     return response.data;
   }
 

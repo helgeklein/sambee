@@ -58,9 +58,9 @@ const ConnectionList: React.FC<ConnectionListProps> = ({ connections, onEdit, on
             <TableCell>{t("settings.connectionDialog.labels.host")}</TableCell>
             <TableCell>{t("settings.connectionDialog.labels.shareName")}</TableCell>
             <TableCell>{t("settings.connectionDialog.labels.username")}</TableCell>
-            <TableCell align="center">{t("settings.adminPanel.columns.port")}</TableCell>
-            <TableCell>{t("settings.adminPanel.columns.type")}</TableCell>
-            <TableCell align="right">{t("settings.adminPanel.columns.actions")}</TableCell>
+            <TableCell align="center">{t("settings.connectionManagement.columns.port")}</TableCell>
+            <TableCell>{t("settings.connectionManagement.columns.type")}</TableCell>
+            <TableCell align="right">{t("settings.connectionManagement.columns.actions")}</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>

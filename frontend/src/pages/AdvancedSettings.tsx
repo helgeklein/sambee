@@ -1,8 +1,8 @@
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
+  FormControl,
   FormHelperText,
   InputAdornment,
   MenuItem,
@@ -14,9 +14,11 @@ import {
 } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
-import { settingsPrimaryButtonSx } from "../components/Settings/settingsButtonStyles";
+import { SettingsLoadingState } from "../components/Settings/SettingsState";
+import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../components/Settings/settingsButtonStyles";
 import { loadAdvancedSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
 import { getSettingsCategoryDescription, getSettingsCategoryLabel } from "../components/Settings/settingsNavigation";
 import { useCachedAsyncData } from "../hooks/useCachedAsyncData";
@@ -40,6 +42,7 @@ const DESKTOP_FIELD_ROW_MAX_WIDTH = 440;
 const DESKTOP_VALUE_FIELD_MAX_WIDTH = 220;
 const DESKTOP_UNIT_FIELD_WIDTH = 120;
 const DESKTOP_NUMERIC_FIELD_MAX_WIDTH = 240;
+const MOBILE_ACTION_BAR_PADDING_BOTTOM_PX = 12;
 
 const fieldLabelTypographyProps = {
   variant: "body2" as const,
@@ -156,6 +159,31 @@ function buildUpdatePayload(formState: AdvancedSettingsFormState): AdvancedSyste
   };
 }
 
+function SettingFieldHeader({
+  setting,
+  onReset,
+  resetDisabled,
+}: {
+  setting: IntegerSystemSetting;
+  onReset?: () => void;
+  resetDisabled?: boolean;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+      <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
+      {setting.source === "database" && onReset ? (
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Button size="small" variant="outlined" onClick={onReset} disabled={resetDisabled} sx={settingsUtilityButtonSx}>
+            {t("settings.advanced.resetOverride")}
+          </Button>
+        </Stack>
+      ) : null}
+    </Box>
+  );
+}
+
 function SettingField({
   setting,
   value,
@@ -184,17 +212,18 @@ function SettingField({
   }, [value]);
 
   const displayError = Boolean(errorText) && (touched || showErrors);
+  const helperText = displayError
+    ? errorText
+    : t("settings.advanced.helperText.integer", {
+        description: setting.description,
+        defaultValue: setting.default_value,
+        minValue: setting.min_value,
+        maxValue: setting.max_value,
+      });
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
-        <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
-        {setting.source === "database" && onReset ? (
-          <Button size="small" variant="text" onClick={onReset} disabled={resetDisabled}>
-            {t("settings.advanced.resetOverride")}
-          </Button>
-        ) : null}
-      </Stack>
+      <SettingFieldHeader setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
       <TextField
         type="text"
         value={displayValue}
@@ -209,7 +238,7 @@ function SettingField({
         }}
         onBlur={() => setTouched(true)}
         inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
-        variant="filled"
+        variant="outlined"
         sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_NUMERIC_FIELD_MAX_WIDTH } }}
         error={displayError}
         InputProps={
@@ -219,16 +248,7 @@ function SettingField({
               }
             : undefined
         }
-        helperText={
-          displayError
-            ? errorText
-            : t("settings.advanced.helperText.integer", {
-                description: setting.description,
-                defaultValue: setting.default_value,
-                minValue: setting.min_value,
-                maxValue: setting.max_value,
-              })
-        }
+        helperText={helperText}
       />
     </Box>
   );
@@ -322,52 +342,38 @@ function ByteSizeSettingField({
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, py: 1.5 }}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }}>
-        <Typography {...fieldLabelTypographyProps}>{setting.label}</Typography>
-        {setting.source === "database" && onReset ? (
-          <Button size="small" variant="text" onClick={onReset} disabled={resetDisabled}>
-            {t("settings.advanced.resetOverride")}
-          </Button>
-        ) : null}
-      </Stack>
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1.5}
-        sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}
-      >
-        <TextField
-          type="text"
-          label={t("settings.advanced.fields.value")}
-          value={displayValue}
-          onChange={(event) => handleValueChange(event.target.value)}
-          onBlur={handleValueBlur}
-          inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
-          variant="filled"
-          sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_VALUE_FIELD_MAX_WIDTH } }}
-          error={displayError}
-        />
-        <TextField
-          select
-          label={t("settings.advanced.fields.unit")}
-          value={unit}
-          onChange={(event) => handleUnitChange(event.target.value as ByteUnitLabel)}
-          variant="filled"
-          error={displayError}
-          sx={{ width: { xs: "100%", sm: DESKTOP_UNIT_FIELD_WIDTH } }}
-        >
-          {availableUnits.map((option) => (
-            <MenuItem key={option.label} value={option.label}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Stack>
-      <FormHelperText
-        error={displayError}
-        sx={{ mt: -0.5, mx: 1.75, width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}
-      >
-        {helperMessage}
-      </FormHelperText>
+      <SettingFieldHeader setting={setting} onReset={onReset} resetDisabled={resetDisabled} />
+      <FormControl error={displayError} sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_FIELD_ROW_MAX_WIDTH } }}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <TextField
+            type="text"
+            label={t("settings.advanced.fields.value")}
+            value={displayValue}
+            onChange={(event) => handleValueChange(event.target.value)}
+            onBlur={handleValueBlur}
+            inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
+            variant="outlined"
+            sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_VALUE_FIELD_MAX_WIDTH } }}
+            error={displayError}
+          />
+          <TextField
+            select
+            label={t("settings.advanced.fields.unit")}
+            value={unit}
+            onChange={(event) => handleUnitChange(event.target.value as ByteUnitLabel)}
+            variant="outlined"
+            error={displayError}
+            sx={{ width: { xs: "100%", sm: DESKTOP_UNIT_FIELD_WIDTH } }}
+          >
+            {availableUnits.map((option) => (
+              <MenuItem key={option.label} value={option.label}>
+                {option.label}
+              </MenuItem>
+            ))}
+          </TextField>
+        </Stack>
+        <FormHelperText sx={{ mt: 1, mx: 0 }}>{helperMessage}</FormHelperText>
+      </FormControl>
     </Box>
   );
 }
@@ -376,9 +382,10 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { t } = useTranslation();
+  const [pageError, setPageError] = useState<string | null>(null);
   const handleAdvancedSettingsLoadError = useCallback(
     (loadError: unknown) => {
-      setError(getApiErrorMessage(loadError, t("settings.advanced.loadFailed")));
+      setPageError(getApiErrorMessage(loadError, t("settings.advanced.loadFailed")));
     },
     [t]
   );
@@ -393,8 +400,11 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   });
   const [formState, setFormState] = useState<AdvancedSettingsFormState | null>(null);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [notification, setNotification] = useState<SettingsNotificationState>({
+    open: false,
+    message: "",
+    severity: "success",
+  });
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const hasUnsavedChanges = useMemo(() => {
@@ -410,7 +420,7 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
       return;
     }
 
-    setError(null);
+    setPageError(null);
     setFormState((current) => {
       if (current === null || !hasUnsavedChanges) {
         return createFormState(settings);
@@ -460,15 +470,22 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
 
     try {
       setSaving(true);
-      setError(null);
-      setSuccessMessage(null);
+      setPageError(null);
       const updated = await api.updateAdvancedSettings(buildUpdatePayload(formState));
       setCachedSettings(updated);
       setFormState(createFormState(updated));
-      setSuccessMessage(t("settings.advanced.saveSuccess"));
+      setNotification({
+        open: true,
+        message: t("settings.advanced.saveSuccess"),
+        severity: "success",
+      });
       setSubmitAttempted(false);
     } catch (saveError: unknown) {
-      setError(getApiErrorMessage(saveError, t("settings.advanced.saveFailed")));
+      setNotification({
+        open: true,
+        message: getApiErrorMessage(saveError, t("settings.advanced.saveFailed")),
+        severity: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -477,21 +494,34 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
   const handleReset = async (key: string, label: string) => {
     try {
       setSaving(true);
-      setError(null);
-      setSuccessMessage(null);
+      setPageError(null);
       const updated = await api.updateAdvancedSettings({ reset_keys: [key] });
       setCachedSettings(updated);
       setFormState(createFormState(updated));
-      setSuccessMessage(t("settings.advanced.resetSuccess", { label }));
+      setNotification({
+        open: true,
+        message: t("settings.advanced.resetSuccess", { label }),
+        severity: "success",
+      });
       setSubmitAttempted(false);
     } catch (resetError: unknown) {
-      setError(getApiErrorMessage(resetError, t("settings.advanced.resetFailed")));
+      setNotification({
+        open: true,
+        message: getApiErrorMessage(resetError, t("settings.advanced.resetFailed")),
+        severity: "error",
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const content = (
+  const saveAction = (
+    <Button onClick={handleSave} disabled={!hasUnsavedChanges || saving || loading} variant="contained" sx={settingsPrimaryButtonSx}>
+      {saving ? <CircularProgress size={18} color="inherit" /> : t("settings.advanced.saveChanges")}
+    </Button>
+  );
+
+  return (
     <Box
       sx={{
         height: "100%",
@@ -506,34 +536,20 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
         description={getSettingsCategoryDescription("admin-system")}
         dialogSafe={dialogSafeHeader}
         showTitle={!isMobile}
-        actions={
-          <Button onClick={handleSave} disabled={!hasUnsavedChanges || saving || loading} variant="contained" sx={settingsPrimaryButtonSx}>
-            {saving ? <CircularProgress size={18} color="inherit" /> : t("settings.advanced.saveChanges")}
-          </Button>
-        }
+        actions={isMobile ? undefined : saveAction}
       />
 
-      <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pb: 3, overflow: "auto" }}>
-        {loading && !settings && (
-          <Box sx={{ py: 6, display: "flex", justifyContent: "center" }}>
-            <CircularProgress />
-          </Box>
-        )}
+      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: isMobile ? 2 : 3 }}>
+        {loading && !settings && <SettingsLoadingState />}
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        {successMessage && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {successMessage}
-          </Alert>
-        )}
+        {pageError && <SettingsInlineAlert>{pageError}</SettingsInlineAlert>}
 
         {settings && formState && (
           <Stack spacing={4}>
-            <SettingsGroup title={t("settings.advanced.sections.smbBackends")}>
+            <SettingsGroup
+              title={t("settings.advanced.sections.smbBackends")}
+              description={t("settings.advanced.sections.smbBackendsDescription")}
+            >
               <ByteSizeSettingField
                 setting={settings.smb.read_chunk_size_bytes}
                 value={formState.smbReadChunkSizeBytes}
@@ -545,9 +561,17 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
               />
             </SettingsGroup>
 
-            <SettingsGroup title={t("settings.advanced.sections.preprocessors")}>
+            <SettingsGroup
+              title={t("settings.advanced.sections.preprocessors")}
+              description={t("settings.advanced.sections.preprocessorsDescription")}
+            >
               <Stack spacing={3.5}>
-                <SettingsGroup title={t("settings.advanced.sections.imageMagick")} titleVariant="subtitle2" titleSx={subsectionHeadingSx}>
+                <SettingsGroup
+                  title={t("settings.advanced.sections.imageMagick")}
+                  description={t("settings.advanced.sections.imageMagickDescription")}
+                  titleVariant="subtitle2"
+                  titleSx={subsectionHeadingSx}
+                >
                   <ByteSizeSettingField
                     setting={settings.preprocessors.imagemagick.max_file_size_bytes}
                     value={formState.imagemagickMaxFileSizeBytes}
@@ -585,12 +609,26 @@ export function AdvancedSettings({ dialogSafeHeader = false }: AdvancedSettingsP
           </Stack>
         )}
       </Box>
+
+      {isMobile && (
+        <Box
+          sx={{
+            px: 2,
+            pt: 1.5,
+            pb: `calc(${MOBILE_ACTION_BAR_PADDING_BOTTOM_PX}px + env(safe-area-inset-bottom))`,
+            borderTop: 1,
+            borderColor: "divider",
+            bgcolor: "background.paper",
+          }}
+        >
+          {saveAction}
+        </Box>
+      )}
+
+      <SettingsNotificationSnackbar
+        notification={notification}
+        onClose={() => setNotification((current) => ({ ...current, open: false }))}
+      />
     </Box>
   );
-
-  if (isMobile) {
-    return content;
-  }
-
-  return <Box sx={{ overflow: "auto", height: "100%" }}>{content}</Box>;
 }

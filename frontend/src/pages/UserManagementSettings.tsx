@@ -7,13 +7,11 @@ import {
   Person as PersonIcon,
 } from "@mui/icons-material";
 import {
-  Alert,
   Box,
   Button,
   Checkbox,
   Chip,
   CircularProgress,
-  DialogContentText,
   Fab,
   FormControl,
   FormControlLabel,
@@ -23,7 +21,6 @@ import {
   ListItem,
   MenuItem,
   Select,
-  Snackbar,
   Stack,
   Switch,
   TextField,
@@ -35,13 +32,17 @@ import {
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import DeleteDialog from "../components/Admin/DeleteDialog";
+import { adminDialogActionButtonSx, adminDialogEndActionRowSx } from "../components/Admin/dialogActionStyles";
 import { ResponsiveFormDialog } from "../components/Admin/ResponsiveFormDialog";
+import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveIconButtonSx,
   settingsMetadataChipSx,
   settingsPrimaryButtonSx,
   settingsPrimaryFabSx,
+  settingsUtilityButtonSx,
   settingsUtilityIconButtonSx,
 } from "../components/Settings/settingsButtonStyles";
 import { loadUserManagementSettingsData, SETTINGS_DATA_CACHE_KEYS } from "../components/Settings/settingsDataSources";
@@ -58,12 +59,16 @@ import type {
 } from "../types";
 import { getApiErrorMessage } from "../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../utils/keyboardUtils";
-import { formatLocalizedDateTime } from "../utils/localeFormatting";
 
 interface UserFormState {
   username: string;
   role: UserRole;
   isActive: boolean;
+  password: string;
+  mustChangePassword: boolean;
+}
+
+interface ResetPasswordFormState {
   password: string;
   mustChangePassword: boolean;
 }
@@ -80,15 +85,16 @@ const DEFAULT_USER_FORM: UserFormState = {
   mustChangePassword: true,
 };
 
+const DEFAULT_RESET_PASSWORD_FORM: ResetPasswordFormState = {
+  password: "",
+  mustChangePassword: true,
+};
+
 export function UserManagementSettings({ dialogSafeHeader = false }: UserManagementSettingsProps) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("sm"));
   const { t } = useTranslation();
-  const [notification, setNotification] = useState<{
-    open: boolean;
-    message: string;
-    severity: "success" | "error" | "info";
-  }>({
+  const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
     severity: "success",
@@ -116,9 +122,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   const currentUserId = cachedUserManagementData?.currentUserId ?? null;
   const [editorOpen, setEditorOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [resetPasswordEditorOpen, setResetPasswordEditorOpen] = useState(false);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [resetPasswordSubmitting, setResetPasswordSubmitting] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [formState, setFormState] = useState<UserFormState>(DEFAULT_USER_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordFormState>(DEFAULT_RESET_PASSWORD_FORM);
+  const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [credentialsDialog, setCredentialsDialog] = useState<{
     open: boolean;
@@ -233,21 +244,53 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     closeEditor();
   }, [closeEditor, submitting]);
 
-  const handleResetPassword = async (user: AdminUser) => {
+  const openResetPasswordDialog = (user: AdminUser) => {
+    setSelectedUser(user);
+    setResetPasswordForm(DEFAULT_RESET_PASSWORD_FORM);
+    setResetPasswordError(null);
+    setResetPasswordEditorOpen(true);
+  };
+
+  const closeResetPasswordEditor = useCallback(() => {
+    setResetPasswordEditorOpen(false);
+    setResetPasswordForm(DEFAULT_RESET_PASSWORD_FORM);
+    setResetPasswordError(null);
+    setSelectedUser(null);
+  }, []);
+
+  const handleResetPasswordEditorClose = useCallback(() => {
+    if (resetPasswordSubmitting) {
+      return;
+    }
+
+    closeResetPasswordEditor();
+  }, [closeResetPasswordEditor, resetPasswordSubmitting]);
+
+  const handleResetPassword = async () => {
+    if (!selectedUser) {
+      return;
+    }
+
+    if (!resetPasswordForm.password.trim()) {
+      setResetPasswordError(t("settings.userManagement.resetPasswordEditor.passwordRequired"));
+      return;
+    }
+
     try {
-      const result: AdminUserPasswordResetResult = await api.resetUserPassword(user.id);
-      setCredentialsDialog({
-        open: true,
-        title: t("settings.userManagement.credentialsDialog.resetTitle"),
-        username: user.username,
-        temporaryPassword: result.temporary_password,
-        description: t("settings.userManagement.credentialsDialog.resetDescription"),
+      setResetPasswordSubmitting(true);
+      setResetPasswordError(null);
+      const result: AdminUserPasswordResetResult = await api.resetUserPassword(selectedUser.id, {
+        new_password: resetPasswordForm.password,
+        must_change_password: resetPasswordForm.mustChangePassword,
       });
+      closeResetPasswordEditor();
       showNotification(result.message, "success");
       await refresh();
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.resetFailed"));
-      showNotification(message, "error");
+      setResetPasswordError(message);
+    } finally {
+      setResetPasswordSubmitting(false);
     }
   };
 
@@ -257,6 +300,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     }
 
     try {
+      setDeleteSubmitting(true);
       await api.deleteUser(selectedUser.id);
       showNotification(t("settings.userManagement.notifications.userDeleted"), "success");
       setDeleteDialogOpen(false);
@@ -265,55 +309,43 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.userManagement.notifications.deleteFailed"));
       showNotification(message, "error");
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
   const editorActions = (
-    <>
-      <Box sx={{ flex: 1 }} />
-      <Button
-        onClick={closeEditor}
-        disabled={submitting}
-        sx={{
-          textTransform: "none",
-          color: "text.secondary",
-          "&:hover": {
-            bgcolor: "action.selected",
-          },
-        }}
-      >
+    <Box sx={adminDialogEndActionRowSx}>
+      <Button onClick={closeEditor} disabled={submitting} variant="outlined" sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}>
         {t("common.actions.cancel")}
       </Button>
-      <Button onClick={handleSave} variant="contained" disabled={submitting} sx={{ textTransform: "none" }}>
-        {submitting ? (
-          <CircularProgress size={20} />
-        ) : isEditing ? (
-          t("settings.userManagement.actions.saveChanges")
-        ) : (
-          t("settings.userManagement.actions.createUser")
-        )}
+      <Button
+        onClick={handleSave}
+        variant="contained"
+        disabled={submitting}
+        startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+      >
+        {isEditing ? t("settings.userManagement.actions.saveChanges") : t("settings.userManagement.actions.createUser")}
       </Button>
-    </>
+    </Box>
   );
 
   const editorContent = (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isDesktop ? 1 : 0 }}>
-      <DialogContentText>
-        {isEditing ? t("settings.userManagement.editor.descriptionEdit") : t("settings.userManagement.editor.descriptionCreate")}
-      </DialogContentText>
-      {formError && <Alert severity="error">{formError}</Alert>}
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {formError && <SettingsInlineAlert sx={{ mb: 0 }}>{formError}</SettingsInlineAlert>}
       <TextField
         label={t("settings.userManagement.editor.usernameLabel")}
         value={formState.username}
         onChange={(event) => setFormState((current) => ({ ...current, username: event.target.value }))}
         autoFocus
         fullWidth
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
       />
-      <FormControl fullWidth variant="filled">
+      <FormControl fullWidth variant="outlined">
         <InputLabel id="user-role-label">{t("settings.userManagement.editor.roleLabel")}</InputLabel>
         <Select
           labelId="user-role-label"
@@ -346,7 +378,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
             helperText={t("settings.userManagement.editor.initialPasswordHelp")}
             fullWidth
-            variant="filled"
+            variant="outlined"
             FormHelperTextProps={{
               sx: { fontSize: "0.875rem" },
             }}
@@ -366,34 +398,84 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
   );
 
   const credentialsDialogActions = (
-    <>
-      <Box sx={{ flex: 1 }} />
+    <Box sx={adminDialogEndActionRowSx}>
       <Button
         onClick={() => setCredentialsDialog((current) => ({ ...current, open: false }))}
         variant="contained"
-        sx={{ textTransform: "none" }}
+        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
       >
         {t("settings.userManagement.actions.close")}
       </Button>
-    </>
+    </Box>
   );
 
   const credentialsDialogContent = (
-    <Box sx={{ display: "flex", flexDirection: "column", gap: 3, mt: isDesktop ? 1 : 0 }}>
-      <DialogContentText>{credentialsDialog.description}</DialogContentText>
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <TextField
         label={t("settings.userManagement.credentialsDialog.usernameLabel")}
         value={credentialsDialog.username}
         InputProps={{ readOnly: true }}
         fullWidth
-        variant="filled"
+        variant="outlined"
       />
       <TextField
         label={t("settings.userManagement.credentialsDialog.temporaryPasswordLabel")}
         value={credentialsDialog.temporaryPassword}
         InputProps={{ readOnly: true }}
         fullWidth
-        variant="filled"
+        variant="outlined"
+      />
+    </Box>
+  );
+
+  const resetPasswordEditorActions = (
+    <Box sx={adminDialogEndActionRowSx}>
+      <Button
+        onClick={handleResetPasswordEditorClose}
+        disabled={resetPasswordSubmitting}
+        variant="outlined"
+        sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+      >
+        {t("common.actions.cancel")}
+      </Button>
+      <Button
+        onClick={() => {
+          void handleResetPassword();
+        }}
+        variant="contained"
+        disabled={resetPasswordSubmitting}
+        startIcon={resetPasswordSubmitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+        sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+      >
+        {t("settings.userManagement.resetPasswordEditor.submit")}
+      </Button>
+    </Box>
+  );
+
+  const resetPasswordEditorContent = (
+    <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      {resetPasswordError && <SettingsInlineAlert sx={{ mb: 0 }}>{resetPasswordError}</SettingsInlineAlert>}
+      <TextField
+        label={t("settings.userManagement.resetPasswordEditor.passwordLabel")}
+        type="password"
+        value={resetPasswordForm.password}
+        onChange={(event) => setResetPasswordForm((current) => ({ ...current, password: event.target.value }))}
+        helperText={t("settings.userManagement.resetPasswordEditor.passwordHelp")}
+        autoFocus
+        fullWidth
+        variant="outlined"
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
+        }}
+      />
+      <FormControlLabel
+        control={
+          <Checkbox
+            checked={resetPasswordForm.mustChangePassword}
+            onChange={(event) => setResetPasswordForm((current) => ({ ...current, mustChangePassword: event.target.checked }))}
+          />
+        }
+        label={t("settings.userManagement.resetPasswordEditor.requirePasswordChangeLabel")}
       />
     </Box>
   );
@@ -441,18 +523,9 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
       <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 4 }}>
         {loading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-            <CircularProgress />
-          </Box>
+          <SettingsLoadingState />
         ) : users.length === 0 ? (
-          <Box sx={{ py: 6, textAlign: "center" }}>
-            <Typography variant="h6" color="text.secondary">
-              {t("settings.userManagement.emptyTitle")}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {t("settings.userManagement.emptyDescription")}
-            </Typography>
-          </Box>
+          <SettingsEmptyState title={t("settings.userManagement.emptyTitle")} description={t("settings.userManagement.emptyDescription")} />
         ) : (
           <List sx={{ py: 0 }}>
             {users.map((user) => {
@@ -507,18 +580,6 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         />
                       )}
                     </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                      {t("settings.userManagement.createdAt", {
-                        timestamp: formatLocalizedDateTime(user.created_at, {
-                          year: "numeric",
-                          month: "numeric",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        }),
-                      })}
-                    </Typography>
                   </Box>
 
                   <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: "stretch", sm: "center" } }}>
@@ -537,7 +598,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       <span>
                         <IconButton
                           aria-label={t("settings.userManagement.aria.resetPassword", { username: user.username })}
-                          onClick={() => handleResetPassword(user)}
+                          onClick={() => openResetPasswordDialog(user)}
                           sx={settingsUtilityIconButtonSx}
                         >
                           <LockResetIcon />
@@ -585,17 +646,43 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <ResponsiveFormDialog
         open={editorOpen}
         onClose={handleEditorClose}
+        disableClose={submitting}
         title={isEditing ? t("settings.userManagement.editor.titleEdit") : t("settings.userManagement.editor.titleCreate")}
+        description={
+          isEditing ? t("settings.userManagement.editor.descriptionEdit") : t("settings.userManagement.editor.descriptionCreate")
+        }
         actions={editorActions}
         onKeyDown={handleEditorKeyDown}
       >
         {editorContent}
       </ResponsiveFormDialog>
 
+      <ResponsiveFormDialog
+        open={resetPasswordEditorOpen}
+        onClose={handleResetPasswordEditorClose}
+        disableClose={resetPasswordSubmitting}
+        title={t("settings.userManagement.resetPasswordEditor.title")}
+        description={
+          selectedUser
+            ? t("settings.userManagement.resetPasswordEditor.descriptionWithName", { username: selectedUser.username })
+            : t("settings.userManagement.resetPasswordEditor.descriptionFallback")
+        }
+        actions={resetPasswordEditorActions}
+        onKeyDown={dialogEnterKeyHandler(() => {
+          void handleResetPassword();
+        })}
+      >
+        {resetPasswordEditorContent}
+      </ResponsiveFormDialog>
+
       <DeleteDialog
         open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
+        onClose={() => {
+          setDeleteDialogOpen(false);
+          setSelectedUser(null);
+        }}
         onConfirm={handleDeleteUser}
+        submitting={deleteSubmitting}
         title={t("settings.userManagement.deleteDialog.title")}
         description={
           selectedUser
@@ -609,22 +696,17 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         open={credentialsDialog.open}
         onClose={() => setCredentialsDialog((current) => ({ ...current, open: false }))}
         title={credentialsDialog.title}
+        description={credentialsDialog.description}
         actions={credentialsDialogActions}
         maxWidth="xs"
       >
         {credentialsDialogContent}
       </ResponsiveFormDialog>
 
-      <Snackbar
-        open={notification.open}
-        autoHideDuration={4000}
+      <SettingsNotificationSnackbar
+        notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity={notification.severity} onClose={() => setNotification((current) => ({ ...current, open: false }))}>
-          {notification.message}
-        </Alert>
-      </Snackbar>
+      />
     </Box>
   );
 }

@@ -90,13 +90,17 @@ class AdminUserUpdate(SQLModel):
     is_active: bool | None = None
 
 
+class AdminUserPasswordReset(SQLModel):
+    new_password: str
+    must_change_password: bool = True
+
+
 class AdminUserCreateResult(AdminUserRead):
     temporary_password: str | None = None
 
 
 class AdminUserPasswordResetResult(SQLModel):
     message: str
-    temporary_password: str
 
 
 class PasswordChangeRequest(SQLModel):

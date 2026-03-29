@@ -1,9 +1,11 @@
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import { Box, Button, CircularProgress } from "@mui/material";
 import type React from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { fileNamePillSx } from "../../theme/commonStyles";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { settingsDestructiveButtonSx, settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
+import { ResponsiveFormDialog } from "./ResponsiveFormDialog";
 
 interface DeleteDialogProps {
   open: boolean;
@@ -14,6 +16,8 @@ interface DeleteDialogProps {
   itemName?: string | null;
   confirmLabel?: string;
   cancelLabel?: string;
+  confirmTone?: "destructive" | "primary";
+  submitting?: boolean;
 }
 
 const DeleteDialog: React.FC<DeleteDialogProps> = ({
@@ -25,37 +29,52 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
   itemName,
   confirmLabel,
   cancelLabel,
+  confirmTone = "destructive",
+  submitting = false,
 }) => {
   const handleKeyDown = useMemo(() => dialogEnterKeyHandler(), []);
   const { t } = useTranslation();
   const resolvedConfirmLabel = confirmLabel ?? t("common.actions.delete");
   const resolvedCancelLabel = cancelLabel ?? t("common.actions.cancel");
+  const confirmButtonSx = confirmTone === "primary" ? settingsPrimaryButtonSx : settingsDestructiveButtonSx;
+  const handleClose = () => {
+    if (submitting) {
+      return;
+    }
+
+    onClose();
+  };
+
+  const actions = (
+    <>
+      <Button onClick={handleClose} disabled={submitting} variant="outlined" sx={settingsUtilityButtonSx}>
+        {resolvedCancelLabel}
+      </Button>
+      <Button
+        onClick={onConfirm}
+        disabled={submitting}
+        variant="contained"
+        sx={confirmButtonSx}
+        startIcon={submitting ? <CircularProgress size={18} color="inherit" /> : undefined}
+      >
+        {resolvedConfirmLabel}
+      </Button>
+    </>
+  );
 
   return (
-    <Dialog
+    <ResponsiveFormDialog
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
+      disableClose={submitting}
       onKeyDown={handleKeyDown}
-      PaperProps={{
-        sx: {
-          bgcolor: "background.default",
-        },
-      }}
+      title={title}
+      description={description}
+      actions={actions}
+      maxWidth="xs"
     >
-      <DialogTitle>{title}</DialogTitle>
-      <DialogContent>
-        <DialogContentText sx={{ color: "text.primary" }}>{description}</DialogContentText>
-        {itemName && <Box sx={{ ...fileNamePillSx, mt: 0.5 }}>{itemName}</Box>}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} sx={{ color: "warning.main" }}>
-          {resolvedCancelLabel}
-        </Button>
-        <Button onClick={onConfirm} color="error" variant="contained">
-          {resolvedConfirmLabel}
-        </Button>
-      </DialogActions>
-    </Dialog>
+      {itemName ? <Box sx={{ ...fileNamePillSx, mt: 0.5 }}>{itemName}</Box> : null}
+    </ResponsiveFormDialog>
   );
 };
 

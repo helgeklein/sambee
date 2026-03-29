@@ -5,11 +5,14 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import UsbIcon from "@mui/icons-material/Usb";
-import { Alert, Box, Button, Chip, CircularProgress, Snackbar, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import CompanionPairingDialog from "../components/FileBrowser/CompanionPairingDialog";
 import { LOCAL_DRIVES_PAGE_COPY } from "../components/Settings/localDrivesCopy";
+import { SettingsInlineAlert, SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
+import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveButtonSx,
   settingsMetadataChipSx,
@@ -70,14 +73,12 @@ const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
  * local drives inside the file browser.
  */
 export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectionDescription }: LocalDrivesSettingsProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [testing, setTesting] = useState(false);
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
   const [unpairing, setUnpairing] = useState(false);
-  const [notification, setNotification] = useState<{
-    open: boolean;
-    message: string;
-    severity: "success" | "error" | "info";
-  }>({
+  const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
     severity: "info",
@@ -292,14 +293,14 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
   const shouldShowVerificationSection = showStatusContent && !loading && browserFullyPaired;
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "auto" }}>
-      <Box sx={{ px: { xs: 2, sm: 3, md: 4 }, pt: 2, pb: 3 }}>
-        <SettingsGroup
-          title={sectionTitle ?? LOCAL_DRIVES_PAGE_COPY.headerTitle}
-          description={sectionDescription ?? LOCAL_DRIVES_PAGE_COPY.headerDescription}
-          sx={{ mb: 4 }}
-        />
+    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
+      <SettingsSectionHeader
+        title={sectionTitle ?? LOCAL_DRIVES_PAGE_COPY.headerTitle}
+        description={sectionDescription ?? LOCAL_DRIVES_PAGE_COPY.headerDescription}
+        showTitle={!isMobile}
+      />
 
+      <Box sx={{ flex: 1, overflow: "auto", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         <SettingsGroup title={LOCAL_DRIVES_PAGE_COPY.summaryTitle} description={LOCAL_DRIVES_PAGE_COPY.summaryDescription} sx={{ mb: 4 }}>
           <Box sx={{ ...sectionCardSx, px: { xs: 2, sm: 3 }, py: 3 }}>
             {showStatusContent ? (
@@ -333,9 +334,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                 </Stack>
               </Stack>
             ) : (
-              <Box sx={{ py: 2, display: "flex", justifyContent: "center" }}>
-                <CircularProgress size={24} />
-              </Box>
+              <SettingsLoadingState compact />
             )}
           </Box>
         </SettingsGroup>
@@ -404,7 +403,9 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                     )}
                   </Stack>
                 ) : state.downloadError ? (
-                  <Alert severity="warning">{state.downloadError}</Alert>
+                  <SettingsInlineAlert severity="warning" sx={{ mb: 0 }}>
+                    {state.downloadError}
+                  </SettingsInlineAlert>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
                     {LOCAL_DRIVES_PAGE_COPY.downloadUnavailable}
@@ -504,20 +505,10 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
         onConfirm={handleConfirmPairing}
       />
 
-      <Snackbar
-        open={notification.open}
-        autoHideDuration={6000}
+      <SettingsNotificationSnackbar
+        notification={notification}
         onClose={() => setNotification((current) => ({ ...current, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert
-          severity={notification.severity}
-          onClose={() => setNotification((current) => ({ ...current, open: false }))}
-          sx={{ width: "100%" }}
-        >
-          {notification.message}
-        </Alert>
-      </Snackbar>
+      />
     </Box>
   );
 }

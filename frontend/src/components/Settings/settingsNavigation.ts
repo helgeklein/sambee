@@ -175,6 +175,20 @@ export function getSettingsNavItemByPath(pathname: string): SettingsNavItem | nu
   return categoryEntry?.[0] ?? null;
 }
 
+export function getSettingsMobileBackTarget(pathname: string): string | null {
+  const item = getSettingsNavItemByPath(pathname);
+
+  if (!item) {
+    return "/settings";
+  }
+
+  if (item === "local-drives") {
+    return SETTINGS_ROUTE_BY_CATEGORY.connections;
+  }
+
+  return "/settings";
+}
+
 export function getSettingsCategoryByPath(pathname: string): SettingsCategory | null {
   const item = getSettingsNavItemByPath(pathname);
 

@@ -7,6 +7,13 @@ import { AppBar, Box, Drawer, IconButton, Toolbar, Typography } from "@mui/mater
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  getMobileViewportShellSx,
+  mobileFullscreenDrawerPaperSx,
+  mobileSafeAreaAppBarSx,
+  mobileSafeAreaToolbarSx,
+  mobileScrollableContentSx,
+} from "../../theme/mobileShell";
 import { SettingsCategoryContent } from "../Settings/SettingsCategoryContent";
 import { SettingsCategoryList } from "../Settings/SettingsCategoryList";
 import { prefetchSettingsDataForItems } from "../Settings/settingsDataSources";
@@ -60,16 +67,13 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
       open={open}
       onClose={onClose}
       PaperProps={{
-        sx: {
-          width: "100%",
-          height: "100%",
-        },
+        sx: mobileFullscreenDrawerPaperSx,
       }}
     >
-      <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <Box sx={getMobileViewportShellSx()}>
         {/* AppBar */}
-        <AppBar position="static">
-          <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
+        <AppBar position="static" sx={mobileSafeAreaAppBarSx}>
+          <Toolbar sx={mobileSafeAreaToolbarSx}>
             <IconButton edge="start" color="inherit" onClick={handleBack} aria-label={t("common.navigation.goBack")}>
               <ArrowBackIcon />
             </IconButton>
@@ -80,12 +84,14 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
         </AppBar>
 
         {/* Content */}
-        <Box sx={{ flex: 1, overflow: "auto" }}>
+        <Box sx={mobileScrollableContentSx}>
           {currentView === "main" && (
             <Box sx={{ height: "100%", bgcolor: "background.default" }}>
               <SettingsCategoryList
                 sections={getVisibleSettingsSections(isAdmin)}
                 onSelect={setCurrentView}
+                showDescriptions
+                showChevron
                 showDividers
                 wrapItemsInListItem
                 listSx={{ py: 0 }}

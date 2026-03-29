@@ -20,6 +20,8 @@ import {
 } from "./settingsNavigation";
 import { useSettingsAccess } from "./useSettingsAccess";
 
+const SETTINGS_CATEGORY_FIRST_INDEX = 0;
+
 interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
@@ -63,7 +65,7 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   //
   const handleCategoryKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") {
+      if (!["ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(e.key)) {
         return;
       }
 
@@ -71,10 +73,21 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
       const currentIndex = availableItems.indexOf(selectedItem);
       let newIndex = currentIndex;
 
-      if (e.key === "ArrowDown") {
-        newIndex = Math.min(currentIndex + 1, availableItems.length - 1);
-      } else if (e.key === "ArrowUp") {
-        newIndex = Math.max(currentIndex - 1, 0);
+      switch (e.key) {
+        case "ArrowDown":
+          newIndex = Math.min(currentIndex + 1, availableItems.length - 1);
+          break;
+        case "ArrowUp":
+          newIndex = Math.max(currentIndex - 1, SETTINGS_CATEGORY_FIRST_INDEX);
+          break;
+        case "Home":
+        case "PageUp":
+          newIndex = SETTINGS_CATEGORY_FIRST_INDEX;
+          break;
+        case "End":
+        case "PageDown":
+          newIndex = availableItems.length - 1;
+          break;
       }
 
       if (newIndex !== currentIndex) {

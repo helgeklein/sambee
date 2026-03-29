@@ -89,17 +89,23 @@ class TestAdminUsers:
         user_token: str,
         session: Session,
     ):
-        response = client.post(f"/api/admin/users/{regular_user.id}/reset-password", headers=auth_headers_admin)
+        response = client.post(
+            f"/api/admin/users/{regular_user.id}/reset-password",
+            headers=auth_headers_admin,
+            json={
+                "new_password": "BrandNewPass123!",
+                "must_change_password": False,
+            },
+        )
 
         assert response.status_code == 200
         data = response.json()
         assert data["message"] == "Password reset successfully"
-        assert isinstance(data["temporary_password"], str)
 
         session.refresh(regular_user)
-        assert regular_user.must_change_password is True
+        assert regular_user.must_change_password is False
         assert regular_user.token_version == 1
-        assert verify_password(data["temporary_password"], regular_user.password_hash)
+        assert verify_password("BrandNewPass123!", regular_user.password_hash)
 
         old_token_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
         assert old_token_response.status_code == 401

@@ -20,13 +20,12 @@ export function ConnectionsSettings({
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
-      {isDesktop && (
-        <SettingsSectionHeader
-          title={getSettingsCategoryLabel("connections")}
-          description={getSettingsCategoryDescription("connections")}
-          dialogSafe={dialogSafeHeader}
-        />
-      )}
+      <SettingsSectionHeader
+        title={getSettingsCategoryLabel("connections")}
+        description={getSettingsCategoryDescription("connections")}
+        dialogSafe={dialogSafeHeader}
+        showTitle={isDesktop}
+      />
 
       <Box sx={{ flex: 1, minWidth: 0, overflow: isDesktop ? "hidden" : "auto" }}>
         <ConnectionSettings

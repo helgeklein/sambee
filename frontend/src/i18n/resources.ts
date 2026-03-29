@@ -275,6 +275,11 @@ export const EN_TRANSLATIONS = {
       ariaTest: "Test connection",
       ariaEdit: "Edit connection",
       ariaDelete: "Delete connection",
+      columns: {
+        port: "Port",
+        type: "Type",
+        actions: "Actions",
+      },
       deleteDialogTitle: "Delete Connection",
       deleteDialogDescription: "Are you sure you want to delete the connection",
       notifications: {
@@ -378,13 +383,21 @@ export const EN_TRANSLATIONS = {
         initialPasswordHelp: "Optional. If left blank, the server will generate a secure temporary password.",
         requirePasswordChangeLabel: "Require password change after next sign-in",
       },
+      resetPasswordEditor: {
+        title: "Reset Password",
+        descriptionWithName: "Set a new password for {{username}}. This signs them out everywhere immediately.",
+        descriptionFallback: "Set a new password for this user. This signs them out everywhere immediately.",
+        passwordLabel: "New Password",
+        passwordHelp: "Choose the password the user should use the next time they sign in.",
+        requirePasswordChangeLabel: "Require password change after next sign-in",
+        passwordRequired: "A new password is required",
+        submit: "Set Password",
+      },
       credentialsDialog: {
         usernameLabel: "Username",
         temporaryPasswordLabel: "Temporary Password",
         createTitle: "Temporary Password Created",
         createDescription: "Share this temporary password securely. The user will be required to change it after signing in.",
-        resetTitle: "Temporary Password Reset",
-        resetDescription: "The existing password was replaced and all current sessions were invalidated.",
       },
       deleteDialog: {
         title: "Delete User",
@@ -413,8 +426,11 @@ export const EN_TRANSLATIONS = {
       resetSuccess: "{{label}} reset to inherited value",
       sections: {
         smbBackends: "SMB backends",
+        smbBackendsDescription: "Control how the server reads data from SMB shares during file access.",
         preprocessors: "Preprocessors",
+        preprocessorsDescription: "Configure limits for server-side preprocessing services.",
         imageMagick: "ImageMagick",
+        imageMagickDescription: "Set the file-size and runtime limits used when ImageMagick conversions run.",
       },
       fields: {
         value: "Value",
@@ -430,22 +446,6 @@ export const EN_TRANSLATIONS = {
       helperText: {
         integer: "{{description}} Default: {{defaultValue}}. Range: {{minValue}} - {{maxValue}}.",
         byteSize: "{{description}} Default: {{defaultValue}}. Range: {{minValue}} to {{maxValue}}.",
-      },
-    },
-    adminPanel: {
-      title: "Admin Panel - SMB Share Management",
-      accessDenied: "Access denied. Admin privileges required.",
-      deleteDialogTitle: "Delete Connection",
-      deleteDialogDescription: "Are you sure you want to delete the connection",
-      columns: {
-        port: "Port",
-        type: "Type",
-        actions: "Actions",
-      },
-      notifications: {
-        loadFailed: "Failed to load connections",
-        testFailed: "Failed to test connection",
-        deleteFailed: "Failed to delete connection",
       },
     },
   },

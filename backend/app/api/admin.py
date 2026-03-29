@@ -12,6 +12,7 @@ from app.db.database import get_session
 from app.models.user import (
     AdminUserCreate,
     AdminUserCreateResult,
+    AdminUserPasswordReset,
     AdminUserPasswordResetResult,
     AdminUserRead,
     AdminUserUpdate,
@@ -139,6 +140,7 @@ async def update_user(
 @router.post("/users/{user_id}/reset-password", response_model=AdminUserPasswordResetResult)
 async def reset_user_password(
     user_id: uuid.UUID,
+    reset_data: AdminUserPasswordReset,
     current_user: User = Depends(require_capability(Capability.MANAGE_USERS)),
     session: Session = Depends(get_session),
 ) -> AdminUserPasswordResetResult:
@@ -148,9 +150,8 @@ async def reset_user_password(
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    temporary_password = generate_temporary_password()
-    user.password_hash = get_password_hash(temporary_password)
-    user.must_change_password = True
+    user.password_hash = get_password_hash(reset_data.new_password)
+    user.must_change_password = reset_data.must_change_password
     user.token_version += 1
     user.updated_at = datetime.now(timezone.utc)
     session.add(user)
@@ -159,7 +160,6 @@ async def reset_user_password(
     logger.info(f"Reset password for user: actor={current_user.username}, username={user.username}")
     return AdminUserPasswordResetResult(
         message="Password reset successfully",
-        temporary_password=temporary_password,
     )
 
 

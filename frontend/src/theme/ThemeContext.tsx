@@ -180,6 +180,14 @@ export function SambeeThemeProvider({ children }: ThemeProviderProps) {
             },
           },
         },
+        MuiPaper: {
+          styleOverrides: {
+            root: {
+              backgroundColor: currentTheme.background?.default,
+              backgroundImage: "none",
+            },
+          },
+        },
         MuiLink: {
           defaultProps: {
             underline: "none",

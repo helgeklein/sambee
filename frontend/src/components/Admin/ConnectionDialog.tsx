@@ -22,7 +22,14 @@ import api from "../../services/api";
 import type { Connection, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
+import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
 import { CONNECTION_DIALOG_STRINGS } from "./connectionDialogConstants";
+import {
+  adminDialogActionButtonSx,
+  adminDialogActionGroupSx,
+  adminDialogSplitActionRowSx,
+  adminDialogStandaloneSecondaryActionSx,
+} from "./dialogActionStyles";
 import { ResponsiveFormDialog } from "./ResponsiveFormDialog";
 
 interface ConnectionDialogProps {
@@ -77,6 +84,15 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [visibilityOptions, setVisibilityOptions] = useState<ConnectionVisibilityOption[]>(() => getFallbackVisibilityOptions(t));
+  const closeDisabled = saving || testing;
+
+  const handleDialogClose = () => {
+    if (closeDisabled) {
+      return;
+    }
+
+    onClose();
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -265,7 +281,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={errors["name"]}
         fullWidth
         required
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
@@ -279,7 +295,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={errors["host"] || CONNECTION_DIALOG_STRINGS.HELPER_HOST}
         fullWidth
         required
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
@@ -293,7 +309,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={errors["share_name"] || CONNECTION_DIALOG_STRINGS.HELPER_SHARE_NAME}
         fullWidth
         required
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
@@ -307,7 +323,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={errors["username"] || CONNECTION_DIALOG_STRINGS.HELPER_USERNAME}
         fullWidth
         required
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
@@ -322,7 +338,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={errors["password"] || (connection ? CONNECTION_DIALOG_STRINGS.HELPER_PASSWORD_EDIT : "")}
         fullWidth
         required={!connection}
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
@@ -348,16 +364,17 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         onChange={(e) => handleChange("path_prefix", e.target.value)}
         helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
         fullWidth
-        variant="filled"
+        variant="outlined"
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
       />
 
-      <FormControl fullWidth variant="filled">
+      <FormControl fullWidth variant="outlined">
         <InputLabel id="connection-scope-label">{t("settings.connectionDialog.labels.visibility")}</InputLabel>
         <Select
           labelId="connection-scope-label"
+          label={t("settings.connectionDialog.labels.visibility")}
           value={formData.scope}
           onChange={(event) => handleChange("scope", event.target.value as ConnectionScope)}
           renderValue={(selected) => visibilityOptions.find((option) => option.value === selected)?.label ?? selected}
@@ -381,44 +398,43 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
 
   // Action buttons (shared between Dialog and Drawer)
   const actionButtons = (
-    <>
+    <Box sx={adminDialogSplitActionRowSx}>
       <Button
         onClick={handleTestConnection}
         disabled={testing || saving}
-        sx={{
-          textTransform: "none",
-          color: "text.secondary",
-          "&:hover": {
-            bgcolor: "action.selected",
-          },
-        }}
+        variant="outlined"
+        startIcon={testing ? <CircularProgress size={18} color="inherit" /> : undefined}
+        sx={[settingsUtilityButtonSx, adminDialogStandaloneSecondaryActionSx]}
       >
-        {testing ? <CircularProgress size={20} /> : CONNECTION_DIALOG_STRINGS.BUTTON_TEST}
+        {CONNECTION_DIALOG_STRINGS.BUTTON_TEST}
       </Button>
-      <Box sx={{ flex: 1 }} />
-      <Button
-        onClick={onClose}
-        disabled={saving}
-        sx={{
-          textTransform: "none",
-          color: "text.secondary",
-          "&:hover": {
-            bgcolor: "action.selected",
-          },
-        }}
-      >
-        {CONNECTION_DIALOG_STRINGS.BUTTON_CANCEL}
-      </Button>
-      <Button onClick={handleSave} variant="contained" disabled={saving || testing} sx={{ textTransform: "none" }}>
-        {saving ? <CircularProgress size={20} /> : CONNECTION_DIALOG_STRINGS.BUTTON_SAVE}
-      </Button>
-    </>
+      <Box sx={adminDialogActionGroupSx}>
+        <Button
+          onClick={handleDialogClose}
+          disabled={closeDisabled}
+          variant="outlined"
+          sx={[settingsUtilityButtonSx, adminDialogActionButtonSx]}
+        >
+          {CONNECTION_DIALOG_STRINGS.BUTTON_CANCEL}
+        </Button>
+        <Button
+          onClick={handleSave}
+          variant="contained"
+          disabled={saving || testing}
+          startIcon={saving ? <CircularProgress size={18} color="inherit" /> : undefined}
+          sx={[settingsPrimaryButtonSx, adminDialogActionButtonSx]}
+        >
+          {CONNECTION_DIALOG_STRINGS.BUTTON_SAVE}
+        </Button>
+      </Box>
+    </Box>
   );
 
   return (
     <ResponsiveFormDialog
       open={open}
-      onClose={onClose}
+      onClose={handleDialogClose}
+      disableClose={closeDisabled}
       title={connection ? CONNECTION_DIALOG_STRINGS.TITLE_EDIT : CONNECTION_DIALOG_STRINGS.TITLE_ADD}
       actions={actionButtons}
       contentSx={{ p: isMobile ? 2 : undefined }}

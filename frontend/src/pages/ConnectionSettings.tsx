@@ -10,11 +10,9 @@ import {
   CheckCircle as TestIcon,
 } from "@mui/icons-material";
 import {
-  Alert,
   Box,
   Button,
   Chip,
-  CircularProgress,
   Divider,
   Fab,
   IconButton,
@@ -22,7 +20,6 @@ import {
   ListItem,
   Menu,
   MenuItem,
-  Snackbar,
   Tooltip,
   Typography,
   useMediaQuery,
@@ -32,8 +29,10 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ConnectionDialog from "../components/Admin/ConnectionDialog";
 import DeleteDialog from "../components/Admin/DeleteDialog";
+import { SettingsNotificationSnackbar, type SettingsNotificationState } from "../components/Settings/SettingsFeedback";
 import { SettingsGroup } from "../components/Settings/SettingsGroup";
 import { SettingsSectionHeader } from "../components/Settings/SettingsSectionHeader";
+import { SettingsEmptyState, SettingsLoadingState } from "../components/Settings/SettingsState";
 import {
   settingsDestructiveIconButtonSx,
   settingsMetadataChipSx,
@@ -88,11 +87,7 @@ export function ConnectionSettings({
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
-  const [notification, setNotification] = useState<{
-    open: boolean;
-    message: string;
-    severity: "success" | "error" | "info";
-  }>({
+  const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
     severity: "success",
@@ -119,6 +114,7 @@ export function ConnectionSettings({
   const connections = cachedConnections ?? [];
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{
     element: HTMLElement;
@@ -173,6 +169,7 @@ export function ConnectionSettings({
     if (!selectedConnection) return;
 
     try {
+      setDeleteSubmitting(true);
       await api.deleteConnection(selectedConnection.id);
       showNotification(t("settings.connectionManagement.notifications.deletedSuccess"), "success");
       await refresh();
@@ -182,6 +179,8 @@ export function ConnectionSettings({
     } catch (error: unknown) {
       const message = getApiErrorMessage(error, t("settings.connectionManagement.notifications.deleteFailed"));
       showNotification(message, "error");
+    } finally {
+      setDeleteSubmitting(false);
     }
   };
 
@@ -262,16 +261,6 @@ export function ConnectionSettings({
                     {connection.name}
                   </Typography>
                   <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
-                  <Chip
-                    label={
-                      connection.scope === "shared"
-                        ? t("settings.connectionManagement.scope.sharedChip")
-                        : t("settings.connectionManagement.scope.privateChip")
-                    }
-                    size="small"
-                    variant="outlined"
-                    sx={settingsMetadataChipSx}
-                  />
                 </Box>
 
                 <Box sx={{ display: "flex", mb: -0.5 }}>
@@ -375,16 +364,6 @@ export function ConnectionSettings({
                     {connection.name}
                   </Typography>
                   <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
-                  <Chip
-                    label={
-                      connection.scope === "shared"
-                        ? t("settings.connectionManagement.scope.sharedChip")
-                        : t("settings.connectionManagement.scope.privateChip")
-                    }
-                    size="small"
-                    variant="outlined"
-                    sx={settingsMetadataChipSx}
-                  />
                 </Box>
                 {connection.can_manage ? (
                   <IconButton
@@ -438,11 +417,7 @@ export function ConnectionSettings({
         {description}
       </Typography>
       {sectionConnections.length === 0 ? (
-        <Box sx={{ py: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            {emptyMessage}
-          </Typography>
-        </Box>
+        <SettingsEmptyState description={emptyMessage} compact sx={{ py: 2, maxWidth: "none", mx: 0, textAlign: "left" }} />
       ) : (
         renderConnectionList(sectionConnections)
       )}
@@ -492,20 +467,16 @@ export function ConnectionSettings({
       {/* Connection List */}
       <Box sx={{ flex: showHeader ? 1 : undefined, overflow: showHeader ? "auto" : "visible", px: { xs: 2, sm: 3, md: 4 }, pb: 3 }}>
         {loading ? (
-          <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-            <CircularProgress />
-          </Box>
+          <SettingsLoadingState />
         ) : connections.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: "center" }}>
-            <Typography variant="h6" color="text.secondary">
-              {t("settings.connectionManagement.emptyTitle")}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {effectiveIsAdmin
+          <SettingsEmptyState
+            title={t("settings.connectionManagement.emptyTitle")}
+            description={
+              effectiveIsAdmin
                 ? t("settings.connectionManagement.emptyAdminDescription")
-                : t("settings.connectionManagement.emptyRegularDescription")}
-            </Typography>
-          </Box>
+                : t("settings.connectionManagement.emptyRegularDescription")
+            }
+          />
         ) : (
           <>
             {renderSection(
@@ -588,22 +559,16 @@ export function ConnectionSettings({
           setSelectedConnection(null);
         }}
         onConfirm={handleDeleteConfirm}
+        submitting={deleteSubmitting}
         title={t("settings.connectionManagement.deleteDialogTitle")}
         description={t("settings.connectionManagement.deleteDialogDescription")}
         itemName={selectedConnection?.name ?? null}
       />
 
-      {/* Notification Snackbar */}
-      <Snackbar
-        open={notification.open}
-        autoHideDuration={6000}
-        onClose={() => setNotification({ ...notification, open: false })}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity={notification.severity} onClose={() => setNotification({ ...notification, open: false })} sx={{ width: "100%" }}>
-          {notification.message}
-        </Alert>
-      </Snackbar>
+      <SettingsNotificationSnackbar
+        notification={notification}
+        onClose={() => setNotification((current) => ({ ...current, open: false }))}
+      />
     </Box>
   );
 }

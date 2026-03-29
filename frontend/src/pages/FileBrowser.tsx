@@ -49,6 +49,7 @@ import { logger } from "../services/logger";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
 import { buildServerWebSocketUrl } from "../services/serverWebsocket";
 import { loadCurrentUserSettings } from "../services/userSettingsSync";
+import { getMobileViewportShellSx, mobileSafeAreaAppBarSx, mobileSafeAreaToolbarSx, SAFE_AREA_INSET } from "../theme/mobileShell";
 import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
@@ -1615,7 +1616,7 @@ const Browser: React.FC = () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <Box sx={getMobileViewportShellSx(useCompactLayout)}>
       {/* Hamburger Menu - Mobile Only */}
       <HamburgerMenu
         open={drawerOpen}
@@ -1634,8 +1635,8 @@ const Browser: React.FC = () => {
         onOpenSettings={handleOpenSettings}
         onLogout={handleLogout}
       />
-      <AppBar position="static" elevation={useCompactLayout ? undefined : 0}>
-        <Toolbar sx={{ px: { xs: 1, sm: 2 } }}>
+      <AppBar position="static" elevation={useCompactLayout ? undefined : 0} sx={mobileSafeAreaAppBarSx}>
+        <Toolbar sx={mobileSafeAreaToolbarSx}>
           {useCompactLayout ? (
             <MobileToolbar
               currentDirectoryName={currentDirectoryName}
@@ -1686,11 +1687,13 @@ const Browser: React.FC = () => {
         disableGutters
         sx={{
           flex: 1,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           pt: 2,
-          pb: { xs: "env(safe-area-inset-bottom)", sm: 0 },
+          pb: { xs: SAFE_AREA_INSET.BOTTOM, sm: 0 },
           overflow: "hidden",
+          overscrollBehaviorY: "contain",
         }}
       >
         <FileBrowserAlerts

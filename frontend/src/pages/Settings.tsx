@@ -23,6 +23,8 @@ export function Settings() {
       <SettingsCategoryList
         sections={getVisibleSettingsSections(isAdmin)}
         onSelect={(item) => navigate(SETTINGS_ROUTE_BY_NAV_ITEM[item])}
+        showDescriptions
+        showChevron
         showDividers
         wrapItemsInListItem
         listSx={{ py: 0 }}

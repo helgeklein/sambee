@@ -37,11 +37,11 @@ describe("MobileSettingsDrawer", () => {
 
     renderDrawer();
 
-    expect(screen.getByText(/File Browser/i)).toBeInTheDocument();
+    expect(screen.getByText(/^File Browser$/i)).toBeInTheDocument();
     expect(screen.getByText(/^Connections$/i)).toBeInTheDocument();
-    expect(screen.getByText(/Local Drives/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Local Drives$/i)).toBeInTheDocument();
 
-    await user.click(screen.getByText(/Local Drives/i));
+    await user.click(screen.getByText(/^Local Drives$/i));
 
     expect(screen.getByText("Local Drives Content: Local Drives")).toBeInTheDocument();
 
@@ -49,6 +49,6 @@ describe("MobileSettingsDrawer", () => {
 
     expect(screen.getByText(/^Connections$/i)).toBeInTheDocument();
     expect(screen.queryByText("Local Drives Content: Local Drives")).not.toBeInTheDocument();
-    expect(screen.getByText("Appearance")).toBeInTheDocument();
+    expect(screen.getByText(/^Appearance$/i)).toBeInTheDocument();
   });
 });

@@ -41,13 +41,17 @@ export interface AdminUserUpdateInput {
   is_active?: boolean;
 }
 
+export interface AdminUserPasswordResetInput {
+  new_password: string;
+  must_change_password: boolean;
+}
+
 export interface AdminUserCreateResult extends AdminUser {
   temporary_password?: string | null;
 }
 
 export interface AdminUserPasswordResetResult {
   message: string;
-  temporary_password: string;
 }
 
 export interface Connection {

@@ -245,6 +245,47 @@ describe("ConnectionDialog Component", () => {
     expect(mockOnClose).not.toHaveBeenCalled();
   });
 
+  it("keeps the save label visible while the save request is pending", async () => {
+    let resolveCreate: ((value: Connection) => void) | null = null;
+    vi.mocked(api.createConnection).mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      })
+    );
+
+    const user = userEvent.setup();
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
+
+    await user.click(screen.getByLabelText(/connection name/i));
+    await user.paste("New Server");
+
+    await user.click(screen.getByLabelText(/host/i));
+    await user.paste("192.168.1.200");
+
+    await user.click(screen.getByLabelText(/share name/i));
+    await user.paste("newshare");
+
+    await user.click(screen.getByLabelText(/user name/i));
+    await user.paste("newuser");
+
+    const passwordFields = screen.getAllByLabelText(/password/i);
+    const passwordInput = passwordFields.find((el) => el.tagName === "INPUT") as HTMLElement;
+    await user.click(passwordInput);
+    await user.paste("newpass");
+
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(api.createConnection).toHaveBeenCalled();
+    });
+
+    expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^save$/i })).toHaveTextContent(/^save$/i);
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+
+    resolveCreate?.(mockConnection);
+  });
+
   it("closes dialog on cancel", async () => {
     const user = userEvent.setup();
     render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} />);
