@@ -19,6 +19,7 @@ export interface ViewerComponentProps {
   connectionId: string;
   path: string;
   onClose: () => void;
+  isReadOnly?: boolean;
   // Gallery mode support
   images?: string[];
   currentIndex?: number;

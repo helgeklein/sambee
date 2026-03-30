@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api.companion import (
     URI_TOKEN_CLAIM,
@@ -222,6 +222,26 @@ class TestLockLifecycle:
         data = response.json()
         assert data["file_path"] == "/docs/report.docx"
         assert data["locked_by"] == "testadmin"
+
+    def test_acquire_lock_read_only_connection_blocked(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        read_only_connection: Connection,
+        companion_session_id: str,
+        session: Session,
+    ):
+        """Read-only connections should not allow new companion edit locks."""
+
+        response = client.post(
+            f"/api/companion/{read_only_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            json={"companion_session": companion_session_id},
+            headers=auth_headers_admin,
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        assert session.exec(select(EditLock).where(EditLock.connection_id == read_only_connection.id)).first() is None
 
     #
     # test_acquire_lock_conflict

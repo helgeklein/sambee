@@ -39,7 +39,7 @@ import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supp
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import MarkdownRichEditor, { type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
-import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls } from "./ViewerControls";
+import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { createCancelToolbarAction, createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
 import "highlight.js/styles/github.css";
 
@@ -103,7 +103,7 @@ type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer";
  * Displays markdown files with syntax highlighting and GitHub-flavored markdown support.
  * Integrated with ViewerControls and keyboard shortcuts system.
  */
-export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose }) => {
+export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
   const { t } = useTranslation();
   const [content, setContent] = useState<string>("");
   const [draftContent, setDraftContent] = useState<string>("");
@@ -283,6 +283,18 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       }}
     />
   ) : null;
+
+  const readOnlyIndicator = isReadOnly ? (
+    <ViewerFilenameBadge label={t("settings.connectionDialog.accessMode.readOnlyLabel")} toolbarText={toolbarText} />
+  ) : null;
+
+  const filenameAdornment =
+    unsavedChangesIndicator || readOnlyIndicator ? (
+      <Box sx={{ display: "flex", alignItems: "center", gap: isMobile ? 0.75 : 1 }}>
+        {unsavedChangesIndicator}
+        {readOnlyIndicator}
+      </Box>
+    ) : null;
 
   const clearPendingBaselineSync = useCallback(() => {
     if (pendingBaselineSyncTimeoutRef.current !== null) {
@@ -488,7 +500,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   }, [clearPendingBaselineSync, onClose, releaseEditLock]);
 
   const handleEnterEditMode = useCallback(async () => {
-    if (loading || error) {
+    if (isReadOnly || loading || error) {
       return;
     }
 
@@ -512,7 +524,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       setEditError(t("viewer.edit.lockFailed", { message }));
       logError("Failed to enter markdown edit mode", { error: err, path, connectionId });
     }
-  }, [clearPendingBaselineSync, connectionId, content, error, loading, path, supportsEditLocks, t]);
+  }, [clearPendingBaselineSync, connectionId, content, error, isReadOnly, loading, path, supportsEditLocks, t]);
 
   const handleCancelEdit = useCallback(async () => {
     if (hasUnsavedChanges) {
@@ -526,6 +538,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const persistDraft = useCallback(
     async (afterSave: PendingUnsavedChangesAction | "stay-edit" = "cancel-edit") => {
       if (!isEditing) {
+        return false;
+      }
+
+      if (isReadOnly) {
         return false;
       }
 
@@ -557,7 +573,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         setIsSaving(false);
       }
     },
-    [closeViewer, connectionId, draftContent, exitEditMode, filename, isEditing, path, t]
+    [closeViewer, connectionId, draftContent, exitEditMode, filename, isEditing, isReadOnly, path, t]
   );
 
   const handleSave = useCallback(async () => {
@@ -861,7 +877,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         handler: () => {
           void handleEnterEditMode();
         },
-        enabled: !isEditing,
+        enabled: !isEditing && !isReadOnly,
       },
       // Save while editing
       {
@@ -932,6 +948,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       editorSearchState.isSearchable,
       error,
       isEditing,
+      isReadOnly,
       isSaving,
       loading,
       searchMatches,
@@ -968,16 +985,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
             }),
           ]
         : [
-            createEditToolbarAction({
-              id: "edit-markdown",
-              onClick: () => {
-                void handleEnterEditMode();
-              },
-              isMobile,
-              disabled: loading || !!error,
-            }),
+            ...(isReadOnly
+              ? []
+              : [
+                  createEditToolbarAction({
+                    id: "edit-markdown",
+                    onClick: () => {
+                      void handleEnterEditMode();
+                    },
+                    isMobile,
+                    disabled: loading || !!error,
+                  }),
+                ]),
           ],
-    [error, handleCancelEdit, handleEnterEditMode, handleSave, isEditing, isMobile, isSaving, loading]
+    [error, handleCancelEdit, handleEnterEditMode, handleSave, isEditing, isMobile, isReadOnly, isSaving, loading]
   );
 
   // Log when markdown viewer opens
@@ -1047,7 +1068,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           >
             <ViewerControls
               filename={filename}
-              filenameAdornment={unsavedChangesIndicator}
+              filenameAdornment={filenameAdornment}
               toolbarBackground={toolbarBg}
               toolbarText={toolbarText}
               actions={toolbarActions}

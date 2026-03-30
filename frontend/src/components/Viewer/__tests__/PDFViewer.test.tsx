@@ -184,6 +184,17 @@ describe("PDFViewer", () => {
     );
   };
 
+  it("shows a read-only badge in the toolbar when opened in read-only mode", async () => {
+    renderPDFViewer({
+      ...defaultProps,
+      isReadOnly: true,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Read only")).toBeInTheDocument();
+    });
+  });
+
   describe("Rendering States", () => {
     it("renders loading state initially", () => {
       renderPDFViewer();

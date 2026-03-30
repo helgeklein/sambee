@@ -476,6 +476,25 @@ class TestDeleteItem:
         assert response.json()["detail"] == "Delete timed out. The remote share did not respond in time."
         mock_instance.disconnect.assert_called_once()
 
+    def test_delete_read_only_connection_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+    ):
+        """Delete should be rejected before any SMB operation on read-only connections."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.delete(
+                f"/api/browse/{read_only_connection.id}/item",
+                headers=auth_headers_user,
+                params={"path": "/document.txt"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Rename file or directory
@@ -700,6 +719,25 @@ class TestRenameItem:
         assert response.status_code == 504
         assert response.json()["detail"] == "Rename timed out. The remote share did not respond in time."
         mock_instance.disconnect.assert_called_once()
+
+    def test_rename_read_only_connection_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+    ):
+        """Rename should be rejected before any SMB operation on read-only connections."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{read_only_connection.id}/rename",
+                headers=auth_headers_user,
+                json={"path": "/document.txt", "new_name": "renamed.txt"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -979,6 +1017,25 @@ class TestCreateItem:
         assert response.status_code == 200
         mock_instance.create_directory.assert_called_once_with("clean-name")
 
+    def test_create_read_only_connection_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+    ):
+        """Create should be rejected before any SMB operation on read-only connections."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{read_only_connection.id}/create",
+                headers=auth_headers_user,
+                json={"parent_path": "/", "name": "new-folder", "type": "directory"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # _validate_item_name unit tests
@@ -1238,6 +1295,26 @@ class TestUploadFile:
         assert response.status_code == 504
         assert response.json()["detail"] == "Upload timed out. The remote share did not respond in time."
         instance.disconnect.assert_called_once()
+
+    def test_upload_read_only_connection_blocked(
+        self,
+        client: TestClient,
+        auth_headers_admin: dict,
+        read_only_connection: Connection,
+    ):
+        """Upload should be rejected before any SMB operation on read-only connections."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{read_only_connection.id}/upload",
+                params={"path": "/docs/report.docx"},
+                files={"file": ("report.docx", b"content", "application/octet-stream")},
+                headers=auth_headers_admin,
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1512,6 +1589,90 @@ class TestCopyItem:
         )
         assert response.status_code == 404
 
+    def test_copy_same_connection_read_only_destination_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+    ):
+        """Copying into a read-only connection should be rejected before SMB work starts."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{read_only_connection.id}/copy",
+                headers=auth_headers_user,
+                json={"source_path": "a.txt", "dest_path": "b.txt"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
+
+    def test_copy_cross_connection_from_read_only_source_allowed(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+        test_connection: Connection,
+    ):
+        """Copying out of a read-only source into a writable destination remains allowed."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            src_instance = AsyncMock()
+            dst_instance = AsyncMock()
+
+            src_instance.get_file_info.return_value = FileInfo(
+                name="a.txt",
+                path="a.txt",
+                type=FileType.FILE,
+                size=100,
+            )
+
+            async def fake_read_file(path):
+                yield b"file content"
+
+            src_instance.read_file = fake_read_file
+            dst_instance.write_file_from_stream = AsyncMock(return_value=12)
+
+            MockBackend.side_effect = [src_instance, dst_instance]
+
+            with patch("app.api.websocket.manager.broadcast_transfer_progress", new_callable=AsyncMock):
+                response = client.post(
+                    f"/api/browse/{read_only_connection.id}/copy",
+                    headers=auth_headers_user,
+                    json={
+                        "source_path": "a.txt",
+                        "dest_path": "b.txt",
+                        "dest_connection_id": str(test_connection.id),
+                    },
+                )
+
+        assert response.status_code == 204
+
+    def test_copy_cross_connection_to_read_only_destination_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        read_only_connection: Connection,
+    ):
+        """Copying into a read-only destination should be rejected before SMB work starts."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{test_connection.id}/copy",
+                headers=auth_headers_user,
+                json={
+                    "source_path": "a.txt",
+                    "dest_path": "b.txt",
+                    "dest_connection_id": str(read_only_connection.id),
+                },
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Move file or directory
@@ -1767,3 +1928,70 @@ class TestMoveItem:
             },
         )
         assert response.status_code == 404
+
+    def test_move_same_connection_read_only_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+    ):
+        """Moves on a read-only connection should be rejected before SMB work starts."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{read_only_connection.id}/move",
+                headers=auth_headers_user,
+                json={"source_path": "a.txt", "dest_path": "b.txt"},
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
+
+    def test_move_cross_connection_from_read_only_source_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        read_only_connection: Connection,
+        test_connection: Connection,
+    ):
+        """Moving out of a read-only source should be rejected."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{read_only_connection.id}/move",
+                headers=auth_headers_user,
+                json={
+                    "source_path": "a.txt",
+                    "dest_path": "b.txt",
+                    "dest_connection_id": str(test_connection.id),
+                },
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()
+
+    def test_move_cross_connection_to_read_only_destination_blocked(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        read_only_connection: Connection,
+    ):
+        """Moving into a read-only destination should be rejected."""
+
+        with patch("app.api.browser.SMBBackend") as MockBackend:
+            response = client.post(
+                f"/api/browse/{test_connection.id}/move",
+                headers=auth_headers_user,
+                json={
+                    "source_path": "a.txt",
+                    "dest_path": "b.txt",
+                    "dest_connection_id": str(read_only_connection.id),
+                },
+            )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Connection is read-only"
+        MockBackend.assert_not_called()

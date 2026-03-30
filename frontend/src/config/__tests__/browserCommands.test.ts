@@ -13,6 +13,10 @@ function createContext(): BrowserCommandContext {
     hasFiles: true,
     hasFocusedFile: true,
     connectionSelected: true,
+    connectionWritable: true,
+    canOpenFocusedFileInApp: true,
+    canCopyToOtherPane: true,
+    canMoveToOtherPane: true,
     openQuickNav: () => {},
     openFilterMode: () => {},
     openCommandMode: () => {},
@@ -57,5 +61,23 @@ describe("browserCommands", () => {
       category: "[Ńåṽíğåťíóń]",
       description: "[Ĵúḿṕ ťó ďíŕéćťóŕíéš ƒŕóḿ ťħé šḿåŕť ńåṽíğåťíóń ƀåŕ]",
     });
+  });
+
+  it("omits write commands for read-only connections", () => {
+    const context = createContext();
+    context.connectionWritable = false;
+    context.canOpenFocusedFileInApp = false;
+    context.canCopyToOtherPane = false;
+    context.canMoveToOtherPane = false;
+
+    const commandIds = getEnabledBrowserCommands(context).map((command) => command.id);
+
+    expect(commandIds).not.toContain("browser.rename");
+    expect(commandIds).not.toContain("browser.delete");
+    expect(commandIds).not.toContain("browser.newDirectory");
+    expect(commandIds).not.toContain("browser.newFile");
+    expect(commandIds).not.toContain("browser.openInApp");
+    expect(commandIds).not.toContain("browser.copyToOtherPane");
+    expect(commandIds).not.toContain("browser.moveToOtherPane");
   });
 });

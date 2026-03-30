@@ -16,7 +16,7 @@ from sqlmodel.pool import StaticPool
 from app.core.security import create_access_token, get_password_hash
 from app.db.database import get_session
 from app.main import app
-from app.models.connection import Connection, ConnectionScope
+from app.models.connection import Connection, ConnectionAccessMode, ConnectionScope
 from app.models.user import User
 
 
@@ -313,6 +313,29 @@ def user_private_connection_fixture(session: Session, regular_user: User) -> Con
         port=445,
         scope=ConnectionScope.PRIVATE,
         owner_user_id=regular_user.id,
+    )
+    session.add(connection)
+    session.commit()
+    session.refresh(connection)
+    return connection
+
+
+@pytest.fixture(name="read_only_connection")
+def read_only_connection_fixture(session: Session) -> Connection:
+    """Create a shared SMB connection that is explicitly read-only."""
+
+    from app.core.security import encrypt_password
+
+    connection = Connection(
+        id=uuid.uuid4(),
+        name="Read-Only Server",
+        host="readonly-server.local",
+        share_name="readonly-share",
+        username="readonly-user",
+        password_encrypted=encrypt_password("readonlypass123"),
+        port=445,
+        scope=ConnectionScope.SHARED,
+        access_mode=ConnectionAccessMode.READ_ONLY,
     )
     session.add(connection)
     session.commit()

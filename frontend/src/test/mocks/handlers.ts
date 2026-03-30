@@ -321,6 +321,7 @@ export const handlers = [
         username: "smbuser",
         path_prefix: "/",
         scope: "shared",
+        access_mode: "read_write",
         can_manage: true,
       },
       {
@@ -333,6 +334,7 @@ export const handlers = [
         username: "backupuser",
         path_prefix: "/",
         scope: "shared",
+        access_mode: "read_write",
         can_manage: true,
       },
     ]);
@@ -358,6 +360,7 @@ export const handlers = [
     return HttpResponse.json({
       id: "conn-new",
       scope: "private",
+      access_mode: connectionData.access_mode ?? "read_write",
       can_manage: true,
       ...connectionData,
     });
@@ -397,6 +400,7 @@ export const handlers = [
     return HttpResponse.json({
       id: params["id"],
       scope: "private",
+      access_mode: connectionData.access_mode ?? "read_write",
       can_manage: true,
       ...connectionData,
     });

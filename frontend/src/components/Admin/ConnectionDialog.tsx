@@ -19,7 +19,7 @@ import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import api from "../../services/api";
-import type { Connection, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
+import type { Connection, ConnectionAccessMode, ConnectionCreate, ConnectionScope, ConnectionVisibilityOption } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import { dialogEnterKeyHandler } from "../../utils/keyboardUtils";
 import { settingsPrimaryButtonSx, settingsUtilityButtonSx } from "../Settings/settingsButtonStyles";
@@ -73,6 +73,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
     password: "",
     path_prefix: "/",
     scope: "private",
+    access_mode: "read_write",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -149,6 +150,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         password: "", // Don't populate password for security
         path_prefix: connection.path_prefix || "/",
         scope: connection.scope,
+        access_mode: connection.access_mode,
       });
     } else {
       // Add mode - reset form
@@ -162,6 +164,7 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         password: "",
         path_prefix: "/",
         scope: "private",
+        access_mode: "read_write",
       });
     }
     setErrors({});
@@ -251,6 +254,8 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         if (formData.username !== connection.username) updateData.username = formData.username;
         if (formData.password.trim()) updateData.password = formData.password;
         if (formData.path_prefix !== connection.path_prefix) updateData.path_prefix = formData.path_prefix;
+        if (formData.scope !== connection.scope) updateData.scope = formData.scope;
+        if (formData.access_mode !== connection.access_mode) updateData.access_mode = formData.access_mode;
 
         savedConnection = await api.updateConnection(connection.id, updateData);
       } else {
@@ -390,6 +395,24 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
             </MenuItem>
           ))}
         </Select>
+      </FormControl>
+
+      <FormControl fullWidth variant="outlined">
+        <InputLabel id="connection-access-mode-label">{t("settings.connectionDialog.labels.accessMode")}</InputLabel>
+        <Select
+          labelId="connection-access-mode-label"
+          label={t("settings.connectionDialog.labels.accessMode")}
+          value={formData.access_mode}
+          onChange={(event) => handleChange("access_mode", event.target.value as ConnectionAccessMode)}
+        >
+          <MenuItem value="read_write">{t("settings.connectionDialog.accessMode.readWriteLabel")}</MenuItem>
+          <MenuItem value="read_only">{t("settings.connectionDialog.accessMode.readOnlyLabel")}</MenuItem>
+        </Select>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, px: 1.75 }}>
+          {formData.access_mode === "read_only"
+            ? t("settings.connectionDialog.helpers.accessModeReadOnly")
+            : t("settings.connectionDialog.helpers.accessModeReadWrite")}
+        </Typography>
       </FormControl>
 
       {testResult && <Alert severity={testResult.status}>{testResult.message}</Alert>}

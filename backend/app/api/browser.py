@@ -23,7 +23,7 @@ from app.models.file import (
     RenameRequest,
 )
 from app.models.user import User
-from app.services.connection_access import get_accessible_connection_or_404
+from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 from app.services.cross_connection import cross_connection_copy, cross_connection_move
 from app.storage.smb import SMBBackend
 
@@ -241,6 +241,7 @@ async def upload_file(
     logger.info(f"Upload file: connection_id={connection_id}, path='{path}'")
 
     connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="upload", path=path)
 
     try:
         backend = build_smb_backend(connection, backend_factory=SMBBackend)
@@ -311,6 +312,7 @@ async def delete_item(
     set_user(current_user.username)
 
     connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="delete", path=path)
 
     if not path or path.strip("/") == "":
         raise HTTPException(
@@ -452,6 +454,7 @@ async def rename_item(
 
     # --- Look up connection -----------------------------------------------
     connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="rename", path=path)
 
     try:
         backend = build_smb_backend(connection, backend_factory=SMBBackend)
@@ -551,6 +554,7 @@ async def create_item(
 
     # --- Look up connection -----------------------------------------------
     connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="create", path=new_item_path)
 
     try:
         backend = build_smb_backend(connection, backend_factory=SMBBackend)
@@ -771,6 +775,7 @@ async def copy_item(
                 current_user,
                 uuid.UUID(str(body.dest_connection_id)),
             )
+            require_connection_write_access(current_user, dest_connection, action="copy_destination", path=dest)
             await _cross_connection_copy(
                 connection,
                 dest_connection,
@@ -781,6 +786,7 @@ async def copy_item(
                 overwrite=body.overwrite,
             )
         else:
+            require_connection_write_access(current_user, connection, action="copy_destination", path=dest)
             backend = build_smb_backend(connection, backend_factory=SMBBackend)
             await backend.connect()
             try:
@@ -874,6 +880,8 @@ async def move_item(
                 current_user,
                 uuid.UUID(str(body.dest_connection_id)),
             )
+            require_connection_write_access(current_user, connection, action="move_source", path=source)
+            require_connection_write_access(current_user, dest_connection, action="move_destination", path=dest)
             await _cross_connection_move(
                 connection,
                 dest_connection,
@@ -884,6 +892,7 @@ async def move_item(
                 overwrite=body.overwrite,
             )
         else:
+            require_connection_write_access(current_user, connection, action="move", path=source)
             backend = build_smb_backend(connection, backend_factory=SMBBackend)
             await backend.connect()
             try:

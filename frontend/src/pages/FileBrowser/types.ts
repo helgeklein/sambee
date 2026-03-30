@@ -5,7 +5,7 @@
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import type { SearchProvider } from "../../components/FileBrowser/search/types";
-import type { FileEntry, FileType } from "../../types";
+import type { Connection, FileEntry, FileType } from "../../types";
 
 export type SortField = "name" | "size" | "modified" | "type";
 
@@ -72,6 +72,9 @@ export const ACTIVE_PANE_QUERY_KEY = "active";
 export interface UseFileBrowserPaneConfig {
   /** Row height in pixels for the virtualizer (touch: 56, mouse: 40). */
   rowHeight: number;
+
+  /** Available connections so the hook can derive capability state for the selected connection. */
+  connections?: Connection[];
 
   /**
    * When true, keyboard handlers inside the pane are suppressed.
@@ -188,6 +191,7 @@ export interface UseFileBrowserPaneReturn {
   handlePageDown: (e?: KeyboardEvent) => void;
   handlePageUp: (e?: KeyboardEvent) => void;
   handleOpenFile: () => void;
+  navigateToPath: (path: string, options?: { blurActiveElement?: boolean }) => void;
   prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
   handleNavigateUp: () => void;
@@ -232,6 +236,8 @@ export interface UseFileBrowserPaneReturn {
   invalidateConnectionCache: (targetConnectionId: string) => void;
   /** Load files for a specific path, optionally bypassing cache. */
   loadFiles: (path: string, forceRefresh?: boolean) => Promise<void>;
+  /** Seed directory contents and cache from already-known data for a matching connection/path. */
+  seedDirectorySnapshot: (connectionId: string, path: string, items: FileEntry[]) => void;
   /** Apply route-driven state from the browser location without triggering navigation again. */
   applyLocation: (connectionId: string, path: string) => void;
 }

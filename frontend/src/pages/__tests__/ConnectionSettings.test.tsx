@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
@@ -120,6 +120,7 @@ describe("ConnectionSettings", () => {
         username: "sambee",
         path_prefix: "/",
         scope: "shared",
+        access_mode: "read_write",
         can_manage: false,
       },
     ]);
@@ -149,6 +150,7 @@ describe("ConnectionSettings", () => {
         username: "sambee",
         path_prefix: "/",
         scope: "shared",
+        access_mode: "read_write",
         can_manage: true,
       },
     ]);
@@ -164,5 +166,111 @@ describe("ConnectionSettings", () => {
     expect(screen.getByTestId("connection-settings-inline-header")).toBeInTheDocument();
     expect(screen.getByTestId("connection-settings-shared-section")).toHaveStyle({ marginTop: "0px" });
     expect(screen.getByTestId("connection-settings-private-section")).toHaveStyle({ marginTop: "24px" });
+  });
+
+  it("shows a read-only badge for read-only connections", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "shared-1",
+        name: "Accounting",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "accounting",
+        username: "sambee",
+        path_prefix: "/",
+        scope: "shared",
+        access_mode: "read_only",
+        can_manage: true,
+      },
+    ]);
+
+    renderSettings();
+
+    await screen.findByText("Accounting");
+
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+  });
+
+  it("does not show a read-only badge for default read and write connections", async () => {
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "shared-1",
+        name: "Accounting",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "accounting",
+        username: "sambee",
+        path_prefix: "/",
+        scope: "shared",
+        access_mode: "read_write",
+        can_manage: true,
+      },
+    ]);
+
+    renderSettings();
+
+    await screen.findByText("Accounting");
+
+    expect(screen.queryByText("Read only")).not.toBeInTheDocument();
+  });
+
+  it("persists updated visibility when editing and reopening a connection", async () => {
+    const user = userEvent.setup();
+    let connections = [
+      {
+        id: "shared-1",
+        name: "Accounting",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "accounting",
+        username: "sambee",
+        path_prefix: "/",
+        scope: "shared" as const,
+        access_mode: "read_write" as const,
+        can_manage: true,
+      },
+    ];
+
+    vi.mocked(api.getConnections).mockImplementation(async () => connections);
+    vi.mocked(api.updateConnection).mockImplementation(async (_connectionId, updates) => {
+      connections = connections.map((connection) => ({
+        ...connection,
+        ...updates,
+      }));
+
+      return connections[0] as (typeof connections)[number];
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <ConnectionSettings isAdmin={true} />
+      </SambeeThemeProvider>
+    );
+
+    await screen.findByText("Accounting");
+
+    await user.click(screen.getByRole("button", { name: /edit connection/i }));
+    await user.click(await screen.findByRole("combobox", { name: /visibility/i }));
+    await user.click(await screen.findByRole("option", { name: /private to me/i }));
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(api.updateConnection).toHaveBeenCalledWith("shared-1", { scope: "private" });
+    });
+
+    await waitFor(() => {
+      expect(within(screen.getByTestId("connection-settings-private-section")).getByText("Accounting")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /edit connection/i }));
+
+    expect(await screen.findByRole("combobox", { name: /visibility/i })).toHaveTextContent("Private to me");
   });
 });

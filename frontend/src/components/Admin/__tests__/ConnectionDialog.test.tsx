@@ -46,6 +46,7 @@ const mockConnection: Connection = {
   username: "testuser",
   path_prefix: "/",
   scope: "shared",
+  access_mode: "read_write",
   can_manage: true,
   created_at: "2024-01-01T00:00:00",
   updated_at: "2024-01-01T00:00:00",
@@ -79,6 +80,7 @@ describe("ConnectionDialog Component", () => {
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT");
     expect(passwordInput).toBeInTheDocument();
     expect(screen.getByLabelText(/path prefix/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /access mode/i })).toBeInTheDocument();
   });
 
   it("shows server-defined visibility options", async () => {
@@ -109,6 +111,7 @@ describe("ConnectionDialog Component", () => {
     const passwordInput = passwordFields.find((el) => el.tagName === "INPUT") as HTMLInputElement;
     expect(passwordInput).toHaveValue("");
     expect(screen.getByLabelText(/path prefix/i)).toHaveValue("/");
+    expect(screen.getByRole("combobox", { name: /access mode/i })).toHaveTextContent(/read and write/i);
   });
 
   it("validates required fields", async () => {
@@ -172,6 +175,7 @@ describe("ConnectionDialog Component", () => {
         password: "newpass",
         path_prefix: "/",
         scope: "private",
+        access_mode: "read_write",
       });
     });
 
@@ -202,6 +206,46 @@ describe("ConnectionDialog Component", () => {
 
     expect(mockOnSave).toHaveBeenCalled();
     expect(mockOnClose).toHaveBeenCalled();
+  });
+
+  it("updates access mode when changed", async () => {
+    vi.mocked(api.updateConnection).mockResolvedValueOnce({
+      ...mockConnection,
+      access_mode: "read_only",
+    });
+
+    const user = userEvent.setup();
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+    await user.click(screen.getByRole("combobox", { name: /access mode/i }));
+    await user.click(await screen.findByRole("option", { name: /read only/i }));
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(api.updateConnection).toHaveBeenCalledWith("1", {
+        access_mode: "read_only",
+      });
+    });
+  });
+
+  it("updates visibility when changed", async () => {
+    vi.mocked(api.updateConnection).mockResolvedValueOnce({
+      ...mockConnection,
+      scope: "private",
+    });
+
+    const user = userEvent.setup();
+    render(<ConnectionDialog open={true} onClose={mockOnClose} onSave={mockOnSave} connection={mockConnection} />);
+
+    await user.click(screen.getByRole("combobox", { name: /visibility/i }));
+    await user.click(await screen.findByRole("option", { name: /private to me/i }));
+    await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      expect(api.updateConnection).toHaveBeenCalledWith("1", {
+        scope: "private",
+      });
+    });
   });
 
   it("shows error message on save failure", async () => {

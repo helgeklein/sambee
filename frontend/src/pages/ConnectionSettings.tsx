@@ -230,6 +230,21 @@ export function ConnectionSettings({
   const sharedConnections = connections.filter((connection) => connection.scope === "shared");
   const privateConnections = connections.filter((connection) => connection.scope === "private");
 
+  const renderMetadataChips = (connection: Connection) => (
+    <>
+      <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+      {connection.access_mode === "read_only" ? (
+        <Chip
+          label={t("settings.connectionDialog.accessMode.readOnlyLabel")}
+          size="small"
+          color="warning"
+          variant="outlined"
+          sx={settingsMetadataChipSx}
+        />
+      ) : null}
+    </>
+  );
+
   const renderConnectionList = (sectionConnections: Connection[]) => {
     if (sectionConnections.length === 0) {
       return null;
@@ -261,7 +276,7 @@ export function ConnectionSettings({
                   <Typography variant="h6" fontWeight="medium">
                     {connection.name}
                   </Typography>
-                  <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                  {renderMetadataChips(connection)}
                 </Box>
 
                 <Box sx={{ display: "flex", mb: -0.5 }}>
@@ -364,7 +379,7 @@ export function ConnectionSettings({
                   <Typography variant="h6" fontWeight="medium">
                     {connection.name}
                   </Typography>
-                  <Chip label={connection.type.toUpperCase()} size="small" variant="outlined" sx={settingsMetadataChipSx} />
+                  {renderMetadataChips(connection)}
                 </Box>
                 {connection.can_manage ? (
                   <IconButton

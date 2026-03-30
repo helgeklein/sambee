@@ -314,6 +314,7 @@ export const EN_TRANSLATIONS = {
         password: "Password",
         pathPrefix: "Path prefix",
         visibility: "Visibility",
+        accessMode: "Access mode",
       },
       helpers: {
         host: "IP address or hostname of the SMB server",
@@ -324,6 +325,8 @@ export const EN_TRANSLATIONS = {
         visibilityAdmin: "Admins can create shared connections for everyone or private connections for themselves.",
         visibilityRegular:
           "Shared connections require admin access. If you choose shared without admin access, the server will save it as private.",
+        accessModeReadWrite: "Browse, preview, and modify content through Sambee.",
+        accessModeReadOnly: "Browse and preview content, but block writes and edit flows through Sambee.",
       },
       errors: {
         nameRequired: "Connection name is required",
@@ -343,6 +346,10 @@ export const EN_TRANSLATIONS = {
         privateDescription: "Visible only to your account. You can fully manage it.",
         sharedLabel: "Shared with everyone",
         sharedDescription: "Visible to all users. Only admins can manage it.",
+      },
+      accessMode: {
+        readWriteLabel: "Read and write",
+        readOnlyLabel: "Read only",
       },
     },
     userManagement: {

@@ -515,6 +515,7 @@ export const PANE_SHORTCUTS = {
     },
     label: "Ctrl+B",
     ctrl: true,
+    allowInInput: true,
   },
   FOCUS_LEFT_PANE: {
     id: "focus-left-pane",

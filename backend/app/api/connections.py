@@ -193,6 +193,7 @@ async def create_connection(
         password_encrypted=encrypt_password(connection_data.password),
         path_prefix=connection_data.path_prefix,
         scope=resolved_scope,
+        access_mode=connection_data.access_mode,
         owner_user_id=owner_user_id,
     )
 

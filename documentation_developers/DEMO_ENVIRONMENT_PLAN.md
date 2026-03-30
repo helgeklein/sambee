@@ -62,8 +62,6 @@ The public demo should be browser-first and read-only by default.
 The companion should remain optional:
 
 - the demo must be fully useful without it
-- companion-related UI can be visible but should be positioned as an optional enhancement
-- the product can surface a direct companion download link from the connections menu
 - the demo should never depend on companion installation for core evaluation
 
 ### Infrastructure posture
@@ -333,7 +331,6 @@ Core implementation direction:
 - add invitation redemption or magic-link completion flow
 - display demo environment notices clearly
 - suppress or disable write actions when the current connection/session is read-only
-- surface a direct companion download link from the connections menu
 - keep companion affordances visible but never required
 
 ## Invitation and expiry model
@@ -765,6 +762,8 @@ Recommended issue sequence:
 
 ### Group C: read-only product capability
 
+Detailed implementation planning for this group lives in `READ_ONLY_PRODUCT_CAPABILITY_PLAN.md`.
+
 - read-only connection design
 - read-only user or session design
 - backend enforcement
@@ -795,7 +794,6 @@ The public demo is ready when all of the following are true:
 
 - a visitor can browse and preview the product entirely in-browser
 - the companion is optional and never required for core evaluation
-- the companion download link is available from the connections menu without blocking browser-only evaluation
 - new visitors cannot access the demo without passing through an abuse-resistant gate
 - the service remains functional under normal bot pressure
 - origin infrastructure is not directly reachable from the public internet
@@ -810,7 +808,6 @@ The public demo is ready when all of the following are true:
 - Demo access will be fully automatic at launch, with operator notifications for successful invitation issuance and redemption.
 - Invitations will create users at redemption time so accounts are only created after email verification succeeds.
 - The first dataset will use real public-domain assets wherever practical and generate assets only where necessary.
-- The companion will be surfaced through a direct download link in the connections menu, while remaining optional for core evaluation.
 - The public demo will use one single shared global dataset.
 
 ## Recommended Immediate Next Steps

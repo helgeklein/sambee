@@ -29,6 +29,22 @@ import { FileType } from "../../types";
 import { FileBrowserPane, type FileBrowserPaneProps } from "../FileBrowser/FileBrowserPane";
 import type { UseFileBrowserPaneReturn } from "../FileBrowser/types";
 
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string) => {
+      if (key === "settings.connectionDialog.accessMode.readOnlyLabel") {
+        return "Read only";
+      }
+
+      if (key === "settings.connectionDialog.helpers.accessModeReadOnly") {
+        return "Browse and preview content, but block writes and edit flows through Sambee.";
+      }
+
+      return key;
+    },
+  }),
+}));
+
 // ============================================================================
 // Child component mocks — we test the pane's orchestration, not children
 // ============================================================================
@@ -330,6 +346,15 @@ describe("FileBrowserPane", () => {
       render(<FileBrowserPane {...defaultProps()} />);
       expect(screen.queryByTestId("search-bar")).not.toBeInTheDocument();
     });
+
+    it("shows a read-only chip for read-only connections", () => {
+      const pane = createMockPane({ connectionId: "conn-2" });
+      const connections = [testConnections[0], createMockConnection({ id: "conn-2", name: "Backup Server", access_mode: "read_only" })];
+
+      render(<FileBrowserPane {...defaultProps({ pane, connections })} />);
+
+      expect(screen.getByText("Read only")).toBeInTheDocument();
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -356,6 +381,15 @@ describe("FileBrowserPane", () => {
     it("does not render status bar", () => {
       render(<FileBrowserPane {...defaultProps({ useCompactLayout: true })} />);
       expect(screen.queryByTestId("status-bar")).not.toBeInTheDocument();
+    });
+
+    it("shows a read-only chip in compact layout for read-only connections", () => {
+      const pane = createMockPane({ connectionId: "conn-2" });
+      const connections = [testConnections[0], createMockConnection({ id: "conn-2", name: "Backup Server", access_mode: "read_only" })];
+
+      render(<FileBrowserPane {...defaultProps({ pane, connections, useCompactLayout: true })} />);
+
+      expect(screen.getByText("Read only")).toBeInTheDocument();
     });
   });
 

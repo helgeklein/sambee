@@ -17,7 +17,7 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
-import { ViewerControls } from "./ViewerControls";
+import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 
 // Configure PDF.js worker - use CDN to avoid version mismatch
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -61,7 +61,7 @@ interface PDFViewport {
  * Uses react-pdf for client-side rendering to enable text search.
  * Fetches PDFs via API with authentication headers, then creates blob URLs.
  */
-const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose }) => {
+const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
   const { t } = useTranslation();
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -99,6 +99,9 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
   const shareEnabled = isMobile && supportsNativeShare();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "pdf");
+  const readOnlyIndicator = isReadOnly ? (
+    <ViewerFilenameBadge label={t("settings.connectionDialog.accessMode.readOnlyLabel")} toolbarText={toolbarText} />
+  ) : null;
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -931,6 +934,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         >
           <ViewerControls
             filename={filename}
+            filenameAdornment={readOnlyIndicator}
             toolbarBackground={toolbarBg}
             toolbarText={toolbarText}
             config={{

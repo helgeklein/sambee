@@ -45,6 +45,7 @@ from app.services.companion_downloads import (
     CompanionDownloadResolutionError,
     resolve_companion_download_metadata,
 )
+from app.services.connection_access import get_accessible_connection_or_404, require_connection_write_access
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -324,6 +325,9 @@ async def acquire_lock(
 
     set_user(current_user.username)
     logger.info(f"Lock acquire: connection_id={connection_id}, path='{path}', user={current_user.username}")
+
+    connection = get_accessible_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="acquire_lock", path=path)
 
     # Check for existing active lock
     existing = _get_active_lock(connection_id, path, session)

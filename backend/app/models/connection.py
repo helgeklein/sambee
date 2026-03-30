@@ -49,6 +49,11 @@ class ConnectionScope(StrEnum):
     PRIVATE = "private"
 
 
+class ConnectionAccessMode(StrEnum):
+    READ_WRITE = "read_write"
+    READ_ONLY = "read_only"
+
+
 class Connection(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     name: str = Field(index=True)
@@ -71,6 +76,20 @@ class Connection(SQLModel, table=True):
             ),
             nullable=False,
             default=ConnectionScope.PRIVATE,
+            index=True,
+        ),
+    )
+    access_mode: ConnectionAccessMode = Field(
+        default=ConnectionAccessMode.READ_WRITE,
+        sa_column=Column(
+            SqlEnum(
+                ConnectionAccessMode,
+                values_callable=lambda enum_cls: [member.value for member in enum_cls],
+                native_enum=False,
+                validate_strings=True,
+            ),
+            nullable=False,
+            default=ConnectionAccessMode.READ_WRITE,
             index=True,
         ),
     )
@@ -129,6 +148,7 @@ class ConnectionCreate(SQLModel):
     password: str
     path_prefix: Optional[str] = "/"
     scope: ConnectionScope = ConnectionScope.PRIVATE
+    access_mode: ConnectionAccessMode = ConnectionAccessMode.READ_WRITE
 
     #
     # validate_not_empty
@@ -152,6 +172,7 @@ class ConnectionUpdate(SQLModel):
     password: Optional[str] = None  # Only update if provided
     path_prefix: Optional[str] = None
     scope: Optional[ConnectionScope] = None
+    access_mode: Optional[ConnectionAccessMode] = None
 
 
 class ConnectionRead(SQLModel):
@@ -165,6 +186,7 @@ class ConnectionRead(SQLModel):
     username: str
     path_prefix: Optional[str]
     scope: ConnectionScope
+    access_mode: ConnectionAccessMode
     can_manage: bool
     created_at: datetime
     updated_at: datetime

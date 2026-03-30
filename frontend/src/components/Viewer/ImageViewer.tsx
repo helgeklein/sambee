@@ -18,7 +18,7 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
-import { ViewerControls } from "./ViewerControls";
+import { ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 
 type ZoomRef = import("yet-another-react-lightbox").ZoomRef;
 type FullscreenRef = import("yet-another-react-lightbox").FullscreenRef;
@@ -60,6 +60,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   connectionId,
   path,
   onClose,
+  isReadOnly = false,
   images = [path],
   currentIndex: initialIndex = 0,
   onCurrentIndexChange,
@@ -92,6 +93,9 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   const shareEnabled = isMobile && supportsNativeShare();
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const { viewerBg, toolbarBg, toolbarText } = getViewerColors(currentTheme, "image");
+  const readOnlyIndicator = isReadOnly ? (
+    <ViewerFilenameBadge label={t("settings.connectionDialog.accessMode.readOnlyLabel")} toolbarText={toolbarText} />
+  ) : null;
 
   const {
     currentIndex,
@@ -512,6 +516,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
           >
             <ViewerControls
               filename={filename}
+              filenameAdornment={readOnlyIndicator}
               toolbarBackground={toolbarBg}
               toolbarText={toolbarText}
               config={{

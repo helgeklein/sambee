@@ -3,7 +3,7 @@
  * Tests for keyboard navigation, search/filter, sorting, settings, and refresh
  */
 
-import { screen, waitFor, within } from "@testing-library/react";
+import { createEvent, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import api from "../../services/api";
@@ -20,7 +20,7 @@ import {
 } from "../../test/helpers";
 import { FileType } from "../../types";
 import { QUICK_NAV_INCLUDE_DOT_DIRECTORIES_STORAGE_KEY } from "../FileBrowser/preferences";
-import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
+import { mockConnections, mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 const expectDirectoryLoad = (connectionId: string, path: string) => {
   expect(api.listDirectory).toHaveBeenCalledWith(
@@ -219,6 +219,111 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("returns to single-pane mode after pressing Ctrl+B twice", async () => {
+      const user = userEvent.setup();
+      const { container } = renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+        expect(localStorage.getItem("active-pane")).toBe("right");
+        const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
+        expect(rightPaneList).toBeInstanceOf(HTMLElement);
+        expect(rightPaneList).toHaveFocus();
+      });
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("dual-pane-mode")).toBe("single");
+      });
+    });
+
+    it("reuses the current left-pane directory contents when opening dual-pane on the same target", async () => {
+      const user = userEvent.setup();
+      const { container } = renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+      });
+
+      const initialRootLoads = (api.listDirectory as Mock).mock.calls.filter(
+        ([connectionId, path]) => connectionId === "conn-1" && path === ""
+      ).length;
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+        const rightPaneList = container.querySelector('[data-pane-id="right"] [data-testid="file-list-container"]');
+        expect(rightPaneList).toBeInstanceOf(HTMLElement);
+      });
+
+      const rootLoadsAfterToggle = (api.listDirectory as Mock).mock.calls.filter(
+        ([connectionId, path]) => connectionId === "conn-1" && path === ""
+      ).length;
+
+      expect(rootLoadsAfterToggle).toBe(initialRootLoads);
+    });
+
+    it("returns to single-pane mode after pressing Ctrl+B twice even when a toolbar button has focus", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      const settingsButton = screen.getByRole("button", { name: /open settings/i });
+      settingsButton.focus();
+      expect(settingsButton).toHaveFocus();
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("dual-pane-mode")).toBe("dual");
+      });
+
+      settingsButton.focus();
+      expect(settingsButton).toHaveFocus();
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("dual-pane-mode")).toBe("single");
+      });
+    });
+
+    it("returns to single-pane mode after pressing Ctrl+B twice even if the left pane receives focus during the transition", async () => {
+      const user = userEvent.setup();
+      const { container } = renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      const leftPaneList = container.querySelector('[data-pane-id="left"] [data-testid="file-list-container"]');
+      expect(leftPaneList).toBeInstanceOf(HTMLElement);
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      (leftPaneList as HTMLElement).focus();
+
+      await user.keyboard("{Control>}b{/Control}");
+
+      await waitFor(() => {
+        expect(localStorage.getItem("dual-pane-mode")).toBe("single");
+      });
+    });
+
     it("refreshes the destination pane after copy to the other pane succeeds", async () => {
       const user = userEvent.setup();
 
@@ -257,6 +362,75 @@ describe("Browser Component - Interactions", () => {
         ).length;
         expect(destinationLoads).toBeGreaterThan(initialDestinationLoads);
       });
+    });
+
+    it("does not open copy dialog when the destination connection is read-only", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.getConnections).mockResolvedValue([mockConnections[0], { ...mockConnections[1], access_mode: "read_only" }]);
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F5}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "Copy" })).not.toBeInTheDocument();
+      });
+      expect(api.copyItem).not.toHaveBeenCalled();
+    });
+
+    it("prevents browser refresh for F5 when copy is unavailable because the destination connection is read-only", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.getConnections).mockResolvedValue([mockConnections[0], { ...mockConnections[1], access_mode: "read_only" }]);
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      await user.click(listContainer);
+
+      const event = createEvent.keyDown(document, { key: "F5" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(api.copyItem).not.toHaveBeenCalled();
+    });
+
+    it("does not open move dialog when the source connection is read-only", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }, mockConnections[1]]);
+
+      renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2/Documents");
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "");
+        expectDirectoryLoad("conn-2", "Documents");
+      });
+
+      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      await user.click(listContainer);
+      await user.keyboard(" ");
+      await user.keyboard("{F6}");
+
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+      });
+      expect(api.moveItem).not.toHaveBeenCalled();
     });
   });
 
@@ -1169,6 +1343,27 @@ describe("Browser Component - Interactions", () => {
         expect(screen.queryByText(/are you sure you want to delete/i)).not.toBeInTheDocument();
       });
     });
+
+    it("does not open confirm dialog for read-only connections", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }]);
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Delete}");
+
+      await waitFor(() => {
+        expect(screen.queryByText(/are you sure you want to delete/i)).not.toBeInTheDocument();
+      });
+      expect(api.deleteItem).not.toHaveBeenCalled();
+    });
   });
 
   describe("Rename", () => {
@@ -1246,6 +1441,49 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expect(screen.queryByLabelText(/new name/i)).not.toBeInTheDocument();
       });
+    });
+
+    it("does not open rename dialog for read-only connections", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }]);
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{F2}");
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/new name/i)).not.toBeInTheDocument();
+      });
+      expect(api.renameItem).not.toHaveBeenCalled();
+    });
+
+    it("still prevents the browser default for F2 on read-only connections", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.getConnections).mockResolvedValue([{ ...mockConnections[0], access_mode: "read_only" }]);
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      const event = createEvent.keyDown(document, { key: "F2" });
+      fireEvent(document, event);
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(screen.queryByLabelText(/new name/i)).not.toBeInTheDocument();
+      expect(api.renameItem).not.toHaveBeenCalled();
     });
   });
 });

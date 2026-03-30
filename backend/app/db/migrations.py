@@ -182,12 +182,27 @@ def _apply_user_settings_migration(connection: Connection) -> None:
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_usersetting_user_id ON usersetting (user_id)"))
 
 
+def _apply_connection_access_mode_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("connection"):
+        return
+
+    connection_columns = {column["name"] for column in inspector.get_columns("connection")}
+
+    if "access_mode" not in connection_columns:
+        connection.execute(text("ALTER TABLE connection ADD COLUMN access_mode VARCHAR DEFAULT 'read_write'"))
+
+    connection.execute(text("UPDATE connection SET access_mode = COALESCE(access_mode, 'read_write')"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_connection_access_mode ON connection (access_mode)"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
     Migration(version=3, name="add_connection_scope_and_ownership", apply=_apply_connection_scope_migration),
     Migration(version=4, name="add_system_settings_table", apply=_apply_system_settings_migration),
     Migration(version=5, name="add_user_settings_table", apply=_apply_user_settings_migration),
+    Migration(version=6, name="add_connection_access_mode", apply=_apply_connection_access_mode_migration),
 )
 
 

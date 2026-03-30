@@ -29,6 +29,7 @@ import type { FileEntry } from "../../types";
 import { FileType, isApiError } from "../../types";
 import { hasViewerSupport, isImageFile } from "../../utils/FileTypeRegistry";
 import { compareLocalizedStrings } from "../../utils/localeFormatting";
+import { getConnectionById, isConnectionReadOnly } from "./access";
 import {
   useFileBrowserViewModePreference,
   useQuickNavIncludeDotDirectoriesPreference,
@@ -67,7 +68,7 @@ const createViewerSessionId = (): string => {
 // ============================================================================
 
 export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBrowserPaneReturn {
-  const { rowHeight, disabled = false, isActive = true, onCompanionHint, onNavigatePath, onNavigateConnection } = config;
+  const { rowHeight, connections = [], disabled = false, isActive = true, onCompanionHint, onNavigatePath, onNavigateConnection } = config;
 
   const { currentTheme } = useSambeeTheme();
 
@@ -129,6 +130,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const [openInAppLoading, setOpenInAppLoading] = useState(false);
 
+  const selectedConnection = useMemo(() => getConnectionById(connections, connectionId), [connections, connectionId]);
+  const connectionIsReadOnly = isConnectionReadOnly(selectedConnection);
+
   const prepareDirectoryTransition = useCallback((nextConnectionId: string, nextPath: string): void => {
     directoryLoadAbortRef.current?.abort();
     directoryLoadAbortRef.current = null;
@@ -155,6 +159,30 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     setLoading(true);
   }, []);
 
+  const navigateToPath = useCallback(
+    (nextPath: string, options?: { blurActiveElement?: boolean }) => {
+      const nextConnectionId = connectionIdRef.current;
+      if (!nextConnectionId) {
+        return;
+      }
+
+      pendingLocationRef.current = {
+        connectionId: nextConnectionId,
+        path: nextPath,
+      };
+
+      prepareDirectoryTransition(nextConnectionId, nextPath);
+      setCurrentPath(nextPath);
+      setViewInfo(null);
+      onNavigatePath?.(nextPath);
+
+      if (options?.blurActiveElement && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    },
+    [onNavigatePath, prepareDirectoryTransition]
+  );
+
   // ──────────────────────────────────────────────────────────────────────────
   // Search Provider
   // ──────────────────────────────────────────────────────────────────────────
@@ -162,9 +190,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const directorySearchProvider = useDirectorySearchProvider(
     connectionId,
     (path) => {
-      prepareDirectoryTransition(connectionIdRef.current, path);
-      setCurrentPath(path);
-      onNavigatePath?.(path);
+      navigateToPath(path);
     },
     {
       includeDotDirectories: includeDotDirectoriesInQuickNav,
@@ -195,6 +221,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const filesRef = React.useRef<FileEntry[]>([]);
   const connectionIdRef = React.useRef<string>("");
   const currentPathRef = React.useRef<string>("");
+  const pendingLocationRef = React.useRef<{ connectionId: string; path: string } | null>(null);
   const loadFilesRef = React.useRef<(path: string, forceRefresh?: boolean) => Promise<void>>();
   const latestLoadRequestIdRef = React.useRef(0);
   const directoryLoadAbortRef = React.useRef<AbortController | null>(null);
@@ -431,6 +458,24 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   useEffect(() => {
     loadFilesRef.current = loadFiles;
   }, [loadFiles]);
+
+  const seedDirectorySnapshot = useCallback((targetConnectionId: string, targetPath: string, items: FileEntry[]) => {
+    if (!targetConnectionId) {
+      return;
+    }
+
+    const snapshot = [...items];
+    directoryCache.current.set(`${targetConnectionId}:${targetPath}`, {
+      items: snapshot,
+      timestamp: Date.now(),
+    });
+
+    if (connectionIdRef.current === targetConnectionId && currentPathRef.current === targetPath) {
+      setFiles(snapshot);
+      setLoading(false);
+      setError(null);
+    }
+  }, []);
 
   // Load files when connection or path changes
   useEffect(() => {
@@ -710,18 +755,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   }, [listContainerEl, rowHeight]);
 
   // Focus the list container when it first mounts or directory contents change.
-  // In dual-pane mode, only the active pane auto-focuses to avoid stealing focus.
-  const isActiveRef = React.useRef(isActive);
+  // In dual-pane mode, only the currently active pane may auto-focus.
   useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
+    const fileCount = files.length;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: files.length is a deliberate trigger dependency; isActiveRef is a stable ref
-  useEffect(() => {
-    if (isActiveRef.current && listContainerEl && !viewInfo) {
+    if (isActive && listContainerEl && !viewInfo && fileCount >= 0) {
       listContainerEl.focus();
     }
-  }, [listContainerEl, files.length, viewInfo]);
+  }, [files.length, isActive, listContainerEl, viewInfo]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Connection Change
@@ -730,6 +771,10 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const handleConnectionChange = useCallback(
     (newConnectionId: string) => {
       if (newConnectionId === connectionId) return;
+      pendingLocationRef.current = {
+        connectionId: newConnectionId,
+        path: "",
+      };
       prepareDirectoryTransition(newConnectionId, "");
       setConnectionId(newConnectionId);
       setCurrentPath("");
@@ -765,13 +810,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
         logger.info("Navigating to directory", { from: currentPath, to: newPath, directory: file.name }, "browser");
 
-        prepareDirectoryTransition(connectionIdRef.current, newPath);
-        setCurrentPath(newPath);
-        setViewInfo(null);
-        onNavigatePath?.(newPath);
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
+        navigateToPath(newPath, { blurActiveElement: true });
       } else {
         const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
         const viewerSessionId = createViewerSessionId();
@@ -803,7 +842,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         }
       }
     },
-    [currentPath, updateFocus, imageFiles, focusedIndex, onNavigatePath, prepareDirectoryTransition]
+    [currentPath, updateFocus, imageFiles, focusedIndex, navigateToPath]
   );
 
   const handleViewIndexChange = useCallback((index: number) => {
@@ -971,11 +1010,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
 
     const newPath = pathParts.slice(0, -1).join("/");
-    prepareDirectoryTransition(connectionIdRef.current, newPath);
-    setCurrentPath(newPath);
-    setViewInfo(null);
-    onNavigatePath?.(newPath);
-  }, [onNavigatePath, prepareDirectoryTransition]);
+    navigateToPath(newPath);
+  }, [navigateToPath]);
 
   /**
    * handleNavigateUp — Called by toolbar / breadcrumb "up" button.
@@ -1149,13 +1185,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     const file = filesRef.current[focusedIndex];
     if (!file) return;
+    if (connectionIsReadOnly) return;
 
     setDeleteTarget(file);
     setDeleteDialogOpen(true);
-  }, [focusedIndex, listContainerEl]);
+  }, [connectionIsReadOnly, focusedIndex, listContainerEl]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget || !connectionId) return;
+    if (connectionIsReadOnly) return;
 
     setIsDeleting(true);
     try {
@@ -1183,7 +1221,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     } finally {
       setIsDeleting(false);
     }
-  }, [deleteTarget, connectionId, focusedIndex]);
+  }, [connectionIsReadOnly, deleteTarget, connectionId, focusedIndex]);
 
   const closeDeleteDialog = useCallback(() => {
     setDeleteDialogOpen(false);
@@ -1201,15 +1239,17 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     const file = filesRef.current[focusedIndex];
     if (!file) return;
+    if (connectionIsReadOnly) return;
 
     setRenameError(null);
     setRenameTarget(file);
     setRenameDialogOpen(true);
-  }, [focusedIndex, listContainerEl]);
+  }, [connectionIsReadOnly, focusedIndex, listContainerEl]);
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {
       if (!renameTarget || !connectionId) return;
+      if (connectionIsReadOnly) return;
 
       setIsRenaming(true);
       setRenameError(null);
@@ -1236,14 +1276,18 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setIsRenaming(false);
       }
     },
-    [renameTarget, connectionId, listContainerEl]
+    [connectionIsReadOnly, renameTarget, connectionId, listContainerEl]
   );
 
-  const handleRenameForFile = useCallback((file: FileEntry, _index: number) => {
-    setRenameError(null);
-    setRenameTarget(file);
-    setRenameDialogOpen(true);
-  }, []);
+  const handleRenameForFile = useCallback(
+    (file: FileEntry, _index: number) => {
+      if (connectionIsReadOnly) return;
+      setRenameError(null);
+      setRenameTarget(file);
+      setRenameDialogOpen(true);
+    },
+    [connectionIsReadOnly]
+  );
 
   const closeRenameDialog = useCallback(() => {
     setRenameDialogOpen(false);
@@ -1256,20 +1300,23 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleNewDirectoryRequest = useCallback(() => {
+    if (connectionIsReadOnly) return;
     setCreateError(null);
     setCreateItemType(FileType.DIRECTORY);
     setCreateDialogOpen(true);
-  }, []);
+  }, [connectionIsReadOnly]);
 
   const handleNewFileRequest = useCallback(() => {
+    if (connectionIsReadOnly) return;
     setCreateError(null);
     setCreateItemType(FileType.FILE);
     setCreateDialogOpen(true);
-  }, []);
+  }, [connectionIsReadOnly]);
 
   const handleCreateConfirm = useCallback(
     async (name: string) => {
       if (!connectionId) return;
+      if (connectionIsReadOnly) return;
 
       setIsCreating(true);
       setCreateError(null);
@@ -1296,7 +1343,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setIsCreating(false);
       }
     },
-    [connectionId, createItemType, listContainerEl]
+    [connectionIsReadOnly, connectionId, createItemType, listContainerEl]
   );
 
   const closeCreateDialog = useCallback(() => {
@@ -1312,6 +1359,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     if (!connectionId) return;
     const file = filesRef.current[focusedIndex];
     if (!file || file.type === "directory") return;
+    if (connectionIsReadOnly && !isLocalDrive(connectionId)) return;
 
     const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
 
@@ -1342,11 +1390,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     } finally {
       setOpenInAppLoading(false);
     }
-  }, [connectionId, focusedIndex, currentTheme, onCompanionHint]);
+  }, [connectionId, connectionIsReadOnly, focusedIndex, currentTheme, onCompanionHint]);
 
   const handleOpenInAppForFile = useCallback(
     async (file: FileEntry, _index: number) => {
       if (!connectionId || file.type === "directory") return;
+      if (connectionIsReadOnly && !isLocalDrive(connectionId)) return;
       const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
 
       setOpenInAppLoading(true);
@@ -1377,7 +1426,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         setOpenInAppLoading(false);
       }
     },
-    [connectionId, currentTheme, onCompanionHint]
+    [connectionId, connectionIsReadOnly, currentTheme, onCompanionHint]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1418,15 +1467,29 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const applyLocation = useCallback(
     (nextConnectionId: string, nextPath: string) => {
+      const pendingLocation = pendingLocationRef.current;
+      if (pendingLocation) {
+        if (pendingLocation.connectionId === nextConnectionId && pendingLocation.path === nextPath) {
+          pendingLocationRef.current = null;
+        } else {
+          return;
+        }
+      }
+
       const connectionChanged = connectionIdRef.current !== nextConnectionId;
 
       if (connectionChanged) {
+        const nextCacheKey = `${nextConnectionId}:${nextPath}`;
+        const seededSnapshot = directoryCache.current.get(nextCacheKey);
         prepareDirectoryTransition(nextConnectionId, nextPath);
         setConnectionId(nextConnectionId);
         setCurrentPath(nextPath);
         setViewInfo(null);
         setSelectedFiles(new Set());
         directoryCache.current.clear();
+        if (seededSnapshot) {
+          directoryCache.current.set(nextCacheKey, seededSnapshot);
+        }
         navigationHistory.current.clear();
         writeSelectedConnectionIdPreference(nextConnectionId || null);
         return;
@@ -1590,6 +1653,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handlePageDown,
     handlePageUp,
     handleOpenFile,
+    navigateToPath,
     prepareDirectoryTransition,
     handleNavigateUpDirectory,
     handleNavigateUp,
@@ -1626,6 +1690,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     clearCaches,
     invalidateConnectionCache,
     loadFiles,
+    seedDirectorySnapshot,
     applyLocation,
   };
 }

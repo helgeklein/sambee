@@ -14,9 +14,10 @@
  * @see FileBrowser — the parent page-level orchestrator
  */
 
-import { Box, CircularProgress } from "@mui/material";
+import { Box, Chip, CircularProgress } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
 import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialog";
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
@@ -27,6 +28,7 @@ import type { SearchProvider } from "../../components/FileBrowser/search";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
 import type { Connection } from "../../types";
 import { FileType } from "../../types";
+import { canOpenFileInApp, isConnectionReadOnly } from "./access";
 import type { PaneId, PaneMode, UseFileBrowserPaneReturn } from "./types";
 
 // ============================================================================
@@ -78,9 +80,6 @@ export interface FileBrowserPaneProps {
 
   /** Move focus from the search input into the file list. */
   onSearchArrowDownToFileList?: () => void;
-
-  /** Navigate the pane to a specific path via the router. */
-  onNavigatePath: (path: string) => void;
 }
 
 // ============================================================================
@@ -103,9 +102,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   onSearchQueryValueChange,
   disableSearchDropdown,
   onSearchArrowDownToFileList,
-  onNavigatePath,
 }) => {
   const theme = useTheme();
+  const { t } = useTranslation();
   const isDualMode = paneMode === "dual";
 
   /** Only show the selection highlight on the focused row when this pane is active. */
@@ -114,7 +113,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   const {
     connectionId,
     currentPath,
-    setCurrentPath,
     loading,
     viewMode,
     currentDirectoryFilter,
@@ -122,7 +120,6 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     focusedIndex,
     selectedFiles,
     sortedAndFilteredFiles,
-    setViewInfo,
     // Dialogs
     deleteDialogOpen,
     deleteTarget,
@@ -154,8 +151,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     handleCreateConfirm,
   } = pane;
 
+  const currentConnection = useMemo(() => connections.find((connection) => connection.id === connectionId), [connections, connectionId]);
+
   // Connection display name for breadcrumbs
-  const connectionName = useMemo(() => connections.find((c) => c.id === connectionId)?.name ?? "", [connections, connectionId]);
+  const connectionName = currentConnection?.name ?? "";
+  const connectionIsReadOnly = isConnectionReadOnly(currentConnection);
+  const canRenameItems = !connectionIsReadOnly;
+  const canOpenFocusedFileInApp = canOpenFileInApp(currentConnection);
 
   // ──────────────────────────────────────────────────────────────────────────
   // File Row Styles — depend on isUsingKeyboard (global) and theme
@@ -315,15 +317,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   /** Navigate to a breadcrumb path segment. */
   const handleBreadcrumbNavigate = React.useCallback(
     (path: string) => {
-      pane.prepareDirectoryTransition(connectionId, path);
-      setCurrentPath(path);
-      setViewInfo(null);
-      onNavigatePath(path);
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
+      pane.navigateToPath(path, { blurActiveElement: true });
     },
-    [connectionId, onNavigatePath, pane, setCurrentPath, setViewInfo]
+    [pane]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -354,22 +350,45 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             disableTabFocus={disableTabFocus}
             showActiveIndicator={isDualMode && isActive}
           />
+          {connectionIsReadOnly && (
+            <Chip
+              size="small"
+              variant="outlined"
+              color="warning"
+              label={t("settings.connectionDialog.accessMode.readOnlyLabel")}
+              title={t("settings.connectionDialog.helpers.accessModeReadOnly")}
+              sx={{ ml: 1, flexShrink: 0 }}
+            />
+          )}
         </Box>
       )}
 
       {/* Search bar (mobile compact layout) */}
       {useCompactLayout && (
-        <UnifiedSearchBar
-          provider={searchProvider}
-          activationToken={searchActivationToken}
-          inputRef={searchInputRef}
-          useCompactLayout={useCompactLayout}
-          onBlurToFileList={() => listContainerEl?.focus()}
-          queryValue={searchQueryValue}
-          onQueryValueChange={onSearchQueryValueChange}
-          disableDropdown={disableSearchDropdown}
-          onArrowDownToFileList={onSearchArrowDownToFileList}
-        />
+        <>
+          <UnifiedSearchBar
+            provider={searchProvider}
+            activationToken={searchActivationToken}
+            inputRef={searchInputRef}
+            useCompactLayout={useCompactLayout}
+            onBlurToFileList={() => listContainerEl?.focus()}
+            queryValue={searchQueryValue}
+            onQueryValueChange={onSearchQueryValueChange}
+            disableDropdown={disableSearchDropdown}
+            onArrowDownToFileList={onSearchArrowDownToFileList}
+          />
+          {connectionIsReadOnly && (
+            <Box sx={{ px: 2, pb: 1 }}>
+              <Chip
+                size="small"
+                variant="outlined"
+                color="warning"
+                label={t("settings.connectionDialog.accessMode.readOnlyLabel")}
+                title={t("settings.connectionDialog.helpers.accessModeReadOnly")}
+              />
+            </Box>
+          )}
+        </>
       )}
 
       {/* File list or loading indicator */}
@@ -398,8 +417,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             listContainerRef={listContainerRef}
             fileRowStyles={fileRowStyles}
             viewMode={viewMode}
-            onOpenInApp={handleOpenInAppForFile}
-            onRename={handleRenameForFile}
+            onOpenInApp={canOpenFocusedFileInApp ? handleOpenInAppForFile : undefined}
+            onRename={canRenameItems ? handleRenameForFile : undefined}
           />
         </Box>
       )}

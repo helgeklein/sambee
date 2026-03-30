@@ -2,6 +2,7 @@ import type { ThemeConfig } from "../theme/types";
 
 export type UserRole = "admin" | "regular";
 export type ConnectionScope = "shared" | "private";
+export type ConnectionAccessMode = "read_write" | "read_only";
 export type SystemSettingSource = "database" | "config_file" | "default";
 export type LanguagePreference = "browser" | "en" | "en-XA";
 export type RegionalLocalePreference = string;
@@ -65,6 +66,7 @@ export interface Connection {
   username: string;
   path_prefix?: string;
   scope: ConnectionScope;
+  access_mode: ConnectionAccessMode;
   can_manage: boolean;
   created_at: string;
   updated_at: string;
@@ -80,6 +82,7 @@ export interface ConnectionCreate {
   password: string;
   path_prefix?: string;
   scope: ConnectionScope;
+  access_mode: ConnectionAccessMode;
 }
 
 export interface ConnectionVisibilityOption {

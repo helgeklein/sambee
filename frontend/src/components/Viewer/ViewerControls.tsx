@@ -1,5 +1,5 @@
 import { ArrowBack, ArrowForward, Close, Download, IosShare, RotateLeft, RotateRight, Search, ZoomIn, ZoomOut } from "@mui/icons-material";
-import { Box, Button, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Button, Chip, IconButton, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import React, { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { COMMON_SHORTCUTS, VIEWER_SHORTCUTS } from "../../config/keyboardShortcuts";
@@ -115,6 +115,11 @@ export interface ViewerControlsProps {
   toolbarText?: string;
 }
 
+interface ViewerFilenameBadgeProps {
+  label: string;
+  toolbarText?: string;
+}
+
 interface ViewerToolbarActionBase {
   id: string;
   onClick: () => void;
@@ -135,6 +140,32 @@ export interface ViewerIconToolbarAction extends ViewerToolbarActionBase {
 }
 
 export type ViewerToolbarAction = ViewerButtonToolbarAction | ViewerIconToolbarAction;
+
+export const ViewerFilenameBadge: React.FC<ViewerFilenameBadgeProps> = ({ label, toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT }) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  return (
+    <Chip
+      component="span"
+      label={label}
+      size="small"
+      variant="outlined"
+      sx={{
+        height: isMobile ? 20 : 22,
+        color: toolbarText,
+        borderColor: `${toolbarText}66`,
+        backgroundColor: `${toolbarText}14`,
+        "& .MuiChip-label": {
+          px: isMobile ? 0.75 : 1,
+          fontSize: isMobile ? "0.6875rem" : "0.75rem",
+          fontWeight: 600,
+          lineHeight: 1,
+        },
+      }}
+    />
+  );
+};
 
 /**
  * Centralized viewer controls component

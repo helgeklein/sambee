@@ -159,6 +159,29 @@ describe("MarkdownViewer", () => {
     },
   });
 
+  function suppressExpectedRenderCrashNoise(message: string): () => void {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      const combinedMessage = args.map((value) => (value instanceof Error ? value.message : String(value))).join(" ");
+
+      if (combinedMessage.includes(message)) {
+        return;
+      }
+    });
+
+    const handleWindowError = (event: ErrorEvent) => {
+      if (event.error instanceof Error && event.error.message === message) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener("error", handleWindowError);
+
+    return () => {
+      window.removeEventListener("error", handleWindowError);
+      consoleErrorSpy.mockRestore();
+    };
+  }
+
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("access_token", "mock-token");
@@ -177,13 +200,39 @@ describe("MarkdownViewer", () => {
     return renderViewerWithProps();
   }
 
-  function renderViewerWithProps({ onClose = () => {} }: { onClose?: () => void } = {}) {
+  function renderViewerWithProps({ onClose = () => {}, isReadOnly = false }: { onClose?: () => void; isReadOnly?: boolean } = {}) {
     return render(
       <SambeeThemeProvider>
-        <MarkdownViewer connectionId="conn1" path="/docs/readme.md" onClose={onClose} />
+        <MarkdownViewer connectionId="conn1" path="/docs/readme.md" onClose={onClose} isReadOnly={isReadOnly} />
       </SambeeThemeProvider>
     );
   }
+
+  it("does not expose markdown edit mode for read-only connections", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+
+    renderViewerWithProps({ isReadOnly: true });
+
+    await screen.findByText("Readme");
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByText("Browse and preview content, but block writes and edit flows through Sambee.")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "e" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", { name: "Markdown editor" })).not.toBeInTheDocument();
+    });
+
+    expect(acquireLockSpy).not.toHaveBeenCalled();
+  });
 
   it("enters edit mode and acquires a lock for server-backed markdown files", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
@@ -319,6 +368,39 @@ describe("MarkdownViewer", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Failed to save markdown changes.: Disk full")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
+  });
+
+  it("shows the backend read-only detail when a stale client save is rejected with 403", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    vi.spyOn(apiService, "saveTextFile").mockRejectedValueOnce({
+      response: {
+        data: { detail: "Connection is read-only" },
+        status: 403,
+      },
+    });
+    const releaseSpy = vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Connection is read-only")).toBeInTheDocument();
     });
     expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
     expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
@@ -785,7 +867,7 @@ describe("MarkdownViewer", () => {
   });
 
   it("recovers from a markdown editor render crash without closing the viewer", async () => {
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const restoreCrashNoiseSuppression = suppressExpectedRenderCrashNoise("Editor render failed");
 
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
@@ -805,7 +887,7 @@ describe("MarkdownViewer", () => {
       expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
     });
 
-    consoleErrorSpy.mockRestore();
+    restoreCrashNoiseSuppression();
   });
 
   it("shows a recoverable error when a markdown editor command throws", async () => {

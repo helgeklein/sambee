@@ -1,0 +1,70 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import api from "../../services/api";
+import { clearCurrentUserSettingsCache } from "../../services/userSettingsSync";
+import { type ApiMock, setupSuccessfulApiMocks } from "../../test/helpers";
+import { SambeeThemeProvider } from "../../theme/ThemeContext";
+import { useFileBrowserPane } from "../FileBrowser/useFileBrowserPane";
+import { mockConnections, mockDirectoryListing } from "./FileBrowser.test.utils";
+
+vi.mock("../../services/api");
+
+describe("useFileBrowserPane", () => {
+  const wrapper = ({ children }: { children: ReactNode }) => <SambeeThemeProvider>{children}</SambeeThemeProvider>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearCurrentUserSettingsCache();
+    localStorage.setItem("access_token", "fake-token");
+    setupSuccessfulApiMocks(api as unknown as ApiMock);
+  });
+
+  it("ignores a stale route replay after starting a local directory navigation", async () => {
+    const onNavigatePath = vi.fn();
+    const documentsDirectory = mockDirectoryListing.items.find((item) => item.type === "directory" && item.name === "Documents");
+
+    expect(documentsDirectory).toBeDefined();
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: mockConnections,
+          onNavigatePath,
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("conn-1");
+      expect(result.current.currentPath).toBe("");
+    });
+
+    act(() => {
+      result.current.handleFileClick(documentsDirectory!);
+    });
+
+    await waitFor(() => {
+      expect(result.current.currentPath).toBe("Documents");
+    });
+
+    act(() => {
+      result.current.applyLocation("conn-1", "");
+    });
+
+    expect(result.current.currentPath).toBe("Documents");
+    expect(onNavigatePath).toHaveBeenCalledWith("Documents");
+
+    act(() => {
+      result.current.applyLocation("conn-1", "Documents");
+    });
+
+    expect(result.current.currentPath).toBe("Documents");
+  });
+});

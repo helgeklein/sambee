@@ -9,6 +9,7 @@ import { getViewerComponentLoadResult } from "../../utils/FileTypeRegistry";
 
 interface DynamicViewerProps {
   connectionId: string;
+  isReadOnly?: boolean;
   viewInfo: {
     path: string;
     mimeType: string;
@@ -91,7 +92,13 @@ function ViewerFallbackDialog({ mode, path, error, onClose, onRetry }: ViewerFal
 //
 // DynamicViewer
 //
-export const DynamicViewer = memo(function DynamicViewer({ connectionId, viewInfo, onClose, onIndexChange }: DynamicViewerProps) {
+export const DynamicViewer = memo(function DynamicViewer({
+  connectionId,
+  isReadOnly,
+  viewInfo,
+  onClose,
+  onIndexChange,
+}: DynamicViewerProps) {
   const [loadState, setLoadState] = useState<DynamicViewerLoadState>({ status: "loading" });
   const [retryToken, setRetryToken] = useState(0);
 
@@ -185,6 +192,7 @@ export const DynamicViewer = memo(function DynamicViewer({ connectionId, viewInf
       connectionId={connectionId}
       path={viewInfo.path}
       onClose={onClose}
+      isReadOnly={isReadOnly}
       images={viewInfo.images}
       currentIndex={viewInfo.currentIndex}
       onCurrentIndexChange={onIndexChange}

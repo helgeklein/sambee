@@ -11,6 +11,10 @@ export interface BrowserCommandContext {
   hasFiles: boolean;
   hasFocusedFile: boolean;
   connectionSelected: boolean;
+  connectionWritable: boolean;
+  canOpenFocusedFileInApp: boolean;
+  canCopyToOtherPane: boolean;
+  canMoveToOtherPane: boolean;
   openQuickNav: () => void;
   openFilterMode: () => void;
   openCommandMode: () => void;
@@ -137,7 +141,7 @@ const BROWSER_COMMANDS = [
     keywords: ["rename", "f2"],
     defaultShortcutIds: ["rename-item"],
     shortcutLabel: "F2",
-    isEnabled: (context) => context.hasFocusedFile,
+    isEnabled: (context) => context.hasFocusedFile && context.connectionWritable,
     run: (context) => context.renameFocusedItem(),
   }),
   createCommand({
@@ -147,7 +151,7 @@ const BROWSER_COMMANDS = [
     keywords: ["delete", "remove", "del"],
     defaultShortcutIds: ["delete-item"],
     shortcutLabel: "Del",
-    isEnabled: (context) => context.hasFocusedFile,
+    isEnabled: (context) => context.hasFocusedFile && context.connectionWritable,
     run: (context) => context.deleteFocusedItem(),
   }),
   createCommand({
@@ -157,7 +161,7 @@ const BROWSER_COMMANDS = [
     keywords: ["mkdir", "folder", "directory"],
     defaultShortcutIds: ["new-directory"],
     shortcutLabel: "F7",
-    isEnabled: (context) => context.connectionSelected,
+    isEnabled: (context) => context.connectionSelected && context.connectionWritable,
     run: (context) => context.newDirectory(),
   }),
   createCommand({
@@ -167,7 +171,7 @@ const BROWSER_COMMANDS = [
     keywords: ["file", "create"],
     defaultShortcutIds: ["new-file"],
     shortcutLabel: "Shift+F7",
-    isEnabled: (context) => context.connectionSelected,
+    isEnabled: (context) => context.connectionSelected && context.connectionWritable,
     run: (context) => context.newFile(),
   }),
   createCommand({
@@ -177,7 +181,7 @@ const BROWSER_COMMANDS = [
     keywords: ["companion", "open in app", "ctrl enter"],
     defaultShortcutIds: ["open-in-app"],
     shortcutLabel: "Ctrl+Enter",
-    isEnabled: (context) => context.hasFocusedFile,
+    isEnabled: (context) => context.canOpenFocusedFileInApp,
     run: (context) => context.openInApp(),
   }),
   createCommand({
@@ -227,7 +231,7 @@ const BROWSER_COMMANDS = [
     keywords: ["copy", "f5"],
     defaultShortcutIds: ["copy-to-other"],
     shortcutLabel: "F5",
-    isEnabled: (context) => context.isDualMode,
+    isEnabled: (context) => context.isDualMode && context.canCopyToOtherPane,
     run: (context) => context.copyToOtherPane(),
   }),
   createCommand({
@@ -237,7 +241,7 @@ const BROWSER_COMMANDS = [
     keywords: ["move", "f6"],
     defaultShortcutIds: ["move-to-other"],
     shortcutLabel: "F6",
-    isEnabled: (context) => context.isDualMode,
+    isEnabled: (context) => context.isDualMode && context.canMoveToOtherPane,
     run: (context) => context.moveToOtherPane(),
   }),
   createCommand({

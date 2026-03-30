@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.security import decrypt_password
-from app.models.connection import Connection, ConnectionScope
+from app.models.connection import Connection, ConnectionAccessMode, ConnectionScope
 from app.models.user import User
 
 
@@ -30,6 +30,7 @@ class TestListConnections:
         assert len(data) == len(multiple_connections)
         assert all(connection["scope"] == "shared" for connection in data)
         assert all(connection["can_manage"] is True for connection in data)
+        assert all(connection["access_mode"] == "read_write" for connection in data)
         assert all(connection["id"] != str(other_private_connection.id) for connection in data)
 
     def test_regular_user_lists_shared_and_owned_private(
@@ -49,6 +50,7 @@ class TestListConnections:
         own_private = next(connection for connection in data if connection["id"] == str(user_private_connection.id))
         assert own_private["scope"] == "private"
         assert own_private["can_manage"] is True
+        assert own_private["access_mode"] == "read_write"
 
         shared_connections = [connection for connection in data if connection["scope"] == "shared"]
         assert len(shared_connections) == len(multiple_connections)
@@ -115,6 +117,7 @@ class TestCreateConnection:
             "password": "sharedpass123",
             "port": 445,
             "scope": "shared",
+            "access_mode": "read_only",
         }
 
         with patch("app.api.connections.SMBBackend") as mock_backend:
@@ -130,10 +133,12 @@ class TestCreateConnection:
         data = response.json()
         assert data["scope"] == "shared"
         assert data["can_manage"] is True
+        assert data["access_mode"] == "read_only"
 
         db_connection = session.get(Connection, uuid.UUID(data["id"]))
         assert db_connection is not None
         assert db_connection.scope == ConnectionScope.SHARED
+        assert db_connection.access_mode == ConnectionAccessMode.READ_ONLY
         assert db_connection.owner_user_id is None
         assert decrypt_password(db_connection.password_encrypted) == connection_data["password"]
 
@@ -152,6 +157,7 @@ class TestCreateConnection:
             "password": "userpass123",
             "port": 445,
             "scope": "shared",
+            "access_mode": "read_write",
         }
 
         with patch("app.api.connections.SMBBackend") as mock_backend:
@@ -167,6 +173,7 @@ class TestCreateConnection:
         data = response.json()
         assert data["scope"] == "private"
         assert data["can_manage"] is True
+        assert data["access_mode"] == "read_write"
 
         db_connection = session.get(Connection, uuid.UUID(data["id"]))
         assert db_connection is not None
@@ -188,6 +195,7 @@ class TestUpdateConnection:
         update_data = {
             "name": "Updated Private Server",
             "password": "updatedpass123",
+            "access_mode": "read_only",
         }
 
         with patch("app.api.connections.SMBBackend") as mock_backend:
@@ -207,10 +215,12 @@ class TestUpdateConnection:
         data = response.json()
         assert data["name"] == update_data["name"]
         assert data["scope"] == "private"
+        assert data["access_mode"] == "read_only"
         assert data["can_manage"] is True
 
         session.refresh(user_private_connection)
         assert user_private_connection.name == update_data["name"]
+        assert user_private_connection.access_mode == ConnectionAccessMode.READ_ONLY
         assert decrypt_password(user_private_connection.password_encrypted) == update_data["password"]
 
     def test_regular_user_cannot_update_shared_connection(

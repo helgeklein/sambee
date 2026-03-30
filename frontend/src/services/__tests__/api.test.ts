@@ -258,6 +258,7 @@ describe("API Service", () => {
           username: "user",
           path_prefix: "",
           scope: "shared",
+          access_mode: "read_write",
           can_manage: true,
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
@@ -273,6 +274,7 @@ describe("API Service", () => {
           username: "admin",
           path_prefix: "",
           scope: "shared",
+          access_mode: "read_write",
           can_manage: true,
           created_at: "2024-01-01T00:00:00Z",
           updated_at: "2024-01-01T00:00:00Z",
@@ -300,6 +302,7 @@ describe("API Service", () => {
         password: "pass",
         path_prefix: "",
         scope: "private",
+        access_mode: "read_write",
       };
 
       const createdConnection: Connection = {
@@ -313,6 +316,7 @@ describe("API Service", () => {
         username: "user",
         path_prefix: "",
         scope: "private",
+        access_mode: "read_write",
         can_manage: true,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
@@ -373,6 +377,7 @@ describe("API Service", () => {
         username: "user",
         path_prefix: "",
         scope: "shared",
+        access_mode: "read_write",
         can_manage: true,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-02T00:00:00Z",
@@ -859,6 +864,7 @@ describe("API Service", () => {
           username: "user",
           path_prefix: "/",
           scope: "shared",
+          access_mode: "read_write",
           can_manage: true,
           created_at: "2024-01-01T00:00:00",
           updated_at: "2024-01-01T00:00:00",

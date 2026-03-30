@@ -54,6 +54,14 @@ import type { ConflictInfo, Connection } from "../types";
 import { isApiError } from "../types";
 import { compareLocalizedStrings } from "../utils/localeFormatting";
 import { isAdminUser } from "../utils/userAccess";
+import {
+  canCopyToConnection,
+  canMoveBetweenConnections,
+  canOpenFileInApp,
+  getConnectionById,
+  isConnectionReadOnly,
+  isConnectionWritable,
+} from "./FileBrowser/access";
 import { FileBrowserPane } from "./FileBrowser/FileBrowserPane";
 import {
   readFileBrowserPaneModePreference,
@@ -202,6 +210,7 @@ const Browser: React.FC = () => {
   const rightPathNavigateRef = React.useRef<(path: string) => void>(() => undefined);
   const leftConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
   const rightConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
+  const pendingPaneFocusRef = React.useRef<PaneId | null>(null);
 
   // WebSocket for real-time directory updates (server)
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -217,6 +226,7 @@ const Browser: React.FC = () => {
 
   // Left pane — always present, synced with URL
   const leftPane = useFileBrowserPane({
+    connections: allConnections,
     rowHeight,
     disabled: settingsOpen || mobileSettingsOpen,
     isActive: activePaneId === "left",
@@ -228,6 +238,7 @@ const Browser: React.FC = () => {
   // Right pane — always instantiated (React hooks rule: no conditional hooks),
   // but only renders in dual mode. Disabled when not in dual mode.
   const rightPane = useFileBrowserPane({
+    connections: allConnections,
     rowHeight,
     disabled: settingsOpen || mobileSettingsOpen || paneMode === "single",
     isActive: activePaneId === "right" && paneMode === "dual",
@@ -246,6 +257,21 @@ const Browser: React.FC = () => {
   effectiveActivePaneIdRef.current = effectiveActivePaneId;
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
   const quickBarPane = quickBarPaneId === "right" && isDualMode ? rightPane : leftPane;
+  const quickBarOtherPane = quickBarPaneId === "right" && isDualMode ? leftPane : rightPane;
+  const activePaneConnection = getConnectionById(allConnections, activePane.connectionId);
+  const quickBarPaneConnection = getConnectionById(allConnections, quickBarPane.connectionId);
+  const quickBarOtherPaneConnection = getConnectionById(allConnections, quickBarOtherPane.connectionId);
+  const leftPaneConnection = getConnectionById(allConnections, leftPane.connectionId);
+  const rightPaneConnection = getConnectionById(allConnections, rightPane.connectionId);
+  const activePaneFocusedFile = activePane.focusedIndex >= 0 ? activePane.filesRef.current[activePane.focusedIndex] : undefined;
+  const quickBarFocusedFile = quickBarPane.focusedIndex >= 0 ? quickBarPane.filesRef.current[quickBarPane.focusedIndex] : undefined;
+  const quickBarPaneWritable = isConnectionWritable(quickBarPaneConnection);
+  const activePaneCanOpenInApp = activePaneFocusedFile?.type === "file" && canOpenFileInApp(activePaneConnection);
+  const quickBarCanOpenInApp = quickBarFocusedFile?.type === "file" && canOpenFileInApp(quickBarPaneConnection);
+  const quickBarCanCopyToOtherPane =
+    isDualMode && quickBarFocusedFile !== undefined && canCopyToConnection(quickBarPaneConnection, quickBarOtherPaneConnection);
+  const quickBarCanMoveToOtherPane =
+    isDualMode && quickBarFocusedFile !== undefined && canMoveBetweenConnections(quickBarPaneConnection, quickBarOtherPaneConnection);
 
   useEffect(() => {
     if ((!isDualMode || !rightPane.connectionId) && quickBarPaneId === "right") {
@@ -385,6 +411,22 @@ const Browser: React.FC = () => {
     navigateRightPane(connectionId, "", { activePaneId: "right" });
   };
 
+  const leftApplyLocation = leftPane.applyLocation;
+  const rightApplyLocation = rightPane.applyLocation;
+  const leftListContainerEl = leftPane.listContainerEl;
+  const rightListContainerEl = rightPane.listContainerEl;
+
+  const seedRightPaneFromLeftIfSameDirectory = useCallback(() => {
+    const leftConnectionId = leftPane.connectionIdRef.current;
+    const leftPath = leftPane.currentPathRef.current;
+
+    if (!leftConnectionId || leftPane.loading || leftPane.error) {
+      return;
+    }
+
+    rightPane.seedDirectorySnapshot(leftConnectionId, leftPath, leftPane.files);
+  }, [leftPane.connectionIdRef, leftPane.currentPathRef, leftPane.error, leftPane.files, leftPane.loading, rightPane]);
+
   /**
    * loadConnections
    *
@@ -512,8 +554,8 @@ const Browser: React.FC = () => {
       return;
     }
 
-    leftPane.applyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "");
-    rightPane.applyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "");
+    leftApplyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "");
+    rightApplyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "");
 
     const nextPaneMode: PaneMode = resolvedRoute.right ? "dual" : "single";
     const nextActivePaneId: PaneId = resolvedRoute.right ? resolvedRoute.activePaneId : "left";
@@ -528,7 +570,27 @@ const Browser: React.FC = () => {
 
     setFileBrowserPaneModePreference(nextPaneMode, true);
     localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, nextActivePaneId);
-  }, [activePaneId, leftPane.applyLocation, loadingConnections, paneMode, resolvedRoute, rightPane.applyLocation]);
+
+    if (pendingPaneFocusRef.current !== nextActivePaneId) {
+      pendingPaneFocusRef.current = null;
+    }
+  }, [activePaneId, leftApplyLocation, loadingConnections, paneMode, resolvedRoute, rightApplyLocation]);
+
+  useEffect(() => {
+    if (pendingPaneFocusRef.current !== activePaneId) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      if (activePaneId === "right") {
+        rightListContainerEl?.focus();
+      } else {
+        leftListContainerEl?.focus();
+      }
+
+      pendingPaneFocusRef.current = null;
+    }, 0);
+  }, [activePaneId, leftListContainerEl, rightListContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // WebSocket Real-Time Updates
@@ -811,22 +873,23 @@ const Browser: React.FC = () => {
       return;
     }
 
-    if (paneMode === "single") {
+    if (!resolvedRoute.right) {
+      seedRightPaneFromLeftIfSameDirectory();
+      pendingPaneFocusRef.current = "right";
       navigateToBrowseState({
         left: leftTarget,
         right: buildBrowseRouteTarget(leftPane.connectionIdRef.current, leftPane.currentPathRef.current, allConnections),
         activePaneId: "right",
       });
     } else {
+      pendingPaneFocusRef.current = "left";
       navigateToBrowseState({
         left: leftTarget,
         right: null,
         activePaneId: "left",
       });
-      // Focus left pane's list container
-      setTimeout(() => leftPane.listContainerEl?.focus(), 0);
     }
-  }, [allConnections, getCurrentLeftTarget, leftPane, navigateToBrowseState, paneMode]);
+  }, [allConnections, getCurrentLeftTarget, leftPane, navigateToBrowseState, resolvedRoute.right, seedRightPaneFromLeftIfSameDirectory]);
 
   /** Switch focus to the other pane (Tab in dual mode). */
   const handleSwitchPane = useCallback(() => {
@@ -854,6 +917,7 @@ const Browser: React.FC = () => {
     }
 
     if (paneMode === "single") {
+      seedRightPaneFromLeftIfSameDirectory();
       navigateToBrowseState({
         left: leftTarget,
         right: buildBrowseRouteTarget(leftPane.connectionIdRef.current, leftPane.currentPathRef.current, allConnections),
@@ -863,7 +927,16 @@ const Browser: React.FC = () => {
       replaceActivePaneInRoute("right");
     }
     setTimeout(() => rightPane.listContainerEl?.focus(), 0);
-  }, [allConnections, getCurrentLeftTarget, leftPane, navigateToBrowseState, paneMode, replaceActivePaneInRoute, rightPane]);
+  }, [
+    allConnections,
+    getCurrentLeftTarget,
+    leftPane,
+    navigateToBrowseState,
+    paneMode,
+    replaceActivePaneInRoute,
+    rightPane,
+    seedRightPaneFromLeftIfSameDirectory,
+  ]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Copy / Move Handlers
@@ -880,6 +953,14 @@ const Browser: React.FC = () => {
       const sourcePaneId = effectiveActivePaneIdRef.current;
       const sourcePane = sourcePaneId === "left" ? leftPane : rightPane;
       const destPane = sourcePaneId === "left" ? rightPane : leftPane;
+      const sourceConnection = getConnectionById(allConnections, sourcePane.connectionIdRef.current);
+      const destinationConnection = getConnectionById(allConnections, destPane.connectionIdRef.current);
+
+      if (mode === "copy") {
+        if (!canCopyToConnection(sourceConnection, destinationConnection)) return;
+      } else if (!canMoveBetweenConnections(sourceConnection, destinationConnection)) {
+        return;
+      }
 
       const files = sourcePane.getEffectiveSelection();
       if (files.length === 0) return;
@@ -901,7 +982,7 @@ const Browser: React.FC = () => {
       setCopyMoveProcessing(false);
       setCopyMoveDialogOpen(true);
     },
-    [isDualMode, leftPane, rightPane, connections]
+    [allConnections, connections, isDualMode, leftPane, rightPane]
   );
 
   /** Open the copy dialog (F5). */
@@ -1125,6 +1206,10 @@ const Browser: React.FC = () => {
       hasFiles: quickBarPane.filesRef.current.length > 0,
       hasFocusedFile: quickBarPane.focusedIndex >= 0 && quickBarPane.filesRef.current[quickBarPane.focusedIndex] !== undefined,
       connectionSelected: quickBarPane.connectionId !== "",
+      connectionWritable: quickBarPaneWritable,
+      canOpenFocusedFileInApp: quickBarCanOpenInApp,
+      canCopyToOtherPane: quickBarCanCopyToOtherPane,
+      canMoveToOtherPane: quickBarCanMoveToOtherPane,
       openQuickNav: () => openQuickBarMode("smart"),
       openFilterMode: () => openQuickBarMode("filter"),
       openCommandMode: () => openQuickBarMode("commands"),
@@ -1160,8 +1245,12 @@ const Browser: React.FC = () => {
       mobileSettingsOpen,
       openConnectionsSettings,
       openQuickBarMode,
+      quickBarCanCopyToOtherPane,
+      quickBarCanMoveToOtherPane,
+      quickBarCanOpenInApp,
       quickBarMode,
       quickBarPane,
+      quickBarPaneWritable,
       settingsOpen,
       showHelp,
       useCompactLayout,
@@ -1366,7 +1455,7 @@ const Browser: React.FC = () => {
       {
         ...BROWSER_SHORTCUTS.OPEN_IN_APP,
         handler: activePane.handleOpenInApp,
-        enabled: browsing && activePane.focusedIndex >= 0 && activePane.filesRef.current[activePane.focusedIndex]?.type === "file",
+        enabled: browsing && activePaneCanOpenInApp,
       },
       // Create new directory (F7)
       {
@@ -1447,6 +1536,7 @@ const Browser: React.FC = () => {
     ];
   }, [
     activePane,
+    activePaneCanOpenInApp,
     handleOpenSettings,
     handleOpenConnectionSelector,
     settingsOpen,
@@ -1734,7 +1824,7 @@ const Browser: React.FC = () => {
               useCompactLayout={useCompactLayout}
               isUsingKeyboard={isUsingKeyboard}
               onPaneFocus={() => {
-                if (paneMode === "dual") {
+                if (paneMode === "dual" && pendingPaneFocusRef.current === null) {
                   replaceActivePaneInRoute("left");
                 }
               }}
@@ -1745,7 +1835,6 @@ const Browser: React.FC = () => {
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
               disableSearchDropdown={quickBarMode === "filter"}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
-              onNavigatePath={(path) => leftPathNavigateRef.current(path)}
             />
 
             {/* Divider + Right Pane — dual mode only */}
@@ -1761,7 +1850,9 @@ const Browser: React.FC = () => {
                   useCompactLayout={useCompactLayout}
                   isUsingKeyboard={isUsingKeyboard}
                   onPaneFocus={() => {
-                    replaceActivePaneInRoute("right");
+                    if (pendingPaneFocusRef.current === null) {
+                      replaceActivePaneInRoute("right");
+                    }
                   }}
                   disableTabFocus={isDualMode}
                   searchProvider={quickBarProvider}
@@ -1770,7 +1861,6 @@ const Browser: React.FC = () => {
                   onSearchQueryValueChange={handleQuickBarQueryValueChange}
                   disableSearchDropdown={quickBarMode === "filter"}
                   onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
-                  onNavigatePath={(path) => rightPathNavigateRef.current(path)}
                 />
               </>
             )}
@@ -1802,6 +1892,7 @@ const Browser: React.FC = () => {
       {leftPane.viewInfo && (
         <DynamicViewer
           connectionId={leftPane.connectionId}
+          isReadOnly={isConnectionReadOnly(leftPaneConnection)}
           viewInfo={leftPane.viewInfo}
           onClose={leftPane.handleViewClose}
           onIndexChange={leftPane.handleViewIndexChange}
@@ -1810,6 +1901,7 @@ const Browser: React.FC = () => {
       {rightPane.viewInfo && !leftPane.viewInfo && (
         <DynamicViewer
           connectionId={rightPane.connectionId}
+          isReadOnly={isConnectionReadOnly(rightPaneConnection)}
           viewInfo={rightPane.viewInfo}
           onClose={rightPane.handleViewClose}
           onIndexChange={rightPane.handleViewIndexChange}

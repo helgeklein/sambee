@@ -273,6 +273,8 @@ describe("Connection Management API Contract Tests", () => {
         username: "newuser",
         password: "password123",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
       };
 
       const backendResponse: Connection = {
@@ -284,6 +286,9 @@ describe("Connection Management API Contract Tests", () => {
         share_name: "newshare",
         username: "newuser",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
         created_at: "2024-03-01T10:00:00Z",
         updated_at: "2024-03-01T10:00:00Z",
       };
@@ -311,6 +316,8 @@ describe("Connection Management API Contract Tests", () => {
         username: "user",
         password: "secret123",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
       };
 
       const backendResponse: Connection = {
@@ -322,6 +329,9 @@ describe("Connection Management API Contract Tests", () => {
         share_name: "share",
         username: "user",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
         created_at: "2024-03-01T10:00:00Z",
         updated_at: "2024-03-01T10:00:00Z",
       };
@@ -347,6 +357,8 @@ describe("Connection Management API Contract Tests", () => {
         username: "user",
         password: "pass",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
       };
 
       const backendResponse: Connection = {
@@ -358,6 +370,9 @@ describe("Connection Management API Contract Tests", () => {
         share_name: "share",
         username: "user",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
         created_at: "2024-03-01T10:00:00Z",
         updated_at: "2024-03-01T10:00:00Z",
       };
@@ -399,6 +414,9 @@ describe("Connection Management API Contract Tests", () => {
         share_name: "updated_share",
         username: "user",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-03-01T15:00:00Z", // Updated timestamp
       };
@@ -429,6 +447,9 @@ describe("Connection Management API Contract Tests", () => {
         share_name: "share",
         username: "user",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
         created_at: originalTimestamp,
         updated_at: updatedTimestamp,
       };
@@ -459,6 +480,9 @@ describe("Connection Management API Contract Tests", () => {
         share_name: "share",
         username: "user",
         path_prefix: "/",
+        scope: "private",
+        access_mode: "read_write",
+        can_manage: true,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-03-01T00:00:00Z",
       };
