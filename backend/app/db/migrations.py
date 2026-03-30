@@ -87,7 +87,7 @@ def _apply_user_role_migration(connection: Connection) -> None:
     user_columns = {column["name"] for column in inspector.get_columns("user")}
 
     if "role" not in user_columns:
-        connection.execute(text('ALTER TABLE "user" ADD COLUMN role VARCHAR DEFAULT "regular"'))
+        connection.execute(text('ALTER TABLE "user" ADD COLUMN role VARCHAR DEFAULT "editor"'))
         user_columns.add("role")
 
     if "is_active" not in user_columns:
@@ -106,12 +106,7 @@ def _apply_user_role_migration(connection: Connection) -> None:
         connection.execute(text('ALTER TABLE "user" ADD COLUMN updated_at TIMESTAMP'))
         user_columns.add("updated_at")
 
-    if "role" in user_columns and "is_admin" in user_columns:
-        connection.execute(
-            text('UPDATE "user" SET role = CASE WHEN is_admin = 1 THEN "admin" ELSE "regular" END WHERE role IS NULL OR role = ""')
-        )
-
-    connection.execute(text('UPDATE "user" SET role = COALESCE(role, "regular")'))
+    connection.execute(text('UPDATE "user" SET role = COALESCE(role, "editor")'))
     connection.execute(text('UPDATE "user" SET is_active = COALESCE(is_active, 1)'))
     connection.execute(text('UPDATE "user" SET must_change_password = COALESCE(must_change_password, 0)'))
     connection.execute(text('UPDATE "user" SET token_version = COALESCE(token_version, 0)'))
@@ -212,7 +207,6 @@ def _apply_user_identity_and_role_refresh_migration(connection: Connection) -> N
     if "expires_at" not in user_columns:
         connection.execute(text('ALTER TABLE "user" ADD COLUMN expires_at TIMESTAMP'))
 
-    connection.execute(text('UPDATE "user" SET role = "editor" WHERE role = "regular"'))
     connection.execute(text('UPDATE "user" SET role = COALESCE(role, "editor")'))
     connection.execute(text('CREATE INDEX IF NOT EXISTS ix_user_email ON "user" (email)'))
     connection.execute(text('CREATE INDEX IF NOT EXISTS ix_user_expires_at ON "user" (expires_at)'))

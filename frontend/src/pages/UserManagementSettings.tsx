@@ -382,6 +382,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         autoFocus
         fullWidth
         variant="outlined"
+        helperText={t("settings.userManagement.editor.usernameHelp")}
         FormHelperTextProps={{
           sx: { fontSize: "0.875rem" },
         }}
@@ -392,6 +393,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
         fullWidth
         variant="outlined"
+        helperText={t("settings.userManagement.editor.nameHelp")}
+        FormHelperTextProps={{
+          sx: { fontSize: "0.875rem" },
+        }}
       />
       <TextField
         label={t("settings.userManagement.editor.emailLabel")}
