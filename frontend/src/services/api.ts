@@ -23,7 +23,6 @@ import type {
   User,
 } from "../types";
 import { FileType } from "../types";
-import { isAdminUser } from "../utils/userAccess";
 import { isBackendConnectivityError, markBackendAvailable, markBackendUnavailable } from "./backendAvailability";
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { COMPANION_BASE_URL } from "./companion";
@@ -39,10 +38,7 @@ const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 
 function normalizeUser(user: User): User {
-  return {
-    ...user,
-    is_admin: isAdminUser(user),
-  };
+  return { ...user };
 }
 
 class ApiService {
@@ -260,7 +256,7 @@ class ApiService {
       {
         username: response.data.username,
         hasToken: !!response.data.access_token,
-        isAdmin: response.data.is_admin,
+        isAdmin: response.data.role === "admin",
       },
       "api"
     );

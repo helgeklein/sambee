@@ -114,7 +114,6 @@ export const handlers = [
         user_id: "admin-id",
         username: "admin",
         role: "admin",
-        is_admin: true,
         must_change_password: false,
       });
     }
@@ -126,8 +125,7 @@ export const handlers = [
         token_type: "bearer",
         user_id: "user-id",
         username: "testuser",
-        role: "regular",
-        is_admin: false,
+        role: "editor",
         must_change_password: false,
       });
     }
@@ -151,7 +149,6 @@ export const handlers = [
         id: "admin-id",
         username: "admin",
         role: "admin",
-        is_admin: true,
         is_active: true,
         must_change_password: false,
         created_at: "2024-01-01T00:00:00",
@@ -162,8 +159,7 @@ export const handlers = [
       return HttpResponse.json({
         id: "user-id",
         username: "testuser",
-        role: "regular",
-        is_admin: false,
+        role: "editor",
         is_active: true,
         must_change_password: false,
         created_at: "2024-01-01T00:00:00",
@@ -423,7 +419,6 @@ export const handlers = [
         id: "admin-id",
         username: "admin",
         role: "admin",
-        is_admin: true,
         is_active: true,
         must_change_password: false,
         created_at: "2024-01-01T00:00:00Z",
@@ -432,10 +427,12 @@ export const handlers = [
       {
         id: "user-id",
         username: "testuser",
-        role: "regular",
-        is_admin: false,
+        role: "editor",
         is_active: true,
         must_change_password: false,
+        name: "Test User",
+        email: "testuser@example.com",
+        expires_at: null,
         created_at: "2024-01-02T00:00:00Z",
         updated_at: "2024-01-02T00:00:00Z",
       },
@@ -449,10 +446,12 @@ export const handlers = [
       {
         id: "new-user-id",
         username: body["username"],
+        name: body["name"] ?? null,
+        email: body["email"] ?? null,
         role: body["role"],
-        is_admin: body["role"] === "admin",
         is_active: true,
         must_change_password: body["must_change_password"] ?? true,
+        expires_at: body["expires_at"] ?? null,
         created_at: "2024-01-03T00:00:00Z",
         updated_at: "2024-01-03T00:00:00Z",
         temporary_password: body["password"] ? null : "TempPass123!",
@@ -467,10 +466,12 @@ export const handlers = [
     return HttpResponse.json({
       id: params["id"],
       username: body["username"] ?? "updated-user",
-      role: body["role"] ?? "regular",
-      is_admin: (body["role"] ?? "regular") === "admin",
+      name: body["name"] ?? "Updated User",
+      email: body["email"] ?? "updated-user@example.com",
+      role: body["role"] ?? "editor",
       is_active: body["is_active"] ?? true,
       must_change_password: false,
+      expires_at: body["expires_at"] ?? null,
       created_at: "2024-01-03T00:00:00Z",
       updated_at: "2024-01-04T00:00:00Z",
     });

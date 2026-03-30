@@ -62,10 +62,13 @@ import { dialogEnterKeyHandler } from "../utils/keyboardUtils";
 
 interface UserFormState {
   username: string;
+  name: string;
+  email: string;
   role: UserRole;
   isActive: boolean;
   password: string;
   mustChangePassword: boolean;
+  expiresAt: string;
 }
 
 interface ResetPasswordFormState {
@@ -79,11 +82,36 @@ interface UserManagementSettingsProps {
 
 const DEFAULT_USER_FORM: UserFormState = {
   username: "",
-  role: "regular",
+  name: "",
+  email: "",
+  role: "editor",
   isActive: true,
   password: "",
   mustChangePassword: true,
+  expiresAt: "",
 };
+
+function toDateTimeLocalValue(value?: string | null): string {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const timezoneOffsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffsetMs).toISOString().slice(0, 16);
+}
+
+function toIsoDateTimeValue(value: string): string | undefined {
+  if (!value.trim()) {
+    return undefined;
+  }
+
+  return new Date(value).toISOString();
+}
 
 const DEFAULT_RESET_PASSWORD_FORM: ResetPasswordFormState = {
   password: "",
@@ -160,10 +188,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
     setSelectedUser(user);
     setFormState({
       username: user.username,
+      name: user.name ?? "",
+      email: user.email ?? "",
       role: user.role,
       isActive: user.is_active,
       password: "",
       mustChangePassword: user.must_change_password,
+      expiresAt: toDateTimeLocalValue(user.expires_at),
     });
     setFormError(null);
     setEditorOpen(true);
@@ -178,10 +209,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
 
   const handleSave = useCallback(async () => {
     const username = formState.username.trim();
+    const name = formState.name.trim();
+    const email = formState.email.trim().toLowerCase();
     if (!username) {
       setFormError(t("settings.userManagement.notifications.usernameRequired"));
       return;
     }
+
+    const expiresAt = toIsoDateTimeValue(formState.expiresAt);
 
     try {
       setSubmitting(true);
@@ -190,17 +225,23 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       if (selectedUser) {
         const updatePayload: AdminUserUpdateInput = {
           username,
+          name: name || undefined,
+          email: email || undefined,
           role: formState.role,
           is_active: formState.isActive,
+          expires_at: expiresAt ?? null,
         };
         await api.updateUser(selectedUser.id, updatePayload);
         showNotification(t("settings.userManagement.notifications.userUpdated"), "success");
       } else {
         const createPayload: AdminUserCreateInput = {
           username,
+          name: name || undefined,
+          email: email || undefined,
           role: formState.role,
           must_change_password: formState.mustChangePassword,
           password: formState.password.trim() ? formState.password : undefined,
+          expires_at: expiresAt,
         };
         const result: AdminUserCreateResult = await api.createUser(createPayload);
         showNotification(t("settings.userManagement.notifications.userCreated"), "success");
@@ -345,6 +386,21 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           sx: { fontSize: "0.875rem" },
         }}
       />
+      <TextField
+        label={t("settings.userManagement.editor.nameLabel")}
+        value={formState.name}
+        onChange={(event) => setFormState((current) => ({ ...current, name: event.target.value }))}
+        fullWidth
+        variant="outlined"
+      />
+      <TextField
+        label={t("settings.userManagement.editor.emailLabel")}
+        type="email"
+        value={formState.email}
+        onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
+        fullWidth
+        variant="outlined"
+      />
       <FormControl fullWidth variant="outlined">
         <InputLabel id="user-role-label">{t("settings.userManagement.editor.roleLabel")}</InputLabel>
         <Select
@@ -354,10 +410,21 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
           disabled={isEditingSelf}
           onChange={(event) => setFormState((current) => ({ ...current, role: event.target.value as UserRole }))}
         >
-          <MenuItem value="regular">{t("settings.userManagement.regularRole")}</MenuItem>
+          <MenuItem value="editor">{t("settings.userManagement.editorRole")}</MenuItem>
+          <MenuItem value="viewer">{t("settings.userManagement.viewerRole")}</MenuItem>
           <MenuItem value="admin">{t("settings.userManagement.adminRole")}</MenuItem>
         </Select>
       </FormControl>
+      <TextField
+        label={t("settings.userManagement.editor.expiresAtLabel")}
+        type="datetime-local"
+        value={formState.expiresAt}
+        onChange={(event) => setFormState((current) => ({ ...current, expiresAt: event.target.value }))}
+        fullWidth
+        variant="outlined"
+        helperText={t("settings.userManagement.editor.expiresAtHelp")}
+        InputLabelProps={{ shrink: true }}
+      />
       {isEditing ? (
         <FormControlLabel
           control={
@@ -547,8 +614,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                 >
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography variant="h6" fontWeight="medium">
-                      {user.username}
+                      {user.name?.trim() ? user.name : user.username}
                     </Typography>
+                    {(user.name || user.email) && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        {[user.username, user.email].filter(Boolean).join(" • ")}
+                      </Typography>
+                    )}
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: "wrap", mt: 0.75, mb: 1 }}>
                       {isSelf && (
                         <Chip
@@ -561,7 +633,13 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                       <Chip
                         size="small"
                         icon={user.role === "admin" ? <AdminIcon /> : <PersonIcon />}
-                        label={user.role === "admin" ? t("settings.userManagement.adminRole") : t("settings.userManagement.regularRole")}
+                        label={
+                          user.role === "admin"
+                            ? t("settings.userManagement.adminRole")
+                            : user.role === "viewer"
+                              ? t("settings.userManagement.viewerRole")
+                              : t("settings.userManagement.editorRole")
+                        }
                         variant="outlined"
                         sx={settingsMetadataChipSx}
                       />
@@ -575,6 +653,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
                         <Chip
                           size="small"
                           label={t("settings.userManagement.passwordResetPending")}
+                          variant="outlined"
+                          sx={settingsMetadataChipSx}
+                        />
+                      )}
+                      {user.expires_at && (
+                        <Chip
+                          size="small"
+                          label={t("settings.userManagement.expiresAt", { timestamp: user.expires_at })}
                           variant="outlined"
                           sx={settingsMetadataChipSx}
                         />

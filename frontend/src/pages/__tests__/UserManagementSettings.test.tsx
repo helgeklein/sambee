@@ -36,7 +36,6 @@ describe("UserManagementSettings", () => {
       id: "user-1",
       username: "admin",
       role: "admin",
-      is_admin: true,
     });
     vi.mocked(api.resetUserPassword).mockResolvedValue({
       message: "Password reset",
@@ -179,9 +178,12 @@ describe("UserManagementSettings", () => {
     await waitFor(() => {
       expect(api.createUser).toHaveBeenCalledWith({
         username: "new-admin",
-        role: "regular",
+        name: undefined,
+        email: undefined,
+        role: "editor",
         must_change_password: true,
         password: undefined,
+        expires_at: undefined,
       });
     });
 

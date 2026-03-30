@@ -144,11 +144,12 @@ class TestApplicationLifecycle:
     def test_startup_does_not_create_admin_if_exists(self, mock_session, mock_init_db):
         """Test that admin user is not created if it already exists."""
         from app.main import app
+        from app.models.user import UserRole
 
         # Mock the database session to return existing admin
         mock_db_session = MagicMock()
         mock_session.return_value.__enter__.return_value = mock_db_session
-        existing_admin = MagicMock(username="testadmin", is_admin=True)
+        existing_admin = MagicMock(username="testadmin", role=UserRole.ADMIN, is_active=True)
         mock_db_session.exec.return_value.first.return_value = existing_admin
 
         # Create client which triggers startup

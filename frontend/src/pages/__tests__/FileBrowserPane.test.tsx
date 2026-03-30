@@ -355,6 +355,18 @@ describe("FileBrowserPane", () => {
 
       expect(screen.getByText("Read only")).toBeInTheDocument();
     });
+
+    it("shows a read-only chip for effective viewer access returned by the backend", () => {
+      const pane = createMockPane({ connectionId: "conn-2" });
+      const connections = [
+        testConnections[0],
+        createMockConnection({ id: "conn-2", name: "Viewer Share", scope: "private", access_mode: "read_only", can_manage: false }),
+      ];
+
+      render(<FileBrowserPane {...defaultProps({ pane, connections })} />);
+
+      expect(screen.getByText("Read only")).toBeInTheDocument();
+    });
   });
 
   // --------------------------------------------------------------------------

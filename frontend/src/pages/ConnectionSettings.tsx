@@ -83,11 +83,12 @@ export function ConnectionSettings({
   const theme = useTheme();
   const isLargeScreen = useMediaQuery(theme.breakpoints.up("sm"));
   const { t } = useTranslation();
-  const { isAdmin: detectedIsAdmin } = useSettingsAccess();
+  const { isAdmin: detectedIsAdmin, canWrite: detectedCanWrite } = useSettingsAccess();
   // Use desktop layout if forced or on large screens
   const isDesktop = forceDesktopLayout || isLargeScreen;
   const shouldRenderInlineGroupHeader = Boolean(sectionTitle || sectionDescription || isDesktop);
   const effectiveIsAdmin = Boolean(isAdmin || detectedIsAdmin);
+  const canCreateConnections = effectiveIsAdmin || detectedCanWrite;
   const [notification, setNotification] = useState<SettingsNotificationState>({
     open: false,
     message: "",
@@ -463,7 +464,7 @@ export function ConnectionSettings({
           dialogSafe={forceDesktopLayout}
           showTitle={isDesktop}
           actions={
-            isDesktop ? (
+            isDesktop && canCreateConnections ? (
               <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
                 {t("settings.connectionManagement.addConnectionButton")}
               </Button>
@@ -476,7 +477,7 @@ export function ConnectionSettings({
             title={sectionTitle}
             description={sectionDescription}
             actions={
-              isDesktop ? (
+              isDesktop && canCreateConnections ? (
                 <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddClick} sx={settingsPrimaryButtonSx}>
                   {t("settings.connectionManagement.addConnectionButton")}
                 </Button>
@@ -496,7 +497,9 @@ export function ConnectionSettings({
             description={
               effectiveIsAdmin
                 ? t("settings.connectionManagement.emptyAdminDescription")
-                : t("settings.connectionManagement.emptyRegularDescription")
+                : canCreateConnections
+                  ? t("settings.connectionManagement.emptyRegularDescription")
+                  : t("settings.connectionManagement.emptyViewerDescription")
             }
           />
         ) : (
@@ -525,7 +528,7 @@ export function ConnectionSettings({
       </Box>
 
       {/* Mobile: FAB for adding connections */}
-      {!isDesktop && showMobileFab && (
+      {!isDesktop && showMobileFab && canCreateConnections && (
         <Fab
           color="primary"
           aria-label={t("settings.connectionManagement.addConnectionFabAriaLabel")}

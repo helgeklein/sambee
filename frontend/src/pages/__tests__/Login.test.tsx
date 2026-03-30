@@ -69,7 +69,7 @@ describe("Login Component", () => {
       access_token: "mock-admin-token",
       token_type: "bearer",
       username: "admin",
-      is_admin: true,
+      role: "admin",
     });
 
     const user = userEvent.setup();
@@ -153,7 +153,7 @@ describe("Login Component", () => {
       access_token: "mock-admin-token",
       token_type: "bearer",
       username: "admin",
-      is_admin: true,
+      role: "admin",
     });
     await user.type(screen.getByLabelText(/username/i), "admin");
     await user.type(screen.getByLabelText(/password/i), "admin");
@@ -171,7 +171,7 @@ describe("Login Component", () => {
       access_token: "mock-admin-token",
       token_type: "bearer",
       username: "admin",
-      is_admin: true,
+      role: "admin",
     });
 
     const user = userEvent.setup();
@@ -204,7 +204,7 @@ describe("Login Component", () => {
       access_token: "mock-user-token",
       token_type: "bearer",
       username: "testuser",
-      is_admin: false,
+      role: "editor",
     });
 
     const user = userEvent.setup();

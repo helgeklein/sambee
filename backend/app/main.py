@@ -264,11 +264,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 else:
                     logger.info(f"Created admin user: {settings.admin_username} / {admin_password}")
             else:
-                current_role = (
-                    admin.role
-                    if isinstance(getattr(admin, "role", None), UserRole)
-                    else (UserRole.ADMIN if admin.is_admin else UserRole.REGULAR)
-                )
+                current_role = admin.role if isinstance(getattr(admin, "role", None), UserRole) else UserRole.EDITOR
                 current_is_active = admin.is_active if isinstance(getattr(admin, "is_active", None), bool) else True
 
                 if current_role != UserRole.ADMIN or not current_is_active:

@@ -76,7 +76,7 @@ describe("API Service", () => {
         access_token: "test-token",
         token_type: "bearer",
         username: "testuser",
-        is_admin: false,
+        role: "editor",
       };
 
       mockAxiosInstance.post.mockResolvedValueOnce({
@@ -105,7 +105,7 @@ describe("API Service", () => {
     it("getCurrentUser() returns user data", async () => {
       const mockUser: User = {
         username: "testuser",
-        is_admin: false,
+        role: "editor",
       };
 
       mockAxiosInstance.get.mockResolvedValueOnce({
@@ -118,7 +118,7 @@ describe("API Service", () => {
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/auth/me");
     });
 
-    it("getCurrentUser() infers admin status from role when is_admin is absent", async () => {
+    it("getCurrentUser() preserves role-based admin data without synthesizing legacy flags", async () => {
       const mockUser = {
         username: "adminuser",
         role: "admin" as const,
@@ -133,7 +133,6 @@ describe("API Service", () => {
       expect(result).toEqual({
         username: "adminuser",
         role: "admin",
-        is_admin: true,
       });
       expect(mockAxiosInstance.get).toHaveBeenCalledWith("/auth/me");
     });
@@ -833,7 +832,7 @@ describe("API Service", () => {
           access_token: "token123",
           token_type: "bearer",
           username: "testuser",
-          is_admin: false,
+          role: "editor",
         },
         status: 200,
         statusText: "OK",

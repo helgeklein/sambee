@@ -63,7 +63,6 @@ describe("ConnectionSettings", () => {
       id: "admin-id",
       username: "admin",
       role: "admin",
-      is_admin: true,
     });
     vi.mocked(api.getConnections).mockResolvedValue([]);
     vi.mocked(api.getConnectionVisibilityOptions).mockResolvedValue(mockVisibilityOptions);
@@ -214,6 +213,87 @@ describe("ConnectionSettings", () => {
     await screen.findByText("Accounting");
 
     expect(screen.queryByText("Read only")).not.toBeInTheDocument();
+  });
+
+  it("shows read-only state without management actions when backend returns effective viewer access", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({
+      id: "viewer-id",
+      username: "viewer",
+      role: "viewer",
+    });
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "private-1",
+        name: "Viewer Private Share",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "viewer-private",
+        username: "viewer-user",
+        path_prefix: "/",
+        scope: "private",
+        access_mode: "read_only",
+        can_manage: false,
+      },
+    ]);
+
+    renderSettings();
+
+    await screen.findByText("Viewer Private Share");
+
+    expect(screen.getByText("Read only")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /test connection/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit connection/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /delete connection/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add connection/i })).not.toBeInTheDocument();
+  });
+
+  it("does not show the mobile add connection fab for viewer users", async () => {
+    mockMobileMode(true);
+    vi.mocked(api.getCurrentUser).mockResolvedValue({
+      id: "viewer-id",
+      username: "viewer",
+      role: "viewer",
+    });
+    vi.mocked(api.getConnections).mockResolvedValue([
+      {
+        id: "private-1",
+        name: "Viewer Private Share",
+        type: "smb",
+        host: "fileserver.local",
+        port: 445,
+        share_name: "viewer-private",
+        username: "viewer-user",
+        path_prefix: "/",
+        scope: "private",
+        access_mode: "read_only",
+        can_manage: false,
+      },
+    ]);
+
+    renderSettings();
+
+    await screen.findByText("Viewer Private Share");
+
+    expect(screen.queryByLabelText(/add connection/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a viewer-specific empty state when the user cannot create connections", async () => {
+    vi.mocked(api.getCurrentUser).mockResolvedValue({
+      id: "viewer-id",
+      username: "viewer",
+      role: "viewer",
+    });
+    vi.mocked(api.getConnections).mockResolvedValue([]);
+
+    renderSettings();
+
+    expect(await screen.findByText("No connections configured")).toBeInTheDocument();
+    expect(
+      screen.getByText("No connections are available for your account yet. Contact an administrator to create or share one.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /add connection/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/create your first private smb connection/i)).not.toBeInTheDocument();
   });
 
   it("persists updated visibility when editing and reopening a connection", async () => {

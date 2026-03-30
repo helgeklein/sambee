@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from app.core.security import decrypt_password
 from app.models.connection import Connection, ConnectionAccessMode, ConnectionScope
 from app.models.user import User
+from app.services.connection_access import READ_ONLY_USER_DETAIL
 
 
 @pytest.mark.integration
@@ -56,6 +57,24 @@ class TestListConnections:
         assert len(shared_connections) == len(multiple_connections)
         assert all(connection["can_manage"] is False for connection in shared_connections)
         assert all(connection["id"] != str(other_private_connection.id) for connection in data)
+
+    def test_viewer_user_lists_connections_without_manage_affordance(
+        self,
+        client: TestClient,
+        auth_headers_viewer: dict,
+        multiple_connections: list[Connection],
+        viewer_private_connection: Connection,
+    ) -> None:
+        response = client.get("/api/connections", headers=auth_headers_viewer)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == len(multiple_connections) + 1
+
+        own_private = next(connection for connection in data if connection["id"] == str(viewer_private_connection.id))
+        assert own_private["scope"] == "private"
+        assert own_private["can_manage"] is False
+        assert own_private["access_mode"] == "read_only"
 
     def test_list_connections_without_auth(self, client: TestClient) -> None:
         response = client.get("/api/connections")
@@ -180,6 +199,27 @@ class TestCreateConnection:
         assert db_connection.scope == ConnectionScope.PRIVATE
         assert db_connection.owner_user_id == regular_user.id
 
+    def test_viewer_user_cannot_create_connection(
+        self,
+        client: TestClient,
+        auth_headers_viewer: dict,
+    ) -> None:
+        connection_data = {
+            "name": "Viewer Server",
+            "host": "viewer.local",
+            "share_name": "viewershare",
+            "username": "viewer1",
+            "password": "viewerpass123",
+            "port": 445,
+            "scope": "private",
+            "access_mode": "read_write",
+        }
+
+        response = client.post("/api/connections", headers=auth_headers_viewer, json=connection_data)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == READ_ONLY_USER_DETAIL
+
 
 @pytest.mark.integration
 class TestUpdateConnection:
@@ -251,6 +291,21 @@ class TestUpdateConnection:
 
         assert response.status_code == 404
 
+    def test_viewer_user_cannot_update_owned_private_connection(
+        self,
+        client: TestClient,
+        auth_headers_viewer: dict,
+        viewer_private_connection: Connection,
+    ) -> None:
+        response = client.put(
+            f"/api/connections/{viewer_private_connection.id}",
+            headers=auth_headers_viewer,
+            json={"name": "Viewer Update"},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == READ_ONLY_USER_DETAIL
+
 
 @pytest.mark.integration
 class TestDeleteConnection:
@@ -276,6 +331,17 @@ class TestDeleteConnection:
     ) -> None:
         response = client.delete(f"/api/connections/{test_connection.id}", headers=auth_headers_user)
         assert response.status_code == 403
+
+    def test_viewer_user_cannot_delete_owned_private_connection(
+        self,
+        client: TestClient,
+        auth_headers_viewer: dict,
+        viewer_private_connection: Connection,
+    ) -> None:
+        response = client.delete(f"/api/connections/{viewer_private_connection.id}", headers=auth_headers_viewer)
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == READ_ONLY_USER_DETAIL
 
 
 @pytest.mark.integration
@@ -311,6 +377,20 @@ class TestTestConnection:
     ) -> None:
         response = client.post(f"/api/connections/{test_connection.id}/test", headers=auth_headers_user)
         assert response.status_code == 403
+
+    def test_viewer_user_cannot_test_owned_private_connection(
+        self,
+        client: TestClient,
+        auth_headers_viewer: dict,
+        viewer_private_connection: Connection,
+    ) -> None:
+        response = client.post(
+            f"/api/connections/{viewer_private_connection.id}/test",
+            headers=auth_headers_viewer,
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == READ_ONLY_USER_DETAIL
 
     def test_test_config_endpoint_validates_without_persisting(
         self,
@@ -371,6 +451,28 @@ class TestTestConnection:
 
         assert response.status_code == 200
         assert response.json()["status"] == "success"
+
+    def test_viewer_user_cannot_test_connection_config(
+        self,
+        client: TestClient,
+        auth_headers_viewer: dict,
+    ) -> None:
+        response = client.post(
+            "/api/connections/test-config",
+            headers=auth_headers_viewer,
+            json={
+                "name": "Viewer Preview",
+                "host": "preview.local",
+                "share_name": "preview-share",
+                "username": "preview-user",
+                "password": "previewpass123",
+                "port": 445,
+                "scope": "private",
+            },
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == READ_ONLY_USER_DETAIL
 
     def test_test_config_timeout_returns_gateway_timeout(
         self,

@@ -204,7 +204,7 @@ def admin_user_fixture(session: Session) -> User:
     user = User(
         username="testadmin",
         password_hash=get_password_hash("adminpass123"),
-        is_admin=True,
+        role="admin",
     )
     session.add(user)
     session.commit()
@@ -218,7 +218,21 @@ def regular_user_fixture(session: Session) -> User:
     user = User(
         username="testuser",
         password_hash=get_password_hash("userpass123"),
-        is_admin=False,
+        role="editor",
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return user
+
+
+@pytest.fixture(name="viewer_user")
+def viewer_user_fixture(session: Session) -> User:
+    """Create a test viewer user."""
+    user = User(
+        username="testviewer",
+        password_hash=get_password_hash("viewerpass123"),
+        role="viewer",
     )
     session.add(user)
     session.commit()
@@ -238,6 +252,12 @@ def user_token_fixture(regular_user: User) -> str:
     return create_access_token(data={"sub": regular_user.username})
 
 
+@pytest.fixture(name="viewer_token")
+def viewer_token_fixture(viewer_user: User) -> str:
+    """Create an access token for the viewer user."""
+    return create_access_token(data={"sub": viewer_user.username})
+
+
 @pytest.fixture(name="auth_headers_admin")
 def auth_headers_admin_fixture(admin_token: str) -> dict:
     """Create authorization headers for admin user."""
@@ -248,6 +268,12 @@ def auth_headers_admin_fixture(admin_token: str) -> dict:
 def auth_headers_user_fixture(user_token: str) -> dict:
     """Create authorization headers for regular user."""
     return {"Authorization": f"Bearer {user_token}"}
+
+
+@pytest.fixture(name="auth_headers_viewer")
+def auth_headers_viewer_fixture(viewer_token: str) -> dict:
+    """Create authorization headers for viewer user."""
+    return {"Authorization": f"Bearer {viewer_token}"}
 
 
 @pytest.fixture(name="test_connection")
@@ -320,6 +346,29 @@ def user_private_connection_fixture(session: Session, regular_user: User) -> Con
     return connection
 
 
+@pytest.fixture(name="viewer_private_connection")
+def viewer_private_connection_fixture(session: Session, viewer_user: User) -> Connection:
+    """Create a private SMB connection owned by the viewer user."""
+
+    from app.core.security import encrypt_password
+
+    connection = Connection(
+        id=uuid.uuid4(),
+        name="Viewer Private Server",
+        host="viewer-private.local",
+        share_name="viewer-private-share",
+        username="viewer-private-user",
+        password_encrypted=encrypt_password("viewerprivatepass123"),
+        port=445,
+        scope=ConnectionScope.PRIVATE,
+        owner_user_id=viewer_user.id,
+    )
+    session.add(connection)
+    session.commit()
+    session.refresh(connection)
+    return connection
+
+
 @pytest.fixture(name="read_only_connection")
 def read_only_connection_fixture(session: Session) -> Connection:
     """Create a shared SMB connection that is explicitly read-only."""
@@ -352,7 +401,7 @@ def other_private_connection_fixture(session: Session) -> Connection:
     other_user = User(
         username="otheruser",
         password_hash=get_password_hash("otherpass123"),
-        is_admin=False,
+        role="editor",
     )
     session.add(other_user)
     session.commit()

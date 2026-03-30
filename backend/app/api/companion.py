@@ -40,7 +40,7 @@ from app.core.security import (
 )
 from app.db.database import get_session
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.companion_downloads import (
     CompanionDownloadResolutionError,
     resolve_companion_download_metadata,
@@ -466,7 +466,7 @@ async def force_unlock(
 
     # Only admins and the lock holder can force-unlock
     is_owner = lock.locked_by == current_user.username
-    if not is_owner and not current_user.is_admin:
+    if not is_owner and current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins and the lock holder can force-unlock",

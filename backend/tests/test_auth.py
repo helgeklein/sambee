@@ -3,6 +3,8 @@ Tests for authentication and authorization.
 Tests login, token generation/validation, password hashing, and encryption.
 """
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -134,7 +136,7 @@ class TestLoginEndpoint:
         data = response.json()
         assert "access_token" in data
         assert data["token_type"] == "bearer"
-        assert data["is_admin"] is True
+        assert data["role"] == "admin"
 
     def test_login_wrong_password(self, client: TestClient, admin_user: User):
         """Test login fails with incorrect password."""
@@ -184,7 +186,29 @@ class TestLoginEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
-        assert data["is_admin"] is False
+        assert data["role"] == "editor"
+
+    def test_expired_user_login_rejected(self, client: TestClient, session: Session):
+        """Test that expired users cannot login."""
+        expired_user = User(
+            username="expired-user",
+            password_hash=get_password_hash("expiredpass123"),
+            role="editor",
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        )
+        session.add(expired_user)
+        session.commit()
+
+        response = client.post(
+            "/api/auth/token",
+            data={
+                "username": "expired-user",
+                "password": "expiredpass123",
+            },
+        )
+
+        assert response.status_code == 401
+        assert "incorrect username or password" in response.json()["detail"].lower()
 
 
 @pytest.mark.integration
@@ -263,7 +287,7 @@ class TestGetCurrentUserEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["username"] == "testadmin"  # From fixture
-        assert data["is_admin"] is True
+        assert data["role"] == "admin"
         assert "created_at" in data
 
     def test_get_current_user_info_regular_user(self, client: TestClient, auth_headers_user: dict):
@@ -272,7 +296,7 @@ class TestGetCurrentUserEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["username"] == "testuser"
-        assert data["is_admin"] is False
+        assert data["role"] == "editor"
         assert "created_at" in data
 
     def test_get_current_user_info_without_auth(self, client: TestClient):
@@ -294,7 +318,7 @@ class TestChangePasswordEndpoint:
         test_user = User(
             username="password_change_user",
             password_hash=get_password_hash("oldpass123"),
-            is_admin=False,
+            role="editor",
         )
         session.add(test_user)
         session.commit()
@@ -377,6 +401,21 @@ class TestTokenExpiration:
         response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token_fake_user}"})
         assert response.status_code == 401
 
+    def test_token_for_expired_user_rejected(self, client: TestClient, session: Session):
+        """Test that existing tokens stop working after account expiration."""
+        expired_user = User(
+            username="expired-token-user",
+            password_hash=get_password_hash("expiredpass123"),
+            role="editor",
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+        )
+        session.add(expired_user)
+        session.commit()
+
+        expired_user_token = create_access_token(data={"sub": expired_user.username})
+        response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {expired_user_token}"})
+        assert response.status_code == 401
+
 
 @pytest.mark.integration
 class TestPasswordHashingEdgeCases:
@@ -419,7 +458,7 @@ class TestAuthMethodNone:
         user = User(
             username=settings.admin_username,
             password_hash=get_password_hash("admin123"),
-            is_admin=True,
+            role="admin",
         )
         session.add(user)
         session.commit()
@@ -481,7 +520,22 @@ class TestAuthMethodNone:
         assert response.status_code == 200
         data = response.json()
         assert data["username"] == settings.admin_username
-        assert data["is_admin"] is True
+        assert data["role"] == "admin"
+
+    def test_me_endpoint_rejects_expired_admin_without_token(
+        self, client: TestClient, config_admin_user: User, session: Session, monkeypatch
+    ):
+        """Test auth_method none still rejects expired configured admin users."""
+        from app.core.auth_methods import AuthMethod
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "auth_method", AuthMethod.NONE)
+        config_admin_user.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        session.add(config_admin_user)
+        session.commit()
+
+        response = client.get("/api/auth/me")
+        assert response.status_code == 401
 
     def test_protected_endpoint_accessible_without_token(self, client: TestClient, config_admin_user: User, monkeypatch):
         """Test that protected endpoints are accessible without token when auth_method is 'none'."""

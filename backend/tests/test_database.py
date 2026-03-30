@@ -17,7 +17,7 @@ import pytest
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from app.models.connection import Connection
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 @pytest.mark.unit
@@ -217,8 +217,8 @@ class TestModelConstraints:
         session.commit()
         session.refresh(user)
 
-        # is_admin should default to False
-        assert user.is_admin is False
+        # role should default to editor
+        assert user.role == UserRole.EDITOR
         # created_at should be set
         assert user.created_at is not None
 
@@ -410,7 +410,7 @@ class TestDatabaseSchemaValidation:
 
     def test_user_table_columns(self, session: Session):
         """Test that User table has expected columns."""
-        user = User(username="column_test", password_hash="hash", is_admin=True)
+        user = User(username="column_test", password_hash="hash", role="admin")
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -419,7 +419,7 @@ class TestDatabaseSchemaValidation:
         assert hasattr(user, "id")
         assert hasattr(user, "username")
         assert hasattr(user, "password_hash")
-        assert hasattr(user, "is_admin")
+        assert hasattr(user, "role")
         assert hasattr(user, "created_at")
 
     def test_connection_table_columns(self, session: Session):

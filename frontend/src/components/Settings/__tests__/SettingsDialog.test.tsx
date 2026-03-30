@@ -48,7 +48,7 @@ describe("SettingsDialog Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Mock getCurrentUser to return non-admin user by default
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-id", username: "testuser", role: "regular", is_admin: false });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-id", username: "testuser", role: "editor" });
   });
 
   const renderWithTheme = (ui: React.ReactElement) => {
@@ -93,7 +93,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("shows the consolidated settings categories for admin users", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin" });
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -120,7 +120,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("shows only personal consolidated categories for non-admin users", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-id", username: "user", role: "regular", is_admin: false });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "user-id", username: "user", role: "editor" });
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
 
@@ -218,7 +218,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("switches to User Management tab when admin clicks it", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin" });
 
     const user = userEvent.setup();
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
@@ -234,7 +234,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("switches to System when admin clicks it", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin" });
 
     const user = userEvent.setup();
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);
@@ -273,7 +273,7 @@ describe("SettingsDialog Component", () => {
   });
 
   it("supports PageUp and PageDown keyboard navigation in the category list", async () => {
-    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin", is_admin: true });
+    vi.mocked(api.getCurrentUser).mockResolvedValue({ id: "admin-id", username: "admin", role: "admin" });
     const user = userEvent.setup();
 
     renderWithTheme(<SettingsDialog open={true} onClose={mockOnClose} />);

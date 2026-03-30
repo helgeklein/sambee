@@ -16,7 +16,8 @@ class Capability(StrEnum):
 
 
 ROLE_CAPABILITIES: dict[UserRole, frozenset[Capability]] = {
-    UserRole.REGULAR: frozenset(),
+    UserRole.EDITOR: frozenset(),
+    UserRole.VIEWER: frozenset(),
     UserRole.ADMIN: frozenset(
         {
             Capability.ACCESS_ADMIN_SETTINGS,

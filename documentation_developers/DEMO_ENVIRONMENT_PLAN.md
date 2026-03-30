@@ -760,9 +760,7 @@ Recommended issue sequence:
 - operator notifications
 - abuse tracking and revocation
 
-### Group C: read-only product capability
-
-Detailed implementation planning for this group lives in `READ_ONLY_PRODUCT_CAPABILITY_PLAN.md`.
+### Group C: read-only product capability ✅
 
 - read-only connection design
 - read-only user or session design

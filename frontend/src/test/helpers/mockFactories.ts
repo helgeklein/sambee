@@ -49,7 +49,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
   api.listDirectory.mockResolvedValue(mockDirectoryListing);
   api.getCurrentUser.mockResolvedValue({
     username: "admin",
-    is_admin: true,
+    role: "admin",
   });
   api.getCurrentUserSettings.mockResolvedValue(defaultUserSettings);
   api.testConnection.mockResolvedValue({
@@ -256,7 +256,7 @@ export function setupDirectoryListingByPath(api: ApiMock, pathMap: Record<string
 export function setupAdminUserMock(api: ApiMock, user?: Partial<User>): void {
   api.getCurrentUser.mockResolvedValue({
     username: "admin",
-    is_admin: true,
+    role: "admin",
     ...user,
   });
 }
@@ -267,7 +267,7 @@ export function setupAdminUserMock(api: ApiMock, user?: Partial<User>): void {
 export function setupRegularUserMock(api: ApiMock, user?: Partial<User>): void {
   api.getCurrentUser.mockResolvedValue({
     username: "testuser",
-    is_admin: false,
+    role: "editor",
     ...user,
   });
 }

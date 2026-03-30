@@ -281,7 +281,7 @@ class TestAuthorizationBypass:
             # Verify user is still not admin
             me_response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {user_token}"})
             assert me_response.status_code == 200
-            assert me_response.json()["is_admin"] is False
+            assert me_response.json()["role"] == "editor"
 
 
 class TestEncryptionSecurity:

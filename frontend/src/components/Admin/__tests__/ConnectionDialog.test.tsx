@@ -61,8 +61,7 @@ describe("ConnectionDialog Component", () => {
     vi.mocked(api.getCurrentUser).mockResolvedValue({
       id: "user-id",
       username: "testuser",
-      role: "regular",
-      is_admin: false,
+      role: "editor",
     });
     vi.mocked(api.getConnectionVisibilityOptions).mockResolvedValue(mockVisibilityOptions);
   });

@@ -66,9 +66,16 @@ async def create_user(
 ) -> AdminUserCreateResult:
     set_user(current_user.username)
     username = user_data.username.strip()
+    name = user_data.name.strip() if user_data.name else None
+    email = user_data.email.strip().lower() if user_data.email else None
     existing_user = session.exec(select(User).where(User.username == username)).first()
     if existing_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with that username already exists")
+
+    if email:
+        existing_email_user = session.exec(select(User).where(User.email == email)).first()
+        if existing_email_user:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with that email address already exists")
 
     temporary_password: str | None = None
     password_to_store = user_data.password
@@ -78,10 +85,13 @@ async def create_user(
 
     user = User(
         username=username,
+        name=name,
+        email=email,
         password_hash=get_password_hash(password_to_store),
         role=user_data.role,
         is_active=True,
         must_change_password=user_data.must_change_password,
+        expires_at=user_data.expires_at,
     )
     session.add(user)
     session.commit()
@@ -109,13 +119,21 @@ async def update_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     next_username = user_data.username.strip() if user_data.username is not None else user.username
+    next_name = user_data.name.strip() if user_data.name is not None else user.name
+    next_email = user_data.email.strip().lower() if user_data.email is not None else user.email
     next_role = user_data.role or user.role
     next_is_active = user.is_active if user_data.is_active is None else user_data.is_active
+    next_expires_at = user.expires_at if user_data.expires_at is None else user_data.expires_at
 
     if next_username != user.username:
         existing_user = session.exec(select(User).where(User.username == next_username)).first()
         if existing_user and existing_user.id != user.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with that username already exists")
+
+    if next_email != user.email and next_email:
+        existing_email_user = session.exec(select(User).where(User.email == next_email)).first()
+        if existing_email_user and existing_email_user.id != user.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A user with that email address already exists")
 
     _validate_user_update_guards(
         actor=current_user,
@@ -126,8 +144,11 @@ async def update_user(
     )
 
     user.username = next_username
+    user.name = next_name
+    user.email = next_email
     user.role = next_role
     user.is_active = next_is_active
+    user.expires_at = next_expires_at
     user.updated_at = datetime.now(timezone.utc)
     session.add(user)
     session.commit()

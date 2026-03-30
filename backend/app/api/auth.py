@@ -8,9 +8,9 @@ from sqlmodel import Session, select
 from app.core.auth_methods import AuthMethod
 from app.core.config import settings
 from app.core.logging import get_logger, set_user
-from app.core.security import build_user_access_token, get_current_user_with_auth_check, get_password_hash, verify_password
+from app.core.security import build_user_access_token, get_current_user_with_auth_check, get_password_hash, is_user_expired, verify_password
 from app.db.database import get_session
-from app.models.user import CurrentUserRead, PasswordChangeRequest, User, build_current_user_read
+from app.models.user import CurrentUserRead, PasswordChangeRequest, User, build_current_user_read, normalize_utc_datetime
 from app.models.user_settings import CurrentUserSettingsRead, CurrentUserSettingsUpdate
 from app.services.user_settings import build_current_user_settings_read, update_current_user_settings
 
@@ -55,7 +55,7 @@ async def login(
     statement = select(User).where(User.username == form_data.username)
     user = session.exec(statement).first()
 
-    if not user or not user.is_active or not verify_password(form_data.password, user.password_hash):
+    if not user or not user.is_active or is_user_expired(user) or not verify_password(form_data.password, user.password_hash):
         logger.warning(f"Failed login attempt: username={form_data.username}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -66,14 +66,16 @@ async def login(
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = build_user_access_token(user, expires_delta=access_token_expires)
 
-    logger.info(f"Successful login: username={user.username}, is_admin={user.is_admin}")
+    logger.info(f"Successful login: username={user.username}, role={user.role}")
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user_id": str(user.id),
         "username": user.username,
+        "name": user.name,
+        "email": user.email,
         "role": user.role,
-        "is_admin": user.is_admin,
+        "expires_at": normalize_utc_datetime(user.expires_at),
         "must_change_password": user.must_change_password,
     }
 

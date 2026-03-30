@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.core.authorization import Capability, user_has_capability
 from app.models.connection import Connection, ConnectionAccessMode, ConnectionRead, ConnectionScope, ConnectionVisibilityOptionRead
-from app.models.user import User
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ VISIBILITY_OPTION_METADATA: dict[ConnectionScope, dict[str, str]] = {
 
 SHARED_VISIBILITY_UNAVAILABLE_REASON = "Shared connections can only be created or updated by admins."
 READ_ONLY_CONNECTION_DETAIL = "Connection is read-only"
+READ_ONLY_USER_DETAIL = "Your user role is read-only"
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,10 @@ class EffectiveConnectionAccess:
     access_mode: ConnectionAccessMode
     allows_write: bool
     source: str
+
+
+def user_can_write(current_user: User) -> bool:
+    return current_user.role != UserRole.VIEWER
 
 
 def can_view_connection(current_user: User, connection: Connection) -> bool:
@@ -65,6 +70,9 @@ def get_accessible_connection_or_404(session: Session, current_user: User, conne
 def can_manage_connection(current_user: User, connection: Connection) -> bool:
     """Return whether the current user may modify or test the connection."""
 
+    if not user_can_write(current_user):
+        return False
+
     if connection.scope == ConnectionScope.SHARED:
         return user_has_capability(current_user, Capability.MANAGE_CONNECTIONS)
     return connection.owner_user_id == current_user.id
@@ -73,7 +81,12 @@ def can_manage_connection(current_user: User, connection: Connection) -> bool:
 def get_effective_connection_access(current_user: User, connection: Connection) -> EffectiveConnectionAccess:
     """Return the effective access mode for a connection in the current request context."""
 
-    del current_user
+    if not user_can_write(current_user):
+        return EffectiveConnectionAccess(
+            access_mode=ConnectionAccessMode.READ_ONLY,
+            allows_write=False,
+            source="user_role",
+        )
 
     if connection.access_mode == ConnectionAccessMode.READ_ONLY:
         return EffectiveConnectionAccess(
@@ -110,7 +123,24 @@ def require_connection_write_access(
         path,
         access.source,
     )
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=READ_ONLY_CONNECTION_DETAIL)
+    detail = READ_ONLY_USER_DETAIL if access.source == "user_role" else READ_ONLY_CONNECTION_DETAIL
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+def require_user_write_access(
+    current_user: User,
+    *,
+    action: str,
+) -> None:
+    if user_can_write(current_user):
+        return
+
+    logger.warning(
+        "Blocked read-only user action: user=%s action=%s source=user_role",
+        current_user.username,
+        action,
+    )
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=READ_ONLY_USER_DETAIL)
 
 
 def list_connection_visibility_options(current_user: User) -> list[ConnectionVisibilityOptionRead]:
@@ -173,6 +203,8 @@ def resolve_connection_scope_for_update(
 def build_connection_read(connection: Connection, current_user: User) -> ConnectionRead:
     """Shape a connection response with per-user management metadata."""
 
+    effective_access = get_effective_connection_access(current_user, connection)
+
     return ConnectionRead(
         id=connection.id,
         name=connection.name,
@@ -184,7 +216,7 @@ def build_connection_read(connection: Connection, current_user: User) -> Connect
         username=connection.username,
         path_prefix=connection.path_prefix,
         scope=connection.scope,
-        access_mode=connection.access_mode,
+        access_mode=effective_access.access_mode,
         can_manage=can_manage_connection(current_user, connection),
         created_at=connection.created_at,
         updated_at=connection.updated_at,

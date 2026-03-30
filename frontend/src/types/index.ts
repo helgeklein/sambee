@@ -1,6 +1,6 @@
 import type { ThemeConfig } from "../theme/types";
 
-export type UserRole = "admin" | "regular";
+export type UserRole = "admin" | "editor" | "viewer";
 export type ConnectionScope = "shared" | "private";
 export type ConnectionAccessMode = "read_write" | "read_only";
 export type SystemSettingSource = "database" | "config_file" | "default";
@@ -11,35 +11,45 @@ export type CompanionDownloadPlatform = "windows-x64" | "windows-arm64" | "macos
 export interface User {
   id?: string;
   username: string;
+  name?: string | null;
+  email?: string | null;
   role?: UserRole;
-  is_admin: boolean;
   is_active?: boolean;
   must_change_password?: boolean;
+  expires_at?: string | null;
   created_at?: string;
 }
 
 export interface AdminUser {
   id: string;
   username: string;
+  name?: string | null;
+  email?: string | null;
   role: UserRole;
-  is_admin: boolean;
   is_active: boolean;
   must_change_password: boolean;
+  expires_at?: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface AdminUserCreateInput {
   username: string;
+  name?: string;
+  email?: string;
   role: UserRole;
   password?: string;
   must_change_password: boolean;
+  expires_at?: string;
 }
 
 export interface AdminUserUpdateInput {
   username?: string;
+  name?: string;
+  email?: string;
   role?: UserRole;
   is_active?: boolean;
+  expires_at?: string | null;
 }
 
 export interface AdminUserPasswordResetInput {
@@ -215,8 +225,10 @@ export interface AuthToken {
   token_type: string;
   user_id?: string;
   username: string;
+  name?: string | null;
+  email?: string | null;
   role?: UserRole;
-  is_admin: boolean;
+  expires_at?: string | null;
   must_change_password?: boolean;
 }
 

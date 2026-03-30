@@ -23,6 +23,7 @@ from app.services.connection_access import (
     list_accessible_connections,
     list_connection_visibility_options,
     require_manageable_connection,
+    require_user_write_access,
     resolve_connection_scope_for_create,
     resolve_connection_scope_for_update,
 )
@@ -104,6 +105,7 @@ async def test_connection_config(
     """Test a connection definition without persisting it."""
 
     set_user(current_user.username)
+    require_user_write_access(current_user, action="test_connection_config")
 
     try:
         await _test_connection_details(
@@ -145,6 +147,7 @@ async def create_connection(
     """Create a new SMB connection."""
 
     set_user(current_user.username)
+    require_user_write_access(current_user, action="create_connection")
     logger.info(
         f"Creating connection: name={connection_data.name}, host={connection_data.host}, "
         f"share={connection_data.share_name}, scope={connection_data.scope}, user={current_user.username}"
@@ -227,6 +230,7 @@ async def update_connection(
 ) -> ConnectionRead:
     """Update an existing connection."""
 
+    require_user_write_access(current_user, action="update_connection")
     connection = get_accessible_connection_or_404(session, current_user, connection_id)
     require_manageable_connection(connection, current_user)
 
@@ -305,6 +309,7 @@ async def delete_connection(
 ) -> dict[str, str]:
     """Delete a connection."""
 
+    require_user_write_access(current_user, action="delete_connection")
     connection = get_accessible_connection_or_404(session, current_user, connection_id)
     require_manageable_connection(connection, current_user)
 
@@ -322,6 +327,7 @@ async def test_connection(
 ) -> dict[str, str]:
     """Test a persisted connection."""
 
+    require_user_write_access(current_user, action="test_connection")
     connection = get_accessible_connection_or_404(session, current_user, connection_id)
     require_manageable_connection(connection, current_user)
 

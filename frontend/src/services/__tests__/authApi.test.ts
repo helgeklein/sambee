@@ -114,7 +114,7 @@ describe("Authentication API Contract Tests", () => {
         access_token: "test-token-123",
         token_type: "bearer",
         username: "testuser",
-        is_admin: false,
+        role: "editor",
       };
 
       mockAxiosInstance.post.mockResolvedValueOnce({
@@ -127,19 +127,19 @@ describe("Authentication API Contract Tests", () => {
       expect(result).toHaveProperty("access_token");
       expect(result).toHaveProperty("token_type");
       expect(result).toHaveProperty("username");
-      expect(result).toHaveProperty("is_admin");
+      expect(result).toHaveProperty("role");
 
       // Verify types
       expect(typeof result.access_token).toBe("string");
       expect(typeof result.token_type).toBe("string");
       expect(typeof result.username).toBe("string");
-      expect(typeof result.is_admin).toBe("boolean");
+      expect(typeof result.role).toBe("string");
 
       // Verify values
       expect(result.access_token).toBe("test-token-123");
       expect(result.token_type).toBe("bearer");
       expect(result.username).toBe("testuser");
-      expect(result.is_admin).toBe(false);
+      expect(result.role).toBe("editor");
     });
 
     it("should handle admin user token response", async () => {
@@ -147,7 +147,7 @@ describe("Authentication API Contract Tests", () => {
         access_token: "admin-token-456",
         token_type: "bearer",
         username: "admin",
-        is_admin: true,
+        role: "admin",
       };
 
       mockAxiosInstance.post.mockResolvedValueOnce({
@@ -156,7 +156,7 @@ describe("Authentication API Contract Tests", () => {
 
       const result = await apiService.login("admin", "adminpass");
 
-      expect(result.is_admin).toBe(true);
+      expect(result.role).toBe("admin");
       expect(result.username).toBe("admin");
     });
 
@@ -165,7 +165,7 @@ describe("Authentication API Contract Tests", () => {
         access_token: "user-token-789",
         token_type: "bearer",
         username: "regularuser",
-        is_admin: false,
+        role: "editor",
       };
 
       mockAxiosInstance.post.mockResolvedValueOnce({
@@ -174,7 +174,7 @@ describe("Authentication API Contract Tests", () => {
 
       const result = await apiService.login("regularuser", "userpass");
 
-      expect(result.is_admin).toBe(false);
+      expect(result.role).toBe("editor");
       expect(result.username).toBe("regularuser");
     });
   });
@@ -183,7 +183,7 @@ describe("Authentication API Contract Tests", () => {
     it("should return correct user format", async () => {
       const backendResponse: User = {
         username: "testuser",
-        is_admin: false,
+        role: "editor",
         created_at: "2024-01-01T00:00:00Z",
       };
 
@@ -195,21 +195,21 @@ describe("Authentication API Contract Tests", () => {
 
       // Verify all required fields are present
       expect(result).toHaveProperty("username");
-      expect(result).toHaveProperty("is_admin");
+      expect(result).toHaveProperty("role");
 
       // Verify types
       expect(typeof result.username).toBe("string");
-      expect(typeof result.is_admin).toBe("boolean");
+      expect(typeof result.role).toBe("string");
 
       // Verify values
       expect(result.username).toBe("testuser");
-      expect(result.is_admin).toBe(false);
+      expect(result.role).toBe("editor");
     });
 
     it("should include created_at timestamp when provided", async () => {
       const backendResponse: User = {
         username: "testuser",
-        is_admin: false,
+        role: "editor",
         created_at: "2024-01-01T12:30:45Z",
       };
 
@@ -228,7 +228,7 @@ describe("Authentication API Contract Tests", () => {
     it("should handle admin user info", async () => {
       const backendResponse: User = {
         username: "admin",
-        is_admin: true,
+        role: "admin",
         created_at: "2023-12-01T00:00:00Z",
       };
 
@@ -239,13 +239,13 @@ describe("Authentication API Contract Tests", () => {
       const result = await apiService.getCurrentUser();
 
       expect(result.username).toBe("admin");
-      expect(result.is_admin).toBe(true);
+      expect(result.role).toBe("admin");
     });
 
     it("should handle user without created_at timestamp", async () => {
       const backendResponse: User = {
         username: "testuser",
-        is_admin: false,
+        role: "editor",
       };
 
       mockAxiosInstance.get.mockResolvedValueOnce({
@@ -255,7 +255,7 @@ describe("Authentication API Contract Tests", () => {
       const result = await apiService.getCurrentUser();
 
       expect(result.username).toBe("testuser");
-      expect(result.is_admin).toBe(false);
+      expect(result.role).toBe("editor");
       // created_at is optional, may or may not be present
     });
   });

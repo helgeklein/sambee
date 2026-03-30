@@ -17,8 +17,9 @@ class TestAdminUsers:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) == 2
-        assert {user["username"] for user in data} == {admin_user.username, regular_user.username}
+        usernames = {user["username"] for user in data}
+        assert len(data) >= 2
+        assert {admin_user.username, regular_user.username}.issubset(usernames)
 
     def test_list_users_as_regular_user_forbidden(
         self,
@@ -37,24 +38,44 @@ class TestAdminUsers:
             headers=auth_headers_admin,
             json={
                 "username": "newuser",
-                "role": "regular",
+                "name": "New User",
+                "email": "newuser@example.com",
+                "role": "editor",
                 "must_change_password": True,
+                "expires_at": "2030-01-01T00:00:00Z",
             },
         )
 
         assert response.status_code == 201
         data = response.json()
         assert data["username"] == "newuser"
-        assert data["role"] == "regular"
+        assert data["name"] == "New User"
+        assert data["email"] == "newuser@example.com"
+        assert data["role"] == "editor"
         assert data["must_change_password"] is True
+        assert data["expires_at"] == "2030-01-01T00:00:00Z"
         assert isinstance(data["temporary_password"], str)
         assert len(data["temporary_password"]) >= 12
 
         created_user = session.get(User, uuid.UUID(data["id"]))
         assert created_user is not None
-        assert created_user.role == UserRole.REGULAR
+        assert created_user.name == "New User"
+        assert created_user.email == "newuser@example.com"
+        assert created_user.role == UserRole.EDITOR
         assert created_user.must_change_password is True
         assert verify_password(data["temporary_password"], created_user.password_hash)
+
+    def test_create_user_rejects_legacy_regular_role(self, client: TestClient, auth_headers_admin: dict):
+        response = client.post(
+            "/api/admin/users",
+            headers=auth_headers_admin,
+            json={
+                "username": "legacyroleuser",
+                "role": "regular",
+            },
+        )
+
+        assert response.status_code == 422
 
     def test_update_user_role_and_active_state(
         self,
@@ -67,17 +88,25 @@ class TestAdminUsers:
             f"/api/admin/users/{regular_user.id}",
             headers=auth_headers_admin,
             json={
+                "name": "Updated Test User",
+                "email": "updated-testuser@example.com",
                 "role": "admin",
                 "is_active": False,
+                "expires_at": "2031-02-03T04:05:06Z",
             },
         )
 
         assert response.status_code == 200
         data = response.json()
+        assert data["name"] == "Updated Test User"
+        assert data["email"] == "updated-testuser@example.com"
         assert data["role"] == "admin"
         assert data["is_active"] is False
+        assert data["expires_at"] == "2031-02-03T04:05:06Z"
 
         session.refresh(regular_user)
+        assert regular_user.name == "Updated Test User"
+        assert regular_user.email == "updated-testuser@example.com"
         assert regular_user.role == UserRole.ADMIN
         assert regular_user.is_active is False
 

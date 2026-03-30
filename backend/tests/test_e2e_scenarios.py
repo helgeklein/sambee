@@ -870,7 +870,7 @@ class TestAuthenticationFlows:
 
     def test_login_success(self, client: TestClient, session: Session):
         """Test successful login."""
-        user = User(username="testuser", password_hash="correct_hash", is_admin=False)
+        user = User(username="testuser", password_hash="correct_hash", role="editor")
         session.add(user)
         session.commit()
 

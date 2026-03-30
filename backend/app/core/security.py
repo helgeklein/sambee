@@ -33,6 +33,39 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_e
 _fernet: Fernet | None = None
 
 
+def is_user_expired(user: User, now: datetime | None = None) -> bool:
+    expires_at = user.expires_at
+    if expires_at is None:
+        return False
+
+    current_time = now or datetime.now(timezone.utc)
+    expires_at_utc = expires_at.replace(tzinfo=timezone.utc) if expires_at.tzinfo is None else expires_at.astimezone(timezone.utc)
+    return expires_at_utc <= current_time
+
+
+def _build_credentials_exception(detail: str = "Could not validate credentials") -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _ensure_user_is_current(user: User | None, failure_exception: HTTPException) -> User:
+    if user is None:
+        raise failure_exception
+
+    if not user.is_active:
+        logger.info(f"Rejected inactive user during auth validation: username={user.username}")
+        raise failure_exception
+
+    if is_user_expired(user):
+        logger.info(f"Rejected expired user during auth validation: username={user.username}")
+        raise failure_exception
+
+    return user
+
+
 #
 # get_fernet
 #
@@ -137,11 +170,7 @@ def _get_user_from_subject(subject: str, session: Session) -> User | None:
 async def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
     """Get the current authenticated user from token"""
 
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials_exception = _build_credentials_exception()
 
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
@@ -152,9 +181,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
         raise credentials_exception
 
     user = _get_user_from_subject(subject, session)
-
-    if user is None or not user.is_active:
-        raise credentials_exception
+    user = _ensure_user_is_current(user, credentials_exception)
 
     token_version = int(payload.get("tv", 0))
     if token_version != user.token_version:
@@ -198,7 +225,7 @@ async def get_current_user_for_token(token: Optional[str], session: Session) -> 
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Authentication configuration error",
             )
-        return user
+        return _ensure_user_is_current(user, _build_credentials_exception(detail="Not authenticated"))
 
     # For "password" auth method, require a valid token
     if not token:

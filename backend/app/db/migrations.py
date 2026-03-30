@@ -196,6 +196,28 @@ def _apply_connection_access_mode_migration(connection: Connection) -> None:
     connection.execute(text("CREATE INDEX IF NOT EXISTS ix_connection_access_mode ON connection (access_mode)"))
 
 
+def _apply_user_identity_and_role_refresh_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("user"):
+        return
+
+    user_columns = {column["name"] for column in inspector.get_columns("user")}
+
+    if "name" not in user_columns:
+        connection.execute(text('ALTER TABLE "user" ADD COLUMN name VARCHAR'))
+
+    if "email" not in user_columns:
+        connection.execute(text('ALTER TABLE "user" ADD COLUMN email VARCHAR'))
+
+    if "expires_at" not in user_columns:
+        connection.execute(text('ALTER TABLE "user" ADD COLUMN expires_at TIMESTAMP'))
+
+    connection.execute(text('UPDATE "user" SET role = "editor" WHERE role = "regular"'))
+    connection.execute(text('UPDATE "user" SET role = COALESCE(role, "editor")'))
+    connection.execute(text('CREATE INDEX IF NOT EXISTS ix_user_email ON "user" (email)'))
+    connection.execute(text('CREATE INDEX IF NOT EXISTS ix_user_expires_at ON "user" (expires_at)'))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -203,6 +225,7 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=4, name="add_system_settings_table", apply=_apply_system_settings_migration),
     Migration(version=5, name="add_user_settings_table", apply=_apply_user_settings_migration),
     Migration(version=6, name="add_connection_access_mode", apply=_apply_connection_access_mode_migration),
+    Migration(version=7, name="refresh_user_identity_and_roles", apply=_apply_user_identity_and_role_refresh_migration),
 )
 
 

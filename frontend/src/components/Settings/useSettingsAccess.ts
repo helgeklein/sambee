@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 import api from "../../services/api";
-import { isAdminUser } from "../../utils/userAccess";
+import { canUserWrite, isAdminUser } from "../../utils/userAccess";
 
 interface SettingsAccessState {
   isAdmin: boolean;
+  canWrite: boolean;
 }
 
 export function useSettingsAccess(enabled = true): SettingsAccessState {
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canWrite, setCanWrite] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
 
     if (!enabled) {
       setIsAdmin(false);
+      setCanWrite(false);
       return () => {
         isCancelled = true;
       };
@@ -24,11 +27,13 @@ export function useSettingsAccess(enabled = true): SettingsAccessState {
       .then((user) => {
         if (!isCancelled) {
           setIsAdmin(isAdminUser(user));
+          setCanWrite(canUserWrite(user));
         }
       })
       .catch(() => {
         if (!isCancelled) {
           setIsAdmin(false);
+          setCanWrite(false);
         }
       });
 
@@ -37,5 +42,5 @@ export function useSettingsAccess(enabled = true): SettingsAccessState {
     };
   }, [enabled]);
 
-  return { isAdmin };
+  return { isAdmin, canWrite };
 }

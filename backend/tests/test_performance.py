@@ -427,7 +427,7 @@ class TestWebSocketPerformance:
     async def test_websocket_connection_limit(self):
         """Test system can handle many WebSocket connections."""
         manager = ConnectionManager()
-        current_user = User(username="perf-user", password_hash="unused", is_admin=True)
+        current_user = User(username="perf-user", password_hash="unused", role="admin")
 
         # Simulate 100 concurrent WebSocket connections
         class MockWebSocket:
@@ -464,7 +464,7 @@ class TestWebSocketPerformance:
     async def test_websocket_broadcast_performance(self):
         """Test broadcasting to many subscribers is fast."""
         manager = ConnectionManager()
-        current_user = User(username="perf-user", password_hash="unused", is_admin=True)
+        current_user = User(username="perf-user", password_hash="unused", role="admin")
 
         class MockWebSocket:
             def __init__(self, client_id: str):
@@ -511,7 +511,7 @@ class TestWebSocketPerformance:
     async def test_websocket_subscription_overhead(self):
         """Test subscription/unsubscription performance."""
         manager = ConnectionManager()
-        current_user = User(username="perf-user", password_hash="unused", is_admin=True)
+        current_user = User(username="perf-user", password_hash="unused", role="admin")
 
         class MockWebSocket:
             def __init__(self, client_id: str):

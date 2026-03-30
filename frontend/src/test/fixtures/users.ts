@@ -10,7 +10,7 @@ import type { User } from "../../types";
  */
 export const mockAdminUser: User = {
   username: "admin",
-  is_admin: true,
+  role: "admin",
   created_at: "2024-01-01T00:00:00",
 };
 
@@ -19,7 +19,7 @@ export const mockAdminUser: User = {
  */
 export const mockRegularUser: User = {
   username: "testuser",
-  is_admin: false,
+  role: "editor",
   created_at: "2024-01-02T00:00:00",
 };
 
@@ -31,7 +31,7 @@ export const mockUsers: User[] = [
   mockRegularUser,
   {
     username: "user1",
-    is_admin: false,
+    role: "editor",
     created_at: "2024-01-03T00:00:00",
   },
 ];
@@ -42,7 +42,7 @@ export const mockUsers: User[] = [
 export function createMockUser(overrides: Partial<User> = {}): User {
   return {
     username: "testuser",
-    is_admin: false,
+    role: "editor",
     created_at: "2024-01-01T00:00:00",
     ...overrides,
   };
