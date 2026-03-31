@@ -16,20 +16,20 @@ The Companion runs quietly in your system tray. No browser extensions or manual 
 
 ### Windows
 
-1. Download the installer from the [Releases](https://github.com/helgeklein/sambee/releases) page
+1. Download the installer from the dedicated [Sambee Companion Releases](https://github.com/helgeklein/sambee-companion/releases) page
 2. Run the installer and follow the prompts
 3. Leave **Start Sambee Companion when I sign in** enabled if you want Local Drives access to be available immediately after logging in
 4. The Companion starts automatically and appears in the system tray
 
 ### macOS
 
-1. Download the `.dmg` file from the [Releases](https://github.com/helgeklein/sambee/releases) page
+1. Download the `.dmg` file from the dedicated [Sambee Companion Releases](https://github.com/helgeklein/sambee-companion/releases) page
 2. Open the disk image and drag **Sambee Companion** to your Applications folder
 3. Launch the app — it will appear in the menu bar
 
 ### Linux
 
-Download the appropriate package for your distribution from the [Releases](https://github.com/helgeklein/sambee/releases) page:
+Download the appropriate package for your distribution from the dedicated [Sambee Companion Releases](https://github.com/helgeklein/sambee-companion/releases) page:
 
 - `.deb` for Debian/Ubuntu
 - `.AppImage` for other distributions
@@ -124,7 +124,7 @@ If the Companion or your computer crashes while editing, on next launch you'll s
 
 ## Auto-Updates
 
-The Companion checks for updates automatically in the background. When an update is available, it downloads and installs silently. The next time the Companion launches, you'll be running the latest version.
+The Companion checks for updates automatically in the background. Updates come from Sambee's dedicated Companion release feed and are verified with the embedded updater signature before installation. When an update is available, it downloads and installs silently. The next time the Companion launches, you'll be running the latest version.
 
 ## Troubleshooting
 

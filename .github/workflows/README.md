@@ -4,6 +4,8 @@
 
 The `test.yml` workflow runs comprehensive tests on every push and pull request to the `main` branch.
 
+Dependency installs in CI are expected to come from reviewed lockfiles and requirements files. When dependencies change, commit the corresponding lockfile updates in the same PR.
+
 ### Caching Strategy
 
 **Multi-Layer Caching for Optimal Performance:**
@@ -58,6 +60,18 @@ Caches are automatically invalidated when:
 - `frontend/package-lock.json` changes
 - Python version changes (3.13)
 - Node version changes (20)
+
+Treat these cache keys as reviewed dependency inputs, not disposable generated files.
+
+## Dependency Security Workflow
+
+The `dependency-security.yml` workflow runs separate dependency-focused checks:
+
+- `pip-audit` against `backend/requirements-dev.lock.txt`
+- `npm audit --package-lock-only --omit=dev --audit-level=high` for `frontend/` and `companion/`
+- `cargo audit` for `companion/src-tauri`
+
+Use it to validate dependency update PRs in addition to the normal test workflow.
 
 ### Manual Cache Management
 

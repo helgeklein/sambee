@@ -48,6 +48,7 @@ The public `sambee-companion` repository contains:
 
 - published GitHub Releases for Companion installers and updater artifacts
 - the committed feed files under `docs/feeds`
+- immutable release assets once a release is published
 
 This repository is the distribution surface that users and installed Companion builds consume.
 
@@ -143,6 +144,12 @@ Current workflow shape:
 
 This preserves a review step while keeping artifact production automatic.
 
+Operator rules:
+
+- publish only after verifying the draft assets and signatures match the release being promoted
+- never replace assets on an existing published release tag; cut a new release instead
+- treat feed updates as pointer changes only, never as a place to patch artifact mistakes
+
 ## Release Promotion Workflow
 
 Promotion is a separate manual workflow in the main source repository.
@@ -215,6 +222,7 @@ Example shape:
 Important behavior:
 
 - each manifest points at immutable release assets in `sambee-companion`
+- feed files may move between releases, but published asset URLs must not be rewritten in place
 - the promotion script includes every platform for which it finds a complete bundle and signature pair
 - a release does not need to contain every possible platform to be promotable
 - installed Companion builds only use the manifest for their currently selected channel

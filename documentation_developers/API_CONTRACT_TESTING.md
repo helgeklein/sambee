@@ -64,7 +64,7 @@ expect(typeof response.log_level).toBe("string");
 **What:** Generate TypeScript types from FastAPI's OpenAPI schema
 **When:** When you have many endpoints or frequent API changes
 **Tools:**
-- `openapi-typescript-codegen`
+- `openapi-typescript`
 - `@openapitools/openapi-generator-cli`
 
 **Pros:**
@@ -79,14 +79,13 @@ expect(typeof response.log_level).toBe("string");
 
 **Implementation:**
 ```bash
-# 1. Export OpenAPI schema from FastAPI
-curl http://localhost:8000/openapi.json > openapi.json
+# 1. Export OpenAPI schema from your local backend
+curl --fail --silent http://localhost:8000/openapi.json --output openapi.json
 
-# 2. Generate TypeScript types
-npx openapi-typescript openapi.json -o src/types/api.ts
+# 2. Generate TypeScript types with the checked-in dependency only
+npx --no-install openapi-typescript openapi.json -o src/types/api.ts
 
-# 3. Use generated types in frontend
-import type { LoggingConfig } from './types/api';
+# 3. Review the generated diff before commit
 ```
 
 ### 3. **Consumer-Driven Contract Testing** (Pact)
@@ -151,17 +150,16 @@ packages/
 When you add more endpoints or have frequent API changes:
 
 1. **Add OpenAPI type generation**
-   ```bash
-   npm install --save-dev openapi-typescript
-   ```
+   Add `openapi-typescript` to `devDependencies` and commit the `package-lock.json` change in the same PR.
    Add to package.json:
    ```json
    {
      "scripts": {
-       "generate-api-types": "curl http://localhost:8000/openapi.json | npx openapi-typescript --output src/types/api.ts"
+       "generate-api-types": "npx --no-install openapi-typescript ./openapi.json --output src/types/api.ts"
      }
    }
    ```
+   Export `openapi.json` from the local backend first, then review the generated type diff before commit.
 
 2. **Add contract tests for all endpoints**
    - Create test for each API endpoint

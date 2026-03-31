@@ -23,8 +23,8 @@ The project includes a complete dev container configuration for consistent devel
 2. Reopen in Container when prompted
 3. The post-create script will automatically:
    - Configure Git hooks for automatic commit tracking
-   - Install Python dependencies
-   - Install Node modules
+    - Install Python dependencies from the hashed lockfiles
+    - Install Node modules from the committed lockfiles
    - Initialize the database
    - Create default `config.toml` file with secure keys
 
@@ -34,6 +34,12 @@ If you're developing **outside the dev container**, run once:
 ```bash
 ./scripts/setup-git-hooks
 ```
+
+### Dependency Trust Rules
+
+- Use `npm ci` in `frontend/` and `companion/` for routine installs. Only use a dependency update PR to change `package.json` and `package-lock.json` together.
+- Use `pip install --require-hashes -r requirements-dev.lock.txt` for backend installs. Treat `requirements*.txt` changes as reviewed source, not setup noise.
+- Prefer committed scripts and lockfiles over ad hoc installers or one-off `npx` downloads.
 
 ### Troubleshooting Initial Setup
 
@@ -214,7 +220,7 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 - Node modules are cached (`node_modules/`)
 - mypy cache is cached (`.mypy_cache/`)
 - On cache hit: installation skipped, saving ~30-40 seconds
-- Cache invalidates when `requirements*.txt` or `package-lock.json` changes
+- Cache invalidates when the reviewed dependency inputs change: `requirements*.txt` or `package-lock.json`
 
 **Parallel Test Execution:**
 - Backend tests run with `pytest-xdist` (4 workers)
@@ -242,6 +248,16 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 - Backend tests: ~16s (with coverage, parallel with 4 workers)
 - Frontend tests: ~10-15s (type check + unit tests)
 
+### Dependency Security Checks
+
+CI also runs dependency-specific security checks:
+
+- Backend: `pip-audit -r backend/requirements-dev.lock.txt`
+- Frontend and Companion: `npm audit --package-lock-only --omit=dev --audit-level=high`
+- Companion Rust dependencies: `cargo audit`
+
+Run the relevant audit locally before merging dependency updates.
+
 ### Local Development with Virtual Environment
 
 To use the same setup as CI locally:
@@ -253,7 +269,6 @@ python -m venv .venv
 source .venv/bin/activate
 
 # Install dependencies
-pip install --upgrade pip
 pip install --require-hashes -r requirements-dev.lock.txt
 
 # Run tests (venv will be auto-detected)

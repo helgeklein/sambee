@@ -44,6 +44,8 @@ Or use VS Code tasks: `Ctrl+Shift+P` → `Tasks: Run Task`
 docker compose up -d
 ```
 
+For production use, follow [documentation/DEPLOYMENT.md](documentation/DEPLOYMENT.md) and deploy from a reviewed tag or commit rather than an unreviewed branch tip.
+
 Access the application at http://localhost
 
 ## Architecture
@@ -56,6 +58,8 @@ Access the application at http://localhost
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development setup instructions.
+
+The dev container and CI install dependencies from committed lockfiles and hashed requirements files. Keep dependency manifest and lockfile changes in the same reviewed PR.
 
 ### Code Quality
 

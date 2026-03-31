@@ -15,7 +15,7 @@ To update the application version:
 
 1. Edit `/workspace/VERSION` and change the version number
 2. Run the sync script: `./scripts/sync-version`
-3. Commit all files changed by the sync script
+3. Review and commit all files changed by the sync script together
 
 The sync script automatically runs during:
 - Dev container post-create setup
@@ -41,9 +41,10 @@ __version__ = _version_file.read_text().strip()
 	- `companion/src-tauri/Cargo.toml` (the `[package]` version only)
 	- `companion/src-tauri/tauri.conf.json`
 	- `companion/src-tauri/Cargo.lock` (the `sambee-companion` package version)
-- Run this script before npm install/build
+- Run this script before `npm ci`, builds, or release packaging after `VERSION` changes
+- Treat the generated lockfile changes as release metadata that must be reviewed with the `VERSION` change, not edited by hand later
 
 **CI/CD**:
 - GitHub Actions now runs `./scripts/sync-version` before frontend and companion lint/test/build jobs.
 - That enforcement is centralized in the composite action `.github/actions/sync-version-check`.
-- CI fails if the sync step produces uncommitted changes, which prevents `VERSION` drift from slipping through.
+- CI fails if the sync step produces uncommitted changes, which prevents `VERSION` drift and unsynced package metadata from slipping through.

@@ -13,6 +13,8 @@ git clone https://github.com/helgeklein/sambee.git
 cd sambee
 ```
 
+For production deployments, prefer a reviewed release tag or commit instead of building from whatever happens to be at the branch tip.
+
 Create the data directory and set ownership to user/group ID 1000, which are used by the dockerized application:
 
 ```bash
@@ -28,7 +30,7 @@ Create `docker-compose.yml` from the provided example:
 cp docker-compose.example.yml docker-compose.yml
 ```
 
-Change settings in `docker-compose.yml` as needed.
+Change settings in `docker-compose.yml` as needed, and review the mounted paths, published ports, and optional config mounts before first start.
 
 **Note:** Make sure to read the section **Reverse Proxy** below.
 
@@ -40,7 +42,7 @@ If you prefer to customize settings, create `config.toml` from the provided exam
 cp config.example.toml config.toml
 ```
 
-Change settings in `config.toml` as needed.
+Change settings in `config.toml` as needed. Keep this file local and mount it read-only in production.
 
 ### 4. Build and Deploy
 
@@ -166,11 +168,14 @@ docker compose down
 ### Update to Latest Version
 
 ```bash
-git pull
+git fetch --tags
+git checkout <trusted-tag-or-commit>
 docker compose down
-docker compose build --no-cache
+docker compose build --pull --no-cache
 docker compose up -d
 ```
+
+Avoid updating from an unreviewed branch tip in production.
 
 ## Troubleshooting
 
@@ -182,11 +187,6 @@ If you've lost the admin password, you can reset it by deleting the admin user f
 # Stop the container
 docker compose stop
 
-# Delete only the admin user (preserves all connections and settings)
-python3 -c "import sqlite3; conn = sqlite3.connect('./data/sambee.db'); conn.execute(\"DELETE FROM user WHERE username='admin'\"); conn.commit(); conn.close()"
-
-# Start the container - a new admin password will be generated
-docker compose start
 # Delete only the admin user (preserves all connections and settings)
 docker compose exec sambee sqlite3 /app/data/sambee.db "DELETE FROM users WHERE username='admin';"
 

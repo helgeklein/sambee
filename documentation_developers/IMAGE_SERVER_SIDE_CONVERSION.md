@@ -104,6 +104,8 @@ pillow==11.0.0           # Core image processing
 pillow-heif==0.20.0      # HEIC/HEIF support
 ```
 
+Keep these pinned through the backend requirements files and install them locally via the hashed lockfile, not ad hoc `pip install` commands.
+
 ### System Libraries (Docker)
 ```dockerfile
 libheif-dev              # HEIC/HEIF codec
@@ -351,15 +353,15 @@ docker-compose up -d
 
 ### Development Setup
 
-Install new Python packages:
+Install the documented system packages first:
 ```bash
-cd backend
-pip install pillow pillow-heif
+./scripts/install-system-deps
 ```
 
-Install system libraries (Ubuntu/Debian):
+Then install the backend Python dependencies from the lockfile:
 ```bash
-sudo apt-get install -y libheif-dev libjpeg-dev libpng-dev libtiff-dev
+cd backend
+pip install --require-hashes -r requirements-dev.lock.txt
 ```
 
 ## Security Considerations
