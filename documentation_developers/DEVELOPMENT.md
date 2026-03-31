@@ -47,7 +47,7 @@ If you encounter startup issues after opening the dev container:
 - The frontend startup script will automatically:
   - Fix permission issues with `node_modules`
   - Reinstall dependencies if needed
-- If issues persist, manually run: `cd /workspace/frontend && sudo rm -rf node_modules && npm install`
+- If issues persist, manually run: `cd /workspace/frontend && sudo rm -rf node_modules && npm ci`
 
 **Both services auto-start**
 - Backend runs on `http://localhost:8000` (API docs: `/docs`)
@@ -254,8 +254,7 @@ source .venv/bin/activate
 
 # Install dependencies
 pip install --upgrade pip
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.lock.txt
 
 # Run tests (venv will be auto-detected)
 cd ..

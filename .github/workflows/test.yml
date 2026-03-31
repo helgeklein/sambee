@@ -136,10 +136,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
     - name: Set up Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
       id: setup-python
       with:
         python-version: '3.13'
@@ -147,7 +147,7 @@ jobs:
         cache-dependency-path: 'backend/requirements*.txt'
 
     - name: Cache Python virtual environment
-      uses: actions/cache@v5
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       id: python-cache
       with:
         path: backend/.venv
@@ -156,7 +156,7 @@ jobs:
           ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
 
     - name: Cache mypy
-      uses: actions/cache@v5
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       with:
         path: backend/.mypy_cache
         key: ${{ runner.os }}-mypy-${{ hashFiles('backend/app/**/*.py') }}
@@ -164,7 +164,7 @@ jobs:
           ${{ runner.os }}-mypy-
 
     - name: Cache ImageMagick installation
-      uses: actions/cache@v5
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       id: imagemagick-cache
       with:
         path: |
@@ -182,8 +182,7 @@ jobs:
         python -m venv .venv
         source .venv/bin/activate
         pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -r requirements-dev.txt
+        pip install --require-hashes -r requirements-dev.lock.txt
 
     - name: Generate test images
       run: QUIET=1 scripts/setup-test-images
@@ -205,7 +204,7 @@ jobs:
 
     - name: Upload coverage reports
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: coverage-reports
         path: backend/coverage.xml
@@ -221,20 +220,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
 
     - name: Set up Node.js
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
       with:
         node-version: '20'
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
     - name: Cache Node modules
-      uses: actions/cache@v5
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
       id: node-cache
       with:
         path: frontend/node_modules
@@ -261,13 +260,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
 
     - name: Set up Node.js
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
       with:
         node-version: '20'
         cache: 'npm'
@@ -285,7 +284,7 @@ jobs:
           libjavascriptcoregtk-4.1-dev
 
     - name: Set up Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
     - name: Cache Rust build artifacts
       uses: Swatinem/rust-cache@8a02ed5e290d8afc7e587930243f3016b3223f50

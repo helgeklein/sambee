@@ -29,11 +29,11 @@ RUN bash /tmp/install-system-deps && \
 # Copy ImageMagick policy and metadata files
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
-# Copy backend dependencies first for better caching (changes rarely)
-COPY backend/requirements.txt ./
+# Copy backend dependency lockfile first for better caching (changes rarely)
+COPY backend/requirements.lock.txt ./
 
 # Install Python dependencies before copying full backend (changes rarely - better layer caching)
-RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir -r requirements.txt
+RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir --require-hashes -r requirements.lock.txt
 
 # Copy version metadata (changes often)
 COPY VERSION /VERSION

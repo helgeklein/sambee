@@ -51,10 +51,17 @@ else
     
     # Check node_modules
     if [ ! -d "node_modules" ]; then
-        log "❌ node_modules not found! Running npm install..."
-        npm install 2>&1 | while IFS= read -r line; do
-            log "   | $line"
-        done
+        if [ -f "package-lock.json" ]; then
+            log "❌ node_modules not found! Running npm ci..."
+            npm ci 2>&1 | while IFS= read -r line; do
+                log "   | $line"
+            done
+        else
+            log "❌ node_modules not found and no lockfile present. Running npm install..."
+            npm install 2>&1 | while IFS= read -r line; do
+                log "   | $line"
+            done
+        fi
     fi
     
     nohup npm run dev > /tmp/frontend.log 2>&1 &

@@ -41,7 +41,11 @@ if [ -f "/.dockerenv" ] || [ -n "$REMOTE_CONTAINERS" ] || [ -n "$CODESPACES" ]; 
     # Check if uvicorn is installed, install dependencies if not
     if ! command -v uvicorn &> /dev/null; then
         echo "⚠️  Backend dependencies not installed. Installing..."
-        pip install -q -r requirements.txt
+        if [ -f "requirements.lock.txt" ]; then
+            pip install -q --require-hashes -r requirements.lock.txt
+        else
+            pip install -q -r requirements.txt
+        fi
         echo "✅ Backend dependencies installed"
     fi
 
