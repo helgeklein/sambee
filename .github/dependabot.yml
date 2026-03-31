@@ -107,6 +107,11 @@ updates:
     labels:
       - dependencies
       - devcontainer
+    ignore:
+      # Keep the devcontainer interpreter aligned with the repo-wide Python version.
+      # Python version upgrades should be done deliberately across devcontainer, CI,
+      # tooling, and documentation rather than via an isolated Dependabot PR.
+      - dependency-name: "mcr.microsoft.com/devcontainers/python"
     groups:
       devcontainer-docker:
         patterns:
