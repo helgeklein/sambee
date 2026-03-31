@@ -87,8 +87,8 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
-    expect(screen.getByText("SMB backends")).toBeInTheDocument();
-    expect(screen.getByText("Preprocessors")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /preprocessors/i })).toBeInTheDocument();
     expect(screen.getByDisplayValue("4")).toBeInTheDocument();
     expect(screen.getAllByDisplayValue("MiB").length).toBeGreaterThan(0);
     expect(screen.getByText(/default: 4 mib \(4,194,304 bytes\)/i)).toBeInTheDocument();
