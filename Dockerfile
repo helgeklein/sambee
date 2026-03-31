@@ -1,6 +1,6 @@
 # Multi-stage build for production
 # Stage 1: Build frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:25-alpine AS frontend-builder
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm ci
@@ -12,7 +12,7 @@ COPY GIT_COMMIT /GIT_COMMIT
 RUN npm run build
 
 # Stage 2: Python backend with built frontend
-FROM python:3.13-slim
+FROM python:3.14-slim
 WORKDIR /app
 
 # Set non-interactive mode for apt to avoid warnings
