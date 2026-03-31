@@ -91,6 +91,13 @@ updates:
     labels:
       - dependencies
       - docker
+    ignore:
+      # Keep production runtime versions aligned with the repo-wide tested baselines.
+      # Node/Python version upgrades should be coordinated across Docker, CI,
+      # local development, tooling, and documentation instead of arriving as
+      # isolated Dependabot PRs.
+      - dependency-name: "node"
+      - dependency-name: "python"
     groups:
       root-docker:
         patterns:
