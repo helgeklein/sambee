@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/python:3.13
+FROM mcr.microsoft.com/devcontainers/python:3.14
 
 # Install Sambee system dependencies from centralized script
 COPY scripts/install-system-deps /tmp/
