@@ -70,6 +70,28 @@ describe("UserManagementSettings", () => {
     expect(screen.getByRole("button", { name: /create user/i })).toBeInTheDocument();
   });
 
+  it("uses explicit username and full-name guidance in the editor", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SambeeThemeProvider>
+        <UserManagementSettings />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(api.getUsers).toHaveBeenCalled();
+      expect(api.getCurrentUser).toHaveBeenCalled();
+    });
+
+    await user.click(screen.getByRole("button", { name: /add user/i }));
+
+    expect(await screen.findByLabelText(/^username$/i)).toBeInTheDocument();
+    expect(screen.getByText("Used to sign in and uniquely identify the account.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^full name$/i)).toBeInTheDocument();
+    expect(screen.getByText("Use the person's full name as they want it displayed in Sambee.")).toBeInTheDocument();
+  });
+
   it("lets the admin enter a new password for a reset", async () => {
     const user = userEvent.setup();
 
