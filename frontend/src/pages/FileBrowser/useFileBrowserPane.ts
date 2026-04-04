@@ -248,6 +248,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const pendingParentDirectoryRestoreNameRef = React.useRef<string | null>(null);
   const pendingFilterRestoreRef = React.useRef<{ scope: string; value: string } | null>(null);
   const pendingSelectedFilesRestoreRef = React.useRef<Set<string> | null>(null);
+  const lastAppliedRouteSyncTokenRef = React.useRef<number>(0);
   const lastForceReloadRef = React.useRef<number>(0);
   const previousFilterScopeRef = React.useRef<string | null>(null);
 
@@ -1579,7 +1580,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   );
 
   const applyLocation = useCallback(
-    (nextConnectionId: string, nextPath: string) => {
+    (nextConnectionId: string, nextPath: string, routeSyncToken?: number) => {
+      if (routeSyncToken !== undefined) {
+        if (routeSyncToken < lastAppliedRouteSyncTokenRef.current) {
+          return;
+        }
+
+        lastAppliedRouteSyncTokenRef.current = routeSyncToken;
+      }
+
       const pendingLocation = pendingLocationRef.current;
       if (pendingLocation) {
         if (pendingLocation.connectionId === nextConnectionId && pendingLocation.path === nextPath) {

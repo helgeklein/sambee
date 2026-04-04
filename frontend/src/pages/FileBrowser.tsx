@@ -221,6 +221,7 @@ const Browser: React.FC = () => {
   const leftConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
   const rightConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
   const pendingPaneFocusRef = React.useRef<PaneId | null>(null);
+  const routeSyncTokenRef = React.useRef(0);
 
   // WebSocket for real-time directory updates (server)
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -699,8 +700,11 @@ const Browser: React.FC = () => {
       return;
     }
 
-    leftApplyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "");
-    rightApplyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "");
+    const routeSyncToken = routeSyncTokenRef.current + 1;
+    routeSyncTokenRef.current = routeSyncToken;
+
+    leftApplyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "", routeSyncToken);
+    rightApplyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "", routeSyncToken);
 
     const nextPaneMode: PaneMode = resolvedRoute.right ? "dual" : "single";
     const nextActivePaneId: PaneId = resolvedRoute.right ? resolvedRoute.activePaneId : "left";
