@@ -11,10 +11,23 @@ const BACKEND_PROXY_TARGET = "http://localhost:8000";
 const BACKEND_PROXY_TIMEOUT_MS = 60_000;
 const TRANSIENT_PROXY_ERROR_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "EPIPE"]);
 const TRANSIENT_PROXY_ERROR_MESSAGES = ["socket hang up", "aborted", "upstream prematurely closed connection"];
+const OPTIMIZE_DEPS_ENTRIES = [
+  "index.html",
+  "src/**/*.{ts,tsx}",
+  "!src/**/*.test.{ts,tsx}",
+  "!src/**/*.spec.{ts,tsx}",
+  "!src/**/__tests__/**",
+  "!src/**/__mocks__/**",
+  "!src/test/**",
+];
 
 interface ProxyErrorLike {
   code?: unknown;
   message?: unknown;
+}
+
+interface EndableResponseLike {
+  end: () => void;
 }
 
 function getProxyErrorCode(error: unknown): string | null {
@@ -47,6 +60,10 @@ function isTransientProxyError(error: unknown): boolean {
 
 function isServerResponse(value: unknown): value is ServerResponse {
   return typeof value === "object" && value !== null && "req" in value;
+}
+
+function isEndableResponse(value: unknown): value is EndableResponseLike {
+  return typeof value === "object" && value !== null && "end" in value && typeof value.end === "function";
 }
 
 const baseLogger = createLogger();
@@ -86,7 +103,9 @@ export default defineConfig({
         configure(proxy) {
           queueMicrotask(() => {
             proxy.removeAllListeners("error");
-            proxy.on("error", (error, _req, response) => {
+            proxy.on("error", (error, ...args: unknown[]) => {
+              const response = args[1];
+
               if (!isTransientProxyError(error)) {
                 if (isServerResponse(response)) {
                   const requestUrl = response.req.url ?? "unknown request";
@@ -115,7 +134,9 @@ export default defineConfig({
                 return;
               }
 
-              response.end();
+              if (isEndableResponse(response)) {
+                response.end();
+              }
             });
           });
 
@@ -143,7 +164,9 @@ export default defineConfig({
   optimizeDeps: {
     // Crawl lazy-loaded route modules during startup so navigation does not
     // trigger mid-session dependency re-optimization and a forced client reload.
-    entries: ["index.html", "src/**/*.{ts,tsx}"],
+    // Exclude test-only files so browser startup does not prebundle Node-only
+    // dependencies pulled in by the Vitest MSW server.
+    entries: OPTIMIZE_DEPS_ENTRIES,
     include: ["yet-another-react-lightbox", "yet-another-react-lightbox/plugins/zoom"],
   },
   build: {
