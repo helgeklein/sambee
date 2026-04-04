@@ -3,11 +3,11 @@
  * Tests for basic rendering, loading states, errors, and empty states
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
-import { resetBackendAvailabilityForTests } from "../../services/backendAvailability";
+import { markBackendAvailable, markBackendReconnecting, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
 import {
   type ApiMock,
   createMarkdownViewerMock,
@@ -126,6 +126,51 @@ describe("Browser Component - Rendering", () => {
 
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/Connection failed/i)).toBeInTheDocument();
+  });
+
+  it("refreshes the visible pane automatically when backend availability recovers", async () => {
+    renderBrowser("/browse/smb/test-server-1");
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      markBackendReconnecting("socket closed");
+    });
+
+    act(() => {
+      markBackendAvailable();
+    });
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    });
+    expectDirectoryLoad("conn-1", "");
+  });
+
+  it("refreshes both visible panes automatically when dual-pane backend availability recovers", async () => {
+    renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2&active=2");
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    });
+    expectDirectoryLoad("conn-1", "");
+    expectDirectoryLoad("conn-2", "");
+
+    act(() => {
+      markBackendReconnecting("socket closed");
+    });
+
+    act(() => {
+      markBackendAvailable();
+    });
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(4);
+    });
+    expectDirectoryLoad("conn-1", "");
+    expectDirectoryLoad("conn-2", "");
   });
 
   it("shows retryable timeout state when directory loading times out", async () => {
