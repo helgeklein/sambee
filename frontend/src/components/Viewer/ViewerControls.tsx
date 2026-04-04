@@ -198,6 +198,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
 
   // Use controlled search panel state if provided, otherwise use local state
   const showSearch = search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
+  const searchTextLength = search?.searchText.length ?? 0;
+  const previousShowSearchRef = useRef(showSearch);
   const setShowSearch = (open: boolean) => {
     if (search?.onSearchPanelToggle) {
       search.onSearchPanelToggle(open);
@@ -212,6 +214,31 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
       setPageInput(pageNavigation.currentPage.toString());
     }
   }, [pageNavigation]);
+
+  React.useEffect(() => {
+    const justOpened = showSearch && !previousShowSearchRef.current;
+    previousShowSearchRef.current = showSearch;
+
+    if (!justOpened) {
+      return;
+    }
+
+    if (!showSearch) {
+      return;
+    }
+
+    const searchInput = searchInputRef.current;
+
+    if (!searchInput) {
+      return;
+    }
+
+    searchInput.focus();
+
+    if (searchTextLength > 0) {
+      searchInput.select();
+    }
+  }, [showSearch, searchTextLength]);
 
   const handlePageInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setPageInput(event.target.value);

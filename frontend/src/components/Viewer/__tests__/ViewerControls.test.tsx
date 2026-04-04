@@ -1,5 +1,6 @@
 import { Edit } from "@mui/icons-material";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ViewerControls } from "../ViewerControls";
 
@@ -265,6 +266,61 @@ describe("ViewerControls", () => {
     // Click again to hide
     fireEvent.click(screen.getByLabelText("Search"));
     expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+  });
+
+  it("focuses the search input when the search panel opens", async () => {
+    const mockClose = vi.fn();
+    const mockSearchChange = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="test.pdf"
+        config={{ search: true }}
+        onClose={mockClose}
+        search={{
+          searchText: "",
+          onSearchChange: mockSearchChange,
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText("Search"));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Search")).toHaveFocus();
+    });
+  });
+
+  it("allows typing multiple characters into the search input", async () => {
+    const mockClose = vi.fn();
+
+    const ControlledViewerControls = () => {
+      const [searchText, setSearchText] = useState("");
+
+      return (
+        <ViewerControls
+          filename="test.pdf"
+          config={{ search: true }}
+          onClose={mockClose}
+          search={{
+            searchText,
+            onSearchChange: setSearchText,
+          }}
+        />
+      );
+    };
+
+    render(<ControlledViewerControls />);
+
+    fireEvent.click(screen.getByLabelText("Search"));
+
+    const searchInput = await screen.findByPlaceholderText("Search");
+    fireEvent.change(searchInput, { target: { value: "pdf" } });
+
+    await waitFor(() => {
+      expect(searchInput).toHaveValue("pdf");
+      expect(searchInput).toHaveFocus();
+    });
   });
 
   it("renders share button on mobile when configured", () => {
