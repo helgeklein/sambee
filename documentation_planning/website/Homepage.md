@@ -6,38 +6,78 @@ The homepage should answer the following questions quickly:
 
 1. What is Sambee?
 2. Who is it for?
-3. Why is it better than traditional file manager tools?
+3. Why is it a better fit than cloud-first file access tools for some environments?
 4. What should the visitor do next?
 
 ## Target Audience
 
-- Anyone who stores files on NAS devices, Samba or Windows file servers
-- People who prefer self-hosting over cloud services
-- Organizations of any size who are focused on digital sovereignity
-- Individuals or teams that need fast browser access to files
-- Users who want to access files from desktop and mobile
+Primary audiences:
+
+- Self-hosters with NAS devices, Samba servers, or Windows file servers
+- Organizations with digital sovereignty, compliance, or infrastructure-control requirements
+- Teams that need browser access to internal files from desktop and mobile
+
+Secondary audiences:
+
+- Individuals who prefer self-hosting over cloud services
+- Power users who want faster, preview-first file management for SMB-based storage
 
 ## Positioning
 
 Core idea:
 
-Sambee gives you browser-based access to SMB shares and local drives with fast previews, Markdown editing, and native desktop editing.
+Sambee is a self-hosted file manager for SMB shares and local drives, giving users browser-based access, fast previews, and optional desktop-app editing without moving files into a third-party cloud.
+
+Primary strategic contrast:
+
+- Cloud-first file access tools are the main comparison target
+- The homepage should emphasize control, self-hosting, and keeping file access inside the user's own environment
+
+Secondary contrast:
+
+- Traditional file manager tools are still relevant as a supporting comparison
+- They are weaker for browser access, mobile access, preview-first use, and lightweight sharing across devices
 
 Key differentiators:
 
 - Secure SMB share access from your browser
-- Broad file preview support, especially for image formats of any kind
+- Broad file preview support across images, PDFs, and Markdown
 - Optional Companion app for local drive access and editing in natively installed desktop apps
-- Excellent mobile usability
-- Optimized for speed and UX
+- Works well on desktop and mobile
+- Designed for fast preview-first use instead of slow download-first habits
+- Self-hosted deployment that fits existing infrastructure
 
 ## Messaging Principles
 
 - Lead with user value, not implementation details
-- Be specific about supported workflows
+- Keep self-hosting and infrastructure control visible throughout the page
+- Be specific about supported use cases and tasks
 - Avoid generic phrases like "modern UI" or "great UX"
+- Avoid unsupported claims like "any file type" or "faster than everything else"
 - Keep technical details for lower sections or linked docs
-- Companion: clearly explain what it unlocks. Where there's room, mention that it's optional.
+- Companion: clearly explain what it unlocks. Where there is room, mention that it is optional.
+- Use the cloud comparison carefully: position Sambee as a better fit for some environments, not as a universal replacement for all cloud tools
+
+## Messaging Strategy
+
+Primary message:
+
+- Self-hosted, browser-based access to SMB shares and local drives
+
+Primary contrast:
+
+- Better fit than cloud-first file access tools when you want infrastructure control, internal access, and self-hosted deployment
+
+Secondary contrast:
+
+- More convenient than traditional file managers when users need browser access, mobile access, and fast in-browser previews
+
+Supporting proof:
+
+- Broad preview support
+- Native desktop editing through Companion
+- Desktop and mobile usability
+- Lightweight Docker deployment
 
 ## Homepage Structure
 
@@ -50,25 +90,27 @@ Recommended message territory:
 
 - Browser-based access to SMB shares and local drives
 - Fast previews for images, PDFs, and Markdown
-- Self-hosted alternative to traditional file manager workflows for remote access
-- Native desktop editing when needed
+- Self-hosted alternative to cloud-first file access tools
+- Optional desktop-app editing when needed
 
-Possible hero copy directions:
+Hero copy direction:
 
-- Browser-based access to SMB shares and local drives with fast previews, Markdown editing, and native desktop editing.
-- A self-hosted file workspace for SMB shares and local drives, built for fast access from desktop and mobile.
-- Browse, preview, and manage files from SMB shares and local drives without relying on cloud storage or traditional file manager tools.
+- Browser-based file access without cloud storage. Manage files on SMB shares and local drives, with fast previews and optional editing in native desktop apps.
+
+Hero supporting points:
+
+- Self-hosted
+- Desktop and mobile
+- Companion optional
 
 Primary CTA ideas:
 
-- See How It Works
-- Read Documentation
 - Deployment Guide
 
 Secondary CTA ideas:
 
-- Install Companion
-- Viewer Support
+- Read Documentation
+- See Features
 
 ### 2. Problem / Value Section
 
@@ -77,11 +119,13 @@ State what Sambee replaces or improves.
 
 Message ideas:
 
-- Traditional file manager tools are optimized for local desktops, not secure browser-based access to SMB shares
-- Cloud-sync products are not the right answer for every self-hosted or sovereignty-focused environment
-- Preview files before downloading or opening them in a desktop app
-- Use the browser for routine file work and switch to native apps only when necessary
-- Reduce context switching between file explorers, VPN sessions, office apps, and ad hoc remote access tools
+- Many teams want browser access to internal files without adopting a cloud-first storage model
+- Traditional file managers work well on local desktops, but they are weak for browser access, mobile access, and preview-first file handling
+- Sambee gives users browser access to NAS devices and file servers while keeping the deployment under their control
+
+Recommended copy direction:
+
+- Present Sambee as the best of both worlds: convenience & flexibility of the cloud paired with the capabilities and the speed of traditional desktop tools
 
 ### 3. Core Benefits
 
@@ -90,9 +134,9 @@ Use 3 to 5 cards with concrete claims.
 Recommended cards:
 
 - Self-hosted control
-  - Keep file access in your own environment instead of routing workflows through a third-party cloud service
-- Faster everyday file work
-  - Browse large SMB directories with search, keyboard shortcuts, and dual-pane workflows
+  - Keep file access in your own environment instead of routing day-to-day file work through a third-party cloud service
+- Better everyday file handling
+  - Browse large SMB directories with search, keyboard shortcuts, and dual-pane navigation
 - Rich previews before download
   - View images, PDFs, and Markdown directly in the browser, including formats browsers do not support natively
 - Native editing when needed
@@ -100,28 +144,38 @@ Recommended cards:
 - Built for desktop and mobile
   - Use the same system from a workstation, tablet, or phone without giving up core functionality
 
+Optional sixth card if needed:
+
+- Fits existing infrastructure
+  - Deploy with Docker, place it behind your reverse proxy, and connect it to the SMB storage you already use
+
 ### 4. Feature Deep Dive
 
-This section should group features by workflow, not by subsystem.
+This section should group features by user task, not by subsystem.
 
 Recommended groups:
 
 - Access and navigate
-  - SMB shares and Local Drives
+  - SMB shares and local drives
   - single-pane and dual-pane layouts
   - keyboard navigation
-  - fast path navigation and directory search
+  - fast search and navigation
 - Preview and review
   - image gallery and viewer controls
   - PDF search
   - Markdown viewing and editing
-  - preview-first workflow before download or editing
+  - preview-first use before download or editing
 - Manage files
   - copy, move, rename, delete, create folder, upload, download
 - Continue work in desktop apps
   - native editing via Companion
   - upload-back workflow
   - conflict handling and recovery
+
+Editorial note:
+
+- This section should still read like homepage content, not reference documentation
+- Keep each group benefit-led and use only a few high-value examples
 
 ### 5. Supported Formats Highlight
 
@@ -130,9 +184,8 @@ Show range without dumping a full matrix on the homepage.
 
 Recommended copy shape:
 
-- Native browser and server-converted image formats
-- Strong support for professional and uncommon image formats
-- PDF and Markdown support today
+- Wide range of supported image formats
+- PDF and Markdown support
 - Link to the full viewer support page for exact format details
 
 Suggested examples to name explicitly:
@@ -159,7 +212,7 @@ Must answer:
 Key points:
 
 - It is a small optional desktop app
-- It is required for Local Drives access
+- It is required for local drives access
 - It enables editing in natively installed desktop apps
 - It handles the upload-back workflow after editing
 - It bridges browser and desktop workflows without browser extensions
@@ -167,7 +220,13 @@ Key points:
 Suggested framing:
 
 - Most browsing and preview work happens in the browser
-- Install Companion when you need Local Drives or native desktop editing
+- Install Companion when you need local drives or editing in native desktop apps
+
+Suggested prominence:
+
+- Medium prominence on the homepage
+- Important enough to deserve its own section
+- Not so dominant that it distracts from the core browser-based value proposition
 
 ### 7. Deployment / Admin Section
 
@@ -186,6 +245,7 @@ Message angle:
 
 - Keep deployment practical and trustworthy, not flashy
 - Emphasize that Sambee is designed to fit into existing infrastructure
+- Reinforce that self-hosting is a first-class part of the product story, not an afterthought
 
 ### 8. Proof / Trust Section
 
@@ -195,22 +255,32 @@ Candidates:
 - Mobile and desktop support
 - Broad file format support
 - Self-hosted deployment model
-- Open-source repository link if that is part of the public positioning
+- Free and open-source
 
 Possible proof elements:
 
 - Named file formats such as PSD, HEIC, TIFF, EPS, AI
 - Concrete screenshots instead of abstract diagrams
 - Direct links to documentation and deployment guidance
+- If a public demo exists later, add it here or near the hero rather than forcing it into the first version
 
 ### 9. Final CTA
 
-The page should end with one clear path for each visitor type:
+The page should end with one clear primary path and a few secondary paths.
 
-- Explore features
+Primary recommendation:
+
+- Deployment Guide
+
+Secondary options:
+
 - Read documentation
-- Plan deployment
 - Install Companion
+- Explore features
+
+Editorial note:
+
+- The hero and the final CTA should use the same primary action unless there is a strong reason not to
 
 ## Keep Off The Homepage
 
@@ -226,14 +296,20 @@ The page should end with one clear path for each visitor type:
 - Hero screenshot for desktop
 - Mobile screenshot
 - Image viewer screenshot showing advanced format support
-- Companion workflow screenshot
+- Companion editing screenshot
 - Deployment diagram only if it helps adoption
-- Optional comparison visual showing browser workflow versus traditional file manager workflow
+- Optional comparison visual showing browser access versus traditional file manager use
 
-## Open Questions
+## Strategic Decisions
 
-- Is the homepage primarily for self-hosters, sovereignty-focused organizations, or both?
-- Should the homepage explicitly position Sambee against cloud-first file access tools?
-- Should the primary CTA be documentation or deployment?
-- How prominently should the Companion be featured on the homepage?
-- Is there a public demo environment planned?
+- The homepage is for both self-hosters and sovereignty-focused organizations
+- The homepage should explicitly position Sambee against cloud-first file access tools
+- The Companion should have medium prominence: important, but not the main story
+- A public demo may exist later, but the first homepage version should not depend on it
+
+## Next Draft Goals
+
+- Turn this plan into actual homepage copy
+- Keep the hero concise and infrastructure-aware
+- Make the cloud-first comparison clear without sounding defensive
+- Use screenshots and concrete examples as proof instead of generic claims
