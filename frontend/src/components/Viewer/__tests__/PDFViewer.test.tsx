@@ -609,6 +609,22 @@ describe("PDFViewer", () => {
       });
     });
 
+    it("focuses the search input when Ctrl+F opens the search panel", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+      const searchInput = await screen.findByPlaceholderText("Search");
+
+      await waitFor(() => {
+        expect(searchInput).toHaveFocus();
+      });
+    });
+
     it("zooms in on Plus/Equals", async () => {
       renderPDFViewer();
 
