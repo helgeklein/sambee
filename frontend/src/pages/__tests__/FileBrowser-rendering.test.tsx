@@ -126,6 +126,7 @@ describe("Browser Component - Rendering", () => {
 
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/Connection failed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/This directory is empty/i)).not.toBeInTheDocument();
   });
 
   it("refreshes the visible pane automatically when backend availability recovers", async () => {
@@ -147,6 +148,27 @@ describe("Browser Component - Rendering", () => {
       expect(api.listDirectory).toHaveBeenCalledTimes(2);
     });
     expectDirectoryLoad("conn-1", "");
+  });
+
+  it("keeps the previous file list visible if the recovery refresh times out", async () => {
+    vi.mocked(api.listDirectory).mockResolvedValueOnce(mockDirectoryListing).mockRejectedValueOnce(createTimeoutError());
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
+
+    act(() => {
+      markBackendReconnecting("socket closed");
+    });
+
+    act(() => {
+      markBackendAvailable();
+    });
+
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/This directory is empty/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Directory listing timed out. The remote share took too long to respond/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
   });
 
   it("refreshes both visible panes automatically when dual-pane backend availability recovers", async () => {

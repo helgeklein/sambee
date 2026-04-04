@@ -286,11 +286,11 @@ const Browser: React.FC = () => {
 
   const refreshVisiblePanesAfterRecovery = useCallback(() => {
     if (leftPane.connectionIdRef.current) {
-      leftPane.handleRefresh();
+      void leftPane.loadFiles(leftPane.currentPathRef.current, true, true);
     }
 
     if (paneMode === "dual" && rightPane.connectionIdRef.current) {
-      rightPane.handleRefresh();
+      void rightPane.loadFiles(rightPane.currentPathRef.current, true, true);
     }
   }, [leftPane, paneMode, rightPane]);
 

@@ -198,7 +198,7 @@ export interface UseFileBrowserPaneReturn {
   handleClose: () => void;
   handleFocusSearch: () => void;
   handleRefresh: () => void;
-  forceReloadCurrentDirectory: () => void;
+  forceReloadCurrentDirectory: (preserveVisibleContent?: boolean) => void;
 
   // ── Viewer Handlers ────────────────────────────────────────────────────
   handleViewIndexChange: (index: number) => void;
@@ -235,7 +235,7 @@ export interface UseFileBrowserPaneReturn {
   /** Invalidate cached entries for a specific connection (e.g. after settings change). */
   invalidateConnectionCache: (targetConnectionId: string) => void;
   /** Load files for a specific path, optionally bypassing cache. */
-  loadFiles: (path: string, forceRefresh?: boolean) => Promise<void>;
+  loadFiles: (path: string, forceRefresh?: boolean, preserveVisibleContent?: boolean) => Promise<void>;
   /** Seed directory contents and cache from already-known data for a matching connection/path. */
   seedDirectorySnapshot: (connectionId: string, path: string, items: FileEntry[]) => void;
   /** Apply route-driven state from the browser location without triggering navigation again. */

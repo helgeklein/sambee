@@ -325,7 +325,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const loadFiles = useCallback(
-    async (path: string, forceRefresh = false) => {
+    async (path: string, forceRefresh = false, preserveVisibleContent = false) => {
       if (!connectionId) return;
 
       directoryLoadAbortRef.current?.abort();
@@ -352,7 +352,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         directoryCache.current.delete(cacheKey);
       }
 
-      setLoading(true);
+      const shouldKeepVisibleContent = preserveVisibleContent && filesRef.current.length > 0;
+
+      setLoading(!shouldKeepVisibleContent);
       setError(null);
 
       try {
@@ -1035,9 +1037,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     setCurrentDirectoryFilter("");
   }, []);
 
-  const forceReloadCurrentDirectory = useCallback(() => {
+  const forceReloadCurrentDirectory = useCallback((preserveVisibleContent = false) => {
     lastForceReloadRef.current = Date.now();
-    loadFilesRef.current?.(currentPathRef.current, true);
+    loadFilesRef.current?.(currentPathRef.current, true, preserveVisibleContent);
   }, []);
 
   const handleRefresh = useCallback(() => {

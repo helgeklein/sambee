@@ -113,6 +113,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   const {
     connectionId,
     currentPath,
+    error,
     loading,
     viewMode,
     currentDirectoryFilter,
@@ -409,6 +410,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
         >
           <FileList
             files={sortedAndFilteredFiles}
+            showEmptyState={error === null}
             focusedIndex={focusedIndex}
             selectedFiles={selectedFiles}
             onFileClick={handleFileClick}

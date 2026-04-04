@@ -40,4 +40,30 @@ describe("FileList", () => {
 
     expect(screen.getByText(translate("fileBrowser.list.emptyDirectory"))).toBeInTheDocument();
   });
+
+  it("suppresses the empty state when requested", () => {
+    render(
+      <FileList
+        files={[]}
+        showEmptyState={false}
+        focusedIndex={-1}
+        selectedFiles={new Set()}
+        onFileClick={() => {}}
+        rowVirtualizer={rowVirtualizerStub}
+        parentRef={{ current: null }}
+        listContainerRef={() => {}}
+        fileRowStyles={{
+          iconBox: {},
+          contentBox: {},
+          buttonSelected: {},
+          buttonNotSelected: {},
+          buttonMultiSelected: {},
+          buttonFocusedMultiSelected: {},
+        }}
+        viewMode="list"
+      />
+    );
+
+    expect(screen.queryByText(translate("fileBrowser.list.emptyDirectory"))).not.toBeInTheDocument();
+  });
 });

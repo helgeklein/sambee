@@ -8,6 +8,7 @@ import { FileRow } from "./FileRow";
 
 interface FileListProps {
   files: FileEntry[];
+  showEmptyState?: boolean;
   focusedIndex: number;
   selectedFiles: Set<string>;
   onFileClick: (file: FileEntry, index?: number) => void;
@@ -33,6 +34,7 @@ interface FileListProps {
 export const FileList = React.memo(
   ({
     files,
+    showEmptyState = true,
     focusedIndex,
     selectedFiles,
     onFileClick,
@@ -65,11 +67,11 @@ export const FileList = React.memo(
           },
         }}
       >
-        {files.length === 0 ? (
+        {files.length === 0 && showEmptyState ? (
           <Box sx={{ p: 4, textAlign: "center", flex: 1 }}>
             <Typography color="text.secondary">{t("fileBrowser.list.emptyDirectory")}</Typography>
           </Box>
-        ) : (
+        ) : files.length === 0 ? null : (
           <div
             ref={parentRef}
             data-testid="virtual-list"
