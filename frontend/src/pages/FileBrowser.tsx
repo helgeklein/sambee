@@ -45,6 +45,11 @@ import api from "../services/api";
 import { markBackendAvailable, markBackendReconnecting, useBackendAvailability } from "../services/backendAvailability";
 import { subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
+import {
+  clearBrowserRecoverySnapshot,
+  loadBrowserRecoverySnapshot,
+  saveBrowserRecoverySnapshot,
+} from "../services/browserRecoverySnapshot";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
@@ -103,6 +108,8 @@ const Browser: React.FC = () => {
   const [searchParams] = useSearchParams();
   const theme = useTheme();
   const { t } = useTranslation();
+  const initialRecoverySnapshotRef = React.useRef(loadBrowserRecoverySnapshot());
+  const hasHydratedRecoverySnapshotRef = React.useRef(false);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Responsive Design
@@ -124,8 +131,8 @@ const Browser: React.FC = () => {
   // Global Page State
   // ──────────────────────────────────────────────────────────────────────────
 
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [loadingConnections, setLoadingConnections] = useState(true);
+  const [connections, setConnections] = useState<Connection[]>(() => initialRecoverySnapshotRef.current?.connections ?? []);
+  const [loadingConnections, setLoadingConnections] = useState(() => initialRecoverySnapshotRef.current === null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -317,6 +324,98 @@ const Browser: React.FC = () => {
     });
   }, []);
 
+  useEffect(() => {
+    const snapshot = initialRecoverySnapshotRef.current;
+    if (!snapshot || hasHydratedRecoverySnapshotRef.current) {
+      return;
+    }
+
+    hasHydratedRecoverySnapshotRef.current = true;
+
+    if (snapshot.left) {
+      leftPane.seedDirectorySnapshot(snapshot.left.connectionId, snapshot.left.path, snapshot.left.items);
+      leftPane.applyLocation(snapshot.left.connectionId, snapshot.left.path);
+    }
+
+    if (snapshot.right) {
+      rightPane.seedDirectorySnapshot(snapshot.right.connectionId, snapshot.right.path, snapshot.right.items);
+      rightPane.applyLocation(snapshot.right.connectionId, snapshot.right.path);
+    } else {
+      rightPane.applyLocation("", "");
+    }
+
+    if (paneMode !== snapshot.paneMode) {
+      setPaneMode(snapshot.paneMode);
+    }
+
+    if (activePaneId !== snapshot.activePaneId) {
+      setActivePaneId(snapshot.activePaneId);
+    }
+
+    setFileBrowserPaneModePreference(snapshot.paneMode, true);
+    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, snapshot.activePaneId);
+
+    const currentUrl = location.pathname + location.search;
+    if (currentUrl !== snapshot.routeUrl) {
+      navigate(snapshot.routeUrl, { replace: true });
+    }
+  }, [activePaneId, leftPane, location.pathname, location.search, navigate, paneMode, rightPane]);
+
+  useEffect(() => {
+    if (!leftPane.connectionId || leftPane.loading || leftPane.error) {
+      return;
+    }
+
+    const leftTarget = buildBrowseRouteTarget(leftPane.connectionId, leftPane.currentPath, allConnections);
+    if (!leftTarget) {
+      return;
+    }
+
+    const rightSnapshot =
+      paneMode === "dual" && rightPane.connectionId && !rightPane.loading && !rightPane.error
+        ? {
+            connectionId: rightPane.connectionId,
+            path: rightPane.currentPath,
+            items: rightPane.files,
+          }
+        : null;
+    const rightTarget =
+      rightSnapshot === null ? null : buildBrowseRouteTarget(rightSnapshot.connectionId, rightSnapshot.path, allConnections);
+
+    saveBrowserRecoverySnapshot({
+      savedAt: Date.now(),
+      routeUrl: serializeBrowseRoute({
+        left: leftTarget,
+        right: rightTarget,
+        activePaneId: rightTarget ? activePaneId : "left",
+      }),
+      activePaneId: rightTarget ? activePaneId : "left",
+      paneMode: rightTarget ? "dual" : "single",
+      connections,
+      left: {
+        connectionId: leftPane.connectionId,
+        path: leftPane.currentPath,
+        items: leftPane.files,
+      },
+      right: rightSnapshot,
+    });
+  }, [
+    activePaneId,
+    allConnections,
+    connections,
+    leftPane.connectionId,
+    leftPane.currentPath,
+    leftPane.error,
+    leftPane.files,
+    leftPane.loading,
+    paneMode,
+    rightPane.connectionId,
+    rightPane.currentPath,
+    rightPane.error,
+    rightPane.files,
+    rightPane.loading,
+  ]);
+
   // ──────────────────────────────────────────────────────────────────────────
   // API & Data Loading (Global)
   // ──────────────────────────────────────────────────────────────────────────
@@ -475,8 +574,14 @@ const Browser: React.FC = () => {
   // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
   const loadConnections = useCallback(async () => {
     const preserveVisibleUi =
-      backendAvailability.recoveryLock &&
-      Boolean(leftPane.connectionIdRef.current || currentRoute.left || currentRoute.right || leftPane.filesRef.current.length > 0);
+      (backendAvailability.recoveryLock || initialRecoverySnapshotRef.current !== null) &&
+      Boolean(
+        initialRecoverySnapshotRef.current ??
+          leftPane.connectionIdRef.current ??
+          currentRoute.left ??
+          currentRoute.right ??
+          leftPane.filesRef.current.length > 0
+      );
 
     try {
       if (!preserveVisibleUi) {
@@ -1734,6 +1839,7 @@ const Browser: React.FC = () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleLogout = () => {
+    clearBrowserRecoverySnapshot();
     localStorage.removeItem("access_token");
     navigate("/login");
   };

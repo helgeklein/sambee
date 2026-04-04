@@ -31,6 +31,7 @@ import {
   markBackendUnavailable,
 } from "./backendAvailability";
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
+import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
 
@@ -148,6 +149,7 @@ class ApiService {
             return Promise.reject(error);
           }
 
+          clearBrowserRecoverySnapshot();
           localStorage.removeItem("access_token");
 
           // Skip redirect if we're validating token

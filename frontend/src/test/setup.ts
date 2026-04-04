@@ -68,6 +68,7 @@ beforeAll(() => {
 afterEach(() => {
   server.resetHandlers();
   cleanup();
+  window.sessionStorage?.clear();
 });
 
 // Stop MSW server after all tests

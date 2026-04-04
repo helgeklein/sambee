@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
 import { markBackendAvailable, markBackendReconnecting, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
+import { saveBrowserRecoverySnapshot } from "../../services/browserRecoverySnapshot";
 import {
   type ApiMock,
   createMarkdownViewerMock,
@@ -16,7 +17,7 @@ import {
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
-import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
+import { mockConnections, mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 const expectDirectoryLoad = (connectionId: string, path: string) => {
   expect(api.listDirectory).toHaveBeenCalledWith(
@@ -43,9 +44,31 @@ describe("Browser Component - Rendering", () => {
     resetBackendAvailabilityForTests();
     localStorage.setItem("access_token", "fake-token");
     localStorage.removeItem("selectedConnectionId");
+    sessionStorage.clear();
 
     // Use mock factory for successful API responses
     setupSuccessfulApiMocks(api as unknown as ApiMock);
+  });
+
+  it("restores the previous pane snapshot without showing connection bootstrap loading", async () => {
+    saveBrowserRecoverySnapshot({
+      savedAt: Date.now(),
+      routeUrl: "/browse/smb/test-server-1",
+      activePaneId: "left",
+      paneMode: "single",
+      connections: mockConnections,
+      left: {
+        connectionId: "conn-1",
+        path: "",
+        items: mockDirectoryListing.items,
+      },
+      right: null,
+    });
+
+    renderBrowser("/browse");
+
+    expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Loading connections/i)).not.toBeInTheDocument();
   });
 
   it("displays connection selector with available connections", async () => {
