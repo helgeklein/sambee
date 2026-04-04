@@ -39,11 +39,11 @@ import SettingsDialog from "../components/Settings/SettingsDialog";
 import { DEFAULT_SETTINGS_CATEGORY, type MobileSettingsView, type SettingsCategory } from "../components/Settings/settingsNavigation";
 import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
-import { useBackendRecoveryMonitor } from "../hooks/useBackendRecoveryMonitor";
 import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { markBackendAvailable, markBackendReconnecting, useBackendAvailability } from "../services/backendAvailability";
+import { subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
@@ -294,13 +294,28 @@ const Browser: React.FC = () => {
     }
   }, [leftPane, paneMode, rightPane]);
 
-  useBackendRecoveryMonitor({
-    status: backendAvailability.status,
-    onRecovered: refreshVisiblePanesAfterRecovery,
-    onReconnectNow: (reason) => {
+  const previousBackendStatusRef = React.useRef(backendAvailability.status);
+
+  useEffect(() => {
+    const previousStatus = previousBackendStatusRef.current;
+    previousBackendStatusRef.current = backendAvailability.status;
+
+    if (backendAvailability.status !== "available") {
+      return;
+    }
+
+    if (previousStatus === "available") {
+      return;
+    }
+
+    refreshVisiblePanesAfterRecovery();
+  }, [backendAvailability.status, refreshVisiblePanesAfterRecovery]);
+
+  useEffect(() => {
+    return subscribeBackendRecoveryReconnect(({ reason }) => {
       triggerServerReconnectRef.current(reason);
-    },
-  });
+    });
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   // API & Data Loading (Global)

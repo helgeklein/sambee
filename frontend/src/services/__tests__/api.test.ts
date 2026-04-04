@@ -35,6 +35,7 @@ vi.mock("axios", () => {
   return {
     default: {
       create: vi.fn(() => mockAxiosInstance),
+      isCancel: vi.fn(() => false),
     },
   };
 });
@@ -43,6 +44,7 @@ vi.mock("axios", () => {
 import axios from "axios";
 // Now import the API service (it will use the mocked axios.create)
 import apiService, { LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE } from "../api";
+import { getBackendAvailabilitySnapshot, markBackendUnavailable, resetBackendAvailabilityForTests } from "../backendAvailability";
 
 const mockedAxios = vi.mocked(axios);
 const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.create> & {
@@ -51,6 +53,11 @@ const mockAxiosInstance = mockedAxios.create() as ReturnType<typeof mockedAxios.
   put: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
 };
+const responseInterceptorHandlers = mockAxiosInstance.interceptors.response.use.mock.calls[0] as
+  | [((response: AxiosResponse) => AxiosResponse | Promise<AxiosResponse>)?, ((error: unknown) => Promise<never>)?]
+  | undefined;
+const responseSuccessHandler = responseInterceptorHandlers?.[0];
+const responseErrorHandler = responseInterceptorHandlers?.[1];
 
 describe("API Service", () => {
   const fetchMock = vi.fn();
@@ -58,6 +65,7 @@ describe("API Service", () => {
   beforeEach(() => {
     // Clear localStorage
     localStorage.clear();
+    resetBackendAvailabilityForTests();
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -821,6 +829,53 @@ describe("API Service", () => {
 
       await expect(apiService.listDirectory("conn1", "/")).rejects.toMatchObject({
         response: { status: 500 },
+      });
+    });
+
+    it("marks the backend reconnecting on the first connectivity failure", async () => {
+      const networkError = { code: "ERR_NETWORK", message: "Network error" };
+
+      expect(responseErrorHandler).toBeDefined();
+      await expect(responseErrorHandler?.(networkError)).rejects.toEqual(networkError);
+      expect(getBackendAvailabilitySnapshot()).toMatchObject({
+        status: "reconnecting",
+        lastErrorMessage: "Network error",
+      });
+    });
+
+    it("keeps the backend unavailable after another connectivity failure while already unavailable", async () => {
+      const networkError = { code: "ERR_NETWORK", message: "Still offline" };
+
+      markBackendUnavailable("Initial outage");
+
+      expect(responseErrorHandler).toBeDefined();
+      await expect(responseErrorHandler?.(networkError)).rejects.toEqual(networkError);
+      expect(getBackendAvailabilitySnapshot()).toMatchObject({
+        status: "unavailable",
+        lastErrorMessage: "Still offline",
+      });
+    });
+
+    it("marks the backend available again after a successful response", async () => {
+      const response = {
+        data: {},
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        config: {
+          method: "get",
+          url: "/connections",
+          headers: {},
+        } as AxiosResponse["config"],
+      } as AxiosResponse;
+
+      markBackendUnavailable("Initial outage");
+
+      expect(responseSuccessHandler).toBeDefined();
+      expect(responseSuccessHandler?.(response)).toBe(response);
+      expect(getBackendAvailabilitySnapshot()).toMatchObject({
+        status: "available",
+        lastErrorMessage: null,
       });
     });
   });

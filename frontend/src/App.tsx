@@ -5,6 +5,7 @@ import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-d
 import AppUpdatePrompt from "./components/AppUpdatePrompt";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { SettingsLayout } from "./components/Settings/SettingsLayout";
+import { useBackendRecoveryMonitor } from "./hooks/useBackendRecoveryMonitor";
 import { useFocusTrap } from "./hooks/useFocusTrap";
 import { translate } from "./i18n";
 import { CompanionLocalizationSync } from "./i18n/CompanionLocalizationSync";
@@ -16,6 +17,8 @@ import { LocalDrivesSettings } from "./pages/LocalDrivesSettings";
 import { AppearanceSettings } from "./pages/PreferencesSettings";
 import { Settings } from "./pages/Settings";
 import { UserManagementSettings } from "./pages/UserManagementSettings";
+import { useBackendAvailability } from "./services/backendAvailability";
+import { emitBackendRecoveryReconnect } from "./services/backendRecoveryEvents";
 import { SambeeThemeProvider, useSambeeTheme } from "./theme";
 
 // Lazy load route components for better code splitting
@@ -32,7 +35,15 @@ const FileBrowser = lazy(() => import("./pages/FileBrowser"));
 function AppContent() {
   const { muiTheme } = useSambeeTheme();
   const appRef = useRef<HTMLDivElement>(null);
+  const backendAvailability = useBackendAvailability();
   useFocusTrap(appRef);
+
+  useBackendRecoveryMonitor({
+    status: backendAvailability.status,
+    onReconnectNow: (reason) => {
+      emitBackendRecoveryReconnect(reason);
+    },
+  });
 
   return (
     <ThemeProvider theme={muiTheme}>
