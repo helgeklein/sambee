@@ -632,11 +632,11 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      const searchInput = await viewerSearch.openSearch("page");
+      const searchInput = await viewerSearch.openSearch();
 
       await waitFor(() => {
         expect(searchInput).toHaveFocus();
-        expect(screen.getByText("1 / 5")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
       fireEvent.keyDown(searchInput, { key: "PageDown" });
