@@ -10,6 +10,7 @@ import { getServerBaseUrl } from "../services/backendRouter";
 import { logger } from "../services/logger";
 
 const HEALTH_CHECK_PATH = "/health";
+const AUTHENTICATED_PROBE_PATH = "/auth/me";
 const HEALTH_CHECK_TIMEOUT_MS = 5_000;
 const PROBE_FAILURES_BEFORE_UNAVAILABLE = 3;
 const RECOVERY_RETRY_DELAYS_MS = [750, 1_250, 2_000, 3_000] as const;
@@ -26,8 +27,31 @@ function getRecoveryDelay(failures: number): number {
   return RECOVERY_RETRY_DELAYS_MS[index];
 }
 
-function buildHealthCheckUrl(): string {
-  return `${getServerBaseUrl()}${HEALTH_CHECK_PATH}`;
+interface RecoveryProbeRequest {
+  url: string;
+  headers: Record<string, string>;
+}
+
+function buildRecoveryProbeRequest(): RecoveryProbeRequest {
+  const baseUrl = getServerBaseUrl();
+  const accessToken = localStorage.getItem("access_token");
+
+  if (accessToken) {
+    return {
+      url: `${baseUrl}${AUTHENTICATED_PROBE_PATH}`,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Cache-Control": "no-cache",
+      },
+    };
+  }
+
+  return {
+    url: `${baseUrl}${HEALTH_CHECK_PATH}`,
+    headers: {
+      "Cache-Control": "no-cache",
+    },
+  };
 }
 
 export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered, onReconnectNow }: BackendRecoveryMonitorOptions): void {
@@ -78,19 +102,18 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
       const timeoutId = window.setTimeout(() => {
         abortController.abort();
       }, HEALTH_CHECK_TIMEOUT_MS);
+      const probeRequest = buildRecoveryProbeRequest();
 
       try {
-        const response = await fetch(buildHealthCheckUrl(), {
+        const response = await fetch(probeRequest.url, {
           method: "GET",
           cache: "no-store",
           signal: abortController.signal,
-          headers: {
-            "Cache-Control": "no-cache",
-          },
+          headers: probeRequest.headers,
         });
 
         if (!response.ok) {
-          throw new Error(`Backend health check failed with status ${response.status}`);
+          throw new Error(`Backend recovery probe failed with status ${response.status}`);
         }
 
         const wasRecovering = getBackendAvailabilitySnapshot().status !== "available" || consecutiveFailuresRef.current > 0;
@@ -98,7 +121,7 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
         markBackendAvailable();
 
         if (wasRecovering) {
-          logger.info("Backend recovery probe succeeded", { reason }, "backend-recovery");
+          logger.info("Backend recovery probe succeeded", { reason, url: probeRequest.url }, "backend-recovery");
           onReconnectNowRef.current?.("health-probe-success");
           onRecoveredRef.current?.();
         }
@@ -115,6 +138,7 @@ export function useBackendRecoveryMonitor({ enabled = true, status, onRecovered,
           "Backend recovery probe failed",
           {
             reason,
+            url: probeRequest.url,
             failures: consecutiveFailuresRef.current,
             error,
           },

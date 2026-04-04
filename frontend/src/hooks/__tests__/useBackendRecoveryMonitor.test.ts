@@ -75,6 +75,31 @@ describe("useBackendRecoveryMonitor", () => {
     expect(onReconnectNow).toHaveBeenCalledWith("window-focus");
   });
 
+  it("uses an authenticated recovery probe when an access token is present", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+
+    localStorage.setItem("access_token", "token-123");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = renderHook(({ status }) => useBackendRecoveryMonitor({ status }), {
+      initialProps: { status: "available" as const },
+    });
+
+    rerender({ status: "unavailable" });
+
+    await flushAsyncWork();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3000/api/auth/me",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer token-123",
+        }),
+      })
+    );
+  });
+
   it("escalates to unavailable after repeated failed probes", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
 
