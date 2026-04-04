@@ -131,7 +131,7 @@
           "editor.defaultFormatter": "biomejs.biome",
           "editor.formatOnSave": true
         },
-        "terminal.integrated.defaultProfile.linux": "zsh"
+        "terminal.integrated.defaultProfile.linux": "bash"
       }
     }
   },

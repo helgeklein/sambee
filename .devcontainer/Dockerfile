@@ -15,7 +15,6 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         smbclient \
         cifs-utils \
         sqlite3 \
-        zsh \
         tmux \
         # Tauri v2 Linux system dependencies
         libwebkit2gtk-4.1-dev \
@@ -26,11 +25,9 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         file \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
 
-# Install oh-my-zsh for better terminal experience
+# Use a minimal bash configuration
 USER vscode
-RUN rm -rf ~/.oh-my-zsh \
-    && sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
-    && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+RUN printf '%s\n' 'export PATH="$HOME/.local/bin:$PATH"' > ~/.bashrc
 
 # Pre-create directories with correct ownership to prevent Docker from creating them as root
 RUN mkdir -p /home/vscode/.vscode-server/extensions \
