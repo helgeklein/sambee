@@ -43,7 +43,13 @@ import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
 import { markBackendAvailable, markBackendReconnecting, useBackendAvailability } from "../services/backendAvailability";
+import { subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
+import {
+  clearBrowserRecoverySnapshot,
+  loadBrowserRecoverySnapshot,
+  saveBrowserRecoverySnapshot,
+} from "../services/browserRecoverySnapshot";
 import companionService, { buildCompanionWsUrl, type DriveInfo, hasStoredSecret } from "../services/companion";
 import { logger } from "../services/logger";
 import { scheduleRuntimeWarmup } from "../services/runtimeWarmup";
@@ -84,6 +90,8 @@ import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 // Main Component
 // ============================================================================
 
+const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
+
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
   const renderCountRef = React.useRef(0);
@@ -100,6 +108,8 @@ const Browser: React.FC = () => {
   const [searchParams] = useSearchParams();
   const theme = useTheme();
   const { t } = useTranslation();
+  const initialRecoverySnapshotRef = React.useRef(loadBrowserRecoverySnapshot());
+  const hasHydratedRecoverySnapshotRef = React.useRef(false);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Responsive Design
@@ -121,8 +131,8 @@ const Browser: React.FC = () => {
   // Global Page State
   // ──────────────────────────────────────────────────────────────────────────
 
-  const [connections, setConnections] = useState<Connection[]>([]);
-  const [loadingConnections, setLoadingConnections] = useState(true);
+  const [connections, setConnections] = useState<Connection[]>(() => initialRecoverySnapshotRef.current?.connections ?? []);
+  const [loadingConnections, setLoadingConnections] = useState(() => initialRecoverySnapshotRef.current === null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -211,10 +221,13 @@ const Browser: React.FC = () => {
   const leftConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
   const rightConnectionNavigateRef = React.useRef<(connectionId: string) => void>(() => undefined);
   const pendingPaneFocusRef = React.useRef<PaneId | null>(null);
+  const routeSyncTokenRef = React.useRef(0);
 
   // WebSocket for real-time directory updates (server)
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
+  const serverReconnectAttemptRef = React.useRef(0);
+  const triggerServerReconnectRef = React.useRef<(reason: string) => void>(() => undefined);
 
   // WebSocket for real-time directory updates (companion / local drives)
   const companionWsRef = React.useRef<WebSocket | null>(null);
@@ -278,6 +291,116 @@ const Browser: React.FC = () => {
       setQuickBarPaneId("left");
     }
   }, [isDualMode, quickBarPaneId, rightPane.connectionId]);
+
+  const refreshVisiblePanesAfterRecovery = useCallback(() => {
+    if (leftPane.connectionIdRef.current) {
+      void leftPane.loadFiles(leftPane.currentPathRef.current, true, true);
+    }
+
+    if (paneMode === "dual" && rightPane.connectionIdRef.current) {
+      void rightPane.loadFiles(rightPane.currentPathRef.current, true, true);
+    }
+  }, [leftPane, paneMode, rightPane]);
+
+  const previousBackendStatusRef = React.useRef(backendAvailability.status);
+
+  useEffect(() => {
+    const previousStatus = previousBackendStatusRef.current;
+    previousBackendStatusRef.current = backendAvailability.status;
+
+    if (backendAvailability.status !== "available") {
+      return;
+    }
+
+    if (previousStatus === "available") {
+      return;
+    }
+
+    refreshVisiblePanesAfterRecovery();
+  }, [backendAvailability.status, refreshVisiblePanesAfterRecovery]);
+
+  useEffect(() => {
+    return subscribeBackendRecoveryReconnect(({ reason }) => {
+      triggerServerReconnectRef.current(reason);
+    });
+  }, []);
+
+  const restoreInitialRecoverySnapshot = useCallback(() => {
+    const snapshot = initialRecoverySnapshotRef.current;
+    if (!snapshot || hasHydratedRecoverySnapshotRef.current) {
+      return;
+    }
+
+    hasHydratedRecoverySnapshotRef.current = true;
+
+    leftPane.restoreRecoverySnapshot(snapshot.left);
+    rightPane.restoreRecoverySnapshot(snapshot.right);
+
+    if (!snapshot.right) {
+      rightPane.applyLocation("", "");
+    }
+
+    if (paneMode !== snapshot.paneMode) {
+      setPaneMode(snapshot.paneMode);
+    }
+
+    if (activePaneId !== snapshot.activePaneId) {
+      setActivePaneId(snapshot.activePaneId);
+    }
+
+    setFileBrowserPaneModePreference(snapshot.paneMode, true);
+    localStorage.setItem(ACTIVE_PANE_STORAGE_KEY, snapshot.activePaneId);
+
+    const currentUrl = location.pathname + location.search;
+    if (currentUrl !== snapshot.routeUrl) {
+      navigate(snapshot.routeUrl, { replace: true });
+    }
+  }, [activePaneId, leftPane, location.pathname, location.search, navigate, paneMode, rightPane]);
+
+  useEffect(() => {
+    restoreInitialRecoverySnapshot();
+  }, [restoreInitialRecoverySnapshot]);
+
+  useEffect(() => {
+    const leftSnapshot = leftPane.captureRecoverySnapshot();
+    if (!leftSnapshot || leftPane.loading || leftPane.error) {
+      return;
+    }
+
+    const leftTarget = buildBrowseRouteTarget(leftSnapshot.connectionId, leftSnapshot.path, allConnections);
+    if (!leftTarget) {
+      return;
+    }
+
+    const rightSnapshot = paneMode === "dual" && !rightPane.loading && !rightPane.error ? rightPane.captureRecoverySnapshot() : null;
+    const rightTarget =
+      rightSnapshot === null ? null : buildBrowseRouteTarget(rightSnapshot.connectionId, rightSnapshot.path, allConnections);
+
+    saveBrowserRecoverySnapshot({
+      savedAt: Date.now(),
+      routeUrl: serializeBrowseRoute({
+        left: leftTarget,
+        right: rightTarget,
+        activePaneId: rightTarget ? activePaneId : "left",
+      }),
+      activePaneId: rightTarget ? activePaneId : "left",
+      paneMode: rightTarget ? "dual" : "single",
+      connections,
+      left: leftSnapshot,
+      right: rightSnapshot,
+    });
+  }, [
+    activePaneId,
+    allConnections,
+    connections,
+    leftPane.error,
+    leftPane.loading,
+    paneMode,
+    rightPane.error,
+    rightPane.loading,
+    leftPane,
+    rightPane,
+  ]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // API & Data Loading (Global)
@@ -427,52 +550,19 @@ const Browser: React.FC = () => {
     rightPane.seedDirectorySnapshot(leftConnectionId, leftPath, leftPane.files);
   }, [leftPane.connectionIdRef, leftPane.currentPathRef, leftPane.error, leftPane.files, leftPane.loading, rightPane]);
 
-  /**
-   * loadConnections
-   *
-   * Loads available SMB connections and handles auto-selection.
-   * Priority: URL param > localStorage > first connection
-   * Initializes mobile logging and handles authentication requirements.
-   */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
-  const loadConnections = useCallback(async () => {
-    try {
-      setLoadingConnections(true);
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        // Check if auth is required before redirecting to login
-        const { isAuthRequired } = await import("../services/authConfig");
-        const authRequired = await isAuthRequired();
-        if (authRequired) {
-          navigate("/login");
-          return;
-        }
-        // If auth is not required (auth_method="none"), continue without token
-      }
-
-      // Initialize mobile logging if not already done (handles page refresh with existing token)
-      await logger.initializeBackendTracing();
-
-      const currentUserSettings = await loadCurrentUserSettings(true);
-      const persistedSelectedConnectionId = currentUserSettings?.browser.selected_connection_id ?? null;
-      if (persistedSelectedConnectionId !== null) {
-        setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
-      }
-
-      const data = await api.getConnections();
-      setConnections(data);
-
+  const reconcileBootstrapRoute = useCallback(
+    (loadedConnections: Connection[], persistedSelectedConnectionId: string | null) => {
       if ((params.targetType || params.targetId) && !currentRoute.left) {
         navigate("/browse", { replace: true });
         return;
       }
 
-      if (currentRoute.left?.kind === "smb" && !data.some((connection) => connection.slug === currentRoute.left?.targetId)) {
+      if (currentRoute.left?.kind === "smb" && !loadedConnections.some((connection) => connection.slug === currentRoute.left?.targetId)) {
         navigate("/browse", { replace: true });
         return;
       }
 
-      if (currentRoute.right?.kind === "smb" && !data.some((connection) => connection.slug === currentRoute.right?.targetId)) {
+      if (currentRoute.right?.kind === "smb" && !loadedConnections.some((connection) => connection.slug === currentRoute.right?.targetId)) {
         navigateToBrowseState(
           {
             left: currentRoute.left,
@@ -490,37 +580,92 @@ const Browser: React.FC = () => {
 
       const savedConnectionId = persistedSelectedConnectionId ?? readSelectedConnectionIdPreference();
       const autoSelectedConnectionId =
-        savedConnectionId && (isLocalDrive(savedConnectionId) || data.some((connection) => connection.id === savedConnectionId))
+        savedConnectionId &&
+        (isLocalDrive(savedConnectionId) || loadedConnections.some((connection) => connection.id === savedConnectionId))
           ? savedConnectionId
-          : data[0]?.id;
+          : loadedConnections[0]?.id;
 
       if (autoSelectedConnectionId) {
         navigateToBrowseState(
           {
-            left: buildBrowseRouteTarget(autoSelectedConnectionId, "", mergeConnections(data, companion.drives)),
+            left: buildBrowseRouteTarget(autoSelectedConnectionId, "", mergeConnections(loadedConnections, companion.drives)),
             right: null,
             activePaneId: "left",
           },
           { replace: true }
         );
       }
-    } catch (err: unknown) {
-      logger.error("Error loading connections", { error: err }, "browser");
-      if (isApiError(err)) {
-        if (err.response?.status === 401) {
-          navigate("/login");
-        } else if (err.response?.status === 403) {
-          leftPane.setError("Access denied. Please contact an administrator to configure connections.");
+    },
+    [companion.drives, currentRoute.left, currentRoute.right, navigate, navigateToBrowseState, params.targetId, params.targetType]
+  );
+
+  /**
+   * loadConnections
+   *
+   * `bootstrap` is allowed to change route/loading UI for a cold start.
+   * `background-revalidate` refreshes connection metadata without disturbing the current browser UI.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
+  const loadConnections = useCallback(
+    async (mode: "bootstrap" | "background-revalidate") => {
+      const preserveVisibleUi = mode === "background-revalidate";
+
+      try {
+        if (!preserveVisibleUi) {
+          setLoadingConnections(true);
+        }
+
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+          const { isAuthRequired } = await import("../services/authConfig");
+          const authRequired = await isAuthRequired();
+          if (authRequired) {
+            if (!preserveVisibleUi) {
+              navigate("/login");
+            }
+            return;
+          }
+        }
+
+        await logger.initializeBackendTracing();
+
+        const currentUserSettings = await loadCurrentUserSettings(true);
+        const persistedSelectedConnectionId = currentUserSettings?.browser.selected_connection_id ?? null;
+        if (persistedSelectedConnectionId !== null) {
+          setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
+        }
+
+        const data = await api.getConnections();
+        setConnections(data);
+
+        if (preserveVisibleUi) {
+          return;
+        }
+
+        reconcileBootstrapRoute(data, persistedSelectedConnectionId);
+      } catch (err: unknown) {
+        logger.error("Error loading connections", { error: err }, "browser");
+        if (isApiError(err)) {
+          if (err.response?.status === 401) {
+            if (!preserveVisibleUi) {
+              navigate("/login");
+            }
+          } else if (err.response?.status === 403) {
+            leftPane.setError("Access denied. Please contact an administrator to configure connections.");
+          } else {
+            leftPane.setError("Failed to load connections. Please try again.");
+          }
         } else {
           leftPane.setError("Failed to load connections. Please try again.");
         }
-      } else {
-        leftPane.setError("Failed to load connections. Please try again.");
+      } finally {
+        if (!preserveVisibleUi) {
+          setLoadingConnections(false);
+        }
       }
-    } finally {
-      setLoadingConnections(false);
-    }
-  }, [companion.drives, currentRoute.left, currentRoute.right, navigate, navigateToBrowseState, params.targetId, params.targetType]);
+    },
+    [navigate, reconcileBootstrapRoute]
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Lifecycle Effects
@@ -538,7 +683,8 @@ const Browser: React.FC = () => {
     let cancelled = false;
 
     const init = async () => {
-      await loadConnections();
+      const initialLoadMode = initialRecoverySnapshotRef.current !== null ? "background-revalidate" : "bootstrap";
+      await loadConnections(initialLoadMode);
       if (cancelled) return;
       await checkAdminStatus();
     };
@@ -554,8 +700,11 @@ const Browser: React.FC = () => {
       return;
     }
 
-    leftApplyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "");
-    rightApplyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "");
+    const routeSyncToken = routeSyncTokenRef.current + 1;
+    routeSyncTokenRef.current = routeSyncToken;
+
+    leftApplyLocation(resolvedRoute.left?.connectionId ?? "", resolvedRoute.left?.path ?? "", routeSyncToken);
+    rightApplyLocation(resolvedRoute.right?.connectionId ?? "", resolvedRoute.right?.path ?? "", routeSyncToken);
 
     const nextPaneMode: PaneMode = resolvedRoute.right ? "dual" : "single";
     const nextActivePaneId: PaneId = resolvedRoute.right ? resolvedRoute.activePaneId : "left";
@@ -613,14 +762,46 @@ const Browser: React.FC = () => {
   useEffect(() => {
     let disposed = false;
     let activeWs: WebSocket | null = null;
+    let suppressCloseReconnect = false;
 
-    const connectWebSocket = () => {
+    const clearReconnectTimer = () => {
+      if (reconnectTimeoutRef.current !== null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    };
+
+    const scheduleReconnect = (reason: string, immediate = false) => {
+      if (disposed) {
+        return;
+      }
+
+      clearReconnectTimer();
+      const delayMs = immediate
+        ? 0
+        : SERVER_WEBSOCKET_RECONNECT_DELAYS_MS[
+            Math.min(serverReconnectAttemptRef.current, SERVER_WEBSOCKET_RECONNECT_DELAYS_MS.length - 1)
+          ];
+
+      if (!immediate) {
+        serverReconnectAttemptRef.current += 1;
+      }
+
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        connectWebSocket(reason);
+      }, delayMs);
+    };
+
+    const connectWebSocket = (reason = "initial") => {
       if (disposed) return;
+
+      clearReconnectTimer();
 
       const accessToken = localStorage.getItem("access_token");
       const wsUrl = buildServerWebSocketUrl(window.location, accessToken);
 
-      logger.info("Connecting to WebSocket", { wsUrl }, "websocket");
+      logger.info("Connecting to WebSocket", { wsUrl, reason }, "websocket");
       const ws = new WebSocket(wsUrl);
       activeWs = ws;
 
@@ -629,6 +810,7 @@ const Browser: React.FC = () => {
           ws.close();
           return;
         }
+        serverReconnectAttemptRef.current = 0;
         markBackendAvailable();
         logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
@@ -684,6 +866,15 @@ const Browser: React.FC = () => {
           return;
         }
 
+        if (suppressCloseReconnect) {
+          suppressCloseReconnect = false;
+          if (activeWs === ws) {
+            activeWs = null;
+          }
+          wsRef.current = null;
+          return;
+        }
+
         markBackendReconnecting("WebSocket disconnected");
         logger.warn("WebSocket disconnected", { wsUrl, willReconnect: !disposed }, "websocket");
         if (activeWs === ws) {
@@ -692,27 +883,41 @@ const Browser: React.FC = () => {
         wsRef.current = null;
 
         if (!disposed) {
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            connectWebSocket();
-          }, 5000);
+          scheduleReconnect("socket-close");
         }
       };
+    };
+
+    triggerServerReconnectRef.current = (reason: string) => {
+      if (disposed) {
+        return;
+      }
+
+      serverReconnectAttemptRef.current = 0;
+      clearReconnectTimer();
+
+      if (activeWs) {
+        suppressCloseReconnect = true;
+        activeWs.close();
+        activeWs = null;
+        wsRef.current = null;
+      }
+
+      scheduleReconnect(reason, true);
     };
 
     connectWebSocket();
 
     return () => {
       disposed = true;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
+      clearReconnectTimer();
       // Close the locally-tracked socket — works even if onopen hasn't fired yet
       if (activeWs) {
         activeWs.close();
         activeWs = null;
       }
       wsRef.current = null;
+      triggerServerReconnectRef.current = () => undefined;
     };
   }, []);
 
@@ -1606,6 +1811,7 @@ const Browser: React.FC = () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   const handleLogout = () => {
+    clearBrowserRecoverySnapshot();
     localStorage.removeItem("access_token");
     navigate("/login");
   };

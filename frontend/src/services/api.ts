@@ -23,8 +23,15 @@ import type {
   User,
 } from "../types";
 import { FileType } from "../types";
-import { isBackendConnectivityError, markBackendAvailable, markBackendUnavailable } from "./backendAvailability";
+import {
+  getBackendAvailabilitySnapshot,
+  isBackendConnectivityError,
+  markBackendAvailable,
+  markBackendReconnecting,
+  markBackendUnavailable,
+} from "./backendAvailability";
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
+import { clearBrowserRecoverySnapshot } from "./browserRecoverySnapshot";
 import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
 
@@ -94,14 +101,24 @@ class ApiService {
         return response;
       },
       (error: AxiosError) => {
+        const backendSnapshot = getBackendAvailabilitySnapshot();
+
         if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
           return Promise.reject(error);
         }
 
         if (isBackendConnectivityError(error)) {
-          markBackendUnavailable(error.message);
+          if (backendSnapshot.status === "unavailable") {
+            markBackendUnavailable(error.message);
+          } else {
+            markBackendReconnecting(error.message);
+          }
         } else if (error.response?.status) {
-          markBackendAvailable();
+          if (error.response.status === 401 && backendSnapshot.recoveryLock) {
+            markBackendReconnecting("Authenticated backend session is not ready yet.");
+          } else {
+            markBackendAvailable();
+          }
         }
 
         const requestId = logger.extractRequestId(error.response?.headers as Record<string, string>);
@@ -120,6 +137,19 @@ class ApiService {
         ); // Redirect to login on any 401 Unauthorized response
         // This includes expired tokens, invalid credentials, etc.
         if (error.response?.status === 401) {
+          if (backendSnapshot.recoveryLock) {
+            logger.warn(
+              "Suppressing logout redirect during backend recovery",
+              {
+                url: error.config?.url,
+                requestId,
+              },
+              "api"
+            );
+            return Promise.reject(error);
+          }
+
+          clearBrowserRecoverySnapshot();
           localStorage.removeItem("access_token");
 
           // Skip redirect if we're validating token

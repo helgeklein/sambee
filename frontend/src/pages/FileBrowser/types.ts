@@ -40,6 +40,21 @@ export interface DirectoryCacheEntry {
   timestamp: number;
 }
 
+export interface FileBrowserPaneRecoverySnapshot {
+  connectionId: string;
+  path: string;
+  items: FileEntry[];
+  sortBy: SortField;
+  sortDirection: "asc" | "desc";
+  viewMode: ViewMode;
+  currentDirectoryFilter: string;
+  focusedIndex: number;
+  focusedFileName: string | null;
+  selectedFileNames: string[];
+  viewInfo: ViewInfo | null;
+  scrollOffset: number;
+}
+
 // ============================================================================
 // Pane hook configuration & return types
 // ============================================================================
@@ -198,7 +213,7 @@ export interface UseFileBrowserPaneReturn {
   handleClose: () => void;
   handleFocusSearch: () => void;
   handleRefresh: () => void;
-  forceReloadCurrentDirectory: () => void;
+  forceReloadCurrentDirectory: (preserveVisibleContent?: boolean) => void;
 
   // ── Viewer Handlers ────────────────────────────────────────────────────
   handleViewIndexChange: (index: number) => void;
@@ -235,9 +250,13 @@ export interface UseFileBrowserPaneReturn {
   /** Invalidate cached entries for a specific connection (e.g. after settings change). */
   invalidateConnectionCache: (targetConnectionId: string) => void;
   /** Load files for a specific path, optionally bypassing cache. */
-  loadFiles: (path: string, forceRefresh?: boolean) => Promise<void>;
+  loadFiles: (path: string, forceRefresh?: boolean, preserveVisibleContent?: boolean) => Promise<void>;
   /** Seed directory contents and cache from already-known data for a matching connection/path. */
   seedDirectorySnapshot: (connectionId: string, path: string, items: FileEntry[]) => void;
   /** Apply route-driven state from the browser location without triggering navigation again. */
-  applyLocation: (connectionId: string, path: string) => void;
+  applyLocation: (connectionId: string, path: string, routeSyncToken?: number) => void;
+  /** Capture the current pane UI state for suspend/resume recovery. */
+  captureRecoverySnapshot: () => FileBrowserPaneRecoverySnapshot | null;
+  /** Restore a previously captured pane UI state without re-running bootstrap logic. */
+  restoreRecoverySnapshot: (snapshot: FileBrowserPaneRecoverySnapshot | null) => void;
 }

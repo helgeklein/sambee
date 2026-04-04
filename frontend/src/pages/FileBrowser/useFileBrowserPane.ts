@@ -35,7 +35,7 @@ import {
   useQuickNavIncludeDotDirectoriesPreference,
   writeSelectedConnectionIdPreference,
 } from "./preferences";
-import type { SortField, UseFileBrowserPaneConfig, UseFileBrowserPaneReturn } from "./types";
+import type { FileBrowserPaneRecoverySnapshot, SortField, UseFileBrowserPaneConfig, UseFileBrowserPaneReturn } from "./types";
 
 // ============================================================================
 // Constants
@@ -246,6 +246,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const pendingFocusNameRef = React.useRef<string | null>(null);
   const pendingParentDirectoryRestoreNameRef = React.useRef<string | null>(null);
+  const pendingFilterRestoreRef = React.useRef<{ scope: string; value: string } | null>(null);
+  const pendingSelectedFilesRestoreRef = React.useRef<Set<string> | null>(null);
+  const lastAppliedRouteSyncTokenRef = React.useRef<number>(0);
   const lastForceReloadRef = React.useRef<number>(0);
   const previousFilterScopeRef = React.useRef<string | null>(null);
 
@@ -271,6 +274,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
     if (previousFilterScopeRef.current !== nextFilterScope) {
       previousFilterScopeRef.current = nextFilterScope;
+
+      if (pendingFilterRestoreRef.current?.scope === nextFilterScope) {
+        setCurrentDirectoryFilter(pendingFilterRestoreRef.current.value);
+        pendingFilterRestoreRef.current = null;
+        return;
+      }
+
       setCurrentDirectoryFilter("");
     }
   }, [connectionId, currentPath]);
@@ -325,7 +335,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const loadFiles = useCallback(
-    async (path: string, forceRefresh = false) => {
+    async (path: string, forceRefresh = false, preserveVisibleContent = false) => {
       if (!connectionId) return;
 
       directoryLoadAbortRef.current?.abort();
@@ -352,7 +362,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         directoryCache.current.delete(cacheKey);
       }
 
-      setLoading(true);
+      const shouldKeepVisibleContent = preserveVisibleContent && filesRef.current.length > 0;
+
+      setLoading(!shouldKeepVisibleContent);
       setError(null);
 
       try {
@@ -607,8 +619,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
 
     const savedState = navigationHistory.current.get(currentPath);
-    if (savedState?.selectedFileName) {
-      const restoredIndex = sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName);
+    if (savedState) {
+      const restoredIndex = savedState.selectedFileName
+        ? sortedAndFilteredFiles.findIndex((f: FileEntry) => f.name === savedState.selectedFileName)
+        : Math.min(savedState.focusedIndex, Math.max(sortedAndFilteredFiles.length - 1, 0));
+
       if (restoredIndex >= 0) {
         lastRestoredPathRef.current = currentPath;
         pendingPathFocusResetRef.current = false;
@@ -1035,9 +1050,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     setCurrentDirectoryFilter("");
   }, []);
 
-  const forceReloadCurrentDirectory = useCallback(() => {
+  const forceReloadCurrentDirectory = useCallback((preserveVisibleContent = false) => {
     lastForceReloadRef.current = Date.now();
-    loadFilesRef.current?.(currentPathRef.current, true);
+    loadFilesRef.current?.(currentPathRef.current, true, preserveVisibleContent);
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -1171,6 +1186,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Clear selection when the directory or connection changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: connectionId is needed as a trigger
   useEffect(() => {
+    if (pendingSelectedFilesRestoreRef.current !== null) {
+      setSelectedFiles(new Set(pendingSelectedFilesRestoreRef.current));
+      pendingSelectedFilesRestoreRef.current = null;
+      return;
+    }
+
     setSelectedFiles(new Set());
   }, [currentPath, connectionId]);
 
@@ -1465,8 +1486,109 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     }
   }, []);
 
+  const captureRecoverySnapshot = useCallback((): FileBrowserPaneRecoverySnapshot | null => {
+    if (!connectionIdRef.current) {
+      return null;
+    }
+
+    const focusedFileName = filesRef.current[focusedIndex]?.name ?? null;
+    const currentScrollOffset = parentRef.current?.scrollTop ?? 0;
+
+    return {
+      connectionId: connectionIdRef.current,
+      path: currentPathRef.current,
+      items: [...files],
+      sortBy,
+      sortDirection,
+      viewMode,
+      currentDirectoryFilter,
+      focusedIndex,
+      focusedFileName,
+      selectedFileNames: Array.from(selectedFiles),
+      viewInfo: viewInfo
+        ? {
+            ...viewInfo,
+            images: viewInfo.images ? [...viewInfo.images] : undefined,
+          }
+        : null,
+      scrollOffset: currentScrollOffset,
+    };
+  }, [currentDirectoryFilter, files, focusedIndex, selectedFiles, sortBy, sortDirection, viewInfo, viewMode]);
+
+  const restoreRecoverySnapshot = useCallback(
+    (snapshot: FileBrowserPaneRecoverySnapshot | null) => {
+      if (!snapshot?.connectionId) {
+        return;
+      }
+
+      const nextCacheKey = `${snapshot.connectionId}:${snapshot.path}`;
+      const nextItems = [...snapshot.items];
+      const nextFocusedIndex = Math.max(snapshot.focusedIndex, 0);
+      const nextSelectedFiles = new Set(snapshot.selectedFileNames);
+      const nextFilterScope = `${snapshot.connectionId}:${snapshot.path}`;
+
+      pendingLocationRef.current = null;
+      pendingFocusNameRef.current = snapshot.focusedFileName;
+      pendingParentDirectoryRestoreNameRef.current = null;
+      pendingFilterRestoreRef.current = {
+        scope: nextFilterScope,
+        value: snapshot.currentDirectoryFilter,
+      };
+      pendingSelectedFilesRestoreRef.current = nextSelectedFiles;
+
+      directoryLoadAbortRef.current?.abort();
+      directoryLoadAbortRef.current = null;
+      latestLoadRequestIdRef.current += 1;
+
+      directoryCache.current.clear();
+      directoryCache.current.set(nextCacheKey, {
+        items: nextItems,
+        timestamp: Date.now(),
+      });
+
+      navigationHistory.current.clear();
+      navigationHistory.current.set(snapshot.path, {
+        focusedIndex: nextFocusedIndex,
+        scrollOffset: Math.max(snapshot.scrollOffset, 0),
+        selectedFileName: snapshot.focusedFileName,
+      });
+
+      currentViewIndexRef.current = snapshot.viewInfo?.currentIndex ?? null;
+      currentViewImagesRef.current = snapshot.viewInfo?.images ? [...snapshot.viewInfo.images] : undefined;
+
+      setSortBy(snapshot.sortBy);
+      setSortDirection(snapshot.sortDirection);
+      setViewMode(snapshot.viewMode);
+      setCurrentDirectoryFilter(snapshot.currentDirectoryFilter);
+      setFocusedIndex(nextFocusedIndex);
+      setSelectedFiles(nextSelectedFiles);
+      setViewInfo(
+        snapshot.viewInfo
+          ? {
+              ...snapshot.viewInfo,
+              images: snapshot.viewInfo.images ? [...snapshot.viewInfo.images] : undefined,
+            }
+          : null
+      );
+      setConnectionId(snapshot.connectionId);
+      setCurrentPath(snapshot.path);
+      setFiles(nextItems);
+      setLoading(false);
+      setError(null);
+    },
+    [setViewMode]
+  );
+
   const applyLocation = useCallback(
-    (nextConnectionId: string, nextPath: string) => {
+    (nextConnectionId: string, nextPath: string, routeSyncToken?: number) => {
+      if (routeSyncToken !== undefined) {
+        if (routeSyncToken < lastAppliedRouteSyncTokenRef.current) {
+          return;
+        }
+
+        lastAppliedRouteSyncTokenRef.current = routeSyncToken;
+      }
+
       const pendingLocation = pendingLocationRef.current;
       if (pendingLocation) {
         if (pendingLocation.connectionId === nextConnectionId && pendingLocation.path === nextPath) {
@@ -1692,5 +1814,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     loadFiles,
     seedDirectorySnapshot,
     applyLocation,
+    captureRecoverySnapshot,
+    restoreRecoverySnapshot,
   };
 }

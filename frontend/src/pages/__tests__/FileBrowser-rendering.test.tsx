@@ -3,11 +3,12 @@
  * Tests for basic rendering, loading states, errors, and empty states
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileBrowserAlerts } from "../../components/FileBrowser/FileBrowserAlerts";
 import api from "../../services/api";
-import { resetBackendAvailabilityForTests } from "../../services/backendAvailability";
+import { markBackendAvailable, markBackendReconnecting, resetBackendAvailabilityForTests } from "../../services/backendAvailability";
+import { saveBrowserRecoverySnapshot } from "../../services/browserRecoverySnapshot";
 import {
   type ApiMock,
   createMarkdownViewerMock,
@@ -16,7 +17,7 @@ import {
   setupSuccessfulApiMocks,
 } from "../../test/helpers";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
-import { mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
+import { mockConnections, mockDirectoryListing, renderBrowser } from "./FileBrowser.test.utils";
 
 const expectDirectoryLoad = (connectionId: string, path: string) => {
   expect(api.listDirectory).toHaveBeenCalledWith(
@@ -43,9 +44,40 @@ describe("Browser Component - Rendering", () => {
     resetBackendAvailabilityForTests();
     localStorage.setItem("access_token", "fake-token");
     localStorage.removeItem("selectedConnectionId");
+    sessionStorage.clear();
 
     // Use mock factory for successful API responses
     setupSuccessfulApiMocks(api as unknown as ApiMock);
+  });
+
+  it("restores the previous pane snapshot without showing connection bootstrap loading", async () => {
+    saveBrowserRecoverySnapshot({
+      savedAt: Date.now(),
+      routeUrl: "/browse/smb/test-server-1",
+      activePaneId: "left",
+      paneMode: "single",
+      connections: mockConnections,
+      left: {
+        connectionId: "conn-1",
+        path: "",
+        items: mockDirectoryListing.items,
+        sortBy: "name",
+        sortDirection: "asc",
+        viewMode: "details",
+        currentDirectoryFilter: "",
+        focusedIndex: 0,
+        focusedFileName: "Documents",
+        selectedFileNames: [],
+        viewInfo: null,
+        scrollOffset: 0,
+      },
+      right: null,
+    });
+
+    renderBrowser("/browse");
+
+    expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Loading connections/i)).not.toBeInTheDocument();
   });
 
   it("displays connection selector with available connections", async () => {
@@ -126,6 +158,73 @@ describe("Browser Component - Rendering", () => {
 
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/Connection failed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/This directory is empty/i)).not.toBeInTheDocument();
+  });
+
+  it("refreshes the visible pane automatically when backend availability recovers", async () => {
+    renderBrowser("/browse/smb/test-server-1");
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      markBackendReconnecting("socket closed");
+    });
+
+    act(() => {
+      markBackendAvailable();
+    });
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    });
+    expectDirectoryLoad("conn-1", "");
+  });
+
+  it("keeps the previous file list visible if the recovery refresh times out", async () => {
+    vi.mocked(api.listDirectory).mockResolvedValueOnce(mockDirectoryListing).mockRejectedValueOnce(createTimeoutError());
+
+    renderBrowser("/browse/smb/test-server-1");
+
+    expect((await screen.findAllByText("Documents")).length).toBeGreaterThan(0);
+
+    act(() => {
+      markBackendReconnecting("socket closed");
+    });
+
+    act(() => {
+      markBackendAvailable();
+    });
+
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/This directory is empty/i)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Directory listing timed out. The remote share took too long to respond/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+  });
+
+  it("refreshes both visible panes automatically when dual-pane backend availability recovers", async () => {
+    renderBrowser("/browse/smb/test-server-1?p2=smb/test-server-2&active=2");
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(2);
+    });
+    expectDirectoryLoad("conn-1", "");
+    expectDirectoryLoad("conn-2", "");
+
+    act(() => {
+      markBackendReconnecting("socket closed");
+    });
+
+    act(() => {
+      markBackendAvailable();
+    });
+
+    await waitFor(() => {
+      expect(api.listDirectory).toHaveBeenCalledTimes(4);
+    });
+    expectDirectoryLoad("conn-1", "");
+    expectDirectoryLoad("conn-2", "");
   });
 
   it("shows retryable timeout state when directory loading times out", async () => {
