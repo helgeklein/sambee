@@ -40,6 +40,21 @@ export interface DirectoryCacheEntry {
   timestamp: number;
 }
 
+export interface FileBrowserPaneRecoverySnapshot {
+  connectionId: string;
+  path: string;
+  items: FileEntry[];
+  sortBy: SortField;
+  sortDirection: "asc" | "desc";
+  viewMode: ViewMode;
+  currentDirectoryFilter: string;
+  focusedIndex: number;
+  focusedFileName: string | null;
+  selectedFileNames: string[];
+  viewInfo: ViewInfo | null;
+  scrollOffset: number;
+}
+
 // ============================================================================
 // Pane hook configuration & return types
 // ============================================================================
@@ -240,4 +255,8 @@ export interface UseFileBrowserPaneReturn {
   seedDirectorySnapshot: (connectionId: string, path: string, items: FileEntry[]) => void;
   /** Apply route-driven state from the browser location without triggering navigation again. */
   applyLocation: (connectionId: string, path: string) => void;
+  /** Capture the current pane UI state for suspend/resume recovery. */
+  captureRecoverySnapshot: () => FileBrowserPaneRecoverySnapshot | null;
+  /** Restore a previously captured pane UI state without re-running bootstrap logic. */
+  restoreRecoverySnapshot: (snapshot: FileBrowserPaneRecoverySnapshot | null) => void;
 }

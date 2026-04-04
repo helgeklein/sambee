@@ -324,7 +324,7 @@ const Browser: React.FC = () => {
     });
   }, []);
 
-  useEffect(() => {
+  const restoreInitialRecoverySnapshot = useCallback(() => {
     const snapshot = initialRecoverySnapshotRef.current;
     if (!snapshot || hasHydratedRecoverySnapshotRef.current) {
       return;
@@ -332,15 +332,10 @@ const Browser: React.FC = () => {
 
     hasHydratedRecoverySnapshotRef.current = true;
 
-    if (snapshot.left) {
-      leftPane.seedDirectorySnapshot(snapshot.left.connectionId, snapshot.left.path, snapshot.left.items);
-      leftPane.applyLocation(snapshot.left.connectionId, snapshot.left.path);
-    }
+    leftPane.restoreRecoverySnapshot(snapshot.left);
+    rightPane.restoreRecoverySnapshot(snapshot.right);
 
-    if (snapshot.right) {
-      rightPane.seedDirectorySnapshot(snapshot.right.connectionId, snapshot.right.path, snapshot.right.items);
-      rightPane.applyLocation(snapshot.right.connectionId, snapshot.right.path);
-    } else {
+    if (!snapshot.right) {
       rightPane.applyLocation("", "");
     }
 
@@ -362,23 +357,21 @@ const Browser: React.FC = () => {
   }, [activePaneId, leftPane, location.pathname, location.search, navigate, paneMode, rightPane]);
 
   useEffect(() => {
-    if (!leftPane.connectionId || leftPane.loading || leftPane.error) {
+    restoreInitialRecoverySnapshot();
+  }, [restoreInitialRecoverySnapshot]);
+
+  useEffect(() => {
+    const leftSnapshot = leftPane.captureRecoverySnapshot();
+    if (!leftSnapshot || leftPane.loading || leftPane.error) {
       return;
     }
 
-    const leftTarget = buildBrowseRouteTarget(leftPane.connectionId, leftPane.currentPath, allConnections);
+    const leftTarget = buildBrowseRouteTarget(leftSnapshot.connectionId, leftSnapshot.path, allConnections);
     if (!leftTarget) {
       return;
     }
 
-    const rightSnapshot =
-      paneMode === "dual" && rightPane.connectionId && !rightPane.loading && !rightPane.error
-        ? {
-            connectionId: rightPane.connectionId,
-            path: rightPane.currentPath,
-            items: rightPane.files,
-          }
-        : null;
+    const rightSnapshot = paneMode === "dual" && !rightPane.loading && !rightPane.error ? rightPane.captureRecoverySnapshot() : null;
     const rightTarget =
       rightSnapshot === null ? null : buildBrowseRouteTarget(rightSnapshot.connectionId, rightSnapshot.path, allConnections);
 
@@ -392,28 +385,20 @@ const Browser: React.FC = () => {
       activePaneId: rightTarget ? activePaneId : "left",
       paneMode: rightTarget ? "dual" : "single",
       connections,
-      left: {
-        connectionId: leftPane.connectionId,
-        path: leftPane.currentPath,
-        items: leftPane.files,
-      },
+      left: leftSnapshot,
       right: rightSnapshot,
     });
   }, [
     activePaneId,
     allConnections,
     connections,
-    leftPane.connectionId,
-    leftPane.currentPath,
     leftPane.error,
-    leftPane.files,
     leftPane.loading,
     paneMode,
-    rightPane.connectionId,
-    rightPane.currentPath,
     rightPane.error,
-    rightPane.files,
     rightPane.loading,
+    leftPane,
+    rightPane,
   ]);
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -564,73 +549,19 @@ const Browser: React.FC = () => {
     rightPane.seedDirectorySnapshot(leftConnectionId, leftPath, leftPane.files);
   }, [leftPane.connectionIdRef, leftPane.currentPathRef, leftPane.error, leftPane.files, leftPane.loading, rightPane]);
 
-  /**
-   * loadConnections
-   *
-   * Loads available SMB connections and handles auto-selection.
-   * Priority: URL param > localStorage > first connection
-   * Initializes mobile logging and handles authentication requirements.
-   */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
-  const loadConnections = useCallback(async () => {
-    const preserveVisibleUi =
-      (backendAvailability.recoveryLock || initialRecoverySnapshotRef.current !== null) &&
-      Boolean(
-        initialRecoverySnapshotRef.current ??
-          leftPane.connectionIdRef.current ??
-          currentRoute.left ??
-          currentRoute.right ??
-          leftPane.filesRef.current.length > 0
-      );
-
-    try {
-      if (!preserveVisibleUi) {
-        setLoadingConnections(true);
-      }
-
-      const token = localStorage.getItem("access_token");
-      if (!token) {
-        if (preserveVisibleUi) {
-          return;
-        }
-
-        // Check if auth is required before redirecting to login
-        const { isAuthRequired } = await import("../services/authConfig");
-        const authRequired = await isAuthRequired();
-        if (authRequired) {
-          navigate("/login");
-          return;
-        }
-        // If auth is not required (auth_method="none"), continue without token
-      }
-
-      // Initialize mobile logging if not already done (handles page refresh with existing token)
-      await logger.initializeBackendTracing();
-
-      const currentUserSettings = await loadCurrentUserSettings(true);
-      const persistedSelectedConnectionId = currentUserSettings?.browser.selected_connection_id ?? null;
-      if (persistedSelectedConnectionId !== null) {
-        setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
-      }
-
-      const data = await api.getConnections();
-      setConnections(data);
-
-      if (preserveVisibleUi && currentRoute.left) {
-        return;
-      }
-
+  const reconcileBootstrapRoute = useCallback(
+    (loadedConnections: Connection[], persistedSelectedConnectionId: string | null) => {
       if ((params.targetType || params.targetId) && !currentRoute.left) {
         navigate("/browse", { replace: true });
         return;
       }
 
-      if (currentRoute.left?.kind === "smb" && !data.some((connection) => connection.slug === currentRoute.left?.targetId)) {
+      if (currentRoute.left?.kind === "smb" && !loadedConnections.some((connection) => connection.slug === currentRoute.left?.targetId)) {
         navigate("/browse", { replace: true });
         return;
       }
 
-      if (currentRoute.right?.kind === "smb" && !data.some((connection) => connection.slug === currentRoute.right?.targetId)) {
+      if (currentRoute.right?.kind === "smb" && !loadedConnections.some((connection) => connection.slug === currentRoute.right?.targetId)) {
         navigateToBrowseState(
           {
             left: currentRoute.left,
@@ -646,58 +577,94 @@ const Browser: React.FC = () => {
         return;
       }
 
-      if (preserveVisibleUi) {
-        return;
-      }
-
       const savedConnectionId = persistedSelectedConnectionId ?? readSelectedConnectionIdPreference();
       const autoSelectedConnectionId =
-        savedConnectionId && (isLocalDrive(savedConnectionId) || data.some((connection) => connection.id === savedConnectionId))
+        savedConnectionId &&
+        (isLocalDrive(savedConnectionId) || loadedConnections.some((connection) => connection.id === savedConnectionId))
           ? savedConnectionId
-          : data[0]?.id;
+          : loadedConnections[0]?.id;
 
       if (autoSelectedConnectionId) {
         navigateToBrowseState(
           {
-            left: buildBrowseRouteTarget(autoSelectedConnectionId, "", mergeConnections(data, companion.drives)),
+            left: buildBrowseRouteTarget(autoSelectedConnectionId, "", mergeConnections(loadedConnections, companion.drives)),
             right: null,
             activePaneId: "left",
           },
           { replace: true }
         );
       }
-    } catch (err: unknown) {
-      logger.error("Error loading connections", { error: err }, "browser");
-      if (isApiError(err)) {
-        if (err.response?.status === 401) {
-          if (!preserveVisibleUi) {
-            navigate("/login");
+    },
+    [companion.drives, currentRoute.left, currentRoute.right, navigate, navigateToBrowseState, params.targetId, params.targetType]
+  );
+
+  /**
+   * loadConnections
+   *
+   * `bootstrap` is allowed to change route/loading UI for a cold start.
+   * `background-revalidate` refreshes connection metadata without disturbing the current browser UI.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
+  const loadConnections = useCallback(
+    async (mode: "bootstrap" | "background-revalidate") => {
+      const preserveVisibleUi = mode === "background-revalidate";
+
+      try {
+        if (!preserveVisibleUi) {
+          setLoadingConnections(true);
+        }
+
+        const token = localStorage.getItem("access_token");
+        if (!token) {
+          const { isAuthRequired } = await import("../services/authConfig");
+          const authRequired = await isAuthRequired();
+          if (authRequired) {
+            if (!preserveVisibleUi) {
+              navigate("/login");
+            }
+            return;
           }
-        } else if (err.response?.status === 403) {
-          leftPane.setError("Access denied. Please contact an administrator to configure connections.");
+        }
+
+        await logger.initializeBackendTracing();
+
+        const currentUserSettings = await loadCurrentUserSettings(true);
+        const persistedSelectedConnectionId = currentUserSettings?.browser.selected_connection_id ?? null;
+        if (persistedSelectedConnectionId !== null) {
+          setSelectedConnectionIdPreference(persistedSelectedConnectionId, false);
+        }
+
+        const data = await api.getConnections();
+        setConnections(data);
+
+        if (preserveVisibleUi) {
+          return;
+        }
+
+        reconcileBootstrapRoute(data, persistedSelectedConnectionId);
+      } catch (err: unknown) {
+        logger.error("Error loading connections", { error: err }, "browser");
+        if (isApiError(err)) {
+          if (err.response?.status === 401) {
+            if (!preserveVisibleUi) {
+              navigate("/login");
+            }
+          } else if (err.response?.status === 403) {
+            leftPane.setError("Access denied. Please contact an administrator to configure connections.");
+          } else {
+            leftPane.setError("Failed to load connections. Please try again.");
+          }
         } else {
           leftPane.setError("Failed to load connections. Please try again.");
         }
-      } else {
-        leftPane.setError("Failed to load connections. Please try again.");
+      } finally {
+        if (!preserveVisibleUi) {
+          setLoadingConnections(false);
+        }
       }
-    } finally {
-      if (!preserveVisibleUi) {
-        setLoadingConnections(false);
-      }
-    }
-  }, [
-    backendAvailability.recoveryLock,
-    companion.drives,
-    currentRoute.left,
-    currentRoute.right,
-    leftPane.connectionIdRef,
-    leftPane.filesRef,
-    navigate,
-    navigateToBrowseState,
-    params.targetId,
-    params.targetType,
-  ]);
+    },
+    [navigate, reconcileBootstrapRoute]
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Lifecycle Effects
@@ -715,7 +682,8 @@ const Browser: React.FC = () => {
     let cancelled = false;
 
     const init = async () => {
-      await loadConnections();
+      const initialLoadMode = initialRecoverySnapshotRef.current !== null ? "background-revalidate" : "bootstrap";
+      await loadConnections(initialLoadMode);
       if (cancelled) return;
       await checkAdminStatus();
     };
