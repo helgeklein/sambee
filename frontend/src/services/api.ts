@@ -23,7 +23,13 @@ import type {
   User,
 } from "../types";
 import { FileType } from "../types";
-import { isBackendConnectivityError, markBackendAvailable, markBackendUnavailable } from "./backendAvailability";
+import {
+  getBackendAvailabilitySnapshot,
+  isBackendConnectivityError,
+  markBackendAvailable,
+  markBackendReconnecting,
+  markBackendUnavailable,
+} from "./backendAvailability";
 import { getBaseUrl, getBrowseSegment, isLocalDrive } from "./backendRouter";
 import { COMPANION_BASE_URL } from "./companion";
 import { logger } from "./logger";
@@ -99,7 +105,11 @@ class ApiService {
         }
 
         if (isBackendConnectivityError(error)) {
-          markBackendUnavailable(error.message);
+          if (getBackendAvailabilitySnapshot().status === "unavailable") {
+            markBackendUnavailable(error.message);
+          } else {
+            markBackendReconnecting(error.message);
+          }
         } else if (error.response?.status) {
           markBackendAvailable();
         }

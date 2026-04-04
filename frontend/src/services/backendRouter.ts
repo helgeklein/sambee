@@ -21,6 +21,9 @@ export const LOCAL_DRIVE_PREFIX = "local-drive:";
 /** Connection type value for local drives. */
 export const CONNECTION_TYPE_LOCAL = "local";
 
+/** Base URL for the primary Sambee backend API. */
+export const SERVER_API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.MODE === "test" ? "http://localhost:3000/api" : "/api");
+
 // ── Drive ↔ Connection Mapping ───────────────────────────────────────────────
 
 /**
@@ -72,7 +75,14 @@ export function getBaseUrl(connectionId: string): string {
   if (isLocalDrive(connectionId)) {
     return COMPANION_BASE_URL;
   }
-  return import.meta.env.VITE_API_URL || "/api";
+  return SERVER_API_BASE_URL;
+}
+
+/**
+ * Get the API base URL for the primary Sambee backend.
+ */
+export function getServerBaseUrl(): string {
+  return SERVER_API_BASE_URL;
 }
 
 /**

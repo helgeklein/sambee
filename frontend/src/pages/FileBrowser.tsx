@@ -39,6 +39,7 @@ import SettingsDialog from "../components/Settings/SettingsDialog";
 import { DEFAULT_SETTINGS_CATEGORY, type MobileSettingsView, type SettingsCategory } from "../components/Settings/settingsNavigation";
 import { getEnabledBrowserCommands } from "../config/browserCommands";
 import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUTS, SELECTION_SHORTCUTS } from "../config/keyboardShortcuts";
+import { useBackendRecoveryMonitor } from "../hooks/useBackendRecoveryMonitor";
 import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
@@ -83,6 +84,8 @@ import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 // ============================================================================
 // Main Component
 // ============================================================================
+
+const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
 
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
@@ -215,6 +218,8 @@ const Browser: React.FC = () => {
   // WebSocket for real-time directory updates (server)
   const wsRef = React.useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = React.useRef<number | null>(null);
+  const serverReconnectAttemptRef = React.useRef(0);
+  const triggerServerReconnectRef = React.useRef<(reason: string) => void>(() => undefined);
 
   // WebSocket for real-time directory updates (companion / local drives)
   const companionWsRef = React.useRef<WebSocket | null>(null);
@@ -278,6 +283,24 @@ const Browser: React.FC = () => {
       setQuickBarPaneId("left");
     }
   }, [isDualMode, quickBarPaneId, rightPane.connectionId]);
+
+  const refreshVisiblePanesAfterRecovery = useCallback(() => {
+    if (leftPane.connectionIdRef.current) {
+      leftPane.handleRefresh();
+    }
+
+    if (paneMode === "dual" && rightPane.connectionIdRef.current) {
+      rightPane.handleRefresh();
+    }
+  }, [leftPane, paneMode, rightPane]);
+
+  useBackendRecoveryMonitor({
+    status: backendAvailability.status,
+    onRecovered: refreshVisiblePanesAfterRecovery,
+    onReconnectNow: (reason) => {
+      triggerServerReconnectRef.current(reason);
+    },
+  });
 
   // ──────────────────────────────────────────────────────────────────────────
   // API & Data Loading (Global)
@@ -613,14 +636,46 @@ const Browser: React.FC = () => {
   useEffect(() => {
     let disposed = false;
     let activeWs: WebSocket | null = null;
+    let suppressCloseReconnect = false;
 
-    const connectWebSocket = () => {
+    const clearReconnectTimer = () => {
+      if (reconnectTimeoutRef.current !== null) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+    };
+
+    const scheduleReconnect = (reason: string, immediate = false) => {
+      if (disposed) {
+        return;
+      }
+
+      clearReconnectTimer();
+      const delayMs = immediate
+        ? 0
+        : SERVER_WEBSOCKET_RECONNECT_DELAYS_MS[
+            Math.min(serverReconnectAttemptRef.current, SERVER_WEBSOCKET_RECONNECT_DELAYS_MS.length - 1)
+          ];
+
+      if (!immediate) {
+        serverReconnectAttemptRef.current += 1;
+      }
+
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        connectWebSocket(reason);
+      }, delayMs);
+    };
+
+    const connectWebSocket = (reason = "initial") => {
       if (disposed) return;
+
+      clearReconnectTimer();
 
       const accessToken = localStorage.getItem("access_token");
       const wsUrl = buildServerWebSocketUrl(window.location, accessToken);
 
-      logger.info("Connecting to WebSocket", { wsUrl }, "websocket");
+      logger.info("Connecting to WebSocket", { wsUrl, reason }, "websocket");
       const ws = new WebSocket(wsUrl);
       activeWs = ws;
 
@@ -629,6 +684,7 @@ const Browser: React.FC = () => {
           ws.close();
           return;
         }
+        serverReconnectAttemptRef.current = 0;
         markBackendAvailable();
         logger.info("WebSocket connected", { wsUrl }, "websocket");
         wsRef.current = ws;
@@ -684,6 +740,15 @@ const Browser: React.FC = () => {
           return;
         }
 
+        if (suppressCloseReconnect) {
+          suppressCloseReconnect = false;
+          if (activeWs === ws) {
+            activeWs = null;
+          }
+          wsRef.current = null;
+          return;
+        }
+
         markBackendReconnecting("WebSocket disconnected");
         logger.warn("WebSocket disconnected", { wsUrl, willReconnect: !disposed }, "websocket");
         if (activeWs === ws) {
@@ -692,27 +757,41 @@ const Browser: React.FC = () => {
         wsRef.current = null;
 
         if (!disposed) {
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            connectWebSocket();
-          }, 5000);
+          scheduleReconnect("socket-close");
         }
       };
+    };
+
+    triggerServerReconnectRef.current = (reason: string) => {
+      if (disposed) {
+        return;
+      }
+
+      serverReconnectAttemptRef.current = 0;
+      clearReconnectTimer();
+
+      if (activeWs) {
+        suppressCloseReconnect = true;
+        activeWs.close();
+        activeWs = null;
+        wsRef.current = null;
+      }
+
+      scheduleReconnect(reason, true);
     };
 
     connectWebSocket();
 
     return () => {
       disposed = true;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
+      clearReconnectTimer();
       // Close the locally-tracked socket — works even if onopen hasn't fired yet
       if (activeWs) {
         activeWs.close();
         activeWs = null;
       }
       wsRef.current = null;
+      triggerServerReconnectRef.current = () => undefined;
     };
   }, []);
 
