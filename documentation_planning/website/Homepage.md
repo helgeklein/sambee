@@ -26,7 +26,7 @@ Secondary audiences:
 
 Core idea:
 
-Sambee provides access to SMB shares and local drives from any browser. It gives users fast previews and optional desktop-app editing without moving files into a third-party cloud.
+Sambee is a browser-based way to preview, and manage files on SMB shares and local drives without moving them into a third-party cloud. Most file work happens in the browser, while the optional Companion app extends Sambee with local-drive access and native desktop-app editing.
 
 Primary strategic contrast:
 
@@ -128,7 +128,10 @@ Message ideas:
 
 Recommended copy direction:
 
-- TODO
+- Present Sambee as a practical alternative for environments that want cloud-like convenience without cloud-first storage or access patterns.
+- Contrast Sambee with cloud-first tools on control and deployment model, not on ideology alone.
+- Contrast Sambee with traditional file managers on browser access, mobile access, and built-in previews.
+- Emphasize that Sambee reduces downloading, context switching, and dependency on desktop-only access for routine file work.
 
 ### 3. Core Benefits
 
@@ -259,15 +262,19 @@ Candidates:
 
 - Supported environments: NAS, Samba, Windows SMB shares
 - Mobile and desktop support
-- Broad file format support
+- Broad preview support
 - Self-hosted deployment model
 - Free and open-source
 
 Possible proof elements:
 
-- Named file formats such as PSD, HEIC, TIFF, EPS, AI, PDF, Markdown
-- Concrete screenshots instead of abstract diagrams
-- Direct links to documentation and deployment guidance
+- Screenshot of SMB browsing on desktop
+- Screenshot of mobile browsing or previewing
+- Screenshot of Markdown or PDF viewing/editing
+- Screenshot of Companion-backed desktop editing
+- Named file examples such as PDF, Markdown, PSD, HEIC, and TIFF
+- Direct links to feature, documentation, and deployment pages
+- Short proof statements tied to visible capabilities rather than abstract claims
 - If a public demo exists later, add it here or near the hero rather than forcing it into the first version
 
 ### 9. Final CTA
