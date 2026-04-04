@@ -26,7 +26,7 @@ Secondary audiences:
 
 Core idea:
 
-Sambee is a self-hosted file manager for SMB shares and local drives, giving users browser-based access, fast previews, and optional desktop-app editing without moving files into a third-party cloud.
+Sambee provides access to SMB shares and local drives from any browser. It gives users fast previews and optional desktop-app editing without moving files into a third-party cloud.
 
 Primary strategic contrast:
 
@@ -53,7 +53,7 @@ Key differentiators:
 - Keep self-hosting and infrastructure control visible throughout the page
 - Be specific about supported use cases and tasks
 - Avoid generic phrases like "modern UI" or "great UX"
-- Avoid unsupported claims like "any file type" or "faster than everything else"
+- Avoid absolute claims
 - Keep technical details for lower sections or linked docs
 - Companion: clearly explain what it unlocks. Where there is room, mention that it is optional.
 - Use the cloud comparison carefully: position Sambee as a better fit for some environments, not as a universal replacement for all cloud tools
@@ -103,14 +103,17 @@ Hero supporting points:
 - Desktop and mobile
 - Companion optional
 
-Primary CTA ideas:
+Primary CTA:
+
+- See Features
+
+Secondary CTA:
 
 - Deployment Guide
 
-Secondary CTA ideas:
+Tertiary CTA:
 
 - Read Documentation
-- See Features
 
 ### 2. Problem / Value Section
 
@@ -125,7 +128,7 @@ Message ideas:
 
 Recommended copy direction:
 
-- Present Sambee as the best of both worlds: convenience & flexibility of the cloud paired with the capabilities and the speed of traditional desktop tools
+- TODO
 
 ### 3. Core Benefits
 
@@ -184,8 +187,11 @@ Show range without dumping a full matrix on the homepage.
 
 Recommended copy shape:
 
-- Wide range of supported image formats
-- PDF and Markdown support
+- In-browser:
+   - Wide range of supported image formats
+   - PDF search and Markdown editing
+- Via Companion:
+   - Open and edit files in their native desktop apps
 - Link to the full viewer support page for exact format details
 
 Suggested examples to name explicitly:
@@ -259,7 +265,7 @@ Candidates:
 
 Possible proof elements:
 
-- Named file formats such as PSD, HEIC, TIFF, EPS, AI
+- Named file formats such as PSD, HEIC, TIFF, EPS, AI, PDF, Markdown
 - Concrete screenshots instead of abstract diagrams
 - Direct links to documentation and deployment guidance
 - If a public demo exists later, add it here or near the hero rather than forcing it into the first version
@@ -270,13 +276,12 @@ The page should end with one clear primary path and a few secondary paths.
 
 Primary recommendation:
 
-- Deployment Guide
+- See Features
 
 Secondary options:
 
-- Read documentation
-- Install Companion
-- Explore features
+- Deployment Guide
+- Read Documentation
 
 Editorial note:
 
