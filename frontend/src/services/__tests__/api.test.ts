@@ -878,6 +878,26 @@ describe("API Service", () => {
         lastErrorMessage: null,
       });
     });
+
+    it("does not clear the token or redirect on 401 while backend recovery is active", async () => {
+      const networkErrorHandler = responseErrorHandler;
+      const authError = {
+        response: { status: 401, data: { detail: "Unauthorized" }, headers: {} },
+        message: "Unauthorized",
+        config: { url: "/auth/me", method: "get" },
+      };
+
+      localStorage.setItem("access_token", "token-123");
+      markBackendUnavailable("Recovery in progress");
+
+      await expect(networkErrorHandler?.(authError as never)).rejects.toEqual(authError);
+      expect(localStorage.getItem("access_token")).toBe("token-123");
+      expect(getBackendAvailabilitySnapshot()).toMatchObject({
+        status: "reconnecting",
+        recoveryLock: true,
+      });
+      expect(window.location.href).not.toBe("/login");
+    });
   });
 
   describe("Convenience Functions", () => {

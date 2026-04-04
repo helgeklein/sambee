@@ -20,18 +20,21 @@ describe("backendAvailability", () => {
     expect(getBackendAvailabilitySnapshot()).toMatchObject({
       status: "reconnecting",
       lastErrorMessage: "socket closed",
+      recoveryLock: true,
     });
 
     markBackendUnavailable("Network Error");
     expect(getBackendAvailabilitySnapshot()).toMatchObject({
       status: "unavailable",
       lastErrorMessage: "Network Error",
+      recoveryLock: true,
     });
 
     markBackendAvailable();
     expect(getBackendAvailabilitySnapshot()).toMatchObject({
       status: "available",
       lastErrorMessage: null,
+      recoveryLock: false,
     });
   });
 

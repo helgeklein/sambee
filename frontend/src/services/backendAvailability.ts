@@ -6,6 +6,7 @@ interface BackendAvailabilityState {
   status: BackendAvailabilityStatus;
   lastChangeAt: number;
   lastErrorMessage: string | null;
+  recoveryLock: boolean;
 }
 
 type Listener = () => void;
@@ -14,6 +15,7 @@ const DEFAULT_STATE: BackendAvailabilityState = {
   status: "available",
   lastChangeAt: Date.now(),
   lastErrorMessage: null,
+  recoveryLock: false,
 };
 
 const listeners = new Set<Listener>();
@@ -26,7 +28,11 @@ function emitChange(): void {
 }
 
 function setState(nextState: BackendAvailabilityState): void {
-  if (state.status === nextState.status && state.lastErrorMessage === nextState.lastErrorMessage) {
+  if (
+    state.status === nextState.status &&
+    state.lastErrorMessage === nextState.lastErrorMessage &&
+    state.recoveryLock === nextState.recoveryLock
+  ) {
     return;
   }
 
@@ -54,6 +60,7 @@ export function markBackendAvailable(): void {
     status: "available",
     lastChangeAt: Date.now(),
     lastErrorMessage: null,
+    recoveryLock: false,
   });
 }
 
@@ -62,6 +69,7 @@ export function markBackendReconnecting(message: string | null = null): void {
     status: "reconnecting",
     lastChangeAt: Date.now(),
     lastErrorMessage: message,
+    recoveryLock: true,
   });
 }
 
@@ -70,6 +78,7 @@ export function markBackendUnavailable(message: string | null = null): void {
     status: "unavailable",
     lastChangeAt: Date.now(),
     lastErrorMessage: message,
+    recoveryLock: true,
   });
 }
 

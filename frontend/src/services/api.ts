@@ -100,18 +100,24 @@ class ApiService {
         return response;
       },
       (error: AxiosError) => {
+        const backendSnapshot = getBackendAvailabilitySnapshot();
+
         if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
           return Promise.reject(error);
         }
 
         if (isBackendConnectivityError(error)) {
-          if (getBackendAvailabilitySnapshot().status === "unavailable") {
+          if (backendSnapshot.status === "unavailable") {
             markBackendUnavailable(error.message);
           } else {
             markBackendReconnecting(error.message);
           }
         } else if (error.response?.status) {
-          markBackendAvailable();
+          if (error.response.status === 401 && backendSnapshot.recoveryLock) {
+            markBackendReconnecting("Authenticated backend session is not ready yet.");
+          } else {
+            markBackendAvailable();
+          }
         }
 
         const requestId = logger.extractRequestId(error.response?.headers as Record<string, string>);
@@ -130,6 +136,18 @@ class ApiService {
         ); // Redirect to login on any 401 Unauthorized response
         // This includes expired tokens, invalid credentials, etc.
         if (error.response?.status === 401) {
+          if (backendSnapshot.recoveryLock) {
+            logger.warn(
+              "Suppressing logout redirect during backend recovery",
+              {
+                url: error.config?.url,
+                requestId,
+              },
+              "api"
+            );
+            return Promise.reject(error);
+          }
+
           localStorage.removeItem("access_token");
 
           // Skip redirect if we're validating token

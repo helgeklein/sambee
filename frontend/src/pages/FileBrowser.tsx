@@ -474,10 +474,21 @@ const Browser: React.FC = () => {
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: setConnectionId and setError are stable React state setters from the pane hook
   const loadConnections = useCallback(async () => {
+    const preserveVisibleUi =
+      backendAvailability.recoveryLock &&
+      Boolean(leftPane.connectionIdRef.current || currentRoute.left || currentRoute.right || leftPane.filesRef.current.length > 0);
+
     try {
-      setLoadingConnections(true);
+      if (!preserveVisibleUi) {
+        setLoadingConnections(true);
+      }
+
       const token = localStorage.getItem("access_token");
       if (!token) {
+        if (preserveVisibleUi) {
+          return;
+        }
+
         // Check if auth is required before redirecting to login
         const { isAuthRequired } = await import("../services/authConfig");
         const authRequired = await isAuthRequired();
@@ -499,6 +510,10 @@ const Browser: React.FC = () => {
 
       const data = await api.getConnections();
       setConnections(data);
+
+      if (preserveVisibleUi && currentRoute.left) {
+        return;
+      }
 
       if ((params.targetType || params.targetId) && !currentRoute.left) {
         navigate("/browse", { replace: true });
@@ -526,6 +541,10 @@ const Browser: React.FC = () => {
         return;
       }
 
+      if (preserveVisibleUi) {
+        return;
+      }
+
       const savedConnectionId = persistedSelectedConnectionId ?? readSelectedConnectionIdPreference();
       const autoSelectedConnectionId =
         savedConnectionId && (isLocalDrive(savedConnectionId) || data.some((connection) => connection.id === savedConnectionId))
@@ -546,7 +565,9 @@ const Browser: React.FC = () => {
       logger.error("Error loading connections", { error: err }, "browser");
       if (isApiError(err)) {
         if (err.response?.status === 401) {
-          navigate("/login");
+          if (!preserveVisibleUi) {
+            navigate("/login");
+          }
         } else if (err.response?.status === 403) {
           leftPane.setError("Access denied. Please contact an administrator to configure connections.");
         } else {
@@ -556,9 +577,22 @@ const Browser: React.FC = () => {
         leftPane.setError("Failed to load connections. Please try again.");
       }
     } finally {
-      setLoadingConnections(false);
+      if (!preserveVisibleUi) {
+        setLoadingConnections(false);
+      }
     }
-  }, [companion.drives, currentRoute.left, currentRoute.right, navigate, navigateToBrowseState, params.targetId, params.targetType]);
+  }, [
+    backendAvailability.recoveryLock,
+    companion.drives,
+    currentRoute.left,
+    currentRoute.right,
+    leftPane.connectionIdRef,
+    leftPane.filesRef,
+    navigate,
+    navigateToBrowseState,
+    params.targetId,
+    params.targetType,
+  ]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Component Lifecycle Effects
