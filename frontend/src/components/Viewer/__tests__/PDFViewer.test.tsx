@@ -625,6 +625,82 @@ describe("PDFViewer", () => {
       });
     });
 
+    it("supports PageDown and PageUp while the search input is focused", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      const searchInput = await viewerSearch.openSearch("page");
+
+      await waitFor(() => {
+        expect(searchInput).toHaveFocus();
+        expect(screen.getByText("1 / 5")).toBeInTheDocument();
+      });
+
+      fireEvent.keyDown(searchInput, { key: "PageDown" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
+      });
+
+      fireEvent.keyDown(searchInput, { key: "PageUp" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+    });
+
+    it("supports Home and End while the search input is focused", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      const searchInput = await viewerSearch.openSearch("page");
+
+      await waitFor(() => {
+        expect(searchInput).toHaveFocus();
+      });
+
+      fireEvent.keyDown(searchInput, { key: "End" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "5");
+      });
+
+      fireEvent.keyDown(searchInput, { key: "Home" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+    });
+
+    it("keeps F3 search result navigation working while the search input is focused", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      const searchInput = await viewerSearch.openSearch("page");
+
+      await waitFor(() => {
+        expect(searchInput).toHaveFocus();
+        expect(screen.getByText("1 / 5")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      fireEvent.keyDown(searchInput, { key: "F3" });
+
+      await waitFor(() => {
+        expect(screen.getByText("2 / 5")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
+      });
+    });
+
     it("zooms in on Plus/Equals", async () => {
       renderPDFViewer();
 

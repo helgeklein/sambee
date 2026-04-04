@@ -209,11 +209,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   // Auto-focus content area after load for keyboard navigation
   // Skip if search panel is open to avoid stealing focus from search input
   useEffect(() => {
-    if (!loading && !error && !searchPanelOpen && containerRef.current) {
-      setTimeout(() => {
-        containerRef.current?.focus();
-      }, 100);
+    if (loading || error || searchPanelOpen || !containerRef.current) {
+      return;
     }
+
+    const focusTimeoutId = window.setTimeout(() => {
+      containerRef.current?.focus();
+    }, 100);
+
+    return () => {
+      window.clearTimeout(focusTimeoutId);
+    };
   }, [loading, error, searchPanelOpen]);
 
   // Calculate page scale based on zoom mode
@@ -807,21 +813,25 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       {
         ...COMMON_SHORTCUTS.FIRST_PAGE,
         handler: () => handlePageChange(1),
+        allowInInput: true,
         enabled: numPages > 1,
       },
       {
         ...COMMON_SHORTCUTS.LAST_PAGE,
         handler: () => handlePageChange(numPages),
+        allowInInput: true,
         enabled: numPages > 1,
       },
       {
         ...COMMON_SHORTCUTS.PAGE_DOWN,
         handler: () => handlePageChange(currentPage + 1),
+        allowInInput: true,
         enabled: currentPage < numPages,
       },
       {
         ...COMMON_SHORTCUTS.PAGE_UP,
         handler: () => handlePageChange(currentPage - 1),
+        allowInInput: true,
         enabled: currentPage > 1,
       },
       // Zoom
