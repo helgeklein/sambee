@@ -26,7 +26,7 @@ Secondary audiences:
 
 Core idea:
 
-Sambee provides browser-based access to SMB shares and local drives. File management and previewing happens directly in the browser, while the optional Companion app extends Sambee to the local desktop with local-drive access and native desktop-app editing. Sambee enables modern browser-first work without requiring data to be moved to the cloud.
+Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, while the optional Companion app extends Sambee to the local desktop with local-drive access and native desktop-app editing. Sambee enables browser-first file access without requiring files to be moved into the cloud.
 
 Primary strategic contrast:
 
@@ -72,7 +72,7 @@ This section exists to standardize how Sambee is described across planning, copy
 Do:
 
 - "browser-based" is crucial
-- Alternatively, mention the browser as the environment Sambee runs in
+   - Alternatively, mention the browser as the environment Sambee runs in
 
 Don't:
 
@@ -161,6 +161,10 @@ Avoid:
 
 ### What users do with Sambee
 
+Preferred:
+
+- explore (alludes to Windows File Explorer)
+
 Avoid:
 
 - "file work"
@@ -179,6 +183,12 @@ Avoid:
 - inflated category labels
 - absolute claims
 - placeholder phrasing that sounds internal rather than user-facing
+
+### Work styles and industry trends
+
+Prefer:
+
+- browser-first
 
 ## Messaging Strategy
 
@@ -217,7 +227,7 @@ Recommended message territory:
 
 Hero copy direction:
 
-- Browser-based file access without cloud storage. Manage files on SMB shares and local drives, with fast previews and optional editing in native desktop apps.
+- Browser-based file access without cloud storage. Explore, preview, and manage files on SMB shares and local drives, with fast previews and optional editing in native desktop apps.
 
 Hero supporting points:
 
