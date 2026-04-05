@@ -1,168 +1,31 @@
 # Sambee
 
-Browser-based file viewer and manager for SMB shares and local drives, with fast previews and Markdown editing on desktop and mobile.
+Sambee provides browser-based access to SMB shares and local drives. It lets you explore, preview, and manage files in the browser, with the optional companion app extending Sambee to the local desktop when native app integration is needed.
 
-## Features
+## What Sambee Does
 
-- 🌐 Browser-based SMB share viewer
-- 📄 Rich file preview capabilities (starting with Markdown)
-- 🔒 Secure credential management
-- 🎨 Modern, responsive UI
-- 🐳 Easy deployment with Docker
+- Browse SMB shares from the browser
+- Access local drives through Sambee Companion
+- Preview images, PDFs, and Markdown before downloading
+- Manage files with upload, download, copy, move, rename, delete, and folder creation
+- Open files in installed desktop applications when browser-based work is not enough
+- Support desktop and mobile workflows from the same system
 
-## Quick Start
+## How It Fits
 
-### Development with VS Code Dev Container
+Sambee is a self-hosted system for environments that want browser-based file access without moving storage into the cloud. It is designed for teams that already rely on SMB shares, NAS devices, Samba servers, or Windows file servers and want a browser-first way to work with those files.
 
-1. Clone the repository:
-```bash
-git clone https://github.com/helgeklein/sambee.git
-cd sambee
-```
+## Companion
 
-2. Open in VS Code:
-```bash
-code .
-```
+Sambee Companion is optional for browser-based SMB access. It is required for local-drive access and for opening files in native desktop applications and returning edited files to their source location.
 
-3. Reopen in Container when prompted (or use Command Palette: `Remote-Containers: Reopen in Container`)
+## Deployment
 
-4. Start development servers:
-```bash
-# Backend (FastAPI)
-cd backend && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+Sambee is designed to fit into existing infrastructure. You can deploy it with Docker, place it behind your reverse proxy, and connect it to the SMB storage you already use.
 
-# Frontend (React + Vite)
-cd frontend && npm run dev
-```
+## Project Scope
 
-Or use VS Code tasks: `Ctrl+Shift+P` → `Tasks: Run Task`
-
-### Production Deployment
-
-```bash
-docker compose up -d
-```
-
-For production use, follow [documentation/DEPLOYMENT.md](documentation/DEPLOYMENT.md) and deploy from a reviewed tag or commit rather than an unreviewed branch tip.
-
-Access the application at http://localhost
-
-## Architecture
-
-- **Backend**: FastAPI (Python 3.13)
-- **Frontend**: React 18 with TypeScript + Vite
-- **Database**: SQLite
-- **SMB Library**: smbprotocol
-
-## Development
-
-See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed development setup instructions.
-
-The dev container and CI install dependencies from committed lockfiles and hashed requirements files. Keep dependency manifest and lockfile changes in the same reviewed PR.
-
-### Code Quality
-
-Sambee uses [Ruff](https://docs.astral.sh/ruff/) for Python (backend) and [Biome](https://biomejs.dev) for TypeScript/JavaScript (frontend).
-
-#### Check code quality (lint)
-
-```bash
-./scripts/lint
-```
-
-This runs:
-- **Backend**: `ruff check` and `ruff format --check`
-- **Frontend**: `biome check`
-
-#### Auto-format code
-
-```bash
-./scripts/format
-```
-
-This runs:
-- **Backend**: `ruff check --fix` and `ruff format`
-- **Frontend**: `biome check --write` and `biome format --write`
-
-#### Individual commands
-
-Backend only:
-```bash
-cd backend
-ruff check app              # Check for issues
-ruff check --fix app        # Auto-fix issues
-ruff format app             # Format code
-```
-
-Frontend only:
-```bash
-cd frontend
-npm run lint                # Check for issues
-npm run lint:fix            # Auto-fix issues
-npm run format              # Format code
-```
-
-### Logging & Debugging
-
-Sambee includes comprehensive logging to help diagnose issues:
-
-#### View Logs
-
-```bash
-# View all logs with status
-/workspace/scripts/logs
-
-# Show more lines
-/workspace/scripts/logs -n 100
-
-# Follow logs in real-time
-/workspace/scripts/logs -f
-
-# Or view individual logs
-tail -f /tmp/backend.log
-tail -f /tmp/frontend.log
-tail -f /tmp/dev-start.log
-tail -f /tmp/post-start.log
-```
-
-#### Log Files
-
-- `/tmp/backend.log` - FastAPI backend logs (includes startup, requests, errors)
-- `/tmp/frontend.log` - Vite frontend logs (includes build output, HMR)
-- `/tmp/dev-start.log` - Dev server startup logs
-- `/tmp/post-start.log` - Container post-start hook logs
-
-#### Rotate Logs
-
-If logs get too large:
-
-```bash
-/workspace/scripts/rotate-logs
-```
-
-This archives current logs and starts fresh files.
-
-#### What's Logged
-
-**Backend:**
-- Application startup/shutdown with timestamps
-- Database initialization
-- All HTTP requests with duration (e.g., `→ GET /api/browse - 200 (45.2ms)`)
-- SMB connection attempts and failures
-- Errors with full stack traces
-
-**Frontend:**
-- Vite server startup
-- Build progress
-- Hot module replacement (HMR) updates
-- Build errors
-
-**Startup Scripts:**
-- Post-start command execution
-- Dev server launch attempts
-- Process IDs and verification
-- Failure diagnostics with log tails
+Sambee focuses on file access and file handling rather than cloud storage replacement. The browser UI covers common browsing, preview, and management workflows, while Companion extends the system to the local desktop when access to local drives or installed applications is needed.
 
 ## License
 
