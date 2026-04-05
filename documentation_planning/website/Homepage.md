@@ -26,7 +26,7 @@ Secondary audiences:
 
 Core idea:
 
-Sambee is a browser-based way to preview, and manage files on SMB shares and local drives without moving them into a third-party cloud. Most file work happens in the browser, while the optional Companion app extends Sambee with local-drive access and native desktop-app editing.
+Sambee is a browser-based way to preview, and manage files on SMB shares and local drives without moving them into a cloud. Most file work happens directly in the browser, while the optional Companion app extends Sambee with local-drive access and native desktop-app editing.
 
 Primary strategic contrast:
 
