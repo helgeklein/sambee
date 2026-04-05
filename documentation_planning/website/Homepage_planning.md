@@ -58,6 +58,116 @@ Key differentiators:
 - Companion: clearly explain what it unlocks. Where there is room, mention that it is optional.
 - Use the cloud comparison carefully: position Sambee as a better fit for some environments, not as a universal replacement for all cloud tools
 
+## Terminology (Naming And Wording Conventions)
+
+This section exists to standardize how Sambee is described across planning, copy, and future homepage implementation.
+
+### Wording and audience
+
+- The target audience is technical (IT pros, home users comfortable setting up complex systems, enterprise admins)
+- Use established IT industry terms wherever possible
+
+### Preferred patterns for describing Sambee
+
+Prefer verb-led descriptions over weak category nouns.
+
+Preferred examples:
+
+- Sambee provides browser-based access to SMB shares and local drives
+- Sambee lets users browse, preview, and manage files on SMB shares and local drives
+- Sambee brings SMB shares and local drives into the browser
+
+Use these when possible because they explain the job Sambee does instead of forcing an abstract label.
+
+### Nouns to prefer and avoid
+
+Avoid these as the primary noun for Sambee:
+
+- way
+- interface
+- platform
+
+Use with caution:
+
+- solution
+- tool
+- app
+- product
+
+Guidance:
+
+- `way` is too vague and sounds like placeholder wording
+- `interface` is too narrow and misleading
+- `platform` sounds inflated for the current positioning
+- `solution` is acceptable in planning, but generic in copy
+- `tool` is simple, but can undersell Sambee
+- `app` is acceptable when a noun is needed
+- `product` is acceptable for internal planning language, but usually too generic for homepage copy
+
+Default rule:
+
+- Do not force a noun if a verb-led sentence is clearer
+
+### How to refer to Companion
+
+Preferred framing:
+
+- Sambee Companion extends Sambee to the local desktop
+- Companion adds local-drive access and native desktop-app editing
+
+Avoid framing Companion as:
+
+- a handoff away from Sambee
+- a separate replacement for Sambee
+- the main product story
+
+### Cloud wording
+
+Preferred:
+
+- cloud storage
+- moving files into the cloud
+
+Avoid unless specifically needed:
+
+- third-party cloud
+- anti-cloud or ideological phrasing
+- language that implies all cloud tools are bad fits
+
+### Desktop wording
+
+Preferred:
+
+- desktop apps
+- native desktop apps
+- installed desktop apps
+
+Avoid:
+
+- traditional apps
+- native apps when it is ambiguous whether desktop or mobile is meant
+
+### What users do with Sambee
+
+Avoid:
+
+- "file work"
+
+### Tone guardrails
+
+Prefer:
+
+- concrete product behavior
+- precise scope
+- practical benefits
+
+Avoid:
+
+- generic marketing nouns
+- inflated category labels
+- absolute claims
+- placeholder phrasing that sounds internal rather than user-facing
+
 ## Messaging Strategy
 
 Primary message:
