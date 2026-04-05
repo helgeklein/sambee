@@ -308,5 +308,22 @@ describe("KeyboardShortcutsHelp", () => {
 
       expect(mockOnClose).toHaveBeenCalled();
     });
+
+    it("should stop Escape from bubbling to parent React handlers", async () => {
+      const user = userEvent.setup();
+      const shortcuts = createShortcuts();
+      const parentKeyDown = vi.fn();
+
+      render(
+        <button type="button" onKeyDown={parentKeyDown}>
+          <KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />
+        </button>
+      );
+
+      await user.keyboard("{Escape}");
+
+      expect(mockOnClose).toHaveBeenCalledTimes(1);
+      expect(parentKeyDown).not.toHaveBeenCalled();
+    });
   });
 });

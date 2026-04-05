@@ -17,25 +17,6 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
-    /* Module resolution hints for IDE (preact lives in companion/node_modules) */
-    "baseUrl": ".",
-    "paths": {
-      "preact": [
-        "./node_modules/preact"
-      ],
-      "preact/*": [
-        "./node_modules/preact/*"
-      ],
-      "@tauri-apps/*": [
-        "./node_modules/@tauri-apps/*"
-      ],
-      "@tauri-apps/plugin-dialog": [
-        "./node_modules/@tauri-apps/plugin-dialog/dist-js/index.d.ts"
-      ],
-      "@tauri-apps/plugin-updater": [
-        "./node_modules/@tauri-apps/plugin-updater/dist-js/index.d.ts"
-      ]
-    },
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,

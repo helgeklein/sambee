@@ -768,6 +768,31 @@ describe("MarkdownViewer", () => {
     });
   });
 
+  it("closes shortcuts help on Escape without closing the markdown viewer", async () => {
+    const onClose = vi.fn();
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+
+    renderViewerWithProps({ onClose });
+
+    await screen.findByText("Alpha");
+
+    fireEvent.keyDown(document, { key: "?" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Markdown viewer shortcuts")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Markdown viewer shortcuts")).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("searches markdown while editing and navigates between matches", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);

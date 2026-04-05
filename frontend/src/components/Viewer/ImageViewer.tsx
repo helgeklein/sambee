@@ -470,6 +470,7 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
   );
 
   useKeyboardShortcuts({
+    active: !showHelp,
     shortcuts: imageShortcuts,
   });
 

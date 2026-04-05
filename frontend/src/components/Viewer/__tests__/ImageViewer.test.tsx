@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import ImageViewer from "../ImageViewer";
@@ -69,5 +69,32 @@ describe("ImageViewer", () => {
     );
 
     expect(screen.getByText("Read only")).toBeInTheDocument();
+  });
+
+  it("closes shortcuts help on Escape without closing the viewer", async () => {
+    const onClose = vi.fn();
+
+    render(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="conn-1" path="/images/photo.jpg" onClose={onClose} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByTestId("image-lightbox")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "?" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Image viewer shortcuts")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Image viewer shortcuts")).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("image-lightbox")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

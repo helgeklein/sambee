@@ -892,6 +892,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   );
 
   useKeyboardShortcuts({
+    active: !showHelp,
     shortcuts: pdfShortcuts,
     inputSelector: 'input[placeholder="Search"]',
   });

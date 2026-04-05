@@ -1,4 +1,6 @@
 import { Box, Button, Dialog, DialogContent, DialogTitle, Table, TableBody, TableCell, TableRow, Typography } from "@mui/material";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { KeyboardShortcut, ShortcutHelpGroup } from "../hooks/useKeyboardShortcuts";
 
@@ -45,6 +47,37 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
   const { t } = useTranslation();
   const visibleShortcuts = shortcuts.filter((shortcut) => shortcut.enabled !== false);
   const dialogTitle = title ?? t("keyboardShortcutsHelp.defaultTitle");
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+    };
+
+    document.addEventListener("keydown", handleDocumentKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleDocumentKeyDown, true);
+    };
+  }, [onClose, open]);
+
+  const handleDialogKeyDown = (event: ReactKeyboardEvent) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+  };
 
   const groupedShortcuts: ShortcutHelpSection[] = (() => {
     const sections = new Map<ShortcutHelpGroup, GroupedShortcut[]>();
@@ -93,6 +126,8 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
     <Dialog
       open={open}
       onClose={onClose}
+      onKeyDownCapture={handleDialogKeyDown}
+      disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
       PaperProps={{

@@ -57,6 +57,8 @@ export interface UseKeyboardShortcutsConfig {
   shortcuts: KeyboardShortcut[];
   /** Selector for input elements to check focus (default: 'input, textarea') */
   inputSelector?: string;
+  /** Temporarily suspend all shortcut handling without changing the shortcut list */
+  active?: boolean;
 }
 
 /**
@@ -150,8 +152,12 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
  * });
  * ```
  */
-export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textarea" }: UseKeyboardShortcutsConfig): void => {
+export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textarea", active = true }: UseKeyboardShortcutsConfig): void => {
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     // Sort shortcuts by priority (higher first) for correct processing order
     const sortedShortcuts = [...shortcuts].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
@@ -203,5 +209,5 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [shortcuts, inputSelector]);
+  }, [active, shortcuts, inputSelector]);
 };
