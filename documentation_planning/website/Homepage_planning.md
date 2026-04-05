@@ -26,7 +26,7 @@ Secondary audiences:
 
 Core idea:
 
-Sambee is a browser-based way to preview, and manage files on SMB shares and local drives without moving them into a cloud. Most file work happens directly in the browser, while the optional Companion app extends Sambee with local-drive access and native desktop-app editing.
+Sambee provides browser-based access to SMB shares and local drives. File management and previewing happens directly in the browser, while the optional Companion app extends Sambee to the local desktop with local-drive access and native desktop-app editing. Sambee enables modern browser-first work without requiring data to be moved to the cloud.
 
 Primary strategic contrast:
 
@@ -67,6 +67,17 @@ This section exists to standardize how Sambee is described across planning, copy
 - The target audience is technical (IT pros, home users comfortable setting up complex systems, enterprise admins)
 - Use established IT industry terms wherever possible
 
+### Preferred keywords
+
+Do:
+
+- "browser-based" is crucial
+- Alternatively, mention the browser as the environment Sambee runs in
+
+Don't:
+
+- Sambee is a tool to browse files (much too weak, doesn't emphasize that it's browser-based)
+
 ### Preferred patterns for describing Sambee
 
 Prefer verb-led descriptions over weak category nouns.
@@ -74,12 +85,13 @@ Prefer verb-led descriptions over weak category nouns.
 Preferred examples:
 
 - Sambee provides browser-based access to SMB shares and local drives
-- Sambee lets users browse, preview, and manage files on SMB shares and local drives
 - Sambee brings SMB shares and local drives into the browser
 
 Use these when possible because they explain the job Sambee does instead of forcing an abstract label.
 
-### Nouns to prefer and avoid
+## Terms to prefer and avoid
+
+### Nouns for Sambee
 
 Avoid these as the primary noun for Sambee:
 
@@ -194,7 +206,7 @@ Supporting proof:
 ### 1. Hero
 
 Goal:
-Explain the product in one sentence and provide a clear call to action.
+Explain the product in one sentence and point visitors to the clearest next step.
 
 Recommended message territory:
 
@@ -213,15 +225,15 @@ Hero supporting points:
 - Desktop and mobile
 - Companion optional
 
-Primary CTA:
+Primary CTA label:
 
 - See Features
 
-Secondary CTA:
+Secondary CTA label:
 
 - Deployment Guide
 
-Tertiary CTA:
+Tertiary CTA label:
 
 - Read Documentation
 
@@ -241,7 +253,7 @@ Recommended copy direction:
 - Present Sambee as a practical alternative for environments that want cloud-like convenience without cloud-first storage or access patterns.
 - Contrast Sambee with cloud-first tools on control and deployment model, not on ideology alone.
 - Contrast Sambee with traditional file managers on browser access, mobile access, and built-in previews.
-- Emphasize that Sambee reduces downloading, context switching, and dependency on desktop-only access for routine file work.
+- Emphasize that Sambee reduces downloading, context switching, and dependency on desktop-only access for routine file tasks.
 
 ### 3. Core Benefits
 
@@ -250,7 +262,7 @@ Use 3 to 5 cards with concrete claims.
 Recommended cards:
 
 - Self-hosted control
-  - Keep file access in your own environment instead of routing day-to-day file work through a third-party cloud service
+  - Keep file access in your own environment instead of routing day-to-day file handling through cloud storage
 - Better everyday file handling
   - Browse large SMB directories with search, keyboard shortcuts, and dual-pane navigation
 - Rich previews before download
@@ -334,11 +346,11 @@ Key points:
 - It is required for local drives access
 - It enables editing in natively installed desktop apps
 - It handles the upload-back workflow after editing
-- It bridges browser and desktop workflows without browser extensions
+- It extends Sambee to the local desktop without browser extensions
 
 Suggested framing:
 
-- Most browsing and preview work happens in the browser
+- Most browsing, previewing, and managing happens in the browser
 - Install Companion when you need local drives or editing in native desktop apps
 
 Suggested prominence:
@@ -389,7 +401,7 @@ Possible proof elements:
 
 ### 9. Final CTA
 
-The page should end with one clear primary path and a few secondary paths.
+The page should end with one clear primary path and a small number of secondary paths.
 
 Primary recommendation:
 

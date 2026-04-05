@@ -10,7 +10,7 @@ Browser-based file access for SMB shares and local drives
 
 ### Subheadline
 
-Sambee is a self-hosted browser interface for browsing, previewing, and managing files without moving them into the cloud. Work directly in the browser, with Companion extending Sambee to the local desktop when needed.
+Sambee provides browser-based access to SMB shares and local drives without moving files into the cloud. Browse, preview, and manage files directly in the browser, with Companion extending Sambee to the local desktop when needed.
 
 ### Supporting points
 
@@ -32,9 +32,9 @@ Read Documentation
 
 ## Problem / Value
 
-Cloud-first file access tools are not the right fit for every environment. Many teams want browser access to internal files without giving up infrastructure control or pushing storage into someone else's platform.
+Cloud-first file access tools are not the right fit for every environment. Many teams want browser access to internal files without giving up infrastructure control or pushing storage into the cloud.
 
-Traditional file managers still work well on local desktops, but they are less suited to browser access, mobile use, and quick preview-first file handling. Sambee closes that gap by bringing SMB shares and local drives into a self-hosted browser interface.
+Traditional file managers still work well on local desktops, but they are less suited to browser access, mobile use, and quick preview-first file handling. Sambee closes that gap by bringing SMB shares and local drives into the browser.
 
 Use Sambee when you want cloud-like convenience for browsing and previewing files, but need deployment, access, and storage to stay under your control.
 
@@ -42,7 +42,7 @@ Use Sambee when you want cloud-like convenience for browsing and previewing file
 
 ### Self-hosted control
 
-Keep file access in your own environment instead of routing everyday file work through a cloud service.
+Keep file access in your own environment instead of routing everyday file handling through cloud storage.
 
 ### Better everyday file handling
 
@@ -80,7 +80,7 @@ Copy, move, rename, delete, create folders, upload files, and download what you 
 
 ### Continue work in desktop apps
 
-When browser-based work is not enough, Sambee Companion lets you open files in native desktop apps and bring changes back into your file environment.
+When browser-based access is not enough, Sambee Companion lets you open files in native desktop apps and bring changes back into Sambee.
 
 ## Supported Formats
 
@@ -102,7 +102,7 @@ Native desktop editing when you need it
 
 ### Body copy
 
-Most browsing, previewing, and routine file work happens directly in the browser. When you need local-drive access or native desktop-app editing, Sambee Companion extends Sambee to the local desktop without requiring browser extensions.
+Most browsing, previewing, and routine file handling happens directly in the browser. When you need local-drive access or native desktop-app editing, Sambee Companion extends Sambee to the local desktop without requiring browser extensions.
 
 Use Companion to:
 
@@ -159,7 +159,7 @@ Recommended proof elements for the published page:
 
 ### Headline
 
-Explore Sambee in the way that best fits your environment
+Choose the best way to explore Sambee
 
 ### Primary CTA
 
@@ -174,7 +174,7 @@ See Features
 
 ### Alternative hero subheadline 1
 
-Browse and preview files on SMB shares and local drives from the browser, with Companion extending Sambee to native desktop apps when needed.
+Browse and preview files on SMB shares and local drives from the browser, with Companion extending Sambee to desktop apps when needed.
 
 ### Alternative hero subheadline 2
 
