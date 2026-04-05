@@ -20,6 +20,8 @@ function hasInteractiveFocus(activeElement: Element | null, inputSelector: strin
 /**
  * Keyboard shortcut configuration
  */
+export type ShortcutHelpGroup = "general" | "search" | "navigation" | "selection" | "fileActions" | "editing" | "view" | "panes";
+
 export interface KeyboardShortcut {
   /** Unique identifier for the shortcut */
   id: string;
@@ -29,6 +31,8 @@ export interface KeyboardShortcut {
   description: string;
   /** Display label for tooltip (e.g., "Ctrl+S") - auto-generated if not provided */
   label?: string;
+  /** Help dialog grouping used to render shortcuts in a stable, user-facing order */
+  helpGroup?: ShortcutHelpGroup;
   /** Handler function to execute */
   handler: (event?: KeyboardEvent) => void;
   /** Requires Ctrl/Cmd modifier key */
@@ -53,6 +57,8 @@ export interface UseKeyboardShortcutsConfig {
   shortcuts: KeyboardShortcut[];
   /** Selector for input elements to check focus (default: 'input, textarea') */
   inputSelector?: string;
+  /** Temporarily suspend all shortcut handling without changing the shortcut list */
+  active?: boolean;
 }
 
 /**
@@ -146,8 +152,12 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
  * });
  * ```
  */
-export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textarea" }: UseKeyboardShortcutsConfig): void => {
+export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textarea", active = true }: UseKeyboardShortcutsConfig): void => {
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     // Sort shortcuts by priority (higher first) for correct processing order
     const sortedShortcuts = [...shortcuts].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
 
@@ -199,5 +209,5 @@ export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textar
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [shortcuts, inputSelector]);
+  }, [active, shortcuts, inputSelector]);
 };

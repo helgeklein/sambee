@@ -9,6 +9,7 @@ describe("Keyboard Shortcuts Configuration", () => {
         expect(shortcut.keys, `${key} missing keys`).toBeDefined();
         expect(shortcut.description, `${key} missing description`).toBeDefined();
         expect(shortcut.label, `${key} missing label`).toBeDefined();
+        expect(shortcut.helpGroup, `${key} missing helpGroup`).toBeDefined();
       }
     });
 
@@ -37,6 +38,7 @@ describe("Keyboard Shortcuts Configuration", () => {
         expect(shortcut.keys, `${key} missing keys`).toBeDefined();
         expect(shortcut.description, `${key} missing description`).toBeDefined();
         expect(shortcut.label, `${key} missing label`).toBeDefined();
+        expect(shortcut.helpGroup, `${key} missing helpGroup`).toBeDefined();
       }
     });
 
@@ -54,6 +56,7 @@ describe("Keyboard Shortcuts Configuration", () => {
         expect(shortcut.keys, `${key} missing keys`).toBeDefined();
         expect(shortcut.description, `${key} missing description`).toBeDefined();
         expect(shortcut.label, `${key} missing label`).toBeDefined();
+        expect(shortcut.helpGroup, `${key} missing helpGroup`).toBeDefined();
       }
     });
 
@@ -76,6 +79,7 @@ describe("Keyboard Shortcuts Configuration", () => {
         expect(shortcut.keys, `${key} missing keys`).toBeDefined();
         expect(shortcut.description, `${key} missing description`).toBeDefined();
         expect(shortcut.label, `${key} missing label`).toBeDefined();
+        expect(shortcut.helpGroup, `${key} missing helpGroup`).toBeDefined();
       }
     });
 

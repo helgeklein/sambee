@@ -271,6 +271,7 @@ const Browser: React.FC = () => {
   const activePane = effectiveActivePaneId === "left" ? leftPane : rightPane;
   const quickBarPane = quickBarPaneId === "right" && isDualMode ? rightPane : leftPane;
   const quickBarOtherPane = quickBarPaneId === "right" && isDualMode ? leftPane : rightPane;
+  const viewerOverlayOpen = Boolean(leftPane.viewInfo || rightPane.viewInfo);
   const activePaneConnection = getConnectionById(allConnections, activePane.connectionId);
   const quickBarPaneConnection = getConnectionById(allConnections, quickBarPane.connectionId);
   const quickBarOtherPaneConnection = getConnectionById(allConnections, quickBarOtherPane.connectionId);
@@ -1760,6 +1761,7 @@ const Browser: React.FC = () => {
   ]);
 
   useKeyboardShortcuts({
+    active: !showHelp && !viewerOverlayOpen,
     shortcuts: browserShortcuts,
   });
 

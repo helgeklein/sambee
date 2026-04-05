@@ -523,6 +523,35 @@ describe("useKeyboardShortcuts", () => {
   });
 
   describe("Dynamic Updates", () => {
+    it("should not register handlers while inactive", () => {
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "test",
+          keys: "a",
+          description: "Test",
+          handler: mockHandler,
+        },
+      ];
+
+      const { rerender } = renderHook(
+        ({ active }) =>
+          useKeyboardShortcuts({
+            shortcuts,
+            active,
+          }),
+        {
+          initialProps: { active: false },
+        }
+      );
+
+      simulateKeyPress("a");
+      expect(mockHandler).not.toHaveBeenCalled();
+
+      rerender({ active: true });
+      simulateKeyPress("a");
+      expect(mockHandler).toHaveBeenCalledTimes(1);
+    });
+
     it("should update when shortcuts change", () => {
       const handler1 = vi.fn();
       const handler2 = vi.fn();

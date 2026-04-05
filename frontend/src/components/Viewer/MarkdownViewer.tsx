@@ -959,6 +959,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const isSearchable = isEditing ? !editorFailed && editorSearchState.isSearchable : !loading && !error && content.trim().length > 0;
 
   useKeyboardShortcuts({
+    active: !showHelp,
     shortcuts: markdownShortcuts,
     inputSelector: "input, textarea",
   });

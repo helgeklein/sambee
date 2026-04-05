@@ -480,6 +480,31 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(elements.length).toBeGreaterThan(0);
       });
     });
+
+    it("keeps the PDF viewer open when Escape closes the shortcuts help", async () => {
+      renderBrowser();
+
+      const pdfFile = await getFileButton("document.pdf");
+      fireEvent.click(pdfFile);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      fireEvent.keyDown(document, { key: "?" });
+
+      await waitFor(() => {
+        expect(screen.getByText("PDF viewer shortcuts")).toBeInTheDocument();
+      });
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      await waitFor(() => {
+        expect(screen.queryByText("PDF viewer shortcuts")).not.toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+    });
   });
 
   describe("Error Scenarios", () => {

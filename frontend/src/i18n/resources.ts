@@ -60,6 +60,16 @@ export const EN_TRANSLATIONS = {
   keyboardShortcutsHelp: {
     defaultTitle: "Keyboard Shortcuts",
     emptyState: "No keyboard shortcuts available",
+    groups: {
+      general: "General",
+      search: "Search",
+      navigation: "Navigation",
+      selection: "Selection",
+      fileActions: "File actions",
+      editing: "Editing",
+      view: "View",
+      panes: "Panes & layout",
+    },
     titles: {
       fileBrowser: "File browser shortcuts",
       pdfViewer: "PDF viewer shortcuts",
