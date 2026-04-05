@@ -26,7 +26,7 @@ Secondary audiences:
 
 Core idea:
 
-Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, while the optional Companion app extends Sambee to the local desktop with local-drive access and native desktop-app editing. Sambee enables browser-first file access without requiring files to be moved into the cloud.
+Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, while the optional companion app extends Sambee to the local desktop with local-drive access and native desktop-app editing. Sambee enables browser-first file access without requiring files to be moved into the cloud.
 
 Primary strategic contrast:
 
@@ -120,18 +120,27 @@ Default rule:
 
 - Do not force a noun if a verb-led sentence is clearer
 
-### How to refer to Companion
+### How to refer to Sambee Companion
 
 Preferred framing:
 
-- Sambee Companion extends Sambee to the local desktop
-- Companion adds local-drive access and native desktop-app editing
+- General framing:
+   - Sambee Companion extends Sambee to the local desktop
+- Specific capabilities:
+   - Companion connects Sambee to local drives
+   - Companion adds native desktop-app editing
 
 Avoid framing Companion as:
 
 - a handoff away from Sambee
 - a separate replacement for Sambee
 - the main product story
+
+Companion naming:
+
+- Don't expect readers to recognize "Companion" as a name
+- Use "Companion" only when the meaning is clear
+- Use "companion app" when the point is function, not branding
 
 ### Cloud wording
 
@@ -390,24 +399,13 @@ Message angle:
 
 ### 8. Proof / Trust Section
 
-Candidates:
+Possible proof elements:
 
 - Supported environments: NAS, Samba, Windows SMB shares
 - Mobile and desktop support
 - Broad preview support
 - Self-hosted deployment model
-- Free and open-source
-
-Possible proof elements:
-
-- Screenshot of SMB browsing on desktop
-- Screenshot of mobile browsing or previewing
-- Screenshot of Markdown or PDF viewing/editing
-- Screenshot of Companion-backed desktop editing
-- Named file examples such as PDF, Markdown, PSD, HEIC, and TIFF
-- Direct links to feature, documentation, and deployment pages
-- Short proof statements tied to visible capabilities rather than abstract claims
-- If a public demo exists later, add it here or near the hero rather than forcing it into the first version
+- Open-source codebase
 
 ### 9. Final CTA
 

@@ -10,7 +10,7 @@ Browser-based file access for SMB shares and local drives
 
 ### Subheadline
 
-Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, with Companion extending Sambee to the local desktop when needed. It enables browser-first file access without requiring files to be moved into the cloud.
+Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, with the companion app extending Sambee to the local desktop when needed. Sambee enables browser-first file access without requiring files to be moved into the cloud.
 
 ### Supporting points
 
@@ -109,7 +109,7 @@ Use Companion to:
 - access local drives
 - open files in installed desktop applications
 - return edited files to the source location
-- bridge browser-based file access and desktop editing
+- extend Sambee to the local desktop
 
 ### Supporting note
 
@@ -144,16 +144,9 @@ Sambee is built for real file environments:
 - Windows file servers
 - desktop and mobile browsers
 - self-hosted deployments
+- open-source codebase
 
-The homepage should support these claims with concrete screenshots and links rather than abstract product language.
-
-Recommended proof elements for the published page:
-
-- desktop SMB browsing screenshot
-- mobile preview screenshot
-- Markdown or PDF viewing screenshot
-- Companion-backed editing screenshot
-- links to features, docs, and deployment guidance
+It is designed for environments that value control, inspectability, and infrastructure fit.
 
 ## Final CTA
 
