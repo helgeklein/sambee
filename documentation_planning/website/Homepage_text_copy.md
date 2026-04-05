@@ -34,7 +34,7 @@ Read Documentation
 
 Cloud-first file access tools are not the right fit for every environment. Many teams want browser access to internal files without giving up infrastructure control or pushing storage into the cloud.
 
-Traditional file managers still work well on local desktops, but they are less suited to browser access, mobile use, and quick preview-first file handling. Sambee closes that gap by bringing SMB shares and local drives into the browser.
+Traditional file managers still work well on local desktops, but they are less suited to browser-based work styles and mobile access. Sambee closes that gap by bringing SMB shares and local drives into the browser.
 
 Use Sambee when you want cloud-like convenience for browsing and previewing files, but need deployment, access, and storage to stay under your control.
 
@@ -46,7 +46,7 @@ Keep file access in your own environment instead of routing everyday file handli
 
 ### Better everyday file handling
 
-Browse large SMB directories with search, keyboard shortcuts, and dual-pane navigation.
+Browse large SMB directories with search, keyboard shortcuts, dual-pane navigation, and instant navigation to any directory.
 
 ### Rich previews before download
 
@@ -68,25 +68,25 @@ Deploy with Docker, place it behind your reverse proxy, and connect it to the SM
 
 ### Access and navigate
 
-Connect to SMB shares and, with Sambee Companion, local drives. Move quickly through directories with fast search, keyboard navigation, and optional dual-pane layouts.
+Connect to SMB shares and, with Sambee Companion, local drives. Move quickly through directories with fast search, keyboard navigation, optional dual-pane layouts, and instant navigation to any directory.
 
 ### Preview and review
 
-Open files in the browser before downloading them. Review images, search PDFs, and read or edit Markdown without switching tools for routine tasks.
+Open files in the browser before downloading them. Review images, search PDFs, and read or edit Markdown without switching tools.
 
 ### Manage files
 
-Copy, move, rename, delete, create folders, upload files, and download what you need from one interface.
+Copy, move, rename, delete, create folders, upload files, and download what you need from one UI.
 
 ### Continue work in desktop apps
 
-When browser-based access is not enough, Sambee Companion lets you open files in native desktop apps and bring changes back into Sambee.
+Sambee Companion lets you open files in native desktop apps and bring changes back into Sambee.
 
 ## Supported Formats
 
-Sambee supports in-browser previewing for a broad range of content, including images, PDFs, and Markdown.
+Sambee supports in-browser previewing for a broad range of file types, including images, PDFs, and Markdown.
 
-For images, that includes common formats as well as formats that often require extra handling in browser-based tools, such as PSD, TIFF, HEIC, EPS, and AI.
+For images, that includes common formats as well as formats that are often not supported in browser-based tools, such as PSD, TIFF, HEIC, EPS, and AI.
 
 When you need to continue in a desktop app, Sambee Companion can open files in their native applications.
 
@@ -98,18 +98,17 @@ See full viewer support
 
 ### Headline
 
-Native desktop editing when you need it
+Extend Sambee to the local desktop
 
 ### Body copy
 
-Most browsing, previewing, and routine file handling happens directly in the browser. When you need local-drive access or native desktop-app editing, Sambee Companion extends Sambee to the local desktop without requiring browser extensions.
+With Sambee, you explore, preview, and manage files directly in the browser. The companion app extends Sambee to the local desktop, connecting Sambee to local drives and enabling native desktop editing.
 
 Use Companion to:
 
 - access local drives
 - open files in installed desktop applications
 - return edited files to the source location
-- extend Sambee to the local desktop
 
 ### Supporting note
 
@@ -129,7 +128,7 @@ Self-hosted and easy to fit into existing infrastructure
 
 Sambee is designed for environments that care about control. Deploy it with Docker, run it behind your reverse proxy, and connect it to the SMB storage you already use.
 
-The goal is not to replace your infrastructure with a cloud platform. The goal is to make the storage you already trust easier to access from the browser.
+The goal is to make the storage you already trust easier to access from the browser.
 
 ### Supporting CTA
 

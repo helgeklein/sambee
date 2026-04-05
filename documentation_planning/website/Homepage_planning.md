@@ -20,7 +20,7 @@ Primary audiences:
 Secondary audiences:
 
 - Individuals who prefer self-hosting over cloud services
-- Power users who want faster, preview-first file management for SMB-based storage
+- Power users who want faster file management for SMB or local storage
 
 ## Positioning
 
@@ -36,7 +36,7 @@ Primary strategic contrast:
 Secondary contrast:
 
 - Traditional file manager tools are still relevant as a supporting comparison
-- They are weaker for browser access, mobile access, preview-first use, and lightweight sharing across devices
+- They are weaker for browser access, mobile access, quick previews, and lightweight sharing across devices
 
 Key differentiators:
 
@@ -44,7 +44,7 @@ Key differentiators:
 - Broad file preview support across images, PDFs, and Markdown
 - Optional Companion app for local drive access and editing in natively installed desktop apps
 - Works well on desktop and mobile
-- Designed for fast preview-first use instead of slow download-first habits
+- Designed for fast navigation and quick previews
 - Self-hosted deployment that fits existing infrastructure
 
 ## Messaging Principles
@@ -264,7 +264,7 @@ State what Sambee replaces or improves.
 Message ideas:
 
 - Many teams want browser access to internal files without adopting a cloud-first storage model
-- Traditional file managers work well on local desktops, but they are weak for browser access, mobile access, and preview-first file handling
+- Traditional file managers work well on local desktops, but they are weak for browser-based work styles and mobile access
 - Sambee gives users browser access to NAS devices and file servers while keeping the deployment under their control
 
 Recommended copy direction:
@@ -284,7 +284,7 @@ Recommended cards:
   - Keep file access in your own environment instead of routing day-to-day file handling through cloud storage
 - Better everyday file handling
   - Browse large SMB directories with search, keyboard shortcuts, and dual-pane navigation
-- Rich previews before download
+- Rich previews without download
   - View images, PDFs, and Markdown directly in the browser, including formats browsers do not support natively
 - Native editing when needed
   - Open files in Word, Photoshop, LibreOffice, and other installed desktop apps through Sambee Companion
@@ -306,12 +306,11 @@ Recommended groups:
   - SMB shares and local drives
   - single-pane and dual-pane layouts
   - keyboard navigation
-  - fast search and navigation
+  - instant navigation to any directory
 - Preview and review
   - image gallery and viewer controls
   - PDF search
   - Markdown viewing and editing
-  - preview-first use before download or editing
 - Manage files
   - copy, move, rename, delete, create folder, upload, download
 - Continue work in desktop apps
@@ -353,6 +352,10 @@ Suggested examples to name explicitly:
 Goal:
 Explain the optional desktop app clearly.
 
+Recommended section headline:
+
+- Extend Sambee to the local desktop
+
 Must answer:
 
 - What it is
@@ -369,7 +372,8 @@ Key points:
 
 Suggested framing:
 
-- Most browsing, previewing, and managing happens in the browser
+- With Sambee, users explore, preview, and manage files directly in the browser
+- The companion app extends Sambee to the local desktop, connecting Sambee to local drives and enabling native desktop editing
 - Install Companion when you need local drives or editing in native desktop apps
 
 Suggested prominence:
