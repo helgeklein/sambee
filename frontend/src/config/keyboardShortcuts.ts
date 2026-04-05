@@ -26,6 +26,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.open");
     },
     label: "Enter",
+    helpGroup: "fileActions",
   },
   CLOSE: {
     id: "close",
@@ -34,6 +35,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.close");
     },
     label: "Esc",
+    helpGroup: "general",
   },
   DOWNLOAD: {
     id: "download",
@@ -42,6 +44,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.download");
     },
     label: "D",
+    helpGroup: "fileActions",
   },
   EDIT: {
     id: "edit",
@@ -50,6 +53,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.edit");
     },
     label: "E",
+    helpGroup: "editing",
   },
   SAVE: {
     id: "save",
@@ -58,6 +62,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.save");
     },
     label: "Ctrl+S",
+    helpGroup: "editing",
     ctrl: true,
     allowInInput: true,
   },
@@ -72,6 +77,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.search");
     },
     label: "Ctrl+F",
+    helpGroup: "search",
     ctrl: true,
     allowInInput: true,
   },
@@ -82,6 +88,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.nextMatch");
     },
     label: "F3",
+    helpGroup: "search",
     allowInInput: true,
   },
   PREVIOUS_MATCH: {
@@ -91,6 +98,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.previousMatch");
     },
     label: "Shift+F3",
+    helpGroup: "search",
     shift: true,
     allowInInput: true,
   },
@@ -105,6 +113,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.firstPage");
     },
     label: "Home",
+    helpGroup: "navigation",
   },
   LAST_PAGE: {
     id: "last-page",
@@ -113,6 +122,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.lastPage");
     },
     label: "End",
+    helpGroup: "navigation",
   },
   PAGE_DOWN: {
     id: "page-down",
@@ -121,6 +131,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.nextPage");
     },
     label: "Page Down",
+    helpGroup: "navigation",
   },
   PAGE_UP: {
     id: "page-up",
@@ -129,6 +140,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.previousPage");
     },
     label: "Page Up",
+    helpGroup: "navigation",
   },
 
   //
@@ -141,6 +153,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.next");
     },
     label: "Right",
+    helpGroup: "navigation",
   },
   PREVIOUS_ARROW: {
     id: "previous-arrow",
@@ -149,6 +162,7 @@ export const COMMON_SHORTCUTS = {
       return translate("viewer.shortcuts.previous");
     },
     label: "Left",
+    helpGroup: "navigation",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
@@ -166,6 +180,7 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.zoomIn");
     },
     label: "+",
+    helpGroup: "view",
   },
   ZOOM_OUT: {
     id: "zoom-out",
@@ -174,6 +189,7 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.zoomOut");
     },
     label: "-",
+    helpGroup: "view",
   },
   ZOOM_RESET: {
     id: "zoom-reset",
@@ -182,6 +198,7 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.resetZoom");
     },
     label: "0",
+    helpGroup: "view",
   },
 
   //
@@ -194,6 +211,7 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.rotateRight");
     },
     label: "R",
+    helpGroup: "view",
   },
   ROTATE_LEFT: {
     id: "rotate-left",
@@ -202,6 +220,7 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.rotateLeft");
     },
     label: "Shift+R",
+    helpGroup: "view",
   },
 
   //
@@ -214,6 +233,7 @@ export const VIEWER_SHORTCUTS = {
       return translate("viewer.shortcuts.toggleFullscreen");
     },
     label: "F",
+    helpGroup: "view",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
@@ -227,6 +247,7 @@ export const MARKDOWN_EDITOR_SHORTCUTS = {
       return translate("viewer.shortcuts.createLink");
     },
     label: "Ctrl+K",
+    helpGroup: "editing",
   },
   INSERT_TABLE: {
     id: "markdown-insert-table",
@@ -238,6 +259,7 @@ export const MARKDOWN_EDITOR_SHORTCUTS = {
       return translate("viewer.shortcuts.insertTable");
     },
     label: "Ctrl+Alt+T",
+    helpGroup: "editing",
   },
   INSERT_THEMATIC_BREAK: {
     id: "markdown-insert-thematic-break",
@@ -249,6 +271,7 @@ export const MARKDOWN_EDITOR_SHORTCUTS = {
       return translate("viewer.shortcuts.insertThematicBreak");
     },
     label: "Ctrl+Alt+H",
+    helpGroup: "editing",
   },
   INLINE_CODE: {
     id: "markdown-inline-code",
@@ -259,6 +282,7 @@ export const MARKDOWN_EDITOR_SHORTCUTS = {
       return translate("viewer.shortcuts.inlineCode");
     },
     label: "Ctrl+E",
+    helpGroup: "editing",
   },
   CODE_BLOCK: {
     id: "markdown-code-block",
@@ -271,6 +295,7 @@ export const MARKDOWN_EDITOR_SHORTCUTS = {
       return translate("viewer.shortcuts.insertCodeBlock");
     },
     label: "Ctrl+Shift+E",
+    helpGroup: "editing",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
@@ -288,6 +313,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.navigateUp");
     },
     label: "Backspace",
+    helpGroup: "navigation",
   },
   ARROW_DOWN: {
     id: "arrow-down",
@@ -296,6 +322,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.navigateDown");
     },
     label: "Down",
+    helpGroup: "navigation",
   },
   ARROW_UP: {
     id: "arrow-up",
@@ -304,6 +331,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.navigateUpRow");
     },
     label: "Up",
+    helpGroup: "navigation",
   },
 
   //
@@ -316,6 +344,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.openSmartNavigation");
     },
     label: "Ctrl+K",
+    helpGroup: "search",
     ctrl: true,
     allowInInput: true,
   },
@@ -326,6 +355,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.openQuickNavigation");
     },
     label: "Ctrl+K",
+    helpGroup: "search",
     ctrl: true,
     allowInInput: true,
   },
@@ -336,6 +366,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.filterCurrentDirectory");
     },
     label: "Ctrl+Alt+F",
+    helpGroup: "search",
     ctrl: true,
     alt: true,
     allowInInput: true,
@@ -347,6 +378,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.showCommands");
     },
     label: "Ctrl+P",
+    helpGroup: "search",
     ctrl: true,
     allowInInput: true,
   },
@@ -357,6 +389,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.showCommands");
     },
     label: "F1",
+    helpGroup: "search",
     allowInInput: true,
   },
   FOCUS_CONNECTION_SELECTOR: {
@@ -366,6 +399,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.openConnectionSelector");
     },
     label: "Ctrl+Down",
+    helpGroup: "navigation",
     ctrl: true,
     allowInInput: true,
   },
@@ -376,6 +410,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.openSettings");
     },
     label: "Ctrl+,",
+    helpGroup: "general",
     ctrl: true,
     allowInInput: true,
   },
@@ -386,6 +421,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.showHelp");
     },
     label: "?",
+    helpGroup: "general",
   },
   REFRESH: {
     id: "refresh",
@@ -394,6 +430,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.refresh");
     },
     label: "Ctrl+R",
+    helpGroup: "general",
     ctrl: true,
   },
   DELETE_ITEM: {
@@ -403,6 +440,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.deleteItem");
     },
     label: "Del",
+    helpGroup: "fileActions",
   },
   RENAME_ITEM: {
     id: "rename-item",
@@ -411,6 +449,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.renameItem");
     },
     label: "F2",
+    helpGroup: "fileActions",
   },
   OPEN_IN_APP: {
     id: "open-in-app",
@@ -419,6 +458,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.openInCompanion");
     },
     label: "Ctrl+Enter",
+    helpGroup: "fileActions",
     ctrl: true,
   },
   NEW_DIRECTORY: {
@@ -428,6 +468,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.createDirectory");
     },
     label: "F7",
+    helpGroup: "fileActions",
   },
   NEW_FILE: {
     id: "new-file",
@@ -436,6 +477,7 @@ export const BROWSER_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.createFile");
     },
     label: "Shift+F7",
+    helpGroup: "fileActions",
     shift: true,
   },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -451,6 +493,7 @@ export const SELECTION_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.toggleSelectionAndMoveDown");
     },
     label: "Ins / Space",
+    helpGroup: "selection",
   },
   SELECT_DOWN: {
     id: "select-down",
@@ -459,6 +502,7 @@ export const SELECTION_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.selectAndMoveDown");
     },
     label: "Shift+Down",
+    helpGroup: "selection",
     shift: true,
   },
   SELECT_UP: {
@@ -468,6 +512,7 @@ export const SELECTION_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.selectAndMoveUp");
     },
     label: "Shift+Up",
+    helpGroup: "selection",
     shift: true,
   },
   SELECT_ALL: {
@@ -477,6 +522,7 @@ export const SELECTION_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.selectAllFiles");
     },
     label: "Ctrl+A",
+    helpGroup: "selection",
     ctrl: true,
   },
 } as const satisfies Record<string, ShortcutDefinition>;
@@ -492,6 +538,7 @@ export const COPY_MOVE_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.copyToOtherPane");
     },
     label: "F5",
+    helpGroup: "panes",
   },
   MOVE_TO_OTHER_PANE: {
     id: "move-to-other",
@@ -500,6 +547,7 @@ export const COPY_MOVE_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.moveToOtherPane");
     },
     label: "F6",
+    helpGroup: "panes",
   },
 } as const satisfies Record<string, ShortcutDefinition>;
 
@@ -514,6 +562,7 @@ export const PANE_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.toggleDualPane");
     },
     label: "Ctrl+B",
+    helpGroup: "panes",
     ctrl: true,
     allowInInput: true,
   },
@@ -524,6 +573,7 @@ export const PANE_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.focusLeftPane");
     },
     label: "Ctrl+1",
+    helpGroup: "panes",
     ctrl: true,
   },
   FOCUS_RIGHT_PANE: {
@@ -533,6 +583,7 @@ export const PANE_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.focusRightPane");
     },
     label: "Ctrl+2",
+    helpGroup: "panes",
     ctrl: true,
   },
   SWITCH_PANE: {
@@ -542,5 +593,6 @@ export const PANE_SHORTCUTS = {
       return translate("fileBrowser.shortcuts.switchActivePane");
     },
     label: "Tab",
+    helpGroup: "panes",
   },
 } as const satisfies Record<string, ShortcutDefinition>;

@@ -22,6 +22,7 @@ describe("KeyboardShortcutsHelp", () => {
       keys: "s",
       description: "Save",
       label: "Ctrl+S",
+      helpGroup: "editing",
       ctrl: true,
       handler: vi.fn(),
     },
@@ -30,6 +31,7 @@ describe("KeyboardShortcutsHelp", () => {
       keys: "o",
       description: "Open",
       label: "Ctrl+O",
+      helpGroup: "fileActions",
       ctrl: true,
       handler: vi.fn(),
     },
@@ -62,6 +64,8 @@ describe("KeyboardShortcutsHelp", () => {
       const shortcuts = createShortcuts();
       render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
 
+      expect(screen.getByText("File actions")).toBeInTheDocument();
+      expect(screen.getByText("Editing")).toBeInTheDocument();
       expect(screen.getByText("Save")).toBeInTheDocument();
       expect(screen.getByText("Open")).toBeInTheDocument();
       expect(screen.getByText("Ctrl+S")).toBeInTheDocument();
@@ -91,6 +95,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "p",
           description: "Open quick navigation",
           label: "Ctrl+P",
+          helpGroup: "search",
           ctrl: true,
           handler: vi.fn(),
           enabled: true,
@@ -100,6 +105,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: ",",
           description: "Open settings",
           label: "Ctrl+,",
+          helpGroup: "general",
           ctrl: true,
           handler: vi.fn(),
           enabled: false,
@@ -122,6 +128,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "ArrowRight",
           description: "Next page",
           label: "Right",
+          helpGroup: "navigation",
           handler: vi.fn(),
         },
         {
@@ -129,6 +136,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "PageDown",
           description: "Next page",
           label: "Page Down",
+          helpGroup: "navigation",
           handler: vi.fn(),
         },
       ];
@@ -149,6 +157,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "d",
           description: "Download",
           label: "D",
+          helpGroup: "fileActions",
           handler: vi.fn(),
         },
         {
@@ -156,6 +165,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "+",
           description: "Zoom in",
           label: "+",
+          helpGroup: "view",
           handler: vi.fn(),
         },
         {
@@ -163,6 +173,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "-",
           description: "Zoom out",
           label: "-",
+          helpGroup: "view",
           handler: vi.fn(),
         },
       ];
@@ -177,6 +188,58 @@ describe("KeyboardShortcutsHelp", () => {
       expect(descriptions[2]).toHaveTextContent("Zoom out");
     });
 
+    it("should order sections consistently across shortcut sets", () => {
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "zoom-in",
+          keys: "+",
+          description: "Zoom in",
+          label: "+",
+          helpGroup: "view",
+          handler: vi.fn(),
+        },
+        {
+          id: "search",
+          keys: "f",
+          description: "Search",
+          label: "Ctrl+F",
+          helpGroup: "search",
+          ctrl: true,
+          handler: vi.fn(),
+        },
+        {
+          id: "download",
+          keys: "d",
+          description: "Download",
+          label: "D",
+          helpGroup: "fileActions",
+          handler: vi.fn(),
+        },
+      ];
+
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
+
+      const headings = screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent);
+      expect(headings).toEqual(["Search", "File actions", "View"]);
+    });
+
+    it("should fall back to the general section when a shortcut has no help group", () => {
+      const shortcuts: KeyboardShortcut[] = [
+        {
+          id: "close",
+          keys: "Escape",
+          description: "Close",
+          label: "Esc",
+          handler: vi.fn(),
+        },
+      ];
+
+      render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
+
+      expect(screen.getByText("General")).toBeInTheDocument();
+      expect(screen.getByRole("cell", { name: "Close" })).toBeInTheDocument();
+    });
+
     it("should handle shortcuts with no duplicates", () => {
       const shortcuts: KeyboardShortcut[] = [
         {
@@ -184,6 +247,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "s",
           description: "Save",
           label: "Ctrl+S",
+          helpGroup: "editing",
           ctrl: true,
           handler: vi.fn(),
         },
@@ -192,6 +256,7 @@ describe("KeyboardShortcutsHelp", () => {
           keys: "o",
           description: "Open",
           label: "Ctrl+O",
+          helpGroup: "fileActions",
           ctrl: true,
           handler: vi.fn(),
         },

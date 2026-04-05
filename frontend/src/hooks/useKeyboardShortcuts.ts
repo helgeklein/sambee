@@ -20,6 +20,8 @@ function hasInteractiveFocus(activeElement: Element | null, inputSelector: strin
 /**
  * Keyboard shortcut configuration
  */
+export type ShortcutHelpGroup = "general" | "search" | "navigation" | "selection" | "fileActions" | "editing" | "view" | "panes";
+
 export interface KeyboardShortcut {
   /** Unique identifier for the shortcut */
   id: string;
@@ -29,6 +31,8 @@ export interface KeyboardShortcut {
   description: string;
   /** Display label for tooltip (e.g., "Ctrl+S") - auto-generated if not provided */
   label?: string;
+  /** Help dialog grouping used to render shortcuts in a stable, user-facing order */
+  helpGroup?: ShortcutHelpGroup;
   /** Handler function to execute */
   handler: (event?: KeyboardEvent) => void;
   /** Requires Ctrl/Cmd modifier key */
