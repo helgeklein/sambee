@@ -2,154 +2,71 @@
 
 ## Goal
 
-Create a new Hugo site for Sambee inside this repository, using the copied `website-temp` site only as a source for reusable theme and build assets.
+Build a new Hugo site for Sambee inside this repository, using `website-temp` only as a donor for reusable theme and build pieces.
 
-The primary constraint is to migrate the visual system and generic site mechanics cleanly, without dragging over helgeklein.com-specific content structure, branding, menus, SEO settings, deployment assumptions, or generated artifacts.
+The migration should produce a clean `website/` directory with:
 
-## Executive Recommendation
+- a Sambee-specific custom theme
+- versioned docs with plain version slugs such as `1.0` and `1.1`
+- Pagefind search
+- no comments system
+- no PWA support
+- no dependency on helgeklein.com content, branding, or deployment assumptions
 
-Do not evolve `website-temp` in place.
+## Fixed Decisions
 
-Instead:
-
-1. Create a brand-new site in `website/`
-2. Extract the reusable presentation layer from `website-temp`
-3. Rename the migrated custom theme to something Sambee-specific such as `sambee`
-4. Recreate Sambee configuration, menus, and content structure from the planning docs in this repository
-5. Add build, validation, and deployment pieces only after the site renders cleanly
-
-This is the lowest-risk path because `website-temp` is a complete production site, not a standalone theme package.
-
-## Confirmed Decisions
-
-The following decisions are now fixed and should be treated as migration requirements, not open questions:
+These are no longer open questions.
 
 - Production domain: `https://sambee.net/`
+- Site generator: Hugo with a custom theme
+- Theme source: extracted from `website-temp`, then renamed and cleaned up
 - Search: keep Pagefind
-- Comments: do not use Giscus or any other commenting system in the initial site
-- PWA: not needed
-- Docs hierarchy must exist as top-level sections under `docs/`:
-   - version-first storage directly below `docs/`
-   - audience-specific subsections within each version
-- Docs must support multiple product versions, with content stored separately per version and a version switcher that lets visitors move between current and older documentation sets
-- Version slugs should not use a `v` prefix; use `1.0`, `1.1`, and similar forms
+- Comments: none
+- PWA: none
+- Docs storage model: version-first under `docs/`
+- Version slug format: `1.0`, `1.1`, and similar; no `v` prefix
+- Initial scaffolded version set: `1.0` only
+- Current version at scaffold start: `1.0`
+- Unversioned docs book routes use hard redirects to the current version
+- Search default scope inside docs: current version only
+- All docs books share one template initially
+- Start with the smallest practical Hugo module and tooling set
+- Deployment model should broadly mirror the source site approach
+- Docs books within each version:
+  - `end-user`
+  - `admin`
+  - `developer`
 
-## Analysis Of `website-temp`
+## Donor Site Assessment
 
-### What It Is
+`website-temp` is a complete production Hugo website, not a reusable theme package.
 
-`website-temp` is a full Hugo website with a custom theme plus site-specific content, configuration, operational tooling, and generated outputs.
+What is useful:
 
-The copied site is not organized as a clean reusable theme repository. Reusable theme logic exists, but it is split across:
+- `themes/helgeklein/layouts`
+- `themes/helgeklein/layouts/_partials`
+- `themes/helgeklein/assets`
+- `themes/helgeklein/i18n`
+- `data/theme.json`
+- `scripts/themeGenerator.js`
+- selected search UI and Pagefind-related assets
 
-- site root files
-- `themes/helgeklein`
-- root-level Hugo config
-- root-level `assets`
-- root-level `static`
-- root-level scripts
+What is donor-specific and must not be carried over as active implementation:
 
-### Core Build Stack
+- helgeklein.com branding, title, metadata, menus, legal/footer assumptions, and social links
+- Giscus configuration
+- PWA wiring and manifest
+- blog-centric content model and templates
+- generated outputs and local tooling state such as `public`, `resources`, `node_modules`, `.hugo_build.lock`, and `hugo_stats.json`
+- deployment or storage assumptions tied to Cloudflare R2 or the original site
 
-The copied site currently depends on:
+The critical mismatch is structural, not stylistic: the donor site is blog-first, while Sambee needs a docs-first product site with explicit documentation versioning.
 
-- Hugo Extended, minimum version `0.151.0`
-- Hugo modules via `go.mod`
-- Node-based asset tooling via `package.json`
-- Tailwind CSS 4
-- `tailwind-bootstrap-grid`
-- `pagefind` for search
-- a custom theme token generator script at `scripts/themeGenerator.js`
+## Target Architecture
 
-### Reusable Theme Mechanics Already Present
+### Directory Layout
 
-The following parts are good candidates for migration because they are structural or stylistic rather than brand-specific:
-
-- Theme layouts in `themes/helgeklein/layouts`
-- Theme partials in `themes/helgeklein/layouts/_partials`
-- Theme assets in `themes/helgeklein/assets`
-- Theme translations in `themes/helgeklein/i18n`
-- Theme token model in `data/theme.json`
-- Theme CSS generation script in `scripts/themeGenerator.js`
-- Generic site shell behavior:
-  - header and footer framework
-  - dark mode handling
-  - Tailwind-based styling
-  - page shell and asset pipeline
-  - table of contents support
-  - syntax highlighting support
-  - responsive article layout
-  - generic page templates
-
-### Root-Level Site Assumptions That Must Not Be Carried Over As-Is
-
-The following are clearly helgeklein.com-specific and should be recreated for Sambee rather than copied verbatim:
-
-- `baseURL = "https://helgeklein.com/"`
-- `title = "Helge Klein"`
-- `theme = "helgeklein"`
-- blog-centric permalink rules for `content/blog` and `content/pages`
-- blog taxonomies: categories and tags
-- homepage implementation that renders latest blog posts
-- three-level navigation menu tailored to tools, projects, and HAUS21
-- metadata author and description values
-- social profile links
-- Giscus repository IDs and comment settings
-- Cloudflare R2 / CDN settings in `params.toml`
-- footer legal links and imprint/privacy page assumptions
-- helgeklein logo assets and brand typography choices
-- PWA assumptions
-
-### Content Model In The Copied Site
-
-The content tree is blog-first:
-
-- `content/blog/<year>/...`
-- `content/pages/...`
-
-The homepage template renders a post grid. Taxonomy and related-post templates are also blog-driven. This is a poor default for Sambee, whose planned information architecture is:
-
-- homepage
-- end-user docs
-- admin docs
-- developer docs
-
-That means the Sambee website should be docs-first or product-docs-first, not blog-first.
-
-It also means the docs information architecture must be designed around versioned documentation from the start. Retrofitting version support after content migration would force URL, menu, search, and template changes across the whole docs tree.
-
-### Site-Specific Operational And Generated Baggage
-
-These folders or files are not migration inputs and should not be copied into the final site:
-
-- `.git/`
-- `.github/`
-- `.githooks/`
-- `.devcontainer/`
-- `.vscode/`
-- `node_modules/`
-- `public/`
-- `resources/`
-- `tmp/`
-- `.pytest_cache/`
-- `.hugo_build.lock`
-- `hugo_stats.json`
-- `content-editor.code-workspace`
-- `migration/`
-- `R2_SETUP.md`
-
-### Test And Validation Extras In The Copied Site
-
-The copied site also includes validation and automation that may be useful later, but should not block initial migration:
-
-- `.htmltest.yml`
-- `tests/test_menu_urls.py`
-
-These are candidates for phase-two adoption after the new site structure is stable.
-
-## Recommended Target Structure
-
-Create a clean Hugo site at `website/` with this shape:
+The new site should live in `website/` with this structure:
 
 ```text
 website/
@@ -169,14 +86,6 @@ website/
 |       |   |   `-- _index.md
 |       |   `-- developer/
 |       |       `-- _index.md
-|       `-- 1.1/
-|           |-- _index.md
-|           |-- end-user/
-|           |   `-- _index.md
-|           |-- admin/
-|           |   `-- _index.md
-|           `-- developer/
-|               `-- _index.md
 |-- data/
 |   `-- docs-versions.toml
 |-- layouts/
@@ -194,528 +103,415 @@ website/
 `-- package-lock.json
 ```
 
+### Routing Model
+
+Canonical docs URLs must be versioned.
+
+Examples:
+
+- `/docs/1.0/end-user/`
+- `/docs/1.0/end-user/install/`
+- `/docs/1.0/admin/configuration/`
+- `/docs/1.0/developer/architecture/`
+
+Unversioned docs book routes are convenience entry points, not canonical content locations.
+
+Examples:
+
+- `/docs/end-user/` -> hard redirect to `/docs/1.0/end-user/`
+- `/docs/admin/` -> hard redirect to `/docs/1.0/admin/`
+- `/docs/developer/` -> hard redirect to `/docs/1.0/developer/`
+
+There must not be duplicate full content trees at both versioned and unversioned URLs.
+
+### Hugo Content Rules
+
+- Use `_index.md` for the docs root, each version root, and each docs book root.
+- Keep versioned docs pages under `content/docs/<version>/<book>/...`.
+- Keep relative page structure aligned across versions whenever the same conceptual page exists in multiple releases.
+- Use page bundles for pages with version-specific assets such as screenshots or downloadable files.
+
+### Version Metadata
+
+`data/docs-versions.toml` should be the single source of truth for visible and supported versions.
+
+It should define at least:
+
+- `current`
+- ordered list of versions from newest to oldest
+- display label per version
+- support status per version, such as `current`, `supported`, `unsupported`, or `archived`
+- optional release and end-of-support dates
+
+Suggested status policy:
+
+- `current`: default target for unversioned docs routes, visible in switcher, indexed by search, no outdated-version warning
+- `supported`: still maintained, visible in switcher, optionally indexed, warning banner shown when it is not the current version
+- `unsupported`: published for reference, warning banner shown, excluded from default search scope
+- `archived`: still reachable by direct link if retained, hidden from normal switcher and excluded from search
+
+Recommended shape:
+
+```toml
+current = "1.0"
+
+[[versions]]
+slug = "1.0"
+label = "1.0"
+status = "current"
+searchable = true
+```
+
+### Navigation And Ordering Strategy
+
+Use an explicit ordered navigation definition as the source of truth for docs ordering.
+
+Why this is the best fit:
+
+- Inferred ordering from the filesystem or page metadata is harder to audit once the docs grow.
+- Docusaurus uses explicit sidebars when strict ordered reader flow matters.
+- Hugo menu guidance recommends using one consistent definition method across the site rather than mixing approaches.
+- Read the Docs emphasizes that readers need a clear, stable structure to navigate successfully.
+
+Recommended rule set:
+
+- maintain one ordered navigation file per docs version
+- each navigation file defines the exact order of books, sections, and pages
+- page references in the navigation file should use stable `doc_id` values
+- the filesystem groups content, but it is not the final source of sidebar ordering truth
+- one shared docs template renders navigation for all books
+
+Recommended navigation data layout:
+
+```text
+website/
+|-- data/
+|   |-- docs-versions.toml
+|   `-- docs-nav/
+|       `-- 1.0.toml
+```
+
+Recommended `data/docs-nav/1.0.toml` shape:
+
+```toml
+[[books]]
+slug = "end-user"
+title = "End-User"
+landing_doc_id = "end-user-index"
+
+  [[books.sections]]
+  title = "Getting Started"
+  doc_ids = ["install", "first-login", "browse-files"]
+
+  [[books.sections]]
+  title = "Editing"
+  doc_ids = ["edit-markdown", "open-in-desktop-app"]
+
+[[books]]
+slug = "admin"
+title = "Admin"
+landing_doc_id = "admin-index"
+```
+
+Operational rules:
+
+- every page visible in docs navigation must appear exactly once in the corresponding version navigation file
+- order is determined first by the navigation file, not by folder name or title
+- do not use `weight` for docs ordering in front matter or navigation data
+- the navigation file should be validated in CI against the existing docs pages for that version
+
+This gives Sambee the explicit first, second, third ordering you asked for without making URL structure or titles carry the burden of navigation control.
+
+### Docs Page Front Matter Contract
+
+Every versioned docs page should include:
+
+- `title`
+- `doc_id`: stable across versions for the same conceptual page
+- `product_version`: same value as the version folder, for example `1.0`
+- `book`: one of `end-user`, `admin`, or `developer`
+
+Optional fields:
+
+- `layout`
+- `description`
+- `version_aliases`
+- `legacy_paths`
+
 Notes:
 
-- Use `themes/sambee` rather than `themes/helgeklein` to avoid carrying old branding into the new site.
-- Keep root-level `layouts/` initially empty unless Sambee needs site-specific overrides.
-- Keep root-level `assets/` only for Sambee branding or site-only assets. Move generic styling into the theme.
-- Use `content/docs/...` rather than `content/blog/...` and `content/pages/...` as the main long-term structure.
-- Use version-first storage beneath `docs/`, with audience subsections inside each version.
-- Preserve the requested docs hierarchy within each version: `end-user`, `admin`, and `developer`.
-- Do not duplicate a separate `current` content tree. Instead, store real versions once and map unversioned landing URLs to the configured current version.
-- Use plain version slugs such as `1.0` and `1.1` in folders and URLs, not `v1.0` or `v1.1`.
-- Treat unversioned audience routes such as `/docs/end-user/` as convenience entry points to the configured current version, not as canonical content locations.
+- `doc_id` is not the same as a slug. A slug controls the URL path for one page version. `doc_id` identifies the conceptual document across versions so the switcher can find the equivalent page even if titles or slugs change.
+- Docs ordering should come only from `data/docs-nav/<version>.toml` so there is no second ordering system to reconcile later.
 
-## Migration Principles
+Example:
 
-### Principle 1: Extract, Do Not Clone
+```toml
++++
+title = "Install Sambee"
+doc_id = "install"
+product_version = "1.0"
+book = "end-user"
++++
+```
 
-The new site should be built from a curated extraction of reusable pieces. Treat `website-temp` as a donor, not as the baseline working directory.
+### Version Switcher Rules
 
-### Principle 2: Favor A Small Site Root
+- Show the version switcher only on docs pages.
+- Populate the switcher from `data/docs-versions.toml`.
+- Resolve the same page in another version by matching:
+  - `doc_id`
+  - `book`
+  - selected version slug
+- If no equivalent page exists, send the user to that version’s book landing page.
+- Mark outdated versions visibly in the UI.
 
-Anything reusable across pages should live in the theme. The site root should mostly contain:
+### Search Rules
 
-- Sambee config
-- Sambee content
-- Sambee branding
-- Sambee-specific layout overrides
+Pagefind is mandatory.
 
-### Principle 3: Remove Blog Coupling Early
+Search must:
 
-The biggest architectural mismatch is not the styling. It is the content model. Remove blog assumptions before building out Sambee pages, otherwise the site structure will keep fighting the docs information architecture.
+- index docs version and book metadata
+- default to the current page’s version only when the user is inside docs
+- label results with version information
+- exclude versions marked as not searchable in `data/docs-versions.toml`
 
-### Principle 4: Defer Nice-To-Haves
+## Migration Scope
 
-Do not carry over every feature from the donor site on day one. Only the features already confirmed for Sambee should be treated as mandatory.
-
-This principle now applies only to unresolved features. Pagefind is required, while comments and PWA support are explicitly out of scope for the initial site.
-
-### Principle 5: Design For Docs Versioning From Day One
-
-Versioning must be part of the foundational content model, navigation model, and template model.
-
-That means:
-
-- version must be encoded in the docs content tree
-- search results must be version-aware
-- menus and breadcrumbs must know the selected version
-- the docs version switcher must have a deterministic way to find the equivalent page in another version or fall back to that version's section landing page
-- canonical docs URLs should be versioned
-
-## What To Keep, Adapt, Or Drop
-
-### Keep With Minimal Change
-
-- `themes/helgeklein/assets/` as source input for the new `themes/sambee/assets/`
-- `themes/helgeklein/layouts/baseof.html`
-- `themes/helgeklein/layouts/_partials/essentials/*`
-- `themes/helgeklein/layouts/_partials/components/*` where components are generic
-- `themes/helgeklein/layouts/_partials/icons/*`
-- `themes/helgeklein/layouts/_markup/render-image.html`
-- `themes/helgeklein/i18n/en.toml`
-- `scripts/themeGenerator.js`
-- `data/theme.json` as an initial design-token source
-- Pagefind integration and related search UI assets
-
-### Keep But Rename Or Rewrite
-
-- `theme = "helgeklein"` to `theme = "sambee"`
-- logo partial behavior: keep the fallback pattern, replace actual brand assets
-- `data/theme.json`: keep the mechanism, replace colors and fonts
-- root `assets/images/logo-*.svg`: replace with Sambee logos or text fallback
-- `config/_default/module.toml`: keep only modules actually used by Sambee
-- `package.json` scripts: keep the asset build ideas, simplify aggressively
-
-### Copy Only After Review
-
-- `.htmltest.yml`
-- `tests/test_menu_urls.py`
-- plugin JS list in `hugo.toml`
-
-### Keep As Explicit Product Decisions
-
-- Pagefind build and UI integration
-- docs table of contents support
-- version-aware docs navigation and switcher support
-
-### Drop Entirely From Initial Migration
-
-- all blog content
-- all helgeklein menus
-- categories and tags unless Sambee truly needs them
-- related-post templates
-- Giscus configuration
-- comments partials and comment-related front matter behavior
-- CDN / R2 configuration
-- PWA module integration and `manifest.webmanifest`
-- WordPress-compatible RSS customization
-- site-specific redirect rules
-- migration utilities from the blog site
-- content editor workspace files
-
-## Detailed Migration Plan
-
-### Phase 1: Create A Clean Website Skeleton
-
-Goal: establish a fresh Hugo site that renders a minimal Sambee homepage with no dependency on the old content structure.
-
-Steps:
-
-1. Create `website/` as a new Hugo site root.
-2. Add a minimal `hugo.toml` with:
-   - Sambee title
-   - production `baseURL = "https://sambee.net/"`
-   - `theme = "sambee"`
-   - `defaultContentLanguage = "en"`
-   - only the output formats and taxonomies actually needed
-3. Add `config/_default/params.toml` with only Sambee-specific placeholders.
-4. Create the top-level docs section tree:
-   - `content/docs/_index.md`
-   - `content/docs/1.0/_index.md`
-   - `content/docs/1.0/end-user/_index.md`
-   - `content/docs/1.0/admin/_index.md`
-   - `content/docs/1.0/developer/_index.md`
-5. Add a temporary homepage content file and minimal docs section indexes.
-6. Do not copy any content from `website-temp/content/`.
-
-Exit criteria:
-
-- `website/` builds successfully with a placeholder theme or a minimal copied shell.
-
-### Phase 2: Extract The Theme Into `themes/sambee`
-
-Goal: move the reusable visual and structural layer into a Sambee-specific custom theme.
-
-Steps:
-
-1. Create `website/themes/sambee/`.
-2. Copy over these source directories from `website-temp/themes/helgeklein/`:
-   - `assets/`
-   - `i18n/`
-   - `layouts/`
-3. Rename any obvious brand references from Helge Klein to Sambee where they are structural, not content.
-4. Keep `baseof.html`, essentials partials, icons, and image render hooks.
-5. Remove or quarantine obviously blog-specific templates from the theme immediately:
-   - `layouts/home.html`
-   - `layouts/blog/`
-   - `layouts/taxonomy.html`
-   - `layouts/term.html`
-   - homepage-specific post grid partials
-   - comments partials and comment invocations
-6. Keep `layouts/pages/single.html` only if you still want article-style content pages.
-7. Keep or adapt the existing search modal and search-related shell pieces because Pagefind is required.
-8. Replace the homepage template with one designed for Sambee product content.
-
-Exit criteria:
-
-- The theme renders a generic page shell without relying on blog collections.
-
-### Phase 3: Migrate Asset Pipeline And Theme Tokens
-
-Goal: preserve the useful styling system without carrying over unnecessary toolchain complexity.
-
-Steps:
-
-1. Copy `scripts/themeGenerator.js` into `website/scripts/`.
-2. Copy `data/theme.json` into `website/data/`.
-3. Copy only the required asset entry points into `website/themes/sambee/assets/`.
-4. Create a reduced `package.json` that keeps only dependencies actually required for:
-   - Tailwind CSS
-   - concurrent dev workflow, if still useful
-   - Pagefind
-   - Prettier, only if you want formatting inside `website/`
-5. Remove unrelated package scripts such as:
-   - `dev:example`
-   - `build:example`
-   - `preview:example`
-   - `remove-darkmode`
-   - `remove-multilang`
-   - `project-setup`
-   - `theme-setup`
-   - `update-theme`
-6. Keep a minimal script set:
-   - `dev`
-   - `build`
-   - `preview`
-   - `build:search`
-7. Generate fresh `generated-theme.css` for the new site.
-8. Ensure the build pipeline runs Pagefind against the built `website/public` output.
-
-Exit criteria:
-
-- Theme CSS is generated successfully and the site renders with Sambee branding tokens.
-- Pagefind index generation is wired into normal build output.
-
-### Phase 4: Rebuild Sambee Configuration From Scratch
-
-Goal: replace helgeklein.com settings with Sambee-specific site config.
-
-Steps:
-
-1. Recreate `hugo.toml` instead of editing the copied file line-by-line.
-2. Recreate `config/_default/params.toml` with Sambee placeholders only.
-3. Recreate `config/_default/menus.en.toml` from the Sambee information architecture.
-4. Recreate `config/_default/languages.toml` only as needed.
-5. Recreate `config/_default/module.toml` and keep only the Hugo modules Sambee actually uses.
-6. Set the production domain and canonical URL behavior from the start.
-
-Recommended initial module set:
-
-- `basic-seo`
-- `render-link`
-- `table-of-contents`
-
-Optional module set:
-
-- `videos`
-- `modal`
-- `site-verifications`
-- `button`
-
-Likely removals at first pass:
-
-- PWA module
-- modal module if search or other modal UI is not yet used
-
-Required configuration decisions:
-
-- `baseURL = "https://sambee.net/"`
-- no Giscus configuration
-- no PWA output format or manifest wiring
-- search configuration for Pagefind-enabled templates and assets
-
-Exit criteria:
-
-- No Helge Klein URLs, names, IDs, social links, or repo IDs remain in active site config.
-- Active configuration matches the fixed Sambee product decisions.
-
-### Phase 5: Recreate The Content Architecture For Sambee
-
-Goal: align content with the planning already done in this repository.
-
-Steps:
-
-1. Build the homepage around Sambee messaging from the homepage planning docs.
-2. Create docs landing pages for:
-   - end-user docs
-   - admin docs
-   - developer docs
-3. Establish a content organization that maps to the planning documents, not the blog taxonomy.
-4. Use this docs section layout:
-   - `content/docs/<version>/end-user/...`
-   - `content/docs/<version>/admin/...`
-   - `content/docs/<version>/developer/...`
-5. Create a small set of archetypes for consistent front matter.
-6. Add unversioned audience landing pages that explain audience scope and link to the current version.
-7. Only after the information architecture is stable, begin migrating material from:
-   - `documentation/`
-   - `documentation_developers/`
-
-Exit criteria:
-
-- Navigation, section landing pages, and URL structure match Sambee plans rather than blog-era conventions.
-
-### Phase 6: Implement Versioned Docs Architecture
-
-Goal: make versioning a first-class part of the docs subsite rather than a later add-on.
-
-Recommended approach: use path-based versioning directly below `docs/`, with audience subsections inside each version.
-
-Recommended content layout:
-
-- `content/docs/1.0/end-user/...`
-- `content/docs/1.0/admin/...`
-- `content/docs/1.0/developer/...`
-- `content/docs/1.1/end-user/...`
-- `content/docs/1.1/admin/...`
-- `content/docs/1.1/developer/...`
-
-Recommended support files:
-
-- `data/docs-versions.toml` to declare:
-  - current version
-  - all supported versions
-  - labels such as `current`, `LTS`, or `unsupported`
-  - optional per-version release metadata
-
-Recommended front matter fields on docs pages:
-
-- `doc_id`: stable identifier shared across versions of the same conceptual page
-- `product_version`: explicit version string such as `1.1`
-- `audience`: one of `end-user`, `admin`, or `developer`
-- optional `version_aliases` or `legacy_paths` when old URLs must redirect
-
-Versioning rules:
-
-1. The same conceptual document must keep the same `doc_id` across versions.
-2. Relative slug structure should stay aligned across versions whenever possible.
-3. Canonical docs page URLs should be versioned, for example `/docs/1.1/end-user/...`.
-4. Unversioned audience landing pages such as `/docs/end-user/` should point to the configured current version landing page, not duplicate content.
-5. Individual docs pages should not exist at both unversioned and versioned URLs unless an intentional alias is needed.
-6. Version folder names and URL slugs should use plain release identifiers such as `1.0` and `1.1`, not `v1.0` and `v1.1`.
-
-Version switcher behavior:
-
-1. On a versioned docs page, show a version switcher containing the current version and older supported versions.
-2. When a visitor selects another version, resolve the target page by matching:
-   - same `audience`
-   - same `doc_id`
-   - selected `product_version`
-3. If no equivalent page exists in the selected version, send the visitor to that version's audience landing page and show a short notice that the exact page is unavailable in that version.
-4. The switcher should be absent or disabled outside the docs subsite.
-
-Navigation and breadcrumb requirements:
-
-- docs navigation must indicate both audience and selected version
-- breadcrumbs should include the version level where helpful
-- section sidebars should be generated per version and audience, not globally across all versions
-
-Search requirements:
-
-- Pagefind results must include enough metadata to identify version and audience
-- docs search UI should default to the selected version when the visitor is inside versioned docs
-- optionally allow widening the search scope to all versions if that proves useful later
-
-Implementation note:
-
-The simplest robust approach is to build the version switcher on top of stable page metadata rather than path guessing. In practice, that means using `doc_id` and `product_version` in front matter and resolving cross-version matches from Hugo page collections.
-
-Exit criteria:
-
-- docs content exists in separate versioned trees
-- the current version is centrally configurable
-- cross-version page switching works or falls back predictably
-- search can distinguish versions
-- canonical docs URLs are versioned
-
-### Phase 7: Implement Required Search And Exclude Unneeded Features
-
-Goal: retain the required search experience while explicitly removing features that are out of scope.
-
-Required feature work:
-
-1. Search
-   - Keep Pagefind and integrate it into the docs experience.
-   - Ensure search works across versioned docs.
-   - Decide whether the default scope should be current version only or current section plus current version.
-2. Taxonomies
-   - Avoid categories and tags unless the site includes a real blog.
-3. RSS
-   - Keep only if news or blog content exists.
-4. Related content widgets
-   - Use only if there is enough long-form editorial content.
-
-Explicit exclusions:
-
-- no Giscus
-- no other page-level commenting system
-- no PWA manifest or install flow
-- no PWA Hugo module
-
-Exit criteria:
-
-- Pagefind works in the built site.
-- Comments and PWA functionality are absent from the active implementation.
-
-### Phase 8: Add Validation, CI, And Deployment
-
-Goal: harden the new site after the architecture and theme are stable.
-
-Steps:
-
-1. Add HTML validation only after routes are settled.
-2. Port `.htmltest.yml` only if the generated site structure is similar enough.
-3. Either rewrite or replace `tests/test_menu_urls.py` for the new menu model.
-4. Add build commands to repository tooling.
-5. Add deployment automation for `sambee.net` once the final hosting target is chosen.
-6. Add checks that specifically validate versioned docs links and version switcher targets.
-7. Add checks that validate the unversioned audience entry points resolve to the configured current version.
-
-Exit criteria:
-
-- Site builds reproducibly and validation checks match the new site, not the old one.
-- Production deployment assumptions are aligned with `sambee.net`.
-
-## Concrete File Migration Map
-
-### Files To Copy Early
-
-Copy these early into the new `website/` tree for extraction work:
+### Copy Early
 
 - `website-temp/themes/helgeklein/assets/**` -> `website/themes/sambee/assets/**`
 - `website-temp/themes/helgeklein/i18n/**` -> `website/themes/sambee/i18n/**`
 - `website-temp/themes/helgeklein/layouts/**` -> `website/themes/sambee/layouts/**`
 - `website-temp/data/theme.json` -> `website/data/theme.json`
 - `website-temp/scripts/themeGenerator.js` -> `website/scripts/themeGenerator.js`
-- Pagefind-related assets and templates that are actually used by the migrated theme
+- Pagefind-related UI assets that are actually used after cleanup
 
-### Files To Recreate Manually
+### Recreate Manually
 
 - `website/hugo.toml`
 - `website/config/_default/params.toml`
 - `website/config/_default/menus.en.toml`
 - `website/config/_default/module.toml`
 - `website/data/docs-versions.toml`
+- `website/data/docs-nav/<version>.toml`
 - `website/content/**`
 
-### Files To Copy Only If Needed Later
+### Defer Until Needed
 
-- `website-temp/package.json`
-- `website-temp/package-lock.json`
-- `website-temp/go.mod`
-- `website-temp/go.sum`
-- `website-temp/.htmltest.yml`
-- `website-temp/tests/test_menu_urls.py`
+- `.htmltest.yml`
+- `tests/test_menu_urls.py`
+- optional Hugo modules such as `videos`, `site-verifications`, and `button`
 
-### Files To Ignore Completely
+### Do Not Carry Over
 
-- `website-temp/content/**`
-- `website-temp/public/**`
-- `website-temp/resources/**`
-- `website-temp/node_modules/**`
-- `website-temp/migration/**`
-- `website-temp/tmp/**`
-- `website-temp/.git/**`
-- `website-temp/static/manifest.webmanifest`
+- donor site content
+- donor menus and legal/footer assumptions
+- blog templates and related-post behavior
+- Giscus and comment-related partials
+- PWA module integration and `manifest.webmanifest`
+- donor deployment configuration
+- generated output directories and lock files
 
-## Risks And How To Avoid Them
+## Implementation Plan
 
-### Risk: Hidden Blog Assumptions In Shared Partials
+### Phase 1: Scaffold A Clean Site
 
-Some partials look generic but still depend on blog-style fields, featured images, or post collections.
+Create `website/` and add:
+
+- `hugo.toml` with `baseURL = "https://sambee.net/"`, `theme = "sambee"`, and only the needed outputs
+- `config/_default/params.toml`
+- `content/_index.md`
+- `content/docs/_index.md`
+- one initial version tree, for example `content/docs/1.0/...`
+- `data/docs-versions.toml`
+
+Exit condition:
+
+- Hugo builds a placeholder Sambee site without using `website-temp` content.
+
+### Phase 2: Extract And Clean The Theme
+
+Create `themes/sambee/` and copy the donor theme source.
+
+Keep:
+
+- base templates
+- essentials partials
+- icons
+- image render hooks
+- generic article and docs shell pieces
+
+Remove or replace immediately:
+
+- blog home template
+- blog section templates
+- taxonomy and term templates
+- comments partials
+- helgeklein branding
+
+Exit condition:
+
+- The theme renders a generic Sambee page shell with no blog dependency.
+
+### Phase 3: Rebuild The Asset And Search Pipeline
+
+Set up only the dependencies still needed for Sambee:
+
+- Tailwind CSS
+- theme token generation
+- Pagefind
+- optional formatter tooling if wanted for the `website/` subproject
+
+Required scripts:
+
+- `dev`
+- `build`
+- `preview`
+- `build:search`
+
+Build requirements:
+
+- generate `generated-theme.css`
+- build the Hugo site
+- run Pagefind against `website/public`
+
+Exit condition:
+
+- local dev and production builds both generate a working search index.
+
+### Phase 4: Implement Versioned Docs Behavior
+
+Implement docs-specific templates and data-driven behavior for:
+
+- version switcher
+- docs side navigation
+- breadcrumbs
+- version status banners
+- hard redirects for unversioned docs book entry points
+
+Implementation rules:
+
+- use `doc_id` for cross-version matching
+- do not infer equivalent pages from path alone
+- keep the same docs book split inside every version
+- keep one shared docs template for all books initially
+- render sidebar order from `data/docs-nav/<version>.toml`
+
+Exit condition:
+
+- users can move between supported versions predictably and understand which version they are viewing.
+
+### Phase 5: Migrate Content And Harden The Site
+
+Migrate homepage and documentation material from the planning docs and existing internal docs.
+
+Then add:
+
+- validation checks
+- link checking
+- version integrity checks
+- deployment automation for `sambee.net`
+
+Required automated checks:
+
+- missing `doc_id`
+- duplicate `doc_id` within the same book and version
+- broken cross-version switcher targets
+- broken unversioned docs book entry points
+- broken internal links in built docs
+- docs navigation files reference only existing `doc_id` values
+- each navigable page appears exactly once in the corresponding version navigation file
+
+Exit condition:
+
+- the site is content-complete enough to replace the donor implementation path.
+
+## Main Risks
+
+### Hidden Blog Coupling In Donor Templates
+
+Risk:
+
+Generic-looking partials may still assume blog fields, featured images, post lists, or taxonomy terms.
 
 Mitigation:
 
-- smoke-test every copied template against a minimal Sambee page before trusting it
-- remove homepage and taxonomy templates first
-- keep site root overrides available to replace theme templates quickly
+- remove blog templates first
+- smoke-test copied partials against minimal docs pages
+- prefer explicit Sambee overrides over preserving donor behavior by default
 
-### Risk: Versioned Docs Become Inconsistent Across Releases
+### Version Drift Across Releases
 
-Without a strong convention, versioned docs can drift in filenames, slugs, or page identity, making the version switcher unreliable.
+Risk:
 
-Mitigation:
-
-- require a stable `doc_id` on versioned docs pages
-- keep per-version folder structures aligned wherever possible
-- add automated checks for cross-version page resolution
-
-### Risk: Search Quality Degrades When Multiple Versions Are Indexed
-
-If all versions are indexed without metadata and scoping, visitors may get noisy or outdated results.
+Equivalent docs pages may stop matching across releases, breaking the switcher.
 
 Mitigation:
 
-- index version and audience metadata with each docs page
-- default docs search to the selected version context
-- clearly label search results with version badges
+- require `doc_id`
+- keep folder structures aligned where possible
+- validate cross-version mapping in CI
 
-### Risk: Carrying Over Too Many Optional Dependencies
+### Ordering Drift Between Content And Reader Navigation
 
-The copied site has Hugo modules, Tailwind, search tooling, and validation extras.
+Risk:
 
-Mitigation:
-
-- start with the smallest working set
-- add modules and tooling back one feature at a time
-
-### Risk: Theme And Site Responsibilities Remain Blurred
-
-If too much logic stays at the site root, future reuse and maintenance become harder.
+Folder order, titles, and other inferred ordering signals can drift away from the intended reading order, making navigation inconsistent.
 
 Mitigation:
 
-- move generic presentation into `themes/sambee`
-- keep Sambee content and configuration at the site root
+- treat `data/docs-nav/<version>.toml` as the ordering source of truth
+- validate that navigable pages are listed exactly once
+- do not use a second ordering mechanism for docs pages
 
-### Risk: Generated Files Accidentally Enter Source Control
+### Search Noise Across Multiple Versions
 
-The copied site contains several generated outputs.
+Risk:
+
+Users may get results from the wrong version.
 
 Mitigation:
 
-- define ignores for `website/public/`, `website/resources/`, and generated CSS artifacts where appropriate
-- generate fresh outputs in the new site instead of copying them
+- attach version and book metadata to indexed pages
+- default search scope to the current version context
+- hide or de-prioritize unsupported versions
 
-## Suggested Order Of Implementation Work
+### Theme And Site Responsibilities Stay Mixed
 
-1. Create `website/` skeleton
-2. Create `themes/sambee/`
-3. Copy theme assets, layouts, i18n, `theme.json`, and theme generator script
-4. Strip blog-specific templates from the copied theme
-5. Recreate minimal Hugo config for Sambee
-6. Replace logos, colors, and typography tokens
-7. Build a minimal homepage and one docs page
-8. Implement versioned docs structure and version switcher support
-9. Wire Pagefind into version-aware docs search
-10. Add validation and deployment
-11. Migrate actual documentation content
+Risk:
 
-## Definition Of Done For The Migration
+The new site becomes hard to maintain if generic rendering logic stays in the site root.
 
-The migration should be considered structurally complete when all of the following are true:
+Mitigation:
 
-1. `website-temp` is no longer part of the active implementation path
-2. `website/` builds without depending on blog content
-3. no Helge Klein branding or IDs remain in active Sambee site files
-4. the active theme is `sambee`
-5. homepage and docs navigation match the Sambee planning docs
-6. docs content is organized under `docs/<version>/end-user`, `docs/<version>/admin`, and `docs/<version>/developer`
-7. versioned docs are stored separately per product version and can be switched predictably
-8. Pagefind works for the active site
-9. Giscus and PWA functionality are absent from the active site
+- keep reusable presentation in `themes/sambee`
+- keep content, configuration, and Sambee-specific overrides in the site root
 
-## Recommended Next Step
+## Definition Of Done
 
-The next implementation step should be to scaffold `website/` and extract only the minimum viable theme layer:
+The migration is structurally complete when all of the following are true:
 
-- theme shell
-- asset pipeline
-- Sambee config
-- placeholder homepage
-- placeholder docs landing page
-- versioned docs scaffolding for one initial product version
-- Pagefind-enabled docs search shell
+1. `website-temp` is no longer part of the active implementation path.
+2. `website/` builds without donor content.
+3. The active theme is `sambee`.
+4. No Helge Klein branding, IDs, or donor-specific configuration remain in active site files.
+5. Canonical docs URLs are versioned and use plain version slugs such as `1.0` and `1.1`.
+6. Docs content lives under `docs/<version>/end-user`, `docs/<version>/admin`, and `docs/<version>/developer`.
+7. Pagefind works and search results are version-aware.
+8. Comments and PWA functionality are absent.
+9. Version switching, docs book entry points, and docs navigation all resolve predictably.
+10. Docs sidebar order is fully determined by explicit navigation data, not inferred ordering.
 
-After that, the remaining migration decisions become concrete and testable rather than theoretical.
+## Immediate Next Step
+
+Scaffold `website/` with:
+
+- the Hugo root files
+- `themes/sambee/`
+- one initial versioned docs tree
+- `data/docs-versions.toml`
+- `data/docs-nav/1.0.toml`
+- placeholder docs templates for navigation, version switching, and Pagefind-aware search
+
+That creates the minimum viable implementation foundation without dragging donor complexity into the new site.
