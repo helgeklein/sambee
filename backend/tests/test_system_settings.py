@@ -19,12 +19,15 @@ class TestAdvancedSystemSettingsApi:
             poolclass=StaticPool,
         )
 
-        monkeypatch.setattr(database_module, "engine", test_engine)
-        system_settings_store._cache = {}
-        system_settings_store._loaded = False
+        try:
+            monkeypatch.setattr(database_module, "engine", test_engine)
+            system_settings_store._cache = {}
+            system_settings_store._loaded = False
 
-        assert get_integer_setting_value(SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES) == 4 * 1024 * 1024
-        assert system_settings_store._loaded is False
+            assert get_integer_setting_value(SystemSettingKey.SMB_READ_CHUNK_SIZE_BYTES) == 4 * 1024 * 1024
+            assert system_settings_store._loaded is False
+        finally:
+            test_engine.dispose()
 
     def test_admin_can_fetch_advanced_settings(self, client: TestClient, auth_headers_admin: dict[str, str]) -> None:
         response = client.get("/api/admin/settings/advanced", headers=auth_headers_admin)

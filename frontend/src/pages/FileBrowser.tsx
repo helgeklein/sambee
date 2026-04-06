@@ -749,7 +749,7 @@ const Browser: React.FC = () => {
   /**
    * WebSocket connection for real-time directory change notifications.
    * Features:
-   * - Automatic reconnection with 5-second delay on disconnect
+   * - Automatic reconnection with an adaptive backoff ladder on disconnect
    * - Cache invalidation when remote changes detected
    * - Selective directory subscription based on current path
    *

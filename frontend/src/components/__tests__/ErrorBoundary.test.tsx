@@ -7,14 +7,39 @@ function ThrowingComponent() {
   throw new Error("Boom");
 }
 
+function suppressExpectedRenderCrashNoise(message: string): () => void {
+  const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    const combinedMessage = args.map((value) => (value instanceof Error ? value.message : String(value))).join(" ");
+
+    if (combinedMessage.includes(message)) {
+      return;
+    }
+  });
+
+  const handleWindowError = (event: ErrorEvent) => {
+    if (event.error instanceof Error && event.error.message === message) {
+      event.preventDefault();
+    }
+  };
+
+  window.addEventListener("error", handleWindowError);
+
+  return () => {
+    window.removeEventListener("error", handleWindowError);
+    consoleErrorSpy.mockRestore();
+  };
+}
+
 describe("ErrorBoundary", () => {
-  const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  let restoreCrashNoiseSuppression: (() => void) | null = null;
 
   beforeEach(() => {
-    consoleErrorSpy.mockClear();
+    restoreCrashNoiseSuppression = suppressExpectedRenderCrashNoise("Boom");
   });
 
   afterEach(async () => {
+    restoreCrashNoiseSuppression?.();
+    restoreCrashNoiseSuppression = null;
     await setLocale("en");
   });
 

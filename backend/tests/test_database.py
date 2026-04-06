@@ -29,6 +29,7 @@ class TestDatabaseInitialization:
         # Create a temporary database
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             db_path = tmp.name
+        test_engine = None
 
         try:
             # Create engine for temporary database
@@ -47,6 +48,8 @@ class TestDatabaseInitialization:
                 session.exec(select(Connection)).all()
 
         finally:
+            if test_engine is not None:
+                test_engine.dispose()
             # Cleanup
             Path(db_path).unlink(missing_ok=True)
 
