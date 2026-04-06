@@ -22,8 +22,9 @@ The target structure is:
 - [Homepage_planning.md](./Homepage_planning.md): homepage messaging, section order, CTA strategy, and information architecture
 - [Homepage_text_copy.md](./Homepage_text_copy.md): draft homepage copy derived from the homepage plan
 - [EndUserDocs_planning.md](./EndUserDocs_planning.md): task-oriented end-user docs structure, terminology, and coverage planning
+- [AdminDocs_planning.md](./AdminDocs_planning.md): administrator-focused deployment, configuration, operations, and support planning
 
-Admin docs and developer docs are part of the target site structure, but they do not yet have dedicated planning files in this folder.
+Developer docs are part of the target site structure, but they do not yet have a dedicated planning file in this folder.
 
 ## Why The Split Exists
 

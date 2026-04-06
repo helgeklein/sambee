@@ -57,7 +57,7 @@ Terms to avoid in end-user docs unless context demands them:
 - Regular users browsing SMB shares
 - Users opening and editing files
 - Users accessing local drives through the companion app
-- Power users relying on keyboard shortcuts and dual-pane workflows
+- Power users relying on dual-pane workflows and keyboard-driven navigation
 - Administrators helping users with setup and troubleshooting
 
 ## Recommended Top-Level Structure
@@ -81,7 +81,9 @@ Notes:
 
 - The opening page should reuse the homepage's core description of Sambee, but without CTA language
 - State early that SMB access works in the browser, while local drives and desktop-app editing require the companion app
-- Include a short capability matrix so users can immediately understand which workflows are browser-only and which depend on the companion app
+- Include a short capability matrix on this page so users can immediately understand which workflows are browser-only and which depend on the companion app
+- Keep the capability matrix in getting started as the single canonical version; other pages should link back to it instead of duplicating it
+- Keep local drives integrated into the main getting-started, access, and companion flows unless future scope proves a separate top-level guide is necessary
 
 ### 2. Accessing Files
 
@@ -105,13 +107,14 @@ Suggested pages:
 - Browse directories
 - Use single-pane and dual-pane layouts
 - Search and jump to directories
-- Keyboard navigation and shortcuts
+- Open the in-app keyboard shortcut help
 - Mobile navigation behavior
 
 Notes:
 
 - Carry over the homepage emphasis on fast navigation, search, and keyboard-driven use
 - Explain which navigation features are optimized for desktop and what changes on mobile
+- Do not maintain a separate shortcut reference in the docs; explain how to open the in-app help screen instead
 
 ### 4. Viewing Files
 
@@ -174,16 +177,24 @@ Suggested pages:
 
 Suggested pages:
 
+- Companion overview
 - Install Sambee Companion
+- First use and browser permission
 - Pair your browser
+- Open files in desktop apps
+- Save changes back to the server
 - Understand trusted browsers and origins
 - Choose desktop apps for file types
 - Preferences
+- System tray or menu bar basics
 - Startup behavior
 - Notifications
+- Upload conflict resolution
+- Large file behavior
 - Temporary file cleanup
 - Updates
 - Recovery after interrupted editing
+- Uninstall Sambee Companion
 
 This section should eventually link to the future end-user companion documentation, with admin-only setup or operations material routed to admin docs instead.
 
@@ -192,6 +203,61 @@ Notes:
 - This section should inherit the homepage wording that the companion app extends Sambee to the local desktop
 - Keep the optional nature of the companion app visible throughout the section
 - Explain the trust model in user terms: which browser origins are allowed, what re-pairing means, and when users need to intervene
+- The current `documentation/COMPANION_APP.md` file should be treated as source material for this section, not migrated as a single large page
+- Split the current companion source material into smaller task pages so users can find installation, first use, editing, preferences, recovery, and troubleshooting separately
+
+#### Migration map for current companion source material
+
+Carry these topics from the current companion source doc into future end-user docs pages:
+
+- Companion overview:
+  - what the companion app is
+  - what it unlocks
+  - when it is required versus optional
+- Install Sambee Companion:
+  - Windows, macOS, and Linux installation steps
+- First use and browser permission:
+  - `sambee://` deep-link permission flow
+  - first-time application selection
+  - remembering the selected application
+- Open files in desktop apps:
+  - the "Open in App" action
+  - how the file is downloaded and opened
+- Save changes back to the server:
+  - the "Done Editing" window
+  - upload and discard actions
+- Preferences:
+  - trusted browsers and origins
+  - startup behavior
+  - desktop notifications
+  - temporary file cleanup
+  - upload conflict resolution settings
+- Recovery after interrupted editing:
+  - crash recovery choices
+  - how unfinished edits reappear on next launch
+- Local drive workflows:
+  - the requirement that the companion app be running
+  - local drive access prerequisites
+- Large file behavior:
+  - the confirmation step for large downloads
+- Troubleshooting:
+  - "Open in App" does nothing
+  - file does not upload after editing
+  - application picker does not show the expected editor
+- Uninstall Sambee Companion:
+  - user-facing uninstall steps by OS
+
+Route these topics out of end-user docs and into future admin docs or support material:
+
+- preference file locations
+- log file locations
+- Windows WebView2 runtime-data note
+- platform-specific diagnostic instructions such as Event Viewer, Console.app, or terminal log inspection
+
+Do not preserve the current companion source doc as a one-to-one page in the future docs tree:
+
+- it mixes onboarding, task help, settings reference, troubleshooting, and support diagnostics in one place
+- the future docs should separate those jobs into task-oriented end-user pages and admin-facing support content
 
 ### 9. Troubleshooting
 
@@ -204,11 +270,14 @@ Suggested pages:
 - Upload or save-back failed
 - Conflict detected while editing
 - Unsupported file type behavior
+- "Open in App" does nothing
+- Application picker does not show the expected editor
 
 Notes:
 
 - Organize troubleshooting by symptom, not subsystem
 - Reuse the capability split from the homepage and getting-started docs so users can tell whether the problem is in-browser SMB access, local drives, preview support, or companion app editing
+- Keep support-heavy diagnostics such as log paths and platform-specific crash investigation out of end-user troubleshooting unless a lighter user-facing step is insufficient
 
 ### 10. FAQ
 
@@ -236,6 +305,12 @@ These pages should likely exist near the top of the docs tree because they mirro
 
 The homepage now makes a sharper distinction between browser-only and companion-app-backed workflows. The docs should make that explicit in one early table or matrix.
 
+Placement rule:
+
+- Keep the matrix on the getting-started page as the single canonical version
+- Do not duplicate it across multiple pages
+- Other pages can summarize the relevant distinction in prose, but should link back to the getting-started matrix for the full picture
+
 Minimum distinctions to capture:
 
 - SMB shares: browser-based access
@@ -251,7 +326,7 @@ Minimum distinctions to capture:
 These topics appear important and should not be lost during the split:
 
 - Dual-pane workflows
-- Keyboard shortcuts
+- How to open the in-app keyboard shortcut help
 - Mobile behavior
 - Companion app pairing and trust model
 - Conflict resolution choices
@@ -271,7 +346,8 @@ These topics appear important and should not be lost during the split:
 - Image conversion implementation details
 - Developer-focused extension points
 
-Those topics belong in admin, deployment, or developer documentation.
+Those topics belong in admin docs or developer docs.
+
 
 ## Cross-Link Strategy
 
@@ -290,10 +366,20 @@ Content to carry forward into the new docs structure:
 - Existing companion-app material should be split between end-user companion guidance and any admin-specific setup or operations content
 - Existing deployment material should become admin docs content, not end-user docs content
 
-## Open Questions
+Admin-docs destinations for end-user escalation should generally align with the admin plan's major areas:
 
-- Should admin tasks live in admin docs only, with end-user docs linking out only when escalation is needed?
-- Do local drives deserve their own top-level guide?
-- Should keyboard shortcuts be embedded in task pages or maintained as a dedicated reference page?
-- Which troubleshooting issues are common enough to prioritize first?
-- Should the capability matrix live on the getting-started page only, or be reused as a shared include across multiple pages?
+- deployment, reverse proxy, and first-login issues should route to admin installation and deployment docs
+- logging, service operation, and upgrade issues should route to admin operations and maintenance docs
+- companion diagnostics, log paths, and support-only runtime details should route to companion app administration and support docs
+- container startup, SMB connectivity, and other service-level failures should route to admin troubleshooting docs
+
+For the current companion source doc specifically:
+
+- Move user task flows, preferences, recovery, and uninstall steps into end-user docs
+- Move diagnostics, log locations, and support-oriented runtime details into admin docs, especially companion app administration and support
+
+## Resolved Planning Decisions
+
+- Keep local drives integrated into the main end-user docs structure instead of creating a separate top-level guide for now
+- Do not document individual keyboard shortcuts; explain how users open the in-app keyboard shortcut help screen
+- Keep the capability matrix only on the getting-started page and do not duplicate it elsewhere
