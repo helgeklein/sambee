@@ -81,6 +81,19 @@ export const handlers = [
     });
   }),
 
+  http.get(`${COMPANION_API_BASE}/pair/status`, () => {
+    return HttpResponse.json({
+      current_origin: "http://localhost:3000",
+      current_origin_paired: false,
+    });
+  }),
+
+  http.options(`${COMPANION_API_BASE}/pair/status`, () => {
+    return new HttpResponse(null, {
+      status: 204,
+    });
+  }),
+
   // Version endpoint
   http.get(`${API_BASE}/version`, () => {
     return HttpResponse.json({
