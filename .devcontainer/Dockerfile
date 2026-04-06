@@ -1,5 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/python:3.13
 
+ARG HUGO_VERSION=0.160.0
+
 # Install Sambee system dependencies from centralized script
 COPY scripts/install-system-deps /tmp/
 RUN bash /tmp/install-system-deps && rm /tmp/install-system-deps
@@ -11,6 +13,7 @@ COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \
         build-essential \
+        curl \
         libkrb5-dev \
         smbclient \
         cifs-utils \
@@ -24,6 +27,20 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         librsvg2-dev \
         file \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/*
+
+# Install Hugo Extended as a pinned devcontainer dependency.
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+        amd64) hugo_arch="Linux-64bit" ;; \
+        arm64) hugo_arch="Linux-ARM64" ;; \
+        *) echo "Unsupported architecture for Hugo: $arch" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL \
+        "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_${hugo_arch}.tar.gz" \
+        -o /tmp/hugo.tar.gz \
+    && tar -xzf /tmp/hugo.tar.gz -C /tmp hugo \
+    && install -m 0755 /tmp/hugo /usr/local/bin/hugo \
+    && rm -f /tmp/hugo.tar.gz /tmp/hugo
 
 # Use a minimal bash configuration
 USER vscode
