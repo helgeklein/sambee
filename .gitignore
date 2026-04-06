@@ -98,3 +98,6 @@ squashfs-root/
 # Build timestamp (generated during Docker build)
 BUILD_TIME
 GIT_COMMIT
+
+# Temporary website source
+website-temp/
