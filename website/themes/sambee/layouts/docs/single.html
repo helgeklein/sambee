@@ -1,0 +1,12 @@
+{{ define "main" }}
+<div class="docs-layout">
+  <aside class="panel">
+    {{ partial "docs/sidebar.html" . }}
+  </aside>
+  <article class="panel">
+    {{ partial "docs/version-switcher.html" . }}
+    <h1>{{ .Title }}</h1>
+    <div class="content" data-pagefind-body>{{ .Content }}</div>
+  </article>
+</div>
+{{ end }}

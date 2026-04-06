@@ -1,0 +1,53 @@
+{{ define "main" }}
+{{ $currentVersion := hugo.Data.docs_versions.current }}
+{{ $navData := index hugo.Data.docs_nav $currentVersion }}
+
+{{ if and (not .Params.product_version) (not .Params.book) }}
+<article class="panel">
+  <h1>{{ .Title }}</h1>
+  <div class="content" data-pagefind-body>{{ .Content }}</div>
+  {{ with $navData }}
+  <div class="book-grid">
+    {{ range .books }}
+    <section class="panel">
+      <h2><a href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">{{ .title }}</a></h2>
+      <p class="muted">Current version: {{ $currentVersion }}</p>
+    </section>
+    {{ end }}
+  </div>
+  {{ end }}
+</article>
+{{ else if and .Params.product_version (not .Params.book) }}
+<article class="panel">
+  <h1>{{ .Title }}</h1>
+  <div class="content" data-pagefind-body>{{ .Content }}</div>
+  {{ $versionNav := index hugo.Data.docs_nav .Params.product_version }}
+  {{ with $versionNav }}
+  <div class="book-grid">
+    {{ range .books }}
+    <section class="panel">
+      <h2><a href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">{{ .title }}</a></h2>
+      <p class="muted">Book for Sambee {{ $.Params.product_version }}</p>
+    </section>
+    {{ end }}
+  </div>
+  {{ end }}
+</article>
+{{ else if and .Params.product_version .Params.book }}
+<div class="docs-layout">
+  <aside class="panel">
+    {{ partial "docs/sidebar.html" . }}
+  </aside>
+  <article class="panel">
+    {{ partial "docs/version-switcher.html" . }}
+    <h1>{{ .Title }}</h1>
+    <div class="content" data-pagefind-body>{{ .Content }}</div>
+  </article>
+</div>
+{{ else }}
+<article class="panel">
+  <h1>{{ .Title }}</h1>
+  <div class="content" data-pagefind-body>{{ .Content }}</div>
+</article>
+{{ end }}
+{{ end }}

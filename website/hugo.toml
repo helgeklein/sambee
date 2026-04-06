@@ -1,0 +1,18 @@
+baseURL = "https://sambee.net/"
+title = "Sambee"
+theme = "sambee"
+defaultContentLanguage = "en"
+enableRobotsTXT = true
+
+[pagination]
+pagerSize = 10
+
+[outputs]
+home = ["HTML"]
+section = ["HTML"]
+page = ["HTML"]
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = true

@@ -1,0 +1,14 @@
+{
+  "name": "sambee-website",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "hugo server --source . --bind 0.0.0.0 --port 1313 --disableFastRender",
+    "build": "hugo --source . --cleanDestinationDir",
+    "preview": "hugo server --source . --environment production --disableFastRender",
+    "build:search": "npx pagefind --site public"
+  },
+  "devDependencies": {
+    "pagefind": "^1.4.0"
+  }
+}

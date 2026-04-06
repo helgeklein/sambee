@@ -1,0 +1,9 @@
+[[main]]
+name = "Home"
+url = "/"
+weight = 1
+
+[[main]]
+name = "Docs"
+url = "/docs/"
+weight = 2

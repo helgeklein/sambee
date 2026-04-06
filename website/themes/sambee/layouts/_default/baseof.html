@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ if .Title }}{{ .Title }} | {{ site.Title }}{{ else }}{{ site.Title }}{{ end }}</title>
+  <meta name="description" content="{{ site.Params.description }}">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f2;
+      --fg: #1d1d1b;
+      --muted: #5d5d57;
+      --line: #d9d8cf;
+      --panel: #ffffff;
+      --accent: #0a6c5d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--fg);
+      background: var(--bg);
+      line-height: 1.55;
+    }
+    a { color: var(--accent); }
+    header, main, footer { width: min(1180px, calc(100vw - 2rem)); margin: 0 auto; }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 1rem;
+      margin: 0;
+      padding: 0;
+    }
+    main { padding: 2rem 0 3rem; }
+    footer {
+      padding: 1rem 0 2rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .docs-layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 2rem;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      padding: 1rem;
+    }
+    .muted { color: var(--muted); }
+    .version-switcher {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    .version-switcher strong {
+      color: var(--fg);
+    }
+    .sidebar-section + .sidebar-section { margin-top: 1rem; }
+    .sidebar-section ul { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+    .book-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+    }
+    @media (max-width: 900px) {
+      .docs-layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div><a href="{{ site.Home.RelPermalink }}"><strong>{{ site.Title }}</strong></a></div>
+    <nav aria-label="main">
+      <ul>
+        {{ range site.Menus.main }}
+        <li><a href="{{ .URL | relLangURL }}">{{ .Name }}</a></li>
+        {{ end }}
+      </ul>
+    </nav>
+  </header>
+  <main>
+    {{ block "main" . }}{{ end }}
+  </main>
+  <footer>
+    Sambee website scaffold for Hugo migration validation.
+  </footer>
+</body>
+</html>
