@@ -1314,10 +1314,7 @@ class TestDeleteItem:
         """Test that a slow delete operation raises TimeoutError."""
         import asyncio
 
-        async def slow_executor(*args, **kwargs):
-            await asyncio.sleep(20)
-
-        mock_stat.side_effect = lambda *a, **k: asyncio.sleep(20)  # will be cancelled
+        mock_stat.return_value = MagicMock(st_mode=0)
 
         backend = SMBBackend(
             host="server.local",
