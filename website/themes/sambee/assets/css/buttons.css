@@ -1,0 +1,34 @@
+/* Button base styles */
+.btn {
+  @apply border-2 border-transparent inline-block rounded px-5 py-2 transition;
+}
+.btn-sm {
+  @apply rounded-sm px-4 py-1.5 text-sm;
+}
+
+/* Button, background filled with secondary color */
+.btn-bg-secondary {
+  @apply bg-clr-secondary dark:bg-clr-darkmode-secondary text-white dark:text-clr-darkmode-text-dark;
+}
+/* Hover state for button with link */
+a.btn-bg-secondary {
+  @apply hover:bg-clr-secondary/80 dark:hover:bg-clr-darkmode-secondary/90;
+}
+
+/* Button, background transparent */
+.btn-bg-transparent {
+  @apply bg-transparent text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+/* Hover state for button with link */
+a.btn-bg-transparent {
+  @apply hover:bg-clr-secondary dark:hover:bg-clr-darkmode-secondary hover:text-white dark:hover:text-clr-darkmode-text-dark;
+}
+
+/* Button, no background, border with secondary color */
+.btn-outline-secondary {
+  @apply border-clr-secondary text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+/* Hover state for button with link */
+a.btn-outline-secondary {
+  @apply hover:text-clr-secondary dark:hover:text-clr-darkmode-secondary;
+}

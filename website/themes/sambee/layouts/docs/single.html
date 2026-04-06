@@ -1,12 +1,16 @@
 {{ define "main" }}
-<div class="docs-layout">
-  <aside class="panel">
+<section class="docs-shell">
+  <aside class="docs-sidebar">
     {{ partial "docs/sidebar.html" . }}
   </aside>
-  <article class="panel">
+  <article class="docs-content">
     {{ partial "docs/version-switcher.html" . }}
+    <div class="docs-meta">
+      <span class="docs-meta-chip">Version {{ .Params.product_version }}</span>
+      <span class="docs-meta-chip">{{ .Params.book }}</span>
+    </div>
     <h1>{{ .Title }}</h1>
     <div class="content" data-pagefind-body>{{ .Content }}</div>
   </article>
-</div>
+</section>
 {{ end }}

@@ -1,0 +1,53 @@
+<header class="header header-shell hr-border-bottom">
+  <nav class="nav-bar container" aria-label="Primary">
+    <div class="nav-logo">
+      <a class="nav-logo-link block" href="{{ site.Home.RelPermalink }}">
+        {{ partial "logo.html" . }}
+      </a>
+    </div>
+
+    <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="nav-menu">
+      <span class="nav-toggle-bar"></span>
+    </button>
+
+    <ul id="nav-menu" class="nav-menu">
+      {{ range site.Menus.main }}
+        {{ $isExternal := or (hasPrefix .URL "http://") (hasPrefix .URL "https://") }}
+        {{ if .HasChildren }}
+        <li class="nav-item has-children">
+          {{ if .URL }}
+          <a class="nav-link" href="{{ if $isExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $isExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
+          {{ else }}
+          <span class="nav-link">{{ .Name }}</span>
+          {{ end }}
+          <button class="nav-submenu-toggle" aria-label="Toggle {{ .Name }} submenu" aria-expanded="false">
+            {{ partial "icons/chevron-right.html" (dict "class" "nav-chevron" "rotate" 90) }}
+          </button>
+          <ul class="nav-submenu">
+            {{ range .Children }}
+              {{ $childExternal := or (hasPrefix .URL "http://") (hasPrefix .URL "https://") }}
+              <li class="nav-submenu-item">
+                <a class="nav-submenu-link" href="{{ if $childExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $childExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
+              </li>
+            {{ end }}
+          </ul>
+        </li>
+        {{ else }}
+        <li class="nav-item">
+          <a class="nav-link" href="{{ if $isExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $isExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
+        </li>
+        {{ end }}
+      {{ end }}
+    </ul>
+
+    <div class="nav-actions">
+      {{ with site.Params.search }}
+        {{ if .enable }}
+        <button aria-label="Search" class="nav-search-button" data-target="search-modal">
+          {{ partial "icons/search.html" (dict "class" "size-[1.15rem]") }}
+        </button>
+        {{ end }}
+      {{ end }}
+    </div>
+  </nav>
+</header>

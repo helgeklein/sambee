@@ -1,0 +1,23 @@
+{{/*
+Logo Partial
+
+Displays logo-black.svg (light mode) and logo-white.svg (dark mode).
+Falls back to site.Title text if logos are missing.
+*/}}
+
+{{ $logoBlack := resources.Get "images/logo-black.svg" }}
+{{ $logoWhite := resources.Get "images/logo-white.svg" }}
+
+{{ if $logoBlack }}
+<img class="img-fluid dark:hidden h-8 lg:h-10 w-auto" width="199" height="40" src="{{ $logoBlack.RelPermalink }}"
+   alt="{{ site.Title }}" />
+{{ end }}
+
+{{ if $logoWhite }}
+<img class="img-fluid hidden dark:block h-8 lg:h-10 w-auto" width="199" height="40" src="{{ $logoWhite.RelPermalink }}"
+   alt="{{ site.Title }}" />
+{{ end }}
+
+{{ if not (or $logoBlack $logoWhite) }}
+{{ site.Title }}
+{{ end }}

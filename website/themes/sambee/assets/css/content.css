@@ -1,0 +1,215 @@
+/*
+   Content typography for blog posts
+   Complements base.css - only adds styles specific to .content area
+*/
+
+.content {
+
+  /*
+  ==============================
+  Headings
+  ==============================
+  */
+
+  /* Top & bottom margins */
+  h2, h3, h4, h5, h6 {
+    @apply mb-[.75em] mt-[1em];
+  }
+
+  /*
+  ==============================
+  Paragraphs
+  ==============================
+  */
+  p {
+    @apply my-[var(--content-block-margin)];
+  }
+
+  /*
+  ==============================
+  Lists
+  ==============================
+  */
+  ul {
+    list-style-type: disc;
+    padding-inline-start: 1.5em;
+  }
+
+  ol {
+    list-style-type: decimal;
+    padding-inline-start: 1.5em;
+  }
+
+  li {
+    margin: 0.25em 0;
+    padding-left: 0.25em;
+  }
+
+  /*
+  ==============================
+  Blockquotes
+  ==============================
+  */
+  blockquote {
+    border-left: 4px solid var(--color-clr-primary);
+    padding-left: 1em;
+    margin: var(--content-block-margin) 0;
+    font-style: italic;
+    color: var(--color-clr-text-light);
+
+    .dark & {
+      color: var(--color-clr-darkmode-text-light);
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  /*
+  ==============================
+  Horizontal Rules
+  ==============================
+  */
+  hr {
+    border: none;
+    border-top: 1px solid var(--color-clr-border);
+    margin: 2em 0;
+
+    .dark & {
+      border-top-color: var(--color-clr-darkmode-border);
+    }
+  }
+
+  /*
+  ==============================
+  Tables
+  ==============================
+  */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--content-block-margin) 0;
+    font-size: 0.9375em;
+    overflow-x: auto;
+    display: block;
+  }
+
+  th,
+  td {
+    border: 1px solid var(--color-clr-border);
+    padding: 0.5em 0.75em;
+    text-align: left;
+    vertical-align: top;
+
+    .dark & {
+      border-color: var(--color-clr-darkmode-border);
+    }
+  }
+
+  thead th {
+    background-color: var(--color-clr-light);
+    font-weight: 600;
+
+    .dark & {
+      background-color: var(--color-clr-darkmode-light);
+    }
+  }
+
+  /*
+  ==============================
+  Images & Figures
+  ==============================
+  */
+  figure {
+    margin: var(--content-block-margin) 0;
+  }
+
+  figcaption {
+    @apply mt-4 text-sm text-clr-text-light dark:text-clr-darkmode-text-light;
+  }
+
+  /*
+  ==============================
+  Definition Lists
+  ==============================
+  */
+  dl {
+    margin: var(--content-block-margin) 0;
+  }
+
+  dt {
+    font-weight: 600;
+    margin-top: 1em;
+  }
+
+  dd {
+    margin-left: 1.5em;
+    margin-top: 0.25em;
+  }
+
+  /*
+  ==============================
+  Abbreviations
+  ==============================
+  */
+  abbr[title] {
+    text-decoration: underline dotted;
+    cursor: help;
+  }
+
+  /*
+  ==============================
+  Keyboard Input
+  ==============================
+  */
+  kbd {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.875em;
+    padding: 0.125em 0.375em;
+    background-color: var(--color-clr-light);
+    border: 1px solid var(--color-clr-border);
+    border-radius: 0.25em;
+
+    .dark & {
+      background-color: var(--color-clr-darkmode-light);
+      border-color: var(--color-clr-darkmode-border);
+    }
+  }
+
+  /*
+  ==============================
+  Superscript & Subscript
+  ==============================
+  */
+  sup,
+  sub {
+    font-size: 0.75em;
+    line-height: 0;
+    position: relative;
+    vertical-align: baseline;
+  }
+
+  sup {
+    top: -0.5em;
+  }
+
+  sub {
+    bottom: -0.25em;
+  }
+
+  /*
+  ==============================
+  Mark (Highlighted Text)
+  ==============================
+  */
+  mark {
+    background-color: rgba(0, 204, 158, 0.2);
+    padding: 0.1em 0.2em;
+    border-radius: 0.125em;
+
+    .dark & {
+      background-color: rgba(0, 204, 158, 0.3);
+    }
+  }
+}

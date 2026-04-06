@@ -7,18 +7,18 @@
 {{ if and $navData $book }}
   {{ range $navData.books }}
     {{ if eq .slug $book }}
-      <div class="sidebar-section">
-        <h2>
+      <div>
+        <div class="docs-sidebar-title">
           {{ with $bookPage }}
           <a href="{{ .RelPermalink }}">{{ .Title }}</a>
           {{ else }}
           {{ .title }}
           {{ end }}
-        </h2>
+        </div>
         {{ range .sections }}
-        <section class="sidebar-section">
+        <section class="docs-nav-group">
           <strong>{{ .title }}</strong>
-          <ul>
+          <ul class="docs-nav-list">
             {{ range .doc_ids }}
               {{ $docId := . }}
               {{ $matches := where $bookPages "Params.doc_id" $docId }}
@@ -26,9 +26,9 @@
               {{ $target := index $matches 0 }}
               <li>
                 {{ if eq $target.RelPermalink $.RelPermalink }}
-                <strong>{{ $target.Title }}</strong>
+                <span class="docs-sidebar-link docs-sidebar-link-current">{{ $target.Title }}</span>
                 {{ else }}
-                <a href="{{ $target.RelPermalink }}">{{ $target.Title }}</a>
+                <a class="docs-sidebar-link" href="{{ $target.RelPermalink }}">{{ $target.Title }}</a>
                 {{ end }}
               </li>
               {{ end }}

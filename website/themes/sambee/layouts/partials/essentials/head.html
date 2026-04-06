@@ -1,0 +1,17 @@
+{{ $pageTitle := site.Title }}
+{{ if and .Title (ne .Title site.Title) }}
+  {{ $pageTitle = printf "%s | %s" .Title site.Title }}
+{{ end }}
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ $pageTitle }}</title>
+<meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}" />
+{{ with .Permalink }}
+<link rel="canonical" href="{{ . }}" />
+{{ end }}
+<meta property="og:title" content="{{ $pageTitle }}" />
+<meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}" />
+<meta property="og:type" content="website" />
+{{ with .Permalink }}
+<meta property="og:url" content="{{ . }}" />
+{{ end }}

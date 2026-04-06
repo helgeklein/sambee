@@ -3,51 +3,65 @@
 {{ $navData := index hugo.Data.docs_nav $currentVersion }}
 
 {{ if and (not .Params.product_version) (not .Params.book) }}
-<article class="panel">
-  <h1>{{ .Title }}</h1>
-  <div class="content" data-pagefind-body>{{ .Content }}</div>
+<section class="docs-overview">
+  <div class="docs-header">
+    <span class="eyebrow">Documentation</span>
+    <h1>{{ .Title }}</h1>
+    <div class="content lede" data-pagefind-body>{{ .Content }}</div>
+  </div>
   {{ with $navData }}
   <div class="book-grid">
     {{ range .books }}
-    <section class="panel">
+    <article class="docs-card">
+      <span class="docs-card-kicker">Version {{ $currentVersion }}</span>
       <h2><a href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">{{ .title }}</a></h2>
-      <p class="muted">Current version: {{ $currentVersion }}</p>
-    </section>
+      <p>{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+    </article>
     {{ end }}
   </div>
   {{ end }}
-</article>
+</section>
 {{ else if and .Params.product_version (not .Params.book) }}
-<article class="panel">
-  <h1>{{ .Title }}</h1>
-  <div class="content" data-pagefind-body>{{ .Content }}</div>
+<section class="docs-overview">
+  <div class="docs-header">
+    <span class="eyebrow">Version {{ .Params.product_version }}</span>
+    <h1>{{ .Title }}</h1>
+    <div class="content lede" data-pagefind-body>{{ .Content }}</div>
+  </div>
   {{ $versionNav := index hugo.Data.docs_nav .Params.product_version }}
   {{ with $versionNav }}
   <div class="book-grid">
     {{ range .books }}
-    <section class="panel">
+    <article class="docs-card">
+      <span class="docs-card-kicker">Book</span>
       <h2><a href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">{{ .title }}</a></h2>
-      <p class="muted">Book for Sambee {{ $.Params.product_version }}</p>
-    </section>
+      <p>Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+    </article>
     {{ end }}
   </div>
   {{ end }}
-</article>
+</section>
 {{ else if and .Params.product_version .Params.book }}
-<div class="docs-layout">
-  <aside class="panel">
+<section class="docs-shell">
+  <aside class="docs-sidebar">
     {{ partial "docs/sidebar.html" . }}
   </aside>
-  <article class="panel">
+  <article class="docs-content">
     {{ partial "docs/version-switcher.html" . }}
+    <div class="docs-meta">
+      <span class="docs-meta-chip">Version {{ .Params.product_version }}</span>
+      <span class="docs-meta-chip">{{ .Params.book }}</span>
+    </div>
     <h1>{{ .Title }}</h1>
     <div class="content" data-pagefind-body>{{ .Content }}</div>
   </article>
-</div>
+</section>
 {{ else }}
-<article class="panel">
-  <h1>{{ .Title }}</h1>
-  <div class="content" data-pagefind-body>{{ .Content }}</div>
-</article>
+<section class="shell-section">
+  <article class="docs-content">
+    <h1>{{ .Title }}</h1>
+    <div class="content" data-pagefind-body>{{ .Content }}</div>
+  </article>
+</section>
 {{ end }}
 {{ end }}

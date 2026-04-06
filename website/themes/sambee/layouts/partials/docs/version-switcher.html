@@ -2,19 +2,19 @@
 {{ $book := .Params.book }}
 {{ $docId := .Params.doc_id }}
 <div class="version-switcher">
-  <strong>Version:</strong>
+  <span class="version-switcher-label">Version</span>
   {{ range $version := hugo.Data.docs_versions.versions }}
     {{ if eq $version.slug $currentVersion }}
-      <span>{{ $version.label }}</span>
+      <span class="version-chip version-chip-current">{{ $version.label }}</span>
     {{ else }}
       {{ $targetPages := where (where site.RegularPages "Params.product_version" $version.slug) "Params.book" $book }}
       {{ $targetMatches := where $targetPages "Params.doc_id" $docId }}
       {{ if gt (len $targetMatches) 0 }}
       {{ $target := index $targetMatches 0 }}
-      <a href="{{ $target.RelPermalink }}">{{ $version.label }}</a>
+      <a class="version-chip" href="{{ $target.RelPermalink }}">{{ $version.label }}</a>
       {{ else }}
         {{ with site.GetPage (printf "/docs/%s/%s" $version.slug $book) }}
-        <a href="{{ .RelPermalink }}">{{ $version.label }}</a>
+        <a class="version-chip" href="{{ .RelPermalink }}">{{ $version.label }}</a>
         {{ end }}
       {{ end }}
     {{ end }}

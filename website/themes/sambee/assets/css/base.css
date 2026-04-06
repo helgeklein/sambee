@@ -1,0 +1,217 @@
+/*
+==============================
+Variables
+==============================
+*/
+:root {
+   /* Header height fallback - updated dynamically via JavaScript */
+   --header-height: 87px;
+   /* Space between header and content; defined in baseof.html */
+   --header-bottom-margin: 40px;
+   /* TOC position top (updates when JS sets the header height): header height + header bottom margin */
+   --toc-position-top: calc(var(--header-height) + var(--header-bottom-margin));
+   /* Container width: 815px content + 32px gap + 260px TOC + 24px container padding = 1131px */
+   --article-container-width: 1131px;
+   --article-content-width: 815px;
+   --article-toc-width: 260px;
+   /* Code font size - shared between inline code and code blocks */
+   --code-font-size: 0.875em;
+   /* Block element bottom margin - paragraphs, lists, blockquotes, tables, figures, pre */
+   --content-block-margin: 1em;
+}
+
+/*
+==============================
+HTML & Body
+==============================
+*/
+/*
+   Smooth scrolling when clicking TOC links.
+   Initially disabled (via html:not(.scroll-smooth)) to allow browser scroll restoration on refresh.
+   JavaScript adds .scroll-smooth class after page load to enable smooth scrolling.
+*/
+html {
+   scroll-padding-top: var(--header-height);
+}
+
+html.scroll-smooth {
+   scroll-behavior: smooth;
+}
+
+/* Body */
+body {
+  /* Flex column layout:
+     - Makes main content expand to fill available space
+     - Pushes footer to bottom if content is short */
+  @apply flex flex-col min-h-screen;
+
+  /* Background color */
+  @apply bg-clr-body dark:bg-clr-darkmode-body;
+
+  /* Text color */
+  @apply text-clr-text dark:text-clr-darkmode-text;
+
+  /* Text size, line height & font family and font weight */
+  @apply text-size-base font-primary font-normal leading-normal;
+}
+
+/*
+==============================
+Headings
+==============================
+*/
+/* Headings: common style */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  @apply font-bold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+/* Headings fonts: H1 */
+h1 {
+  @apply font-secondary;
+}
+
+/* Headings fonts: H2-H6 */
+h2,
+h3,
+h4,
+h5,
+h6 {
+  @apply font-tertiary;
+}
+
+/* Headings fonts: H5 */
+h5 {
+  @apply font-primary;
+}
+
+/* Headings colors: H3 */
+h3, h5 {
+  @apply text-clr-primary;
+
+  .dark & {
+  @apply text-clr-darkmode-primary;
+  }
+}
+
+/* Heading font sizes and line heights */
+/* Note:
+    - The base size for rem calculations comes from the HTML element (browser default typically 16px)
+    - Format: text-size-[size]/[line-height]
+*/
+h1,
+.h1 {
+  @apply text-size-h1-sm/[1.25] md:text-size-h1/[1.25];
+}
+h2,
+.h2 {
+  @apply text-size-h2/[1.15];
+}
+h3,
+.h3 {
+  @apply text-size-h3/[1.2];
+}
+h4,
+.h4 {
+  @apply text-size-h4/[1.2];
+}
+h5,
+.h5 {
+  @apply text-size-h5/[1.2];
+}
+h6,
+.h6 {
+  @apply text-size-h6/[1.2];
+}
+
+/* Heading top & bottom margins */
+h1 {
+  @apply mb-[.3em];
+}
+h2, h3, h4, h5, h6 {
+  @apply mb-[.3em] mt-[.6em];
+}
+
+/*
+==============================
+Links
+==============================
+*/
+a, .a {
+  color: var(--color-clr-secondary);
+  text-decoration: none;
+  transition: all 0.2s ease;
+
+  .dark & {
+    color: var(--color-clr-darkmode-secondary);
+  }
+}
+
+/*
+==============================
+Lists
+==============================
+*/
+/* Top-level lists */
+ul, ol {
+  /* Top & bottom margin */
+  margin: 0.75rem 0;
+}
+
+/* Nested lists */
+ul ul,
+ol ol,
+ul ol,
+ol ul {
+  /* Top & bottom margin: same as list item margin */
+  margin: 0;
+  /* Align level n+1 bullet with level n text */
+  padding-inline-start: 1em;
+}
+
+/* List items */
+ul li, ol li {
+  line-height: var(--tw-leading, var(--text-base--line-height));
+  margin: 0.2rem 0;
+}
+
+/*
+==============================
+Text
+==============================
+*/
+b,
+strong {
+  @apply font-bold;
+}
+
+/*
+==============================
+Borders used as horizontal separators
+==============================
+*/
+.hr-border-bottom {
+   @apply border-b-[3px] border-solid border-clr-light dark:border-clr-darkmode-border;
+}
+
+/*
+==============================
+Spaced list
+
+A horizontal list of links with consistent spacing.
+Supports wrapping on smaller screens.
+
+Usage:
+<div class="spaced-list">
+   <a href="...">Link 1</a>
+   <a href="...">Link 2</a>
+</div>
+==============================
+*/
+.spaced-list {
+   @apply flex flex-wrap items-center gap-5;
+}

@@ -1,8 +1,54 @@
 {{ define "main" }}
-<article class="panel">
-  <h1>{{ .Title }}</h1>
-  <div class="content">
-    {{ .Content }}
+{{ $currentVersion := hugo.Data.docs_versions.current }}
+{{ $navData := index hugo.Data.docs_nav $currentVersion }}
+<section class="shell-section hero">
+  <div class="hero-copy">
+    <span class="eyebrow">Sambee</span>
+    <h1>{{ .Title }}</h1>
+    <div class="content lede" data-pagefind-body>
+      {{ .Content }}
+    </div>
+    <div class="button-row">
+      <a class="btn btn-bg-secondary" href="/docs/">Browse documentation</a>
+      <a class="btn btn-outline-secondary" href="{{ printf "/docs/%s/" $currentVersion }}">Current version {{ $currentVersion }}</a>
+    </div>
   </div>
-</article>
+  <aside class="hero-card">
+    <span class="eyebrow">Current Release</span>
+    <h2>Documentation {{ $currentVersion }}</h2>
+    <p>The initial public site is version-first and search-ready, with a shared layout across all documentation books.</p>
+    <div class="hero-stats">
+      <div class="stat-card">
+        <strong>{{ with $navData }}{{ len .books }}{{ else }}0{{ end }}</strong>
+        <span>books</span>
+      </div>
+      <div class="stat-card">
+        <strong>Pagefind</strong>
+        <span>search</span>
+      </div>
+      <div class="stat-card">
+        <strong>Hugo</strong>
+        <span>0.160.0</span>
+      </div>
+    </div>
+  </aside>
+</section>
+
+{{ with $navData }}
+<section class="shell-section">
+  <div class="docs-header">
+    <span class="eyebrow">Documentation Books</span>
+    <h2>Start in the book that matches your task</h2>
+  </div>
+  <div class="book-grid">
+    {{ range .books }}
+    <article class="docs-card">
+      <span class="docs-card-kicker">{{ $currentVersion }}</span>
+      <h3><a href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">{{ .title }}</a></h3>
+      <p>{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} in the first release.</p>
+    </article>
+    {{ end }}
+  </div>
+</section>
+{{ end }}
 {{ end }}
