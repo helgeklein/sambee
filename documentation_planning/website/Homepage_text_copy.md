@@ -24,11 +24,11 @@ See Features
 
 ### Secondary CTA
 
-Deployment Guide
+Admin Docs
 
 ### Tertiary CTA
 
-Read Documentation
+Read Docs
 
 ## Problem / Value
 
@@ -132,7 +132,7 @@ The goal is to make the storage you already trust easier to access from the brow
 
 ### Supporting CTA
 
-Deployment Guide
+Admin Docs
 
 ## Proof / Trust
 
@@ -159,8 +159,8 @@ See Features
 
 ### Secondary CTAs
 
-- Deployment Guide
-- Read Documentation
+- Admin Docs
+- Read Docs
 
 ## Short Copy Variants
 

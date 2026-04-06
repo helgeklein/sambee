@@ -54,7 +54,7 @@ Key differentiators:
 - Be specific about supported use cases and tasks
 - Avoid generic phrases like "modern UI" or "great UX"
 - Avoid absolute claims
-- Keep technical details for lower sections or linked docs
+- Keep technical details for lower sections or linked docs areas
 - Companion: clearly explain what it unlocks. Where there is room, mention that it is optional.
 - Use the cloud comparison carefully: position Sambee as a better fit for some environments, not as a universal replacement for all cloud tools
 
@@ -250,11 +250,11 @@ Primary CTA label:
 
 Secondary CTA label:
 
-- Deployment Guide
+- Admin Docs
 
 Tertiary CTA label:
 
-- Read Documentation
+- Read Docs
 
 ### 2. Problem / Value Section
 
@@ -365,7 +365,7 @@ Must answer:
 Key points:
 
 - It is a small optional desktop app
-- It is required for local drives access
+- It is required for local drive access
 - It enables editing in natively installed desktop apps
 - It handles the upload-back workflow after editing
 - It extends Sambee to the local desktop without browser extensions
@@ -400,6 +400,7 @@ Message angle:
 - Keep deployment practical and trustworthy, not flashy
 - Emphasize that Sambee is designed to fit into existing infrastructure
 - Reinforce that self-hosting is a first-class part of the product story, not an afterthought
+- Send users to the future admin docs area, not to legacy development markdown files
 
 ### 8. Proof / Trust Section
 
@@ -421,8 +422,8 @@ Primary recommendation:
 
 Secondary options:
 
-- Deployment Guide
-- Read Documentation
+- Admin Docs
+- Read Docs
 
 Editorial note:
 
@@ -435,6 +436,7 @@ Editorial note:
 - Deep image-conversion pipeline details
 - Exhaustive supported-format tables
 - Setup steps that belong in docs
+- Direct links to development-era markdown files
 - Claims about speed or UX without concrete support nearby
 
 ## Assets To Prepare Later
