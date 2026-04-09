@@ -37,6 +37,27 @@ These are no longer open questions.
   - `admin`
   - `developer`
 
+## Current Implementation Status
+
+Status legend used below:
+
+- `implemented`: present in `website/` today
+- `partial`: started and usable, but not fully aligned with the target plan yet
+- `not started`: still planned work
+
+Current snapshot as of 2026-04-09:
+
+- `implemented`: clean `website/` Hugo site scaffold exists
+- `implemented`: active theme is `sambee`
+- `implemented`: initial versioned docs tree exists under `content/docs/1.0/`
+- `implemented`: `data/docs-versions.toml` and `data/docs-nav/1.0.toml` exist
+- `implemented`: docs sidebar, version switcher, and unversioned book redirects exist
+- `implemented`: build scripts include Pagefind
+- `implemented`: comments and PWA wiring are absent from the active site
+- `partial`: donor theme extraction is in place, but final cleanup is not complete yet
+- `partial`: docs behavior is present, but breadcrumbs, version-status banners, and stronger search/version integrity behavior are still missing
+- `partial`: placeholder homepage and docs content exist, but the migration is not content-complete or hardened
+
 ## Donor Site Assessment
 
 `website-temp` is a complete production Hugo website, not a reusable theme package.
@@ -280,28 +301,28 @@ Search must:
 
 ### Copy Early
 
-- `website-temp/themes/helgeklein/assets/**` -> `website/themes/sambee/assets/**`
-- `website-temp/themes/helgeklein/i18n/**` -> `website/themes/sambee/i18n/**`
-- `website-temp/themes/helgeklein/layouts/**` -> `website/themes/sambee/layouts/**`
-- `website-temp/data/theme.json` -> `website/data/theme.json`
-- `website-temp/scripts/themeGenerator.js` -> `website/scripts/themeGenerator.js`
-- Pagefind-related UI assets that are actually used after cleanup
+- `implemented`: `website-temp/themes/helgeklein/assets/**` -> `website/themes/sambee/assets/**`
+- `implemented`: `website-temp/themes/helgeklein/i18n/**` -> `website/themes/sambee/i18n/**`
+- `implemented`: `website-temp/themes/helgeklein/layouts/**` -> `website/themes/sambee/layouts/**`
+- `implemented`: `website-temp/data/theme.json` -> `website/data/theme.json`
+- `implemented`: `website-temp/scripts/themeGenerator.js` -> `website/scripts/themeGenerator.js`
+- `implemented`: Pagefind-related UI assets are wired into the current site build
 
 ### Recreate Manually
 
-- `website/hugo.toml`
-- `website/config/_default/params.toml`
-- `website/config/_default/menus.en.toml`
-- `website/config/_default/module.toml`
-- `website/data/docs-versions.toml`
-- `website/data/docs-nav/<version>.toml`
-- `website/content/**`
+- `implemented`: `website/hugo.toml`
+- `implemented`: `website/config/_default/params.toml`
+- `implemented`: `website/config/_default/menus.en.toml`
+- `implemented`: `website/config/_default/module.toml`
+- `implemented`: `website/data/docs-versions.toml`
+- `implemented`: `website/data/docs-nav/1.0.toml`
+- `partial`: `website/content/**` exists for the homepage and initial `1.0` docs tree, but content migration is still incomplete
 
 ### Defer Until Needed
 
-- `.htmltest.yml`
-- `tests/test_menu_urls.py`
-- optional Hugo modules such as `videos`, `site-verifications`, and `button`
+- `not started`: `.htmltest.yml`
+- `not started`: `tests/test_menu_urls.py`
+- `not started`: optional Hugo modules such as `videos`, `site-verifications`, and `button`
 
 ### Do Not Carry Over
 
@@ -317,6 +338,8 @@ Search must:
 
 ### Phase 1: Scaffold A Clean Site
 
+Status: `implemented`
+
 Create `website/` and add:
 
 - `hugo.toml` with `baseURL = "https://sambee.net/"`, `theme = "sambee"`, and only the needed outputs
@@ -331,6 +354,8 @@ Exit condition:
 - Hugo builds a placeholder Sambee site without using `website-temp` content.
 
 ### Phase 2: Extract And Clean The Theme
+
+Status: `partial`
 
 Create `themes/sambee/` and copy the donor theme source.
 
@@ -354,7 +379,20 @@ Exit condition:
 
 - The theme renders a generic Sambee page shell with no blog dependency.
 
+What is already true:
+
+- `themes/sambee/` exists and is the active theme
+- Sambee-specific home and docs layouts are in place
+- comments and PWA wiring are absent from the active site
+
+What still appears to remain:
+
+- final donor cleanup is incomplete
+- some non-doc routes from generic Hugo defaults still build, so the site is not fully reduced to the intended product/docs surface yet
+
 ### Phase 3: Rebuild The Asset And Search Pipeline
+
+Status: `implemented`
 
 Set up only the dependencies still needed for Sambee:
 
@@ -382,6 +420,8 @@ Exit condition:
 
 ### Phase 4: Implement Versioned Docs Behavior
 
+Status: `partial`
+
 Implement docs-specific templates and data-driven behavior for:
 
 - version switcher
@@ -398,11 +438,28 @@ Implementation rules:
 - keep one shared docs template for all books initially
 - render sidebar order from `data/docs-nav/<version>.toml`
 
+Already implemented:
+
+- version switcher
+- docs side navigation driven by `data/docs-nav/1.0.toml`
+- `doc_id` based page matching across versions
+- hard redirects for unversioned docs book entry points
+- shared docs templates for book landing pages and docs pages
+
+Still missing from this phase:
+
+- breadcrumbs
+- version status banners
+- broader multi-version behavior beyond the initial `1.0` set
+- explicit confirmation that search defaults to the current docs version context
+
 Exit condition:
 
 - users can move between supported versions predictably and understand which version they are viewing.
 
 ### Phase 5: Migrate Content And Harden The Site
+
+Status: `partial`
 
 Migrate homepage and documentation material from the planning docs and existing internal docs.
 
@@ -426,6 +483,12 @@ Required automated checks:
 Exit condition:
 
 - the site is content-complete enough to replace the donor implementation path.
+
+Current note:
+
+- placeholder homepage and placeholder docs pages exist
+- hardening and validation work have not started yet
+- deployment automation for `sambee.net` is not implemented yet
 
 ## Main Risks
 
@@ -492,26 +555,25 @@ Mitigation:
 
 The migration is structurally complete when all of the following are true:
 
-1. `website-temp` is no longer part of the active implementation path.
-2. `website/` builds without donor content.
-3. The active theme is `sambee`.
-4. No Helge Klein branding, IDs, or donor-specific configuration remain in active site files.
-5. Canonical docs URLs are versioned and use plain version slugs such as `1.0` and `1.1`.
-6. Docs content lives under `docs/<version>/end-user`, `docs/<version>/admin`, and `docs/<version>/developer`.
-7. Pagefind works and search results are version-aware.
-8. Comments and PWA functionality are absent.
-9. Version switching, docs book entry points, and docs navigation all resolve predictably.
-10. Docs sidebar order is fully determined by explicit navigation data, not inferred ordering.
+1. `implemented`: `website-temp` is no longer part of the active implementation path.
+2. `implemented`: `website/` builds without donor content.
+3. `implemented`: the active theme is `sambee`.
+4. `partial`: Helge Klein branding is no longer visible in the active site, but donor cleanup should still be treated as incomplete until the remaining generic/blog residue is removed.
+5. `implemented`: canonical docs URLs are versioned and use plain version slugs such as `1.0`.
+6. `implemented`: docs content lives under `docs/<version>/end-user`, `docs/<version>/admin`, and `docs/<version>/developer`.
+7. `partial`: Pagefind is wired into the build, but version-aware search behavior should still be verified against the final multi-version implementation.
+8. `implemented`: comments and PWA functionality are absent.
+9. `implemented` for the current scaffold: version switching, docs book entry points, and docs navigation resolve predictably for `1.0`.
+10. `implemented`: docs sidebar order is determined by explicit navigation data, not inferred ordering.
 
 ## Immediate Next Step
 
-Scaffold `website/` with:
+Finish the first incomplete layer rather than re-scaffolding the site:
 
-- the Hugo root files
-- `themes/sambee/`
-- one initial versioned docs tree
-- `data/docs-versions.toml`
-- `data/docs-nav/1.0.toml`
-- placeholder docs templates for navigation, version switching, and Pagefind-aware search
+- complete donor/theme cleanup so only the intended Sambee surface remains
+- add the missing docs UX pieces: breadcrumbs and version-status banners
+- verify and tighten search behavior for version scoping
+- migrate real homepage and documentation content
+- add validation and integrity checks before deployment work begins
 
-That creates the minimum viable implementation foundation without dragging donor complexity into the new site.
+The minimum viable scaffold already exists. The next useful work is to turn that scaffold into a complete and hardened Sambee site.
