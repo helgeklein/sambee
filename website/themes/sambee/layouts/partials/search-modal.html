@@ -1,0 +1,348 @@
+{{- /*
+  Search Modal with Pagefinö Backend
+
+  Uses the theme's custom UI with Pagefind's search API.
+  - Lazy-loads Pagefind JS only when modal opens
+  - Full control over result rendering
+  - Keyboard navigation: arrows to navigate, Enter to select, ESC to close
+
+  Requires: Run `npx pagefind --site public` after Hugo build
+*/ -}}
+
+{{ with site.Params.search }}
+{{ if .enable }}
+<div id="search-modal" class="search-modal" aria-hidden="true">
+  <div class="search-modal-overlay" data-close-search></div>
+  <div class="search-wrapper">
+    <div class="search-wrapper-header">
+      <label for="search-input">
+        <span class="sr-only">Search</span>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor" width="18" height="18" class="search-icon" aria-hidden="true"><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352a144 144 0 1 0 0-288 144 144 0 1 0 0 288z"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor" width="18" height="18" class="search-reset hidden" data-search-reset aria-hidden="true">
+          <path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM175 175c9.4-9.4 24.6-9.4 33.9 0l47 47 47-47c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9l-47 47 47 47c9.4 9.4 9.4 24.6 0 33.9s-24.6 9.4-33.9 0l-47-47-47 47c-9.4 9.4-24.6 9.4-33.9 0s-9.4-24.6 0-33.9l47-47-47-47c-9.4-9.4-9.4-24.6 0-33.9z"/>
+        </svg>
+      </label>
+      <input
+        id="search-input"
+        type="text"
+        autocomplete="off"
+        aria-label="Search"
+        placeholder="{{ T "search_placeholder" }}"
+      />
+    </div>
+    <div class="search-wrapper-body">
+      <div class="search-results"></div>
+      <div class="search-empty">
+        <p>{{ T "search_initial" }}</p>
+      </div>
+    </div>
+    <div class="search-wrapper-footer">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> select</span>
+      <span class="search-info"></span>
+      <span data-close-search><kbd>esc</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const modal = document.getElementById('search-modal');
+  if (!modal) return;
+
+  const input = document.getElementById('search-input');
+  const resultsContainer = modal.querySelector('.search-results');
+  const emptyState = modal.querySelector('.search-empty');
+  const searchInfo = modal.querySelector('.search-info');
+  const searchIcon = modal.querySelector('label .search-icon');
+  const resetIcon = modal.querySelector('[data-search-reset]');
+  const openButtons = document.querySelectorAll('[data-target="search-modal"]');
+  const closeButtons = modal.querySelectorAll('[data-close-search]');
+
+  let pagefind = null;
+  let selectedIndex = -1;
+  let debounceTimer = null;
+  let currentSearchResults = null;
+  let loadedResultsCount = 0;
+  let isLoadingMore = false;
+  const RESULTS_PER_PAGE = 20;
+
+  // Load Pagefind only when modal opens
+  async function loadPagefind() {
+    if (pagefind) return pagefind;
+    try {
+      pagefind = await import('/pagefind/pagefind.js');
+      await pagefind.init();
+      return pagefind;
+    } catch (e) {
+      emptyState.innerHTML = '<p style="color: #666;">Search index not found.<br><small>Run <code>npm run dev:search</code> to build it.</small></p>';
+      return null;
+    }
+  }
+
+  // Perform search
+  async function doSearch(query) {
+    if (!query.trim()) {
+      resultsContainer.innerHTML = '';
+      emptyState.classList.remove('hidden');
+      emptyState.innerHTML = '<p>Start typing to search...</p>';
+      searchInfo.textContent = '';
+      searchIcon?.classList.remove('hidden');
+      resetIcon?.classList.add('hidden');
+      selectedIndex = -1;
+      return;
+    }
+
+    searchIcon?.classList.add('hidden');
+    resetIcon?.classList.remove('hidden');
+
+    const pf = await loadPagefind();
+    if (!pf) return;
+
+    const startTime = performance.now();
+    const search = await pf.search(query);
+
+    if (search.results.length === 0) {
+      resultsContainer.innerHTML = '';
+      emptyState.classList.remove('hidden');
+      emptyState.innerHTML = `<p>No results for "<strong>${escapeHtml(query)}</strong>"</p>`;
+      searchInfo.textContent = '';
+      selectedIndex = -1;
+      currentSearchResults = null;
+      loadedResultsCount = 0;
+      return;
+    }
+
+    // Store results for "load more"
+    currentSearchResults = search.results;
+    loadedResultsCount = 0;
+
+    // Load first batch
+    await loadMoreResults(true);
+    updateSearchInfo();
+  }
+
+  // Update search info with current position
+  function updateSearchInfo() {
+    if (!currentSearchResults || currentSearchResults.length === 0) {
+      searchInfo.textContent = '';
+      return;
+    }
+    searchInfo.innerHTML = `<em>${selectedIndex + 1}</em> of <em>${currentSearchResults.length}</em>`;
+  }
+
+  // Load more results
+  async function loadMoreResults(isFirstBatch = false) {
+    if (!currentSearchResults) return;
+    if (isLoadingMore && !isFirstBatch) return; // Prevent duplicate loads
+
+    const startIdx = loadedResultsCount;
+    const endIdx = Math.min(startIdx + RESULTS_PER_PAGE, currentSearchResults.length);
+
+    if (startIdx >= currentSearchResults.length) return;
+
+    isLoadingMore = true;
+
+    const newResults = await Promise.all(
+      currentSearchResults.slice(startIdx, endIdx).map(r => r.data())
+    );
+
+    loadedResultsCount = endIdx;
+    isLoadingMore = false;
+    emptyState.classList.add('hidden');
+
+    const showImages = {{ .show_image | default true }};
+
+    const html = newResults.map((result, i) => {
+      const actualIndex = startIdx + i;
+      const hasImage = showImages && result.meta?.image && result.meta.image.trim() !== '';
+      return `
+        <a href="${result.url}" class="search-result-item${actualIndex === 0 ? ' selected' : ''}">
+          ${hasImage ? `
+            <div class="search-result-image">
+              <img src="${result.meta.image}" alt="" loading="lazy" />
+            </div>
+          ` : ''}
+          <div class="search-result-body">
+            <div class="search-result-title">${result.meta?.title || result.url}</div>
+            <div class="search-result-excerpt">${result.excerpt}</div>
+          </div>
+        </a>
+      `;
+    }).join('');
+
+    if (isFirstBatch) {
+      resultsContainer.innerHTML = html;
+      selectedIndex = 0;
+    } else {
+      resultsContainer.insertAdjacentHTML('beforeend', html);
+    }
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Check if we should load more results (called from scroll or keyboard)
+  function checkLoadMore() {
+    if (!currentSearchResults || loadedResultsCount >= currentSearchResults.length) return;
+    if (isLoadingMore) return;
+    loadMoreResults();
+  }
+
+  // Keyboard navigation (no wrap-around, auto-load more)
+  function navigateResults(direction, amount = 1) {
+    const items = resultsContainer.querySelectorAll('.search-result-item');
+    if (items.length === 0) return;
+
+    items[selectedIndex]?.classList.remove('selected');
+
+    if (direction === 'down') {
+      selectedIndex = Math.min(selectedIndex + amount, items.length - 1);
+      // At last item - try to load more
+      if (selectedIndex >= items.length - 1) {
+        checkLoadMore();
+      }
+    } else if (direction === 'up') {
+      selectedIndex = Math.max(selectedIndex - amount, 0);
+    } else if (direction === 'home') {
+      selectedIndex = 0;
+    } else if (direction === 'end') {
+      selectedIndex = items.length - 1;
+      // At last item - try to load more
+      checkLoadMore();
+    }
+
+    items[selectedIndex]?.classList.add('selected');
+    items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
+    updateSearchInfo();
+  }
+
+  function selectResult() {
+    const items = resultsContainer.querySelectorAll('.search-result-item');
+    if (items[selectedIndex]) {
+      window.location.href = items[selectedIndex].href;
+    }
+  }
+
+  // Scroll-based infinite loading
+  function setupScrollObserver() {
+    const resultsBody = modal.querySelector('.search-wrapper-body');
+    if (!resultsBody) return;
+
+    resultsBody.addEventListener('scroll', () => {
+      // Check if scrolled near bottom
+      const { scrollTop, scrollHeight, clientHeight } = resultsBody;
+      if (scrollHeight - scrollTop - clientHeight < 100) {
+        checkLoadMore();
+      }
+    });
+  }
+  setupScrollObserver();
+
+  // Modal controls
+  function openModal() {
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    loadPagefind();
+    setTimeout(() => input.focus(), 50);
+  }
+
+  function closeModal() {
+    modal.classList.remove('show');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+    input.value = '';
+    resultsContainer.innerHTML = '';
+    emptyState.classList.remove('hidden');
+    emptyState.innerHTML = '<p>Start typing to search...</p>';
+    searchInfo.textContent = '';
+    searchIcon?.classList.remove('hidden');
+    resetIcon?.classList.add('hidden');
+    selectedIndex = -1;
+    currentSearchResults = null;
+    loadedResultsCount = 0;
+    isLoadingMore = false;
+  }
+
+  // Event listeners
+  openButtons.forEach(btn => btn.addEventListener('click', openModal));
+  closeButtons.forEach(btn => btn.addEventListener('click', closeModal));
+  modal.querySelector('.search-modal-overlay')?.addEventListener('click', closeModal);
+
+  input.addEventListener('input', (e) => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => doSearch(e.target.value), 150);
+  });
+
+  resetIcon?.addEventListener('click', () => {
+    input.value = '';
+    doSearch('');
+    input.focus();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    // Ctrl/Cmd + K to toggle
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+      e.preventDefault();
+      modal.classList.contains('show') ? closeModal() : openModal();
+    }
+    // ESC to close
+    if (e.key === 'Escape' && modal.classList.contains('show')) {
+      e.preventDefault();
+      closeModal();
+    }
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      navigateResults('down');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      navigateResults('up');
+    } else if (e.key === 'PageDown') {
+      e.preventDefault();
+      navigateResults('down', 5);
+    } else if (e.key === 'PageUp') {
+      e.preventDefault();
+      navigateResults('up', 5);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      navigateResults('home');
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      navigateResults('end');
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      selectResult();
+    }
+  });
+
+  // Click on result
+  resultsContainer.addEventListener('click', (e) => {
+    const item = e.target.closest('.search-result-item');
+    if (item) {
+      // Let the link navigate naturally
+    }
+  });
+
+  // Hover to select
+  resultsContainer.addEventListener('mouseover', (e) => {
+    const item = e.target.closest('.search-result-item');
+    if (item) {
+      const items = resultsContainer.querySelectorAll('.search-result-item');
+      items.forEach((el, i) => {
+        el.classList.toggle('selected', el === item);
+        if (el === item) selectedIndex = i;
+      });
+      updateSearchInfo();
+    }
+  });
+})();
+</script>
+{{ end }}
+{{ end }}

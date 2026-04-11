@@ -1,0 +1,102 @@
+/* Code Blocks and Inline Code Styling */
+
+/* Light mode code blocks */
+html:not(.dark) .content pre,
+html:not(.dark) .content .highlight {
+   background-color: var(--color-clr-code-block-background);
+   color: var(--color-clr-text-dark);
+}
+
+html:not(.dark) .content pre code {
+   color: inherit;
+}
+
+/* Dark mode code blocks */
+html.dark .content pre,
+html.dark .content .highlight {
+   background-color: var(--color-clr-darkmode-code-block-background);
+}
+
+/* Inline code styling - matching code block backgrounds and colors */
+.content code:not(pre code) {
+   background-color: var(--color-clr-code-inline-background);
+   color: var(--color-clr-text-dark);
+   font-size: var(--code-font-size);
+   font-weight: normal;
+   padding: 0.125rem 0.375rem;
+}
+
+html.dark .content code:not(pre code) {
+   background-color: var(--color-clr-darkmode-code-inline-background);
+   color: var(--color-clr-text-light);
+}
+
+/* Code block font size, spacing, and overflow */
+.content pre {
+   font-size: var(--code-font-size);
+   padding: 1em;
+   margin: var(--content-block-margin) 0;
+   overflow-x: auto;
+}
+
+/* Highlight container needs position relative for copy button */
+.content .highlight,
+.content .code-block-wrapper {
+   position: relative;
+}
+
+/* Code copy button */
+.code-copy-btn {
+   position: absolute;
+   top: 0.5rem;
+   right: 0.5rem;
+   padding: 0.375rem;
+   background-color: #e0e0e0;
+   border: none;
+   cursor: pointer;
+   opacity: 0;
+   transition: opacity 0.2s ease, background-color 0.2s ease;
+   color: var(--color-clr-text-dark);
+   display: flex;
+   align-items: center;
+   justify-content: center;
+}
+
+/* Icon visibility - show copy icon by default, check icon when copied */
+.code-copy-btn .icon-check {
+   display: none;
+}
+
+.code-copy-btn.copied .icon-copy {
+   display: none;
+}
+
+.code-copy-btn.copied .icon-check {
+   display: block;
+}
+
+.highlight:hover .code-copy-btn,
+.code-block-wrapper:hover .code-copy-btn {
+   opacity: 1;
+}
+
+.code-copy-btn:hover {
+   background-color: #d0d0d0;
+}
+
+.code-copy-btn.copied {
+   color: var(--color-clr-primary);
+}
+
+html.dark .code-copy-btn {
+   background-color: #4a4a4a;
+   color: var(--color-clr-text-light);
+}
+
+html.dark .code-copy-btn:hover {
+   background-color: #5a5a5a;
+}
+
+html.dark .code-copy-btn.copied {
+   color: var(--color-clr-primary);
+}

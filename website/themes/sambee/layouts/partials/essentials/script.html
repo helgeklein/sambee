@@ -1,0 +1,8 @@
+{{ $scripts := slice }}
+{{ $scripts = $scripts | append (resources.Get "js/navigation.js") }}
+{{ $scripts = $scripts | append (resources.Get "js/main.js") }}
+{{ $scripts = $scripts | resources.Concat "js/script.js" }}
+{{ if hugo.IsProduction }}
+  {{ $scripts = $scripts | minify | fingerprint }}
+{{ end }}
+<script defer src="{{ $scripts.RelPermalink }}" {{ if hugo.IsProduction }}integrity="{{ $scripts.Data.Integrity }}"{{ end }}></script>

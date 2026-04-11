@@ -1,0 +1,198 @@
+.site-main {
+  @apply pb-12;
+}
+
+.shell-section,
+.docs-overview {
+  @apply container;
+}
+
+.hero {
+  @apply grid gap-8 py-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.8fr)] lg:items-end;
+}
+
+.hero-copy,
+.hero-card,
+.docs-card,
+.docs-sidebar,
+.docs-content {
+  @apply rounded-2xl border border-clr-light bg-white/85 shadow-sm;
+
+  .dark & {
+    @apply border-clr-darkmode-border bg-clr-darkmode-light/80;
+  }
+}
+
+.hero-copy,
+.hero-card,
+.docs-card,
+.docs-content {
+  @apply p-6 lg:p-8;
+}
+
+.hero-card {
+  @apply lg:translate-y-6;
+}
+
+.eyebrow,
+.docs-card-kicker {
+  @apply mb-3 inline-flex text-xs font-tertiary uppercase tracking-[0.18em] text-clr-primary;
+
+  .dark & {
+    @apply text-clr-darkmode-primary;
+  }
+}
+
+.lede {
+  @apply max-w-3xl text-lg leading-relaxed;
+}
+
+.button-row {
+  @apply mt-6 flex flex-wrap gap-3;
+}
+
+.hero-stats {
+  @apply mt-6 grid gap-3 sm:grid-cols-3;
+}
+
+.stat-card {
+  @apply rounded-xl border border-clr-light bg-clr-light/70 px-4 py-4 text-center;
+
+  .dark & {
+    @apply border-clr-darkmode-border bg-clr-darkmode-body/60;
+  }
+
+  strong {
+    @apply block font-tertiary text-xl text-clr-text-dark;
+
+    .dark & {
+      @apply text-clr-darkmode-text-dark;
+    }
+  }
+
+  span {
+    @apply text-sm text-clr-text-light;
+
+    .dark & {
+      @apply text-clr-darkmode-text-light;
+    }
+  }
+}
+
+.docs-header {
+  @apply mb-8 max-w-3xl;
+}
+
+.book-grid {
+  @apply grid gap-4 md:grid-cols-2 xl:grid-cols-3;
+}
+
+.docs-card {
+  @apply transition-transform duration-200 hover:-translate-y-1;
+
+  h2, h3 {
+    @apply mb-3;
+  }
+
+  p {
+    @apply my-0 text-clr-text-light;
+
+    .dark & {
+      @apply text-clr-darkmode-text-light;
+    }
+  }
+}
+
+.docs-shell {
+  @apply container grid gap-8 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start;
+}
+
+.docs-sidebar {
+  @apply p-5 lg:sticky;
+  top: calc(var(--header-height) + 1.5rem);
+}
+
+.docs-sidebar-title {
+  @apply mb-4 text-xl font-secondary text-clr-text-dark;
+
+  .dark & {
+    @apply text-clr-darkmode-text-dark;
+  }
+}
+
+.docs-nav-group + .docs-nav-group {
+  @apply mt-6;
+}
+
+.docs-nav-group strong {
+  @apply text-sm font-tertiary uppercase tracking-[0.14em] text-clr-text-light;
+
+  .dark & {
+    @apply text-clr-darkmode-text-light;
+  }
+}
+
+.docs-nav-list {
+  @apply mt-3 list-none p-0;
+}
+
+.docs-nav-list li + li {
+  @apply mt-2;
+}
+
+.docs-sidebar-link {
+  @apply text-sm text-clr-text transition-colors duration-150 hover:text-clr-secondary;
+
+  .dark & {
+    @apply text-clr-darkmode-text hover:text-clr-darkmode-secondary;
+  }
+}
+
+.docs-sidebar-link-current {
+  @apply font-bold text-clr-secondary;
+
+  .dark & {
+    @apply text-clr-darkmode-secondary;
+  }
+}
+
+.docs-meta {
+  @apply mb-5 flex flex-wrap gap-2;
+}
+
+.docs-meta-chip,
+.version-chip {
+  @apply inline-flex items-center rounded-full border border-clr-light px-3 py-1 text-sm;
+
+  .dark & {
+    @apply border-clr-darkmode-border;
+  }
+}
+
+.version-switcher {
+  @apply mb-5 flex flex-wrap items-center gap-2;
+}
+
+.version-switcher-label {
+  @apply mr-1 text-sm font-tertiary uppercase tracking-[0.14em] text-clr-text-light;
+
+  .dark & {
+    @apply text-clr-darkmode-text-light;
+  }
+}
+
+.version-chip {
+  @apply text-clr-text hover:border-clr-secondary hover:text-clr-secondary;
+
+  .dark & {
+    @apply text-clr-darkmode-text hover:border-clr-darkmode-secondary hover:text-clr-darkmode-secondary;
+  }
+}
+
+.version-chip-current {
+  @apply border-clr-secondary bg-clr-secondary/10 font-bold text-clr-secondary;
+
+  .dark & {
+    @apply border-clr-darkmode-secondary bg-clr-darkmode-secondary/15 text-clr-darkmode-secondary;
+  }
+}

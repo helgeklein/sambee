@@ -1,0 +1,42 @@
+{{ $version := .Params.product_version }}
+{{ $book := .Params.book }}
+{{ $navData := index hugo.Data.docs_nav $version }}
+{{ $bookPage := site.GetPage (printf "/docs/%s/%s" $version $book) }}
+{{ $bookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $book }}
+
+{{ if and $navData $book }}
+  {{ range $navData.books }}
+    {{ if eq .slug $book }}
+      <div>
+        <div class="docs-sidebar-title">
+          {{ with $bookPage }}
+          <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+          {{ else }}
+          {{ .title }}
+          {{ end }}
+        </div>
+        {{ range .sections }}
+        <section class="docs-nav-group">
+          <strong>{{ .title }}</strong>
+          <ul class="docs-nav-list">
+            {{ range .doc_ids }}
+              {{ $docId := . }}
+              {{ $matches := where $bookPages "Params.doc_id" $docId }}
+              {{ if gt (len $matches) 0 }}
+              {{ $target := index $matches 0 }}
+              <li>
+                {{ if eq $target.RelPermalink $.RelPermalink }}
+                <span class="docs-sidebar-link docs-sidebar-link-current">{{ $target.Title }}</span>
+                {{ else }}
+                <a class="docs-sidebar-link" href="{{ $target.RelPermalink }}">{{ $target.Title }}</a>
+                {{ end }}
+              </li>
+              {{ end }}
+            {{ end }}
+          </ul>
+        </section>
+        {{ end }}
+      </div>
+    {{ end }}
+  {{ end }}
+{{ end }}

@@ -1,0 +1,16 @@
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+{{ $pf := hugo.Data.theme.fonts.font_family.primary }}
+{{ $sf := hugo.Data.theme.fonts.font_family.secondary }}
+{{ $tf := hugo.Data.theme.fonts.font_family.tertiary }}
+{{ $fontUrl := printf "https://fonts.googleapis.com/css2?family=%s%s%s&display=swap" ($pf | safeURL) (cond (ne $sf "") (printf "&family=%s" ($sf | safeURL)) "") (cond (ne $tf "") (printf "&family=%s" ($tf | safeURL)) "") }}
+<link rel="stylesheet" href="{{ $fontUrl }}" />
+
+{{ $mainCSS := resources.Get "css/main.css" }}
+{{ $tailwindCSS := $mainCSS | css.TailwindCSS (dict "inlineImports" true) }}
+{{ $styles := slice $tailwindCSS | resources.Concat "css/style.css" }}
+{{ if hugo.IsProduction }}
+  {{ $styles = $styles | minify | fingerprint }}
+{{ end }}
+<link href="{{ $styles.RelPermalink }}" {{ if hugo.IsProduction }}integrity="{{ $styles.Data.Integrity }}"{{ end }} rel="stylesheet" />

@@ -1,0 +1,4 @@
+/* table of contents */
+.table-of-content {
+  @apply overflow-hidden rounded;
+}

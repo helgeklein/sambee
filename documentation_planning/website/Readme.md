@@ -23,6 +23,7 @@ The target structure is:
 - [Homepage_text_copy.md](./Homepage_text_copy.md): draft homepage copy derived from the homepage plan
 - [EndUserDocs_planning.md](./EndUserDocs_planning.md): task-oriented end-user docs structure, terminology, and coverage planning
 - [AdminDocs_planning.md](./AdminDocs_planning.md): administrator-focused deployment, configuration, operations, and support planning
+- [Hugo_migration_plan.md](./Hugo_migration_plan.md): analysis of `website-temp` and a phased plan to build a clean Sambee Hugo site while migrating only the reusable parts of the helgeklein.com theme
 
 Developer docs are part of the target site structure, but they do not yet have a dedicated planning file in this folder.
 

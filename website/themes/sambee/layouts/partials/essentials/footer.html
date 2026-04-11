@@ -1,0 +1,14 @@
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bar">
+      <div class="footer-copyright">© {{ now.Year }} {{ site.Title }}</div>
+      {{ if site.Menus.footer }}
+      <div class="footer-links spaced-list">
+        {{ range site.Menus.footer }}
+        <a class="footer-link" href="{{ .URL | relLangURL }}">{{ .Name }}</a>
+        {{ end }}
+      </div>
+      {{ end }}
+    </div>
+  </div>
+</footer>

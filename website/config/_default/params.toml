@@ -1,0 +1,7 @@
+description = "Browser-based SMB and local-drive access with versioned product documentation."
+theme_default = "light"
+theme_switcher = false
+
+[search]
+enable = true
+show_image = false

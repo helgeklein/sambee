@@ -1,0 +1,17 @@
+{{- $initialTheme := cond (eq site.Params.theme_default "dark") "dark" "" -}}
+<!DOCTYPE html>
+<html lang="{{ site.LanguageCode | default `en-US` }}" class="{{ $initialTheme }}">
+<head>
+  {{ partial "essentials/head.html" . }}
+  {{ partialCached "essentials/style.html" . }}
+</head>
+<body>
+  {{ partial "essentials/header.html" . }}
+  {{ partial "search-modal.html" . }}
+  <main class="site-main">
+    {{ block "main" . }}{{ end }}
+  </main>
+  {{ partial "essentials/footer.html" . }}
+  {{ partialCached "essentials/script.html" . }}
+</body>
+</html>

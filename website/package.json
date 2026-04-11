@@ -1,0 +1,18 @@
+{
+  "name": "sambee-website",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node scripts/themeGenerator.js && hugo server --source . --bind 0.0.0.0 --port 1313 --disableFastRender",
+    "dev:search": "node scripts/themeGenerator.js && hugo --source . --cleanDestinationDir && npx pagefind --site public",
+    "build": "node scripts/themeGenerator.js && hugo --source . --cleanDestinationDir",
+    "preview": "node scripts/themeGenerator.js && hugo server --source . --environment production --disableFastRender",
+    "build:search": "node scripts/themeGenerator.js && hugo --source . --cleanDestinationDir && npx pagefind --site public"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.18",
+    "pagefind": "^1.4.0",
+    "tailwind-bootstrap-grid": "^6.0.0",
+    "tailwindcss": "^4.1.18"
+  }
+}
