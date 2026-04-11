@@ -134,8 +134,10 @@ Any AI-generated direction must respect these constraints:
 - Sambee is a practical technical product, not a lifestyle brand
 - the site is docs-first, not marketing-only
 - documentation readability matters as much as homepage appeal
+- the docs are effectively text-only and should not depend on illustration-heavy or image-heavy layouts
 - the design must work for both landing pages and dense docs pages
 - the design should feel trustworthy, precise, efficient, and desktop-adjacent
+- the design should express visual elegance through typography, spacing, rhythm, proportion, and restraint rather than decorative excess
 - avoid generic purple-gradient SaaS styling
 - avoid overly playful illustration-heavy startup aesthetics
 - avoid visual systems that depend on one-off hero tricks and collapse in docs pages
@@ -194,6 +196,49 @@ At minimum:
 - code block framing
 - footer
 
+## Content Anchors For AI Prompts
+
+AI-generated visual work will be more relevant if it is grounded in real Sambee messaging instead of abstract product descriptions.
+
+Do not paste the entire homepage copy document into every prompt.
+
+Use selected content anchors from `Homepage_text_copy.md` so the tool has:
+
+- a real headline and subheadline
+- real benefit language
+- real CTA labels
+- real product constraints and value framing
+
+Recommended content to include in generation prompts:
+
+- hero headline:
+	- `Browser-based file access for SMB shares and local drives`
+- hero subheadline:
+	- `Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, with the companion app extending Sambee to the local desktop when needed. Sambee enables browser-first file access without requiring files to be moved into the cloud.`
+- supporting points:
+	- `Self-hosted`
+	- `Desktop and mobile`
+	- `Companion optional`
+- CTA labels:
+	- `See Features`
+	- `Admin Docs`
+	- `Read Docs`
+- core value statement:
+	- `Sambee gives teams browser-based file access without forcing them into a cloud-first storage model.`
+- deployment framing:
+	- `Deploy Sambee where your files already live and keep access under your control.`
+
+If the tool supports longer context well, also include selected benefit themes:
+
+- self-hosted control
+- better everyday file handling
+- rich previews before download
+- native editing when needed
+- built for desktop and mobile
+- fits existing infrastructure
+
+These content anchors help the AI choose layouts, emphasis, and hierarchy that fit the real product instead of a generic SaaS landing page.
+
 ## Execution Plan
 
 ### Step 1: Write The Brief
@@ -208,6 +253,7 @@ Why:
 Output:
 
 - one approved design brief
+- one approved set of content anchors taken from homepage copy
 
 ### Step 2: Generate Multiple Directions
 
@@ -351,7 +397,18 @@ Use this brief as the baseline prompt for Figma AI, Relume, Uizard, v0, or simil
 
 Design a visual direction for the Sambee website.
 
-Sambee is a browser-based product for accessing SMB shares and local drives. The website is a docs-first product site, not a pure marketing landing page. It must support both a product homepage and dense versioned documentation.
+Sambee is a browser-based product for accessing SMB shares and local drives. The website is a docs-first product site, not a pure marketing landing page. It must support both a product homepage and dense versioned documentation. The product logo will be uploaded together with this prompt and should be used as a brand anchor.
+
+Use these real homepage content anchors when deciding hierarchy and emphasis:
+
+- headline: `Browser-based file access for SMB shares and local drives`
+- subheadline: `Sambee provides browser-based access to SMB shares and local drives. Explore, preview, and manage files directly in the browser, with the companion app extending Sambee to the local desktop when needed. Sambee enables browser-first file access without requiring files to be moved into the cloud.`
+- supporting points: `Self-hosted`, `Desktop and mobile`, `Companion optional`
+- CTA labels: `See Features`, `Admin Docs`, `Read Docs`
+- core value statement: `Sambee gives teams browser-based file access without forcing them into a cloud-first storage model.`
+- deployment framing: `Deploy Sambee where your files already live and keep access under your control.`
+
+Treat these content anchors as real copy constraints, not placeholder text.
 
 The visual tone should feel:
 
@@ -361,6 +418,8 @@ The visual tone should feel:
 - technical without feeling cold
 - desktop-adjacent and productivity-oriented
 - distinctive, but not flashy
+- typographically strong
+- visually elegant through restraint, proportion, and polish
 
 The design must avoid:
 
@@ -370,7 +429,7 @@ The design must avoid:
 - crypto or AI-brand visual clichés
 - visual systems that look good only in hero sections and fail on docs pages
 
-The website should feel more like a serious tool for real work than a hype-driven product launch.
+The website should feel more like a serious tool for real work than a hype-driven product launch. Favor strong typography, careful spacing, confident composition, and elegant visual hierarchy over heavy decoration.
 
 Base the visual language on these brand cues:
 
@@ -379,16 +438,19 @@ Base the visual language on these brand cues:
 - cream or warm light surfaces where appropriate
 - strong typography and restrained color use
 - clean technical layouts with a sense of craft
+- editorial clarity and refined page rhythm
 
 Create 3 distinct visual directions for the website. For each direction, include:
 
 - a color palette with semantic roles
 - typography recommendations
 - homepage art direction
-- docs page art direction
+- docs page art direction for documentation that is effectively text-only
 - component styling notes for cards, navigation, sidebar, buttons, chips, and callouts
 - imagery or illustration direction if used
 - a short rationale explaining why the direction fits Sambee
+
+Make the homepage concepts feel plausible for the supplied copy, especially the long subheadline and the text-first documentation emphasis.
 
 All directions must work across:
 
@@ -400,6 +462,8 @@ Optimize for:
 
 - readability
 - strong hierarchy
+- typographic quality
+- visual elegance without ornament for its own sake
 - calm but confident branding
 - responsive behavior
 - consistency between marketing and docs surfaces
@@ -407,7 +471,7 @@ Optimize for:
 
 ### Short Prompt Variant
 
-Create 3 distinct visual directions for a docs-first product website for Sambee, a browser-based SMB and local-drive access tool. The site must feel trustworthy, technical, efficient, and desktop-adjacent. Use warm golden accents, charcoal structure, and restrained typography-led design. Avoid generic SaaS visuals, purple gradients, cartoon illustration, and over-designed hero sections. Each direction must include homepage and docs-page styling, semantic palette, type choices, component character, and rationale.
+Create 3 distinct visual directions for a docs-first product website for Sambee, a browser-based SMB and local-drive access tool. The product logo will be uploaded with this prompt and should be used as a brand anchor. Use these content anchors as real homepage copy constraints: headline `Browser-based file access for SMB shares and local drives`; supporting points `Self-hosted`, `Desktop and mobile`, `Companion optional`; CTA labels `See Features`, `Admin Docs`, `Read Docs`; core message `browser-based file access without forcing a cloud-first storage model`. The site must feel trustworthy, technical, efficient, desktop-adjacent, typographically strong, and visually elegant through restraint. Use warm golden accents, charcoal structure, cream or warm light surfaces, and refined typography-led design. The docs are effectively text-only, so the system must rely on hierarchy, spacing, rhythm, and component discipline rather than imagery. Avoid generic SaaS visuals, purple gradients, cartoon illustration, and over-designed hero sections. Each direction must include homepage and docs-page styling, semantic palette, type choices, component character, and rationale.
 
 ### Critique Prompt Variant
 
