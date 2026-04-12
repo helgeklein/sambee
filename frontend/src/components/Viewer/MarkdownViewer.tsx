@@ -37,6 +37,7 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import MarkdownRichEditor, { type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
 import {
@@ -178,48 +179,21 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       return;
     }
 
-    let settled = false;
-    let timeoutIds: number[] = [];
-
-    const settle = () => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-
-      for (const timeoutId of timeoutIds) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-
-    timeoutIds = MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS.map((delayMs) =>
-      window.setTimeout(() => {
-        if (settled) {
-          return;
-        }
-
+    return scheduleRetriableFocusRestore({
+      delaysMs: MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
+      attemptRestore: () => {
         if (isMarkdownEditorTextInputFocused()) {
-          settle();
-          return;
+          return true;
         }
 
         if (editorRef.current?.restorePreservedSelection() === true) {
-          settle();
-          return;
+          return true;
         }
 
         editorRef.current?.focus();
-
-        if (isMarkdownEditorTextInputFocused()) {
-          settle();
-        }
-      }, delayMs)
-    );
-
-    return () => {
-      settle();
-    };
+        return isMarkdownEditorTextInputFocused();
+      },
+    });
   }, [isEditing]);
 
   const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
