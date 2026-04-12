@@ -1766,6 +1766,13 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             "& .mdxeditor-toolbar [data-toolbar-item]": {
               color: secondaryToolbarColors.textColor,
             },
+            "& .mdxeditor-toolbar [class*='toolbarToggleSingleGroup'], & .mdxeditor-toolbar [class*='toolbarGroupOfGroups']": {
+              backgroundColor: "transparent",
+            },
+            "& .mdxeditor-toolbar [class*='toolbarToggleItem'][data-state='on']": {
+              backgroundColor: secondaryToolbarColors.pillBackground,
+              color: secondaryToolbarColors.textColor,
+            },
             "& .mdxeditor-toolbar [class*='toolbarNodeKindSelectTrigger'], & .mdxeditor-toolbar [class*='toolbarButtonSelectTrigger'], & .mdxeditor-toolbar [class*='selectTrigger']":
               {
                 backgroundColor: secondaryToolbarColors.popupBackground,
@@ -1773,12 +1780,12 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 borderColor: secondaryToolbarColors.borderColor,
               },
             "& .mdxeditor-toolbar [class*='toolbarModeSwitch'], & .mdxeditor-toolbar [class*='diffSourceToggle']": {
-              backgroundColor: secondaryToolbarColors.groupedBackground,
+              backgroundColor: "transparent",
               borderColor: secondaryToolbarColors.borderColor,
             },
             "& .mdxeditor-toolbar [class*='toolbarModeSwitch'] [data-state='on'], & .mdxeditor-toolbar [class*='diffSourceToggle'] [data-state='on']":
               {
-                backgroundColor: secondaryToolbarColors.activeBackground,
+                backgroundColor: secondaryToolbarColors.pillBackground,
               },
             [`& .${MARKDOWN_MOBILE_TOOLBAR_CLASS}`]: {
               minHeight: 44,
