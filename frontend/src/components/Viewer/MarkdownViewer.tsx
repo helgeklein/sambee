@@ -197,11 +197,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     return scheduleRetriableFocusRestore({
       delaysMs: MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
       attemptRestore: () => {
-        if (isMarkdownEditorTextInputFocused()) {
+        if (editorRef.current?.restorePreservedSelection() === true) {
           return true;
         }
 
-        if (editorRef.current?.restorePreservedSelection() === true) {
+        if (isMarkdownEditorTextInputFocused()) {
           return true;
         }
 
@@ -670,6 +670,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         return false;
       } finally {
         setIsSaving(false);
+
+        if (afterSave === "stay-edit") {
+          window.requestAnimationFrame(() => {
+            restoreEditingFocus();
+          });
+        }
       }
     },
     [
@@ -684,6 +690,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       markEditSessionPristine,
       path,
       requestRestoreEditingFocus,
+      restoreEditingFocus,
       setEditBaselineContent,
       t,
     ]

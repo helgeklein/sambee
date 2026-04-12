@@ -1651,6 +1651,8 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return;
         }
 
+        editorRef.current?.focus();
+
         if (focusEditableArea()) {
           stopAutoFocus();
         }
@@ -1889,7 +1891,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
             markdown={markdown}
             onChange={onChange}
-            autoFocus={false}
+            autoFocus={autoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
             readOnly={readOnly}
             plugins={plugins}
           />
