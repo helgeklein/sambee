@@ -77,6 +77,7 @@ import { Z_INDEX } from "../../theme/constants";
 import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
+import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { mdxEditorSearchPlugin } from "./mdxEditorSearchPlugin";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
@@ -1255,15 +1256,7 @@ const MarkdownRichEditorSearchBridge = ({
     };
 
     const lastSearchState = lastReportedSearchStateRef.current;
-    if (
-      lastSearchState &&
-      lastSearchState.searchText === nextSearchState.searchText &&
-      lastSearchState.searchMatches === nextSearchState.searchMatches &&
-      lastSearchState.currentMatch === nextSearchState.currentMatch &&
-      lastSearchState.isSearchOpen === nextSearchState.isSearchOpen &&
-      lastSearchState.isSearchable === nextSearchState.isSearchable &&
-      lastSearchState.viewMode === nextSearchState.viewMode
-    ) {
+    if (lastSearchState && areMarkdownSearchStatesEqual(lastSearchState, nextSearchState)) {
       return;
     }
 

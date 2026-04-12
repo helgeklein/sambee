@@ -9,6 +9,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,
+    exclude: ["e2e/**", "node_modules/**", "dist/**"],
     // Enable parallel file execution for better performance
     // Uses threads by default with fileParallelism enabled
     fileParallelism: true,

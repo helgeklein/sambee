@@ -39,13 +39,14 @@ import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supp
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
-import MarkdownRichEditor, { type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
+import { default as MarkdownRichEditor, type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
 import {
   MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS,
   MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
 } from "./markdownEditorConstants";
+import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
@@ -102,17 +103,6 @@ function getEditorErrorMessage(error: unknown, fallbackMessage: string): string 
   }
 
   return fallbackMessage;
-}
-
-function areMarkdownSearchStatesEqual(previousState: MarkdownRichEditorSearchState, nextState: MarkdownRichEditorSearchState): boolean {
-  return (
-    previousState.searchText === nextState.searchText &&
-    previousState.searchMatches === nextState.searchMatches &&
-    previousState.currentMatch === nextState.currentMatch &&
-    previousState.isSearchOpen === nextState.isSearchOpen &&
-    previousState.isSearchable === nextState.isSearchable &&
-    previousState.viewMode === nextState.viewMode
-  );
 }
 
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
@@ -637,9 +627,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
       if (afterSave === "stay-edit") {
         requestRestoreEditingFocus();
-      }
-
-      if (afterSave === "stay-edit") {
         editorRef.current?.preserveSelection();
       }
 

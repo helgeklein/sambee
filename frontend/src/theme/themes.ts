@@ -29,7 +29,7 @@ export const builtInThemes: ThemeConfig[] = [
       secondary: "#1F262BB3", // 70% opacity
     },
     action: {
-      selected: "#F4C43045", // 27% opacity for selected state
+      selected: "#F4C43029", // 16% opacity
       focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },
     components: {
