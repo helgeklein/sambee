@@ -1,5 +1,6 @@
 import type { SxProps, Theme } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import type { ThemeConfig } from "./types";
 
 /**
  * Common reusable style patterns for consistent UI
@@ -40,17 +41,31 @@ export interface SecondaryToolbarSurfaceColors {
   shadow: string;
 }
 
-export function getSecondaryToolbarSurfaceColors(theme: Theme): SecondaryToolbarSurfaceColors {
+export function getSecondaryToolbarSelectedBackground(theme: Theme, themeConfig?: ThemeConfig): string {
+  return (
+    themeConfig?.components?.markdownViewer?.secondaryToolbarSelected ??
+    themeConfig?.action?.selectedDarker ??
+    themeConfig?.action?.selected ??
+    theme.palette.action.selected
+  );
+}
+
+export function getSecondaryToolbarSurfaceColors(
+  theme: Theme,
+  overrides?: Partial<Pick<SecondaryToolbarSurfaceColors, "pillBackground" | "activeBackground">>
+): SecondaryToolbarSurfaceColors {
   const textColor = theme.palette.text.secondary;
+  const pillBackground = overrides?.pillBackground ?? theme.palette.action.selected;
+  const activeBackground = overrides?.activeBackground ?? overrides?.pillBackground ?? alpha(textColor, 0.12);
 
   return {
     stripBackground: theme.palette.background.default,
     popupBackground: theme.palette.background.default,
     textColor,
     borderColor: theme.palette.divider,
-    pillBackground: theme.palette.action.selected,
+    pillBackground,
     groupedBackground: alpha(textColor, 0.06),
-    activeBackground: alpha(textColor, 0.12),
+    activeBackground,
     hoverBackground: alpha(textColor, 0.08),
     separatorColor: alpha(textColor, 0.06),
     shadow: theme.shadows[2],

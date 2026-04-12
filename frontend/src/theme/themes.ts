@@ -29,7 +29,7 @@ export const builtInThemes: ThemeConfig[] = [
       secondary: "#1F262BB3", // 70% opacity
     },
     action: {
-      selected: "#F4C43029", // 16% opacity
+      selected: "#F4C43045", // 27% opacity for selected state
       focus: "#F4C430", // Golden yellow - primary color for focus outlines
     },
     components: {
@@ -62,6 +62,7 @@ export const builtInThemes: ThemeConfig[] = [
         viewerBackground: "#F6F1E8", // Default background
         toolbarBackground: "#1F262B", // Dark mode background
         toolbarText: "#F6F1E8", // Dark mode primary text
+        secondaryToolbarSelected: "#D4A02042", // Selected background for the markdown editor secondary toolbar
       },
       alert: {
         info: {
@@ -136,6 +137,7 @@ export const builtInThemes: ThemeConfig[] = [
         viewerBackground: "#1F262B", // Default background
         toolbarBackground: "#2A3239", // App bar background
         toolbarText: "#F6F1E8", // Primary text
+        secondaryToolbarSelected: "#D4A02042", // Selected background for the markdown editor secondary toolbar
       },
       alert: {
         info: {

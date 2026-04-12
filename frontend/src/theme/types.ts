@@ -36,6 +36,8 @@ export interface ThemeConfig {
   /** Action/interaction colors */
   action?: {
     selected?: string;
+    /** Darker selected state for controls that need stronger contrast than the default selection fill. */
+    selectedDarker?: string;
     /** Focus outline color for keyboard navigation */
     focus?: string;
   };
@@ -94,6 +96,8 @@ export interface ThemeConfig {
       toolbarText: string;
       /** Text color for markdown content */
       viewerText: string;
+      /** Selected-state background for the secondary markdown editor toolbar */
+      secondaryToolbarSelected?: string;
     };
     /** Alert message styles for info/warning/error states */
     alert?: {
@@ -260,6 +264,12 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
         type: "color",
         required: false,
       },
+      selectedDarker: {
+        label: "Selected State Darker",
+        description: "Stronger selected background for controls that need extra contrast, such as secondary editor toolbars",
+        type: "color",
+        required: false,
+      },
     },
   },
   components: {
@@ -393,6 +403,12 @@ export const THEME_SCHEMA: Record<string, ThemeFieldSchema> = {
           viewerText: {
             label: "Viewer Text",
             description: "Text color for markdown content",
+            type: "color",
+            required: false,
+          },
+          secondaryToolbarSelected: {
+            label: "Secondary Toolbar Selected",
+            description: "Selected background color for buttons in the secondary markdown editor toolbar",
             type: "color",
             required: false,
           },
