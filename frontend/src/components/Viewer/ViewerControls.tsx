@@ -591,7 +591,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               sx={{
                 display: "flex",
                 alignItems: "center",
-                gap: 1,
+                gap: 1.5,
                 flexShrink: 0,
                 minWidth: 0,
                 width: isMobile ? "min(100%, 320px)" : "320px",
@@ -643,8 +643,6 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   alignItems: "center",
                   gap: 0.25,
                   flexShrink: 0,
-                  minWidth: isMobile ? "7.5rem" : "8.5rem",
-                  justifyContent: "flex-end",
                 }}
               >
                 <Typography
@@ -652,8 +650,9 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   sx={{
                     whiteSpace: "nowrap",
                     flexShrink: 0,
-                    minWidth: isMobile ? "2.75rem" : "3.25rem",
-                    textAlign: "right",
+                    minWidth: "4ch",
+                    textAlign: "left",
+                    fontVariantNumeric: "tabular-nums",
                     opacity: canNavigateSearch ? 1 : 0.6,
                   }}
                 >
