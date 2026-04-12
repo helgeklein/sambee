@@ -399,7 +399,7 @@ describe("MarkdownViewer", () => {
   });
 
   it("enters edit mode and acquires a lock for server-backed markdown files", async () => {
-    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    const getFileContentSpy = vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
     const acquireLockSpy = vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
@@ -421,6 +421,7 @@ describe("MarkdownViewer", () => {
       expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveFocus();
     });
     expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.any(String));
+    expect(getFileContentSpy).toHaveBeenCalledTimes(1);
   });
 
   it("resets the viewer scroll position when entering edit mode", async () => {

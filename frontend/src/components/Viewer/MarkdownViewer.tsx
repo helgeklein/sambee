@@ -156,6 +156,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
   const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const editBaselineContentRef = useRef("");
+  const isEditingRef = useRef(false);
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -208,6 +209,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     editBaselineContentRef.current = nextContent;
   }, []);
 
+  useEffect(() => {
+    isEditingRef.current = isEditing;
+  }, [isEditing]);
+
   const handleEditorSearchStateChange = useCallback((nextState: MarkdownRichEditorSearchState) => {
     setEditorSearchState((previousState) => (areMarkdownSearchStatesEqual(previousState, nextState) ? previousState : nextState));
   }, []);
@@ -231,7 +236,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     setEditBaselineContent,
   });
 
-  // Load markdown content
+  // Load markdown content only when the viewed file changes.
+  // Entering edit mode is a local UI transition and must not re-trigger loading,
+  // otherwise the editor subtree is briefly replaced by the loading state.
   useEffect(() => {
     const abortController = new AbortController();
 
@@ -245,7 +252,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           retryDelay: 1000,
         });
         setContent(data);
-        if (!isEditing) {
+        if (!isEditingRef.current) {
           setDraftContent(data);
           setEditBaselineContent(data);
         }
@@ -277,7 +284,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, isEditing, setEditBaselineContent]);
+  }, [connectionId, fetchWithRetry, path, setEditBaselineContent]);
 
   // Auto-focus the content when loaded so keyboard scrolling works
   useEffect(() => {
