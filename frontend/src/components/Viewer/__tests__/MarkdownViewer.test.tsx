@@ -324,6 +324,34 @@ describe("MarkdownViewer", () => {
     expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.any(String));
   });
 
+  it("resets the viewer scroll position when entering edit mode", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n\nLine 2\n\nLine 3\n\nLine 4\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+
+    const { container } = renderViewer();
+
+    await screen.findByText("Readme");
+
+    const contentContainer = screen.getByTestId("markdown-viewer-content");
+
+    contentContainer.scrollTop = 240;
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    });
+
+    expect(contentContainer.scrollTop).toBe(0);
+  });
+
   it("exits edit mode on Escape without closing the viewer or prompting when nothing changed", async () => {
     const onClose = vi.fn();
 

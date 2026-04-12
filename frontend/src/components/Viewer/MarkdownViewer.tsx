@@ -287,6 +287,16 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     };
   }, [isEditing]);
 
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    if (contentRef.current) {
+      contentRef.current.scrollTop = 0;
+    }
+  }, [isEditing]);
+
   const hasUnsavedChanges = isEditing && draftContent !== editBaselineContent;
   const unsavedChangesIndicator = hasUnsavedChanges ? (
     <Box
@@ -1139,10 +1149,13 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           {/* Markdown content area - flex grows to fill remaining space */}
           <Box
             ref={contentRef}
+            data-testid="markdown-viewer-content"
             tabIndex={0}
             sx={{
               flex: 1,
-              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              overflowY: isEditing ? "hidden" : "auto",
               overflowX: "hidden",
               minHeight: 0,
               width: "100%",
@@ -1165,18 +1178,13 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               <Box
                 sx={{
                   p: 2,
-                  height: "100%",
-                  overflow: "auto",
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  overflow: "hidden",
                   "& .sambee-markdown-editor": {
-                    height: "100%",
-                  },
-                  "& .sambee-markdown-editor .mdxeditor": {
-                    display: "flex",
-                    flexDirection: "column",
-                    minHeight: "100%",
-                  },
-                  "& .sambee-markdown-editor [contenteditable='true']": {
-                    minHeight: 320,
+                    flex: 1,
+                    minHeight: 0,
                   },
                   [MDX_EDITOR_SEARCH_MATCH_SELECTOR]: {
                     backgroundColor: MARKDOWN_SEARCH_MATCH_COLOR,

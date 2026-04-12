@@ -912,6 +912,43 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         ref={containerRef}
         className={className}
         sx={{
+          height: "100%",
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          "& .mdxeditor": {
+            flex: 1,
+            minHeight: 0,
+            display: "grid",
+            gridTemplateRows: "auto minmax(0, 1fr)",
+            overflow: "hidden",
+          },
+          "& .mdxeditor-toolbar": {
+            position: "relative",
+            top: "auto",
+            width: "auto",
+            flexShrink: 0,
+            overflowX: "auto",
+            overflowY: "hidden",
+          },
+          "& .mdxeditor > :not(.mdxeditor-toolbar)": {
+            minHeight: 0,
+          },
+          "& [contenteditable='true']": {
+            minHeight: 320,
+            height: "100%",
+            overflowY: "auto",
+            overflowX: "hidden",
+          },
+          "& .cm-sourceView, & .cm-mergeView": {
+            minHeight: 0,
+            height: "100%",
+          },
+          "& .cm-editor": {
+            minHeight: 0,
+            height: "100%",
+          },
           [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: getMarkdownEditorContentStyles(viewerText, linkColor, linkHoverColor),
         }}
       >
