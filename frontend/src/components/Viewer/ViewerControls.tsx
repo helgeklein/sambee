@@ -76,6 +76,8 @@ export interface SearchState {
   onSearchPrevious?: () => void;
   searchPanelOpen?: boolean;
   onSearchPanelToggle?: (open: boolean) => void;
+  onSearchClose?: (reason: "escape" | "toggle") => void;
+  clearSearchOnClose?: boolean;
   isSearchable?: boolean;
   searchUnavailableTitle?: string;
 }
@@ -568,7 +570,18 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         {config.search && search && (
           <IconButton
             color="inherit"
-            onClick={() => setShowSearch(!showSearch)}
+            onClick={() => {
+              const nextShowSearch = !showSearch;
+              setShowSearch(nextShowSearch);
+
+              if (!nextShowSearch) {
+                if (search.clearSearchOnClose !== false) {
+                  search.onSearchChange("");
+                }
+
+                search.onSearchClose?.("toggle");
+              }
+            }}
             title={
               search.isSearchable === false
                 ? (search.searchUnavailableTitle ?? t("viewer.controls.searchUnavailable"))
@@ -652,8 +665,12 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 e.preventDefault();
                 e.stopPropagation();
                 setShowSearch(false);
-                // Clear search text to remove highlights
-                search.onSearchChange("");
+
+                if (search.clearSearchOnClose !== false) {
+                  search.onSearchChange("");
+                }
+
+                search.onSearchClose?.("escape");
               }
             }}
             placeholder={t("common.search.placeholder")}

@@ -45,10 +45,12 @@ import { Box } from "@mui/material";
 import {
   $createNodeSelection,
   $createRangeSelection,
+  $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $getSelection,
   $isNodeSelection,
   $isRangeSelection,
+  $isTextNode,
   $setSelection,
   CAN_REDO_COMMAND,
   CAN_UNDO_COMMAND,
@@ -58,7 +60,7 @@ import {
   REDO_COMMAND,
   UNDO_COMMAND,
 } from "lexical";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
@@ -85,6 +87,7 @@ export interface MarkdownRichEditorHandle {
   focus: () => void;
   preserveSelection: () => void;
   restorePreservedSelection: () => boolean;
+  focusCurrentSearchResult: () => boolean;
   nextSearchResult: () => void;
   previousSearchResult: () => void;
   createLink: () => void;
@@ -174,6 +177,7 @@ interface MarkdownRichEditorSearchBridgeProps {
   searchText: string;
   searchOpen: boolean;
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
+  onCurrentRangeChange: (range: Range | null) => void;
   onCommandsChange: (commands: MarkdownRichEditorSearchCommands | null) => void;
 }
 
@@ -473,9 +477,10 @@ const MarkdownRichEditorSearchBridge = ({
   searchText,
   searchOpen,
   onSearchStateChange,
+  onCurrentRangeChange,
   onCommandsChange,
 }: MarkdownRichEditorSearchBridgeProps) => {
-  const { closeSearch, cursor, isSearchOpen, next, openSearch, prev, search, setSearch, total } = useEditorSearch();
+  const { closeSearch, currentRange, cursor, next, openSearch, prev, search, setSearch, total } = useEditorSearch();
   const viewMode = useCellValue(viewMode$);
   const isSearchable = viewMode === "rich-text";
 
@@ -487,7 +492,7 @@ const MarkdownRichEditorSearchBridge = ({
     };
   }, [isSearchable, next, onCommandsChange, prev]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isSearchable) {
       closeSearch();
       setSearch(null);
@@ -497,8 +502,9 @@ const MarkdownRichEditorSearchBridge = ({
     setSearch(searchText || null);
   }, [closeSearch, isSearchable, searchText, setSearch]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isSearchable) {
+      onCurrentRangeChange(null);
       return;
     }
 
@@ -507,8 +513,13 @@ const MarkdownRichEditorSearchBridge = ({
       return;
     }
 
+    onCurrentRangeChange(null);
     closeSearch();
-  }, [closeSearch, isSearchable, openSearch, searchOpen]);
+  }, [closeSearch, isSearchable, onCurrentRangeChange, openSearch, searchOpen]);
+
+  useEffect(() => {
+    onCurrentRangeChange(isSearchable ? currentRange : null);
+  }, [currentRange, isSearchable, onCurrentRangeChange]);
 
   useEffect(() => {
     if (!isSearchable || !searchOpen || !search.trim() || total === 0 || cursor !== 0) {
@@ -523,11 +534,11 @@ const MarkdownRichEditorSearchBridge = ({
       searchText: search,
       searchMatches: total,
       currentMatch: total > 0 ? Math.max(cursor, 1) : 0,
-      isSearchOpen,
+      isSearchOpen: searchOpen,
       isSearchable,
       viewMode,
     });
-  }, [cursor, isSearchOpen, isSearchable, onSearchStateChange, search, total, viewMode]);
+  }, [cursor, isSearchable, onSearchStateChange, search, searchOpen, total, viewMode]);
 
   return null;
 };
@@ -552,6 +563,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const editorRef = useRef<MDXEditorMethods>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const activeEditorRef = useRef<LexicalEditor | null>(null);
+    const activeSearchRangeRef = useRef<Range | null>(null);
     const preservedSelectionRef = useRef<MarkdownRichEditorSelectionSnapshot | null>(null);
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
@@ -674,6 +686,44 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       });
     }, [captureViewport]);
 
+    const focusCurrentSearchRange = useCallback((): boolean => {
+      const currentRange = activeSearchRangeRef.current;
+
+      if (!currentRange) {
+        return focusEditableArea(true);
+      }
+
+      const editable = containerRef.current?.querySelector('[contenteditable="true"], textarea');
+      const activeEditor = activeEditorRef.current;
+
+      if (!(editable instanceof HTMLElement) || !activeEditor) {
+        return focusEditableArea(true);
+      }
+
+      let restored = false;
+
+      editable.focus({ preventScroll: true });
+      activeEditor.update(
+        () => {
+          const startNode = $getNearestNodeFromDOMNode(currentRange.startContainer);
+          const endNode = $getNearestNodeFromDOMNode(currentRange.endContainer);
+
+          if (!$isTextNode(startNode) || !$isTextNode(endNode)) {
+            return;
+          }
+
+          const rangeSelection = $createRangeSelection();
+          rangeSelection.anchor.set(startNode.getKey(), currentRange.startOffset, "text");
+          rangeSelection.focus.set(endNode.getKey(), currentRange.endOffset, "text");
+          $setSelection(rangeSelection);
+          restored = true;
+        },
+        { discrete: true }
+      );
+
+      return restored || focusEditableArea(true);
+    }, [focusEditableArea]);
+
     const restoreSelection = useCallback(
       (selectionSnapshot: MarkdownRichEditorSelectionSnapshot | null): boolean => {
         if (!selectionSnapshot) {
@@ -767,6 +817,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
 
           return restored;
         },
+        focusCurrentSearchResult: () => focusCurrentSearchRange(),
         nextSearchResult: () => {
           searchCommandsRef.current.nextSearchResult();
         },
@@ -789,7 +840,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           commandsRef.current.insertCodeBlock();
         },
       }),
-      [captureSelection, focusEditableArea, restoreSelection]
+      [captureSelection, focusCurrentSearchRange, focusEditableArea, restoreSelection]
     );
 
     useEffect(() => {
@@ -930,6 +981,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 searchText={searchText}
                 searchOpen={searchOpen}
                 onSearchStateChange={onSearchStateChange}
+                onCurrentRangeChange={(range) => {
+                  activeSearchRangeRef.current = range;
+                }}
                 onCommandsChange={(commands) => {
                   searchCommandsRef.current = commands ?? NOOP_SEARCH_COMMANDS;
                 }}

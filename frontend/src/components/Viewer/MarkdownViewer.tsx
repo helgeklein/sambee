@@ -105,6 +105,7 @@ function getEditorErrorMessage(error: unknown, fallbackMessage: string): string 
 }
 
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
+type MarkdownSearchCloseReason = "escape" | "toggle";
 
 function preserveMarkdownEditorSelection(editorRef: React.RefObject<MarkdownRichEditorHandle | null>): void {
   editorRef.current?.preserveSelection();
@@ -129,7 +130,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [isSaving, setIsSaving] = useState(false);
   const [lockHeld, setLockHeld] = useState(false);
   const [sharing, setSharing] = useState(false);
-  const [searchText, setSearchText] = useState("");
+  const [viewerSearchText, setViewerSearchText] = useState("");
+  const [editorSearchText, setEditorSearchText] = useState("");
   const [searchMatches, setSearchMatches] = useState(0);
   const [currentSearchMatch, setCurrentSearchMatch] = useState(0);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -162,6 +164,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const shareWarmEnabled = shareEnabled && shouldWarmNativeSharePayload();
   const supportsEditLocks = apiService.supportsEditLocks(connectionId);
   const { viewerBg, toolbarBg, toolbarText, viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
+  const currentSearchText = isEditing ? editorSearchText : viewerSearchText;
+  const activeViewerSearchText = !isEditing && searchPanelOpen ? viewerSearchText : "";
 
   // Extract filename from path
   const filename = path.split("/").pop() || path;
@@ -456,7 +460,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     clearDomTextSearchHighlights(markdownRoot instanceof HTMLElement ? markdownRoot : null);
     searchHighlightsRef.current = [];
 
-    if (isEditing || !searchText.trim() || loading || error) {
+    if (isEditing || !activeViewerSearchText.trim() || loading || error) {
       setSearchMatches(0);
       setCurrentSearchMatch(0);
       return;
@@ -468,7 +472,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       return;
     }
 
-    const highlights = applyDomTextSearchHighlights(markdownRoot, searchText);
+    const highlights = applyDomTextSearchHighlights(markdownRoot, activeViewerSearchText);
     searchHighlightsRef.current = highlights;
     const initialMatch = highlights.length > 0 ? 1 : 0;
     setSearchMatches(highlights.length);
@@ -479,7 +483,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       clearDomTextSearchHighlights(markdownRoot);
       searchHighlightsRef.current = [];
     };
-  }, [error, isEditing, loading, searchText]);
+  }, [activeViewerSearchText, error, isEditing, loading]);
 
   useEffect(() => {
     activateDomTextSearchMatch(searchHighlightsRef.current, currentSearchMatch);
@@ -512,6 +516,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       clearPendingBaselineSync();
       clearBaselineSyncWindow();
       await releaseEditLock();
+      if (searchPanelOpen) {
+        setViewerSearchText(editorSearchText);
+      } else {
+        setViewerSearchText("");
+      }
       setDraftContent(nextContent);
       setEditBaselineContent(nextContent);
       markEditSessionPristine();
@@ -521,7 +530,15 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       setIsEditing(false);
       setPendingUnsavedChangesAction(null);
     },
-    [clearBaselineSyncWindow, clearPendingBaselineSync, content, markEditSessionPristine, releaseEditLock]
+    [
+      clearBaselineSyncWindow,
+      clearPendingBaselineSync,
+      content,
+      editorSearchText,
+      markEditSessionPristine,
+      releaseEditLock,
+      searchPanelOpen,
+    ]
   );
 
   const closeViewer = useCallback(async () => {
@@ -547,6 +564,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
       setDraftContent(content);
       setEditBaselineContent(content);
+      setEditorSearchText(searchPanelOpen ? viewerSearchText : "");
       clearPendingBaselineSync();
       beginBaselineSyncWindow();
       markEditSessionPristine();
@@ -568,8 +586,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     loading,
     markEditSessionPristine,
     path,
+    searchPanelOpen,
     supportsEditLocks,
     t,
+    viewerSearchText,
   ]);
 
   const handleCancelEdit = useCallback(async () => {
@@ -718,6 +738,42 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     }
   }, []);
 
+  const closeSearchPanel = useCallback(
+    ({ preserveQuery, restoreEditorFocus }: { preserveQuery: boolean; restoreEditorFocus: boolean }) => {
+      setSearchPanelOpen(false);
+
+      if (!preserveQuery) {
+        if (isEditing) {
+          setEditorSearchText("");
+        } else {
+          setViewerSearchText("");
+        }
+      }
+
+      if (!restoreEditorFocus || !isEditing) {
+        return;
+      }
+
+      const restoreFocusToEditorMatch = () => {
+        if (editorRef.current?.focusCurrentSearchResult() === true) {
+          return true;
+        }
+
+        editorRef.current?.focus();
+        return false;
+      };
+
+      if (restoreFocusToEditorMatch()) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        restoreFocusToEditorMatch();
+      });
+    },
+    [isEditing]
+  );
+
   // Context-aware Escape handler (window-level via useKeyboardShortcuts)
   // Blur-first logic lives on the Dialog Paper's onKeyDown instead,
   // because it must fire before the parent FileBrowser's window listener.
@@ -726,8 +782,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleEscape = useCallback(
     (_event?: KeyboardEvent) => {
       if (searchPanelOpen || isViewerSearchInputFocused()) {
-        setSearchPanelOpen(false);
-        setSearchText("");
+        closeSearchPanel({ preserveQuery: isEditing, restoreEditorFocus: isEditing });
       } else if (isEditing) {
         void handleCancelEdit();
       } else if (document.fullscreenElement) {
@@ -736,7 +791,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         void handleRequestClose();
       }
     },
-    [handleCancelEdit, handleRequestClose, isEditing, searchPanelOpen]
+    [closeSearchPanel, handleCancelEdit, handleRequestClose, isEditing, searchPanelOpen]
   );
 
   const handleOpenSearch = useCallback(
@@ -750,13 +805,38 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     [editorSearchState.isSearchable, error, isEditing, loading]
   );
 
-  const handleSearchChange = useCallback((text: string) => {
-    setSearchText(text);
-  }, []);
+  const handleSearchChange = useCallback(
+    (text: string) => {
+      if (isEditing) {
+        setEditorSearchText(text);
+        return;
+      }
 
-  const handleSearchPanelToggle = useCallback((open: boolean) => {
-    setSearchPanelOpen(open);
-  }, []);
+      setViewerSearchText(text);
+    },
+    [isEditing]
+  );
+
+  const activeEditorSearchText = isEditing && searchPanelOpen ? editorSearchText : "";
+
+  const handleSearchPanelToggle = useCallback(
+    (open: boolean) => {
+      if (open) {
+        setSearchPanelOpen(true);
+        return;
+      }
+
+      closeSearchPanel({ preserveQuery: isEditing, restoreEditorFocus: false });
+    },
+    [closeSearchPanel, isEditing]
+  );
+
+  const handleSearchClose = useCallback(
+    (reason: MarkdownSearchCloseReason) => {
+      closeSearchPanel({ preserveQuery: isEditing, restoreEditorFocus: isEditing && reason === "escape" });
+    },
+    [closeSearchPanel, isEditing]
+  );
 
   const runEditorCommand = useCallback(
     (commandLabel: string, command: () => void) => {
@@ -1123,7 +1203,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 void handleRequestClose();
               }}
               search={{
-                searchText,
+                searchText: currentSearchText,
                 onSearchChange: handleSearchChange,
                 searchMatches,
                 currentMatch: currentSearchMatch,
@@ -1131,6 +1211,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 onSearchPrevious: handleSearchPrevious,
                 searchPanelOpen,
                 onSearchPanelToggle: handleSearchPanelToggle,
+                onSearchClose: handleSearchClose,
+                clearSearchOnClose: !isEditing,
                 isSearchable,
                 searchUnavailableTitle: isEditing ? t("viewer.edit.searchUnavailable") : undefined,
               }}
@@ -1223,7 +1305,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     ariaLabel={t("viewer.edit.editorLabel")}
                     autoFocus={true}
                     readOnly={isSaving}
-                    searchText={searchText}
+                    searchText={activeEditorSearchText}
                     searchOpen={searchPanelOpen}
                     onSearchStateChange={setEditorSearchState}
                   />

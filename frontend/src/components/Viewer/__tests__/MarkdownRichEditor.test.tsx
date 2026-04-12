@@ -63,6 +63,7 @@ vi.mock("@mdxeditor/gurx", () => ({
 
 const mockSearchState = {
   closeSearch: vi.fn(),
+  currentRange: null as Range | null,
   cursor: 0,
   isSearchOpen: true,
   next: vi.fn(),
@@ -230,6 +231,32 @@ describe("MarkdownRichEditor", () => {
       expect(mockSearchState.openSearch).toHaveBeenCalled();
       expect(mockSearchState.next).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("closes highlights while retaining the query when the panel closes", async () => {
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockSearchState.openSearch).toHaveBeenCalled();
+    });
+
+    mockSearchState.closeSearch.mockClear();
+
+    rerender(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={false} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockSearchState.setSearch).toHaveBeenLastCalledWith("alpha");
+    });
+
+    expect(mockSearchState.closeSearch).toHaveBeenCalledTimes(1);
   });
 
   it("passes native autofocus through to MDXEditor only on initial mount", async () => {

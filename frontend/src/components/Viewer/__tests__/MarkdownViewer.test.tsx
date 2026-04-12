@@ -9,7 +9,10 @@ import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 const mockMarkdownEditorBehavior = {
   changeBeforeUserEdit: false,
   delayFocus: false,
+  focusCurrentSearchResultCalls: 0,
   focusResetsScrollPosition: false,
+  lastSearchOpen: false,
+  lastSearchText: "",
   lastRestoredScrollTop: null as number | null,
   preserveSelectionCalls: 0,
   restorePreservedSelectionCalls: 0,
@@ -32,6 +35,7 @@ vi.mock("../MarkdownRichEditor", () => {
       focus: () => void;
       preserveSelection: () => void;
       restorePreservedSelection: () => boolean;
+      focusCurrentSearchResult: () => boolean;
       nextSearchResult: () => void;
       previousSearchResult: () => void;
       createLink: () => void;
@@ -67,6 +71,9 @@ vi.mock("../MarkdownRichEditor", () => {
       if (mockMarkdownEditorBehavior.throwOnRender) {
         throw new Error("Editor render failed");
       }
+
+      mockMarkdownEditorBehavior.lastSearchOpen = searchOpen;
+      mockMarkdownEditorBehavior.lastSearchText = searchText;
 
       const textareaRef = useRef<HTMLTextAreaElement | null>(null);
       const preservedSelectionRef = useRef<{
@@ -161,6 +168,17 @@ vi.mock("../MarkdownRichEditor", () => {
           }
 
           return restored;
+        },
+        focusCurrentSearchResult: () => {
+          mockMarkdownEditorBehavior.focusCurrentSearchResultCalls += 1;
+          const textarea = textareaRef.current;
+
+          if (!textarea) {
+            return false;
+          }
+
+          textarea.focus({ preventScroll: true });
+          return document.activeElement === textarea;
         },
         nextSearchResult: () => {
           if (!searchText) {
@@ -268,7 +286,10 @@ describe("MarkdownViewer", () => {
     vi.restoreAllMocks();
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
     mockMarkdownEditorBehavior.delayFocus = false;
+    mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
+    mockMarkdownEditorBehavior.lastSearchOpen = false;
+    mockMarkdownEditorBehavior.lastSearchText = "";
     mockMarkdownEditorBehavior.lastRestoredScrollTop = null;
     mockMarkdownEditorBehavior.preserveSelectionCalls = 0;
     mockMarkdownEditorBehavior.restorePreservedSelectionCalls = 0;
@@ -1079,6 +1100,75 @@ describe("MarkdownViewer", () => {
 
     await waitFor(() => {
       expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    });
+  });
+
+  it("returns focus to the active editor match when edit-mode search is dismissed with Escape", async () => {
+    const onClose = vi.fn();
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewerWithProps({ onClose });
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const searchInput = await viewerSearch.openSearch("alpha");
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(editor).toHaveFocus();
+    });
+
+    expect(mockMarkdownEditorBehavior.focusCurrentSearchResultCalls).toBeGreaterThan(0);
+    expect(mockMarkdownEditorBehavior.lastSearchOpen).toBe(false);
+    expect(mockMarkdownEditorBehavior.lastSearchText).toBe("");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Search")).toHaveValue("alpha");
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+  });
+
+  it("does not restore preview highlights after exiting edit mode when edit search was already closed", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const searchInput = await viewerSearch.openSearch("alpha");
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(editor).toHaveFocus();
+    });
+
+    fireEvent.keyDown(editor, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", { name: "Markdown editor" })).not.toBeInTheDocument();
+      expect(document.querySelectorAll('mark[data-text-search-highlight="true"]').length).toBe(0);
     });
   });
 
