@@ -194,3 +194,166 @@ test("keeps the markdown editor viewport stable after cancelling the unsaved cha
   await expect(editor).toBeFocused();
   await expect.poll(async () => editorWrapper.evaluate((element) => (element as HTMLElement).scrollTop)).toBe(wrapperScrollTopBefore);
 });
+
+test("enters markdown edit mode without refetching the file or remounting the editor subtree", async ({ page }) => {
+  let viewerFileRequestCount = 0;
+
+  await page.route("**/api/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const pathname = url.pathname;
+
+    if (pathname.endsWith("/auth/config")) {
+      await fulfillJson(route, { auth_method: "none" });
+      return;
+    }
+
+    if (pathname.endsWith("/logs/config")) {
+      await fulfillJson(route, {
+        logging_enabled: false,
+        logging_level: "WARNING",
+        tracing_enabled: false,
+        tracing_level: "ERROR",
+        tracing_components: [],
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/auth/me")) {
+      await fulfillJson(route, {
+        id: "user-1",
+        username: "demo-admin",
+        role: "admin",
+        is_active: true,
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/connections")) {
+      await fulfillJson(route, [
+        {
+          id: demoConnectionId,
+          name: "Demo",
+          slug: "demo",
+          type: "smb",
+          host: "demo.local",
+          port: 445,
+          share_name: "data",
+          username: "demo\\tester",
+          path_prefix: "\\Demo",
+          scope: "private",
+          access_mode: "read_write",
+          can_manage: true,
+          created_at: "2026-02-13T20:22:41.779354",
+          updated_at: "2026-04-12T10:15:47.930127",
+        },
+      ]);
+      return;
+    }
+
+    if (pathname === `/api/browse/${demoConnectionId}/list`) {
+      await fulfillJson(route, {
+        path: "/",
+        items: [
+          {
+            name: demoPath,
+            path: demoPath,
+            type: "file",
+            size: initialMarkdown.length,
+            mime_type: "text/markdown",
+            modified_at: "2026-04-12T12:00:00Z",
+          },
+        ],
+      });
+      return;
+    }
+
+    if (pathname === `/api/viewer/${demoConnectionId}/file`) {
+      viewerFileRequestCount += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/markdown; charset=utf-8",
+        body: initialMarkdown,
+      });
+      return;
+    }
+
+    if (pathname === `/api/companion/${demoConnectionId}/lock` && request.method() === "POST") {
+      await fulfillJson(route, {
+        lock_id: "lock-1",
+        file_path: demoPath,
+        locked_by: "demo-admin",
+        locked_at: "2026-04-12T12:00:00Z",
+      });
+      return;
+    }
+
+    if (pathname === `/api/companion/${demoConnectionId}/lock/heartbeat` && request.method() === "POST") {
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+
+    if (pathname === `/api/companion/${demoConnectionId}/lock` && request.method() === "DELETE") {
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+
+    await fulfillJson(route, { detail: `Unhandled mocked route: ${request.method()} ${pathname}` }, 404);
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByTestId("markdown-viewer-content").waitFor();
+
+  await expect.poll(() => viewerFileRequestCount).toBeGreaterThan(0);
+  const viewerFileRequestCountBeforeEdit = viewerFileRequestCount;
+
+  await page.evaluate(() => {
+    const target = document.querySelector('[data-testid="markdown-viewer-content"]');
+
+    if (!(target instanceof HTMLElement)) {
+      throw new Error("Expected markdown viewer content to exist");
+    }
+
+    const events: Array<{ type: "added" | "removed"; node: string }> = [];
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (!(node instanceof HTMLElement)) {
+            continue;
+          }
+
+          if (node.matches(".sambee-markdown-editor") || node.querySelector(".sambee-markdown-editor")) {
+            events.push({ type: "added", node: node.className });
+          }
+        }
+
+        for (const node of record.removedNodes) {
+          if (!(node instanceof HTMLElement)) {
+            continue;
+          }
+
+          if (node.matches(".sambee-markdown-editor") || node.querySelector(".sambee-markdown-editor")) {
+            events.push({ type: "removed", node: node.className });
+          }
+        }
+      }
+    });
+
+    observer.observe(target, { childList: true, subtree: true });
+    window.__markdownEditorMountEvents = events;
+    window.__markdownEditorMountObserver = observer;
+  });
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  const mountEvents = await page.evaluate(() => {
+    const observer = window.__markdownEditorMountObserver;
+    observer?.disconnect();
+    return window.__markdownEditorMountEvents;
+  });
+
+  expect(viewerFileRequestCount).toBe(viewerFileRequestCountBeforeEdit);
+  expect(mountEvents).toEqual([{ type: "added", node: expect.stringContaining("sambee-markdown-editor") }]);
+});
