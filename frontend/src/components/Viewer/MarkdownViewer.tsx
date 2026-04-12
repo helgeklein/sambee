@@ -39,6 +39,13 @@ import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supp
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import MarkdownRichEditor, { type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
+import {
+  MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS,
+  MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
+  MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
+  MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
+} from "./markdownEditorConstants";
+import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { createCancelToolbarAction, createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
 import "highlight.js/styles/github.css";
@@ -137,11 +144,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const dialogRef = useRef<HTMLDivElement>(null);
   const unsavedChangesCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const lockHeldRef = useRef(false);
-  const hasUserEditedRef = useRef(false);
-  const allowBaselineSyncRef = useRef(false);
-  const pendingRestoreEditorFocusRef = useRef(false);
-  const pendingBaselineSyncTimeoutRef = useRef<number | null>(null);
-  const baselineSyncWindowTimeoutRef = useRef<number | null>(null);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const prefetchedShareFileRef = useRef<File | null>(null);
   const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
@@ -172,7 +174,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       return;
     }
 
-    const timeoutIds = [0, 32, 96, 180].map((delayMs) =>
+    const timeoutIds = MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS.map((delayMs) =>
       window.setTimeout(() => {
         if (editorRef.current?.restorePreservedSelection() === true) {
           return;
@@ -188,6 +190,26 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       }
     };
   }, [isEditing]);
+
+  const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
+
+  const {
+    beginBaselineSyncWindow,
+    clearBaselineSyncWindow,
+    clearPendingBaselineSync,
+    handleEditorChange,
+    handleEditorUserEdit,
+    markEditSessionPristine,
+    requestRestoreEditingFocus,
+  } = useMarkdownEditSession({
+    isEditing,
+    isSaving,
+    contentRef,
+    hasPendingUnsavedChangesAction: unsavedChangesDialogOpen,
+    restoreEditingFocus,
+    setDraftContent,
+    setEditBaselineContent,
+  });
 
   // Load markdown content
   useEffect(() => {
@@ -243,7 +265,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       // Small delay to ensure dialog transition is complete
       setTimeout(() => {
         focusViewerContent();
-      }, 100);
+      }, MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS);
     }
   }, [error, focusViewerContent, isEditing, loading]);
 
@@ -252,8 +274,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       return;
     }
 
-    const focusDelaysMs = [0, 16, 48];
-    const timeoutIds = focusDelaysMs.map((delayMs) =>
+    const timeoutIds = MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS.map((delayMs) =>
       window.setTimeout(() => {
         editorRef.current?.focus();
       }, delayMs)
@@ -266,18 +287,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     };
   }, [isEditing]);
 
-  useEffect(() => {
-    if (!isEditing || isSaving || !pendingRestoreEditorFocusRef.current || pendingUnsavedChangesAction !== null) {
-      return;
-    }
-
-    pendingRestoreEditorFocusRef.current = false;
-
-    return restoreEditingFocus();
-  }, [isEditing, isSaving, pendingUnsavedChangesAction, restoreEditingFocus]);
-
   const hasUnsavedChanges = isEditing && draftContent !== editBaselineContent;
-  const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
   const unsavedChangesIndicator = hasUnsavedChanges ? (
     <Box
       component="span"
@@ -308,48 +318,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         {readOnlyIndicator}
       </Box>
     ) : null;
-
-  const clearPendingBaselineSync = useCallback(() => {
-    if (pendingBaselineSyncTimeoutRef.current !== null) {
-      window.clearTimeout(pendingBaselineSyncTimeoutRef.current);
-      pendingBaselineSyncTimeoutRef.current = null;
-    }
-  }, []);
-
-  const clearBaselineSyncWindow = useCallback(() => {
-    if (baselineSyncWindowTimeoutRef.current !== null) {
-      window.clearTimeout(baselineSyncWindowTimeoutRef.current);
-      baselineSyncWindowTimeoutRef.current = null;
-    }
-
-    allowBaselineSyncRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    if (!isEditing) {
-      return;
-    }
-
-    const interactionRoot = contentRef.current;
-
-    if (!interactionRoot) {
-      return;
-    }
-
-    const handleEditorFocusIn = (event: FocusEvent) => {
-      const target = event.target;
-
-      if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
-        clearBaselineSyncWindow();
-      }
-    };
-
-    interactionRoot.addEventListener("focusin", handleEditorFocusIn);
-
-    return () => {
-      interactionRoot.removeEventListener("focusin", handleEditorFocusIn);
-    };
-  }, [clearBaselineSyncWindow, isEditing]);
 
   const releaseEditLock = useCallback(async () => {
     if (!lockHeld) {
@@ -531,14 +499,14 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       await releaseEditLock();
       setDraftContent(nextContent);
       setEditBaselineContent(nextContent);
-      hasUserEditedRef.current = false;
+      markEditSessionPristine();
       setEditError(null);
       setEditorFailed(false);
       setEditorBoundaryKey((previousKey) => previousKey + 1);
       setIsEditing(false);
       setPendingUnsavedChangesAction(null);
     },
-    [clearBaselineSyncWindow, clearPendingBaselineSync, content, releaseEditLock]
+    [clearBaselineSyncWindow, clearPendingBaselineSync, content, markEditSessionPristine, releaseEditLock]
   );
 
   const closeViewer = useCallback(async () => {
@@ -565,13 +533,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       setDraftContent(content);
       setEditBaselineContent(content);
       clearPendingBaselineSync();
-      clearBaselineSyncWindow();
-      allowBaselineSyncRef.current = true;
-      baselineSyncWindowTimeoutRef.current = window.setTimeout(() => {
-        baselineSyncWindowTimeoutRef.current = null;
-        allowBaselineSyncRef.current = false;
-      }, 200);
-      hasUserEditedRef.current = false;
+      beginBaselineSyncWindow();
+      markEditSessionPristine();
       setEditorFailed(false);
       setEditorBoundaryKey((previousKey) => previousKey + 1);
       setIsEditing(true);
@@ -580,7 +543,19 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       setEditError(t("viewer.edit.lockFailed", { message }));
       logError("Failed to enter markdown edit mode", { error: err, path, connectionId });
     }
-  }, [clearBaselineSyncWindow, clearPendingBaselineSync, connectionId, content, error, isReadOnly, loading, path, supportsEditLocks, t]);
+  }, [
+    beginBaselineSyncWindow,
+    clearPendingBaselineSync,
+    connectionId,
+    content,
+    error,
+    isReadOnly,
+    loading,
+    markEditSessionPristine,
+    path,
+    supportsEditLocks,
+    t,
+  ]);
 
   const handleCancelEdit = useCallback(async () => {
     if (hasUnsavedChanges) {
@@ -601,7 +576,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         return false;
       }
 
-      pendingRestoreEditorFocusRef.current = afterSave === "stay-edit";
+      if (afterSave === "stay-edit") {
+        requestRestoreEditingFocus();
+      }
 
       if (afterSave === "stay-edit") {
         editorRef.current?.preserveSelection();
@@ -619,7 +596,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         setContent(savedContent);
         setEditBaselineContent(savedContent);
         clearBaselineSyncWindow();
-        hasUserEditedRef.current = false;
+        markEditSessionPristine();
 
         if (afterSave === "close-viewer") {
           await closeViewer();
@@ -636,7 +613,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         setIsSaving(false);
       }
     },
-    [clearBaselineSyncWindow, closeViewer, connectionId, draftContent, exitEditMode, filename, isEditing, isReadOnly, path, t]
+    [
+      clearBaselineSyncWindow,
+      closeViewer,
+      connectionId,
+      draftContent,
+      exitEditMode,
+      filename,
+      isEditing,
+      isReadOnly,
+      markEditSessionPristine,
+      path,
+      requestRestoreEditingFocus,
+      t,
+    ]
   );
 
   const handleSave = useCallback(async () => {
@@ -669,7 +659,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     window.setTimeout(() => {
       cleanupFocus();
-    }, 120);
+    }, MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS);
   }, [restoreEditingFocus]);
 
   const handleUnsavedChangesDialogEntered = useCallback(() => {
@@ -813,37 +803,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       editorRef.current?.insertCodeBlock();
     });
   }, [runEditorCommand, t]);
-
-  const handleEditorChange = useCallback(
-    (nextMarkdown: string) => {
-      if (isEditing && allowBaselineSyncRef.current && !hasUserEditedRef.current) {
-        clearPendingBaselineSync();
-        pendingBaselineSyncTimeoutRef.current = window.setTimeout(() => {
-          pendingBaselineSyncTimeoutRef.current = null;
-
-          if (allowBaselineSyncRef.current && !hasUserEditedRef.current) {
-            setEditBaselineContent(nextMarkdown);
-          }
-        }, 0);
-      }
-
-      setDraftContent(nextMarkdown);
-    },
-    [clearPendingBaselineSync, isEditing]
-  );
-
-  const handleEditorUserEdit = useCallback(() => {
-    clearPendingBaselineSync();
-    clearBaselineSyncWindow();
-    hasUserEditedRef.current = true;
-  }, [clearBaselineSyncWindow, clearPendingBaselineSync]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingBaselineSync();
-      clearBaselineSyncWindow();
-    };
-  }, [clearBaselineSyncWindow, clearPendingBaselineSync]);
 
   const handleSearchNext = useCallback(
     (_event?: KeyboardEvent) => {

@@ -42,7 +42,22 @@ import "@mdxeditor/editor/style.css";
 import { mergeRegister } from "@lexical/utils";
 import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
 import { Box } from "@mui/material";
-import { CAN_REDO_COMMAND, CAN_UNDO_COMMAND, COMMAND_PRIORITY_CRITICAL, REDO_COMMAND, UNDO_COMMAND } from "lexical";
+import {
+  $createNodeSelection,
+  $createRangeSelection,
+  $getNodeByKey,
+  $getSelection,
+  $isNodeSelection,
+  $isRangeSelection,
+  $setSelection,
+  CAN_REDO_COMMAND,
+  CAN_UNDO_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
+  type LexicalEditor,
+  type NodeKey,
+  REDO_COMMAND,
+  UNDO_COMMAND,
+} from "lexical";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
@@ -50,6 +65,7 @@ import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { useSambeeTheme } from "../../theme";
 import { Z_INDEX } from "../../theme/constants";
 import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
+import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
@@ -85,8 +101,23 @@ type MarkdownRichEditorSelectionSnapshot =
       direction: "forward" | "backward" | "none";
     }
   | {
-      type: "dom-range";
-      range: Range;
+      type: "lexical-range";
+      anchor: {
+        key: NodeKey;
+        offset: number;
+        type: "text" | "element";
+      };
+      focus: {
+        key: NodeKey;
+        offset: number;
+        type: "text" | "element";
+      };
+      format: number;
+      style: string;
+    }
+  | {
+      type: "lexical-node";
+      keys: NodeKey[];
     };
 
 export interface MarkdownRichEditorSearchState {
@@ -143,6 +174,20 @@ const NOOP_EDITOR_COMMANDS: MarkdownRichEditorCommands = {
   insertThematicBreak: () => {},
   toggleInlineCode: () => {},
   insertCodeBlock: () => {},
+};
+
+const MarkdownActiveEditorBridge = ({ onActiveEditorChange }: { onActiveEditorChange: (editor: LexicalEditor | null) => void }) => {
+  const activeEditor = useCellValue(activeEditor$);
+
+  useEffect(() => {
+    onActiveEditorChange(activeEditor);
+
+    return () => {
+      onActiveEditorChange(null);
+    };
+  }, [activeEditor, onActiveEditorChange]);
+
+  return null;
 };
 
 const MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS = {
@@ -492,6 +537,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
   ) => {
     const editorRef = useRef<MDXEditorMethods>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const activeEditorRef = useRef<LexicalEditor | null>(null);
     const preservedSelectionRef = useRef<MarkdownRichEditorSelectionSnapshot | null>(null);
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
@@ -538,22 +584,42 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         return null;
       }
 
-      const selection = window.getSelection();
+      const activeEditor = activeEditorRef.current;
 
-      if (!selection || selection.rangeCount === 0) {
+      if (!activeEditor) {
         return null;
       }
 
-      const range = selection.getRangeAt(0);
+      return activeEditor.getEditorState().read(() => {
+        const selection = $getSelection();
 
-      if (!editable.contains(range.startContainer) || !editable.contains(range.endContainer)) {
+        if ($isRangeSelection(selection)) {
+          return {
+            type: "lexical-range",
+            anchor: {
+              key: selection.anchor.key,
+              offset: selection.anchor.offset,
+              type: selection.anchor.type,
+            },
+            focus: {
+              key: selection.focus.key,
+              offset: selection.focus.offset,
+              type: selection.focus.type,
+            },
+            format: selection.format,
+            style: selection.style,
+          };
+        }
+
+        if ($isNodeSelection(selection)) {
+          return {
+            type: "lexical-node",
+            keys: selection.getNodes().map((node) => node.getKey()),
+          };
+        }
+
         return null;
-      }
-
-      return {
-        type: "dom-range",
-        range: range.cloneRange(),
-      };
+      });
     }, []);
 
     const restoreSelection = useCallback(
@@ -574,30 +640,52 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return document.activeElement === editable;
         }
 
-        if (!(editable instanceof HTMLElement)) {
-          return false;
-        }
+        const activeEditor = activeEditorRef.current;
 
-        const { range } = selectionSnapshot;
-
-        if (!range.startContainer.isConnected || !range.endContainer.isConnected) {
+        if (!(editable instanceof HTMLElement) || !activeEditor) {
           return focusEditableArea();
         }
 
-        if (!editable.contains(range.startContainer) || !editable.contains(range.endContainer)) {
-          return focusEditableArea();
-        }
+        let restored = false;
 
-        editable.focus();
-        const selection = window.getSelection();
+        activeEditor.focus(() => {
+          activeEditor.update(
+            () => {
+              if (selectionSnapshot.type === "lexical-range") {
+                if (!$getNodeByKey(selectionSnapshot.anchor.key) || !$getNodeByKey(selectionSnapshot.focus.key)) {
+                  return;
+                }
 
-        if (!selection) {
-          return false;
-        }
+                const rangeSelection = $createRangeSelection();
+                rangeSelection.anchor.set(selectionSnapshot.anchor.key, selectionSnapshot.anchor.offset, selectionSnapshot.anchor.type);
+                rangeSelection.focus.set(selectionSnapshot.focus.key, selectionSnapshot.focus.offset, selectionSnapshot.focus.type);
+                rangeSelection.format = selectionSnapshot.format;
+                rangeSelection.style = selectionSnapshot.style;
+                $setSelection(rangeSelection);
+                restored = true;
+                return;
+              }
 
-        selection.removeAllRanges();
-        selection.addRange(range);
-        return true;
+              const restoredNodeKeys = selectionSnapshot.keys.filter((key) => $getNodeByKey(key) !== null);
+
+              if (restoredNodeKeys.length === 0) {
+                return;
+              }
+
+              const nodeSelection = $createNodeSelection();
+
+              for (const key of restoredNodeKeys) {
+                nodeSelection.add(key);
+              }
+
+              $setSelection(nodeSelection);
+              restored = true;
+            },
+            { discrete: true }
+          );
+        });
+
+        return restored || focusEditableArea();
       },
       [focusEditableArea]
     );
@@ -703,8 +791,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         }
       };
 
-      const focusDelayMs = [0, 25, 75, 150, 300];
-      const timeoutIds = focusDelayMs.map((delayMs) => window.setTimeout(attemptFocus, delayMs));
+      const timeoutIds = MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS.map((delayMs) => window.setTimeout(attemptFocus, delayMs));
       const interactionRoot = containerRef.current;
 
       const observer = new MutationObserver(() => {
@@ -785,6 +872,11 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 onSearchStateChange={onSearchStateChange}
                 onCommandsChange={(commands) => {
                   searchCommandsRef.current = commands ?? NOOP_SEARCH_COMMANDS;
+                }}
+              />
+              <MarkdownActiveEditorBridge
+                onActiveEditorChange={(editor) => {
+                  activeEditorRef.current = editor;
                 }}
               />
               <MarkdownRichEditorCommandBridge

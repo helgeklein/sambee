@@ -11,6 +11,13 @@ const { mockCodeBlockPlugin, mockCodeMirrorPlugin, mockMdxEditorAutoFocusHistory
 }));
 
 const mockApplyFormat = vi.fn();
+const mockLexicalFocus = vi.fn((callback?: () => void) => {
+  callback?.();
+});
+const mockLexicalUpdate = vi.fn((updateFn: () => void) => {
+  updateFn();
+});
+const mockLexicalRead = vi.fn(<T,>(callback: () => T) => callback());
 const mockCreateLink = vi.fn();
 const mockInsertCodeBlock = vi.fn();
 const mockInsertTable = vi.fn();
@@ -139,7 +146,21 @@ vi.mock("@mdxeditor/editor", () => {
         {children}
       </button>
     ),
-    useCellValue: (signal: unknown) => (String(signal).includes("editorInTable") ? false : "rich-text"),
+    useCellValue: (signal: unknown) => {
+      if (String(signal).includes("editorInTable")) {
+        return false;
+      }
+
+      if (String(signal).includes("activeEditor")) {
+        return {
+          focus: mockLexicalFocus,
+          getEditorState: () => ({ read: mockLexicalRead }),
+          update: mockLexicalUpdate,
+        };
+      }
+
+      return "rich-text";
+    },
     useEditorSearch: () => mockSearchState,
     currentFormat$: Symbol("currentFormat"),
     iconComponentFor$: Symbol("iconComponentFor"),
@@ -176,6 +197,9 @@ describe("MarkdownRichEditor", () => {
 
   beforeEach(() => {
     mockApplyFormat.mockReset();
+    mockLexicalFocus.mockClear();
+    mockLexicalRead.mockClear();
+    mockLexicalUpdate.mockClear();
     mockCreateLink.mockReset();
     mockCodeBlockPlugin.mockClear();
     mockCodeMirrorPlugin.mockClear();
