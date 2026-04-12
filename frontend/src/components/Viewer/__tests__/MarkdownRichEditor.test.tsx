@@ -109,16 +109,18 @@ vi.mock("@mdxeditor/editor", () => {
                   <div key={plugin.type}>{plugin.params?.toolbarContents?.()}</div>
                 ))}
             </div>
-            <textarea
-              aria-label="Mock editor input"
-              className={props.contentEditableClassName}
-              defaultValue={props.markdown ?? ""}
-              ref={(element) => {
-                if (element && props.autoFocus) {
-                  element.focus();
-                }
-              }}
-            />
+            <div data-testid="mock-editor-scroll-parent" style={{ overflow: "auto", maxHeight: 120 }}>
+              <textarea
+                aria-label="Mock editor input"
+                className={props.contentEditableClassName}
+                defaultValue={props.markdown ?? ""}
+                ref={(element) => {
+                  if (element && props.autoFocus) {
+                    element.focus();
+                  }
+                }}
+              />
+            </div>
           </div>
         );
       }
@@ -260,13 +262,16 @@ describe("MarkdownRichEditor", () => {
     );
 
     const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
+    const scrollParent = document.querySelector('[data-testid="mock-editor-scroll-parent"]');
 
-    if (!(editorInput instanceof HTMLTextAreaElement)) {
+    if (!(editorInput instanceof HTMLTextAreaElement) || !(scrollParent instanceof HTMLDivElement)) {
       throw new Error("Expected mock editor input to exist");
     }
 
     editorInput.focus();
     editorInput.setSelectionRange(2, 4);
+    editorInput.scrollTop = 180;
+    scrollParent.scrollTop = 90;
 
     if (!editorRef.current) {
       throw new Error("Expected markdown editor ref handle");
@@ -274,10 +279,47 @@ describe("MarkdownRichEditor", () => {
 
     editorRef.current.preserveSelection();
     editorInput.setSelectionRange(0, 0);
+    editorInput.scrollTop = 0;
+    scrollParent.scrollTop = 0;
 
     expect(editorRef.current.restorePreservedSelection()).toBe(true);
     expect(editorInput.selectionStart).toBe(2);
     expect(editorInput.selectionEnd).toBe(4);
+    expect(editorInput.scrollTop).toBe(180);
+    expect(scrollParent.scrollTop).toBe(90);
+  });
+
+  it("restores preserved selection without allowing focus to scroll the editor viewport", async () => {
+    const editorRef = createRef<{
+      preserveSelection: () => void;
+      restorePreservedSelection: () => boolean;
+    }>();
+
+    render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor ref={editorRef} markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />
+      </SambeeThemeProvider>
+    );
+
+    const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
+
+    if (!(editorInput instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected mock editor input to exist");
+    }
+
+    const focusSpy = vi.spyOn(editorInput, "focus");
+
+    editorInput.focus();
+    editorInput.setSelectionRange(1, 3);
+
+    if (!editorRef.current) {
+      throw new Error("Expected markdown editor ref handle");
+    }
+
+    editorRef.current.preserveSelection();
+    editorRef.current.restorePreservedSelection();
+
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it("stops autofocus after the editor input is focused so toolbar interactions keep focus", async () => {

@@ -93,12 +93,23 @@ export interface MarkdownRichEditorHandle {
   insertCodeBlock: () => void;
 }
 
+interface MarkdownRichEditorViewportAnchor {
+  element: HTMLElement;
+  scrollTop: number;
+  scrollLeft: number;
+}
+
+interface MarkdownRichEditorViewportSnapshot {
+  anchors: MarkdownRichEditorViewportAnchor[];
+}
+
 type MarkdownRichEditorSelectionSnapshot =
   | {
       type: "textarea";
       start: number;
       end: number;
       direction: "forward" | "backward" | "none";
+      viewport: MarkdownRichEditorViewportSnapshot;
     }
   | {
       type: "lexical-range";
@@ -114,10 +125,12 @@ type MarkdownRichEditorSelectionSnapshot =
       };
       format: number;
       style: string;
+      viewport: MarkdownRichEditorViewportSnapshot;
     }
   | {
       type: "lexical-node";
       keys: NodeKey[];
+      viewport: MarkdownRichEditorViewportSnapshot;
     };
 
 export interface MarkdownRichEditorSearchState {
@@ -557,15 +570,50 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       });
     }, []);
 
-    const focusEditableArea = useCallback(() => {
+    const focusEditableArea = useCallback((preventScroll = false) => {
       const editable = containerRef.current?.querySelector('[contenteditable="true"], textarea');
 
       if (!(editable instanceof HTMLElement)) {
         return false;
       }
 
-      editable.focus();
+      editable.focus({ preventScroll });
       return document.activeElement === editable;
+    }, []);
+
+    const captureViewport = useCallback((editable: HTMLElement): MarkdownRichEditorViewportSnapshot => {
+      const anchors: MarkdownRichEditorViewportAnchor[] = [];
+      let element: HTMLElement | null = editable;
+
+      while (element) {
+        if (element.scrollTop !== 0 || element.scrollLeft !== 0) {
+          anchors.push({
+            element,
+            scrollTop: element.scrollTop,
+            scrollLeft: element.scrollLeft,
+          });
+        }
+
+        element = element.parentElement;
+      }
+
+      return { anchors };
+    }, []);
+
+    const restoreViewport = useCallback((viewport: MarkdownRichEditorViewportSnapshot) => {
+      const applyViewport = () => {
+        for (const anchor of [...viewport.anchors].reverse()) {
+          if (!anchor.element.isConnected) {
+            continue;
+          }
+
+          anchor.element.scrollTop = anchor.scrollTop;
+          anchor.element.scrollLeft = anchor.scrollLeft;
+        }
+      };
+
+      applyViewport();
+      requestAnimationFrame(applyViewport);
     }, []);
 
     const captureSelection = useCallback((): MarkdownRichEditorSelectionSnapshot | null => {
@@ -577,6 +625,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           start: editable.selectionStart ?? 0,
           end: editable.selectionEnd ?? 0,
           direction: editable.selectionDirection ?? "none",
+          viewport: captureViewport(editable),
         };
       }
 
@@ -608,6 +657,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             },
             format: selection.format,
             style: selection.style,
+            viewport: captureViewport(editable),
           };
         }
 
@@ -615,12 +665,13 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return {
             type: "lexical-node",
             keys: selection.getNodes().map((node) => node.getKey()),
+            viewport: captureViewport(editable),
           };
         }
 
         return null;
       });
-    }, []);
+    }, [captureViewport]);
 
     const restoreSelection = useCallback(
       (selectionSnapshot: MarkdownRichEditorSelectionSnapshot | null): boolean => {
@@ -635,8 +686,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             return focusEditableArea();
           }
 
-          editable.focus();
+          editable.focus({ preventScroll: true });
           editable.setSelectionRange(selectionSnapshot.start, selectionSnapshot.end, selectionSnapshot.direction);
+          restoreViewport(selectionSnapshot.viewport);
           return document.activeElement === editable;
         }
 
@@ -648,46 +700,49 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
 
         let restored = false;
 
-        activeEditor.focus(() => {
-          activeEditor.update(
-            () => {
-              if (selectionSnapshot.type === "lexical-range") {
-                if (!$getNodeByKey(selectionSnapshot.anchor.key) || !$getNodeByKey(selectionSnapshot.focus.key)) {
-                  return;
-                }
-
-                const rangeSelection = $createRangeSelection();
-                rangeSelection.anchor.set(selectionSnapshot.anchor.key, selectionSnapshot.anchor.offset, selectionSnapshot.anchor.type);
-                rangeSelection.focus.set(selectionSnapshot.focus.key, selectionSnapshot.focus.offset, selectionSnapshot.focus.type);
-                rangeSelection.format = selectionSnapshot.format;
-                rangeSelection.style = selectionSnapshot.style;
-                $setSelection(rangeSelection);
-                restored = true;
+        editable.focus({ preventScroll: true });
+        activeEditor.update(
+          () => {
+            if (selectionSnapshot.type === "lexical-range") {
+              if (!$getNodeByKey(selectionSnapshot.anchor.key) || !$getNodeByKey(selectionSnapshot.focus.key)) {
                 return;
               }
 
-              const restoredNodeKeys = selectionSnapshot.keys.filter((key) => $getNodeByKey(key) !== null);
-
-              if (restoredNodeKeys.length === 0) {
-                return;
-              }
-
-              const nodeSelection = $createNodeSelection();
-
-              for (const key of restoredNodeKeys) {
-                nodeSelection.add(key);
-              }
-
-              $setSelection(nodeSelection);
+              const rangeSelection = $createRangeSelection();
+              rangeSelection.anchor.set(selectionSnapshot.anchor.key, selectionSnapshot.anchor.offset, selectionSnapshot.anchor.type);
+              rangeSelection.focus.set(selectionSnapshot.focus.key, selectionSnapshot.focus.offset, selectionSnapshot.focus.type);
+              rangeSelection.format = selectionSnapshot.format;
+              rangeSelection.style = selectionSnapshot.style;
+              $setSelection(rangeSelection);
               restored = true;
-            },
-            { discrete: true }
-          );
-        });
+              return;
+            }
+
+            const restoredNodeKeys = selectionSnapshot.keys.filter((key) => $getNodeByKey(key) !== null);
+
+            if (restoredNodeKeys.length === 0) {
+              return;
+            }
+
+            const nodeSelection = $createNodeSelection();
+
+            for (const key of restoredNodeKeys) {
+              nodeSelection.add(key);
+            }
+
+            $setSelection(nodeSelection);
+            restored = true;
+          },
+          { discrete: true }
+        );
+
+        if (restored) {
+          restoreViewport(selectionSnapshot.viewport);
+        }
 
         return restored || focusEditableArea();
       },
-      [focusEditableArea]
+      [focusEditableArea, restoreViewport]
     );
 
     useImperativeHandle(

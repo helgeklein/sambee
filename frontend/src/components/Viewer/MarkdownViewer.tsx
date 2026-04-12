@@ -105,6 +105,10 @@ function getEditorErrorMessage(error: unknown, fallbackMessage: string): string 
 
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
 
+function preserveMarkdownEditorSelection(editorRef: React.RefObject<MarkdownRichEditorHandle | null>): void {
+  editorRef.current?.preserveSelection();
+}
+
 /**
  * Markdown Viewer Component
  * Displays markdown files with syntax highlighting and GitHub-flavored markdown support.
@@ -174,20 +178,47 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       return;
     }
 
-    const timeoutIds = MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS.map((delayMs) =>
+    let settled = false;
+    let timeoutIds: number[] = [];
+
+    const settle = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
+      for (const timeoutId of timeoutIds) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+
+    timeoutIds = MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS.map((delayMs) =>
       window.setTimeout(() => {
+        if (settled) {
+          return;
+        }
+
+        if (isMarkdownEditorTextInputFocused()) {
+          settle();
+          return;
+        }
+
         if (editorRef.current?.restorePreservedSelection() === true) {
+          settle();
           return;
         }
 
         editorRef.current?.focus();
+
+        if (isMarkdownEditorTextInputFocused()) {
+          settle();
+        }
       }, delayMs)
     );
 
     return () => {
-      for (const timeoutId of timeoutIds) {
-        window.clearTimeout(timeoutId);
-      }
+      settle();
     };
   }, [isEditing]);
 
@@ -569,6 +600,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   const handleCancelEdit = useCallback(async () => {
     if (hasUnsavedChanges) {
+      preserveMarkdownEditorSelection(editorRef);
       setPendingUnsavedChangesAction("cancel-edit");
       return;
     }
@@ -645,6 +677,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   const handleRequestClose = useCallback(async () => {
     if (isEditing && hasUnsavedChanges) {
+      preserveMarkdownEditorSelection(editorRef);
       setPendingUnsavedChangesAction("close-viewer");
       return;
     }
@@ -1292,6 +1325,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         open={unsavedChangesDialogOpen}
         onClose={handleUnsavedChangesDialogClose}
         aria-labelledby="markdown-unsaved-changes-title"
+        disableRestoreFocus
         TransitionProps={{ onEntered: handleUnsavedChangesDialogEntered, onExited: handleUnsavedChangesDialogExited }}
       >
         <DialogTitle id="markdown-unsaved-changes-title">{t("viewer.edit.unsavedChangesTitle")}</DialogTitle>
