@@ -205,6 +205,16 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const showSearch = search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
   const searchTextLength = search?.searchText.length ?? 0;
   const previousShowSearchRef = useRef(showSearch);
+  const closeSearch = (reason: "escape" | "toggle") => {
+    setShowSearch(false);
+
+    if (search?.clearSearchOnClose !== false) {
+      search?.onSearchChange("");
+    }
+
+    search?.onSearchClose?.(reason);
+  };
+
   const setShowSearch = (open: boolean) => {
     if (search?.onSearchPanelToggle) {
       search.onSearchPanelToggle(open);
@@ -344,6 +354,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         sx={{
           display: "flex",
           alignItems: "center",
+          flexWrap: isMobile && showSearch ? "wrap" : "nowrap",
           gap: isMobile ? theme.spacing(0.5) : theme.spacing(2),
           flex: 1,
           minWidth: 0,
@@ -569,40 +580,141 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           </Box>
         )}
 
-        {/* Search toggle */}
-        {config.search && search && (
-          <IconButton
-            color="inherit"
-            onClick={() => {
-              const nextShowSearch = !showSearch;
-              setShowSearch(nextShowSearch);
+        {/* Search control */}
+        {config.search &&
+          search &&
+          (showSearch ? (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 1,
+                flexShrink: 1,
+                minWidth: 0,
+                width: isMobile ? "min(100%, 320px)" : "320px",
+                maxWidth: isMobile ? "100%" : "360px",
+              }}
+            >
+              <TextField
+                value={search.searchText}
+                onChange={(e) => search.onSearchChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && search.onSearchNext) {
+                    e.preventDefault();
+                    search.onSearchNext();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    closeSearch("escape");
+                  }
+                }}
+                placeholder={t("common.search.placeholder")}
+                size="small"
+                inputRef={searchInputRef}
+                inputProps={{
+                  [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
+                }}
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  "& .MuiInputBase-root": {
+                    color: toolbarText,
+                    fontSize: "0.875rem",
+                  },
+                  "& .MuiOutlinedInput-notchedOutline": {
+                    borderColor: `${toolbarText}4D`,
+                  },
+                  "&:hover .MuiOutlinedInput-notchedOutline": {
+                    borderColor: `${toolbarText}80`,
+                  },
+                  "& .MuiInputBase-input::placeholder": {
+                    color: `${toolbarText}80`,
+                    opacity: 1,
+                  },
+                }}
+              />
 
-              if (!nextShowSearch) {
-                if (search.clearSearchOnClose !== false) {
-                  search.onSearchChange("");
-                }
+              {search.searchMatches !== undefined && search.searchMatches > 0 && (
+                <Typography variant="caption" sx={{ whiteSpace: "nowrap", flexShrink: 0 }}>
+                  {search.currentMatch} / {search.searchMatches}
+                </Typography>
+              )}
 
-                search.onSearchClose?.("toggle");
+              {search.onSearchPrevious && (
+                <IconButton
+                  color="inherit"
+                  onClick={search.onSearchPrevious}
+                  disabled={!search.searchMatches || search.searchMatches === 0}
+                  title={t("common.search.previousMatch")}
+                  aria-label={t("common.search.previousMatch")}
+                  size="small"
+                  sx={{
+                    flexShrink: 0,
+                    "&.Mui-disabled": {
+                      color: toolbarBackground,
+                    },
+                  }}
+                >
+                  <ArrowBack fontSize="small" />
+                </IconButton>
+              )}
+
+              {search.onSearchNext && (
+                <IconButton
+                  color="inherit"
+                  onClick={search.onSearchNext}
+                  disabled={!search.searchMatches || search.searchMatches === 0}
+                  title={t("common.search.nextMatch")}
+                  aria-label={t("common.search.nextMatch")}
+                  size="small"
+                  sx={{
+                    flexShrink: 0,
+                    "&.Mui-disabled": {
+                      color: toolbarBackground,
+                    },
+                  }}
+                >
+                  <ArrowForward fontSize="small" />
+                </IconButton>
+              )}
+
+              <IconButton
+                color="inherit"
+                onClick={() => {
+                  closeSearch("toggle");
+                }}
+                title={t("common.search.closeSearch", { defaultValue: "Close search" })}
+                aria-label={t("common.search.closeSearch", { defaultValue: "Close search" })}
+                size="small"
+                sx={{ flexShrink: 0 }}
+              >
+                <Close fontSize="small" />
+              </IconButton>
+            </Box>
+          ) : (
+            <IconButton
+              color="inherit"
+              onClick={() => {
+                setShowSearch(true);
+              }}
+              title={
+                search.isSearchable === false
+                  ? (search.searchUnavailableTitle ?? t("viewer.controls.searchUnavailable"))
+                  : withShortcut(COMMON_SHORTCUTS.SEARCH)
               }
-            }}
-            title={
-              search.isSearchable === false
-                ? (search.searchUnavailableTitle ?? t("viewer.controls.searchUnavailable"))
-                : withShortcut(COMMON_SHORTCUTS.SEARCH)
-            }
-            aria-label={t("common.search.action")}
-            size={isMobile ? "small" : "medium"}
-            disabled={search.isSearchable === false}
-            sx={{
-              ...(search.isSearchable === false && {
-                opacity: 0.5,
-                cursor: "not-allowed",
-              }),
-            }}
-          >
-            <Search fontSize={isMobile ? "small" : "medium"} />
-          </IconButton>
-        )}
+              aria-label={t("common.search.action")}
+              size={isMobile ? "small" : "medium"}
+              disabled={search.isSearchable === false}
+              sx={{
+                ...(search.isSearchable === false && {
+                  opacity: 0.5,
+                  cursor: "not-allowed",
+                }),
+              }}
+            >
+              <Search fontSize={isMobile ? "small" : "medium"} />
+            </IconButton>
+          ))}
 
         {/* Download button */}
         {config.download && onDownload && !isMobile && (
@@ -646,106 +758,6 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
           </IconButton>
         )}
       </Box>
-
-      {/* Second row: Search (when expanded) */}
-      {config.search && search && showSearch && (
-        <Box
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-            width: isMobile ? "100%" : "auto",
-            minWidth: isMobile ? undefined : "300px",
-          }}
-        >
-          <TextField
-            value={search.searchText}
-            onChange={(e) => search.onSearchChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && search.onSearchNext) {
-                e.preventDefault();
-                search.onSearchNext();
-              } else if (e.key === "Escape") {
-                e.preventDefault();
-                e.stopPropagation();
-                setShowSearch(false);
-
-                if (search.clearSearchOnClose !== false) {
-                  search.onSearchChange("");
-                }
-
-                search.onSearchClose?.("escape");
-              }
-            }}
-            placeholder={t("common.search.placeholder")}
-            size="small"
-            inputRef={searchInputRef}
-            inputProps={{
-              [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
-            }}
-            sx={{
-              flex: 1,
-              minWidth: 0,
-              "& .MuiInputBase-root": {
-                color: toolbarText,
-                fontSize: "0.875rem",
-              },
-              "& .MuiOutlinedInput-notchedOutline": {
-                borderColor: `${toolbarText}4D`,
-              },
-              "&:hover .MuiOutlinedInput-notchedOutline": {
-                borderColor: `${toolbarText}80`,
-              },
-              "& .MuiInputBase-input::placeholder": {
-                color: `${toolbarText}80`,
-                opacity: 1,
-              },
-            }}
-          />
-
-          {search.searchMatches !== undefined && search.searchMatches > 0 && (
-            <Typography variant="caption" sx={{ whiteSpace: "nowrap" }}>
-              {search.currentMatch} / {search.searchMatches}
-            </Typography>
-          )}
-
-          {search.onSearchPrevious && (
-            <IconButton
-              color="inherit"
-              onClick={search.onSearchPrevious}
-              disabled={!search.searchMatches || search.searchMatches === 0}
-              title={t("common.search.previousMatch")}
-              aria-label={t("common.search.previousMatch")}
-              size="small"
-              sx={{
-                "&.Mui-disabled": {
-                  color: toolbarBackground,
-                },
-              }}
-            >
-              <ArrowBack fontSize="small" />
-            </IconButton>
-          )}
-
-          {search.onSearchNext && (
-            <IconButton
-              color="inherit"
-              onClick={search.onSearchNext}
-              disabled={!search.searchMatches || search.searchMatches === 0}
-              title={t("common.search.nextMatch")}
-              aria-label={t("common.search.nextMatch")}
-              size="small"
-              sx={{
-                "&.Mui-disabled": {
-                  color: toolbarBackground,
-                },
-              }}
-            >
-              <ArrowForward fontSize="small" />
-            </IconButton>
-          )}
-        </Box>
-      )}
     </Box>
   );
 };

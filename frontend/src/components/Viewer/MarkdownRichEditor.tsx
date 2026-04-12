@@ -480,9 +480,10 @@ const MarkdownRichEditorSearchBridge = ({
   onCurrentRangeChange,
   onCommandsChange,
 }: MarkdownRichEditorSearchBridgeProps) => {
-  const { closeSearch, currentRange, cursor, next, openSearch, prev, search, setSearch, total } = useEditorSearch();
+  const { closeSearch, currentRange, cursor, isSearchOpen, next, openSearch, prev, search, setSearch, total } = useEditorSearch();
   const viewMode = useCellValue(viewMode$);
   const isSearchable = viewMode === "rich-text";
+  const lastReportedSearchStateRef = useRef<MarkdownRichEditorSearchState | null>(null);
 
   useEffect(() => {
     onCommandsChange(isSearchable ? { nextSearchResult: next, previousSearchResult: prev } : NOOP_SEARCH_COMMANDS);
@@ -493,14 +494,24 @@ const MarkdownRichEditorSearchBridge = ({
   }, [isSearchable, next, onCommandsChange, prev]);
 
   useLayoutEffect(() => {
+    const nextSearchValue = searchText.trim().length > 0 ? searchText : null;
+
     if (!isSearchable) {
-      closeSearch();
-      setSearch(null);
+      if (isSearchOpen) {
+        closeSearch();
+      }
+
+      if (search !== null) {
+        setSearch(null);
+      }
+
       return;
     }
 
-    setSearch(searchText || null);
-  }, [closeSearch, isSearchable, searchText, setSearch]);
+    if (search !== nextSearchValue) {
+      setSearch(nextSearchValue);
+    }
+  }, [closeSearch, isSearchOpen, isSearchable, search, searchText, setSearch]);
 
   useLayoutEffect(() => {
     if (!isSearchable) {
@@ -509,13 +520,19 @@ const MarkdownRichEditorSearchBridge = ({
     }
 
     if (searchOpen) {
-      openSearch();
+      if (!isSearchOpen) {
+        openSearch();
+      }
+
       return;
     }
 
     onCurrentRangeChange(null);
-    closeSearch();
-  }, [closeSearch, isSearchable, onCurrentRangeChange, openSearch, searchOpen]);
+
+    if (isSearchOpen) {
+      closeSearch();
+    }
+  }, [closeSearch, isSearchOpen, isSearchable, onCurrentRangeChange, openSearch, searchOpen]);
 
   useEffect(() => {
     onCurrentRangeChange(isSearchable ? currentRange : null);
@@ -530,15 +547,31 @@ const MarkdownRichEditorSearchBridge = ({
   }, [cursor, isSearchable, next, search, searchOpen, total]);
 
   useEffect(() => {
-    onSearchStateChange?.({
+    const nextSearchState: MarkdownRichEditorSearchState = {
       searchText: search,
       searchMatches: total,
       currentMatch: total > 0 ? Math.max(cursor, 1) : 0,
-      isSearchOpen: searchOpen,
+      isSearchOpen,
       isSearchable,
       viewMode,
-    });
-  }, [cursor, isSearchable, onSearchStateChange, search, searchOpen, total, viewMode]);
+    };
+
+    const lastSearchState = lastReportedSearchStateRef.current;
+    if (
+      lastSearchState &&
+      lastSearchState.searchText === nextSearchState.searchText &&
+      lastSearchState.searchMatches === nextSearchState.searchMatches &&
+      lastSearchState.currentMatch === nextSearchState.currentMatch &&
+      lastSearchState.isSearchOpen === nextSearchState.isSearchOpen &&
+      lastSearchState.isSearchable === nextSearchState.isSearchable &&
+      lastSearchState.viewMode === nextSearchState.viewMode
+    ) {
+      return;
+    }
+
+    lastReportedSearchStateRef.current = nextSearchState;
+    onSearchStateChange?.(nextSearchState);
+  }, [cursor, isSearchOpen, isSearchable, onSearchStateChange, search, total, viewMode]);
 
   return null;
 };

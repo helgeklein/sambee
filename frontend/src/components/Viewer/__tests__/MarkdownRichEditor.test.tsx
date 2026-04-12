@@ -65,11 +65,11 @@ const mockSearchState = {
   closeSearch: vi.fn(),
   currentRange: null as Range | null,
   cursor: 0,
-  isSearchOpen: true,
+  isSearchOpen: false,
   next: vi.fn(),
   openSearch: vi.fn(),
   prev: vi.fn(),
-  search: "alpha",
+  search: "",
   setSearch: vi.fn(),
   total: 2,
 };
@@ -218,17 +218,39 @@ describe("MarkdownRichEditor", () => {
     mockSearchState.prev.mockReset();
     mockSearchState.setSearch.mockReset();
     mockSearchState.cursor = 0;
-    mockSearchState.isSearchOpen = true;
-    mockSearchState.search = "alpha";
+    mockSearchState.isSearchOpen = false;
+    mockSearchState.search = "";
     mockSearchState.total = 2;
+    mockSearchState.closeSearch.mockImplementation(() => {
+      mockSearchState.isSearchOpen = false;
+    });
+    mockSearchState.openSearch.mockImplementation(() => {
+      mockSearchState.isSearchOpen = true;
+    });
+    mockSearchState.setSearch.mockImplementation((value: string | null) => {
+      mockSearchState.search = value ?? "";
+    });
   });
 
   it("activates the first search result when a new query has matches", async () => {
-    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", searchText: "alpha", searchOpen: true });
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
 
     await waitFor(() => {
       expect(mockSearchState.setSearch).toHaveBeenCalledWith("alpha");
       expect(mockSearchState.openSearch).toHaveBeenCalled();
+    });
+
+    rerender(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
       expect(mockSearchState.next).toHaveBeenCalledTimes(1);
     });
   });
@@ -257,6 +279,33 @@ describe("MarkdownRichEditor", () => {
     });
 
     expect(mockSearchState.closeSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reissue identical search state updates on rerender", async () => {
+    mockSearchState.isSearchOpen = true;
+    mockSearchState.search = "alpha";
+
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockSearchState.setSearch).not.toHaveBeenCalled();
+      expect(mockSearchState.openSearch).not.toHaveBeenCalled();
+    });
+
+    rerender(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockSearchState.setSearch).not.toHaveBeenCalled();
+      expect(mockSearchState.openSearch).not.toHaveBeenCalled();
+    });
   });
 
   it("passes native autofocus through to MDXEditor only on initial mount", async () => {

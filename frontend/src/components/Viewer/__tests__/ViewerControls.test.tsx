@@ -268,12 +268,14 @@ describe("ViewerControls", () => {
     // Search panel should not be visible initially
     expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
 
-    // Click search button to show panel
+    // Click search button to show inline search UI in its place
     fireEvent.click(screen.getByLabelText("Search"));
     expect(screen.getByPlaceholderText("Search")).toBeInTheDocument();
-    // Click again to hide
-    fireEvent.click(screen.getByLabelText("Search"));
+    expect(screen.queryByRole("button", { name: "Search" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
     expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
   });
 
   it("focuses the search input when the search panel opens", async () => {
