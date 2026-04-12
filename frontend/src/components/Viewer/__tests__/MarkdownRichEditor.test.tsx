@@ -484,12 +484,12 @@ describe("MarkdownRichEditor", () => {
     });
   });
 
-  it("passes native autofocus through to MDXEditor only on initial mount", async () => {
+  it("uses effect-driven autofocus without remounting MDXEditor to disable native autofocus", async () => {
     renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", autoFocus: true });
 
     await waitFor(() => {
-      expect(mockMdxEditorAutoFocusHistory).toContain(true);
-      expect(mockMdxEditorAutoFocusHistory.at(-1)).toBe(false);
+      expect(mockMdxEditorAutoFocusHistory).toEqual([false]);
+      expect(document.querySelector('textarea[aria-label="Mock editor input"]')).toHaveFocus();
     });
   });
 

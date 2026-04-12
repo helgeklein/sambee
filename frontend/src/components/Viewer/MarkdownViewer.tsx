@@ -104,6 +104,17 @@ function getEditorErrorMessage(error: unknown, fallbackMessage: string): string 
   return fallbackMessage;
 }
 
+function areMarkdownSearchStatesEqual(previousState: MarkdownRichEditorSearchState, nextState: MarkdownRichEditorSearchState): boolean {
+  return (
+    previousState.searchText === nextState.searchText &&
+    previousState.searchMatches === nextState.searchMatches &&
+    previousState.currentMatch === nextState.currentMatch &&
+    previousState.isSearchOpen === nextState.isSearchOpen &&
+    previousState.isSearchable === nextState.isSearchable &&
+    previousState.viewMode === nextState.viewMode
+  );
+}
+
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
 type MarkdownSearchCloseReason = "escape" | "toggle";
 
@@ -120,7 +131,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const { t } = useTranslation();
   const [content, setContent] = useState<string>("");
   const [draftContent, setDraftContent] = useState<string>("");
-  const [editBaselineContent, setEditBaselineContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -155,6 +165,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const prefetchedShareFileRef = useRef<File | null>(null);
   const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
   const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+  const editBaselineContentRef = useRef("");
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -201,6 +212,15 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   }, [isEditing]);
 
   const unsavedChangesDialogOpen = pendingUnsavedChangesAction !== null;
+  const editBaselineContent = editBaselineContentRef.current;
+
+  const setEditBaselineContent = useCallback((nextContent: string) => {
+    editBaselineContentRef.current = nextContent;
+  }, []);
+
+  const handleEditorSearchStateChange = useCallback((nextState: MarkdownRichEditorSearchState) => {
+    setEditorSearchState((previousState) => (areMarkdownSearchStatesEqual(previousState, nextState) ? previousState : nextState));
+  }, []);
 
   const {
     beginBaselineSyncWindow,
@@ -267,7 +287,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       abortController.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connectionId, path, fetchWithRetry, isEditing]);
+  }, [connectionId, path, fetchWithRetry, isEditing, setEditBaselineContent]);
 
   // Auto-focus the content when loaded so keyboard scrolling works
   useEffect(() => {
@@ -539,6 +559,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       markEditSessionPristine,
       releaseEditLock,
       searchPanelOpen,
+      setEditBaselineContent,
     ]
   );
 
@@ -588,6 +609,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     markEditSessionPristine,
     path,
     searchPanelOpen,
+    setEditBaselineContent,
     supportsEditLocks,
     t,
     viewerSearchText,
@@ -662,6 +684,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       markEditSessionPristine,
       path,
       requestRestoreEditingFocus,
+      setEditBaselineContent,
       t,
     ]
   );
@@ -1300,7 +1323,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     readOnly={isSaving}
                     searchText={activeEditorSearchText}
                     searchOpen={searchPanelOpen}
-                    onSearchStateChange={setEditorSearchState}
+                    onSearchStateChange={handleEditorSearchStateChange}
                   />
                 </MarkdownEditorErrorBoundary>
               </Box>

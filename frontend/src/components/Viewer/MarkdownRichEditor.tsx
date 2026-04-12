@@ -1298,7 +1298,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const preservedSelectionRef = useRef<MarkdownRichEditorSelectionSnapshot | null>(null);
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
-    const [shouldAutoFocus, setShouldAutoFocus] = useState(autoFocus);
+    const hasAttemptedAutoFocusRef = useRef(false);
     const { currentTheme } = useSambeeTheme();
     const muiTheme = useTheme();
     const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
@@ -1613,11 +1613,11 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     }, [syncPopupContainerLayering]);
 
     useEffect(() => {
-      if (!shouldAutoFocus || readOnly) {
+      if (!autoFocus || readOnly || hasAttemptedAutoFocusRef.current) {
         return;
       }
 
-      setShouldAutoFocus(false);
+      hasAttemptedAutoFocusRef.current = true;
 
       let autofocusComplete = false;
       let cleanupRetryFocus: (() => void) | null = null;
@@ -1672,7 +1672,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       return () => {
         stopAutoFocus();
       };
-    }, [focusEditableArea, readOnly, shouldAutoFocus]);
+    }, [autoFocus, focusEditableArea, readOnly]);
 
     useEffect(() => {
       if (readOnly || !onUserEdit) {
@@ -1889,7 +1889,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
             markdown={markdown}
             onChange={onChange}
-            autoFocus={shouldAutoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
+            autoFocus={false}
             readOnly={readOnly}
             plugins={plugins}
           />
