@@ -27,6 +27,66 @@ export function getContainedButtonFocusVisibleBoxShadow(theme: Theme, shadowInde
   return `${theme.shadows[shadowIndex]}, 0 0 0 ${CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH}px ${getContainedButtonFocusAccentColor(theme)}`;
 }
 
+export interface SecondaryToolbarSurfaceColors {
+  stripBackground: string;
+  popupBackground: string;
+  textColor: string;
+  borderColor: string;
+  pillBackground: string;
+  groupedBackground: string;
+  activeBackground: string;
+  hoverBackground: string;
+  separatorColor: string;
+  shadow: string;
+}
+
+export function getSecondaryToolbarSurfaceColors(theme: Theme): SecondaryToolbarSurfaceColors {
+  const textColor = theme.palette.text.secondary;
+
+  return {
+    stripBackground: theme.palette.background.default,
+    popupBackground: theme.palette.background.default,
+    textColor,
+    borderColor: theme.palette.divider,
+    pillBackground: theme.palette.action.selected,
+    groupedBackground: alpha(textColor, 0.06),
+    activeBackground: alpha(textColor, 0.12),
+    hoverBackground: alpha(textColor, 0.08),
+    separatorColor: alpha(textColor, 0.06),
+    shadow: theme.shadows[2],
+  };
+}
+
+export function getSecondaryActionStripStyle(theme: Theme) {
+  const colors = getSecondaryToolbarSurfaceColors(theme);
+
+  return {
+    px: 2,
+    py: 0.5,
+    minHeight: 36,
+    bgcolor: colors.stripBackground,
+    color: colors.textColor,
+    boxShadow: 2,
+    zIndex: 1,
+  };
+}
+
+export const secondaryActionStripSx: SxProps<Theme> = (theme) => getSecondaryActionStripStyle(theme);
+
+export function getSecondaryToolbarMenuPaperStyle(theme: Theme) {
+  const colors = getSecondaryToolbarSurfaceColors(theme);
+
+  return {
+    bgcolor: colors.popupBackground,
+    color: colors.textColor,
+    border: 1,
+    borderColor: colors.borderColor,
+    boxShadow: colors.shadow,
+  };
+}
+
+export const secondaryToolbarMenuPaperSx: SxProps<Theme> = (theme) => getSecondaryToolbarMenuPaperStyle(theme);
+
 /**
  * fileNamePillSx
  *
@@ -61,12 +121,13 @@ export const fileNamePillSx: SxProps<Theme> = {
  */
 export const pillButtonStyle: SxProps<Theme> = {
   border: 1,
-  borderColor: "divider",
+  borderColor: (theme) => getSecondaryToolbarSurfaceColors(theme).borderColor,
   borderRadius: 3,
-  bgcolor: "action.selected",
+  bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
+  color: (theme) => getSecondaryToolbarSurfaceColors(theme).textColor,
   textTransform: "none",
   "&:hover": {
-    bgcolor: "action.selected",
+    bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
   },
   "&.Mui-focusVisible": {
     outline: "none",

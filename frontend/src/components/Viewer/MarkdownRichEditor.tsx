@@ -44,7 +44,7 @@ import {
 import "@mdxeditor/editor/style.css";
 import { mergeRegister } from "@lexical/utils";
 import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
-import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, useMediaQuery, useTheme } from "@mui/material";
+import { Box, GlobalStyles, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, useMediaQuery, useTheme } from "@mui/material";
 import {
   $createNodeSelection,
   $createRangeSelection,
@@ -68,6 +68,7 @@ import { useTranslation } from "react-i18next";
 import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { useSambeeTheme } from "../../theme";
+import { getSecondaryActionStripStyle, getSecondaryToolbarSurfaceColors } from "../../theme/commonStyles";
 import { Z_INDEX } from "../../theme/constants";
 import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
@@ -1256,7 +1257,24 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const { currentTheme } = useSambeeTheme();
     const muiTheme = useTheme();
     const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
-    const { viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
+    const {
+      toolbarBg: _toolbarBg,
+      toolbarText: _toolbarText,
+      viewerText,
+      linkColor,
+      linkHoverColor,
+    } = getViewerColors(currentTheme, "markdown");
+    const secondaryToolbarColors = getSecondaryToolbarSurfaceColors(muiTheme);
+    const secondaryToolbarCssVars = {
+      "--basePageBg": secondaryToolbarColors.popupBackground,
+      "--baseBg": secondaryToolbarColors.stripBackground,
+      "--baseBgSubtle": secondaryToolbarColors.pillBackground,
+      "--baseBgHover": secondaryToolbarColors.hoverBackground,
+      "--baseBgActive": secondaryToolbarColors.pillBackground,
+      "--baseBorder": secondaryToolbarColors.borderColor,
+      "--baseBase": secondaryToolbarColors.groupedBackground,
+      "--baseTextContrast": secondaryToolbarColors.textColor,
+    };
     const editorRootClassName = [className, MARKDOWN_EDITOR_POPUP_CLASS].filter(Boolean).join(" ");
 
     const syncPopupContainerLayering = useCallback(() => {
@@ -1690,71 +1708,120 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     );
 
     return (
-      <Box
-        ref={containerRef}
-        className={className}
-        sx={{
-          height: "100%",
-          minHeight: 0,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          "& .mdxeditor": {
-            flex: 1,
-            minHeight: 0,
-            display: "grid",
-            gridTemplateRows: "auto minmax(0, 1fr)",
-            overflow: "hidden",
-          },
-          "& .mdxeditor-toolbar": {
-            position: "relative",
-            top: "auto",
-            width: "100%",
-            flexShrink: 0,
-            boxSizing: "border-box",
-            overflowX: isMobile ? "hidden" : "auto",
-            overflowY: "hidden",
-            paddingLeft: isMobile ? 1 : undefined,
-            paddingRight: isMobile ? 1 : undefined,
-            paddingTop: 0,
-            paddingBottom: 0,
-          },
-          [`& .${MARKDOWN_MOBILE_TOOLBAR_CLASS}`]: {
-            minHeight: 44,
-          },
-          "& .mdxeditor > :not(.mdxeditor-toolbar)": {
-            minHeight: 0,
-            boxSizing: "border-box",
-            padding: isMobile ? muiTheme.spacing(2) : 0,
-          },
-          "& [contenteditable='true']": {
-            minHeight: 320,
-            height: "100%",
-            overflowY: "auto",
-            overflowX: "hidden",
-          },
-          "& .cm-sourceView, & .cm-mergeView": {
-            minHeight: 0,
-            height: "100%",
-          },
-          "& .cm-editor": {
-            minHeight: 0,
-            height: "100%",
-          },
-          [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: getMarkdownEditorContentStyles(viewerText, linkColor, linkHoverColor),
-        }}
-      >
-        <MDXEditor
-          ref={editorRef}
-          className={editorRootClassName}
-          contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
-          markdown={markdown}
-          onChange={onChange}
-          autoFocus={shouldAutoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
-          readOnly={readOnly}
-          plugins={plugins}
+      <>
+        <GlobalStyles
+          styles={{
+            [`.${MARKDOWN_EDITOR_POPUP_CLASS}`]: {
+              ...secondaryToolbarCssVars,
+              color: secondaryToolbarColors.textColor,
+            },
+            [`.${MARKDOWN_EDITOR_POPUP_CLASS} [class*='toolbarNodeKindSelectContainer'], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='toolbarButtonDropdownContainer'], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='selectContainer']`]:
+              {
+                backgroundColor: secondaryToolbarColors.popupBackground,
+                color: secondaryToolbarColors.textColor,
+                boxShadow: secondaryToolbarColors.shadow,
+              },
+            [`.${MARKDOWN_EDITOR_POPUP_CLASS} [class*='toolbarNodeKindSelectItem'][data-highlighted], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='toolbarNodeKindSelectItem'][data-state='checked'], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='selectItem'][data-highlighted], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='selectItem'][data-state='checked']`]:
+              {
+                backgroundColor: secondaryToolbarColors.pillBackground,
+              },
+          }}
         />
-      </Box>
+        <Box
+          ref={containerRef}
+          className={className}
+          sx={{
+            height: "100%",
+            minHeight: 0,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            ...secondaryToolbarCssVars,
+            "& .mdxeditor": {
+              flex: 1,
+              minHeight: 0,
+              display: "grid",
+              gridTemplateRows: "auto minmax(0, 1fr)",
+              overflow: "hidden",
+              color: viewerText,
+            },
+            "& .mdxeditor-toolbar": {
+              ...getSecondaryActionStripStyle(muiTheme),
+              position: "relative",
+              top: "auto",
+              width: "100%",
+              flexShrink: 0,
+              boxSizing: "border-box",
+              overflowX: isMobile ? "hidden" : "auto",
+              overflowY: "hidden",
+              borderRadius: 0,
+            },
+            "& .mdxeditor-toolbar svg": {
+              color: secondaryToolbarColors.textColor,
+            },
+            "& .mdxeditor-toolbar div[role='separator']": {
+              borderLeftColor: secondaryToolbarColors.borderColor,
+              borderRightColor: secondaryToolbarColors.separatorColor,
+            },
+            "& .mdxeditor-toolbar [data-toolbar-item]": {
+              color: secondaryToolbarColors.textColor,
+            },
+            "& .mdxeditor-toolbar [class*='toolbarNodeKindSelectTrigger'], & .mdxeditor-toolbar [class*='toolbarButtonSelectTrigger'], & .mdxeditor-toolbar [class*='selectTrigger']":
+              {
+                backgroundColor: secondaryToolbarColors.popupBackground,
+                color: secondaryToolbarColors.textColor,
+                borderColor: secondaryToolbarColors.borderColor,
+              },
+            "& .mdxeditor-toolbar [class*='toolbarModeSwitch'], & .mdxeditor-toolbar [class*='diffSourceToggle']": {
+              backgroundColor: secondaryToolbarColors.groupedBackground,
+              borderColor: secondaryToolbarColors.borderColor,
+            },
+            "& .mdxeditor-toolbar [class*='toolbarModeSwitch'] [data-state='on'], & .mdxeditor-toolbar [class*='diffSourceToggle'] [data-state='on']":
+              {
+                backgroundColor: secondaryToolbarColors.activeBackground,
+              },
+            [`& .${MARKDOWN_MOBILE_TOOLBAR_CLASS}`]: {
+              minHeight: 44,
+            },
+            "& .mdxeditor > :not(.mdxeditor-toolbar)": {
+              minHeight: 0,
+              boxSizing: "border-box",
+              padding: muiTheme.spacing(2),
+            },
+            "& [contenteditable='true']": {
+              minHeight: 320,
+              height: "100%",
+              overflowY: "auto",
+              overflowX: "hidden",
+            },
+            "& .cm-sourceView, & .cm-mergeView": {
+              minHeight: 0,
+              height: "100%",
+              backgroundColor: secondaryToolbarColors.stripBackground,
+            },
+            "& .cm-editor": {
+              minHeight: 0,
+              height: "100%",
+              backgroundColor: secondaryToolbarColors.stripBackground,
+            },
+            "& .cm-scroller, & .cm-content, & .cm-gutters": {
+              backgroundColor: secondaryToolbarColors.stripBackground,
+            },
+            [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: getMarkdownEditorContentStyles(viewerText, linkColor, linkHoverColor),
+          }}
+        >
+          <MDXEditor
+            ref={editorRef}
+            className={editorRootClassName}
+            contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
+            markdown={markdown}
+            onChange={onChange}
+            autoFocus={shouldAutoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
+            readOnly={readOnly}
+            plugins={plugins}
+          />
+        </Box>
+      </>
     );
   }
 );
