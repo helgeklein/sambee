@@ -66,6 +66,8 @@ const MARKDOWN_CODE_BLOCK_LANGUAGES = {
 
 export interface MarkdownRichEditorHandle {
   focus: () => void;
+  preserveSelection: () => void;
+  restorePreservedSelection: () => boolean;
   nextSearchResult: () => void;
   previousSearchResult: () => void;
   createLink: () => void;
@@ -74,6 +76,18 @@ export interface MarkdownRichEditorHandle {
   toggleInlineCode: () => void;
   insertCodeBlock: () => void;
 }
+
+type MarkdownRichEditorSelectionSnapshot =
+  | {
+      type: "textarea";
+      start: number;
+      end: number;
+      direction: "forward" | "backward" | "none";
+    }
+  | {
+      type: "dom-range";
+      range: Range;
+    };
 
 export interface MarkdownRichEditorSearchState {
   searchText: string;
@@ -478,8 +492,10 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
   ) => {
     const editorRef = useRef<MDXEditorMethods>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const preservedSelectionRef = useRef<MarkdownRichEditorSelectionSnapshot | null>(null);
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
+    const [shouldAutoFocus, setShouldAutoFocus] = useState(autoFocus);
     const { currentTheme } = useSambeeTheme();
     const { viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
     const editorRootClassName = [className, MARKDOWN_EDITOR_POPUP_CLASS].filter(Boolean).join(" ");
@@ -506,6 +522,86 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       return document.activeElement === editable;
     }, []);
 
+    const captureSelection = useCallback((): MarkdownRichEditorSelectionSnapshot | null => {
+      const editable = containerRef.current?.querySelector('[contenteditable="true"], textarea');
+
+      if (editable instanceof HTMLTextAreaElement) {
+        return {
+          type: "textarea",
+          start: editable.selectionStart ?? 0,
+          end: editable.selectionEnd ?? 0,
+          direction: editable.selectionDirection ?? "none",
+        };
+      }
+
+      if (!(editable instanceof HTMLElement)) {
+        return null;
+      }
+
+      const selection = window.getSelection();
+
+      if (!selection || selection.rangeCount === 0) {
+        return null;
+      }
+
+      const range = selection.getRangeAt(0);
+
+      if (!editable.contains(range.startContainer) || !editable.contains(range.endContainer)) {
+        return null;
+      }
+
+      return {
+        type: "dom-range",
+        range: range.cloneRange(),
+      };
+    }, []);
+
+    const restoreSelection = useCallback(
+      (selectionSnapshot: MarkdownRichEditorSelectionSnapshot | null): boolean => {
+        if (!selectionSnapshot) {
+          return focusEditableArea();
+        }
+
+        const editable = containerRef.current?.querySelector('[contenteditable="true"], textarea');
+
+        if (selectionSnapshot.type === "textarea") {
+          if (!(editable instanceof HTMLTextAreaElement)) {
+            return focusEditableArea();
+          }
+
+          editable.focus();
+          editable.setSelectionRange(selectionSnapshot.start, selectionSnapshot.end, selectionSnapshot.direction);
+          return document.activeElement === editable;
+        }
+
+        if (!(editable instanceof HTMLElement)) {
+          return false;
+        }
+
+        const { range } = selectionSnapshot;
+
+        if (!range.startContainer.isConnected || !range.endContainer.isConnected) {
+          return focusEditableArea();
+        }
+
+        if (!editable.contains(range.startContainer) || !editable.contains(range.endContainer)) {
+          return focusEditableArea();
+        }
+
+        editable.focus();
+        const selection = window.getSelection();
+
+        if (!selection) {
+          return false;
+        }
+
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      },
+      [focusEditableArea]
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -514,6 +610,18 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           requestAnimationFrame(() => {
             focusEditableArea();
           });
+        },
+        preserveSelection: () => {
+          preservedSelectionRef.current = captureSelection();
+        },
+        restorePreservedSelection: () => {
+          const restored = restoreSelection(preservedSelectionRef.current);
+
+          if (restored) {
+            preservedSelectionRef.current = null;
+          }
+
+          return restored;
         },
         nextSearchResult: () => {
           searchCommandsRef.current.nextSearchResult();
@@ -537,7 +645,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           commandsRef.current.insertCodeBlock();
         },
       }),
-      [focusEditableArea]
+      [captureSelection, focusEditableArea, restoreSelection]
     );
 
     useEffect(() => {
@@ -555,9 +663,11 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     }, [syncPopupContainerLayering]);
 
     useEffect(() => {
-      if (!autoFocus || readOnly) {
+      if (!shouldAutoFocus || readOnly) {
         return;
       }
+
+      setShouldAutoFocus(false);
 
       let autofocusComplete = false;
 
@@ -609,7 +719,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       return () => {
         stopAutoFocus();
       };
-    }, [autoFocus, focusEditableArea, readOnly]);
+    }, [focusEditableArea, readOnly, shouldAutoFocus]);
 
     useEffect(() => {
       if (readOnly || !onUserEdit) {
@@ -719,7 +829,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
           markdown={markdown}
           onChange={onChange}
-          autoFocus={autoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
+          autoFocus={shouldAutoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
           readOnly={readOnly}
           plugins={plugins}
         />

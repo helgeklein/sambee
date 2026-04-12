@@ -1,12 +1,13 @@
 import { render, waitFor } from "@testing-library/react";
-import { type ComponentProps, type ForwardedRef, forwardRef } from "react";
+import { type ComponentProps, createRef, type ForwardedRef, forwardRef } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownRichEditor from "../MarkdownRichEditor";
 
-const { mockCodeBlockPlugin, mockCodeMirrorPlugin } = vi.hoisted(() => ({
+const { mockCodeBlockPlugin, mockCodeMirrorPlugin, mockMdxEditorAutoFocusHistory } = vi.hoisted(() => ({
   mockCodeBlockPlugin: vi.fn((params?: unknown) => ({ type: "codeBlockPlugin", params })),
   mockCodeMirrorPlugin: vi.fn((params?: unknown) => ({ type: "codeMirrorPlugin", params })),
+  mockMdxEditorAutoFocusHistory: [] as boolean[],
 }));
 
 const mockApplyFormat = vi.fn();
@@ -82,24 +83,38 @@ vi.mock("@mdxeditor/editor", () => {
           plugins?: Array<{ type?: string; params?: { toolbarContents?: () => unknown } }>;
           autoFocus?: boolean | object;
           contentEditableClassName?: string;
+          markdown?: string;
         },
         _ref: ForwardedRef<unknown>
-      ) => (
-        <div data-testid="mock-mdx-editor">
-          <span data-testid="mock-mdx-editor-autofocus">{String(Boolean(props.autoFocus))}</span>
-          <div className="mdxeditor-toolbar">
-            <button type="button" data-toolbar-item aria-label="Bold">
-              B
-            </button>
-            {props.plugins
-              ?.filter((plugin) => plugin.type === "toolbarPlugin")
-              .map((plugin) => (
-                <div key={plugin.type}>{plugin.params?.toolbarContents?.()}</div>
-              ))}
+      ) => {
+        mockMdxEditorAutoFocusHistory.push(Boolean(props.autoFocus));
+
+        return (
+          <div data-testid="mock-mdx-editor">
+            <span data-testid="mock-mdx-editor-autofocus">{String(Boolean(props.autoFocus))}</span>
+            <div className="mdxeditor-toolbar">
+              <button type="button" data-toolbar-item aria-label="Bold">
+                B
+              </button>
+              {props.plugins
+                ?.filter((plugin) => plugin.type === "toolbarPlugin")
+                .map((plugin) => (
+                  <div key={plugin.type}>{plugin.params?.toolbarContents?.()}</div>
+                ))}
+            </div>
+            <textarea
+              aria-label="Mock editor input"
+              className={props.contentEditableClassName}
+              defaultValue={props.markdown ?? ""}
+              ref={(element) => {
+                if (element && props.autoFocus) {
+                  element.focus();
+                }
+              }}
+            />
           </div>
-          <textarea aria-label="Mock editor input" className={props.contentEditableClassName} defaultValue="" />
-        </div>
-      )
+        );
+      }
     ),
     Separator: passthroughComponent,
     UndoRedo: passthroughComponent,
@@ -164,6 +179,7 @@ describe("MarkdownRichEditor", () => {
     mockCreateLink.mockReset();
     mockCodeBlockPlugin.mockClear();
     mockCodeMirrorPlugin.mockClear();
+    mockMdxEditorAutoFocusHistory.length = 0;
     mockInsertCodeBlock.mockReset();
     mockInsertTable.mockReset();
     mockInsertThematicBreak.mockReset();
@@ -190,11 +206,12 @@ describe("MarkdownRichEditor", () => {
     });
   });
 
-  it("passes native autofocus through to MDXEditor when requested", async () => {
+  it("passes native autofocus through to MDXEditor only on initial mount", async () => {
     renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", autoFocus: true });
 
     await waitFor(() => {
-      expect(document.querySelector('[data-testid="mock-mdx-editor-autofocus"]')).toHaveTextContent("true");
+      expect(mockMdxEditorAutoFocusHistory).toContain(true);
+      expect(mockMdxEditorAutoFocusHistory.at(-1)).toBe(false);
     });
   });
 
@@ -204,6 +221,39 @@ describe("MarkdownRichEditor", () => {
     await waitFor(() => {
       expect(document.querySelector('textarea[aria-label="Mock editor input"]')).toHaveClass("sambee-markdown-editor-content");
     });
+  });
+
+  it("captures and restores textarea selection through the editor handle", async () => {
+    const editorRef = createRef<{
+      preserveSelection: () => void;
+      restorePreservedSelection: () => boolean;
+    }>();
+
+    render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor ref={editorRef} markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />
+      </SambeeThemeProvider>
+    );
+
+    const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
+
+    if (!(editorInput instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected mock editor input to exist");
+    }
+
+    editorInput.focus();
+    editorInput.setSelectionRange(2, 4);
+
+    if (!editorRef.current) {
+      throw new Error("Expected markdown editor ref handle");
+    }
+
+    editorRef.current.preserveSelection();
+    editorInput.setSelectionRange(0, 0);
+
+    expect(editorRef.current.restorePreservedSelection()).toBe(true);
+    expect(editorInput.selectionStart).toBe(2);
+    expect(editorInput.selectionEnd).toBe(4);
   });
 
   it("stops autofocus after the editor input is focused so toolbar interactions keep focus", async () => {
