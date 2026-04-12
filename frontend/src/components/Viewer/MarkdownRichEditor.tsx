@@ -484,6 +484,8 @@ const MarkdownRichEditorSearchBridge = ({
   const viewMode = useCellValue(viewMode$);
   const isSearchable = viewMode === "rich-text";
   const lastReportedSearchStateRef = useRef<MarkdownRichEditorSearchState | null>(null);
+  const requestedSearchValueRef = useRef<string | null | undefined>(undefined);
+  const requestedSearchOpenRef = useRef<boolean | undefined>(undefined);
 
   useEffect(() => {
     onCommandsChange(isSearchable ? { nextSearchResult: next, previousSearchResult: prev } : NOOP_SEARCH_COMMANDS);
@@ -497,19 +499,31 @@ const MarkdownRichEditorSearchBridge = ({
     const nextSearchValue = searchText.trim().length > 0 ? searchText : null;
 
     if (!isSearchable) {
-      if (isSearchOpen) {
-        closeSearch();
+      if (search === null) {
+        requestedSearchValueRef.current = null;
+      } else if (requestedSearchValueRef.current !== null) {
+        setSearch(null);
+        requestedSearchValueRef.current = null;
       }
 
-      if (search !== null) {
-        setSearch(null);
+      if (isSearchOpen) {
+        closeSearch();
+        requestedSearchOpenRef.current = false;
+      } else {
+        requestedSearchOpenRef.current = false;
       }
 
       return;
     }
 
-    if (search !== nextSearchValue) {
+    if (search === nextSearchValue) {
+      requestedSearchValueRef.current = nextSearchValue;
+      return;
+    }
+
+    if (requestedSearchValueRef.current !== nextSearchValue) {
       setSearch(nextSearchValue);
+      requestedSearchValueRef.current = nextSearchValue;
     }
   }, [closeSearch, isSearchOpen, isSearchable, search, searchText, setSearch]);
 
@@ -520,8 +534,11 @@ const MarkdownRichEditorSearchBridge = ({
     }
 
     if (searchOpen) {
-      if (!isSearchOpen) {
+      if (isSearchOpen) {
+        requestedSearchOpenRef.current = true;
+      } else if (requestedSearchOpenRef.current !== true) {
         openSearch();
+        requestedSearchOpenRef.current = true;
       }
 
       return;
@@ -531,6 +548,9 @@ const MarkdownRichEditorSearchBridge = ({
 
     if (isSearchOpen) {
       closeSearch();
+      requestedSearchOpenRef.current = false;
+    } else {
+      requestedSearchOpenRef.current = false;
     }
   }, [closeSearch, isSearchOpen, isSearchable, onCurrentRangeChange, openSearch, searchOpen]);
 

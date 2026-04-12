@@ -204,6 +204,9 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   // Use controlled search panel state if provided, otherwise use local state
   const showSearch = search?.searchPanelOpen !== undefined ? search.searchPanelOpen : localShowSearch;
   const searchTextLength = search?.searchText.length ?? 0;
+  const searchMatches = search?.searchMatches ?? 0;
+  const currentMatch = search?.currentMatch ?? 0;
+  const canNavigateSearch = searchMatches > 0;
   const previousShowSearchRef = useRef(showSearch);
   const closeSearch = (reason: "escape" | "toggle") => {
     setShowSearch(false);
@@ -589,7 +592,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 display: "flex",
                 alignItems: "center",
                 gap: 1,
-                flexShrink: 1,
+                flexShrink: 0,
                 minWidth: 0,
                 width: isMobile ? "min(100%, 320px)" : "320px",
                 maxWidth: isMobile ? "100%" : "360px",
@@ -634,62 +637,76 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 }}
               />
 
-              {search.searchMatches !== undefined && search.searchMatches > 0 && (
-                <Typography variant="caption" sx={{ whiteSpace: "nowrap", flexShrink: 0 }}>
-                  {search.currentMatch} / {search.searchMatches}
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.25,
+                  flexShrink: 0,
+                  minWidth: isMobile ? "7.5rem" : "8.5rem",
+                  justifyContent: "flex-end",
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    minWidth: isMobile ? "2.75rem" : "3.25rem",
+                    textAlign: "right",
+                    opacity: canNavigateSearch ? 1 : 0.6,
+                  }}
+                >
+                  {currentMatch} / {searchMatches}
                 </Typography>
-              )}
 
-              {search.onSearchPrevious && (
                 <IconButton
                   color="inherit"
                   onClick={search.onSearchPrevious}
-                  disabled={!search.searchMatches || search.searchMatches === 0}
+                  disabled={!search.onSearchPrevious || !canNavigateSearch}
                   title={t("common.search.previousMatch")}
                   aria-label={t("common.search.previousMatch")}
                   size="small"
                   sx={{
                     flexShrink: 0,
                     "&.Mui-disabled": {
-                      color: toolbarBackground,
+                      color: `${toolbarText}66`,
                     },
                   }}
                 >
                   <ArrowBack fontSize="small" />
                 </IconButton>
-              )}
 
-              {search.onSearchNext && (
                 <IconButton
                   color="inherit"
                   onClick={search.onSearchNext}
-                  disabled={!search.searchMatches || search.searchMatches === 0}
+                  disabled={!search.onSearchNext || !canNavigateSearch}
                   title={t("common.search.nextMatch")}
                   aria-label={t("common.search.nextMatch")}
                   size="small"
                   sx={{
                     flexShrink: 0,
                     "&.Mui-disabled": {
-                      color: toolbarBackground,
+                      color: `${toolbarText}66`,
                     },
                   }}
                 >
                   <ArrowForward fontSize="small" />
                 </IconButton>
-              )}
 
-              <IconButton
-                color="inherit"
-                onClick={() => {
-                  closeSearch("toggle");
-                }}
-                title={t("common.search.closeSearch", { defaultValue: "Close search" })}
-                aria-label={t("common.search.closeSearch", { defaultValue: "Close search" })}
-                size="small"
-                sx={{ flexShrink: 0 }}
-              >
-                <Close fontSize="small" />
-              </IconButton>
+                <IconButton
+                  color="inherit"
+                  onClick={() => {
+                    closeSearch("toggle");
+                  }}
+                  title={t("common.search.closeSearch", { defaultValue: "Close search" })}
+                  aria-label={t("common.search.closeSearch", { defaultValue: "Close search" })}
+                  size="small"
+                  sx={{ flexShrink: 0 }}
+                >
+                  <Close fontSize="small" />
+                </IconButton>
+              </Box>
             </Box>
           ) : (
             <IconButton

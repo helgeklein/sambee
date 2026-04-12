@@ -308,6 +308,37 @@ describe("MarkdownRichEditor", () => {
     });
   });
 
+  it("does not repeatedly request search activation before the editor state catches up", async () => {
+    mockSearchState.openSearch.mockImplementation(() => {
+      // Simulate the editor not reflecting isSearchOpen until a later render.
+    });
+    mockSearchState.setSearch.mockImplementation(() => {
+      // Simulate the editor not reflecting the search query until a later render.
+    });
+
+    const { rerender } = render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockSearchState.setSearch).toHaveBeenCalledTimes(1);
+      expect(mockSearchState.openSearch).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" searchText="alpha" searchOpen={true} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(mockSearchState.setSearch).toHaveBeenCalledTimes(1);
+      expect(mockSearchState.openSearch).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("passes native autofocus through to MDXEditor only on initial mount", async () => {
     renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor", autoFocus: true });
 
