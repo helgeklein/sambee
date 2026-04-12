@@ -115,6 +115,8 @@ export interface ViewerControlsProps {
   toolbarBackground?: string;
   /** Toolbar text color from theme */
   toolbarText?: string;
+  /** Whether to render the default close button */
+  showCloseButton?: boolean;
 }
 
 interface ViewerFilenameBadgeProps {
@@ -190,6 +192,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   shareDisabled = false,
   toolbarBackground = VIEWER_DEFAULTS.TOOLBAR_BG,
   toolbarText = VIEWER_DEFAULTS.TOOLBAR_TEXT,
+  showCloseButton = true,
 }) => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -631,16 +634,17 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
 
         {actions?.map(renderToolbarAction)}
 
-        {/* Close button */}
-        <IconButton
-          color="inherit"
-          onClick={onClose}
-          title={withShortcut(COMMON_SHORTCUTS.CLOSE)}
-          aria-label={t("common.actions.close")}
-          size={isMobile ? "small" : "medium"}
-        >
-          <Close fontSize={isMobile ? "small" : "medium"} />
-        </IconButton>
+        {showCloseButton && (
+          <IconButton
+            color="inherit"
+            onClick={onClose}
+            title={withShortcut(COMMON_SHORTCUTS.CLOSE)}
+            aria-label={t("common.actions.close")}
+            size={isMobile ? "small" : "medium"}
+          >
+            <Close fontSize={isMobile ? "small" : "medium"} />
+          </IconButton>
+        )}
       </Box>
 
       {/* Second row: Search (when expanded) */}

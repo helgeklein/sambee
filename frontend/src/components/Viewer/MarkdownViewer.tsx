@@ -48,7 +48,7 @@ import {
 } from "./markdownEditorConstants";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
-import { createCancelToolbarAction, createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
+import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
 import "highlight.js/styles/github.css";
 
 const MARKDOWN_SEARCH_ROOT_SELECTOR = '[data-markdown-search-root="true"]';
@@ -1097,14 +1097,6 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
               isMobile,
               disabled: isSaving,
             }),
-            createCancelToolbarAction({
-              id: "cancel-markdown",
-              onClick: () => {
-                void handleCancelEdit();
-              },
-              isMobile,
-              disabled: isSaving,
-            }),
           ]
         : [
             ...(isReadOnly
@@ -1120,7 +1112,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   }),
                 ]),
           ],
-    [error, handleCancelEdit, handleEnterEditMode, handleSave, isEditing, isMobile, isReadOnly, isSaving, loading]
+    [error, handleEnterEditMode, handleSave, isEditing, isMobile, isReadOnly, isSaving, loading]
   );
 
   // Log when markdown viewer opens

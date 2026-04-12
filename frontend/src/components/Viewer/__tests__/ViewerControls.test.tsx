@@ -194,6 +194,14 @@ describe("ViewerControls", () => {
     expect(mockClose).toHaveBeenCalledOnce();
   });
 
+  it("omits the default close button when showCloseButton is false", () => {
+    const mockClose = vi.fn();
+
+    render(<ViewerControls filename="test.pdf" config={{}} onClose={mockClose} showCloseButton={false} />);
+
+    expect(screen.queryByLabelText("Close")).not.toBeInTheDocument();
+  });
+
   it("does not render zoom buttons on mobile", () => {
     mockMobileMode(true);
     const mockClose = vi.fn();

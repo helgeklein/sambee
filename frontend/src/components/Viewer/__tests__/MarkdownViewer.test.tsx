@@ -429,6 +429,20 @@ describe("MarkdownViewer", () => {
     expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
   });
 
+  it("renders only the close button in the top bar while editing", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+  });
+
   it("shows an error and stays in read-only mode when entering edit mode fails", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
@@ -723,7 +737,7 @@ describe("MarkdownViewer", () => {
 
     const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
     fireEvent.change(editor, { target: { value: "# Updated\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const unsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
     fireEvent.click(within(unsavedDialog).getByRole("button", { name: "Cancel" }));
 

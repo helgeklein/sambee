@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCancelToolbarAction, createEditToolbarAction, createSaveToolbarAction } from "../viewerToolbarActions";
+import { createEditToolbarAction, createSaveToolbarAction } from "../viewerToolbarActions";
 
 describe("viewerToolbarActions", () => {
   it("creates an edit toolbar action with the shared shortcut title", () => {
@@ -35,23 +35,6 @@ describe("viewerToolbarActions", () => {
       kind: "icon",
       label: "Save",
       title: "Save (Ctrl+S)",
-      onClick,
-    });
-  });
-
-  it("creates a cancel toolbar action without inventing a shortcut", () => {
-    const onClick = vi.fn();
-
-    const action = createCancelToolbarAction({
-      onClick,
-      isMobile: false,
-    });
-
-    expect(action).toMatchObject({
-      id: "cancel",
-      kind: "icon",
-      label: "Cancel",
-      title: undefined,
       onClick,
     });
   });
