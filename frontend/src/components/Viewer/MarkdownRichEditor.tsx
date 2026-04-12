@@ -30,7 +30,6 @@ import {
   openLinkEditDialog$,
   quotePlugin,
   Separator,
-  searchPlugin,
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
@@ -69,6 +68,7 @@ import { Z_INDEX } from "../../theme/constants";
 import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
+import { mdxEditorSearchPlugin } from "./mdxEditorSearchPlugin";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
@@ -1025,7 +1025,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         linkPlugin(),
         linkDialogPlugin(),
         markdownShortcutPlugin(),
-        searchPlugin(),
+        mdxEditorSearchPlugin(),
         diffSourcePlugin({ viewMode: "rich-text", diffMarkdown }),
         toolbarPlugin({
           toolbarContents: () => (

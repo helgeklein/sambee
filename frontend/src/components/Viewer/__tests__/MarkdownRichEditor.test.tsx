@@ -129,6 +129,13 @@ vi.mock("@mdxeditor/editor", () => {
     Separator: passthroughComponent,
     UndoRedo: passthroughComponent,
     diffSourcePlugin: (params?: unknown) => ({ type: "diffSourcePlugin", params }),
+    contentEditableRef$: Symbol("contentEditableRef"),
+    createRootEditorSubscription$: Symbol("createRootEditorSubscription"),
+    editorSearchCursor$: Symbol("editorSearchCursor"),
+    editorSearchRanges$: Symbol("editorSearchRanges"),
+    editorSearchScrollableContent$: Symbol("editorSearchScrollableContent"),
+    editorSearchTerm$: Symbol("editorSearchTerm"),
+    editorSearchTextNodeIndex$: Symbol("editorSearchTextNodeIndex"),
     editorInTable$: Symbol("editorInTable"),
     headingsPlugin: (params?: unknown) => ({ type: "headingsPlugin", params }),
     linkDialogPlugin: () => ({ type: "linkDialogPlugin" }),
@@ -166,6 +173,8 @@ vi.mock("@mdxeditor/editor", () => {
     },
     useEditorSearch: () => mockSearchState,
     currentFormat$: Symbol("currentFormat"),
+    MDX_FOCUS_SEARCH_NAME: "MdxFocusSearch",
+    MDX_SEARCH_NAME: "MdxSearch",
     iconComponentFor$: Symbol("iconComponentFor"),
     insertCodeBlock$: Symbol("insertCodeBlock"),
     insertTable$: Symbol("insertTable"),
@@ -184,6 +193,8 @@ vi.mock("@mdxeditor/editor", () => {
         ))}
       </div>
     ),
+    rangeSearchScan: vi.fn(),
+    realmPlugin: (plugin: unknown) => () => ({ type: "searchPlugin", plugin }),
     viewMode$: Symbol("viewMode"),
     openLinkEditDialog$: Symbol("openLinkEditDialog"),
   };
