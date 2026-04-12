@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { CompanionStatus } from "../../hooks/useCompanion";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { CONNECTION_TYPE_LOCAL, isLocalDrive } from "../../services/backendRouter";
-import { pillButtonStyle } from "../../theme/commonStyles";
+import { pillButtonStyle, secondaryToolbarMenuPaperSx } from "../../theme/commonStyles";
 import type { Connection } from "../../types";
 import { LOCAL_DRIVES_MENU_ACTION_LABEL } from "../Settings/localDrivesCopy";
 
@@ -108,6 +108,11 @@ export function ConnectionSelector({
         transformOrigin={{
           vertical: "top",
           horizontal: "right",
+        }}
+        slotProps={{
+          paper: {
+            sx: secondaryToolbarMenuPaperSx,
+          },
         }}
       >
         {/* SMB connections */}

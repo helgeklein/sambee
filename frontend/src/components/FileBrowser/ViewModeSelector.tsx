@@ -3,7 +3,7 @@ import ViewModule from "@mui/icons-material/ViewModule";
 import { Box, Button, Divider, Menu, MenuItem, Typography } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { ViewMode } from "../../pages/FileBrowser/types";
-import { pillButtonStyle } from "../../theme/commonStyles";
+import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
 import { VIEW_MODE_SELECTOR_STRINGS } from "./viewModeSelectorStrings";
 
 interface ViewModeSelectorProps {
@@ -71,9 +71,10 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
         }}
         slotProps={{
           paper: {
-            sx: {
+            sx: (theme) => ({
+              ...getSecondaryToolbarMenuPaperStyle(theme),
               minWidth: 160,
-            },
+            }),
           },
         }}
       >

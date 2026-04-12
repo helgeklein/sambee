@@ -23,6 +23,7 @@ import { Box } from "@mui/material";
 import type React from "react";
 import type { CompanionStatus } from "../../hooks/useCompanion";
 import type { SortField, ViewMode } from "../../pages/FileBrowser/types";
+import { secondaryActionStripSx } from "../../theme/commonStyles";
 import type { Connection } from "../../types";
 import { ConnectionSelector } from "./ConnectionSelector";
 import { SortControls } from "./SortControls";
@@ -91,18 +92,7 @@ export function SecondaryActionStrip({
   connectionButtonRef,
 }: SecondaryActionStripProps) {
   return (
-    <Box
-      display="flex"
-      alignItems="center"
-      justifyContent="space-between"
-      sx={{
-        px: 2,
-        py: 0.5,
-        minHeight: 36,
-        boxShadow: 2,
-        zIndex: 1,
-      }}
-    >
+    <Box display="flex" alignItems="center" justifyContent="space-between" sx={secondaryActionStripSx}>
       <Box display="flex" gap={1}>
         <ConnectionSelector
           connections={connections}

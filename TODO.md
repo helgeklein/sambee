@@ -17,3 +17,7 @@
 ## Text viewer and editor
 
 - Support various text-based files
+
+## Markdown editor
+
+- Table editing: UI is gross and ugly

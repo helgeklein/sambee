@@ -62,6 +62,7 @@ export const builtInThemes: ThemeConfig[] = [
         viewerBackground: "#F6F1E8", // Default background
         toolbarBackground: "#1F262B", // Dark mode background
         toolbarText: "#F6F1E8", // Dark mode primary text
+        secondaryToolbarSelected: "#D4A02042", // Selected background for the markdown editor secondary toolbar
       },
       alert: {
         info: {
@@ -136,6 +137,7 @@ export const builtInThemes: ThemeConfig[] = [
         viewerBackground: "#1F262B", // Default background
         toolbarBackground: "#2A3239", // App bar background
         toolbarText: "#F6F1E8", // Primary text
+        secondaryToolbarSelected: "#D4A02042", // Selected background for the markdown editor secondary toolbar
       },
       alert: {
         info: {

@@ -3,7 +3,7 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import { Box, Button, Divider, Menu, MenuItem, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { SortField } from "../../pages/FileBrowser/types";
-import { pillButtonStyle } from "../../theme/commonStyles";
+import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
 import { SORT_CONTROLS_STRINGS } from "./sortControlsStrings";
 
 interface SortControlsProps {
@@ -85,9 +85,10 @@ export function SortControls({
         }}
         slotProps={{
           paper: {
-            sx: {
+            sx: (theme) => ({
+              ...getSecondaryToolbarMenuPaperStyle(theme),
               minWidth: 180,
-            },
+            }),
           },
         }}
       >

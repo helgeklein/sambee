@@ -194,6 +194,14 @@ describe("ViewerControls", () => {
     expect(mockClose).toHaveBeenCalledOnce();
   });
 
+  it("omits the default close button when showCloseButton is false", () => {
+    const mockClose = vi.fn();
+
+    render(<ViewerControls filename="test.pdf" config={{}} onClose={mockClose} showCloseButton={false} />);
+
+    expect(screen.queryByLabelText("Close")).not.toBeInTheDocument();
+  });
+
   it("does not render zoom buttons on mobile", () => {
     mockMobileMode(true);
     const mockClose = vi.fn();
@@ -260,12 +268,17 @@ describe("ViewerControls", () => {
     // Search panel should not be visible initially
     expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
 
-    // Click search button to show panel
+    // Click search button to show inline search UI in its place
     fireEvent.click(screen.getByLabelText("Search"));
     expect(screen.getByPlaceholderText("Search")).toBeInTheDocument();
-    // Click again to hide
-    fireEvent.click(screen.getByLabelText("Search"));
+    expect(screen.queryByRole("button", { name: "Search" })).not.toBeInTheDocument();
+    expect(screen.getByText("0 / 0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous match" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next match" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
     expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search" })).toBeInTheDocument();
   });
 
   it("focuses the search input when the search panel opens", async () => {
@@ -320,6 +333,50 @@ describe("ViewerControls", () => {
     await waitFor(() => {
       expect(searchInput).toHaveValue("pdf");
       expect(searchInput).toHaveFocus();
+    });
+  });
+
+  it("keeps search navigation visible and enables it only when matches are available", async () => {
+    const mockClose = vi.fn();
+    const mockPrevious = vi.fn();
+    const mockNext = vi.fn();
+
+    const ControlledViewerControls = () => {
+      const [searchText, setSearchText] = useState("");
+      const hasMatches = searchText.trim().length > 0;
+
+      return (
+        <ViewerControls
+          filename="test.pdf"
+          config={{ search: true }}
+          onClose={mockClose}
+          search={{
+            searchText,
+            onSearchChange: setSearchText,
+            searchMatches: hasMatches ? 3 : 0,
+            currentMatch: hasMatches ? 1 : 0,
+            onSearchPrevious: mockPrevious,
+            onSearchNext: mockNext,
+          }}
+        />
+      );
+    };
+
+    render(<ControlledViewerControls />);
+
+    fireEvent.click(screen.getByLabelText("Search"));
+
+    const searchInput = await screen.findByPlaceholderText("Search");
+    expect(screen.getByText("0 / 0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous match" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next match" })).toBeDisabled();
+
+    fireEvent.change(searchInput, { target: { value: "pdf" } });
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 3")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Previous match" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Next match" })).toBeEnabled();
     });
   });
 

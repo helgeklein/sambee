@@ -1,5 +1,6 @@
 import type { SxProps, Theme } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import type { ThemeConfig } from "./types";
 
 /**
  * Common reusable style patterns for consistent UI
@@ -26,6 +27,81 @@ export function getElevatedButtonFocusRing(theme: Theme): string {
 export function getContainedButtonFocusVisibleBoxShadow(theme: Theme, shadowIndex = 3): string {
   return `${theme.shadows[shadowIndex]}, 0 0 0 ${CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH}px ${getContainedButtonFocusAccentColor(theme)}`;
 }
+
+export interface SecondaryToolbarSurfaceColors {
+  stripBackground: string;
+  popupBackground: string;
+  textColor: string;
+  borderColor: string;
+  pillBackground: string;
+  groupedBackground: string;
+  activeBackground: string;
+  hoverBackground: string;
+  separatorColor: string;
+  shadow: string;
+}
+
+export function getSecondaryToolbarSelectedBackground(theme: Theme, themeConfig?: ThemeConfig): string {
+  return (
+    themeConfig?.components?.markdownViewer?.secondaryToolbarSelected ??
+    themeConfig?.action?.selectedDarker ??
+    themeConfig?.action?.selected ??
+    theme.palette.action.selected
+  );
+}
+
+export function getSecondaryToolbarSurfaceColors(
+  theme: Theme,
+  overrides?: Partial<Pick<SecondaryToolbarSurfaceColors, "pillBackground" | "activeBackground" | "hoverBackground">>
+): SecondaryToolbarSurfaceColors {
+  const textColor = theme.palette.text.secondary;
+  const pillBackground = overrides?.pillBackground ?? theme.palette.action.selected;
+  const activeBackground = overrides?.activeBackground ?? overrides?.pillBackground ?? alpha(textColor, 0.12);
+  const hoverBackground = overrides?.hoverBackground ?? activeBackground;
+
+  return {
+    stripBackground: theme.palette.background.default,
+    popupBackground: theme.palette.background.default,
+    textColor,
+    borderColor: theme.palette.divider,
+    pillBackground,
+    groupedBackground: alpha(textColor, 0.06),
+    activeBackground,
+    hoverBackground,
+    separatorColor: alpha(textColor, 0.06),
+    shadow: theme.shadows[2],
+  };
+}
+
+export function getSecondaryActionStripStyle(theme: Theme) {
+  const colors = getSecondaryToolbarSurfaceColors(theme);
+
+  return {
+    px: 2,
+    py: 0.5,
+    minHeight: 36,
+    bgcolor: colors.stripBackground,
+    color: colors.textColor,
+    boxShadow: 2,
+    zIndex: 1,
+  };
+}
+
+export const secondaryActionStripSx: SxProps<Theme> = (theme) => getSecondaryActionStripStyle(theme);
+
+export function getSecondaryToolbarMenuPaperStyle(theme: Theme) {
+  const colors = getSecondaryToolbarSurfaceColors(theme);
+
+  return {
+    bgcolor: colors.popupBackground,
+    color: colors.textColor,
+    border: 1,
+    borderColor: colors.borderColor,
+    boxShadow: colors.shadow,
+  };
+}
+
+export const secondaryToolbarMenuPaperSx: SxProps<Theme> = (theme) => getSecondaryToolbarMenuPaperStyle(theme);
 
 /**
  * fileNamePillSx
@@ -61,12 +137,13 @@ export const fileNamePillSx: SxProps<Theme> = {
  */
 export const pillButtonStyle: SxProps<Theme> = {
   border: 1,
-  borderColor: "divider",
+  borderColor: (theme) => getSecondaryToolbarSurfaceColors(theme).borderColor,
   borderRadius: 3,
-  bgcolor: "action.selected",
+  bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
+  color: (theme) => getSecondaryToolbarSurfaceColors(theme).textColor,
   textTransform: "none",
   "&:hover": {
-    bgcolor: "action.selected",
+    bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
   },
   "&.Mui-focusVisible": {
     outline: "none",

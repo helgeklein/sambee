@@ -16,6 +16,8 @@
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:markdown": "playwright test e2e/markdown-viewer.spec.ts",
     "test:changed": "vitest run --changed",
     "test:watch:changed": "vitest --changed"
   },
@@ -44,6 +46,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.6",
+    "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
@@ -55,6 +58,7 @@
     "@vitest/ui": "^4.1.0",
     "jsdom": "^27.4.0",
     "msw": "^2.12.10",
+    "playwright": "^1.59.1",
     "typescript": "^5.9.3",
     "vite": "^6.4.1",
     "vitest": "^4.1.0"

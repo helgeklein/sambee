@@ -8,6 +8,19 @@ import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 
 const mockMarkdownEditorBehavior = {
   changeBeforeUserEdit: false,
+  delayFocus: false,
+  emitNonEditableInputBeforeInitialChange: false,
+  focusEditableBeforeInitialChange: false,
+  focusCurrentSearchResultCalls: 0,
+  focusResetsScrollPosition: false,
+  initialNormalizedMarkdown: null as string | null,
+  lastSearchOpen: false,
+  lastSearchText: "",
+  lastRestoredScrollTop: null as number | null,
+  moveCaretToEndOnMarkdownPropChangeWhenFocused: false,
+  preserveSelectionCalls: 0,
+  restorePreservedSelectionCalls: 0,
+  skipUserEdit: false,
   throwOnInsertCodeBlock: false,
   throwOnRender: false,
 };
@@ -24,6 +37,9 @@ vi.mock("../MarkdownRichEditor", () => {
   const MockMarkdownRichEditor = forwardRef<
     {
       focus: () => void;
+      preserveSelection: () => void;
+      restorePreservedSelection: () => boolean;
+      focusCurrentSearchResult: () => boolean;
       nextSearchResult: () => void;
       previousSearchResult: () => void;
       createLink: () => void;
@@ -60,7 +76,19 @@ vi.mock("../MarkdownRichEditor", () => {
         throw new Error("Editor render failed");
       }
 
+      mockMarkdownEditorBehavior.lastSearchOpen = searchOpen;
+      mockMarkdownEditorBehavior.lastSearchText = searchText;
+
       const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+      const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
+      const previousMarkdownRef = useRef(markdown);
+      const preservedSelectionRef = useRef<{
+        type: "textarea";
+        start: number;
+        end: number;
+        direction: "forward" | "backward" | "none";
+        scrollTop: number;
+      } | null>(null);
       const [currentMatch, setCurrentMatch] = useState(0);
 
       useEffect(() => {
@@ -83,9 +111,111 @@ vi.mock("../MarkdownRichEditor", () => {
         });
       }, [currentMatch, onSearchStateChange, searchOpen, searchText]);
 
+      useEffect(() => {
+        if (mockMarkdownEditorBehavior.focusEditableBeforeInitialChange) {
+          textareaRef.current?.focus();
+        }
+
+        if (mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange && toolbarButtonRef.current) {
+          toolbarButtonRef.current.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        }
+
+        if (mockMarkdownEditorBehavior.initialNormalizedMarkdown !== null) {
+          onChange(mockMarkdownEditorBehavior.initialNormalizedMarkdown);
+        }
+      }, [onChange]);
+
+      useEffect(() => {
+        const textarea = textareaRef.current;
+
+        if (
+          !textarea ||
+          previousMarkdownRef.current === markdown ||
+          !mockMarkdownEditorBehavior.moveCaretToEndOnMarkdownPropChangeWhenFocused ||
+          document.activeElement !== textarea
+        ) {
+          previousMarkdownRef.current = markdown;
+          return;
+        }
+
+        textarea.setSelectionRange(markdown.length, markdown.length);
+        previousMarkdownRef.current = markdown;
+      }, [markdown]);
+
       useImperativeHandle(ref, () => ({
         focus: () => {
-          textareaRef.current?.focus();
+          if (mockMarkdownEditorBehavior.delayFocus) {
+            window.setTimeout(() => {
+              if (mockMarkdownEditorBehavior.focusResetsScrollPosition && textareaRef.current) {
+                textareaRef.current.scrollTop = 0;
+              }
+              textareaRef.current?.focus({ preventScroll: true });
+            }, 72);
+            return;
+          }
+
+          if (mockMarkdownEditorBehavior.focusResetsScrollPosition && textareaRef.current) {
+            textareaRef.current.scrollTop = 0;
+          }
+
+          textareaRef.current?.focus({ preventScroll: true });
+        },
+        preserveSelection: () => {
+          mockMarkdownEditorBehavior.preserveSelectionCalls += 1;
+          const textarea = textareaRef.current;
+
+          if (!textarea) {
+            preservedSelectionRef.current = null;
+            return;
+          }
+
+          preservedSelectionRef.current = {
+            type: "textarea",
+            start: textarea.selectionStart,
+            end: textarea.selectionEnd,
+            direction: textarea.selectionDirection ?? "none",
+            scrollTop: textarea.scrollTop,
+          };
+        },
+        restorePreservedSelection: () => {
+          mockMarkdownEditorBehavior.restorePreservedSelectionCalls += 1;
+          const textarea = textareaRef.current;
+
+          if (!textarea) {
+            return false;
+          }
+
+          textarea.focus({ preventScroll: true });
+
+          if (!preservedSelectionRef.current) {
+            return document.activeElement === textarea;
+          }
+
+          textarea.setSelectionRange(
+            preservedSelectionRef.current.start,
+            preservedSelectionRef.current.end,
+            preservedSelectionRef.current.direction
+          );
+          textarea.scrollTop = preservedSelectionRef.current.scrollTop;
+          mockMarkdownEditorBehavior.lastRestoredScrollTop = preservedSelectionRef.current.scrollTop;
+          const restored = document.activeElement === textarea;
+
+          if (restored) {
+            preservedSelectionRef.current = null;
+          }
+
+          return restored;
+        },
+        focusCurrentSearchResult: () => {
+          mockMarkdownEditorBehavior.focusCurrentSearchResultCalls += 1;
+          const textarea = textareaRef.current;
+
+          if (!textarea) {
+            return false;
+          }
+
+          textarea.focus({ preventScroll: true });
+          return document.activeElement === textarea;
         },
         nextSearchResult: () => {
           if (!searchText) {
@@ -123,23 +253,44 @@ vi.mock("../MarkdownRichEditor", () => {
       }));
 
       return (
-        <textarea
-          ref={textareaRef}
+        <div
           className={className}
-          aria-label={ariaLabel}
-          value={markdown}
-          readOnly={readOnly}
-          onChange={(event) => {
-            if (mockMarkdownEditorBehavior.changeBeforeUserEdit) {
-              onChange(event.target.value);
-              onUserEdit?.();
+          onChangeCapture={(event) => {
+            if (!mockMarkdownEditorBehavior.skipUserEdit) {
               return;
             }
 
-            onUserEdit?.();
-            onChange(event.target.value);
+            const target = event.target;
+            if (target instanceof HTMLTextAreaElement) {
+              onUserEdit?.();
+            }
           }}
-        />
+        >
+          <button ref={toolbarButtonRef} type="button">
+            Toolbar action
+          </button>
+          <textarea
+            ref={textareaRef}
+            aria-label={ariaLabel}
+            value={markdown}
+            readOnly={readOnly}
+            onChange={(event) => {
+              if (mockMarkdownEditorBehavior.skipUserEdit) {
+                onChange(event.target.value);
+                return;
+              }
+
+              if (mockMarkdownEditorBehavior.changeBeforeUserEdit) {
+                onChange(event.target.value);
+                onUserEdit?.();
+                return;
+              }
+
+              onUserEdit?.();
+              onChange(event.target.value);
+            }}
+          />
+        </div>
       );
     }
   );
@@ -187,6 +338,19 @@ describe("MarkdownViewer", () => {
     localStorage.setItem("access_token", "mock-token");
     vi.restoreAllMocks();
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
+    mockMarkdownEditorBehavior.delayFocus = false;
+    mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = false;
+    mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = false;
+    mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
+    mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = null;
+    mockMarkdownEditorBehavior.lastSearchOpen = false;
+    mockMarkdownEditorBehavior.lastSearchText = "";
+    mockMarkdownEditorBehavior.lastRestoredScrollTop = null;
+    mockMarkdownEditorBehavior.moveCaretToEndOnMarkdownPropChangeWhenFocused = false;
+    mockMarkdownEditorBehavior.preserveSelectionCalls = 0;
+    mockMarkdownEditorBehavior.restorePreservedSelectionCalls = 0;
+    mockMarkdownEditorBehavior.skipUserEdit = false;
     mockMarkdownEditorBehavior.throwOnInsertCodeBlock = false;
     mockMarkdownEditorBehavior.throwOnRender = false;
     mockMarkdownEditorCommands.createLink.mockReset();
@@ -259,6 +423,34 @@ describe("MarkdownViewer", () => {
     expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.any(String));
   });
 
+  it("resets the viewer scroll position when entering edit mode", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n\nLine 2\n\nLine 3\n\nLine 4\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+
+    const contentContainer = screen.getByTestId("markdown-viewer-content");
+
+    contentContainer.scrollTop = 240;
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    });
+
+    expect(contentContainer.scrollTop).toBe(0);
+  });
+
   it("exits edit mode on Escape without closing the viewer or prompting when nothing changed", async () => {
     const onClose = vi.fn();
 
@@ -294,6 +486,20 @@ describe("MarkdownViewer", () => {
     expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
   });
 
+  it("renders only the close button in the top bar while editing", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+  });
+
   it("shows an error and stays in read-only mode when entering edit mode fails", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
@@ -311,7 +517,7 @@ describe("MarkdownViewer", () => {
     expect(screen.queryByRole("textbox", { name: "Markdown editor" })).not.toBeInTheDocument();
   });
 
-  it("saves markdown changes and releases the lock", async () => {
+  it("saves markdown changes and stays in edit mode", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
     vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
@@ -339,10 +545,130 @@ describe("MarkdownViewer", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
+    expect(await screen.findByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
+  });
+
+  it("restores focus to the editor after save even when editor focus is delayed", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
     });
-    expect(screen.queryByRole("textbox", { name: "Markdown editor" })).not.toBeInTheDocument();
+    vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    mockMarkdownEditorBehavior.delayFocus = true;
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveFocus();
+    });
+  });
+
+  it("preserves the caret position after saving", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    editor.focus();
+    editor.setSelectionRange(3, 3);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(editor).toHaveFocus();
+      expect(editor.selectionStart).toBe(3);
+      expect(editor.selectionEnd).toBe(3);
+    });
+  });
+
+  it("restores the preserved caret after save even if the refreshed editor content moves it to the end", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    mockMarkdownEditorBehavior.moveCaretToEndOnMarkdownPropChangeWhenFocused = true;
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    editor.focus();
+    editor.setSelectionRange(3, 3);
+
+    fireEvent.keyDown(editor, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(editor).toHaveFocus();
+      expect(editor.selectionStart).toBe(3);
+      expect(editor.selectionEnd).toBe(3);
+    });
+  });
+
+  it("restores focus to the editor after saving with Ctrl+S", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    const saveSpy = vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    editor.focus();
+
+    fireEvent.keyDown(editor, { key: "s", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", "# Updated\n", {
+        filename: "readme.md",
+        mimeType: "text/markdown;charset=utf-8",
+      });
+      expect(editor).toHaveFocus();
+    });
   });
 
   it("shows an error and stays in edit mode when saving fails", async () => {
@@ -532,7 +858,7 @@ describe("MarkdownViewer", () => {
 
     const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
     fireEvent.change(editor, { target: { value: "# Updated\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     const unsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
     fireEvent.click(within(unsavedDialog).getByRole("button", { name: "Cancel" }));
 
@@ -563,6 +889,9 @@ describe("MarkdownViewer", () => {
 
     const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
     fireEvent.change(editor, { target: { value: "# Updated\n" } });
+
+    await screen.findByLabelText("Unsaved changes");
+
     fireEvent.keyDown(editor, { key: "Escape" });
 
     const unsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
@@ -575,6 +904,76 @@ describe("MarkdownViewer", () => {
     });
 
     expect(await screen.findByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+  });
+
+  it("restores the caret position after cancelling the unsaved changes dialog", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+
+    editor.focus();
+    editor.setSelectionRange(3, 3);
+
+    fireEvent.keyDown(editor, { key: "Escape" });
+
+    const unsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
+    fireEvent.click(within(unsavedDialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Unsaved changes" })).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(editor).toHaveFocus();
+    });
+
+    expect(editor.selectionStart).toBe(3);
+    expect(editor.selectionEnd).toBe(3);
+  });
+
+  it("preserves editor state before opening the unsaved changes dialog", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+
+    editor.focus();
+    editor.setSelectionRange(3, 3);
+    editor.scrollTop = 220;
+
+    fireEvent.keyDown(editor, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+      expect(mockMarkdownEditorBehavior.preserveSelectionCalls).toBeGreaterThan(0);
+    });
   });
 
   it("shows an unsaved indicator in the header when the markdown draft is dirty", async () => {
@@ -597,6 +996,82 @@ describe("MarkdownViewer", () => {
 
     expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
 
+    fireEvent.change(editor, { target: { value: "# Readme\nUpdated\n" } });
+
+    expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("does not mark the document dirty from a non-editable mount event before the initial editor normalization change", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = true;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = "# Readme\n\n";
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not mark the document dirty when autofocus happens before the initial editor normalization change", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = true;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = "# Readme\n\n";
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the unsaved indicator when the editor change event arrives without a user-edit callback", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.skipUserEdit = true;
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    await waitFor(() => {
+      expect(editor).toHaveFocus();
+    });
     fireEvent.change(editor, { target: { value: "# Readme\nUpdated\n" } });
 
     expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
@@ -813,6 +1288,75 @@ describe("MarkdownViewer", () => {
 
     await waitFor(() => {
       expect(screen.getByText("2 / 2")).toBeInTheDocument();
+    });
+  });
+
+  it("returns focus to the active editor match when edit-mode search is dismissed with Escape", async () => {
+    const onClose = vi.fn();
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewerWithProps({ onClose });
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const searchInput = await viewerSearch.openSearch("alpha");
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(editor).toHaveFocus();
+    });
+
+    expect(mockMarkdownEditorBehavior.focusCurrentSearchResultCalls).toBeGreaterThan(0);
+    expect(mockMarkdownEditorBehavior.lastSearchOpen).toBe(false);
+    expect(mockMarkdownEditorBehavior.lastSearchText).toBe("");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText("Search")).toHaveValue("alpha");
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+  });
+
+  it("does not restore preview highlights after exiting edit mode when edit search was already closed", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Alpha\n\nAlpha beta alpha\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(false);
+
+    renderViewer();
+
+    await screen.findByText("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    const searchInput = await viewerSearch.openSearch("alpha");
+
+    await waitFor(() => {
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Search")).not.toBeInTheDocument();
+      expect(editor).toHaveFocus();
+    });
+
+    fireEvent.keyDown(editor, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("textbox", { name: "Markdown editor" })).not.toBeInTheDocument();
+      expect(document.querySelectorAll('mark[data-text-search-highlight="true"]').length).toBe(0);
     });
   });
 

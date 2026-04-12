@@ -1,4 +1,4 @@
-import { Close, Edit, Save } from "@mui/icons-material";
+import { Edit, Save } from "@mui/icons-material";
 import { COMMON_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { translate } from "../../i18n";
@@ -70,20 +70,5 @@ export function createSaveToolbarAction({
     onClick,
     disabled,
     title: withShortcut(COMMON_SHORTCUTS.SAVE),
-  });
-}
-
-export function createCancelToolbarAction({
-  onClick,
-  isMobile,
-  disabled,
-  id = "cancel",
-}: CommonViewerToolbarActionOptions): ViewerToolbarAction {
-  return createIconToolbarAction({
-    id,
-    label: translate("common.actions.cancel"),
-    icon: <Close fontSize={getToolbarIconFontSize(isMobile)} />,
-    onClick,
-    disabled,
   });
 }
