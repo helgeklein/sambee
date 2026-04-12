@@ -520,6 +520,7 @@ function getVisibleMobileExtraActionCount(toolbarWidth: number): number {
 const MarkdownMobileToolbarButton = ({
   active = false,
   activeBackground,
+  hoverBackground,
   ariaLabel,
   children,
   disabled = false,
@@ -527,6 +528,7 @@ const MarkdownMobileToolbarButton = ({
 }: {
   active?: boolean;
   activeBackground: string;
+  hoverBackground: string;
   ariaLabel: string;
   children: ReactNode;
   disabled?: boolean;
@@ -547,6 +549,9 @@ const MarkdownMobileToolbarButton = ({
         height: MOBILE_TOOLBAR_ACTION_SIZE_PX,
         borderRadius: 1,
         bgcolor: active ? activeBackground : "transparent",
+        "&:hover": {
+          bgcolor: hoverBackground,
+        },
       }}
     >
       {children}
@@ -554,7 +559,7 @@ const MarkdownMobileToolbarButton = ({
   );
 };
 
-const MarkdownMobileUndoRedoButtons = ({ activeBackground }: { activeBackground: string }) => {
+const MarkdownMobileUndoRedoButtons = ({ activeBackground, hoverBackground }: { activeBackground: string; hoverBackground: string }) => {
   const { t } = useTranslation();
   const [iconComponentFor, activeEditor] = useCellValues(iconComponentFor$, activeEditor$);
   const [canUndo, setCanUndo] = useState(false);
@@ -589,6 +594,7 @@ const MarkdownMobileUndoRedoButtons = ({ activeBackground }: { activeBackground:
     <>
       <MarkdownMobileToolbarButton
         activeBackground={activeBackground}
+        hoverBackground={hoverBackground}
         ariaLabel={formatEditorTooltip(t("viewer.edit.undo", { defaultValue: "Undo" }), MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.undo)}
         disabled={!canUndo}
         onClick={() => {
@@ -599,6 +605,7 @@ const MarkdownMobileUndoRedoButtons = ({ activeBackground }: { activeBackground:
       </MarkdownMobileToolbarButton>
       <MarkdownMobileToolbarButton
         activeBackground={activeBackground}
+        hoverBackground={hoverBackground}
         ariaLabel={formatEditorTooltip(t("viewer.edit.redo", { defaultValue: "Redo" }), MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.redo)}
         disabled={!canRedo}
         onClick={() => {
@@ -614,6 +621,7 @@ const MarkdownMobileUndoRedoButtons = ({ activeBackground }: { activeBackground:
 const MarkdownMobileFormatButton = ({
   activeLabel,
   activeBackground,
+  hoverBackground,
   format,
   formatName,
   icon,
@@ -622,6 +630,7 @@ const MarkdownMobileFormatButton = ({
 }: {
   activeLabel: string;
   activeBackground: string;
+  hoverBackground: string;
   format: number;
   formatName: "bold" | "italic" | "underline" | "code";
   icon: string;
@@ -636,6 +645,7 @@ const MarkdownMobileFormatButton = ({
     <MarkdownMobileToolbarButton
       active={isActive}
       activeBackground={activeBackground}
+      hoverBackground={hoverBackground}
       ariaLabel={formatEditorTooltip(isActive ? activeLabel : inactiveLabel, shortcutLabel)}
       onClick={() => {
         applyFormat(formatName);
@@ -646,7 +656,7 @@ const MarkdownMobileFormatButton = ({
   );
 };
 
-const MarkdownMobileBulletListButton = ({ activeBackground }: { activeBackground: string }) => {
+const MarkdownMobileBulletListButton = ({ activeBackground, hoverBackground }: { activeBackground: string; hoverBackground: string }) => {
   const { t } = useTranslation();
   const [currentListType, iconComponentFor, isInTable] = useCellValues(currentListType$, iconComponentFor$, editorInTable$);
   const applyListType = usePublisher(applyListType$);
@@ -655,6 +665,7 @@ const MarkdownMobileBulletListButton = ({ activeBackground }: { activeBackground
     <MarkdownMobileToolbarButton
       active={currentListType === "bullet"}
       activeBackground={activeBackground}
+      hoverBackground={hoverBackground}
       ariaLabel={t("viewer.edit.bulletedList", { defaultValue: "Bulleted list" })}
       disabled={isInTable}
       onClick={() => {
@@ -666,7 +677,7 @@ const MarkdownMobileBulletListButton = ({ activeBackground }: { activeBackground
   );
 };
 
-const MarkdownMobileLinkButton = ({ activeBackground }: { activeBackground: string }) => {
+const MarkdownMobileLinkButton = ({ activeBackground, hoverBackground }: { activeBackground: string; hoverBackground: string }) => {
   const iconComponentFor = useGurxCellValue(iconComponentFor$);
   const openLinkDialog = usePublisher(openLinkEditDialog$);
   const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.CREATE_LINK);
@@ -674,6 +685,7 @@ const MarkdownMobileLinkButton = ({ activeBackground }: { activeBackground: stri
   return (
     <MarkdownMobileToolbarButton
       activeBackground={activeBackground}
+      hoverBackground={hoverBackground}
       ariaLabel={title}
       onClick={() => {
         openLinkDialog();
@@ -945,7 +957,7 @@ const MarkdownMobileMoreActionsMenu = () => {
   );
 };
 
-const MarkdownMobileToolbar = ({ activeBackground }: { activeBackground: string }) => {
+const MarkdownMobileToolbar = ({ activeBackground, hoverBackground }: { activeBackground: string; hoverBackground: string }) => {
   const { t } = useTranslation();
   const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -1016,10 +1028,11 @@ const MarkdownMobileToolbar = ({ activeBackground }: { activeBackground: string 
       >
         {viewMode === "rich-text" && (
           <>
-            <MarkdownMobileUndoRedoButtons activeBackground={activeBackground} />
+            <MarkdownMobileUndoRedoButtons activeBackground={activeBackground} hoverBackground={hoverBackground} />
             <MarkdownMobileFormatButton
               activeLabel={t("viewer.edit.removeBold", { defaultValue: "Remove bold" })}
               activeBackground={activeBackground}
+              hoverBackground={hoverBackground}
               format={IS_BOLD}
               formatName="bold"
               icon="format_bold"
@@ -1029,18 +1042,24 @@ const MarkdownMobileToolbar = ({ activeBackground }: { activeBackground: string 
             <MarkdownMobileFormatButton
               activeLabel={t("viewer.edit.removeItalic", { defaultValue: "Remove italic" })}
               activeBackground={activeBackground}
+              hoverBackground={hoverBackground}
               format={IS_ITALIC}
               formatName="italic"
               icon="format_italic"
               inactiveLabel={t("viewer.edit.italic", { defaultValue: "Italic" })}
               shortcutLabel={MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.italic}
             />
-            {visibleExtraActions.includes("list") ? <MarkdownMobileBulletListButton activeBackground={activeBackground} /> : null}
-            {visibleExtraActions.includes("link") ? <MarkdownMobileLinkButton activeBackground={activeBackground} /> : null}
+            {visibleExtraActions.includes("list") ? (
+              <MarkdownMobileBulletListButton activeBackground={activeBackground} hoverBackground={hoverBackground} />
+            ) : null}
+            {visibleExtraActions.includes("link") ? (
+              <MarkdownMobileLinkButton activeBackground={activeBackground} hoverBackground={hoverBackground} />
+            ) : null}
             {visibleExtraActions.includes("inline-code") ? (
               <MarkdownMobileFormatButton
                 activeLabel={t("viewer.edit.removeInlineCode", { defaultValue: "Remove code format" })}
                 activeBackground={activeBackground}
+                hoverBackground={hoverBackground}
                 format={IS_CODE}
                 formatName="code"
                 icon="code"
@@ -1052,6 +1071,7 @@ const MarkdownMobileToolbar = ({ activeBackground }: { activeBackground: string 
               <MarkdownMobileFormatButton
                 activeLabel={t("viewer.edit.removeUnderline", { defaultValue: "Remove underline" })}
                 activeBackground={activeBackground}
+                hoverBackground={hoverBackground}
                 format={IS_UNDERLINE}
                 formatName="underline"
                 icon="format_underlined"
@@ -1090,6 +1110,7 @@ const MarkdownDesktopToolbar = () => {
 
 const MarkdownResponsiveToolbar = ({
   activeBackground,
+  hoverBackground,
   isMobile,
   onSearchStateChange,
   onCurrentRangeChange,
@@ -1100,6 +1121,7 @@ const MarkdownResponsiveToolbar = ({
   searchText,
 }: {
   activeBackground: string;
+  hoverBackground: string;
   isMobile: boolean;
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
   onCurrentRangeChange: (range: Range | null) => void;
@@ -1120,7 +1142,11 @@ const MarkdownResponsiveToolbar = ({
       />
       <MarkdownActiveEditorBridge onActiveEditorChange={onActiveEditorChange} />
       <MarkdownRichEditorCommandBridge onCommandsChange={onEditorCommandsChange} />
-      {isMobile ? <MarkdownMobileToolbar activeBackground={activeBackground} /> : <MarkdownDesktopToolbar />}
+      {isMobile ? (
+        <MarkdownMobileToolbar activeBackground={activeBackground} hoverBackground={hoverBackground} />
+      ) : (
+        <MarkdownDesktopToolbar />
+      )}
     </>
   );
 };
@@ -1287,6 +1313,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const secondaryToolbarColors = getSecondaryToolbarSurfaceColors(muiTheme, {
       pillBackground: secondaryToolbarSelectedBackground,
       activeBackground: secondaryToolbarSelectedBackground,
+      hoverBackground: secondaryToolbarSelectedBackground,
     });
     const secondaryToolbarCssVars = {
       "--basePageBg": secondaryToolbarColors.popupBackground,
@@ -1707,6 +1734,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             <>
               <MarkdownResponsiveToolbar
                 activeBackground={secondaryToolbarColors.pillBackground}
+                hoverBackground={secondaryToolbarColors.hoverBackground}
                 isMobile={isMobile}
                 searchText={searchText}
                 searchOpen={searchOpen}
@@ -1728,7 +1756,15 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           ),
         }),
       ],
-      [diffMarkdown, isMobile, onSearchStateChange, searchOpen, searchText, secondaryToolbarColors.pillBackground]
+      [
+        diffMarkdown,
+        isMobile,
+        onSearchStateChange,
+        searchOpen,
+        searchText,
+        secondaryToolbarColors.hoverBackground,
+        secondaryToolbarColors.pillBackground,
+      ]
     );
 
     return (
@@ -1760,8 +1796,8 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
-            ...secondaryToolbarCssVars,
             "& .mdxeditor": {
+              ...secondaryToolbarCssVars,
               flex: 1,
               minHeight: 0,
               display: "grid",

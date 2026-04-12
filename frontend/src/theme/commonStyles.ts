@@ -52,11 +52,12 @@ export function getSecondaryToolbarSelectedBackground(theme: Theme, themeConfig?
 
 export function getSecondaryToolbarSurfaceColors(
   theme: Theme,
-  overrides?: Partial<Pick<SecondaryToolbarSurfaceColors, "pillBackground" | "activeBackground">>
+  overrides?: Partial<Pick<SecondaryToolbarSurfaceColors, "pillBackground" | "activeBackground" | "hoverBackground">>
 ): SecondaryToolbarSurfaceColors {
   const textColor = theme.palette.text.secondary;
   const pillBackground = overrides?.pillBackground ?? theme.palette.action.selected;
   const activeBackground = overrides?.activeBackground ?? overrides?.pillBackground ?? alpha(textColor, 0.12);
+  const hoverBackground = overrides?.hoverBackground ?? activeBackground;
 
   return {
     stripBackground: theme.palette.background.default,
@@ -66,7 +67,7 @@ export function getSecondaryToolbarSurfaceColors(
     pillBackground,
     groupedBackground: alpha(textColor, 0.06),
     activeBackground,
-    hoverBackground: alpha(textColor, 0.08),
+    hoverBackground,
     separatorColor: alpha(textColor, 0.06),
     shadow: theme.shadows[2],
   };
