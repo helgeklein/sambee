@@ -208,6 +208,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     clearPendingBaselineSync,
     handleEditorChange,
     handleEditorUserEdit,
+    hasUserEditedInSession,
     markEditSessionPristine,
     requestRestoreEditingFocus,
   } = useMarkdownEditSession({
@@ -306,7 +307,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     }
   }, [isEditing]);
 
-  const hasUnsavedChanges = isEditing && draftContent !== editBaselineContent;
+  const hasUnsavedChanges = isEditing && hasUserEditedInSession && draftContent !== editBaselineContent;
   const unsavedChangesIndicator = hasUnsavedChanges ? (
     <Box
       component="span"

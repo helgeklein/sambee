@@ -1685,11 +1685,17 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         return;
       }
 
-      const handleUserEdit = () => {
+      const handleUserEdit = (event: Event) => {
+        const target = event.target;
+
+        if (!(target instanceof HTMLElement) || !target.closest('[contenteditable="true"], textarea')) {
+          return;
+        }
+
         onUserEdit();
       };
 
-      const eventNames = ["beforeinput", "input", "paste", "cut", "drop"];
+      const eventNames = ["beforeinput", "input", "change", "paste", "cut", "drop"];
       for (const eventName of eventNames) {
         interactionRoot.addEventListener(eventName, handleUserEdit);
       }

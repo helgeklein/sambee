@@ -9,8 +9,11 @@ import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 const mockMarkdownEditorBehavior = {
   changeBeforeUserEdit: false,
   delayFocus: false,
+  emitNonEditableInputBeforeInitialChange: false,
+  focusEditableBeforeInitialChange: false,
   focusCurrentSearchResultCalls: 0,
   focusResetsScrollPosition: false,
+  initialNormalizedMarkdown: null as string | null,
   lastSearchOpen: false,
   lastSearchText: "",
   lastRestoredScrollTop: null as number | null,
@@ -76,6 +79,7 @@ vi.mock("../MarkdownRichEditor", () => {
       mockMarkdownEditorBehavior.lastSearchText = searchText;
 
       const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+      const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
       const preservedSelectionRef = useRef<{
         type: "textarea";
         start: number;
@@ -104,6 +108,20 @@ vi.mock("../MarkdownRichEditor", () => {
           viewMode: "rich-text",
         });
       }, [currentMatch, onSearchStateChange, searchOpen, searchText]);
+
+      useEffect(() => {
+        if (mockMarkdownEditorBehavior.focusEditableBeforeInitialChange) {
+          textareaRef.current?.focus();
+        }
+
+        if (mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange && toolbarButtonRef.current) {
+          toolbarButtonRef.current.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        }
+
+        if (mockMarkdownEditorBehavior.initialNormalizedMarkdown !== null) {
+          onChange(mockMarkdownEditorBehavior.initialNormalizedMarkdown);
+        }
+      }, [onChange]);
 
       useImperativeHandle(ref, () => ({
         focus: () => {
@@ -216,28 +234,44 @@ vi.mock("../MarkdownRichEditor", () => {
       }));
 
       return (
-        <textarea
-          ref={textareaRef}
+        <div
           className={className}
-          aria-label={ariaLabel}
-          value={markdown}
-          readOnly={readOnly}
-          onChange={(event) => {
-            if (mockMarkdownEditorBehavior.skipUserEdit) {
-              onChange(event.target.value);
+          onChangeCapture={(event) => {
+            if (!mockMarkdownEditorBehavior.skipUserEdit) {
               return;
             }
 
-            if (mockMarkdownEditorBehavior.changeBeforeUserEdit) {
-              onChange(event.target.value);
+            const target = event.target;
+            if (target instanceof HTMLTextAreaElement) {
               onUserEdit?.();
-              return;
             }
-
-            onUserEdit?.();
-            onChange(event.target.value);
           }}
-        />
+        >
+          <button ref={toolbarButtonRef} type="button">
+            Toolbar action
+          </button>
+          <textarea
+            ref={textareaRef}
+            aria-label={ariaLabel}
+            value={markdown}
+            readOnly={readOnly}
+            onChange={(event) => {
+              if (mockMarkdownEditorBehavior.skipUserEdit) {
+                onChange(event.target.value);
+                return;
+              }
+
+              if (mockMarkdownEditorBehavior.changeBeforeUserEdit) {
+                onChange(event.target.value);
+                onUserEdit?.();
+                return;
+              }
+
+              onUserEdit?.();
+              onChange(event.target.value);
+            }}
+          />
+        </div>
       );
     }
   );
@@ -286,8 +320,11 @@ describe("MarkdownViewer", () => {
     vi.restoreAllMocks();
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
     mockMarkdownEditorBehavior.delayFocus = false;
+    mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = false;
+    mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = null;
     mockMarkdownEditorBehavior.lastSearchOpen = false;
     mockMarkdownEditorBehavior.lastSearchText = "";
     mockMarkdownEditorBehavior.lastRestoredScrollTop = null;
@@ -768,6 +805,9 @@ describe("MarkdownViewer", () => {
 
     const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
     fireEvent.change(editor, { target: { value: "# Updated\n" } });
+
+    await screen.findByLabelText("Unsaved changes");
+
     fireEvent.keyDown(editor, { key: "Escape" });
 
     const unsavedDialog = await screen.findByRole("dialog", { name: "Unsaved changes" });
@@ -875,6 +915,56 @@ describe("MarkdownViewer", () => {
     fireEvent.change(editor, { target: { value: "# Readme\nUpdated\n" } });
 
     expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("does not mark the document dirty from a non-editable mount event before the initial editor normalization change", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = true;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = "# Readme\n\n";
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not mark the document dirty when autofocus happens before the initial editor normalization change", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = true;
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = "# Readme\n\n";
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
   });
 
   it("keeps the unsaved indicator when the editor change event arrives without a user-edit callback", async () => {

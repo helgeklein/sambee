@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useRef } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { MARKDOWN_EDITOR_BASELINE_SYNC_WINDOW_MS } from "./markdownEditorConstants";
 
 interface UseMarkdownEditSessionOptions {
@@ -17,6 +17,7 @@ export interface MarkdownEditSessionController {
   clearPendingBaselineSync: () => void;
   handleEditorChange: (markdown: string) => void;
   handleEditorUserEdit: () => void;
+  hasUserEditedInSession: boolean;
   markEditSessionPristine: () => void;
   requestRestoreEditingFocus: () => void;
 }
@@ -31,16 +32,14 @@ export function useMarkdownEditSession({
   setEditBaselineContent,
 }: UseMarkdownEditSessionOptions): MarkdownEditSessionController {
   const hasUserEditedRef = useRef(false);
+  const [hasUserEditedInSession, setHasUserEditedInSession] = useState(false);
   const allowBaselineSyncRef = useRef(false);
   const pendingRestoreEditorFocusRef = useRef(false);
-  const pendingBaselineSyncTimeoutRef = useRef<number | null>(null);
+  const pendingBaselineSyncRequestIdRef = useRef(0);
   const baselineSyncWindowTimeoutRef = useRef<number | null>(null);
 
   const clearPendingBaselineSync = useCallback(() => {
-    if (pendingBaselineSyncTimeoutRef.current !== null) {
-      window.clearTimeout(pendingBaselineSyncTimeoutRef.current);
-      pendingBaselineSyncTimeoutRef.current = null;
-    }
+    pendingBaselineSyncRequestIdRef.current += 1;
   }, []);
 
   const clearBaselineSyncWindow = useCallback(() => {
@@ -63,6 +62,7 @@ export function useMarkdownEditSession({
 
   const markEditSessionPristine = useCallback(() => {
     hasUserEditedRef.current = false;
+    setHasUserEditedInSession(false);
   }, []);
 
   const requestRestoreEditingFocus = useCallback(() => {
@@ -73,13 +73,22 @@ export function useMarkdownEditSession({
     (nextMarkdown: string) => {
       if (isEditing && allowBaselineSyncRef.current && !hasUserEditedRef.current) {
         clearPendingBaselineSync();
-        pendingBaselineSyncTimeoutRef.current = window.setTimeout(() => {
-          pendingBaselineSyncTimeoutRef.current = null;
+        const requestId = pendingBaselineSyncRequestIdRef.current;
+
+        queueMicrotask(() => {
+          if (pendingBaselineSyncRequestIdRef.current !== requestId) {
+            return;
+          }
 
           if (allowBaselineSyncRef.current && !hasUserEditedRef.current) {
             setEditBaselineContent(nextMarkdown);
+            return;
           }
-        }, 0);
+
+          setDraftContent(nextMarkdown);
+        });
+
+        return;
       }
 
       setDraftContent(nextMarkdown);
@@ -88,10 +97,10 @@ export function useMarkdownEditSession({
   );
 
   const handleEditorUserEdit = useCallback(() => {
-    clearPendingBaselineSync();
     clearBaselineSyncWindow();
     hasUserEditedRef.current = true;
-  }, [clearBaselineSyncWindow, clearPendingBaselineSync]);
+    setHasUserEditedInSession(true);
+  }, [clearBaselineSyncWindow]);
 
   useEffect(() => {
     if (!isEditing) {
@@ -104,7 +113,7 @@ export function useMarkdownEditSession({
       return;
     }
 
-    const handleEditorFocusIn = (event: FocusEvent) => {
+    const handleEditorInteractionStart = (event: Event) => {
       const target = event.target;
 
       if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
@@ -112,10 +121,24 @@ export function useMarkdownEditSession({
       }
     };
 
-    interactionRoot.addEventListener("focusin", handleEditorFocusIn);
+    const handleToolbarInteractionStart = (event: Event) => {
+      const target = event.target;
+
+      if (target instanceof HTMLElement && target.closest('[data-toolbar-item="true"], [data-toolbar-item]')) {
+        clearBaselineSyncWindow();
+      }
+    };
+
+    interactionRoot.addEventListener("keydown", handleEditorInteractionStart);
+    interactionRoot.addEventListener("pointerdown", handleEditorInteractionStart);
+    interactionRoot.addEventListener("keydown", handleToolbarInteractionStart);
+    interactionRoot.addEventListener("pointerdown", handleToolbarInteractionStart);
 
     return () => {
-      interactionRoot.removeEventListener("focusin", handleEditorFocusIn);
+      interactionRoot.removeEventListener("keydown", handleEditorInteractionStart);
+      interactionRoot.removeEventListener("pointerdown", handleEditorInteractionStart);
+      interactionRoot.removeEventListener("keydown", handleToolbarInteractionStart);
+      interactionRoot.removeEventListener("pointerdown", handleToolbarInteractionStart);
     };
   }, [clearBaselineSyncWindow, contentRef, isEditing]);
 
@@ -142,6 +165,7 @@ export function useMarkdownEditSession({
     clearPendingBaselineSync,
     handleEditorChange,
     handleEditorUserEdit,
+    hasUserEditedInSession,
     markEditSessionPristine,
     requestRestoreEditingFocus,
   };
