@@ -1,11 +1,15 @@
 import {
   activeEditor$,
+  applyBlockType$,
   applyFormat$,
+  applyListType$,
   BlockTypeSelect,
   ButtonWithTooltip,
   codeBlockPlugin,
   codeMirrorPlugin,
+  currentBlockType$,
   currentFormat$,
+  currentListType$,
   DiffSourceToggleWrapper,
   diffSourcePlugin,
   editorInTable$,
@@ -40,7 +44,7 @@ import {
 import "@mdxeditor/editor/style.css";
 import { mergeRegister } from "@lexical/utils";
 import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
-import { Box } from "@mui/material";
+import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, useMediaQuery, useTheme } from "@mui/material";
 import {
   $createNodeSelection,
   $createRangeSelection,
@@ -267,7 +271,7 @@ interface MarkdownFormattingToggleDefinition {
   removeLabel: string;
 }
 
-const MarkdownInlineFormattingToggles = () => {
+const MarkdownInlineFormattingToggles = ({ includeUnderline = true }: { includeUnderline?: boolean }) => {
   const { t } = useTranslation();
   const [currentFormat, iconComponentFor] = useCellValues(currentFormat$, iconComponentFor$);
   const applyFormat = usePublisher(applyFormat$);
@@ -296,7 +300,7 @@ const MarkdownInlineFormattingToggles = () => {
       addLabel: t("viewer.edit.underline", { defaultValue: "Underline" }),
       removeLabel: t("viewer.edit.removeUnderline", { defaultValue: "Remove underline" }),
     },
-  ];
+  ].filter((definition) => includeUnderline || definition.formatName !== "underline");
 
   return (
     <MultipleChoiceToggleGroup
@@ -473,6 +477,365 @@ const InsertThematicBreakButton = () => {
   );
 };
 
+type MarkdownEditorViewMode = "rich-text" | "source" | "diff";
+type MarkdownEditorListType = "" | "bullet" | "number" | "check";
+type MarkdownEditorBlockType = "paragraph" | "quote" | "h1" | "h2" | "h3";
+
+const MARKDOWN_MOBILE_TOOLBAR_CLASS = "sambee-markdown-editor-mobile-toolbar";
+
+const MarkdownMobileMoreActionsMenu = () => {
+  const { t } = useTranslation();
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const currentBlockType = useCellValue(currentBlockType$) as MarkdownEditorBlockType;
+  const currentListType = useCellValue(currentListType$) as MarkdownEditorListType;
+  const isInTable = useCellValue(editorInTable$);
+  const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
+  const applyBlockType = usePublisher(applyBlockType$);
+  const applyFormat = usePublisher(applyFormat$);
+  const applyListType = usePublisher(applyListType$);
+  const insertCodeBlock = usePublisher(insertCodeBlock$);
+  const insertTable = usePublisher(insertTable$);
+  const insertThematicBreak = usePublisher(insertThematicBreak$);
+  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const setViewMode = usePublisher(viewMode$);
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+
+  const isOpen = Boolean(anchorEl);
+  const menuId = "markdown-mobile-more-actions-menu";
+  const menuLabel = t("viewer.edit.moreActions", { defaultValue: "More actions" });
+
+  const closeMenu = useCallback(() => {
+    setAnchorEl(null);
+  }, []);
+
+  const runMenuAction = useCallback(
+    (action: () => void) => {
+      action();
+      closeMenu();
+    },
+    [closeMenu]
+  );
+
+  const handleListAction = useCallback(
+    (listType: Exclude<MarkdownEditorListType, "">) => {
+      runMenuAction(() => {
+        applyListType(currentListType === listType ? "" : listType);
+      });
+    },
+    [applyListType, currentListType, runMenuAction]
+  );
+
+  const handleBlockTypeAction = useCallback(
+    (blockType: MarkdownEditorBlockType) => {
+      runMenuAction(() => {
+        applyBlockType(blockType);
+      });
+    },
+    [applyBlockType, runMenuAction]
+  );
+
+  const handleModeAction = useCallback(
+    (nextViewMode: MarkdownEditorViewMode) => {
+      runMenuAction(() => {
+        setViewMode(nextViewMode);
+      });
+    },
+    [runMenuAction, setViewMode]
+  );
+
+  return (
+    <>
+      <IconButton
+        aria-label={menuLabel}
+        aria-controls={isOpen ? menuId : undefined}
+        aria-expanded={isOpen ? "true" : undefined}
+        aria-haspopup="menu"
+        color="inherit"
+        data-toolbar-item
+        onClick={(event) => {
+          setAnchorEl(event.currentTarget);
+        }}
+        size="medium"
+        sx={{ flexShrink: 0, width: 44, height: 44 }}
+      >
+        {iconComponentFor("more_vert")}
+      </IconButton>
+      <Menu
+        id={menuId}
+        anchorEl={anchorEl}
+        open={isOpen}
+        onClose={closeMenu}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{
+          paper: {
+            sx: {
+              minWidth: 220,
+              maxWidth: "min(280px, calc(100vw - 16px))",
+            },
+          },
+        }}
+      >
+        {viewMode === "rich-text" && [
+          <MenuItem
+            key="list-bullet"
+            selected={currentListType === "bullet"}
+            disabled={isInTable}
+            onClick={() => {
+              handleListAction("bullet");
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("format_list_bulleted")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.bulletedList", { defaultValue: "Bulleted list" })} />
+          </MenuItem>,
+          <MenuItem
+            key="list-number"
+            selected={currentListType === "number"}
+            disabled={isInTable}
+            onClick={() => {
+              handleListAction("number");
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("format_list_numbered")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.numberedList", { defaultValue: "Numbered list" })} />
+          </MenuItem>,
+          <MenuItem
+            key="list-check"
+            selected={currentListType === "check"}
+            disabled={isInTable}
+            onClick={() => {
+              handleListAction("check");
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("format_list_checked")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.checkList", { defaultValue: "Checklist" })} />
+          </MenuItem>,
+          <MenuItem
+            key="block-paragraph"
+            selected={currentBlockType === "paragraph"}
+            onClick={() => {
+              handleBlockTypeAction("paragraph");
+            }}
+          >
+            <ListItemText inset primary={t("viewer.edit.paragraph", { defaultValue: "Paragraph" })} />
+          </MenuItem>,
+          <MenuItem
+            key="block-h1"
+            selected={currentBlockType === "h1"}
+            onClick={() => {
+              handleBlockTypeAction("h1");
+            }}
+          >
+            <ListItemText inset primary={t("viewer.edit.heading1", { defaultValue: "Heading 1" })} />
+          </MenuItem>,
+          <MenuItem
+            key="block-h2"
+            selected={currentBlockType === "h2"}
+            onClick={() => {
+              handleBlockTypeAction("h2");
+            }}
+          >
+            <ListItemText inset primary={t("viewer.edit.heading2", { defaultValue: "Heading 2" })} />
+          </MenuItem>,
+          <MenuItem
+            key="block-h3"
+            selected={currentBlockType === "h3"}
+            onClick={() => {
+              handleBlockTypeAction("h3");
+            }}
+          >
+            <ListItemText inset primary={t("viewer.edit.heading3", { defaultValue: "Heading 3" })} />
+          </MenuItem>,
+          <MenuItem
+            key="block-quote"
+            selected={currentBlockType === "quote"}
+            onClick={() => {
+              handleBlockTypeAction("quote");
+            }}
+          >
+            <ListItemText inset primary={t("viewer.edit.quote", { defaultValue: "Quote" })} />
+          </MenuItem>,
+          <MenuItem
+            key="link"
+            onClick={() => {
+              runMenuAction(() => {
+                openLinkDialog();
+              });
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("link")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.createLink", { defaultValue: "Create link" })} />
+          </MenuItem>,
+          <MenuItem
+            key="inline-code"
+            onClick={() => {
+              runMenuAction(() => {
+                applyFormat("code");
+              });
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("code")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.inlineCode", { defaultValue: "Inline code format" })} />
+          </MenuItem>,
+          <MenuItem
+            key="table"
+            disabled={isInTable}
+            onClick={() => {
+              runMenuAction(() => {
+                insertTable({ rows: 3, columns: 3 });
+              });
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("table")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.insertTable", { defaultValue: "Insert table" })} />
+          </MenuItem>,
+          <MenuItem
+            key="thematic-break"
+            onClick={() => {
+              runMenuAction(() => {
+                insertThematicBreak();
+              });
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("horizontal_rule")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.insertThematicBreak", { defaultValue: "Insert thematic break" })} />
+          </MenuItem>,
+          <MenuItem
+            key="code-block"
+            onClick={() => {
+              runMenuAction(() => {
+                insertCodeBlock({});
+              });
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("frame_source")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.insertCodeBlock", { defaultValue: "Insert code block" })} />
+          </MenuItem>,
+        ]}
+        <MenuItem
+          selected={viewMode === "rich-text"}
+          onClick={() => {
+            handleModeAction("rich-text");
+          }}
+        >
+          <ListItemIcon>{iconComponentFor("rich_text")}</ListItemIcon>
+          <ListItemText primary={t("viewer.edit.richTextMode", { defaultValue: "Rich-text mode" })} />
+        </MenuItem>
+        <MenuItem
+          selected={viewMode === "diff"}
+          onClick={() => {
+            handleModeAction("diff");
+          }}
+        >
+          <ListItemIcon>{iconComponentFor("difference")}</ListItemIcon>
+          <ListItemText primary={t("viewer.edit.diffMode", { defaultValue: "Diff mode" })} />
+        </MenuItem>
+        <MenuItem
+          selected={viewMode === "source"}
+          onClick={() => {
+            handleModeAction("source");
+          }}
+        >
+          <ListItemIcon>{iconComponentFor("markdown")}</ListItemIcon>
+          <ListItemText primary={t("viewer.edit.sourceMode", { defaultValue: "Source mode" })} />
+        </MenuItem>
+      </Menu>
+    </>
+  );
+};
+
+const MarkdownMobileToolbar = () => {
+  const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
+
+  return (
+    <Box
+      className={MARKDOWN_MOBILE_TOOLBAR_CLASS}
+      sx={{
+        width: "100%",
+        minWidth: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 1,
+      }}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 0.5,
+          minWidth: 0,
+          flexShrink: 1,
+        }}
+      >
+        {viewMode === "rich-text" && (
+          <>
+            <MarkdownUndoRedoControls />
+            <MarkdownInlineFormattingToggles includeUnderline={false} />
+          </>
+        )}
+      </Box>
+      <MarkdownMobileMoreActionsMenu />
+    </Box>
+  );
+};
+
+const MarkdownDesktopToolbar = () => {
+  return (
+    <DiffSourceToggleWrapper>
+      <MarkdownUndoRedoControls />
+      <Separator />
+      <BlockTypeSelect />
+      <Separator />
+      <MarkdownInlineFormattingToggles />
+      <InlineCodeToggle />
+      <Separator />
+      <ListsToggle />
+      <Separator />
+      <CreateLinkButton />
+      <InsertTableButton />
+      <InsertThematicBreakButton />
+      <Separator />
+      <InsertCodeBlockButton />
+    </DiffSourceToggleWrapper>
+  );
+};
+
+const MarkdownResponsiveToolbar = ({
+  isMobile,
+  onSearchStateChange,
+  onCurrentRangeChange,
+  onSearchCommandsChange,
+  onActiveEditorChange,
+  onEditorCommandsChange,
+  searchOpen,
+  searchText,
+}: {
+  isMobile: boolean;
+  onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
+  onCurrentRangeChange: (range: Range | null) => void;
+  onSearchCommandsChange: (commands: MarkdownRichEditorSearchCommands | null) => void;
+  onActiveEditorChange: (editor: LexicalEditor | null) => void;
+  onEditorCommandsChange: (commands: MarkdownRichEditorCommands | null) => void;
+  searchOpen: boolean;
+  searchText: string;
+}) => {
+  return (
+    <>
+      <MarkdownRichEditorSearchBridge
+        searchText={searchText}
+        searchOpen={searchOpen}
+        onSearchStateChange={onSearchStateChange}
+        onCurrentRangeChange={onCurrentRangeChange}
+        onCommandsChange={onSearchCommandsChange}
+      />
+      <MarkdownActiveEditorBridge onActiveEditorChange={onActiveEditorChange} />
+      <MarkdownRichEditorCommandBridge onCommandsChange={onEditorCommandsChange} />
+      {isMobile ? <MarkdownMobileToolbar /> : <MarkdownDesktopToolbar />}
+    </>
+  );
+};
+
 const MarkdownRichEditorSearchBridge = ({
   searchText,
   searchOpen,
@@ -622,6 +985,8 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
     const [shouldAutoFocus, setShouldAutoFocus] = useState(autoFocus);
     const { currentTheme } = useSambeeTheme();
+    const muiTheme = useTheme();
+    const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
     const { viewerText, linkColor, linkHoverColor } = getViewerColors(currentTheme, "markdown");
     const editorRootClassName = [className, MARKDOWN_EDITOR_POPUP_CLASS].filter(Boolean).join(" ");
 
@@ -1030,48 +1395,29 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         toolbarPlugin({
           toolbarContents: () => (
             <>
-              <MarkdownRichEditorSearchBridge
+              <MarkdownResponsiveToolbar
+                isMobile={isMobile}
                 searchText={searchText}
                 searchOpen={searchOpen}
                 onSearchStateChange={onSearchStateChange}
                 onCurrentRangeChange={(range) => {
                   activeSearchRangeRef.current = range;
                 }}
-                onCommandsChange={(commands) => {
+                onSearchCommandsChange={(commands) => {
                   searchCommandsRef.current = commands ?? NOOP_SEARCH_COMMANDS;
                 }}
-              />
-              <MarkdownActiveEditorBridge
                 onActiveEditorChange={(editor) => {
                   activeEditorRef.current = editor;
                 }}
-              />
-              <MarkdownRichEditorCommandBridge
-                onCommandsChange={(commands) => {
+                onEditorCommandsChange={(commands) => {
                   commandsRef.current = commands ?? NOOP_EDITOR_COMMANDS;
                 }}
               />
-              <DiffSourceToggleWrapper>
-                <MarkdownUndoRedoControls />
-                <Separator />
-                <BlockTypeSelect />
-                <Separator />
-                <MarkdownInlineFormattingToggles />
-                <InlineCodeToggle />
-                <Separator />
-                <ListsToggle />
-                <Separator />
-                <CreateLinkButton />
-                <InsertTableButton />
-                <InsertThematicBreakButton />
-                <Separator />
-                <InsertCodeBlockButton />
-              </DiffSourceToggleWrapper>
             </>
           ),
         }),
       ],
-      [diffMarkdown, onSearchStateChange, searchOpen, searchText]
+      [diffMarkdown, isMobile, onSearchStateChange, searchOpen, searchText]
     );
 
     return (
@@ -1094,10 +1440,16 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           "& .mdxeditor-toolbar": {
             position: "relative",
             top: "auto",
-            width: "auto",
+            width: "100%",
             flexShrink: 0,
-            overflowX: "auto",
+            boxSizing: "border-box",
+            overflowX: isMobile ? "hidden" : "auto",
             overflowY: "hidden",
+            paddingLeft: isMobile ? 1 : undefined,
+            paddingRight: isMobile ? 1 : undefined,
+          },
+          [`& .${MARKDOWN_MOBILE_TOOLBAR_CLASS}`]: {
+            minHeight: 44,
           },
           "& .mdxeditor > :not(.mdxeditor-toolbar)": {
             minHeight: 0,

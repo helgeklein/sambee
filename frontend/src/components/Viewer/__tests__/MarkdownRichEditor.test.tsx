@@ -4,6 +4,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownRichEditor from "../MarkdownRichEditor";
 
+function mockMobileMode(isMobile: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: isMobile,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 const { mockCodeBlockPlugin, mockCodeMirrorPlugin, mockMdxEditorAutoFocusHistory } = vi.hoisted(() => ({
   mockCodeBlockPlugin: vi.fn((params?: unknown) => ({ type: "codeBlockPlugin", params })),
   mockCodeMirrorPlugin: vi.fn((params?: unknown) => ({ type: "codeMirrorPlugin", params })),
@@ -22,8 +39,14 @@ const mockCreateLink = vi.fn();
 const mockInsertCodeBlock = vi.fn();
 const mockInsertTable = vi.fn();
 const mockInsertThematicBreak = vi.fn();
+const mockApplyBlockType = vi.fn();
+const mockApplyListType = vi.fn();
 const mockDispatchCommand = vi.fn();
 const mockRegisterCommand = vi.fn(() => vi.fn());
+const mockSetViewMode = vi.fn();
+let mockCurrentBlockType: "paragraph" | "quote" | "h1" | "h2" | "h3" = "paragraph";
+let mockCurrentListType: "" | "bullet" | "number" | "check" = "";
+let mockViewMode: "rich-text" | "source" | "diff" = "rich-text";
 
 vi.mock("@mdxeditor/gurx", () => ({
   useCellValue: () => (iconName: string) => iconName,
@@ -55,6 +78,18 @@ vi.mock("@mdxeditor/gurx", () => ({
 
     if (String(signal).includes("insertThematicBreak")) {
       return mockInsertThematicBreak;
+    }
+
+    if (String(signal).includes("applyBlockType")) {
+      return mockApplyBlockType;
+    }
+
+    if (String(signal).includes("applyListType")) {
+      return mockApplyListType;
+    }
+
+    if (String(signal).includes("viewMode")) {
+      return mockSetViewMode;
     }
 
     return mockApplyFormat;
@@ -131,12 +166,16 @@ vi.mock("@mdxeditor/editor", () => {
     diffSourcePlugin: (params?: unknown) => ({ type: "diffSourcePlugin", params }),
     contentEditableRef$: Symbol("contentEditableRef"),
     createRootEditorSubscription$: Symbol("createRootEditorSubscription"),
+    applyBlockType$: Symbol("applyBlockType"),
+    applyListType$: Symbol("applyListType"),
     editorSearchCursor$: Symbol("editorSearchCursor"),
     editorSearchRanges$: Symbol("editorSearchRanges"),
     editorSearchScrollableContent$: Symbol("editorSearchScrollableContent"),
     editorSearchTerm$: Symbol("editorSearchTerm"),
     editorSearchTextNodeIndex$: Symbol("editorSearchTextNodeIndex"),
+    currentBlockType$: Symbol("currentBlockType"),
     editorInTable$: Symbol("editorInTable"),
+    currentListType$: Symbol("currentListType"),
     headingsPlugin: (params?: unknown) => ({ type: "headingsPlugin", params }),
     linkDialogPlugin: () => ({ type: "linkDialogPlugin" }),
     linkPlugin: () => ({ type: "linkPlugin" }),
@@ -157,8 +196,20 @@ vi.mock("@mdxeditor/editor", () => {
       </button>
     ),
     useCellValue: (signal: unknown) => {
+      if (String(signal).includes("currentBlockType")) {
+        return mockCurrentBlockType;
+      }
+
+      if (String(signal).includes("currentListType")) {
+        return mockCurrentListType;
+      }
+
       if (String(signal).includes("editorInTable")) {
         return false;
+      }
+
+      if (String(signal).includes("viewMode")) {
+        return mockViewMode;
       }
 
       if (String(signal).includes("activeEditor")) {
@@ -210,7 +261,10 @@ describe("MarkdownRichEditor", () => {
   }
 
   beforeEach(() => {
+    mockMobileMode(false);
     mockApplyFormat.mockReset();
+    mockApplyBlockType.mockReset();
+    mockApplyListType.mockReset();
     mockLexicalFocus.mockClear();
     mockLexicalRead.mockClear();
     mockLexicalUpdate.mockClear();
@@ -223,6 +277,10 @@ describe("MarkdownRichEditor", () => {
     mockInsertThematicBreak.mockReset();
     mockDispatchCommand.mockReset();
     mockRegisterCommand.mockClear();
+    mockSetViewMode.mockReset();
+    mockCurrentBlockType = "paragraph";
+    mockCurrentListType = "";
+    mockViewMode = "rich-text";
     mockSearchState.closeSearch.mockReset();
     mockSearchState.next.mockReset();
     mockSearchState.openSearch.mockReset();
@@ -241,6 +299,56 @@ describe("MarkdownRichEditor", () => {
     mockSearchState.setSearch.mockImplementation((value: string | null) => {
       mockSearchState.search = value ?? "";
     });
+  });
+
+  it("renders a compact mobile toolbar with a More actions trigger", async () => {
+    mockMobileMode(true);
+
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(document.querySelector('[aria-label="More actions"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-editor-tooltip="Bold (Ctrl+B)"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-editor-tooltip="Italic (Ctrl+I)"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-editor-tooltip="Insert code block (Ctrl+Shift+E)"]')).not.toBeInTheDocument();
+      expect(document.querySelector('[data-editor-tooltip="Create link (Ctrl+K)"]')).not.toBeInTheDocument();
+    });
+  });
+
+  it("opens mobile overflow actions and routes mode changes through the view mode signal", async () => {
+    mockMobileMode(true);
+
+    const { findByText } = renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    const moreButton = document.querySelector('[aria-label="More actions"]');
+    if (!(moreButton instanceof HTMLElement)) {
+      throw new Error("Expected More actions button to exist");
+    }
+
+    moreButton.click();
+
+    expect(await findByText("Source mode")).toBeInTheDocument();
+    expect(await findByText("Insert code block")).toBeInTheDocument();
+
+    (await findByText("Source mode")).click();
+
+    expect(mockSetViewMode).toHaveBeenCalledWith("source");
+  });
+
+  it("routes mobile overflow insert actions through the existing command signals", async () => {
+    mockMobileMode(true);
+
+    const { findByText } = renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    const moreButton = document.querySelector('[aria-label="More actions"]');
+    if (!(moreButton instanceof HTMLElement)) {
+      throw new Error("Expected More actions button to exist");
+    }
+
+    moreButton.click();
+    (await findByText("Insert code block")).click();
+
+    expect(mockInsertCodeBlock).toHaveBeenCalledWith({});
   });
 
   it("activates the first search result when a new query has matches", async () => {
