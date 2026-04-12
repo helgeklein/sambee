@@ -21,6 +21,14 @@ function mockMobileMode(isMobile: boolean) {
   });
 }
 
+function mockViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    writable: true,
+    configurable: true,
+    value: width,
+  });
+}
+
 const { mockCodeBlockPlugin, mockCodeMirrorPlugin, mockMdxEditorAutoFocusHistory } = vi.hoisted(() => ({
   mockCodeBlockPlugin: vi.fn((params?: unknown) => ({ type: "codeBlockPlugin", params })),
   mockCodeMirrorPlugin: vi.fn((params?: unknown) => ({ type: "codeMirrorPlugin", params })),
@@ -261,6 +269,7 @@ describe("MarkdownRichEditor", () => {
   }
 
   beforeEach(() => {
+    mockViewportWidth(1280);
     mockMobileMode(false);
     mockApplyFormat.mockReset();
     mockApplyBlockType.mockReset();
@@ -302,6 +311,7 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("renders a compact mobile toolbar with a More actions trigger", async () => {
+    mockViewportWidth(320);
     mockMobileMode(true);
 
     renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
@@ -310,12 +320,27 @@ describe("MarkdownRichEditor", () => {
       expect(document.querySelector('[aria-label="More actions"]')).toBeInTheDocument();
       expect(document.querySelector('[data-editor-tooltip="Bold (Ctrl+B)"]')).toBeInTheDocument();
       expect(document.querySelector('[data-editor-tooltip="Italic (Ctrl+I)"]')).toBeInTheDocument();
+      expect(document.querySelector('[aria-label="Bulleted list"]')).toBeInTheDocument();
       expect(document.querySelector('[data-editor-tooltip="Insert code block (Ctrl+Shift+E)"]')).not.toBeInTheDocument();
       expect(document.querySelector('[data-editor-tooltip="Create link (Ctrl+K)"]')).not.toBeInTheDocument();
     });
   });
 
+  it("promotes more primary actions as mobile width increases", async () => {
+    mockViewportWidth(430);
+    mockMobileMode(true);
+
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(document.querySelector('[aria-label="Bulleted list"]')).toBeInTheDocument();
+      expect(document.querySelector('[aria-label="Create link (Ctrl+K)"]')).toBeInTheDocument();
+      expect(document.querySelector('[aria-label="Inline code format (Ctrl+E)"]')).toBeInTheDocument();
+    });
+  });
+
   it("opens mobile overflow actions and routes mode changes through the view mode signal", async () => {
+    mockViewportWidth(320);
     mockMobileMode(true);
 
     const { findByText } = renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
@@ -336,6 +361,7 @@ describe("MarkdownRichEditor", () => {
   });
 
   it("routes mobile overflow insert actions through the existing command signals", async () => {
+    mockViewportWidth(320);
     mockMobileMode(true);
 
     const { findByText } = renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });

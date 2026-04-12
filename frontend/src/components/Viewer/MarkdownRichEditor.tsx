@@ -63,7 +63,7 @@ import {
   REDO_COMMAND,
   UNDO_COMMAND,
 } from "lexical";
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
@@ -480,8 +480,195 @@ const InsertThematicBreakButton = () => {
 type MarkdownEditorViewMode = "rich-text" | "source" | "diff";
 type MarkdownEditorListType = "" | "bullet" | "number" | "check";
 type MarkdownEditorBlockType = "paragraph" | "quote" | "h1" | "h2" | "h3";
+type MarkdownMobileExtraActionKey = "list" | "link" | "inline-code" | "underline";
 
 const MARKDOWN_MOBILE_TOOLBAR_CLASS = "sambee-markdown-editor-mobile-toolbar";
+const MOBILE_TOOLBAR_ACTION_SIZE_PX = 44;
+const MOBILE_TOOLBAR_ACTION_GAP_PX = 4;
+const MOBILE_TOOLBAR_HORIZONTAL_PADDING_PX = 16;
+const MOBILE_TOOLBAR_GROUP_GAP_PX = 8;
+const MOBILE_TOOLBAR_DEFAULT_WIDTH_PX = 320;
+const MOBILE_TOOLBAR_BASE_ACTIONS_COUNT = 4;
+const MOBILE_TOOLBAR_EXTRA_ACTION_PRIORITY: readonly MarkdownMobileExtraActionKey[] = ["list", "link", "inline-code", "underline"];
+
+function getVisibleMobileExtraActionCount(toolbarWidth: number): number {
+  const availableLeftGroupWidth =
+    toolbarWidth - MOBILE_TOOLBAR_HORIZONTAL_PADDING_PX - MOBILE_TOOLBAR_ACTION_SIZE_PX - MOBILE_TOOLBAR_GROUP_GAP_PX;
+  const baseActionsWidth =
+    MOBILE_TOOLBAR_BASE_ACTIONS_COUNT * MOBILE_TOOLBAR_ACTION_SIZE_PX +
+    (MOBILE_TOOLBAR_BASE_ACTIONS_COUNT - 1) * MOBILE_TOOLBAR_ACTION_GAP_PX;
+  const remainingWidth = availableLeftGroupWidth - baseActionsWidth;
+
+  if (remainingWidth <= 0) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.min(
+      MOBILE_TOOLBAR_EXTRA_ACTION_PRIORITY.length,
+      Math.floor(remainingWidth / (MOBILE_TOOLBAR_ACTION_SIZE_PX + MOBILE_TOOLBAR_ACTION_GAP_PX))
+    )
+  );
+}
+
+const MarkdownMobileToolbarButton = ({
+  active = false,
+  ariaLabel,
+  children,
+  disabled = false,
+  onClick,
+}: {
+  active?: boolean;
+  ariaLabel: string;
+  children: ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+}) => {
+  return (
+    <IconButton
+      aria-label={ariaLabel}
+      color="inherit"
+      data-toolbar-item
+      data-editor-tooltip={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+      size="medium"
+      sx={{
+        flexShrink: 0,
+        width: MOBILE_TOOLBAR_ACTION_SIZE_PX,
+        height: MOBILE_TOOLBAR_ACTION_SIZE_PX,
+        borderRadius: 1,
+        bgcolor: active ? "action.selected" : "transparent",
+      }}
+    >
+      {children}
+    </IconButton>
+  );
+};
+
+const MarkdownMobileUndoRedoButtons = () => {
+  const { t } = useTranslation();
+  const [iconComponentFor, activeEditor] = useCellValues(iconComponentFor$, activeEditor$);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  useEffect(() => {
+    if (!activeEditor) {
+      return;
+    }
+
+    return mergeRegister(
+      activeEditor.registerCommand(
+        CAN_UNDO_COMMAND,
+        (payload) => {
+          setCanUndo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL
+      ),
+      activeEditor.registerCommand(
+        CAN_REDO_COMMAND,
+        (payload) => {
+          setCanRedo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL
+      )
+    );
+  }, [activeEditor]);
+
+  return (
+    <>
+      <MarkdownMobileToolbarButton
+        ariaLabel={formatEditorTooltip(t("viewer.edit.undo", { defaultValue: "Undo" }), MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.undo)}
+        disabled={!canUndo}
+        onClick={() => {
+          activeEditor?.dispatchCommand(UNDO_COMMAND, undefined);
+        }}
+      >
+        {iconComponentFor("undo")}
+      </MarkdownMobileToolbarButton>
+      <MarkdownMobileToolbarButton
+        ariaLabel={formatEditorTooltip(t("viewer.edit.redo", { defaultValue: "Redo" }), MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.redo)}
+        disabled={!canRedo}
+        onClick={() => {
+          activeEditor?.dispatchCommand(REDO_COMMAND, undefined);
+        }}
+      >
+        {iconComponentFor("redo")}
+      </MarkdownMobileToolbarButton>
+    </>
+  );
+};
+
+const MarkdownMobileFormatButton = ({
+  activeLabel,
+  format,
+  formatName,
+  icon,
+  inactiveLabel,
+  shortcutLabel,
+}: {
+  activeLabel: string;
+  format: number;
+  formatName: "bold" | "italic" | "underline" | "code";
+  icon: string;
+  inactiveLabel: string;
+  shortcutLabel: string;
+}) => {
+  const [currentFormat, iconComponentFor] = useCellValues(currentFormat$, iconComponentFor$);
+  const applyFormat = usePublisher(applyFormat$);
+  const isActive = (currentFormat & format) !== 0;
+
+  return (
+    <MarkdownMobileToolbarButton
+      active={isActive}
+      ariaLabel={formatEditorTooltip(isActive ? activeLabel : inactiveLabel, shortcutLabel)}
+      onClick={() => {
+        applyFormat(formatName);
+      }}
+    >
+      {iconComponentFor(icon)}
+    </MarkdownMobileToolbarButton>
+  );
+};
+
+const MarkdownMobileBulletListButton = () => {
+  const { t } = useTranslation();
+  const [currentListType, iconComponentFor, isInTable] = useCellValues(currentListType$, iconComponentFor$, editorInTable$);
+  const applyListType = usePublisher(applyListType$);
+
+  return (
+    <MarkdownMobileToolbarButton
+      active={currentListType === "bullet"}
+      ariaLabel={t("viewer.edit.bulletedList", { defaultValue: "Bulleted list" })}
+      disabled={isInTable}
+      onClick={() => {
+        applyListType(currentListType === "bullet" ? "" : "bullet");
+      }}
+    >
+      {iconComponentFor("format_list_bulleted")}
+    </MarkdownMobileToolbarButton>
+  );
+};
+
+const MarkdownMobileLinkButton = () => {
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.CREATE_LINK);
+
+  return (
+    <MarkdownMobileToolbarButton
+      ariaLabel={title}
+      onClick={() => {
+        openLinkDialog();
+      }}
+    >
+      {iconComponentFor("link")}
+    </MarkdownMobileToolbarButton>
+  );
+};
 
 const MarkdownMobileMoreActionsMenu = () => {
   const { t } = useTranslation();
@@ -745,10 +932,54 @@ const MarkdownMobileMoreActionsMenu = () => {
 };
 
 const MarkdownMobileToolbar = () => {
+  const { t } = useTranslation();
   const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [toolbarWidth, setToolbarWidth] = useState(MOBILE_TOOLBAR_DEFAULT_WIDTH_PX);
+
+  useEffect(() => {
+    const element = toolbarRef.current;
+    if (!element) {
+      return;
+    }
+
+    const measureWidth = () => {
+      const measuredWidth = element.offsetWidth || window.innerWidth || MOBILE_TOOLBAR_DEFAULT_WIDTH_PX;
+      if (measuredWidth > 0) {
+        setToolbarWidth(measuredWidth);
+      }
+    };
+
+    measureWidth();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const width = entry.contentBoxSize?.[0]?.inlineSize ?? entry.contentRect.width;
+          if (width > 0) {
+            setToolbarWidth(width);
+          }
+        }
+      });
+
+      observer.observe(element);
+      return () => {
+        observer.disconnect();
+      };
+    }
+
+    window.addEventListener("resize", measureWidth);
+    return () => {
+      window.removeEventListener("resize", measureWidth);
+    };
+  }, []);
+
+  const visibleExtraActions =
+    viewMode === "rich-text" ? MOBILE_TOOLBAR_EXTRA_ACTION_PRIORITY.slice(0, getVisibleMobileExtraActionCount(toolbarWidth)) : [];
 
   return (
     <Box
+      ref={toolbarRef}
       className={MARKDOWN_MOBILE_TOOLBAR_CLASS}
       sx={{
         width: "100%",
@@ -766,12 +997,50 @@ const MarkdownMobileToolbar = () => {
           gap: 0.5,
           minWidth: 0,
           flexShrink: 1,
+          overflow: "hidden",
         }}
       >
         {viewMode === "rich-text" && (
           <>
-            <MarkdownUndoRedoControls />
-            <MarkdownInlineFormattingToggles includeUnderline={false} />
+            <MarkdownMobileUndoRedoButtons />
+            <MarkdownMobileFormatButton
+              activeLabel={t("viewer.edit.removeBold", { defaultValue: "Remove bold" })}
+              format={IS_BOLD}
+              formatName="bold"
+              icon="format_bold"
+              inactiveLabel={t("viewer.edit.bold", { defaultValue: "Bold" })}
+              shortcutLabel={MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.bold}
+            />
+            <MarkdownMobileFormatButton
+              activeLabel={t("viewer.edit.removeItalic", { defaultValue: "Remove italic" })}
+              format={IS_ITALIC}
+              formatName="italic"
+              icon="format_italic"
+              inactiveLabel={t("viewer.edit.italic", { defaultValue: "Italic" })}
+              shortcutLabel={MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.italic}
+            />
+            {visibleExtraActions.includes("list") ? <MarkdownMobileBulletListButton /> : null}
+            {visibleExtraActions.includes("link") ? <MarkdownMobileLinkButton /> : null}
+            {visibleExtraActions.includes("inline-code") ? (
+              <MarkdownMobileFormatButton
+                activeLabel={t("viewer.edit.removeInlineCode", { defaultValue: "Remove code format" })}
+                format={IS_CODE}
+                formatName="code"
+                icon="code"
+                inactiveLabel={t("viewer.edit.inlineCode", { defaultValue: "Inline code format" })}
+                shortcutLabel={MARKDOWN_EDITOR_SHORTCUTS.INLINE_CODE.label}
+              />
+            ) : null}
+            {visibleExtraActions.includes("underline") ? (
+              <MarkdownMobileFormatButton
+                activeLabel={t("viewer.edit.removeUnderline", { defaultValue: "Remove underline" })}
+                format={IS_UNDERLINE}
+                formatName="underline"
+                icon="format_underlined"
+                inactiveLabel={t("viewer.edit.underline", { defaultValue: "Underline" })}
+                shortcutLabel={MARKDOWN_EDITOR_TOOLTIP_SHORTCUTS.underline}
+              />
+            ) : null}
           </>
         )}
       </Box>
@@ -1447,12 +1716,16 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             overflowY: "hidden",
             paddingLeft: isMobile ? 1 : undefined,
             paddingRight: isMobile ? 1 : undefined,
+            paddingTop: 0,
+            paddingBottom: 0,
           },
           [`& .${MARKDOWN_MOBILE_TOOLBAR_CLASS}`]: {
             minHeight: 44,
           },
           "& .mdxeditor > :not(.mdxeditor-toolbar)": {
             minHeight: 0,
+            boxSizing: "border-box",
+            padding: isMobile ? muiTheme.spacing(2) : 0,
           },
           "& [contenteditable='true']": {
             minHeight: 320,

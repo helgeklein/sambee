@@ -1258,7 +1258,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
             ) : isEditing ? (
               <Box
                 sx={{
-                  p: 2,
+                  p: isMobile ? 0 : 2,
                   flex: 1,
                   minHeight: 0,
                   display: "flex",
