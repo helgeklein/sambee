@@ -65,6 +65,7 @@ import { withShortcut } from "../../hooks/useKeyboardShortcuts";
 import { useSambeeTheme } from "../../theme";
 import { Z_INDEX } from "../../theme/constants";
 import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
+import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
@@ -813,6 +814,20 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       setShouldAutoFocus(false);
 
       let autofocusComplete = false;
+      let cleanupRetryFocus: (() => void) | null = null;
+      const interactionRoot = containerRef.current;
+
+      const handleFocusIn = (event: FocusEvent) => {
+        const target = event.target;
+
+        if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
+          stopAutoFocus();
+        }
+      };
+
+      const observer = new MutationObserver(() => {
+        attemptFocus();
+      });
 
       const stopAutoFocus = () => {
         if (autofocusComplete) {
@@ -822,10 +837,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         autofocusComplete = true;
         observer.disconnect();
         interactionRoot?.removeEventListener("focusin", handleFocusIn);
-
-        for (const timeoutId of timeoutIds) {
-          window.clearTimeout(timeoutId);
-        }
+        cleanupRetryFocus?.();
       };
 
       const attemptFocus = () => {
@@ -838,19 +850,12 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         }
       };
 
-      const handleFocusIn = (event: FocusEvent) => {
-        const target = event.target;
-
-        if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
-          stopAutoFocus();
-        }
-      };
-
-      const timeoutIds = MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS.map((delayMs) => window.setTimeout(attemptFocus, delayMs));
-      const interactionRoot = containerRef.current;
-
-      const observer = new MutationObserver(() => {
-        attemptFocus();
+      cleanupRetryFocus = scheduleRetriableFocusRestore({
+        delaysMs: MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
+        attemptRestore: () => {
+          attemptFocus();
+          return autofocusComplete;
+        },
       });
 
       if (interactionRoot) {
