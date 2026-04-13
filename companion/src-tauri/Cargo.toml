@@ -23,7 +23,7 @@ tauri-plugin-http = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
-reqwest = { version = "0.12", features = ["multipart", "json"] }
+reqwest = { version = "0.13", features = ["multipart", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -38,24 +38,24 @@ mime_guess = "2"
 # Local drive management (HTTP API server)
 axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 hex = "0.4"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio-util = { version = "0.7", features = ["io"] }
-notify = "7"
+notify = "8"
 
 [target.'cfg(windows)'.dependencies]
-winreg = "0.55"
-windows = { version = "0.61", features = [
+winreg = "0.56"
+windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Gdi",
     "Win32_System_Com",
     "Win32_Storage_FileSystem",
 ] }
-png = "0.17"
+png = "0.18"
 base64 = "0.22"
 
 [profile.release]
