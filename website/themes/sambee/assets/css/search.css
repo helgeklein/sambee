@@ -46,7 +46,7 @@
     background-color: var(--color-clr-darkmode-body, #1c1c1c);
   }
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     margin: 20px auto;
     max-height: calc(100vh - 40px);
   }
@@ -128,7 +128,7 @@
   min-height: 200px;
   max-height: calc(100vh - 280px);
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     max-height: calc(100vh - 140px);
   }
 }
@@ -219,7 +219,7 @@
     object-fit: cover;
   }
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     width: 60px;
     height: 40px;
   }
@@ -279,7 +279,7 @@
     border-color: var(--color-clr-darkmode-border, #3e3e3e);
   }
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     display: none;
   }
 

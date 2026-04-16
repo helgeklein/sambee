@@ -1,24 +1,40 @@
-<header class="header header-shell hr-border-bottom">
-  <nav class="nav-bar container" aria-label="Primary">
-    <div class="nav-logo">
-      <a class="nav-logo-link block" href="{{ site.Home.RelPermalink }}">
-        {{ partial "logo.html" . }}
+{{ $isHome := .IsHome }}
+<header class="sticky top-0 z-30 border-b-2 border-clr-rule-strong bg-clr-surface-page dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page {{ if $isHome }}mb-0{{ else }}mb-6 lg:mb-10{{ end }}">
+  <nav class="nav-bar container relative flex min-h-[4rem] flex-wrap items-center justify-between gap-x-2 py-2.5 md:min-h-[4.5rem] md:gap-x-4 md:py-3{{ if $isHome }} lg:min-h-[3.9rem] lg:py-2.5{{ end }}" aria-label="Primary">
+    <div class="flex items-center gap-3{{ if $isHome }} lg:gap-0{{ end }}">
+      {{ if $isHome }}
+      <a class="flex items-center gap-2 no-underline md:gap-2.5 lg:gap-3" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
+        <span class="flex h-8 w-8 items-center justify-center md:h-10 md:w-10" aria-hidden="true">{{ partial "icons/brand-mark.html" (dict "class" "h-8 w-8 md:h-10 md:w-10") }}</span>
+        <span class="font-tertiary text-[1rem] font-bold uppercase tracking-[0.005em] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-lg lg:text-[1.52rem] lg:tracking-[-0.015em]">{{ site.Title }}</span>
       </a>
+      {{ else }}
+      <div class="flex h-12 w-12 items-center justify-center border border-clr-rule-strong bg-clr-surface-low px-2 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low">
+        <a class="block flex h-full w-full items-center justify-center text-clr-text-dark dark:text-clr-darkmode-text-dark" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
+          {{ partial "logo.html" . }}
+        </a>
+      </div>
+      <div class="hidden lg:flex lg:flex-col lg:gap-0.5"{{ if $isHome }} aria-hidden="false"{{ else }} aria-hidden="true"{{ end }}>
+        {{ if not $isHome }}<span class="nav-brand-kicker">Docs-first software</span>{{ end }}
+        <span class="{{ if $isHome }}font-tertiary text-xl uppercase tracking-[0.08em] not-italic{{ else }}font-secondary text-xl font-bold italic leading-none{{ end }} text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ site.Title }}</span>
+      </div>
+      {{ end }}
     </div>
 
     <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="nav-menu">
       <span class="nav-toggle-bar"></span>
     </button>
 
-    <ul id="nav-menu" class="nav-menu">
+    <ul id="nav-menu" class="nav-menu{{ if $isHome }} lg:ml-auto lg:mr-5 lg:gap-4{{ else }} lg:ml-6 lg:mr-auto lg:gap-1{{ end }}">
       {{ range site.Menus.main }}
+        {{ if not (and $isHome (eq .Name "Home")) }}
         {{ $isExternal := or (hasPrefix .URL "http://") (hasPrefix .URL "https://") }}
+        {{ $isActive := or ($.IsMenuCurrent "main" .) ($.HasMenuCurrent "main" .) }}
         {{ if .HasChildren }}
-        <li class="nav-item has-children">
+        <li class="nav-item has-children{{ if $isActive }} active{{ end }}">
           {{ if .URL }}
-          <a class="nav-link" href="{{ if $isExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $isExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
+          <a class="nav-link{{ if $isActive }} active{{ end }}" href="{{ if $isExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $isExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
           {{ else }}
-          <span class="nav-link">{{ .Name }}</span>
+          <span class="nav-link{{ if $isActive }} active{{ end }}">{{ .Name }}</span>
           {{ end }}
           <button class="nav-submenu-toggle" aria-label="Toggle {{ .Name }} submenu" aria-expanded="false">
             {{ partial "icons/chevron-right.html" (dict "class" "nav-chevron" "rotate" 90) }}
@@ -33,18 +49,20 @@
           </ul>
         </li>
         {{ else }}
-        <li class="nav-item">
-          <a class="nav-link" href="{{ if $isExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $isExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
+        <li class="nav-item{{ if $isActive }} active{{ end }}">
+          <a class="nav-link{{ if $isActive }} active{{ end }}" href="{{ if $isExternal }}{{ .URL }}{{ else }}{{ .URL | relLangURL }}{{ end }}"{{ if $isExternal }} target="_blank" rel="noopener"{{ end }}>{{ .Name }}</a>
         </li>
+        {{ end }}
         {{ end }}
       {{ end }}
     </ul>
 
-    <div class="nav-actions">
+    <div class="order-1 ml-auto flex items-center gap-2 md:order-2 md:gap-3 lg:ml-0{{ if $isHome }} lg:gap-3{{ end }}">
       {{ with site.Params.search }}
         {{ if .enable }}
-        <button aria-label="Search" class="nav-search-button" data-target="search-modal">
+        <button aria-label="Search" class="inline-flex min-h-11 cursor-pointer items-center border border-clr-rule-strong bg-clr-surface-low px-3 font-tertiary text-[0.7rem] uppercase tracking-[0.18em] text-clr-text-dark transition-colors duration-200 hover:border-clr-action-fill hover:text-clr-action-text dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low dark:text-clr-darkmode-text-dark dark:hover:border-clr-darkmode-action-fill dark:hover:text-clr-darkmode-action-text{{ if $isHome }} min-h-[2.75rem] gap-0 border-clr-rule-soft bg-clr-surface-page px-2.5 text-clr-text-light dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-light md:gap-2 md:px-3 lg:min-h-[2.4rem] lg:min-w-[15.8rem] lg:justify-start lg:gap-2 lg:px-4{{ end }}" data-target="search-modal">
           {{ partial "icons/search.html" (dict "class" "size-[1.15rem]") }}
+          <span class="{{ if $isHome }}hidden text-left md:hidden lg:inline lg:text-[0.66rem] lg:uppercase lg:tracking-[0.18em]{{ else }}hidden sm:inline{{ end }}">{{ if $isHome }}Search...{{ else }}Search{{ end }}</span>
         </button>
         {{ end }}
       {{ end }}

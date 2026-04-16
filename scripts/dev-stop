@@ -20,6 +20,9 @@ else
     echo "⚠️  Frontend server is not running"
 fi
 
+# Stop website
+/workspace/scripts/stop-website
+
 echo ""
 echo "✅ All development servers stopped"
 echo ""

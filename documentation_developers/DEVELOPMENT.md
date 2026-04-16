@@ -103,6 +103,36 @@ npm run dev
 
 Development server runs at: http://localhost:3000 (powered by Vite ⚡)
 
+### Website Development
+
+Use the repo-level wrapper so the Hugo workflow behaves like the other development services:
+
+```bash
+./scripts/start-website
+```
+
+This script:
+
+- verifies the dev container environment
+- checks `node`, `npm`, and `hugo`
+- installs `website/` dependencies if `node_modules` is missing
+- stops an existing Sambee website dev server on port `1313`
+- prebuilds the Pagefind search index
+- starts the Hugo dev server from `website/`
+- keeps the Pagefind index refreshed while Hugo updates generated HTML on disk
+
+The website dev server runs at: http://localhost:1313
+
+Search should be available during normal development without running a separate indexing command.
+
+To stop it directly:
+
+```bash
+./scripts/stop-website
+```
+
+You can also start it from the VS Code task named `Website: Start Dev Server`.
+
 ### Running Tests
 
 ```bash

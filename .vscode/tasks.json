@@ -41,6 +41,20 @@
       "problemMatcher": []
     },
     {
+      "label": "Website: Start Dev Server",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/start-website",
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "development",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Backend: Run Tests",
       "type": "shell",
       "command": "pytest -v",

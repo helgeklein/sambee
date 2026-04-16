@@ -22,6 +22,17 @@ function addColorsToCss(cssLines, colors, prefix = "") {
    });
 }
 
+function addColorGroupsToCss(cssLines, groups, defaultGroups = []) {
+   Object.entries(groups).forEach(([groupName, colors]) => {
+      if (!colors || typeof colors !== "object") {
+         return;
+      }
+
+      const prefix = defaultGroups.includes(groupName) ? "" : toKebab(groupName.replace(/_color$/, ""));
+      addColorsToCss(cssLines, colors, prefix);
+   });
+}
+
 // Generate theme CSS from theme.json
 function generateThemeCSS() {
    if (!fs.existsSync(themePath)) {
@@ -46,31 +57,32 @@ function generateThemeCSS() {
    ];
 
    // Default colors
-   if (themeConfig.colors.default?.theme_color) {
-      addColorsToCss(cssLines, themeConfig.colors.default.theme_color);
-   }
-   if (themeConfig.colors.default?.text_color) {
-      addColorsToCss(cssLines, themeConfig.colors.default.text_color);
+   if (themeConfig.colors.default) {
+      addColorGroupsToCss(cssLines, themeConfig.colors.default, ["theme_color", "text_color"]);
    }
 
    // Darkmode colors
    if (themeConfig.colors.darkmode) {
       cssLines.push("", "  /* === Darkmode Colors === */");
-      if (themeConfig.colors.darkmode.theme_color) {
-         addColorsToCss(cssLines, themeConfig.colors.darkmode.theme_color, "darkmode");
-      }
-      if (themeConfig.colors.darkmode.text_color) {
-         addColorsToCss(cssLines, themeConfig.colors.darkmode.text_color, "darkmode");
-      }
+      Object.entries(themeConfig.colors.darkmode).forEach(([groupName, colors]) => {
+         if (!colors || typeof colors !== "object") {
+            return;
+         }
+
+         const groupPrefix = ["theme_color", "text_color"].includes(groupName)
+            ? "darkmode"
+            : `darkmode-${toKebab(groupName.replace(/_color$/, ""))}`;
+         addColorsToCss(cssLines, colors, groupPrefix);
+      });
    }
 
    // Font families
    cssLines.push("", "  /* === Font Families === */");
    const fontFamily = themeConfig.fonts.font_family || {};
+   const fontFamilyTypes = themeConfig.fonts.font_family_type || {};
    Object.entries(fontFamily)
-      .filter(([key]) => !key.includes("type"))
       .forEach(([key, font]) => {
-         const fontFallback = fontFamily[`${key}_type`] || "sans-serif";
+         const fontFallback = fontFamilyTypes[key] || "sans-serif";
          const fontValue = `${findFont(font)}, ${fontFallback}`;
          cssLines.push(`  --font-${toKebab(key)}: ${fontValue};`);
       });

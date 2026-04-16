@@ -1,18 +1,18 @@
 /* Button base styles */
 .btn {
-  @apply border-2 border-transparent inline-block rounded px-5 py-2 transition;
+  @apply inline-flex items-center justify-center border-2 border-transparent px-5 py-3 font-tertiary text-[0.72rem] uppercase tracking-[0.18em] transition-colors duration-200;
 }
 .btn-sm {
-  @apply rounded-sm px-4 py-1.5 text-sm;
+  @apply px-4 py-2 text-[0.68rem];
 }
 
 /* Button, background filled with secondary color */
 .btn-bg-secondary {
-  @apply bg-clr-secondary dark:bg-clr-darkmode-secondary text-white dark:text-clr-darkmode-text-dark;
+  @apply border-clr-primary bg-clr-action-fill text-clr-action-fill-text dark:border-clr-darkmode-primary dark:bg-clr-darkmode-action-fill dark:text-clr-darkmode-action-fill-text;
 }
 /* Hover state for button with link */
 a.btn-bg-secondary {
-  @apply hover:bg-clr-secondary/80 dark:hover:bg-clr-darkmode-secondary/90;
+  @apply hover:bg-clr-action-fill/85 dark:hover:bg-clr-darkmode-action-fill/90;
 }
 
 /* Button, background transparent */
@@ -26,9 +26,17 @@ a.btn-bg-transparent {
 
 /* Button, no background, border with secondary color */
 .btn-outline-secondary {
-  @apply border-clr-secondary text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply border-clr-rule-strong bg-transparent text-clr-text-dark dark:border-clr-darkmode-rule-strong dark:text-clr-darkmode-text-dark;
 }
 /* Hover state for button with link */
 a.btn-outline-secondary {
-  @apply hover:text-clr-secondary dark:hover:text-clr-darkmode-secondary;
+  @apply hover:bg-clr-surface-low hover:text-clr-action-text dark:hover:bg-clr-darkmode-surface-low dark:hover:text-clr-darkmode-action-text;
+}
+
+.btn-link-secondary {
+  @apply border-transparent bg-transparent px-0 text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+a.btn-link-secondary {
+  @apply hover:text-clr-primary dark:hover:text-clr-darkmode-primary;
 }

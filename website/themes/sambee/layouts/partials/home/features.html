@@ -1,0 +1,17 @@
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong" id="{{ $section.id }}">
+  <div class="max-w-3xl border-b border-clr-rule-soft px-6 py-8 dark:border-clr-darkmode-rule-soft lg:px-8">
+    <span class="eyebrow">{{ $section.eyebrow }}</span>
+    <h2 class="font-secondary text-4xl font-bold italic text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-5xl">{{ $section.title }}</h2>
+  </div>
+  <div class="grid gap-x-8 gap-y-7 border-t-2 border-clr-rule-strong px-5 py-6 dark:border-clr-darkmode-rule-strong md:grid-cols-2 md:px-8 md:py-10 md:gap-y-9 xl:grid-cols-4">
+    {{ range $section.groups }}
+    <article class="flex flex-col gap-2.5">
+      <h3 class="font-tertiary text-[0.76rem] font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ .title }}</h3>
+      <p class="text-[0.92rem] leading-[1.72] text-clr-text-light dark:text-clr-darkmode-text-light">{{ .body }}</p>
+    </article>
+    {{ end }}
+  </div>
+</section>
+{{ end }}

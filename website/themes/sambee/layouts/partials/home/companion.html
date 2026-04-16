@@ -1,0 +1,54 @@
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell grid gap-0 border-t-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong lg:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
+  <div class="px-5 py-8 md:px-8 md:py-10 lg:px-10 lg:py-12">
+    <span class="eyebrow">{{ $section.eyebrow }}</span>
+    <h2 class="mb-8 max-w-none font-secondary text-[2.75rem] font-bold italic leading-[1.02] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.45rem] lg:max-w-[11ch] lg:text-6xl">{{ $section.title }}</h2>
+    <div class="grid gap-7 pt-0 md:gap-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(18rem,0.95fr)] lg:gap-12">
+      <div class="flex flex-col">
+        <p class="mb-6 max-w-none text-[1rem] leading-[1.72] text-clr-text-light dark:text-clr-darkmode-text-light md:text-[1.15rem] md:leading-[1.8] lg:max-w-[18rem]">{{ $section.body }}</p>
+        <div class="ledger-actions mt-7">
+          <a class="btn inline-flex min-h-[3.5rem] w-full items-center justify-center px-6 text-[0.78rem] font-bold tracking-[0.18em] md:min-h-[4rem] md:px-8 md:text-[0.9rem] lg:w-auto {{ if eq $section.cta.kind "primary" }}btn-bg-secondary{{ else if eq $section.cta.kind "secondary" }}btn-outline-secondary{{ else }}btn-link-secondary{{ end }}" href="{{ $section.cta.href }}">{{ $section.cta.label }}</a>
+        </div>
+      </div>
+      <div class="flex flex-col gap-6 pt-1 md:gap-8">
+        {{ with $section.bullets }}
+        <ul class="flex flex-col gap-5">
+          {{ range . }}
+          <li class="flex items-start gap-4 font-tertiary text-[0.72rem] font-medium uppercase leading-[1.65] tracking-[0.12em] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[0.78rem] md:tracking-[0.14em]"><span class="mt-1.5 block h-1.5 w-1.5 shrink-0 bg-clr-action-fill dark:bg-clr-darkmode-action-fill" aria-hidden="true"></span><span>{{ . }}</span></li>
+          {{ end }}
+        </ul>
+        {{ end }}
+        <div class="border-t border-clr-rule-soft pt-8 dark:border-clr-darkmode-rule-soft">
+          <span class="mb-3 block font-tertiary text-[0.62rem] font-bold uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.note_title }}</span>
+          <p class="max-w-none text-[0.95rem] italic leading-[1.85] text-clr-text-light dark:text-clr-darkmode-text-light lg:max-w-[24rem]">{{ $section.note_body }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <aside class="border-t-2 border-clr-rule-strong bg-clr-surface-page p-5 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page md:p-6 lg:border-t-0 lg:border-l lg:p-10" aria-label="Companion interface preview">
+    <div class="flex min-h-[23rem] flex-col overflow-hidden border border-clr-rule-strong bg-clr-surface-base dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-base md:min-h-[31rem]">
+      <div class="flex items-center justify-between border-b border-clr-rule-soft bg-clr-surface-high px-4 py-3 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-high md:px-5 md:py-4">
+        <div class="flex gap-1.5" aria-hidden="true">
+          <span class="block h-2.5 w-2.5 rounded-full border border-clr-rule-strong dark:border-clr-darkmode-rule-strong md:h-3 md:w-3"></span><span class="block h-2.5 w-2.5 rounded-full border border-clr-rule-strong dark:border-clr-darkmode-rule-strong md:h-3 md:w-3"></span><span class="block h-2.5 w-2.5 rounded-full border border-clr-rule-strong dark:border-clr-darkmode-rule-strong md:h-3 md:w-3"></span>
+        </div>
+        <div class="font-tertiary text-[0.6rem] uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light md:text-[0.7rem]">SAMBEE_COMPANION_V1.0.4</div>
+        <div class="w-8 md:w-14" aria-hidden="true"></div>
+      </div>
+      <div class="flex flex-1 flex-col justify-between bg-[radial-gradient(circle,rgba(130,117,98,0.5)_1px,transparent_1px)] p-5 [background-size:28px_28px] md:p-6">
+        <div class="relative mt-2 flex aspect-[1.52/1] items-center justify-center border-[3px] border-clr-primary bg-white/75 dark:bg-clr-darkmode-surface-page/30">
+          <div class="relative flex h-20 w-20 items-center justify-center opacity-20" aria-hidden="true">
+            <span class="relative block h-14 w-14 rounded-[0.35rem] border-[3px] border-clr-rule-soft dark:border-clr-darkmode-rule-soft"><span class="absolute left-1.5 top-1.5 block h-2.5 w-2.5 bg-clr-rule-soft dark:bg-clr-darkmode-rule-soft"></span><span class="absolute bottom-1.5 right-1.5 block h-2.5 w-2.5 bg-clr-rule-soft dark:bg-clr-darkmode-rule-soft"></span></span>
+            <span class="absolute bottom-0 block h-5 w-0.5 bg-clr-rule-soft dark:bg-clr-darkmode-rule-soft"></span>
+          </div>
+          <div class="absolute right-4 top-4 border border-clr-primary px-2 py-1 font-tertiary text-[0.5rem] uppercase tracking-[0.15em] text-clr-action-text dark:border-clr-darkmode-primary dark:text-clr-darkmode-action-text md:text-[0.58rem]">INTERFACE_PREVIEW</div>
+        </div>
+        <div class="mt-4 flex flex-col items-stretch gap-2 md:mt-6 md:flex-row md:items-center md:justify-between md:gap-4">
+          <span class="border border-clr-rule-strong bg-clr-surface-base px-2.5 py-1.5 font-tertiary text-[0.5rem] uppercase tracking-[0.12em] text-clr-text-light dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-text-light md:text-[0.58rem]">Status: Link_Established</span>
+          <span class="border border-clr-rule-strong bg-clr-surface-base px-2.5 py-1.5 font-tertiary text-[0.5rem] uppercase tracking-[0.12em] text-clr-action-text dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text md:text-[0.58rem]">Encrypted_P2P</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+</section>
+{{ end }}

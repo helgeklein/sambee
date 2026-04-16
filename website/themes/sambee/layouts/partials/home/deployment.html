@@ -1,0 +1,12 @@
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong bg-clr-surface-page dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page">
+  <div class="px-5 py-10 text-center md:px-8 md:py-[4.6rem]">
+    <h2 class="mb-7 font-secondary text-[2.4rem] font-bold italic leading-[1.03] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.4rem]">{{ $section.title }}</h2>
+    <p class="mx-auto mb-8 max-w-2xl text-[1.02rem] leading-[1.76] text-clr-text-light dark:text-clr-darkmode-text-light md:text-lg">{{ $section.body }}</p>
+    <div class="ledger-actions justify-center">
+      <a class="btn {{ if eq $section.cta.kind "primary" }}btn-bg-secondary{{ else if eq $section.cta.kind "secondary" }}btn-outline-secondary{{ else }}btn-link-secondary{{ end }}" href="{{ $section.cta.href }}">{{ $section.cta.label }}</a>
+    </div>
+  </div>
+</section>
+{{ end }}

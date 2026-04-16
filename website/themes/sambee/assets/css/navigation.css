@@ -1,131 +1,24 @@
-/* ============================================
-   Navigation Styles
-   ============================================
-
-   This file contains all styling for the site navigation system.
-
-   ARCHITECTURE OVERVIEW:
-   ----------------------
-   The navigation uses a mobile-first approach with two distinct modes:
-
-   1. MOBILE (< lg breakpoint):
-      - Hamburger menu button toggles full-screen overlay
-      - Menu slides in from right via CSS transform
-      - Submenus expand/collapse via JavaScript toggle (accordion-style)
-      - Body scroll is locked when menu is open
-
-   2. DESKTOP (>= lg breakpoint):
-      - Horizontal menu bar with items inline
-      - Submenus appear as dropdowns on hover
-      - Uses opacity/visibility for smooth fade-in effect
-
-   MENU STRUCTURE (up to 3 levels):
-   --------------------------------
-   .nav-menu                     - Container for all menu items
-     .nav-item                   - L1: Top-level menu item
-       .nav-link                 - L1: Clickable link text
-       .nav-submenu-toggle       - Mobile: Button to expand/collapse submenu
-       .nav-submenu              - L2: Dropdown container
-         .nav-submenu-group      - L2: Group with optional heading
-           .nav-submenu-heading  - L2: Group heading (may be link or text)
-           .nav-submenu-items    - L3: Container for third-level items
-             .nav-submenu-item   - L3: Individual item
-               .nav-submenu-link - L3: Clickable link
-
-   CSS CUSTOM PROPERTIES:
-   ----------------------
-   --nav-transition-duration:  Animation speed for menu open/close
-   --nav-submenu-indent:       Left indent for nested submenu levels
-   --nav-hamburger-size:       Width of hamburger icon bars
-   --nav-hamburger-bar-height: Thickness of hamburger icon bars
-   --header-height:            Set by JS, used to position mobile menu below header
-
-   ============================================ */
-
 :root {
-   --nav-transition-duration: 0.3s;
+   --nav-transition-duration: 0.24s;
    --nav-submenu-indent: 0rem;
-   --nav-hamburger-size: 24px;
+   --nav-hamburger-size: 22px;
    --nav-hamburger-bar-height: 2px;
 }
 
-/* ============================================
-   Header & Nav Bar
-   ============================================
-
-   The header contains the navigation bar and is made sticky.
-   The nav-bar uses flexbox to arrange logo, menu, and actions.
-
-   Layout order (mobile):  Logo | Actions | Hamburger
-   Layout order (desktop): Logo | Menu | Actions
-
-   ============================================ */
-
-.header {
-   /* Background matches page body for seamless look */
-   @apply bg-clr-body dark:bg-clr-darkmode-body;
-   /* Vertical padding and bottom margin for spacing from content */
-   @apply pt-4 pb-2 mb-6 lg:mb-10;
+.nav-brand-kicker {
+   @apply font-tertiary text-[0.62rem] uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
 }
-
-.header-shell {
-   /* Sticky positioning keeps header visible on scroll */
-   @apply sticky top-0 z-30;
-}
-
-.nav-bar {
-   /* Flex container for logo, menu, and actions */
-   @apply relative flex flex-wrap items-center justify-between;
-}
-
-.nav-logo {
-   /* First in order, slight vertical adjustment for optical alignment */
-   @apply order-0 translate-y-0.5 lg:-translate-y-0.5;
-}
-
-.nav-logo-link {
-   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark text-xl font-bold;
-}
-
-.nav-logo-link img {
-   /* Constrain logo image to container */
-   @apply max-h-full max-w-full;
-}
-
-.nav-actions {
-   /* Contains theme switcher, search button, etc.
-      Mobile: order-1 (after logo), Desktop: order-2 (after menu) */
-   @apply order-1 ml-auto flex items-center md:order-2 lg:ml-0;
-}
-
-/* ============================================
-   Hamburger Toggle Button
-   ============================================
-
-   Three-bar hamburger icon that animates to an X when active.
-   Uses ::before and ::after pseudo-elements for the top and bottom bars.
-   The middle bar fades out while the outer bars rotate into an X.
-
-   Only visible on mobile (hidden at lg breakpoint).
-
-   ============================================ */
 
 .nav-toggle {
-   @apply relative flex items-center justify-center cursor-pointer;
-   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-   /* Hidden on desktop */
+   @apply relative flex items-center justify-center border border-clr-rule-strong bg-clr-surface-low text-clr-text-dark dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low dark:text-clr-darkmode-text-dark;
    @apply lg:hidden;
-   /* Placed after actions in flex order */
    order: 3;
-   /* Touch-friendly tap target size */
-   width: 40px;
-   height: 40px;
-   background: transparent;
-   border: none;
+   width: 44px;
+   height: 44px;
    padding: 0;
+   cursor: pointer;
 }
 
-/* All three bars share these styles */
 .nav-toggle-bar,
 .nav-toggle-bar::before,
 .nav-toggle-bar::after {
@@ -133,13 +26,11 @@
    display: block;
    width: var(--nav-hamburger-size);
    height: var(--nav-hamburger-bar-height);
-   border-radius: 1px;
    transition: transform var(--nav-transition-duration) ease,
                background-color var(--nav-transition-duration) ease;
 }
 
 .nav-toggle-bar {
-   /* Middle bar - positioned relatively for pseudo-element positioning */
    position: relative;
 }
 
@@ -151,19 +42,13 @@
 }
 
 .nav-toggle-bar::before {
-   /* Top bar - positioned above middle */
    top: -7px;
 }
 
 .nav-toggle-bar::after {
-   /* Bottom bar - positioned below middle */
    top: 7px;
 }
 
-/* ACTIVE STATE: Hamburger transforms to X
-   - Middle bar becomes transparent
-   - Top bar rotates 45° clockwise and moves to center
-   - Bottom bar rotates 45° counter-clockwise and moves to center */
 .nav-toggle.active .nav-toggle-bar {
    background: transparent;
 }
@@ -178,7 +63,6 @@
    transform: rotate(-45deg);
 }
 
-/* Accessibility: Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
    .nav-toggle-bar,
    .nav-toggle-bar::before,
@@ -187,70 +71,49 @@
    }
 }
 
-/* Desktop: Hide hamburger button entirely */
 @media (min-width: theme(--breakpoint-lg)) {
    .nav-toggle {
       display: none;
    }
 }
 
-/* ============================================
-   Mobile Menu (Full-screen overlay)
-   ============================================
-
-   On mobile, the menu is a fixed overlay that slides in from the right.
-   - Positioned below the header (using --header-height CSS variable)
-   - Full viewport height minus header
-   - Scrollable if content overflows
-
-   The menu is hidden by default (translateX: 100%) and revealed
-   when body has .nav-menu-open class.
-
-   ============================================ */
-
 .nav-menu {
-   /* Fixed positioning for overlay effect */
-   @apply fixed bg-clr-body dark:bg-clr-darkmode-body;
+   @apply fixed bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
    @apply flex flex-col overflow-y-auto;
-   /* Position below header - --header-height set by JavaScript */
    top: var(--header-height);
    left: 0;
    right: 0;
    bottom: 0;
-   padding: 1rem 0;
-   /* Hidden off-screen to the right */
+   padding: 0;
    transform: translateX(100%);
    transition: transform var(--nav-transition-duration) ease;
    z-index: 40;
    list-style: none;
    margin: 0;
+   border-top: 1px solid var(--color-clr-rule-strong);
 }
 
-/* Menu visible state - slide in from right */
+.dark .nav-menu {
+   border-top-color: var(--color-clr-darkmode-rule-strong);
+}
+
 body.nav-menu-open .nav-menu {
    transform: translateX(0);
 }
 
-/* Prevent body scroll when mobile menu is open */
 body.nav-menu-open {
    overflow: hidden;
 }
 
-/* Accessibility: Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
    .nav-menu {
       transition: none;
    }
 }
 
-/* DESKTOP: Transform to horizontal inline menu
-   - No longer fixed/overlay, becomes inline in nav-bar
-   - Horizontal layout with flexbox
-   - Positioned between logo and actions */
 @media (min-width: theme(--breakpoint-lg)) {
    .nav-menu {
       @apply static flex flex-row items-center;
-      /* Reset all the mobile overlay positioning */
       position: static;
       top: auto;
       left: auto;
@@ -260,114 +123,84 @@ body.nav-menu-open {
       overflow: visible;
       padding: 0;
       background: transparent;
-      /* Small gap between menu items */
       gap: 0.25rem;
-      /* Placed after logo in flex order */
       order: 1;
-      /* Gap between logo and first menu item */
-      margin-left: 2.5rem;
-      /* Push actions (theme switcher, search) to the right */
+      margin-left: 1.5rem;
       margin-right: auto;
+      border-top: none;
    }
 
-   /* Restore body scroll on desktop */
    body.nav-menu-open {
       overflow: auto;
    }
 }
 
-/* ============================================
-   Nav Items (L1 - Top Level)
-   ============================================
 
-   Top-level navigation items. Each contains a .nav-link and
-   optionally a .nav-submenu for dropdown content.
+@media (max-width: calc(theme(--breakpoint-lg) - 0.02px)) {
+}
 
-   Mobile: Full-width with bottom border separators
-   Desktop: Inline items without borders
-
-   ============================================ */
+@media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
+}
 
 .nav-item {
    @apply relative;
-   /* Mobile: Visual separator between items */
-   border-bottom: 1px solid theme('colors.clr-light');
+   border-bottom: 1px solid theme('colors.clr-rule-soft');
 }
 
 .dark .nav-item {
-   border-bottom-color: theme('colors.clr-darkmode-border');
+   border-bottom-color: theme('colors.clr-darkmode-rule-soft');
 }
 
-/* Desktop: Remove borders */
 @media (min-width: theme(--breakpoint-lg)) {
    .nav-item {
       border-bottom: none;
    }
 }
 
-/* Nav Link: The clickable text for L1 items
-   - <a> elements (actual links): secondary color on hover
-   - <span> elements (dropdown triggers without URL): primary color on hover */
 .nav-link {
-   @apply block font-secondary font-normal text-lg;
-   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-   /* Generous padding for touch targets */
+   @apply block font-tertiary text-sm font-medium uppercase tracking-[0.1em] text-clr-text-dark transition-colors duration-200 dark:text-clr-darkmode-text-dark;
    padding: 1rem 1.25rem;
-   /* Extra right padding to make room for submenu toggle button */
-   padding-right: 3.5rem;
-   transition: color 0.2s ease;
-
-   /* Anchor links: secondary color on hover */
-   &:is(a):hover {
-      @apply text-clr-secondary dark:text-clr-darkmode-secondary;
-   }
-
-   /* Non-link spans (dropdown triggers): primary color on hover */
-   &:is(span):hover {
-      @apply text-clr-primary dark:text-clr-darkmode-primary;
-   }
+   padding-right: 3.75rem;
 }
 
-/* Items without children don't need extra right padding */
+.nav-link:is(a):hover,
+.nav-link:is(span):hover {
+   @apply text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
 .nav-item:not(.has-children) .nav-link {
    padding-right: 1.25rem;
 }
 
-/* Active state: Highlight current section/page */
 .nav-item.active > .nav-link,
 .nav-link.active {
-   @apply text-clr-secondary dark:text-clr-darkmode-secondary;
+   @apply text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
-/* Desktop nav link adjustments */
+.nav-item.active > .nav-link {
+   @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+}
+
 @media (min-width: theme(--breakpoint-lg)) {
    .nav-link {
-      /* Slightly larger font for desktop */
-      font-size: 1.25rem;
-      /* Compact padding for horizontal layout */
-      padding: 0.75rem 0.75rem;
+      padding: 0.9rem 0.9rem;
    }
 
-   /* Reset right padding for all items */
    .nav-item:not(.has-children) .nav-link,
    .nav-item.has-children .nav-link {
-      padding-right: 0.75rem;
+      padding-right: 0.9rem;
    }
 
-   /* Items with dropdowns need space for chevron indicator */
    .nav-item.has-children > .nav-link {
-      padding-right: 1.5rem;
+      padding-right: 1.6rem;
    }
 
-   /* Desktop chevron indicator: Small downward-pointing triangle
-      Indicates this item has a dropdown submenu */
    .nav-item.has-children > .nav-link::after {
       content: '';
       position: absolute;
       right: 0.25rem;
       top: 50%;
       transform: translateY(-50%);
-      /* CSS triangle using borders */
       width: 0;
       height: 0;
       border-left: 4px solid transparent;
@@ -376,24 +209,11 @@ body.nav-menu-open {
    }
 }
 
-/* ============================================
-   Submenu Toggle Button (Mobile only)
-   ============================================
-
-   On mobile, a separate button to expand/collapse submenus.
-   Positioned absolutely on the right side of the nav-item.
-   Contains a chevron icon that rotates when submenu is open.
-
-   Hidden on desktop where hover handles submenu visibility.
-
-   ============================================ */
-
 .nav-submenu-toggle {
    @apply absolute right-0 top-0 flex items-center justify-center;
    @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-   /* Large tap target for mobile usability */
-   width: 56px;
-   height: 56px;
+   width: 60px;
+   height: 52px;
    background: transparent;
    border: none;
    cursor: pointer;
@@ -404,55 +224,35 @@ body.nav-menu-open {
    transition: transform var(--nav-transition-duration) ease;
 }
 
-/* Rotate chevron 180° when submenu is open */
 .has-children.submenu-open > .nav-submenu-toggle .nav-chevron {
    transform: rotate(180deg);
 }
 
-/* Desktop: Hide toggle button (hover handles visibility) */
 @media (min-width: theme(--breakpoint-lg)) {
    .nav-submenu-toggle {
       display: none;
    }
 }
 
-/* ============================================
-   Submenus (Dropdown) - L2 and L3
-   ============================================
-
-   MOBILE: Accordion-style expand/collapse
-   - max-height animation for smooth open/close
-   - Indented with --nav-submenu-indent
-   - JavaScript toggles .submenu-open class
-
-   DESKTOP: Hover-triggered dropdown
-   - Absolutely positioned below parent
-   - Fade in with opacity/transform animation
-   - Width adapts to content (min-width to max-width range)
-
-   ============================================ */
-
-/* Mobile: Collapsed by default, expands via max-height */
 .nav-submenu {
-   @apply bg-clr-body dark:bg-clr-darkmode-body;
-   /* Hidden by default */
+   @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
    max-height: 0;
    overflow: hidden;
    transition: max-height var(--nav-transition-duration) ease;
-   /* Indent to show hierarchy */
    padding-left: var(--nav-submenu-indent);
    list-style: none;
    margin: 0;
+   border-top: 1px solid var(--color-clr-rule-soft);
 }
 
-/* Mobile: Expanded state */
+.dark .nav-submenu {
+   border-top-color: var(--color-clr-darkmode-rule-soft);
+}
+
 .nav-item.submenu-open > .nav-submenu {
-   /* Large value ensures content fits; actual height is content-based */
    max-height: 1000px;
 }
 
-/* Submenu Group: Container for a heading + its child items
-   Used when L2 items have their own L3 children */
 .nav-submenu-group {
    @apply relative;
    margin-top: 0.5rem;
@@ -462,95 +262,68 @@ body.nav-menu-open {
    margin-top: 0;
 }
 
-/* Submenu Heading: Group title at L2 level
-   Can be plain text or a clickable link */
 .nav-submenu-heading {
-   @apply block font-bold;
-   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-   padding: 0.75rem 1.25rem;
+   @apply block font-tertiary text-[0.7rem] uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light;
+   padding: 0.75rem 1.25rem 0.25rem;
 }
 
-/* Clickable heading variant */
 .nav-submenu-heading--link {
-   @apply hover:text-clr-secondary dark:hover:text-clr-darkmode-secondary;
+   @apply hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
    transition: color 0.2s ease;
    text-decoration: none;
 }
 
 .nav-submenu-heading--link.active {
-   @apply text-clr-secondary dark:text-clr-darkmode-secondary;
+   @apply text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
-/* L3 Items Container: Third level navigation items */
 .nav-submenu-items {
    list-style: none;
    margin: 0;
    padding: 0;
-   /* Further indent for L3 items */
    padding-left: var(--nav-submenu-indent);
 }
 
-/* Individual L3 item */
 .nav-submenu-item {
    @apply relative;
-   margin: 0.2rem 0;
+   margin: 0;
 }
 
-/* L3 link styling */
 .nav-submenu-link {
-   @apply block;
-   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-   @apply hover:text-clr-secondary dark:hover:text-clr-darkmode-secondary;
-   padding: 0.5rem 1.25rem;
-   transition: color 0.2s ease;
+   @apply block border-t border-clr-rule-soft px-5 py-3 text-sm text-clr-text-dark transition-colors duration-200 hover:bg-clr-surface-mid hover:text-clr-action-text dark:border-clr-darkmode-rule-soft dark:text-clr-darkmode-text dark:hover:bg-clr-darkmode-surface-mid dark:hover:text-clr-darkmode-action-text;
 }
 
 .nav-submenu-link.active {
-   @apply text-clr-secondary dark:text-clr-darkmode-secondary font-bold;
+   @apply font-bold text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
-/* Accessibility: Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
    .nav-submenu {
       transition: none;
    }
 }
 
-/* DESKTOP: Hover-triggered dropdown with fade animation */
 @media (min-width: theme(--breakpoint-lg)) {
    .nav-submenu {
-      /* Position dropdown below parent nav-item */
       @apply absolute left-0 top-full;
-      @apply shadow-lg;
-      /*
-       * CONTENT-AWARE SIZING:
-       * - width: max-content - sizes to fit longest item
-       * - min-width: 220px - ensures dropdown isn't too narrow
-       * - max-width: 500px - caps growth for very long items
-       */
+      @apply bg-clr-surface-base dark:bg-clr-darkmode-surface-base;
       width: max-content;
-      min-width: 220px;
+      min-width: 240px;
       max-width: 500px;
-      /* Inner whitespace: container padding handles border-to-content spacing,
-         individual items use minimal horizontal padding */
-      padding: 1rem;
-      /* Override mobile max-height restriction */
+      padding: 0;
       max-height: none;
-      /* Hidden by default - revealed on hover */
       opacity: 0;
       visibility: hidden;
-      /* Subtle upward offset that animates to 0 on show */
       transform: translateY(-8px);
       transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
-      /* Subtle border for definition */
-      border: 1px solid theme('colors.clr-light');
+      border: 1px solid theme('colors.clr-rule-strong');
+      border-top-width: 2px;
    }
 
    .dark .nav-submenu {
-      border-color: theme('colors.clr-darkmode-border');
+      border-color: theme('colors.clr-darkmode-rule-strong');
    }
 
-   /* Show dropdown on hover or keyboard focus */
    .nav-item:hover > .nav-submenu,
    .nav-item:focus-within > .nav-submenu {
       opacity: 1;
@@ -558,97 +331,55 @@ body.nav-menu-open {
       transform: translateY(0);
    }
 
-   /* Desktop submenu group styling: Add separators between groups */
    .nav-submenu-group {
-      margin-top: 0.75rem;
-      padding-top: 0.5rem;
-      border-top: 1px solid theme('colors.clr-light');
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 1px solid theme('colors.clr-rule-soft');
    }
 
    .dark .nav-submenu-group {
-      border-top-color: theme('colors.clr-darkmode-border');
+      border-top-color: theme('colors.clr-darkmode-rule-soft');
    }
 
    .nav-submenu-group:first-child {
-      margin-top: 0.2rem;
-      padding-top: 0;
       border-top: none;
    }
 
-   /* Desktop heading style: Smaller, uppercase label
-      Padding matches .nav-submenu-link for consistent alignment */
    .nav-submenu-heading {
-      padding: 0.4rem 1rem;
-      letter-spacing: 0.05em;
+      padding: 0.85rem 1rem 0.35rem;
    }
 
-   /* Desktop L3 items: Indent under headings */
    .nav-submenu-items {
       padding-left: var(--nav-submenu-indent);
    }
 
-   /* Tighter padding for desktop dropdown items */
    .nav-submenu-link {
-      padding: 0.4rem 1rem;
+      padding: 0.8rem 1rem;
    }
 }
 
-/* ============================================
-   Theme Switcher
-   ============================================
-
-   Toggle switch for light/dark mode.
-   Uses a hidden checkbox with styled label for the switch track,
-   and a span for the circular toggle.
-
-   ============================================ */
-
 .theme-switcher {
    @apply inline-flex items-center;
-   /* Minimum tap target size */
    min-width: 2.5rem;
    min-height: 1.5rem;
 }
 
-/* Switch track (background) */
 .theme-switcher label {
-   @apply bg-clr-border relative inline-block h-4 cursor-pointer rounded-2xl;
-   /* Narrower on mobile, wider on desktop */
+   @apply bg-clr-rule-soft relative inline-block h-4 cursor-pointer;
    @apply w-6 lg:w-10;
 }
 
-/* Hidden checkbox - accessibility: still in DOM for screen readers */
 .theme-switcher input {
    @apply absolute opacity-0;
 }
 
-/* Toggle circle */
 .theme-switcher span {
    @apply bg-clr-text-dark dark:bg-clr-darkmode-text-dark;
-   @apply absolute -top-1 left-0 flex h-6 w-6 items-center justify-center rounded-full;
+   @apply absolute -top-1 left-0 flex h-6 w-6 items-center justify-center;
    @apply transition-all duration-300;
 }
 
-/* Checked state: Move toggle to the right */
 .theme-switcher input:checked + label span {
    @apply lg:left-4;
 }
 
-/* ============================================
-   Search Button
-   ============================================
-
-   Button in nav-actions to open search modal.
-   Has a right border as visual separator from theme switcher.
-
-   ============================================ */
-
-.nav-search-button {
-   @apply border-clr-border dark:border-clr-darkmode-border;
-   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-   @apply hover:text-clr-primary dark:hover:text-clr-darkmode-primary;
-   @apply mr-5 inline-flex items-center justify-center border-r pr-5 text-xl cursor-pointer;
-   /* Minimum touch target size */
-   min-width: 1.25rem;
-   min-height: 1.25rem;
-}

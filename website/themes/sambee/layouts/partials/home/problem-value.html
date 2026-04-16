@@ -1,0 +1,18 @@
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong px-0 dark:border-clr-darkmode-rule-strong">
+  <div class="grid gap-0 md:grid-cols-3">
+    {{ range $section.items }}
+    {{ $toneClass := cond (eq .id "problem") "text-red-700 dark:text-red-300" (cond (eq .id "gap") "text-clr-text-light dark:text-clr-darkmode-text-light" "text-clr-action-text dark:text-clr-darkmode-action-text") }}
+    <article class="flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8 {{ if eq .id "value" }}md:border-r-0{{ end }}">
+      <div class="flex items-center gap-3 {{ $toneClass }}">
+        <span class="flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden="true">{{ partial "home/problem-icon.html" (dict "id" .id "class" "h-5 w-5") }}</span>
+        <span class="font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.22em]">{{ .eyebrow }}</span>
+      </div>
+      <h2 class="font-secondary text-[1.35rem] font-bold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark sm:text-[1.55rem] md:text-[1.7rem]">{{ .title }}</h2>
+      <p class="text-[0.97rem] leading-[1.62] text-clr-text-light dark:text-clr-darkmode-text-light">{{ .body }}</p>
+    </article>
+    {{ end }}
+  </div>
+</section>
+{{ end }}

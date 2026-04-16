@@ -17,7 +17,7 @@ Variables
    /* Code font size - shared between inline code and code blocks */
    --code-font-size: 0.875em;
    /* Block element bottom margin - paragraphs, lists, blockquotes, tables, figures, pre */
-   --content-block-margin: 1em;
+  --content-block-margin: 0.875em;
 }
 
 /*
@@ -38,6 +38,13 @@ html.scroll-smooth {
    scroll-behavior: smooth;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border-radius: 0;
+}
+
 /* Body */
 body {
   /* Flex column layout:
@@ -46,13 +53,13 @@ body {
   @apply flex flex-col min-h-screen;
 
   /* Background color */
-  @apply bg-clr-body dark:bg-clr-darkmode-body;
+  @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
 
   /* Text color */
   @apply text-clr-text dark:text-clr-darkmode-text;
 
   /* Text size, line height & font family and font weight */
-  @apply text-size-base font-primary font-normal leading-normal;
+  @apply text-size-base font-primary font-normal leading-[1.55];
 }
 
 /*
@@ -67,35 +74,7 @@ h3,
 h4,
 h5,
 h6 {
-  @apply font-bold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-/* Headings fonts: H1 */
-h1 {
-  @apply font-secondary;
-}
-
-/* Headings fonts: H2-H6 */
-h2,
-h3,
-h4,
-h5,
-h6 {
-  @apply font-tertiary;
-}
-
-/* Headings fonts: H5 */
-h5 {
-  @apply font-primary;
-}
-
-/* Headings colors: H3 */
-h3, h5 {
-  @apply text-clr-primary;
-
-  .dark & {
-  @apply text-clr-darkmode-primary;
-  }
+  @apply font-secondary font-bold leading-[0.96] tracking-[-0.03em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 /* Heading font sizes and line heights */
@@ -121,19 +100,19 @@ h4,
 }
 h5,
 .h5 {
-  @apply text-size-h5/[1.2];
+  @apply text-size-h5/[1.35] font-tertiary uppercase tracking-[0.16em];
 }
 h6,
 .h6 {
-  @apply text-size-h6/[1.2];
+  @apply text-size-h6/[1.35] font-tertiary uppercase tracking-[0.16em];
 }
 
 /* Heading top & bottom margins */
 h1 {
-  @apply mb-[.3em];
+  @apply mb-[0.24em];
 }
 h2, h3, h4, h5, h6 {
-  @apply mb-[.3em] mt-[.6em];
+  @apply mb-[0.28em] mt-[0.72em];
 }
 
 /*
@@ -142,12 +121,21 @@ Links
 ==============================
 */
 a, .a {
-  color: var(--color-clr-secondary);
+  color: var(--color-clr-action-text);
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
 
   .dark & {
-    color: var(--color-clr-darkmode-secondary);
+    color: var(--color-clr-darkmode-action-text);
+  }
+}
+
+a:hover,
+.a:hover {
+  color: var(--color-clr-primary);
+
+  .dark & {
+    color: var(--color-clr-darkmode-primary);
   }
 }
 
@@ -159,7 +147,7 @@ Lists
 /* Top-level lists */
 ul, ol {
   /* Top & bottom margin */
-  margin: 0.75rem 0;
+  margin: 0.625rem 0;
 }
 
 /* Nested lists */
@@ -176,7 +164,7 @@ ol ul {
 /* List items */
 ul li, ol li {
   line-height: var(--tw-leading, var(--text-base--line-height));
-  margin: 0.2rem 0;
+  margin: 0.16rem 0;
 }
 
 /*
@@ -189,13 +177,39 @@ strong {
   @apply font-bold;
 }
 
+small,
+.text-label {
+  @apply font-tertiary uppercase tracking-[0.14em];
+}
+
+input,
+textarea,
+select,
+button,
+summary,
+[role="button"] {
+  border-radius: 0;
+}
+
+button,
+.button,
+[type="button"],
+[type="submit"],
+[type="reset"] {
+  box-shadow: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-clr-action-fill) 30%, transparent);
+}
+
 /*
 ==============================
 Borders used as horizontal separators
 ==============================
 */
 .hr-border-bottom {
-   @apply border-b-[3px] border-solid border-clr-light dark:border-clr-darkmode-border;
+  @apply border-b-2 border-solid border-clr-rule-strong dark:border-clr-darkmode-rule-strong;
 }
 
 /*

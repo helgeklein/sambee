@@ -1,0 +1,26 @@
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong bg-clr-surface-low dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low">
+  <div class="px-5 py-7 md:px-8 md:py-8 lg:py-9">
+    <div class="mb-5 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
+      <h2 class="font-tertiary text-[0.78rem] font-bold uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text">{{ $section.eyebrow }}</h2>
+      {{ with $section.supporting_link }}
+      <a class="inline-flex items-center gap-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text" href="{{ .href }}">{{ .label }}</a>
+      {{ end }}
+    </div>
+    <p class="max-w-3xl text-sm leading-[1.7] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.body }}</p>
+  </div>
+  <div class="px-5 pb-8 md:px-8 md:pb-9">
+    <div class="grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4">
+    {{ range $section.formats }}
+    <article class="flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text" aria-label="{{ .label }} preview support">
+      <div class="flex items-center justify-center">
+        {{ partial "home/format-specimen.html" (dict "label" .label "class" "home-format-art h-9 w-9 md:h-10 md:w-10") }}
+      </div>
+      <span class="font-tertiary text-[0.6rem] font-bold uppercase tracking-[0.18em] text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ .label }}</span>
+    </article>
+    {{ end }}
+    </div>
+  </div>
+</section>
+{{ end }}

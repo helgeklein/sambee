@@ -1,54 +1,16 @@
 {{ define "main" }}
-{{ $currentVersion := hugo.Data.docs_versions.current }}
-{{ $navData := index hugo.Data.docs_nav $currentVersion }}
-<section class="shell-section hero">
-  <div class="hero-copy">
-    <span class="eyebrow">Sambee</span>
-    <h1>{{ .Title }}</h1>
-    <div class="content lede" data-pagefind-body>
-      {{ .Content }}
-    </div>
-    <div class="button-row">
-      <a class="btn btn-bg-secondary" href="/docs/">Browse documentation</a>
-      <a class="btn btn-outline-secondary" href="{{ printf "/docs/%s/" $currentVersion }}">Current version {{ $currentVersion }}</a>
-    </div>
-  </div>
-  <aside class="hero-card">
-    <span class="eyebrow">Current Release</span>
-    <h2>Documentation {{ $currentVersion }}</h2>
-    <p>The initial public site is version-first and search-ready, with a shared layout across all documentation books.</p>
-    <div class="hero-stats">
-      <div class="stat-card">
-        <strong>{{ with $navData }}{{ len .books }}{{ else }}0{{ end }}</strong>
-        <span>books</span>
-      </div>
-      <div class="stat-card">
-        <strong>Pagefind</strong>
-        <span>search</span>
-      </div>
-      <div class="stat-card">
-        <strong>Hugo</strong>
-        <span>0.160.0</span>
-      </div>
-    </div>
-  </aside>
-</section>
+{{ $home := hugo.Data.homepage }}
 
-{{ with $navData }}
-<section class="shell-section">
-  <div class="docs-header">
-    <span class="eyebrow">Documentation Books</span>
-    <h2>Start in the book that matches your task</h2>
-  </div>
-  <div class="book-grid">
-    {{ range .books }}
-    <article class="docs-card">
-      <span class="docs-card-kicker">{{ $currentVersion }}</span>
-      <h3><a href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">{{ .title }}</a></h3>
-      <p>{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} in the first release.</p>
-    </article>
-    {{ end }}
-  </div>
-</section>
-{{ end }}
+<div data-pagefind-body>
+
+{{ partial "home/hero.html" (dict "hero" $home.hero) }}
+{{ partial "home/problem-value.html" (dict "section" $home.problem_value) }}
+{{ partial "home/benefits.html" (dict "section" $home.benefits) }}
+{{ partial "home/features.html" (dict "section" $home.features) }}
+{{ partial "home/supported-formats.html" (dict "section" $home.supported_formats) }}
+{{ partial "home/companion.html" (dict "section" $home.companion) }}
+{{ partial "home/deployment.html" (dict "section" $home.deployment) }}
+{{ partial "home/proof.html" (dict "section" $home.proof) }}
+{{ partial "home/final-cta.html" (dict "section" $home.final_cta) }}
+</div>
 {{ end }}

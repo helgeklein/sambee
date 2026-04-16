@@ -1,0 +1,153 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT_DIR="/workspace"
+PROJECT_DIR="${ROOT_DIR}/website"
+PORT="1313"
+LOCAL_URL="http://localhost:${PORT}"
+
+require_devcontainer() {
+    if [ -f "/.dockerenv" ] || [ -n "${REMOTE_CONTAINERS:-}" ] || [ -n "${CODESPACES:-}" ]; then
+        return 0
+    fi
+
+    echo "⚠️  Not in a devcontainer. Skipping website start."
+    echo "Please reopen in container: Ctrl+Shift+P -> 'Dev Containers: Reopen in Container'"
+    exit 0
+}
+
+require_command() {
+    local name="$1"
+
+    if ! command -v "$name" >/dev/null 2>&1; then
+        echo "❌ Required command not found: $name"
+        exit 1
+    fi
+}
+
+is_website_dev_process() {
+    local pid="$1"
+    local cwd
+    local command_line
+
+    cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+    [ "$cwd" = "$PROJECT_DIR" ] || return 1
+
+    command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    [[ -n "$command_line" ]] || return 1
+
+    [[ "$command_line" == *"npm run dev"* ]] || \
+    [[ "$command_line" == *"node scripts/themeGenerator.js --watch"* ]] || \
+    [[ "$command_line" == *"node_modules/.bin/concurrently"* ]] || \
+    [[ "$command_line" == *"hugo server"* ]]
+}
+
+find_website_dev_pids() {
+    local pid
+
+    for proc_dir in /proc/[0-9]*; do
+        pid="${proc_dir##*/}"
+        is_website_dev_process "$pid" && echo "$pid"
+    done
+}
+
+stop_existing_website_server() {
+    local pids=()
+
+    mapfile -t pids < <(find_website_dev_pids)
+    if [ "${#pids[@]}" -eq 0 ]; then
+        return 0
+    fi
+
+    echo "⚠️  Found existing Sambee website dev processes. Stopping them..."
+    kill -TERM "${pids[@]}" 2>/dev/null || true
+
+    for _ in {1..10}; do
+        mapfile -t pids < <(find_website_dev_pids)
+        if [ "${#pids[@]}" -eq 0 ]; then
+            echo "✅ Cleaned up existing website dev processes"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "⚠️  Existing website dev processes did not stop cleanly. Sending SIGKILL..."
+    kill -KILL "${pids[@]}" 2>/dev/null || true
+    sleep 1
+
+    mapfile -t pids < <(find_website_dev_pids)
+    if [ "${#pids[@]}" -ne 0 ]; then
+        echo "❌ Failed to stop the existing Sambee website dev processes."
+        exit 1
+    fi
+
+    echo "✅ Cleaned up existing website dev processes"
+}
+
+fail_on_port_conflict() {
+    local pid
+
+    pid="$(lsof -ti TCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+    if [ -z "$pid" ]; then
+        return 0
+    fi
+
+    local cwd
+    local command_line
+
+    cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+    command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+
+    echo "❌ Port ${PORT} is already in use by a different process."
+    echo "   PID: ${pid}"
+    echo "   Command: ${command_line:-unknown}"
+    echo "   Working directory: ${cwd:-unknown}"
+    echo "   Stop that process or change the website dev port."
+    exit 1
+}
+
+install_dependencies_if_needed() {
+    if [ -d "node_modules" ]; then
+        echo "✅ Website dependencies already installed"
+        return 0
+    fi
+
+    echo "⚠️  website/node_modules not found. Installing dependencies..."
+    if [ -f "package-lock.json" ]; then
+        npm ci
+    else
+        npm install
+    fi
+    echo "✅ Website dependencies installed"
+}
+
+require_devcontainer
+
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "❌ Website directory not found: $PROJECT_DIR"
+    exit 1
+fi
+
+require_command node
+require_command npm
+require_command hugo
+require_command lsof
+
+cd "$PROJECT_DIR"
+
+echo "🌐 Starting Sambee website development server..."
+echo "✓ Node.js: $(node --version)"
+echo "✓ npm: $(npm --version)"
+echo "✓ Hugo: $(hugo version | head -n 1)"
+
+install_dependencies_if_needed
+stop_existing_website_server
+fail_on_port_conflict
+
+echo ""
+echo "Website URL: ${LOCAL_URL}"
+echo "Working directory: ${PROJECT_DIR}"
+echo ""
+
+exec npm run dev

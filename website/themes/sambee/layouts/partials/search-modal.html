@@ -6,7 +6,7 @@
   - Full control over result rendering
   - Keyboard navigation: arrows to navigate, Enter to select, ESC to close
 
-  Requires: Run `npx pagefind --site public` after Hugo build
+  Requires: Pagefind assets in `public/pagefind/`, produced by the website dev/build workflow
 */ -}}
 
 {{ with site.Params.search }}
@@ -75,7 +75,7 @@
       await pagefind.init();
       return pagefind;
     } catch (e) {
-      emptyState.innerHTML = '<p style="color: #666;">Search index not found.<br><small>Run <code>npm run dev:search</code> to build it.</small></p>';
+      emptyState.innerHTML = '<p style="color: #666;">Search index not found.<br><small>Start the site with <code>./scripts/start-website</code> or run <code>npm run build:search</code>.</small></p>';
       return null;
     }
   }

@@ -3,14 +3,14 @@
 {{ $navData := index hugo.Data.docs_nav $currentVersion }}
 
 {{ if and (not .Params.product_version) (not .Params.book) }}
-<section class="docs-overview">
-  <div class="docs-header">
+<section class="docs-overview ledger-shell">
+  <div class="ledger-section-head docs-header">
     <span class="eyebrow">Documentation</span>
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ with $navData }}
-  <div class="book-grid">
+  <div class="ledger-cards book-grid">
     {{ range .books }}
     <article class="docs-card">
       <span class="docs-card-kicker">Version {{ $currentVersion }}</span>
@@ -22,15 +22,15 @@
   {{ end }}
 </section>
 {{ else if and .Params.product_version (not .Params.book) }}
-<section class="docs-overview">
-  <div class="docs-header">
+<section class="docs-overview ledger-shell">
+  <div class="ledger-section-head docs-header">
     <span class="eyebrow">Version {{ .Params.product_version }}</span>
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ $versionNav := index hugo.Data.docs_nav .Params.product_version }}
   {{ with $versionNav }}
-  <div class="book-grid">
+  <div class="ledger-cards book-grid">
     {{ range .books }}
     <article class="docs-card">
       <span class="docs-card-kicker">Book</span>
@@ -42,7 +42,7 @@
   {{ end }}
 </section>
 {{ else if and .Params.product_version .Params.book }}
-<section class="docs-shell">
+<section class="docs-shell ledger-grid-rail">
   <aside class="docs-sidebar">
     {{ partial "docs/sidebar.html" . }}
   </aside>
@@ -57,7 +57,7 @@
   </article>
 </section>
 {{ else }}
-<section class="shell-section">
+<section class="shell-section ledger-shell">
   <article class="docs-content">
     <h1>{{ .Title }}</h1>
     <div class="content" data-pagefind-body>{{ .Content }}</div>
