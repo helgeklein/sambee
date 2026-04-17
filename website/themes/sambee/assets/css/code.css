@@ -1,6 +1,11 @@
-/* Code Blocks and Inline Code Styling */
+/* Purpose: Styles inline code and code blocks across rendered content. */
 
-/* Light mode code blocks */
+/*
+==============================
+Code Surfaces
+==============================
+*/
+
 html:not(.dark) .content pre,
 html:not(.dark) .content .highlight {
    background-color: var(--color-clr-code-block-background);
@@ -17,7 +22,7 @@ html.dark .content .highlight {
    background-color: var(--color-clr-darkmode-code-block-background);
 }
 
-/* Inline code styling - matching code block backgrounds and colors */
+/* Inline code inherits the same palette as larger code surfaces. */
 .content code:not(pre code) {
    background-color: var(--color-clr-code-inline-background);
    color: var(--color-clr-text-dark);
@@ -39,13 +44,18 @@ html.dark .content code:not(pre code) {
    overflow-x: auto;
 }
 
-/* Highlight container needs position relative for copy button */
+/*
+==============================
+Copy Button
+==============================
+*/
+
+/* Relative positioning gives the copy button a stable anchor. */
 .content .highlight,
 .content .code-block-wrapper {
    position: relative;
 }
 
-/* Code copy button */
 .code-copy-btn {
    position: absolute;
    top: 0.5rem;
@@ -62,7 +72,7 @@ html.dark .content code:not(pre code) {
    justify-content: center;
 }
 
-/* Icon visibility - show copy icon by default, check icon when copied */
+/* Show the copy icon by default, then swap in the check icon after success. */
 .code-copy-btn .icon-check {
    display: none;
 }

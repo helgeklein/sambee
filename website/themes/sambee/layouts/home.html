@@ -1,8 +1,10 @@
+{{/* Purpose: Composes the homepage from the structured homepage data file. */}}
 {{ define "main" }}
 {{ $home := hugo.Data.homepage }}
 
 <div data-pagefind-body>
-
+{{/* Pagefind indexes the assembled homepage body rather than each partial separately. */}}
+{{/* Homepage sections are rendered in data order to keep content management predictable. */}}
 {{ partial "home/hero.html" (dict "hero" $home.hero) }}
 {{ partial "home/problem-value.html" (dict "section" $home.problem_value) }}
 {{ partial "home/benefits.html" (dict "section" $home.benefits) }}

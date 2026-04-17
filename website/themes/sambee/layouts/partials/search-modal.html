@@ -1,19 +1,12 @@
-{{- /*
-  Search Modal with Pagefinö Backend
-
-  Uses the theme's custom UI with Pagefind's search API.
-  - Lazy-loads Pagefind JS only when modal opens
-  - Full control over result rendering
-  - Keyboard navigation: arrows to navigate, Enter to select, ESC to close
-
-  Requires: Pagefind assets in `public/pagefind/`, produced by the website dev/build workflow
-*/ -}}
+{{/* Purpose: Renders the search modal shell and its client-side Pagefind integration. */}}
 
 {{ with site.Params.search }}
 {{ if .enable }}
+{{/* The modal markup stays in the DOM so the shared search trigger can open it from any page. */}}
 <div id="search-modal" class="search-modal" aria-hidden="true">
   <div class="search-modal-overlay" data-close-search></div>
   <div class="search-wrapper">
+    {{/* Header: search field, icon, and reset control. */}}
     <div class="search-wrapper-header">
       <label for="search-input">
         <span class="sr-only">Search</span>
@@ -30,12 +23,14 @@
         placeholder="{{ T "search_placeholder" }}"
       />
     </div>
+    {{/* Body: result list plus an empty state shown before or after searches. */}}
     <div class="search-wrapper-body">
       <div class="search-results"></div>
       <div class="search-empty">
         <p>{{ T "search_initial" }}</p>
       </div>
     </div>
+    {{/* Footer: keyboard shortcuts and the current result position. */}}
     <div class="search-wrapper-footer">
       <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
       <span><kbd>↵</kbd> select</span>
@@ -47,6 +42,7 @@
 
 <script>
 (function() {
+  // Cache the DOM nodes once because the modal can be opened many times per session.
   const modal = document.getElementById('search-modal');
   if (!modal) return;
 
@@ -66,6 +62,32 @@
   let loadedResultsCount = 0;
   let isLoadingMore = false;
   const RESULTS_PER_PAGE = 20;
+  const DEFAULT_EMPTY_STATE_HTML = '<p>Start typing to search...</p>';
+  const showImages = {{ .show_image | default true }};
+
+  // Toggle the magnifier/reset icons to match whether the input currently has a query.
+  function setSearchIcons(hasQuery) {
+    searchIcon?.classList.toggle('hidden', hasQuery);
+    resetIcon?.classList.toggle('hidden', !hasQuery);
+  }
+
+  // Centralize empty-state rendering so all search reset paths stay in sync.
+  function showEmptyState(html) {
+    resultsContainer.innerHTML = '';
+    emptyState.classList.remove('hidden');
+    emptyState.innerHTML = html;
+    searchInfo.textContent = '';
+  }
+
+  // Return the modal to its initial state without closing it.
+  function resetSearchState() {
+    showEmptyState(DEFAULT_EMPTY_STATE_HTML);
+    setSearchIcons(false);
+    selectedIndex = -1;
+    currentSearchResults = null;
+    loadedResultsCount = 0;
+    isLoadingMore = false;
+  }
 
   // Load Pagefind only when modal opens
   async function loadPagefind() {
@@ -83,41 +105,30 @@
   // Perform search
   async function doSearch(query) {
     if (!query.trim()) {
-      resultsContainer.innerHTML = '';
-      emptyState.classList.remove('hidden');
-      emptyState.innerHTML = '<p>Start typing to search...</p>';
-      searchInfo.textContent = '';
-      searchIcon?.classList.remove('hidden');
-      resetIcon?.classList.add('hidden');
-      selectedIndex = -1;
+      resetSearchState();
       return;
     }
 
-    searchIcon?.classList.add('hidden');
-    resetIcon?.classList.remove('hidden');
+    setSearchIcons(true);
 
     const pf = await loadPagefind();
     if (!pf) return;
 
-    const startTime = performance.now();
     const search = await pf.search(query);
 
     if (search.results.length === 0) {
-      resultsContainer.innerHTML = '';
-      emptyState.classList.remove('hidden');
-      emptyState.innerHTML = `<p>No results for "<strong>${escapeHtml(query)}</strong>"</p>`;
-      searchInfo.textContent = '';
+      showEmptyState(`<p>No results for "<strong>${escapeHtml(query)}</strong>"</p>`);
       selectedIndex = -1;
       currentSearchResults = null;
       loadedResultsCount = 0;
       return;
     }
 
-    // Store results for "load more"
+    // Preserve the full result set so keyboard navigation and scroll loading share the same source.
     currentSearchResults = search.results;
     loadedResultsCount = 0;
 
-    // Load first batch
+    // Render the first visible page of results immediately.
     await loadMoreResults(true);
     updateSearchInfo();
   }
@@ -151,11 +162,10 @@
     isLoadingMore = false;
     emptyState.classList.add('hidden');
 
-    const showImages = {{ .show_image | default true }};
-
     const html = newResults.map((result, i) => {
       const actualIndex = startIdx + i;
       const hasImage = showImages && result.meta?.image && result.meta.image.trim() !== '';
+      // Result markup is built here so pagefind's payload can be rendered with the theme's own structure.
       return `
         <a href="${result.url}" class="search-result-item${actualIndex === 0 ? ' selected' : ''}">
           ${hasImage ? `
@@ -227,7 +237,7 @@
     }
   }
 
-  // Scroll-based infinite loading
+  // Scroll-based infinite loading keeps the initial modal open fast even for large result sets.
   function setupScrollObserver() {
     const resultsBody = modal.querySelector('.search-wrapper-body');
     if (!resultsBody) return;
@@ -242,7 +252,7 @@
   }
   setupScrollObserver();
 
-  // Modal controls
+  // Modal controls are intentionally thin wrappers around the shared state helpers above.
   function openModal() {
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
@@ -256,19 +266,10 @@
     modal.setAttribute('aria-hidden', 'true');
     document.body.style.overflow = '';
     input.value = '';
-    resultsContainer.innerHTML = '';
-    emptyState.classList.remove('hidden');
-    emptyState.innerHTML = '<p>Start typing to search...</p>';
-    searchInfo.textContent = '';
-    searchIcon?.classList.remove('hidden');
-    resetIcon?.classList.add('hidden');
-    selectedIndex = -1;
-    currentSearchResults = null;
-    loadedResultsCount = 0;
-    isLoadingMore = false;
+    resetSearchState();
   }
 
-  // Event listeners
+  // Bind once at startup; the modal stays mounted for the life of the page.
   openButtons.forEach(btn => btn.addEventListener('click', openModal));
   closeButtons.forEach(btn => btn.addEventListener('click', closeModal));
   modal.querySelector('.search-modal-overlay')?.addEventListener('click', closeModal);
@@ -319,14 +320,6 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       selectResult();
-    }
-  });
-
-  // Click on result
-  resultsContainer.addEventListener('click', (e) => {
-    const item = e.target.closest('.search-result-item');
-    if (item) {
-      // Let the link navigate naturally
     }
   });
 

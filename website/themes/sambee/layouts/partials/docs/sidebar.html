@@ -1,14 +1,17 @@
+{{/* Purpose: Renders the documentation sidebar for the active book and version. */}}
 {{ $version := .Params.product_version }}
 {{ $book := .Params.book }}
 {{ $navData := index hugo.Data.docs_nav $version }}
 {{ $bookPage := site.GetPage (printf "/docs/%s/%s" $version $book) }}
 {{ $bookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $book }}
 
+{{/* Front matter drives the active docs tree; the data file supplies the canonical section order. */}}
 {{ if and $navData $book }}
   {{ range $navData.books }}
     {{ if eq .slug $book }}
       <div>
         <div class="docs-sidebar-title">
+          {{/* Prefer the generated section landing page title when it exists. */}}
           {{ with $bookPage }}
           <a href="{{ .RelPermalink }}">{{ .Title }}</a>
           {{ else }}
@@ -16,6 +19,7 @@
           {{ end }}
         </div>
         {{ range .sections }}
+        {{/* Sections follow docs_nav order; individual pages are matched by doc_id. */}}
         <section class="docs-nav-group">
           <strong>{{ .title }}</strong>
           <ul class="docs-nav-list">
@@ -24,8 +28,10 @@
               {{ $matches := where $bookPages "Params.doc_id" $docId }}
               {{ if gt (len $matches) 0 }}
               {{ $target := index $matches 0 }}
+              {{ $isCurrentPage := eq $target.RelPermalink $.RelPermalink }}
               <li>
-                {{ if eq $target.RelPermalink $.RelPermalink }}
+                {{/* The current page is rendered as text to avoid linking to itself. */}}
+                {{ if $isCurrentPage }}
                 <span class="docs-sidebar-link docs-sidebar-link-current">{{ $target.Title }}</span>
                 {{ else }}
                 <a class="docs-sidebar-link" href="{{ $target.RelPermalink }}">{{ $target.Title }}</a>

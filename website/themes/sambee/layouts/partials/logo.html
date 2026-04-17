@@ -1,23 +1,21 @@
-{{/*
-Logo Partial
-
-Displays logo-black.svg (light mode) and logo-white.svg (dark mode).
-Falls back to site.Title text if logos are missing.
-*/}}
+{{/* Purpose: Renders the brand logo with light, dark, and text fallback variants. */}}
 
 {{ $logoBlack := resources.Get "images/logo-black.svg" }}
 {{ $logoWhite := resources.Get "images/logo-white.svg" }}
 
+{{/* Light theme logo. */}}
 {{ if $logoBlack }}
 <img class="img-fluid h-7 w-auto max-h-full max-w-full object-contain dark:hidden lg:h-8" width="199" height="40" src="{{ $logoBlack.RelPermalink }}"
    alt="{{ site.Title }}" />
 {{ end }}
 
+{{/* Dark theme logo. */}}
 {{ if $logoWhite }}
 <img class="img-fluid hidden h-7 w-auto max-h-full max-w-full object-contain dark:block lg:h-8" width="199" height="40" src="{{ $logoWhite.RelPermalink }}"
    alt="{{ site.Title }}" />
 {{ end }}
 
+{{/* Text fallback if neither logo asset exists in the bundle. */}}
 {{ if not (or $logoBlack $logoWhite) }}
 <span class="font-tertiary text-sm uppercase tracking-[0.18em]">{{ site.Title }}</span>
 {{ end }}

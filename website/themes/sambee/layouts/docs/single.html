@@ -1,9 +1,12 @@
+{{/* Purpose: Renders a documentation article with sidebar navigation and version controls. */}}
 {{ define "main" }}
 <section class="docs-shell ledger-grid-rail">
   <aside class="docs-sidebar">
+    {{/* Article pages keep navigation visible alongside the current document. */}}
     {{ partial "docs/sidebar.html" . }}
   </aside>
   <article class="docs-content">
+    {{/* Version controls and metadata stay above the article body for quick orientation. */}}
     {{ partial "docs/version-switcher.html" . }}
     <div class="docs-meta">
       <span class="docs-meta-chip">Version {{ .Params.product_version }}</span>

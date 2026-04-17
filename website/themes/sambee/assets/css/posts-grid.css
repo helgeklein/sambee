@@ -1,95 +1,102 @@
-/* Combined styles: featured and regular posts */
+/* Purpose: Styles post listing grids and shared card treatments for article collections. */
+
+/*
+==============================
+Shared Card Typography
+==============================
+*/
+
 .posts-grid__item,
 .posts-grid__featured {
-
-  /* Title */
   h3 {
     color: var(--color-clr-text-dark);
     font-family: var(--font-secondary);
 
-    /* Dark mode */
     .dark & {
       color: var(--color-clr-darkmode-text-dark);
     }
   }
 
-  /* Excerpt */
   .post-excerpt {
     color: var(--color-clr-text);
 
-    /* Dark mode */
     .dark & {
       color: var(--color-clr-darkmode-text);
     }
   }
 }
 
-/* Featured posts */
-.posts-grid__featured {
+/*
+==============================
+Featured Post Layout
+==============================
+*/
 
-  /* Title */
+.posts-grid__featured {
   h3 {
     margin-top: 0;
   }
-  /* Latest post: hidden by default */
+
   .post-latest {
     display: none;
   }
 }
 
-/* Featured post on larger screens */
 @media (min-width: theme(--breakpoint-md)) {
-
   .posts-grid__featured {
-
-    /* Grid */
     .featured-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 1.5rem;
     }
 
-    /* Title */
     h3 {
       font-size: var(--text-size-h1);
     }
 
-    /* Image and content */
     .featured-image {
       grid-column: span 1;
     }
+
     .featured-content {
       grid-column: span 1;
       padding-right: 0;
     }
+
     .featured-image img {
       height: 100%;
     }
 
-    /* Latest post: show */
     .post-latest {
       display: block;
     }
   }
 }
 
-/* Regular posts (non-featured) */
+/*
+==============================
+Regular Post Cards
+==============================
+*/
+
 .posts-grid__item {
-  /* Title */
   h3 {
     font-size: 1.5rem;
   }
 
-  /* Transition */
   transition: all 0.3s ease;
 
-  /* Hover */
   &:hover {
     transform: translateY(-4px);
   }
 }
 
-/* Highlight underline: primary color */
+/*
+==============================
+Decorative Underlines
+==============================
+*/
+
 .highlight-underline-primary {
   height: 4px;
   background-color: color-mix(in srgb, var(--color-clr-primary) 30%, transparent);
@@ -99,7 +106,6 @@
   }
 }
 
-/* Highlight underline: secondary color */
 .highlight-underline-secondary {
   height: 2px;
   background-color: color-mix(in srgb, var(--color-clr-secondary) 60%, transparent);

@@ -1,3 +1,4 @@
+{{/* Purpose: Links the current documentation page to equivalent pages in other versions when available. */}}
 {{ $currentVersion := .Params.product_version }}
 {{ $book := .Params.book }}
 {{ $docId := .Params.doc_id }}
@@ -5,8 +6,10 @@
   <span class="version-switcher-label">Version</span>
   {{ range $version := hugo.Data.docs_versions.versions }}
     {{ if eq $version.slug $currentVersion }}
+      {{/* Keep the active version non-clickable to emphasize the current context. */}}
       <span class="version-chip version-chip-current">{{ $version.label }}</span>
     {{ else }}
+      {{/* Prefer the matching article in the target version, then fall back to the book landing page. */}}
       {{ $targetPages := where (where site.RegularPages "Params.product_version" $version.slug) "Params.book" $book }}
       {{ $targetMatches := where $targetPages "Params.doc_id" $docId }}
       {{ if gt (len $targetMatches) 0 }}
