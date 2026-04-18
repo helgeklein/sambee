@@ -44,13 +44,38 @@ updates:
       - dependencies
       - frontend
     ignore:
-      # React and Vite major upgrades require coordinated validation across the
-      # app runtime, test stack, routing, rendering behavior, and build tooling.
-      # Keep those upgrades manual instead of isolated Dependabot PRs.
+      # Frontend framework, routing, localization, compiler, markdown-rendering,
+      # test-runtime, and build-tool major upgrades require coordinated
+      # validation across the app runtime and test stack. Keep those upgrades
+      # manual instead of isolated Dependabot PRs.
+      - dependency-name: "@mui/icons-material"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "@mui/material"
+        update-types:
+          - "version-update:semver-major"
       - dependency-name: "react"
         update-types:
           - "version-update:semver-major"
       - dependency-name: "react-dom"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "react-i18next"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "react-markdown"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "react-router-dom"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "i18next"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "jsdom"
         update-types:
           - "version-update:semver-major"
       - dependency-name: "@vitejs/plugin-react"
@@ -117,10 +142,10 @@ updates:
       - dependencies
       - docker
     ignore:
-      # Keep production runtime versions aligned with the repo-wide tested baselines.
-      # Node/Python version upgrades should be coordinated across Docker, CI,
-      # local development, tooling, and documentation instead of arriving as
-      # isolated Dependabot PRs.
+      # Keep production runtime versions aligned with the repo-wide tested
+      # baselines. Node/Python version upgrades should be coordinated across
+      # Docker, CI, local development, tooling, and documentation instead of
+      # arriving as isolated Dependabot PRs.
       - dependency-name: "node"
       - dependency-name: "python"
     groups:
@@ -140,9 +165,10 @@ updates:
       - dependencies
       - devcontainer
     ignore:
-      # Keep the devcontainer interpreter aligned with the repo-wide Python version.
-      # Python version upgrades should be done deliberately across devcontainer, CI,
-      # tooling, and documentation rather than via an isolated Dependabot PR.
+      # Keep the devcontainer interpreter aligned with the reviewed Python
+      # baseline. Python version upgrades should be done deliberately across
+      # devcontainer, CI, tooling, and documentation rather than via an
+      # isolated Dependabot PR.
       - dependency-name: "mcr.microsoft.com/devcontainers/python"
     groups:
       devcontainer-docker:

@@ -17,7 +17,7 @@ Dependency installs in CI are expected to come from reviewed lockfiles and requi
 
 2. **Virtual Environment Caching:**
    - Path: `backend/.venv`
-   - Key: `{OS}-python-3.13-venv-{hash(requirements*.txt)}`
+   - Key: `{OS}-python-3.13.12-venv-{hash(requirements*.txt)}`
    - Saves: ~15-20 seconds per run
    - Only reinstalls if requirements change
 
@@ -58,7 +58,7 @@ Caches are automatically invalidated when:
 - `backend/requirements.txt` changes
 - `backend/requirements-dev.txt` changes
 - `frontend/package-lock.json` changes
-- Python version changes (3.13)
+- Python version changes (3.13.12)
 - Node version changes (20)
 
 Treat these cache keys as reviewed dependency inputs, not disposable generated files.
