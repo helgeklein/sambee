@@ -41,6 +41,7 @@ If you're developing **outside the dev container**, run once:
 - Keep high-risk frontend ecosystem packages pinned to exact reviewed versions in `package.json`. Treat major upgrades for `@mui/material`, `@mui/icons-material`, `react`, `react-dom`, `react-router-dom`, `react-markdown`, `i18next`, `react-i18next`, `typescript`, `jsdom`, `vite`, `@vitejs/plugin-react`, and `@preact/preset-vite` as coordinated manual changes rather than routine Dependabot updates.
 - Keep Python pinned to the reviewed `3.13.12` baseline across production Docker, the devcontainer image, and GitHub Actions. Treat Python runtime upgrades as coordinated manual changes rather than routine Dependabot updates.
 - Use `pip install --require-hashes -r requirements-dev.lock.txt` for backend installs. Treat `requirements*.txt` changes as reviewed source, not setup noise.
+- Dependabot keeps backend dev tools separate from backend runtime packages. It also isolates `smbprotocol` and `pyvips` into their own backend PR streams because Sambee uses smbprotocol internals directly and relies heavily on pyvips runtime behavior, which makes those upgrades riskier than routine runtime bumps.
 - Prefer committed scripts and lockfiles over ad hoc installers or one-off `npx` downloads.
 
 ### Backend Dependency Security Updates
