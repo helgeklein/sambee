@@ -37,7 +37,8 @@ If you're developing **outside the dev container**, run once:
 
 ### Dependency Trust Rules
 
-- Use `npm ci` in `frontend/` and `companion/` for routine installs. Only use a dependency update PR to change `package.json` and `package-lock.json` together.
+- Use `npm ci` in `frontend/`, `companion/`, and `website/` for routine installs. Only use a dependency update PR to change `package.json` and `package-lock.json` together.
+- Keep React and Vite ecosystem packages pinned to exact reviewed versions in `package.json`. Treat major upgrades for `react`, `react-dom`, `vite`, `@vitejs/plugin-react`, and `@preact/preset-vite` as coordinated manual changes rather than routine Dependabot updates.
 - Use `pip install --require-hashes -r requirements-dev.lock.txt` for backend installs. Treat `requirements*.txt` changes as reviewed source, not setup noise.
 - Prefer committed scripts and lockfiles over ad hoc installers or one-off `npx` downloads.
 
