@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -euo pipefail
+
+PROJECT_DIR="/workspace/website"
+PORT="1313"
+
+is_website_dev_process() {
+    local pid="$1"
+    local cwd
+    local command_line
+
+    cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+    [ "$cwd" = "$PROJECT_DIR" ] || return 1
+
+    command_line="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    [[ -n "$command_line" ]] || return 1
+
+    [[ "$command_line" == *"npm run dev"* ]] || \
+    [[ "$command_line" == *"node scripts/themeGenerator.js --watch"* ]] || \
+    [[ "$command_line" == *"node_modules/.bin/concurrently"* ]] || \
+    [[ "$command_line" == *"hugo server"* ]]
+}
+
+find_website_dev_pids() {
+    local pid
+
+    for proc_dir in /proc/[0-9]*; do
+        pid="${proc_dir##*/}"
+        is_website_dev_process "$pid" && echo "$pid"
+    done
+}
+
+main() {
+    local pids=()
+
+    mapfile -t pids < <(find_website_dev_pids)
+    if [ "${#pids[@]}" -eq 0 ]; then
+        echo "⚠️  Website dev stack is not running"
+        return 0
+    fi
+
+    echo "Stopping Sambee website dev stack..."
+    kill -TERM "${pids[@]}" 2>/dev/null || true
+
+    for _ in {1..10}; do
+        mapfile -t pids < <(find_website_dev_pids)
+        if [ "${#pids[@]}" -eq 0 ]; then
+            echo "✅ Website dev stack stopped"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "⚠️  Website dev stack did not stop cleanly. Sending SIGKILL..."
+    kill -KILL "${pids[@]}" 2>/dev/null || true
+    sleep 1
+
+    mapfile -t pids < <(find_website_dev_pids)
+    if [ "${#pids[@]}" -ne 0 ]; then
+        echo "❌ Failed to stop the Sambee website dev stack"
+        exit 1
+    fi
+
+    echo "✅ Website dev stack stopped"
+}
+
+main

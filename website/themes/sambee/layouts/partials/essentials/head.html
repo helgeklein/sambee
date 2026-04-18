@@ -1,16 +1,28 @@
+{{/* Purpose: Emits shared document metadata, canonical tags, and social preview fields. */}}
 {{ $pageTitle := site.Title }}
+{{ $pageDescription := site.Params.description }}
+
+{{/* Prefer a page-specific title when it differs from the site-wide title. */}}
 {{ if and .Title (ne .Title site.Title) }}
   {{ $pageTitle = printf "%s | %s" .Title site.Title }}
 {{ end }}
+
+{{/* Page front matter can override the default site description. */}}
+{{ with .Description }}
+  {{ $pageDescription = . }}
+{{ end }}
+
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{ $pageTitle }}</title>
-<meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}" />
+{{/* Keep search/social metadata aligned with the same resolved title and description. */}}
+<meta name="description" content="{{ $pageDescription }}" />
 {{ with .Permalink }}
 <link rel="canonical" href="{{ . }}" />
 {{ end }}
+{{/* Open Graph values mirror the resolved title and description above. */}}
 <meta property="og:title" content="{{ $pageTitle }}" />
-<meta property="og:description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}" />
+<meta property="og:description" content="{{ $pageDescription }}" />
 <meta property="og:type" content="website" />
 {{ with .Permalink }}
 <meta property="og:url" content="{{ . }}" />

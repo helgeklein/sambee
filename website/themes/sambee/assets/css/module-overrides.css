@@ -1,4 +1,11 @@
-/* table of contents */
+/* Purpose: Contains targeted overrides for modular components such as the table of contents. */
+
+/*
+==============================
+Table Of Contents
+==============================
+*/
+
 .table-of-content {
   @apply overflow-hidden rounded;
 }

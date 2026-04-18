@@ -1,15 +1,37 @@
+/* Purpose: Generates the website theme CSS variables from data/theme.json and optionally watches for changes. */
+
 const fs = require("fs");
 const path = require("path");
 
-// Simple project paths - no theme/exampleSite detection needed
 const themePath = path.join(__dirname, "../data/theme.json");
 const outputPath = path.join(__dirname, "../assets/css/generated-theme.css");
+const DEFAULT_COLOR_GROUPS = ["theme_color", "text_color"];
+const DEFAULT_FONT_FALLBACK = "sans-serif";
+const WATCH_DEBOUNCE_MS = 300;
 
-// Convert snake_case to kebab-case
 const toKebab = (str) => str.replace(/_/g, "-");
-
-// Extract font name (remove + and variants)
 const findFont = (fontStr) => fontStr.replace(/\+/g, " ").replace(/:[^:]+/g, "");
+
+function readThemeConfig() {
+   if (!fs.existsSync(themePath)) {
+      throw new Error(`Theme file not found: ${themePath}`);
+   }
+
+   const themeConfig = JSON.parse(fs.readFileSync(themePath, "utf8"));
+
+   if (!themeConfig.colors || !themeConfig.fonts) {
+      throw new Error("Invalid theme.json: missing 'colors' or 'fonts'");
+   }
+
+   return themeConfig;
+}
+
+function ensureOutputDirectory() {
+   const outputDir = path.dirname(outputPath);
+   if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+   }
+}
 
 // Add color CSS variables with "clr-" prefix for clear Tailwind utility names
 // e.g., --color-clr-primary → text-clr-primary, bg-clr-primary
@@ -22,17 +44,19 @@ function addColorsToCss(cssLines, colors, prefix = "") {
    });
 }
 
-// Generate theme CSS from theme.json
+function addColorGroupsToCss(cssLines, groups, defaultGroups = []) {
+   Object.entries(groups).forEach(([groupName, colors]) => {
+      if (!colors || typeof colors !== "object") {
+         return;
+      }
+
+      const prefix = defaultGroups.includes(groupName) ? "" : toKebab(groupName.replace(/_color$/, ""));
+      addColorsToCss(cssLines, colors, prefix);
+   });
+}
+
 function generateThemeCSS() {
-   if (!fs.existsSync(themePath)) {
-      throw new Error(`Theme file not found: ${themePath}`);
-   }
-
-   const themeConfig = JSON.parse(fs.readFileSync(themePath, "utf8"));
-
-   if (!themeConfig.colors || !themeConfig.fonts) {
-      throw new Error("Invalid theme.json: missing 'colors' or 'fonts'");
-   }
+   const themeConfig = readThemeConfig();
 
    const cssLines = [
       "/**",
@@ -46,31 +70,32 @@ function generateThemeCSS() {
    ];
 
    // Default colors
-   if (themeConfig.colors.default?.theme_color) {
-      addColorsToCss(cssLines, themeConfig.colors.default.theme_color);
-   }
-   if (themeConfig.colors.default?.text_color) {
-      addColorsToCss(cssLines, themeConfig.colors.default.text_color);
+   if (themeConfig.colors.default) {
+      addColorGroupsToCss(cssLines, themeConfig.colors.default, DEFAULT_COLOR_GROUPS);
    }
 
    // Darkmode colors
    if (themeConfig.colors.darkmode) {
       cssLines.push("", "  /* === Darkmode Colors === */");
-      if (themeConfig.colors.darkmode.theme_color) {
-         addColorsToCss(cssLines, themeConfig.colors.darkmode.theme_color, "darkmode");
-      }
-      if (themeConfig.colors.darkmode.text_color) {
-         addColorsToCss(cssLines, themeConfig.colors.darkmode.text_color, "darkmode");
-      }
+      Object.entries(themeConfig.colors.darkmode).forEach(([groupName, colors]) => {
+         if (!colors || typeof colors !== "object") {
+            return;
+         }
+
+         const groupPrefix = DEFAULT_COLOR_GROUPS.includes(groupName)
+            ? "darkmode"
+            : `darkmode-${toKebab(groupName.replace(/_color$/, ""))}`;
+         addColorsToCss(cssLines, colors, groupPrefix);
+      });
    }
 
    // Font families
    cssLines.push("", "  /* === Font Families === */");
    const fontFamily = themeConfig.fonts.font_family || {};
+   const fontFamilyTypes = themeConfig.fonts.font_family_type || {};
    Object.entries(fontFamily)
-      .filter(([key]) => !key.includes("type"))
       .forEach(([key, font]) => {
-         const fontFallback = fontFamily[`${key}_type`] || "sans-serif";
+         const fontFallback = fontFamilyTypes[key] || DEFAULT_FONT_FALLBACK;
          const fontValue = `${findFont(font)}, ${fontFallback}`;
          cssLines.push(`  --font-${toKebab(key)}: ${fontValue};`);
       });
@@ -102,25 +127,24 @@ function generateThemeCSS() {
 
    cssLines.push("}");
 
-   // Write the file
-   const outputDir = path.dirname(outputPath);
-   if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-   }
-
+   ensureOutputDirectory();
    fs.writeFileSync(outputPath, cssLines.join("\n") + "\n");
    console.log("✅ Theme CSS generated:", outputPath);
 }
 
-// Run on startup
-try {
-   generateThemeCSS();
-} catch (error) {
-   console.error("❌ Error:", error.message);
-   process.exit(1);
+function runThemeGeneration({ exitOnError }) {
+   try {
+      generateThemeCSS();
+   } catch (error) {
+      console.error("❌ Error:", error.message);
+      if (exitOnError) {
+         process.exit(1);
+      }
+   }
 }
 
-// Watch mode
+runThemeGeneration({ exitOnError: true });
+
 if (process.argv.includes("--watch")) {
    let debounceTimer;
 
@@ -128,12 +152,8 @@ if (process.argv.includes("--watch")) {
       if (eventType === "change") {
          clearTimeout(debounceTimer);
          debounceTimer = setTimeout(() => {
-            try {
-               generateThemeCSS();
-            } catch (error) {
-               console.error("❌ Error:", error.message);
-            }
-         }, 300);
+            runThemeGeneration({ exitOnError: false });
+         }, WATCH_DEBOUNCE_MS);
       }
    });
 

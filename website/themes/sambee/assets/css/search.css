@@ -1,11 +1,11 @@
-/*
- * Search Modal Styles
- *
- * Custom search UI with Pagefind backend.
- * Matches theme design language.
- */
+/* Purpose: Styles the search modal and Pagefind result list UI. */
 
-/* Modal overlay and container */
+/*
+==============================
+Modal Shell
+==============================
+*/
+
 .search-modal {
   position: fixed;
   inset: 0;
@@ -27,7 +27,6 @@
   backdrop-filter: blur(2px);
 }
 
-/* Search wrapper */
 .search-wrapper {
   position: relative;
   z-index: 1;
@@ -46,13 +45,18 @@
     background-color: var(--color-clr-darkmode-body, #1c1c1c);
   }
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     margin: 20px auto;
     max-height: calc(100vh - 40px);
   }
 }
 
-/* Search header with input */
+/*
+==============================
+Search Input Area
+==============================
+*/
+
 .search-wrapper-header {
   position: relative;
   padding: 16px;
@@ -120,7 +124,12 @@
   }
 }
 
-/* Search body with results */
+/*
+==============================
+Results Container
+==============================
+*/
+
 .search-wrapper-body {
   flex: 1;
   overflow-y: auto;
@@ -128,12 +137,11 @@
   min-height: 200px;
   max-height: calc(100vh - 280px);
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     max-height: calc(100vh - 140px);
   }
 }
 
-/* Empty state */
 .search-empty {
   display: flex;
   align-items: center;
@@ -163,7 +171,6 @@
   }
 }
 
-/* Search results */
 .search-results {
   display: flex;
   flex-direction: column;
@@ -200,7 +207,6 @@
   }
 }
 
-/* Result image */
 .search-result-image {
   flex-shrink: 0;
   width: 80px;
@@ -219,13 +225,12 @@
     object-fit: cover;
   }
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     width: 60px;
     height: 40px;
   }
 }
 
-/* Result body */
 .search-result-body {
   flex: 1;
   min-width: 0;
@@ -265,7 +270,12 @@
   }
 }
 
-/* Search footer */
+/*
+==============================
+Footer And Metadata
+==============================
+*/
+
 .search-wrapper-footer {
   padding: 8px 16px;
   font-size: 12px;
@@ -279,7 +289,7 @@
     border-color: var(--color-clr-darkmode-border, #3e3e3e);
   }
 
-  @media (max-width: theme(--breakpoint-md)) {
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
     display: none;
   }
 
@@ -327,7 +337,12 @@
   }
 }
 
-/* Load more button */
+/*
+==============================
+Progressive Loading
+==============================
+*/
+
 .search-load-more {
   display: block;
   width: 100%;

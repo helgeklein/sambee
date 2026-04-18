@@ -1,28 +1,213 @@
+/* Purpose: Defines site-specific visual treatments that sit above the shared base modules. */
+
+/*
+==============================
+Layout Shells
+==============================
+*/
 .site-main {
+  --eyebrow-font-family: var(--font-tertiary);
+  --eyebrow-font-weight-normal: 400;
+  --eyebrow-font-weight-strong: 700;
+  --eyebrow-rule-thickness: 2px;
   @apply pb-12;
 }
 
+.ledger-shell,
+.shell-section,
+.docs-overview,
+.docs-shell,
+.site-frame {
+  @apply mx-auto w-full;
+}
+
+@media (min-width: theme(--breakpoint-sm)) {
+  .ledger-shell,
+  .shell-section,
+  .docs-overview,
+  .docs-shell,
+  .site-frame {
+    max-width: 540px;
+  }
+}
+
+@media (min-width: theme(--breakpoint-md)) {
+  .ledger-shell,
+  .shell-section,
+  .docs-overview,
+  .docs-shell,
+  .site-frame {
+    max-width: 900px;
+  }
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+  .ledger-shell,
+  .shell-section,
+  .docs-overview,
+  .docs-shell,
+  .site-frame {
+    max-width: 1131px;
+  }
+}
+
+@media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
+  .site-main {
+    @apply pb-8;
+  }
+}
+
+.ledger-shell,
 .shell-section,
 .docs-overview {
-  @apply container;
+  @apply border-x border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page;
 }
 
-.hero {
-  @apply grid gap-8 py-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.8fr)] lg:items-end;
+.home-section {
+  --home-section-divider-width: 2px;
+  border-top: var(--home-section-divider-width) solid var(--color-clr-rule-strong);
+  border-bottom: 2px solid var(--color-clr-rule-strong);
 }
 
+.home-section-header {
+  border-bottom: 1px solid var(--color-clr-rule-soft);
+}
+
+.eyebrow {
+  display: inline-flex;
+  font-family: var(--eyebrow-font-family);
+  font-size: 0.68rem;
+  font-weight: var(--eyebrow-font-weight-normal);
+  letter-spacing: 0.22em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--color-clr-action-text);
+}
+
+.eyebrow--stacked {
+  margin-bottom: 0.625rem;
+}
+
+.eyebrow--strong {
+  font-weight: var(--eyebrow-font-weight-strong);
+}
+
+.eyebrow--icon-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.25rem;
+  line-height: 1;
+}
+
+.eyebrow-icon-row {
+  align-items: center;
+}
+
+.home-section-title {
+  margin: 0;
+  font-family: var(--font-secondary);
+  font-style: italic;
+  font-weight: 700;
+  color: var(--color-clr-text-dark);
+}
+
+.home-section-title--standard {
+  font-size: var(--text-4xl);
+  line-height: 1.08;
+}
+
+.home-section-title--compact {
+  font-size: 2.4rem;
+  line-height: 1.03;
+}
+
+.home-section-title--display {
+  font-size: 2.75rem;
+  line-height: 1.02;
+}
+
+.home-section-title--proof {
+  font-size: 2.85rem;
+  line-height: 0.98;
+}
+
+@media (min-width: theme(--breakpoint-md)) {
+  .home-section-title--standard {
+    font-size: var(--text-5xl);
+  }
+
+  .home-section-title--compact {
+    font-size: 3.4rem;
+  }
+
+  .home-section-title--display {
+    font-size: 3.45rem;
+  }
+
+  .home-section-title--proof {
+    font-size: 4rem;
+  }
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+  .home-section-title--display {
+    font-size: var(--text-6xl);
+  }
+
+  .home-section-title--proof {
+    font-size: 5.1rem;
+  }
+}
+
+.site-main > [data-pagefind-body] > .home-section:first-child,
+.home-section + .home-section {
+  margin-top: calc(var(--home-section-divider-width) * -1);
+}
+
+.site-main > [data-pagefind-body] > .home-section:last-child {
+  margin-bottom: calc(var(--home-section-divider-width) * -1);
+}
+
+.dark .home-section {
+  border-color: var(--color-clr-darkmode-rule-strong);
+}
+
+.dark .eyebrow {
+  color: var(--color-clr-darkmode-action-text);
+}
+
+.dark .home-section-title {
+  color: var(--color-clr-darkmode-text-dark);
+}
+
+.dark .home-section-header {
+  border-color: var(--color-clr-darkmode-rule-soft);
+}
+
+.ledger-shell + .ledger-shell:not(.home-section),
+.shell-section + .shell-section:not(.home-section),
+.docs-overview + .docs-overview {
+  @apply border-t-0;
+}
+
+.docs-shell {
+  @apply border-x border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+/*
+==============================
+Cards And Panels
+==============================
+*/
 .hero-copy,
 .hero-card,
 .docs-card,
 .docs-sidebar,
 .docs-content {
-  @apply rounded-2xl border border-clr-light bg-white/85 shadow-sm;
-
-  .dark & {
-    @apply border-clr-darkmode-border bg-clr-darkmode-light/80;
-  }
+  @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
 }
 
+.ledger-panel-body,
 .hero-copy,
 .hero-card,
 .docs-card,
@@ -30,94 +215,86 @@
   @apply p-6 lg:p-8;
 }
 
+.ledger-panel-muted,
 .hero-card {
-  @apply lg:translate-y-6;
+  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
 }
 
-.eyebrow,
-.docs-card-kicker {
-  @apply mb-3 inline-flex text-xs font-tertiary uppercase tracking-[0.18em] text-clr-primary;
+.ledger-panel-high {
+  @apply bg-clr-surface-high dark:bg-clr-darkmode-surface-high;
+}
 
-  .dark & {
-    @apply text-clr-darkmode-primary;
-  }
+.ledger-panel-ink,
+.ledger-band {
+  @apply bg-clr-surface-inverse text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page;
+}
+
+.hero {
+  @apply border-b-2 border-clr-rule-strong py-0 dark:border-clr-darkmode-rule-strong;
+}
+
+.hero-card {
+  @apply border-l-0 lg:min-h-full;
 }
 
 .lede {
-  @apply max-w-3xl text-lg leading-relaxed;
+  @apply max-w-3xl text-lg leading-[1.65] text-clr-text-light dark:text-clr-darkmode-text;
 }
 
-.button-row {
-  @apply mt-6 flex flex-wrap gap-3;
+.button-row,
+.ledger-actions {
+  @apply mt-8 flex flex-wrap gap-3;
 }
 
-.hero-stats {
-  @apply mt-6 grid gap-3 sm:grid-cols-3;
-}
-
-.stat-card {
-  @apply rounded-xl border border-clr-light bg-clr-light/70 px-4 py-4 text-center;
-
-  .dark & {
-    @apply border-clr-darkmode-border bg-clr-darkmode-body/60;
-  }
-
-  strong {
-    @apply block font-tertiary text-xl text-clr-text-dark;
-
-    .dark & {
-      @apply text-clr-darkmode-text-dark;
-    }
-  }
-
-  span {
-    @apply text-sm text-clr-text-light;
-
-    .dark & {
-      @apply text-clr-darkmode-text-light;
-    }
-  }
-}
-
-.docs-header {
-  @apply mb-8 max-w-3xl;
-}
-
+.ledger-cards,
 .book-grid {
-  @apply grid gap-4 md:grid-cols-2 xl:grid-cols-3;
+  @apply grid gap-0 border-t border-clr-rule-soft md:grid-cols-2 xl:grid-cols-3 dark:border-clr-darkmode-rule-soft;
 }
 
+.ledger-card,
 .docs-card {
-  @apply transition-transform duration-200 hover:-translate-y-1;
+  @apply border-t-0 border-l-0 p-6 transition-colors duration-200 hover:bg-clr-surface-low dark:hover:bg-clr-darkmode-surface-low;
+}
 
-  h2, h3 {
-    @apply mb-3;
-  }
-
-  p {
-    @apply my-0 text-clr-text-light;
-
-    .dark & {
-      @apply text-clr-darkmode-text-light;
-    }
+@media (min-width: theme(--breakpoint-md)) {
+  .ledger-card:last-child,
+  .docs-card:last-child {
+    @apply border-r;
   }
 }
 
-.docs-shell {
-  @apply container grid gap-8 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start;
+@media (min-width: theme(--breakpoint-xl)) {
+  .ledger-card:last-child,
+  .docs-card:last-child {
+    @apply border-r-0;
+  }
 }
+
+.docs-card h2,
+.docs-card h3,
+.ledger-card h2,
+.ledger-card h3 {
+  @apply mb-3;
+}
+
+.docs-card p,
+.ledger-card p {
+  @apply my-0 text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
+/*
+==============================
+Documentation Navigation
+==============================
+*/
 
 .docs-sidebar {
-  @apply p-5 lg:sticky;
+  @apply border-r-0 bg-clr-surface-low p-5 lg:sticky dark:bg-clr-darkmode-surface-low;
   top: calc(var(--header-height) + 1.5rem);
 }
 
 .docs-sidebar-title {
-  @apply mb-4 text-xl font-secondary text-clr-text-dark;
-
-  .dark & {
-    @apply text-clr-darkmode-text-dark;
-  }
+  @apply mb-4 text-xl font-secondary text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .docs-nav-group + .docs-nav-group {
@@ -125,11 +302,7 @@
 }
 
 .docs-nav-group strong {
-  @apply text-sm font-tertiary uppercase tracking-[0.14em] text-clr-text-light;
-
-  .dark & {
-    @apply text-clr-darkmode-text-light;
-  }
+  @apply text-sm font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 .docs-nav-list {
@@ -141,58 +314,141 @@
 }
 
 .docs-sidebar-link {
-  @apply text-sm text-clr-text transition-colors duration-150 hover:text-clr-secondary;
-
-  .dark & {
-    @apply text-clr-darkmode-text hover:text-clr-darkmode-secondary;
-  }
+  @apply text-sm text-clr-text transition-colors duration-150 hover:text-clr-action-text dark:text-clr-darkmode-text dark:hover:text-clr-darkmode-action-text;
 }
 
 .docs-sidebar-link-current {
-  @apply font-bold text-clr-secondary;
-
-  .dark & {
-    @apply text-clr-darkmode-secondary;
-  }
+  @apply border-l-4 border-clr-action-fill pl-3 font-bold text-clr-action-text dark:border-clr-darkmode-action-fill dark:text-clr-darkmode-action-text;
 }
 
 .docs-meta {
   @apply mb-5 flex flex-wrap gap-2;
 }
 
+/*
+==============================
+Chips And Status Labels
+==============================
+*/
+
+.ledger-chip,
 .docs-meta-chip,
 .version-chip {
-  @apply inline-flex items-center rounded-full border border-clr-light px-3 py-1 text-sm;
-
-  .dark & {
-    @apply border-clr-darkmode-border;
-  }
+  @apply inline-flex items-center border border-clr-rule-strong bg-clr-surface-low px-3 py-1 text-sm font-tertiary uppercase tracking-[0.14em] dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
 }
+
+/*
+==============================
+Ledger Grid Helpers
+==============================
+*/
+
+.ledger-cell {
+  @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
+}
+
+.ledger-cell-muted {
+  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+}
+
+.ledger-cell-high {
+  @apply bg-clr-surface-high dark:bg-clr-darkmode-surface-high;
+}
+
+.ledger-cell-body {
+  @apply p-6 lg:p-8;
+}
+
+.ledger-cell-grid {
+  @apply grid gap-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.ledger-cell-grid > .ledger-cell,
+.ledger-cell-grid > .ledger-panel {
+  @apply border-t-0 border-l-0;
+}
+
+.ledger-cell-grid-2 {
+  @apply md:grid-cols-2;
+}
+
+.ledger-cell-grid-3 {
+  @apply md:grid-cols-2 xl:grid-cols-3;
+}
+
+.ledger-stamp {
+  @apply inline-flex items-center border-2 border-clr-primary bg-clr-action-fill px-4 py-2 font-tertiary text-xs uppercase tracking-[0.18em] text-clr-action-fill-text dark:border-clr-darkmode-primary dark:bg-clr-darkmode-action-fill dark:text-clr-darkmode-action-fill-text;
+}
+
+.ledger-band {
+  @apply border-y-2 border-clr-rule-strong px-6 py-10 dark:border-clr-darkmode-rule-strong;
+}
+
+.ledger-matrix {
+  @apply overflow-x-auto border border-clr-rule-strong bg-clr-surface-base dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-base;
+}
+
+.ledger-matrix table {
+  @apply w-full border-collapse;
+}
+
+.ledger-matrix th,
+.ledger-matrix td {
+  @apply border border-clr-rule-soft px-4 py-3 text-left dark:border-clr-darkmode-rule-soft;
+}
+
+.ledger-matrix th {
+  @apply bg-clr-surface-high font-tertiary text-[0.72rem] uppercase tracking-[0.16em] dark:bg-clr-darkmode-surface-high;
+}
+
+.ledger-meta {
+  @apply font-tertiary text-[0.72rem] uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
+/*
+==============================
+Surface Helpers
+==============================
+*/
+
+.ledger-surface-page {
+  @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
+}
+
+.ledger-surface-base {
+  @apply bg-clr-surface-base dark:bg-clr-darkmode-surface-base;
+}
+
+.ledger-surface-low {
+  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+}
+
+.ledger-surface-high {
+  @apply bg-clr-surface-high dark:bg-clr-darkmode-surface-high;
+}
+
+.ledger-surface-ink {
+  @apply bg-clr-surface-inverse text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page;
+}
+
+/*
+==============================
+Version Switcher
+==============================
+*/
 
 .version-switcher {
   @apply mb-5 flex flex-wrap items-center gap-2;
 }
 
 .version-switcher-label {
-  @apply mr-1 text-sm font-tertiary uppercase tracking-[0.14em] text-clr-text-light;
-
-  .dark & {
-    @apply text-clr-darkmode-text-light;
-  }
+  @apply mr-1 text-sm font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 .version-chip {
-  @apply text-clr-text hover:border-clr-secondary hover:text-clr-secondary;
-
-  .dark & {
-    @apply text-clr-darkmode-text hover:border-clr-darkmode-secondary hover:text-clr-darkmode-secondary;
-  }
+  @apply text-clr-text hover:border-clr-action-fill hover:text-clr-action-text dark:text-clr-darkmode-text dark:hover:border-clr-darkmode-action-fill dark:hover:text-clr-darkmode-action-text;
 }
 
 .version-chip-current {
-  @apply border-clr-secondary bg-clr-secondary/10 font-bold text-clr-secondary;
-
-  .dark & {
-    @apply border-clr-darkmode-secondary bg-clr-darkmode-secondary/15 text-clr-darkmode-secondary;
-  }
+  @apply border-clr-primary bg-clr-action-fill/15 font-bold text-clr-action-text dark:border-clr-darkmode-primary dark:bg-clr-darkmode-action-fill/15 dark:text-clr-darkmode-action-text;
 }

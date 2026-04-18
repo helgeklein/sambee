@@ -1,26 +1,27 @@
-/* Article layout: content + TOC sidebar */
+/* Purpose: Lays out documentation articles alongside the optional table of contents. */
 
-/* Flex container for article + TOC - centered and constrained */
+/*
+==============================
+Article Shell
+==============================
+*/
+
 .article-toc-container {
-   display: flex;
-   gap: 2rem;
-   margin: 0 auto;
-   align-items: flex-start;
-   width: 100%;
-   justify-content: center;
+  display: flex;
+  gap: 2rem;
+  margin: 0 auto;
+  align-items: flex-start;
+  width: 100%;
+  justify-content: center;
 }
 
-/* Article wrapper - flexible width, grows to fill available space */
 .article-wrapper {
-   /* Grow to fill available space */
-   flex: 1 1 auto;
-   /* Allow shrinking below content size */
-   min-width: 0;
-   /* Cap at article content width if there's room */
-   max-width: var(--article-content-width);
+  /* Fill remaining horizontal space while allowing narrow layouts to shrink gracefully. */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--article-content-width);
 }
 
-/* Article Content Width */
 .article-content {
-   max-width: var(--article-content-width);
+  max-width: var(--article-content-width);
 }

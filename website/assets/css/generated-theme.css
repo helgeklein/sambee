@@ -6,51 +6,83 @@
 
 @theme {
   /* === Colors === */
-  --color-clr-primary: #00CC9E;
-  --color-clr-secondary: #D1004D;
-  --color-clr-body: #FFFFFF;
-  --color-clr-border: #A2A2A2;
-  --color-clr-light: #F4F4F4;
-  --color-clr-dark: #303030;
-  --color-clr-code-block-background: #F4F4F4;
-  --color-clr-code-inline-background: #F0F0F0;
-  --color-clr-text: #303030;
-  --color-clr-text-dark: #343434;
-  --color-clr-text-light: #A2A2A2;
+  --color-clr-primary: #7c5800;
+  --color-clr-secondary: #7c5800;
+  --color-clr-body: #fbf9f4;
+  --color-clr-border: #d4c4ae;
+  --color-clr-light: #f5f3ee;
+  --color-clr-dark: #1b1c19;
+  --color-clr-code-block-background: #f5f3ee;
+  --color-clr-code-inline-background: #f0eee9;
+  --color-clr-text: #1b1c19;
+  --color-clr-text-dark: #1b1c19;
+  --color-clr-text-light: #504535;
+  --color-clr-surface-page: #fbf9f4;
+  --color-clr-surface-base: #fbf9f4;
+  --color-clr-surface-low: #f5f3ee;
+  --color-clr-surface-mid: #f0eee9;
+  --color-clr-surface-high: #eae8e3;
+  --color-clr-surface-inverse: #1b1c19;
+  --color-clr-rule-soft: #d4c4ae;
+  --color-clr-rule-strong: #827562;
+  --color-clr-action-fill: #ebb035;
+  --color-clr-action-fill-text: #624500;
+  --color-clr-action-text: #7c5800;
+  --color-clr-status-note: #1b1c19;
+  --color-clr-status-tip: #7c5800;
+  --color-clr-status-info: #006496;
+  --color-clr-status-warning: #ebb035;
+  --color-clr-status-danger: #ba1a1a;
 
   /* === Darkmode Colors === */
-  --color-clr-darkmode-primary: #21BA98;
-  --color-clr-darkmode-secondary: #D85E8C;
-  --color-clr-darkmode-body: #1C1C1C;
-  --color-clr-darkmode-border: #3E3E3E;
-  --color-clr-darkmode-light: #222222;
-  --color-clr-darkmode-dark: #FFFFFF;
-  --color-clr-darkmode-code-inline-background: #343434;
-  --color-clr-darkmode-code-block-background: #2F2F2F;
-  --color-clr-darkmode-text: #B4AFB6;
-  --color-clr-darkmode-text-dark: #CCCCCC;
-  --color-clr-darkmode-text-light: #909090;
+  --color-clr-darkmode-primary: #f9bc41;
+  --color-clr-darkmode-secondary: #f9bc41;
+  --color-clr-darkmode-body: #1b1c19;
+  --color-clr-darkmode-border: #504535;
+  --color-clr-darkmode-light: #24231f;
+  --color-clr-darkmode-dark: #f2f1ec;
+  --color-clr-darkmode-code-inline-background: #2b2925;
+  --color-clr-darkmode-code-block-background: #24231f;
+  --color-clr-darkmode-text: #d4c4ae;
+  --color-clr-darkmode-text-dark: #f2f1ec;
+  --color-clr-darkmode-text-light: #9c8f7a;
+  --color-clr-darkmode-surface-page: #1b1c19;
+  --color-clr-darkmode-surface-base: #1b1c19;
+  --color-clr-darkmode-surface-low: #24231f;
+  --color-clr-darkmode-surface-mid: #2b2925;
+  --color-clr-darkmode-surface-high: #302e2a;
+  --color-clr-darkmode-surface-inverse: #f2f1ec;
+  --color-clr-darkmode-rule-soft: #3b3935;
+  --color-clr-darkmode-rule-strong: #504535;
+  --color-clr-darkmode-action-fill: #f9bc41;
+  --color-clr-darkmode-action-fill-text: #422d00;
+  --color-clr-darkmode-action-text: #f9bc41;
+  --color-clr-darkmode-status-note: #f2f1ec;
+  --color-clr-darkmode-status-tip: #f9bc41;
+  --color-clr-darkmode-status-info: #91ccff;
+  --color-clr-darkmode-status-warning: #f9bc41;
+  --color-clr-darkmode-status-danger: #ffb4ab;
 
   /* === Font Families === */
-  --font-primary: Inter, sans-serif;
-  --font-secondary: Playfair Display, sans-serif;
-  --font-tertiary: Barlow Condensed, sans-serif;
+  --font-primary: Work Sans, sans-serif;
+  --font-secondary: Newsreader, serif;
+  --font-tertiary: Space Grotesk, sans-serif;
 
   /* === Font Sizes === */
   --text-size-base: 16px;
   --text-size-base-sm: 14.4px;
 
   /* === Heading Size Variables === */
-  --text-size-h1: 2.25rem;
-  --text-size-h1-sm: 2.0250rem;
-  --text-size-h2: 2.25rem;
-  --text-size-h2-sm: 2.0250rem;
-  --text-size-h3: 1.75rem;
-  --text-size-h3-sm: 1.5750rem;
-  --text-size-h4: 1.25rem;
-  --text-size-h4-sm: 1.1250rem;
+  --text-size-h1: 4.5rem;
+  --text-size-h1-sm: 4.0500rem;
+  --text-size-h2: 3rem;
+  --text-size-h2-sm: 2.7000rem;
+  --text-size-h3: 2rem;
+  --text-size-h3-sm: 1.8000rem;
+  --text-size-h4: 1.5rem;
+  --text-size-h4-sm: 1.3500rem;
   --text-size-h5: 1rem;
   --text-size-h5-sm: 0.9000rem;
-  --text-size-h6: 1rem;
-  --text-size-h6-sm: 0.9000rem;
+  --text-size-h6: 0.875rem;
+  --text-size-h6-sm: 0.7875rem;
 }

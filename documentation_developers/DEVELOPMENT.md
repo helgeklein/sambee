@@ -41,6 +41,16 @@ If you're developing **outside the dev container**, run once:
 - Use `pip install --require-hashes -r requirements-dev.lock.txt` for backend installs. Treat `requirements*.txt` changes as reviewed source, not setup noise.
 - Prefer committed scripts and lockfiles over ad hoc installers or one-off `npx` downloads.
 
+### Backend Dependency Security Updates
+
+When a backend dependency audit fails, update the direct requirement files first and regenerate the lockfiles from those reviewed sources.
+
+- Change the top-level pins in `requirements.txt` and `requirements-dev.txt`, not just the generated `requirements.lock.txt` files.
+- Regenerate `requirements.lock.txt` and `requirements-dev.lock.txt` with `pip-compile --allow-unsafe --generate-hashes ...` so hashes and transitive dependencies stay consistent.
+- If the resolver reports a conflict, treat that as a real compatibility constraint and update the companion package explicitly. Example: upgrading `pytest` to `9.0.3` also required upgrading `pytest-asyncio` because `pytest-asyncio==1.2.0` required `pytest<9`.
+- After regenerating lockfiles, validate with the relevant backend checks, at minimum `pytest -v` and `mypy app`.
+- Do not hand-edit lockfile hashes except as a last resort. Prefer reproducible regeneration from the direct requirement files.
+
 ### Troubleshooting Initial Setup
 
 If you encounter startup issues after opening the dev container:
@@ -102,6 +112,36 @@ npm run dev
 ```
 
 Development server runs at: http://localhost:3000 (powered by Vite ⚡)
+
+### Website Development
+
+Use the repo-level wrapper so the Hugo workflow behaves like the other development services:
+
+```bash
+./scripts/start-website
+```
+
+This script:
+
+- verifies the dev container environment
+- checks `node`, `npm`, and `hugo`
+- installs `website/` dependencies if `node_modules` is missing
+- stops an existing Sambee website dev server on port `1313`
+- prebuilds the Pagefind search index
+- starts the Hugo dev server from `website/`
+- keeps the Pagefind index refreshed while Hugo updates generated HTML on disk
+
+The website dev server runs at: http://localhost:1313
+
+Search should be available during normal development without running a separate indexing command.
+
+To stop it directly:
+
+```bash
+./scripts/stop-website
+```
+
+You can also start it from the VS Code task named `Website: Start Dev Server`.
 
 ### Running Tests
 
@@ -250,13 +290,15 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 
 ### Dependency Security Checks
 
-CI also runs dependency-specific security checks:
+Dependency security audits run in a dedicated GitHub Actions workflow on a weekly schedule and can also be started manually with `workflow_dispatch`. They do not run on normal pushes or pull requests.
+
+The workflow covers:
 
 - Backend: `pip-audit -r backend/requirements-dev.lock.txt`
 - Frontend and Companion: `npm audit --package-lock-only --omit=dev --audit-level=high`
 - Companion Rust dependencies: `cargo audit`
 
-Run the relevant audit locally before merging dependency updates.
+Run the relevant audit locally before merging dependency updates, especially when changing lockfiles or pinned versions.
 
 ### Local Development with Virtual Environment
 

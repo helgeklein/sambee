@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SAMBEE | Documentation - Technical Ledger</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&amp;family=Work+Sans:wght@300;400;500;600;700&amp;family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#7c5800",
+                        "surface-dim": "#dbdad5",
+                        "secondary-fixed": "#e1e2e5",
+                        "error-container": "#ffdad6",
+                        "primary-container": "#ebb035",
+                        "on-background": "#f2f1ec",
+                        "tertiary-fixed": "#cce5ff",
+                        "primary-fixed": "#ffdea7",
+                        "inverse-on-surface": "#1b1c19",
+                        "inverse-primary": "#7c5800",
+                        "on-primary-container": "#271900",
+                        "on-tertiary-fixed-variant": "#004b72",
+                        "secondary": "#c5c7c9",
+                        "on-secondary-fixed-variant": "#444749",
+                        "on-error": "#ffffff",
+                        "tertiary-fixed-dim": "#91ccff",
+                        "secondary-container": "#444749",
+                        "on-primary-fixed": "#271900",
+                        "on-error-container": "#ffdad6",
+                        "error": "#ffb4ab",
+                        "tertiary": "#91ccff",
+                        "inverse-surface": "#f2f1ec",
+                        "outline-variant": "#504535",
+                        "on-surface": "#f2f1ec",
+                        "on-secondary": "#2e3133",
+                        "surface-container-lowest": "#0f0f0c",
+                        "on-secondary-fixed": "#191c1e",
+                        "on-tertiary-fixed": "#001e31",
+                        "surface-variant": "#504535",
+                        "on-secondary-container": "#e1e2e5",
+                        "primary": "#f9bc41",
+                        "surface-container-highest": "#3b3935",
+                        "surface-container-high": "#302e2a",
+                        "outline": "#9c8f7a",
+                        "on-surface-variant": "#d4c4ae",
+                        "on-tertiary": "#003351",
+                        "secondary-fixed-dim": "#c5c7c9",
+                        "surface-container-low": "#24231f",
+                        "on-primary": "#422d00",
+                        "surface-bright": "#42403b",
+                        "surface-container": "#2b2925",
+                        "tertiary-container": "#004b72",
+                        "primary-fixed-dim": "#f9bc41",
+                        "background": "#1b1c19",
+                        "on-primary-fixed-variant": "#5e4200",
+                        "on-tertiary-container": "#cce5ff",
+                        "surface": "#1b1c19"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0px",
+                        "lg": "0px",
+                        "xl": "0px",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Newsreader", "serif"],
+                        "body": ["Work Sans", "sans-serif"],
+                        "label": ["Space Grotesk", "monospace"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Work Sans', sans-serif;
+            background-color: #1b1c19;
+            color: #f2f1ec;
+        }
+        h1, h2, h3, h4, h5 { font-family: 'Newsreader', serif; }
+        .label-text { font-family: 'Space Grotesk', sans-serif; }
+        .ink-rule { border-color: #504535; }
+        .ink-rule-variant { border-color: #3b3935; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #24231f; }
+        ::-webkit-scrollbar-thumb { background: #9c8f7a; }
+        html { scroll-behavior: smooth; }
+        code, .font-mono {
+            background-color: rgba(249, 188, 65, 0.1);
+            padding: 0.1rem 0.3rem;
+            border-radius: 2px;
+            color: #f9bc41;
+        }
+        pre code {
+            background-color: transparent !important;
+            padding: 0 !important;
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface antialiased">
+<!-- TopNavBar -->
+<header class="fixed top-0 left-0 w-full z-50 bg-[#1b1c19] border-b-2 border-[#504535] flex justify-between items-center px-6 py-3 h-[60px]">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-3">
+<img alt="SAMBEE" class="h-8 w-auto object-contain brightness-0 invert" src="https://lh3.googleusercontent.com/aida/ADBb0uislI06DiujKGkelBtiQkB3Sd-vO8T8Rz921Tb_AF7QcY8Nwko_f-k-NbYMTf_3Au2Ji_xaoB1zvSTkuU9F-fESBWbeLDcBIGX1yFW-b2_-2-RkwipLrvzMruL4DcY0gS3uqEIbUvNPEi8o-a_OJVS6BWvvkO82YNrfSS4MnUuT_52hbmSBS_PkYbYhCSQRzkZUAQY8xRQhf1wPdeX7o0sNctbFBLQG18l_d74VIXi9fxt197wEMH5S6JNog77JQtxbLNjSSzmSkQ"/>
+<span class="text-xl font-bold uppercase tracking-tighter text-[#f2f1ec]">SAMBEE</span>
+</div>
+<nav class="hidden md:flex gap-6 items-center ml-8">
+<a class="text-[#f9bc41] border-b-2 border-[#f9bc41] font-label font-medium text-sm uppercase tracking-widest" href="#">Docs</a>
+<a class="text-[#f2f1ec] font-medium hover:bg-[#302e2a] transition-colors px-2 py-1 font-label text-sm uppercase tracking-widest" href="#">Features</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden sm:block">
+<input class="bg-[#24231f] border border-[#504535] px-3 py-1 text-xs label-text focus:outline-none focus:border-2 focus:border-[#f9bc41] w-48 text-[#f2f1ec] placeholder-[#9c8f7a]" placeholder="Search" type="text"/>
+<span class="material-symbols-outlined absolute right-2 top-1.5 text-sm text-[#9c8f7a]">search</span>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="bg-[#0f0f0c] text-[#f9bc41] hidden lg:flex flex-col w-64 fixed left-0 top-[60px] bottom-0 z-40 overflow-y-auto px-0 border-r border-[#3b3935]">
+<div class="p-6 border-b border-[#3b3935]">
+<h3 class="font-headline text-xl tracking-[0.05em] text-[#f9bc41] italic font-bold leading-tight">Documentation</h3>
+<div class="mt-2 flex items-center gap-1 group cursor-pointer">
+<span class="label-text text-[9px] text-[#f9bc41] font-bold uppercase tracking-widest">v2.4.0</span>
+<span class="material-symbols-outlined text-[10px] text-[#9c8f7a] group-hover:text-[#f9bc41] transition-colors">unfold_more</span>
+</div>
+</div>
+<nav class="mt-2 flex flex-col">
+<!-- SECTION 1 -->
+<div class="flex flex-col">
+<div class="px-6 py-3 bg-[#f2f1ec] text-[#1b1c19] flex items-center gap-3">
+<span class="material-symbols-outlined text-sm">menu_book</span>
+<span class="label-text text-[11px] font-bold uppercase tracking-wider">User Guide</span>
+</div>
+<div class="flex flex-col mt-1">
+<button class="flex items-center justify-between px-6 py-2 text-[#d4c4ae] hover:bg-[#2b2925] transition-colors group">
+<span class="label-text text-[10px] uppercase font-semibold tracking-wide">Basics</span>
+<span class="material-symbols-outlined text-xs">expand_more</span>
+</button>
+<div class="flex flex-col">
+<a class="pl-12 pr-6 py-2 text-[10px] font-bold border-l-4 border-[#f9bc41] bg-[#2b2925] text-[#f2f1ec] label-text uppercase tracking-wider" href="#">The Protocol</a>
+<a class="pl-12 pr-6 py-2 text-[10px] text-[#d4c4ae] hover:bg-[#2b2925] hover:text-[#f2f1ec] transition-colors label-text uppercase tracking-wider" href="#">Terminology</a>
+</div>
+</div>
+<div class="flex flex-col">
+<button class="flex items-center justify-between px-6 py-2 text-[#d4c4ae] hover:bg-[#2b2925] transition-colors">
+<span class="label-text text-[10px] uppercase font-semibold tracking-wide">Infrastructure</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+</button>
+</div>
+</div>
+<!-- SECTION 2 -->
+<div class="flex flex-col mt-4">
+<div class="px-6 py-3 text-[#9c8f7a] flex items-center gap-3 border-t border-[#3b3935]/30">
+<span class="material-symbols-outlined text-sm">api</span>
+<span class="label-text text-[11px] font-bold uppercase tracking-wider">Admin Guide</span>
+</div>
+<div class="flex flex-col">
+<button class="flex items-center justify-between px-6 py-2 text-[#d4c4ae] hover:bg-[#2b2925] transition-colors">
+<span class="label-text text-[10px] uppercase font-semibold tracking-wide">REST API</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+</button>
+</div>
+<div class="flex flex-col">
+<button class="flex items-center justify-between px-6 py-2 text-[#d4c4ae] hover:bg-[#2b2925] transition-colors">
+<span class="label-text text-[10px] uppercase font-semibold tracking-wide">CLI Tools</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+</button>
+</div>
+</div>
+</nav>
+</aside>
+<!-- Main Content Canvas -->
+<main class="lg:ml-64 pt-[60px] pb-0 min-h-screen flex bg-[#1b1c19]">
+<div class="flex-1 border-r border-[#3b3935]">
+<!-- Breadcrumbs -->
+<div class="px-8 md:px-12 py-4 border-b border-[#3b3935] flex items-center justify-between">
+<nav class="flex items-center gap-2 label-text text-[10px] text-[#9c8f7a] uppercase tracking-[0.2em]">
+<span>Library</span>
+<span class="material-symbols-outlined text-xs">chevron_right</span>
+<span>User Guide</span>
+<span class="material-symbols-outlined text-xs text-[#f9bc41]">chevron_right</span>
+<span class="text-[#f2f1ec] font-bold">Basics</span>
+</nav>
+</div>
+<!-- Hero Section -->
+<section class="border-b border-[#3b3935]">
+<div class="w-full px-8 md:px-12 py-8 md:py-12 bg-[#1b1c19]">
+<div class="label-text text-xs uppercase tracking-[0.3em] mb-4 text-[#f9bc41] flex items-center gap-2">
+<span class="w-8 h-[1px] bg-[#f9bc41]"></span>
+                        Sambee 2.4.0
+                    </div>
+<h2 class="font-headline text-5xl md:text-7xl leading-[0.85] font-extrabold tracking-tighter text-[#f2f1ec]">
+                        The Archival Protocol
+                    </h2>
+</div>
+</section>
+<!-- Technical Protocol Specifications -->
+<section class="px-8 md:px-12 py-8 md:py-12 bg-[#1b1c19] font-body">
+<div class="max-w-6xl">
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-[#f9bc41]">terminal</span>
+<h3 class="label-text text-sm font-bold uppercase tracking-[0.3em] text-[#f2f1ec]">Specification :: Sequence-0 Initialization</h3>
+</div>
+<div class="space-y-12">
+<div class="space-y-4">
+<div class="scroll-mt-24" id="network-handshake">
+<h3 class="font-headline text-3xl font-extrabold mb-3 italic text-[#f2f1ec] tracking-tight">Network Consensus &amp; Handshake</h3>
+<p class="text-[#d4c4ae] leading-[1.6] mb-3 text-base">Before any archival stream can be initiated, the node must establish a high-priority link with the <a class="text-[#f9bc41] font-medium border-b border-[#f9bc41]/20 hover:border-[#f9bc41] transition-colors" href="#">master ledger</a>. This process involves a <a class="text-[#f9bc41] font-medium border-b border-[#f9bc41]/20 hover:border-[#f9bc41] transition-colors" href="#">multi-factor cryptographic validation</a>.</p>
+<ul class="space-y-2 list-disc pl-5 marker:text-[#f9bc41]">
+<li class="text-[#d4c4ae] text-sm leading-[1.5]">Broadcast discovery packet via the <code>SYST_BOOT_V4</code> protocol across all interfaces.</li>
+<li class="text-[#d4c4ae] text-sm leading-[1.5]">Establish a TLS 1.3 encrypted tunnel with the primary coordinator node (PCN).</li>
+<li class="text-[#d4c4ae] text-sm leading-[1.5]">Perform a nanosecond-precision timestamp synchronization (Drift &lt; 4ms).</li>
+</ul>
+</div>
+<div class="border-y border-[#504535] bg-[#24231f] my-6">
+<pre class="p-6 md:p-8 text-[12px] text-[#f2f1ec] overflow-x-auto font-mono leading-relaxed"><span class="text-[#9c8f7a] italic"># Python representation of node metadata header</span>
+<span class="text-[#f9bc41] font-bold">from</span> dataclasses <span class="text-[#f9bc41] font-bold">import</span> dataclass
+
+<span class="text-[#f9bc41] font-bold">@dataclass</span>
+<span class="text-[#f2f1ec] font-bold text-sm">class</span> <span class="text-[#91ccff]">ArchivalNodeHeader</span>:
+    signature: <span class="text-[#d4c4ae] italic">int</span> <span class="text-[#9c8f7a] italic"># Cryptographic node ID</span>
+    protocol_ver: <span class="text-[#d4c4ae] italic">int</span> <span class="text-[#9c8f7a] italic"># 0x240 for v2.4.0</span>
+    drift_delta: <span class="text-[#d4c4ae] italic">float</span> <span class="text-[#9c8f7a] italic"># Clock sync offset in ms</span>
+    merkle_root: <span class="text-[#d4c4ae] italic">bytes</span> <span class="text-[#9c8f7a] italic"># Current ledger state hash</span>
+    status_flags: <span class="text-[#d4c4ae] italic">int</span> <span class="text-[#9c8f7a] italic"># 0x01: SYNC, 0x02: AUTH, 0x04: READY</span></pre>
+</div>
+<div class="scroll-mt-24" id="entropy-quarantine">
+<h3 class="font-headline text-3xl font-extrabold mb-3 italic text-[#f2f1ec] tracking-tight">Entropy Quarantine Protocol</h3>
+<p class="text-[#d4c4ae] leading-[1.6] mb-4 text-base">Should a node fall out of synchronization during a live stream, it enters an immediate <a class="text-[#f9bc41] font-medium border-b border-[#f9bc41]/20 hover:border-[#f9bc41] transition-colors" href="#">Isolation State</a> to prevent corrupt packets.</p>
+<div class="pl-0 border-l-0">
+<h4 class="font-headline text-xl font-bold italic text-[#f2f1ec] mb-3">Operational Isolation Workflow</h4>
+<div class="mb-4">
+<h5 class="font-headline text-lg font-bold italic text-[#f2f1ec] mb-2">Recovery Procedures</h5>
+<p class="text-[#d4c4ae] leading-[1.6] text-sm">Recovery requires a full <code>deep-scan</code> and manual verification of local cache integrity before re-integration.</p>
+</div>
+</div>
+</div>
+<div class="scroll-mt-24 pt-4" id="admonition-standards">
+<h3 class="font-headline text-3xl font-extrabold mb-6 italic text-[#f2f1ec] tracking-tight">System Admonition Standards</h3>
+<div class="grid grid-cols-1 gap-4">
+<!-- NOTE -->
+<div class="border-l-4 border-[#9c8f7a] bg-[#24231f] p-5 flex gap-5 items-start">
+<div class="bg-[#f2f1ec] text-[#1b1c19] p-1.5 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg">description</span>
+</div>
+<div class="space-y-1">
+<h4 class="label-text text-[10px] font-bold uppercase tracking-[0.2em] text-[#f2f1ec]">NOTE</h4>
+<p class="text-[#d4c4ae] leading-relaxed text-sm">This is a standard archival note. Use a subtle neutral grey/cream tint for documentation context.</p>
+</div>
+</div>
+<!-- TIP -->
+<div class="border-l-4 border-[#f9bc41] bg-[#2d2920] p-5 flex gap-5 items-start">
+<div class="bg-[#f9bc41] text-[#271900] p-1.5 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg">tips_and_updates</span>
+</div>
+<div class="space-y-1">
+<h4 class="label-text text-[10px] font-bold uppercase tracking-[0.2em] text-[#f9bc41]">TIP</h4>
+<p class="text-[#d4c4ae] leading-relaxed text-sm">Pro-tip for optimizing throughput. Use a subtle golden/cream tint to highlight performance gains.</p>
+</div>
+</div>
+<!-- INFO -->
+<div class="border-l-4 border-[#91ccff] bg-[#1a2533] p-5 flex gap-5 items-start">
+<div class="bg-[#91ccff] text-[#001e31] p-1.5 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg">info_i</span>
+</div>
+<div class="space-y-1">
+<h4 class="label-text text-[10px] font-bold uppercase tracking-[0.2em] text-[#91ccff]">INFO</h4>
+<p class="text-[#d4c4ae] leading-relaxed text-sm">System information regarding ledger state. Use a subtle blue-grey tint for technical status updates.</p>
+</div>
+</div>
+<!-- WARNING -->
+<div class="border-l-4 border-[#ebb035] bg-[#312b1a] p-5 flex gap-5 items-start">
+<div class="bg-[#ebb035] text-[#271900] p-1.5 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg">priority_high</span>
+</div>
+<div class="space-y-1">
+<h4 class="label-text text-[10px] font-bold uppercase tracking-[0.2em] text-[#ebb035]">WARNING</h4>
+<p class="text-[#d4c4ae] leading-relaxed text-sm">Potential for non-critical entropy drift. Use a clear golden accent to signify caution.</p>
+</div>
+</div>
+<!-- DANGER -->
+<div class="border-l-4 border-[#ffb4ab] bg-[#331c1a] p-5 flex gap-5 items-start">
+<div class="bg-[#f2f1ec] text-[#ba1a1a] p-1.5 flex items-center justify-center shrink-0 border border-[#ffb4ab]/50">
+<span class="material-symbols-outlined text-lg">bolt</span>
+</div>
+<div class="space-y-1">
+<h4 class="label-text text-[10px] font-bold uppercase tracking-[0.2em] text-[#ffb4ab]">DANGER</h4>
+<p class="text-[#d4c4ae] leading-relaxed text-sm">High risk of ledger corruption or loss of persistence. Use a high-contrast red-tinted accent for critical alerts.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="scroll-mt-24" id="admonitions">
+<div class="border-l-4 border-[#f9bc41] bg-[#f9bc41]/5 p-6 flex gap-5 items-start">
+<div class="bg-[#f9bc41] text-[#271900] p-1 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg">priority_high</span>
+</div>
+<div class="space-y-2">
+<h4 class="label-text text-[11px] font-bold uppercase tracking-[0.2em] text-[#f9bc41]">Critical Requirement: Node Synchronization</h4>
+<p class="text-[#d4c4ae] leading-relaxed text-sm italic">
+                                            All archival nodes must be synchronized with the master ledger prior to initiating Sequence-0. Failure to align timestamps within a 4ms delta will result in immediate entropy quarantine. This protocol ensures that no data packets are lost during the transient state shift between active and archival layers.
+                                        </p>
+</div>
+</div>
+</div>
+</div>
+<!-- Detailed Node Performance Matrix -->
+<div class="mt-12 scroll-mt-24" id="node-matrix">
+<h3 class="font-headline text-3xl font-extrabold mb-3 italic text-[#f2f1ec] tracking-tight">Detailed Node Performance Matrix</h3>
+<p class="text-sm text-[#d4c4ae] max-w-2xl mb-6 leading-[1.6]">Specifications for the three standard node configurations approved for the Sambee Archival Network.</p>
+<div class="border border-[#504535] overflow-x-auto my-6">
+<table class="w-full text-left font-label border-collapse min-w-[600px]">
+<thead>
+<tr class="bg-[#302e2a] border-b border-[#504535]">
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest border-r border-[#3b3935] font-bold text-[#f2f1ec]">Node Type</th>
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest border-r border-[#3b3935] font-bold text-[#f2f1ec]">Memory / CPU</th>
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest border-r border-[#3b3935] font-bold text-[#f2f1ec]">I/O Latency</th>
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest border-r border-[#3b3935] font-bold text-[#f2f1ec]">Bus Type</th>
+<th class="px-4 py-3 text-[10px] uppercase tracking-widest font-bold text-[#f2f1ec]">Status</th>
+</tr>
+</thead>
+<tbody class="text-xs">
+<tr class="border-b border-[#3b3935] hover:bg-[#2b2925] transition-colors">
+<td class="px-4 py-4 border-r border-[#3b3935] font-bold text-[#f2f1ec]">Alpha-Observer</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">64GB ECC / 16-Core</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#f9bc41]">&lt; 0.05ms</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">PCIe 5.0</td>
+<td class="px-4 py-4"><span class="bg-[#ebb035] text-[#271900] px-2 py-0.5 font-bold uppercase text-[9px] border border-[#f9bc41]">Verified</span></td>
+</tr>
+<tr class="border-b border-[#3b3935] bg-[#24231f] hover:bg-[#302e2a] transition-colors">
+<td class="px-4 py-4 border-r border-[#3b3935] font-bold text-[#f2f1ec]">Beta-Archivist</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">256GB ECC / 64-Core</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#f9bc41]">&lt; 0.12ms</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">NVMe-oF</td>
+<td class="px-4 py-4"><span class="bg-[#ebb035] text-[#271900] px-2 py-0.5 font-bold uppercase text-[9px] border border-[#f9bc41]">Verified</span></td>
+</tr>
+<tr class="border-b border-[#3b3935] hover:bg-[#2b2925] transition-colors">
+<td class="px-4 py-4 border-r border-[#3b3935] font-bold text-[#f2f1ec]">Gamma-Relay</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">16GB ECC / 4-Core</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#f9bc41]">&lt; 1.45ms</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">SATA-III</td>
+<td class="px-4 py-4"><span class="bg-[#9c8f7a] text-[#1b1c19] px-2 py-0.5 font-bold uppercase text-[9px]">Testing</span></td>
+</tr>
+<tr class="bg-[#24231f] hover:bg-[#302e2a] transition-colors">
+<td class="px-4 py-4 border-r border-[#3b3935] font-bold text-[#f2f1ec]">Delta-Sentinel</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">512GB ECC / 128-Core</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#f9bc41]">&lt; 0.02ms</td>
+<td class="px-4 py-4 border-r border-[#3b3935] text-[#d4c4ae]">CXL 2.0</td>
+<td class="px-4 py-4"><span class="bg-[#f9bc41] text-[#271900] px-2 py-0.5 font-bold uppercase text-[9px]">Restricted</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Verifying Persistence Integrity -->
+<div class="scroll-mt-24" id="persistence-integrity">
+<h3 class="font-headline text-3xl font-extrabold mb-3 italic text-[#f2f1ec] tracking-tight">Verifying Persistence Integrity</h3>
+<p class="text-[#d4c4ae] leading-[1.6] mb-6 text-base">Once established using the <code>stream_start</code> command, the system begins a continuous integrity check against <a class="text-[#f9bc41] font-medium border-b border-[#f9bc41]/20 hover:border-[#f9bc41] transition-colors" href="#">SHA-256 standards</a>.</p>
+<div class="mb-6">
+<h5 class="font-headline text-lg font-bold italic text-[#f2f1ec] mb-3">Core Implementation Logic</h5>
+<p class="text-[#d4c4ae] leading-[1.6] mb-4 text-sm">Failure in any node segment triggers the following security protocols:</p>
+<ol class="space-y-2 list-decimal pl-5 text-sm text-[#d4c4ae]">
+<li class="leading-[1.5] pl-1">Nodes must maintain a minimum <code>heartbeat_interval</code> of 500ms.</li>
+<li class="leading-[1.5] pl-1">All transactions must be signed with a valid <code>RS256</code> hardware certificate.</li>
+<li class="leading-[1.5] pl-1">The <code>merkle_root</code> hash is recalculated every 1024 blocks.</li>
+<li class="leading-[1.5] pl-1">Redundancy checks are performed using the <code>parity_redundant</code> flag.</li>
+</ol>
+</div>
+<div class="mt-6">
+<h5 class="font-headline text-lg font-bold italic text-[#f2f1ec] mb-2">Drift Management</h5>
+<p class="text-[#d4c4ae] leading-[1.6] text-sm">
+                                    Use the <code>check_status --deep-scan</code> utility to monitor for synchronization drift. If <code>drift_delta</code> exceeds 4ms, the node is flagged as <span class="text-[#ffdad6] px-1 font-mono text-[10px] bg-[#ba1a1a]/20">DEGRADED_SYNC</span>.
+                                </p>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- TOC Sidebar -->
+<aside class="hidden xl:block w-72 shrink-0 relative border-l border-[#3b3935]">
+<div class="sticky top-[60px] h-[calc(100vh-60px)] px-10 py-12 overflow-y-auto">
+<div class="mb-6 flex items-center gap-2">
+<span class="w-4 h-[1px] bg-[#9c8f7a]"></span>
+<span class="label-text text-[9px] font-bold uppercase tracking-[0.2em] text-[#9c8f7a]">On This Page</span>
+</div>
+<nav class="flex flex-col gap-6">
+<a class="group flex flex-col text-[#f2f1ec] hover:text-[#f9bc41] transition-colors" href="#network-handshake">
+<span class="font-headline text-lg italic leading-tight font-bold text-[#f2f1ec] group-hover:text-[#f9bc41]">Network Consensus &amp; Handshake</span>
+</a>
+<div class="flex flex-col gap-4">
+<a class="group flex flex-col text-[#f2f1ec] hover:text-[#f9bc41] transition-colors" href="#entropy-quarantine">
+<span class="font-headline text-lg italic leading-tight font-bold text-[#f2f1ec] group-hover:text-[#f9bc41]">Entropy Quarantine Protocol</span>
+</a>
+<div class="pl-4 border-l border-[#3b3935]/30 mt-1">
+<span class="label-text text-[9px] uppercase tracking-[0.2em] text-[#9c8f7a] font-semibold">Isolation Workflow</span>
+</div>
+</div>
+<a class="group flex flex-col text-[#f2f1ec] hover:text-[#f9bc41] transition-colors" href="#admonition-standards">
+<span class="font-headline text-lg italic leading-tight font-bold text-[#f2f1ec] group-hover:text-[#f9bc41]">System Admonition Standards</span>
+</a>
+<a class="group flex flex-col text-[#f2f1ec] hover:text-[#f9bc41] transition-colors" href="#node-matrix">
+<span class="font-headline text-lg italic leading-tight font-bold text-[#f2f1ec] group-hover:text-[#f9bc41]">Node Performance Matrix</span>
+</a>
+<a class="group flex flex-col text-[#f2f1ec] hover:text-[#f9bc41] transition-colors" href="#persistence-integrity">
+<span class="font-headline text-lg italic leading-tight font-bold text-[#f2f1ec] group-hover:text-[#f9bc41]">Verifying Persistence Integrity</span>
+</a>
+</nav>
+</div>
+</aside>
+</main>
+</body></html>
