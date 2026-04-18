@@ -74,10 +74,10 @@ Layout Shells
 .eyebrow {
   display: inline-flex;
   font-family: var(--eyebrow-font-family);
-  font-size: 0.68rem;
+  font-size: var(--font-size-label-sm);
   font-weight: var(--eyebrow-font-weight-normal);
   letter-spacing: 0.22em;
-  line-height: 1.2;
+  line-height: var(--line-height-label);
   text-transform: uppercase;
   color: var(--color-clr-action-text);
 }
@@ -159,7 +159,8 @@ Cards And Panels
 }
 
 .lede {
-  @apply max-w-3xl text-lg leading-[1.65] text-clr-text-light dark:text-clr-darkmode-text;
+  @apply max-w-3xl text-lg text-clr-text-light dark:text-clr-darkmode-text;
+  line-height: var(--line-height-copy-relaxed);
 }
 
 .button-row,
@@ -319,11 +320,13 @@ Ledger Grid Helpers
 }
 
 .ledger-matrix th {
-  @apply bg-clr-surface-high font-tertiary text-[0.72rem] uppercase tracking-[0.16em] dark:bg-clr-darkmode-surface-high;
+  font-size: var(--font-size-label-sm);
+  @apply bg-clr-surface-high font-tertiary uppercase tracking-[0.16em] dark:bg-clr-darkmode-surface-high;
 }
 
 .ledger-meta {
-  @apply font-tertiary text-[0.72rem] uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
+  font-size: var(--font-size-label-sm);
+  @apply font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 /*

@@ -106,9 +106,10 @@ function generateThemeCSS() {
    const scale_sm = Number(themeConfig.fonts.font_size?.scale_sm || 0.9);
 
    cssLines.push(`  --text-size-base: ${baseSize}px;`);
-   cssLines.push(`  --text-size-base-sm: ${baseSize * scale_sm}px;`);
 
-   // Heading size variables from theme.json
+   // Heading size variables from theme.json.
+   // The document root stays at the configured base size; the small-screen scale
+   // only applies to display headings where tighter layouts need it.
    if (themeConfig.fonts.heading_sizes) {
       cssLines.push("", "  /* === Heading Size Variables === */");
       for (let i = 1; i <= 6; i++) {

@@ -19,7 +19,8 @@ Header Controls
 */
 
 .nav-brand-kicker {
-   @apply font-tertiary text-[0.62rem] uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
+   font-size: var(--font-size-label-xs);
+   @apply font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
 .nav-toggle {
@@ -287,7 +288,8 @@ Submenus
 }
 
 .nav-submenu-heading {
-   @apply block font-tertiary text-[0.7rem] uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light;
+   font-size: var(--font-size-label-sm);
+   @apply block font-tertiary uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light;
    padding: 0.75rem 1.25rem 0.25rem;
 }
 
