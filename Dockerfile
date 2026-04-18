@@ -12,7 +12,7 @@ COPY GIT_COMMIT /GIT_COMMIT
 RUN npm run build
 
 # Stage 2: Python backend with built frontend
-FROM python:3.13-slim
+FROM python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
 WORKDIR /app
 
 # Set non-interactive mode for apt to avoid warnings

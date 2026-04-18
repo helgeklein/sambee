@@ -20,7 +20,7 @@ Comprehensive logging has been added to Sambee to make debugging easier and prev
 ```
 ================================================================================
 Sambee Backend Starting - 2025-11-05T10:49:14.123456
-Python: 3.13.0
+Python: 3.13.12
 Working Directory: /workspace/backend
 ================================================================================
 Starting Sambee application...
