@@ -1,6 +1,6 @@
 # MCR publishes Python devcontainer images by major/minor tag, so pin the exact
 # reviewed 3.13 baseline with a manifest digest.
-FROM mcr.microsoft.com/devcontainers/python:3.13@sha256:9b0762901a555c31c2c63824cb5b1ade77da939500e034317b8d09578b94ba0e
+FROM mcr.microsoft.com/devcontainers/python:3.14@sha256:1af48f9bd555f7972b14424def113c166dab9c5027bd9d9f5cc57704a42974f2
 
 ARG HUGO_VERSION=0.160.0
 
