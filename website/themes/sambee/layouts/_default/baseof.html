@@ -1,8 +1,20 @@
 {{/* Purpose: Defines the shared HTML shell used by all website pages. */}}
-{{- $initialTheme := cond (eq site.Params.theme_default "dark") "dark" "" -}}
+{{- $initialTheme := "" -}}
+{{- if site.Params.theme_switcher -}}
+  {{- if eq site.Params.theme_default "dark" -}}
+    {{- $initialTheme = "dark" -}}
+  {{- end -}}
+{{- else -}}
+  {{- $initialTheme = site.Params.theme_default -}}
+{{- end -}}
 <!DOCTYPE html>
 <html lang="{{ site.LanguageCode | default `en-US` }}" class="{{ $initialTheme }}">
 <head>
+  {{ if site.Params.theme_switcher }}
+  <script>
+    (function(){var d=localStorage.getItem("theme");var s=window.matchMedia("(prefers-color-scheme: dark)").matches;var m="{{ site.Params.theme_default }}";if(d==="dark"||(d===null&&((m==="system"&&s)||m==="dark"))){document.documentElement.classList.add("dark");}else if(d==="light"){document.documentElement.classList.remove("dark");}})();
+  </script>
+  {{ end }}
   {{/* Shared metadata and compiled CSS are included for every page type. */}}
   {{ partial "essentials/head.html" . }}
   {{ partialCached "essentials/style.html" . }}
