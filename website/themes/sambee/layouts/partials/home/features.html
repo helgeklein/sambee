@@ -2,7 +2,7 @@
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="{{ $section.id }}">
-  <div class="home-section-header max-w-3xl px-6 py-8 lg:px-8">
+  <div class="home-section-header">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
@@ -10,8 +10,8 @@
     {{/* Each feature group is a simple title/body pair, keeping the data file lightweight. */}}
     {{ range $section.groups }}
     <article class="flex flex-col gap-2.5">
-      <h3 class="font-tertiary text-[0.76rem] font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ .title }}</h3>
-      <p class="text-[0.92rem] leading-[1.72] text-clr-text-light dark:text-clr-darkmode-text-light">{{ .body }}</p>
+      <h3 class="home-feature-title">{{ .title }}</h3>
+      <p class="home-copy home-copy--feature">{{ .body }}</p>
     </article>
     {{ end }}
   </div>

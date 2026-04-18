@@ -17,6 +17,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
         build-essential \
         curl \
         libkrb5-dev \
+        ripgrep \
         smbclient \
         cifs-utils \
         sqlite3 \

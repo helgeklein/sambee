@@ -8,7 +8,7 @@
     <h2 class="home-section-title home-section-title--display mb-8 max-w-none lg:max-w-[11ch]">{{ $section.title }}</h2>
     <div class="grid gap-7 pt-0 md:gap-8 lg:grid-cols-[minmax(0,0.92fr)_minmax(18rem,0.95fr)] lg:gap-12">
       <div class="flex flex-col">
-        <p class="mb-6 max-w-none text-[1rem] leading-[1.72] text-clr-text-light dark:text-clr-darkmode-text-light md:text-[1.15rem] md:leading-[1.8] lg:max-w-[18rem]">{{ $section.body }}</p>
+        <p class="home-copy home-copy--large mb-6 max-w-none lg:max-w-[18rem]">{{ $section.body }}</p>
         <div class="ledger-actions mt-7">
           <a class="btn inline-flex min-h-[3.5rem] w-full items-center justify-center px-6 md:min-h-[4rem] md:px-8 lg:w-auto {{ if eq $section.cta.kind "primary" }}btn-bg-secondary{{ else if eq $section.cta.kind "secondary" }}btn-outline-secondary{{ else }}btn-link-secondary{{ end }}" href="{{ $section.cta.href }}">{{ $section.cta.label }}</a>
         </div>
@@ -17,13 +17,13 @@
         {{ with $section.bullets }}
         <ul class="flex flex-col gap-5">
           {{ range . }}
-          <li class="flex items-start gap-4 font-tertiary text-[0.72rem] font-medium uppercase leading-[1.65] tracking-[0.12em] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[0.78rem] md:tracking-[0.14em]"><span class="mt-1.5 block h-1.5 w-1.5 shrink-0 bg-clr-action-fill dark:bg-clr-darkmode-action-fill" aria-hidden="true"></span><span>{{ . }}</span></li>
+          <li class="flex items-start gap-4 home-label home-label--medium home-label--ink leading-[1.65] text-[0.72rem] tracking-[0.12em] md:text-[0.78rem] md:tracking-[0.14em]"><span class="mt-1.5 block h-1.5 w-1.5 shrink-0 bg-clr-action-fill dark:bg-clr-darkmode-action-fill" aria-hidden="true"></span><span>{{ . }}</span></li>
           {{ end }}
         </ul>
         {{ end }}
         <div class="border-t border-clr-rule-soft pt-8 dark:border-clr-darkmode-rule-soft">
-          <span class="mb-3 block font-tertiary text-[0.62rem] font-bold uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.note_title }}</span>
-          <p class="max-w-none text-[0.95rem] italic leading-[1.85] text-clr-text-light dark:text-clr-darkmode-text-light lg:max-w-[24rem]">{{ $section.note_body }}</p>
+          <span class="home-label home-label--sm home-label--bold home-label--muted mb-3 block">{{ $section.note_title }}</span>
+          <p class="home-copy home-copy--note max-w-none lg:max-w-[24rem]">{{ $section.note_body }}</p>
         </div>
       </div>
     </div>

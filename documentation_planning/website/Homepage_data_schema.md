@@ -72,14 +72,9 @@ meta:
 
 hero:
   enabled: true
-  eyebrow: Sambee
+  kicker: Free and Open Source Software Designed for Self-Hosting
   title: Browser-based file access for SMB shares and local drives
-  body: >-
-    Sambee provides browser-based access to SMB shares and local drives.
-    Explore, preview, and manage files directly in the browser, with the
-    companion app extending Sambee to the local desktop when needed.
-    Sambee enables browser-first file access without requiring files to be
-    moved into the cloud.
+  deck: Explore, preview, and manage files directly in the browser.
   supporting_points:
     - Self-hosted
     - Desktop and mobile
