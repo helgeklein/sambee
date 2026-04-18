@@ -491,6 +491,8 @@
       "shell-section",
       "shrink-0",
       "site-frame",
+      "site-gutter",
+      "site-gutter-nav",
       "site-main",
       "size-[1.15rem]",
       "sm:bg-red-200",

@@ -15,7 +15,7 @@
 {{ end }}
 
 <header class="sticky top-0 z-30 border-b-2 border-clr-rule-strong bg-clr-surface-page dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page {{ $headerMarginClass }}">
-  <nav class="nav-bar site-frame relative flex min-h-[4rem] flex-wrap items-center justify-between gap-x-2 px-5 py-2.5 md:min-h-[4.5rem] md:gap-x-4 md:px-6 md:py-3 lg:px-8{{ $navLayoutClass }}" aria-label="Primary">
+  <nav class="nav-bar site-frame site-gutter-nav relative flex min-h-[4rem] flex-wrap items-center justify-between gap-x-2 py-2.5 md:min-h-[4.5rem] md:gap-x-4 md:py-3{{ $navLayoutClass }}" aria-label="Primary">
     {{/* Home uses a wide wordmark; inner pages switch to the compact boxed logo treatment. */}}
     <div class="flex items-center gap-3{{ $brandWrapperClass }}">
       {{ if $isHome }}

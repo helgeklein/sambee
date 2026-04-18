@@ -2,11 +2,11 @@
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="{{ $section.id }}">
-  <div class="home-section-header">
+  <div class="home-section-header site-gutter">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="grid gap-x-8 gap-y-7 px-5 py-6 md:grid-cols-2 md:px-8 md:py-10 md:gap-y-9 xl:grid-cols-4">
+  <div class="site-gutter grid gap-x-8 gap-y-7 py-6 md:grid-cols-2 md:py-10 md:gap-y-9 xl:grid-cols-4">
     {{/* Each feature group is a simple title/body pair, keeping the data file lightweight. */}}
     {{ range $section.groups }}
     <article class="flex flex-col gap-2.5">

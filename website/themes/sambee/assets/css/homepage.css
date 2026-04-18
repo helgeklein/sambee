@@ -1,0 +1,306 @@
+/* Purpose: Holds homepage-specific section, component, and typography styles. */
+
+.home-section {
+  --home-section-divider-width: 2px;
+  border-top: var(--home-section-divider-width) solid var(--color-clr-rule-strong);
+  border-bottom: 2px solid var(--color-clr-rule-strong);
+}
+
+.home-section-header {
+  @apply pt-7 pb-3 md:pt-12 md:pb-4;
+  border-bottom: 1px solid var(--color-clr-rule-soft);
+}
+
+.home-section-title {
+  margin: 0;
+  font-family: var(--font-secondary);
+  font-style: italic;
+  font-weight: 700;
+  color: var(--color-clr-text-dark);
+}
+
+.home-section-title--standard {
+  font-size: var(--text-4xl);
+  line-height: 1.08;
+}
+
+.home-section-title--compact {
+  font-size: 2.4rem;
+  line-height: 1.03;
+}
+
+.home-section-title--display {
+  font-size: 2.75rem;
+  line-height: 1.02;
+}
+
+.home-section-title--proof {
+  font-size: 2.85rem;
+  line-height: 0.98;
+}
+
+@media (min-width: theme(--breakpoint-md)) {
+  .home-section-title--standard {
+    font-size: var(--text-5xl);
+  }
+
+  .home-section-title--compact {
+    font-size: 3.4rem;
+  }
+
+  .home-section-title--display {
+    font-size: 3.45rem;
+  }
+
+  .home-section-title--proof {
+    font-size: 4rem;
+  }
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+  .home-section-title--display {
+    font-size: var(--text-6xl);
+  }
+
+  .home-section-title--proof {
+    font-size: 5.1rem;
+  }
+}
+
+.site-main > [data-pagefind-body] > .home-section:first-child,
+.home-section + .home-section {
+  margin-top: calc(var(--home-section-divider-width) * -1);
+}
+
+.site-main > [data-pagefind-body] > .home-section:last-child {
+  margin-bottom: calc(var(--home-section-divider-width) * -1);
+}
+
+.dark .home-section {
+  border-color: var(--color-clr-darkmode-rule-strong);
+}
+
+.dark .home-section-title {
+  color: var(--color-clr-darkmode-text-dark);
+}
+
+.dark .home-section-header {
+  border-color: var(--color-clr-darkmode-rule-soft);
+}
+
+.home-hero-inner {
+  @apply px-5 py-6 md:px-6 lg:px-16 lg:py-12;
+}
+
+.home-hero-content {
+  @apply mx-auto flex max-w-5xl flex-col text-center lg:mx-0 lg:text-left;
+}
+
+.home-hero-kicker {
+  @apply inline-flex items-center justify-center gap-3 text-[0.66rem] text-clr-primary dark:text-clr-darkmode-primary md:text-xs md:tracking-[0.3em] lg:justify-start;
+}
+
+.home-hero-kicker-rule {
+  @apply hidden h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary lg:block;
+}
+
+.home-hero-title {
+  @apply mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold leading-[1] tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:mt-5 md:text-[3.55rem] lg:mt-6 lg:text-7xl;
+}
+
+.home-hero-deck {
+  @apply mx-auto mt-[0.5rem] max-w-4xl font-primary text-[1.28rem] leading-[1.42] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] md:text-[1.55rem] md:leading-[1.48] lg:mx-0 lg:mt-4 lg:text-[28px];
+}
+
+.home-hero-actions {
+  @apply mt-8 flex flex-wrap justify-center gap-3 md:mt-6 md:gap-4 lg:mt-16 lg:justify-start;
+}
+
+.home-hero-cta {
+  @apply w-full justify-center px-6 py-3.5 md:w-auto md:px-10 md:py-5;
+}
+
+.home-hero-cta--link {
+  @apply md:self-center md:px-0;
+}
+
+.home-formats-heading {
+  @apply mb-0 text-[0.78rem];
+}
+
+.home-formats-link {
+  @apply inline-flex items-center gap-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
+}
+
+.home-formats-grid {
+  @apply grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4;
+}
+
+.home-format-card {
+  @apply flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text;
+}
+
+.home-format-card-art {
+  @apply flex items-center justify-center;
+}
+
+.home-format-label {
+  @apply font-tertiary text-[0.6rem] font-bold uppercase tracking-[0.18em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.home-final-cta-panel {
+  @apply relative overflow-hidden bg-clr-surface-inverse py-12 text-center text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:py-20 lg:py-[5.6rem];
+}
+
+.home-final-cta-overlay {
+  @apply absolute inset-0 opacity-[0.22];
+  background-image: repeating-linear-gradient(45deg, rgba(242, 241, 236, 0.14), rgba(242, 241, 236, 0.14) 1px, transparent 1px, transparent 11px);
+}
+
+.home-final-cta-content {
+  @apply relative z-10 mx-auto flex max-w-6xl flex-col items-center;
+}
+
+.home-final-cta-title {
+  @apply mb-7 max-w-[14ch] font-secondary text-[2.8rem] font-bold italic leading-[0.98] tracking-tight text-white dark:text-clr-darkmode-surface-page md:mb-9 md:text-[4rem] lg:text-[5.35rem];
+}
+
+.home-final-cta-actions {
+  @apply flex w-full flex-col items-center justify-center gap-3 md:flex-row md:gap-6;
+}
+
+.home-final-cta-button {
+  @apply min-h-[3.7rem] w-full max-w-none px-6 py-3.5 md:min-h-[5.8rem] md:max-w-[19rem] md:px-8 md:py-5;
+}
+
+.home-final-cta-button--primary {
+  @apply border-[#f2f1ec] bg-clr-action-fill text-clr-action-fill-text hover:bg-[#f2f1ec] hover:text-clr-text-dark;
+}
+
+.home-final-cta-button--secondary {
+  @apply border-[#948773] bg-transparent text-white hover:bg-white/8 dark:border-[#948773] dark:text-clr-darkmode-surface-page;
+}
+
+.home-copy {
+  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
+.home-copy--feature {
+  @apply text-[0.92rem] leading-[1.72];
+}
+
+.home-copy--standard {
+  @apply text-[0.97rem] leading-[1.7];
+}
+
+.home-copy--tight {
+  @apply text-[0.97rem] leading-[1.62];
+}
+
+.home-copy--lead {
+  @apply text-base leading-[1.76];
+}
+
+.home-copy--large {
+  @apply text-[1rem] leading-[1.72] md:text-[1.15rem] md:leading-[1.8];
+}
+
+.home-copy--note {
+  @apply text-[0.95rem] italic leading-[1.85];
+}
+
+.home-copy--deployment {
+  @apply text-[1.02rem] leading-[1.76] md:text-lg;
+}
+
+.home-label {
+  @apply font-tertiary uppercase;
+}
+
+.home-label--ink {
+  @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.home-label--accent {
+  @apply text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.home-label--muted {
+  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
+.home-label--medium {
+  @apply font-medium;
+}
+
+.home-label--bold {
+  @apply font-bold;
+}
+
+.home-label--xs {
+  @apply text-[0.58rem] tracking-[0.18em];
+}
+
+.home-label--sm {
+  @apply text-[0.62rem] tracking-[0.16em];
+}
+
+.home-label--md {
+  @apply text-[0.68rem] tracking-[0.18em];
+}
+
+.home-label--lg {
+  @apply text-[0.76rem] tracking-[0.16em];
+}
+
+.home-benefit-card {
+  @apply flex h-full min-h-0 flex-col justify-between border-b border-clr-rule-soft bg-clr-surface-low p-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[20rem] md:border-r md:p-10;
+}
+
+.home-benefit-marker {
+  @apply font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em] text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.home-benefit-corner {
+  @apply mt-1 block h-4.5 w-4.5 shrink-0 border border-clr-action-fill opacity-45 dark:border-clr-darkmode-action-fill;
+}
+
+.home-benefit-title {
+  @apply font-secondary text-[1.5rem] font-bold italic leading-[1.08] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[1.92rem];
+}
+
+.home-benefit-copy {
+  @apply max-w-none md:max-w-[18rem];
+}
+
+.home-benefit-trail {
+  @apply mt-7 flex items-center gap-2 md:mt-10;
+}
+
+.home-benefit-trail-line {
+  @apply block h-0.5 bg-clr-action-fill/20 dark:bg-clr-darkmode-action-fill/20;
+}
+
+.home-benefit-trail-line--long {
+  @apply w-12;
+}
+
+.home-benefit-trail-line--short {
+  @apply w-2;
+}
+
+.home-problem-card {
+  @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8;
+}
+
+.home-problem-icon {
+  @apply flex h-5 w-5 shrink-0 items-center justify-center;
+}
+
+.home-problem-title {
+  @apply mt-1 font-secondary text-[1.35rem] font-bold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark sm:text-[1.55rem] md:text-[1.7rem];
+}
+
+.home-feature-title {
+  @apply font-tertiary text-[0.76rem] font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}

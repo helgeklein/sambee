@@ -2,7 +2,7 @@
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section bg-clr-surface-low dark:bg-clr-darkmode-surface-low">
-  <div class="px-5 py-7 md:px-8 md:py-8 lg:py-9">
+  <div class="site-gutter py-7 md:py-8 lg:py-9">
     <div class="mb-5 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
       <h2 class="eyebrow eyebrow--strong home-formats-heading">{{ $section.eyebrow }}</h2>
       {{ with $section.supporting_link }}
@@ -12,7 +12,7 @@
     </div>
     <p class="max-w-3xl text-sm leading-[1.7] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.body }}</p>
   </div>
-  <div class="px-5 pb-8 md:px-8 md:pb-9">
+  <div class="site-gutter pb-8 md:pb-9">
     <div class="home-formats-grid">
     {{/* The specimen partial keeps per-format SVG differences in one place. */}}
     {{ range $section.formats }}

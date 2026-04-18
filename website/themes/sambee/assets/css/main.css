@@ -46,7 +46,8 @@
 @import "modal.css";
 
 @import "module-overrides.css";
-@import "custom.css";
+@import "shared.css";
+@import "homepage.css";
 
 /* Code styling */
 @import "code.css";

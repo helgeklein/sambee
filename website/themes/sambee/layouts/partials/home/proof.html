@@ -2,7 +2,7 @@
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section bg-clr-surface-low dark:bg-clr-darkmode-surface-low">
-  <div class="flex flex-col gap-10 px-5 py-8 md:px-8 md:py-14 lg:flex-row lg:items-start lg:gap-16">
+  <div class="site-gutter flex flex-col gap-10 py-8 md:py-14 lg:flex-row lg:items-start lg:gap-16">
     <div class="w-full lg:w-[34%]">
       <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
       <h2 class="home-section-title home-section-title--proof mb-6 max-w-none lg:max-w-[8ch]">{{ $section.title }}</h2>
