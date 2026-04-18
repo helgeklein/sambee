@@ -32,3 +32,4 @@
 
 - End-user docs reside in the directory `documentation`
 - Developer docs reside in the directory `documentation_developers`
+- For dependency update and lockfile workflow details, consult `documentation_developers/DEVELOPMENT.md` before changing pinned or hashed dependencies.

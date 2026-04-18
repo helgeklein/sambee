@@ -1,6 +1,6 @@
 fastapi==0.120.4
 uvicorn[standard]==0.38.0
-python-multipart==0.0.22
+python-multipart==0.0.26
 sqlmodel==0.0.27
 cryptography==46.0.7
 python-jose[cryptography]==3.5.0

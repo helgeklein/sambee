@@ -1,7 +1,4 @@
-/**
- * Navigation Menu Controller
- * Handles mobile menu toggle and submenu interactions
- */
+/* Purpose: Manages the responsive header menu, submenu state, and related keyboard behavior. */
 (function () {
    'use strict';
 

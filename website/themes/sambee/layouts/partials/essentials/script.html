@@ -1,8 +1,10 @@
+{{/* Purpose: Bundles the shared navigation and interaction scripts for every page. */}}
 {{ $scripts := slice }}
 {{ $scripts = $scripts | append (resources.Get "js/navigation.js") }}
 {{ $scripts = $scripts | append (resources.Get "js/main.js") }}
 {{ $scripts = $scripts | resources.Concat "js/script.js" }}
 {{ if hugo.IsProduction }}
-  {{ $scripts = $scripts | minify | fingerprint }}
+  {{ $scripts = $scripts | minify }}
 {{ end }}
-<script defer src="{{ $scripts.RelPermalink }}" {{ if hugo.IsProduction }}integrity="{{ $scripts.Data.Integrity }}"{{ end }}></script>
+{{ $scripts = $scripts | fingerprint }}
+<script defer src="{{ $scripts.RelPermalink }}" integrity="{{ $scripts.Data.Integrity }}"></script>

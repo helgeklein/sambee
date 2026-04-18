@@ -1,0 +1,18 @@
+{{/* Purpose: Closes the homepage with the final call-to-action banner and links. */}}
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell home-section bg-transparent">
+  <div class="relative overflow-hidden bg-clr-surface-inverse px-5 py-12 text-center text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:px-8 md:py-20 lg:px-12 lg:py-[5.6rem]">
+    <div class="absolute inset-0 opacity-[0.22] [background-image:repeating-linear-gradient(45deg,rgba(242,241,236,0.14),rgba(242,241,236,0.14)_1px,transparent_1px,transparent_11px)]" aria-hidden="true"></div>
+    <div class="relative z-10 mx-auto flex max-w-6xl flex-col items-center">
+      <h2 class="mb-7 max-w-[14ch] font-secondary text-[2.8rem] font-bold italic leading-[0.98] tracking-tight text-white dark:text-clr-darkmode-surface-page md:mb-9 md:text-[4rem] lg:text-[5.35rem]">{{ $section.title }}</h2>
+      <div class="flex w-full flex-col items-center justify-center gap-3 md:flex-row md:gap-6">
+      {{ range $index, $cta := $section.ctas }}
+      {{/* The first CTA is visually promoted; later CTAs read as secondary exits. */}}
+      <a class="btn min-h-[3.7rem] w-full max-w-none px-6 py-3.5 md:min-h-[5.8rem] md:max-w-[19rem] md:px-8 md:py-5 {{ if eq $index 0 }}border-[#f2f1ec] bg-clr-action-fill text-clr-action-fill-text hover:bg-[#f2f1ec] hover:text-clr-text-dark{{ else }}border-[#948773] bg-transparent text-white hover:bg-white/8 dark:border-[#948773] dark:text-clr-darkmode-surface-page{{ end }}" href="{{ $cta.href }}">{{ $cta.label }}</a>
+      {{ end }}
+      </div>
+    </div>
+  </div>
+</section>
+{{ end }}

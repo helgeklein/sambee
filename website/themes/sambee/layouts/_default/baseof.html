@@ -1,14 +1,22 @@
+{{/* Purpose: Defines the shared HTML shell used by all website pages. */}}
 {{- $initialTheme := cond (eq site.Params.theme_default "dark") "dark" "" -}}
 <!DOCTYPE html>
 <html lang="{{ site.LanguageCode | default `en-US` }}" class="{{ $initialTheme }}">
 <head>
+  {{/* Shared metadata and compiled CSS are included for every page type. */}}
   {{ partial "essentials/head.html" . }}
   {{ partialCached "essentials/style.html" . }}
 </head>
 <body>
+  {{ if not hugo.IsProduction }}
+  {{/* Development-only Tailwind breakpoint helper. */}}
+  {{ partial "components/tw-size-indicator.html" . }}
+  {{ end }}
+  {{/* Global chrome sits outside the page-specific main content block. */}}
   {{ partial "essentials/header.html" . }}
   {{ partial "search-modal.html" . }}
   <main class="site-main">
+    {{/* Individual layouts fill this slot with page-specific sections. */}}
     {{ block "main" . }}{{ end }}
   </main>
   {{ partial "essentials/footer.html" . }}

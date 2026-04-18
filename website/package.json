@@ -3,14 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "node scripts/themeGenerator.js && hugo server --source . --bind 0.0.0.0 --port 1313 --disableFastRender",
-    "dev:search": "node scripts/themeGenerator.js && hugo --source . --cleanDestinationDir && npx pagefind --site public",
-    "build": "node scripts/themeGenerator.js && hugo --source . --cleanDestinationDir",
-    "preview": "node scripts/themeGenerator.js && hugo server --source . --environment production --disableFastRender",
-    "build:search": "node scripts/themeGenerator.js && hugo --source . --cleanDestinationDir && npx pagefind --site public"
+    "build:theme": "node scripts/themeGenerator.js",
+    "build:site": "hugo --source . --cleanDestinationDir",
+    "build:search-index": "npx pagefind --site public --quiet",
+    "dev": "npm run dev:search && concurrently --kill-others-on-fail --names theme,hugo \"node scripts/themeGenerator.js --watch\" \"hugo server --source . --renderToMemory=false --bind 0.0.0.0 --port 1313 --disableFastRender --navigateToChanged\"",
+    "dev:search": "rm -rf public && npm run build:search",
+    "build": "npm run build:theme && npm run build:site",
+    "preview": "npm run build:search && hugo server --source . --bind 0.0.0.0 --port 1313 --environment production --disableFastRender --navigateToChanged",
+    "build:search": "npm run build && npm run build:search-index"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.18",
+    "chokidar": "^4.0.3",
+    "concurrently": "^9.2.1",
     "pagefind": "^1.4.0",
     "tailwind-bootstrap-grid": "^6.0.0",
     "tailwindcss": "^4.1.18"

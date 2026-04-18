@@ -1,5 +1,6 @@
 +++
 title = "Sambee"
+description = "Browser-based SMB and local-drive access without forcing a cloud-first storage model."
 +++
 
 Sambee provides browser-based access to SMB shares and local drives.
