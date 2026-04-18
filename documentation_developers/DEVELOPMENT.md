@@ -290,13 +290,15 @@ The project uses GitHub Actions for continuous integration. Tests run automatica
 
 ### Dependency Security Checks
 
-CI also runs dependency-specific security checks:
+Dependency security audits run in a dedicated GitHub Actions workflow on a weekly schedule and can also be started manually with `workflow_dispatch`. They do not run on normal pushes or pull requests.
+
+The workflow covers:
 
 - Backend: `pip-audit -r backend/requirements-dev.lock.txt`
 - Frontend and Companion: `npm audit --package-lock-only --omit=dev --audit-level=high`
 - Companion Rust dependencies: `cargo audit`
 
-Run the relevant audit locally before merging dependency updates.
+Run the relevant audit locally before merging dependency updates, especially when changing lockfiles or pinned versions.
 
 ### Local Development with Virtual Environment
 

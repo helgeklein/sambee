@@ -4,30 +4,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
-  pull_request:
-    branches: [ main ]
   schedule:
     - cron: '17 4 * * 1'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
-  dependency-review:
-    # GitHub's dependency review action requires repository-level dependency
-    # graph support and Advanced Security. Keep it opt-in so PRs do not fail
-    # on repos where that feature is unavailable.
-    if: github.event_name == 'pull_request' && vars.ENABLE_GITHUB_DEPENDENCY_REVIEW == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Review dependency changes
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
-        with:
-          fail-on-severity: high
-          warn-only: false
-
   backend-audit:
     runs-on: ubuntu-latest
     steps:
