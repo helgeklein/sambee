@@ -164,6 +164,12 @@ updates:
     labels:
       - dependencies
       - devcontainer
+    exclude-paths:
+      # The devcontainer runtime is pinned and upgraded manually as part of the
+      # repo-wide Python baseline. Do not let Dependabot scan these Docker
+      # manifests and reopen isolated Python runtime PRs.
+      - "Dockerfile"
+      - "docker-compose.yml"
     ignore:
       # Keep the devcontainer interpreter aligned with the reviewed Python
       # baseline. Python version upgrades should be done deliberately across
