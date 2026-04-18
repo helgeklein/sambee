@@ -1,3 +1,5 @@
+/* Purpose: Watches generated website HTML and refreshes the Pagefind search index after changes. */
+
 const { spawn } = require("child_process");
 const path = require("path");
 
@@ -6,6 +8,7 @@ const chokidar = require("chokidar");
 const siteRoot = path.resolve(__dirname, "..");
 const publicRoot = path.join(siteRoot, "public");
 const debounceMs = 500;
+const htmlExtension = ".html";
 
 let debounceTimer = null;
 let isIndexing = false;
@@ -13,6 +16,7 @@ let shouldReindex = false;
 
 function runPagefind() {
    if (isIndexing) {
+      // Queue exactly one follow-up run while the current index refresh is still active.
       shouldReindex = true;
       return;
    }
@@ -45,8 +49,12 @@ function scheduleIndex() {
    debounceTimer = setTimeout(runPagefind, debounceMs);
 }
 
+function isHtmlFile(filePath) {
+   return path.extname(filePath) === htmlExtension;
+}
+
 function handlePublicHtmlEvent(filePath) {
-   if (path.extname(filePath) !== ".html") {
+   if (!isHtmlFile(filePath)) {
       return;
    }
 

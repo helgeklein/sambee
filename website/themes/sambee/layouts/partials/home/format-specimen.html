@@ -1,8 +1,11 @@
+{{/* Purpose: Draws a compact file-type glyph for the homepage supported-formats grid. */}}
 {{ $label := upper .label }}
 <svg class="{{ .class }}" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  {{/* Every glyph starts from the same folded-document silhouette. */}}
   <path d="M9 3.5H19.5L25 9V26.5C25 27.6046 24.1046 28.5 23 28.5H9C7.89543 28.5 7 27.6046 7 26.5V5.5C7 4.39543 7.89543 3.5 9 3.5Z" class="format-sheet" stroke="currentColor" stroke-width="1.5"/>
   <path d="M19 3.5V9.5H25" class="format-fold" stroke="currentColor" stroke-width="1.5"/>
 
+  {{/* Use bespoke marks for common formats; fall back to a text label for the rest. */}}
   {{ if eq $label "PSD" }}
   <text x="10" y="21" class="format-text format-text-wide" fill="currentColor">PSD</text>
   {{ else if eq $label "TIFF" }}

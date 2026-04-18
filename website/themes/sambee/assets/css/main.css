@@ -1,3 +1,4 @@
+/* Purpose: Serves as the main Tailwind and module import entry point for the website theme. */
 @import "tailwindcss";
   /*
   Default breakpoints (https://tailwindcss.com/docs/responsive-design)

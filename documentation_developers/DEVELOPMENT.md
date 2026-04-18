@@ -41,6 +41,16 @@ If you're developing **outside the dev container**, run once:
 - Use `pip install --require-hashes -r requirements-dev.lock.txt` for backend installs. Treat `requirements*.txt` changes as reviewed source, not setup noise.
 - Prefer committed scripts and lockfiles over ad hoc installers or one-off `npx` downloads.
 
+### Backend Dependency Security Updates
+
+When a backend dependency audit fails, update the direct requirement files first and regenerate the lockfiles from those reviewed sources.
+
+- Change the top-level pins in `requirements.txt` and `requirements-dev.txt`, not just the generated `requirements.lock.txt` files.
+- Regenerate `requirements.lock.txt` and `requirements-dev.lock.txt` with `pip-compile --allow-unsafe --generate-hashes ...` so hashes and transitive dependencies stay consistent.
+- If the resolver reports a conflict, treat that as a real compatibility constraint and update the companion package explicitly. Example: upgrading `pytest` to `9.0.3` also required upgrading `pytest-asyncio` because `pytest-asyncio==1.2.0` required `pytest<9`.
+- After regenerating lockfiles, validate with the relevant backend checks, at minimum `pytest -v` and `mypy app`.
+- Do not hand-edit lockfile hashes except as a last resort. Prefer reproducible regeneration from the direct requirement files.
+
 ### Troubleshooting Initial Setup
 
 If you encounter startup issues after opening the dev container:

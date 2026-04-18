@@ -1,18 +1,17 @@
-/*
-   Content typography for blog posts
-   Complements base.css - only adds styles specific to .content area
-*/
+/* Purpose: Defines rich-text typography rules for rendered content blocks. */
 
 .content {
-
   /*
   ==============================
   Headings
   ==============================
   */
 
-  /* Top & bottom margins */
-  h2, h3, h4, h5, h6 {
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     @apply mb-[.75em] mt-[1em];
   }
 
@@ -30,6 +29,7 @@
   Lists
   ==============================
   */
+
   ul {
     list-style-type: disc;
     padding-inline-start: 1.5em;
@@ -86,6 +86,8 @@
   Tables
   ==============================
   */
+
+  /* Tables scroll horizontally instead of forcing narrow viewports to overflow. */
   table {
     width: 100%;
     border-collapse: collapse;
@@ -121,6 +123,7 @@
   Images & Figures
   ==============================
   */
+
   figure {
     margin: var(--content-block-margin) 0;
   }
@@ -163,6 +166,7 @@
   Keyboard Input
   ==============================
   */
+
   kbd {
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.875em;
@@ -203,6 +207,7 @@
   Mark (Highlighted Text)
   ==============================
   */
+
   mark {
     background-color: rgba(0, 204, 158, 0.2);
     padding: 0.1em 0.2em;

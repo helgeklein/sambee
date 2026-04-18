@@ -1,10 +1,12 @@
+{{/* Purpose: Highlights supported file formats using reusable specimen icons. */}}
 {{ $section := .section }}
 {{ if $section.enabled }}
-<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong bg-clr-surface-low dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low">
+<section class="shell-section ledger-shell home-section bg-clr-surface-low dark:bg-clr-darkmode-surface-low">
   <div class="px-5 py-7 md:px-8 md:py-8 lg:py-9">
     <div class="mb-5 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
-      <h2 class="font-tertiary text-[0.78rem] font-bold uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text">{{ $section.eyebrow }}</h2>
+      <h2 class="eyebrow eyebrow--strong mb-0 text-[0.78rem]">{{ $section.eyebrow }}</h2>
       {{ with $section.supporting_link }}
+      {{/* Optional supporting link points to broader format coverage without changing the core grid. */}}
       <a class="inline-flex items-center gap-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text" href="{{ .href }}">{{ .label }}</a>
       {{ end }}
     </div>
@@ -12,6 +14,7 @@
   </div>
   <div class="px-5 pb-8 md:px-8 md:pb-9">
     <div class="grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4">
+    {{/* The specimen partial keeps per-format SVG differences in one place. */}}
     {{ range $section.formats }}
     <article class="flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text" aria-label="{{ .label }} preview support">
       <div class="flex items-center justify-center">

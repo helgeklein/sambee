@@ -1,13 +1,15 @@
+{{/* Purpose: Shows proof points and support status markers for the homepage narrative. */}}
 {{ $section := .section }}
 {{ if $section.enabled }}
-<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong bg-clr-surface-low dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low">
+<section class="shell-section ledger-shell home-section bg-clr-surface-low dark:bg-clr-darkmode-surface-low">
   <div class="flex flex-col gap-10 px-5 py-8 md:px-8 md:py-14 lg:flex-row lg:items-start lg:gap-16">
     <div class="w-full lg:w-[34%]">
-      <span class="eyebrow">{{ $section.eyebrow }}</span>
-      <h2 class="mb-6 max-w-none font-secondary text-[2.85rem] font-bold italic leading-[0.98] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[4rem] lg:max-w-[8ch] lg:text-[5.1rem]">{{ $section.title }}</h2>
+      <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
+      <h2 class="home-section-title home-section-title--proof mb-6 max-w-none lg:max-w-[8ch]">{{ $section.title }}</h2>
       <p class="max-w-sm text-base leading-[1.76] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.body }}</p>
     </div>
     <div class="w-full lg:w-[66%]">
+      {{/* Evidence items stay deliberately terse so the supporting categories are scannable. */}}
       <div class="grid gap-x-8 gap-y-7 sm:grid-cols-2 md:gap-y-8 lg:gap-x-12 lg:gap-y-10">
         {{ range $section.items }}
         <div class="flex flex-col gap-3">

@@ -1,13 +1,15 @@
+{{/* Purpose: Shows the homepage benefits grid sourced from structured content data. */}}
 {{ $section := .section }}
 {{ if $section.enabled }}
 {{ $count := len $section.items }}
-<section class="shell-section ledger-shell border-t-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong" id="features-overview">
-  <div class="max-w-3xl border-b border-clr-rule-soft px-5 py-7 dark:border-clr-darkmode-rule-soft md:px-8 md:py-12 lg:px-8 lg:py-14">
-    <span class="eyebrow">{{ $section.eyebrow }}</span>
-    <h2 class="font-secondary text-4xl font-bold italic text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-5xl">{{ $section.title }}</h2>
+<section class="shell-section ledger-shell home-section" id="features-overview">
+  <div class="home-section-header max-w-3xl px-5 py-7 md:px-8 md:py-12 lg:px-8 lg:py-14">
+    <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
+    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="grid gap-0 border-t-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong md:grid-cols-2 xl:grid-cols-3">
+  <div class="grid gap-0 md:grid-cols-2 xl:grid-cols-3">
     {{ range $index, $item := $section.items }}
+    {{/* Border rules depend on card position so the grid stays visually balanced across breakpoints. */}}
     {{ $position := add $index 1 }}
     {{ $isLast := eq $position $count }}
     {{ $isEveryThird := eq (mod $position 3) 0 }}

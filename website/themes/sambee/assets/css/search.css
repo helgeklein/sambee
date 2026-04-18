@@ -1,11 +1,11 @@
-/*
- * Search Modal Styles
- *
- * Custom search UI with Pagefind backend.
- * Matches theme design language.
- */
+/* Purpose: Styles the search modal and Pagefind result list UI. */
 
-/* Modal overlay and container */
+/*
+==============================
+Modal Shell
+==============================
+*/
+
 .search-modal {
   position: fixed;
   inset: 0;
@@ -27,7 +27,6 @@
   backdrop-filter: blur(2px);
 }
 
-/* Search wrapper */
 .search-wrapper {
   position: relative;
   z-index: 1;
@@ -52,7 +51,12 @@
   }
 }
 
-/* Search header with input */
+/*
+==============================
+Search Input Area
+==============================
+*/
+
 .search-wrapper-header {
   position: relative;
   padding: 16px;
@@ -120,7 +124,12 @@
   }
 }
 
-/* Search body with results */
+/*
+==============================
+Results Container
+==============================
+*/
+
 .search-wrapper-body {
   flex: 1;
   overflow-y: auto;
@@ -133,7 +142,6 @@
   }
 }
 
-/* Empty state */
 .search-empty {
   display: flex;
   align-items: center;
@@ -163,7 +171,6 @@
   }
 }
 
-/* Search results */
 .search-results {
   display: flex;
   flex-direction: column;
@@ -200,7 +207,6 @@
   }
 }
 
-/* Result image */
 .search-result-image {
   flex-shrink: 0;
   width: 80px;
@@ -225,7 +231,6 @@
   }
 }
 
-/* Result body */
 .search-result-body {
   flex: 1;
   min-width: 0;
@@ -265,7 +270,12 @@
   }
 }
 
-/* Search footer */
+/*
+==============================
+Footer And Metadata
+==============================
+*/
+
 .search-wrapper-footer {
   padding: 8px 16px;
   font-size: 12px;
@@ -327,7 +337,12 @@
   }
 }
 
-/* Load more button */
+/*
+==============================
+Progressive Loading
+==============================
+*/
+
 .search-load-more {
   display: block;
   width: 100%;

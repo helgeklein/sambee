@@ -1,15 +1,18 @@
+{{/* Purpose: Chooses the correct documentation list layout for overview, version, and book pages. */}}
 {{ define "main" }}
 {{ $currentVersion := hugo.Data.docs_versions.current }}
 {{ $navData := index hugo.Data.docs_nav $currentVersion }}
 
+{{/* Top-level docs landing page. */}}
 {{ if and (not .Params.product_version) (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="eyebrow">Documentation</span>
+    <span class="eyebrow eyebrow--stacked">Documentation</span>
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ with $navData }}
+  {{/* The current docs_nav data file is the source of truth for which books exist. */}}
   <div class="ledger-cards book-grid">
     {{ range .books }}
     <article class="docs-card">
@@ -21,15 +24,17 @@
   </div>
   {{ end }}
 </section>
+{{/* Version landing page that lists all books in one release. */}}
 {{ else if and .Params.product_version (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="eyebrow">Version {{ .Params.product_version }}</span>
+    <span class="eyebrow eyebrow--stacked">Version {{ .Params.product_version }}</span>
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ $versionNav := index hugo.Data.docs_nav .Params.product_version }}
   {{ with $versionNav }}
+  {{/* A version page lists every book available in that release. */}}
   <div class="ledger-cards book-grid">
     {{ range .books }}
     <article class="docs-card">
@@ -41,9 +46,11 @@
   </div>
   {{ end }}
 </section>
+{{/* Book landing page that shows the sidebar and version switcher. */}}
 {{ else if and .Params.product_version .Params.book }}
 <section class="docs-shell ledger-grid-rail">
   <aside class="docs-sidebar">
+    {{/* Book landing pages reuse the same sidebar tree as article pages. */}}
     {{ partial "docs/sidebar.html" . }}
   </aside>
   <article class="docs-content">
@@ -57,6 +64,7 @@
   </article>
 </section>
 {{ else }}
+{{/* Fallback for docs content that does not fit the usual hierarchy. */}}
 <section class="shell-section ledger-shell">
   <article class="docs-content">
     <h1>{{ .Title }}</h1>

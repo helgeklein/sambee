@@ -1,3 +1,4 @@
+{{/* Purpose: Bundles the shared navigation and interaction scripts for every page. */}}
 {{ $scripts := slice }}
 {{ $scripts = $scripts | append (resources.Get "js/navigation.js") }}
 {{ $scripts = $scripts | append (resources.Get "js/main.js") }}
