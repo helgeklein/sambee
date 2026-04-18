@@ -170,7 +170,7 @@ jobs:
         node-version: '20'
 
     - name: Cache node_modules
-      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       id: node-cache
       with:
         path: frontend/node_modules
@@ -214,7 +214,7 @@ jobs:
         components: clippy, rustfmt
 
     - name: Cache Rust build artifacts
-      uses: Swatinem/rust-cache@f51f967e158417aafa338a1e46ab22095f07aa01
+      uses: Swatinem/rust-cache@469cb0e24707e1f169c4501c23d77da83a83fce8
       with:
         workspaces: companion/src-tauri -> target
 
@@ -230,7 +230,7 @@ jobs:
         node-version: '20'
 
     - name: Cache node_modules
-      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       id: companion-node-cache
       with:
         path: companion/node_modules
