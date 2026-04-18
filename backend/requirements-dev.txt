@@ -4,7 +4,7 @@ pytest-cov==7.0.0
 pytest-xdist==3.6.1
 black==26.3.1
 ruff==0.14.3
-mypy==1.18.2
+mypy==1.20.1
 httpx==0.28.1
 faker==37.12.0
 ipython==9.6.0

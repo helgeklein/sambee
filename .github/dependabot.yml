@@ -28,9 +28,30 @@ updates:
       - dependencies
       - python
     groups:
-      backend-python:
+      backend-python-dev-tools:
+        patterns:
+          - "black"
+          - "faker"
+          - "httpx"
+          - "ipython"
+          - "mypy"
+          - "pytest"
+          - "pytest-*"
+          - "rich"
+          - "ruff"
+      backend-python-runtime:
         patterns:
           - "*"
+        exclude-patterns:
+          - "black"
+          - "faker"
+          - "httpx"
+          - "ipython"
+          - "mypy"
+          - "pytest"
+          - "pytest-*"
+          - "rich"
+          - "ruff"
 
   - package-ecosystem: npm
     directory: "/frontend"
