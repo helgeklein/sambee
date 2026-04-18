@@ -39,6 +39,12 @@ updates:
           - "pytest-*"
           - "rich"
           - "ruff"
+      backend-python-smbprotocol:
+        patterns:
+          - "smbprotocol"
+      backend-python-pyvips:
+        patterns:
+          - "pyvips"
       backend-python-runtime:
         patterns:
           - "*"
@@ -48,10 +54,12 @@ updates:
           - "httpx"
           - "ipython"
           - "mypy"
+          - "pyvips"
           - "pytest"
           - "pytest-*"
           - "rich"
           - "ruff"
+          - "smbprotocol"
 
   - package-ecosystem: npm
     directory: "/frontend"
