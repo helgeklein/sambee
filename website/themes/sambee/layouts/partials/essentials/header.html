@@ -3,7 +3,7 @@
 {{ $headerMarginClass := "mb-6 lg:mb-10" }}
 {{ $navLayoutClass := "" }}
 {{ $brandWrapperClass := "" }}
-{{ $menuClass := " lg:ml-6 lg:mr-auto lg:gap-1" }}
+{{ $menuClass := "" }}
 {{ $actionsWrapperClass := "order-1 ml-auto flex items-center gap-2 md:order-2 lg:ml-0 lg:gap-0" }}
 
 {{/* Derive the few class differences between the homepage masthead and inner-page header. */}}
@@ -11,7 +11,7 @@
   {{ $headerMarginClass = "mb-0" }}
   {{ $navLayoutClass = " lg:min-h-[3.9rem] lg:py-2.5" }}
   {{ $brandWrapperClass = " lg:gap-0" }}
-  {{ $menuClass = " lg:ml-auto lg:mr-5 lg:gap-4" }}
+  {{ $menuClass = " lg:gap-4" }}
 {{ end }}
 
 <header class="sticky top-0 z-30 border-b-2 border-clr-rule-strong bg-clr-surface-page dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page {{ $headerMarginClass }}">
