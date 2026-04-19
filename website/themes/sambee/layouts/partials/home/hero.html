@@ -2,21 +2,19 @@
 {{ $hero := .hero }}
 {{ if $hero.enabled }}
 <section class="shell-section ledger-shell home-section">
-  <div class="px-5 py-6 md:px-6 lg:px-16 lg:py-12">
-    <div class="mx-auto flex max-w-5xl flex-col text-center lg:mx-0 lg:text-left">
-      {{/* Allow content data to use either the older eyebrow key or the newer kicker key. */}}
-      <span class="eyebrow eyebrow--stacked inline-flex items-center justify-center gap-3 text-[0.66rem] text-clr-primary dark:text-clr-darkmode-primary md:text-xs md:tracking-[0.3em] lg:justify-start">
-        <span class="hidden h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary lg:block" aria-hidden="true"></span>
-        {{ with $hero.kicker }}{{ . }}{{ else }}{{ $hero.eyebrow }}{{ end }}
+  <div class="home-hero-inner">
+    <div class="home-hero-content">
+      <span class="eyebrow eyebrow--stacked home-hero-kicker">
+        <span class="home-hero-kicker-rule" aria-hidden="true"></span>
+        {{ $hero.kicker }}
       </span>
-      <h1 class="mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold leading-[1] tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:mt-5 md:text-[3.55rem] lg:mt-6 lg:text-7xl">{{ $hero.title }}</h1>
-      {{/* The long-form intro likewise accepts a newer deck field or the original body field. */}}
-      <p class="mx-auto mt-[0.5rem] max-w-4xl font-primary text-[1.28rem] leading-[1.42] text-clr-text-light italic tracking-[-0.1rem] dark:text-clr-darkmode-text-light md:mt-[0.3rem] md:text-[1.55rem] md:leading-[1.48] lg:mx-0 lg:mt-4 lg:text-[28px]">{{ with $hero.deck }}{{ . }}{{ else }}{{ $hero.body }}{{ end }}</p>
+      <h1 class="home-hero-title">{{ $hero.title }}</h1>
+      <p class="home-hero-subtitle">{{ $hero.subtitle }}</p>
       {{ with $hero.ctas }}
       {{/* CTA styling stays data-driven so the section can mix button treatments without duplicating markup. */}}
-      <div class="mt-8 flex flex-wrap justify-center gap-3 md:mt-6 md:gap-4 lg:mt-16 lg:justify-start">
+      <div class="home-hero-actions">
         {{ range . }}
-        <a class="btn {{ if eq .kind "primary" }}btn-bg-secondary px-6 py-3.5 md:w-auto md:px-10 md:py-5{{ else if eq .kind "secondary" }}btn-outline-secondary px-6 py-3.5 md:w-auto md:px-10 md:py-5{{ else }}btn-link-secondary px-6 py-3.5 md:w-auto md:self-center md:px-0 md:py-5{{ end }} w-full justify-center" href="{{ .href }}">{{ .label }}</a>
+        <a class="btn home-hero-cta {{ if eq .kind "primary" }}btn-bg-secondary{{ else if eq .kind "secondary" }}btn-outline-secondary{{ else }}btn-link-secondary home-hero-cta--link{{ end }}" href="{{ .href }}">{{ .label }}</a>
         {{ end }}
       </div>
       {{ end }}

@@ -2,18 +2,40 @@
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="{{ $section.id }}">
-  <div class="home-section-header max-w-3xl px-6 py-8 lg:px-8">
+  <div class="home-section-header site-gutter">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="grid gap-x-8 gap-y-7 px-5 py-6 md:grid-cols-2 md:px-8 md:py-10 md:gap-y-9 xl:grid-cols-4">
-    {{/* Each feature group is a simple title/body pair, keeping the data file lightweight. */}}
-    {{ range $section.groups }}
-    <article class="flex flex-col gap-2.5">
-      <h3 class="font-tertiary text-[0.76rem] font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ .title }}</h3>
-      <p class="text-[0.92rem] leading-[1.72] text-clr-text-light dark:text-clr-darkmode-text-light">{{ .body }}</p>
-    </article>
-    {{ end }}
+  <div class="home-features-panel site-gutter">
+    <div class="home-features-ledger">
+      {{ $featureIndex := 0 }}
+      {{ range $group := $section.groups }}
+      <article class="home-feature-ledger">
+        <div class="home-feature-ledger-grid">
+          <div class="home-feature-summary">
+            <h3 class="home-feature-heading">{{ $group.title }}</h3>
+            {{ with $group.summary }}
+            <p class="home-feature-summary-copy">{{ . }}</p>
+            {{ end }}
+          </div>
+          {{ with $group.items }}
+          <ol class="home-feature-items" aria-label="{{ $group.title }} details">
+            {{ range $item := . }}
+            {{ $featureIndex = add $featureIndex 1 }}
+            <li class="home-feature-item">
+              <span class="home-feature-index">{{ printf "%02d." $featureIndex }}</span>
+              <div class="home-feature-item-copy">
+                <h4 class="home-feature-item-title">{{ $item.title }}</h4>
+                <p class="home-feature-item-body">{{ $item.body }}</p>
+              </div>
+            </li>
+            {{ end }}
+          </ol>
+          {{ end }}
+        </div>
+      </article>
+      {{ end }}
+    </div>
   </div>
 </section>
 {{ end }}

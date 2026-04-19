@@ -66,21 +66,35 @@ Deploy with Docker, place it behind your reverse proxy, and connect it to the SM
 
 ## Feature Section
 
-### Access and navigate
-
-Connect to SMB shares and, with Sambee Companion, local drives. Move quickly through directories with fast search, keyboard navigation, optional dual-pane layouts, and instant navigation to any directory.
-
-### Preview and review
-
-Open files in the browser before downloading them. Review images, search PDFs, and read or edit Markdown without switching tools.
-
-### Manage files
-
-Copy, move, rename, delete, create folders, upload files, and download what you need from one UI.
-
-### Continue work in desktop apps
-
-Sambee Companion lets you open files in native desktop apps and bring changes back into Sambee.
+- Access
+	- SMB shares
+	- Local drives with the companion app
+- Navigate
+	- Single-pane and dual-pane layouts
+	- Efficient keyboard navigation
+	- Instant navigation to any directory
+- Preview
+	- Fast swiping through images
+	- Feels native on desktop and mobile
+	- PDF search
+- Markdown
+	- First-class Markdown support
+	- View and edit
+	- WYSIWYG editing
+- File management
+	- Rename, delete, upload, and download files and folders
+	- Copy and move between local drives and SMB shares
+- Edit in desktop apps
+	- Native editing via the companion app
+	- Upload-back workflow
+	- Conflict handling and recovery
+- UI themes
+	- Adjust the appearance of the UI
+	- Friendly light and dark themes included
+- Speed and efficiency
+	- Optimized SMB protocol implementation
+	- Low resource requirements
+	- On-the-fly format conversions
 
 ## Supported Formats
 

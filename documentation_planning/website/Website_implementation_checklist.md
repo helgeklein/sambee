@@ -125,7 +125,7 @@ It assumes:
 
 ## Phase 3: Shared Layout Primitives
 
-- [x] Replace the current rounded-card utility patterns in `website/themes/sambee/assets/css/custom.css` with reusable ledger primitives for:
+- [x] Replace the current rounded-card utility patterns in `website/themes/sambee/assets/css/shared.css` with reusable ledger primitives for:
   - section shells
   - eyebrow labels
   - rule-based dividers

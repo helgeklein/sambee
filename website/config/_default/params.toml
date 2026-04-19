@@ -1,6 +1,6 @@
 description = "Browser-based SMB and local-drive access with versioned product documentation."
-theme_default = "light"
-theme_switcher = false
+theme_default = "system"
+theme_switcher = true
 
 [search]
 enable = true

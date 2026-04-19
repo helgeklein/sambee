@@ -1,0 +1,7 @@
+current = "1.0"
+
+[[versions]]
+slug = "1.0"
+label = "1.0"
+status = "current"
+searchable = true

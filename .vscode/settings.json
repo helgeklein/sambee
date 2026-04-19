@@ -69,6 +69,15 @@
   "files.exclude": {
     "**/.vscode": false
   },
+  "files.associations": {
+    "website/themes/sambee/assets/css/*.css": "tailwindcss"
+  },
+  "tailwindCSS.experimental.configFile": {
+    "website/themes/sambee/assets/css/main.css": "website/themes/sambee/assets/css/**"
+  },
+  "css.validate": false,
+  "less.validate": false,
+  "scss.validate": false,
   // File Watching Optimizations
   "files.watcherExclude": {
     "**/__pycache__/**": true,

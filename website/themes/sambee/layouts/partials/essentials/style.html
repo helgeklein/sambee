@@ -7,6 +7,7 @@
 {{ $tf := hugo.Data.theme.fonts.font_family.tertiary }}
 {{ $fontUrl := printf "https://fonts.googleapis.com/css2?family=%s%s%s&display=swap" ($pf | safeURL) (cond (ne $sf "") (printf "&family=%s" ($sf | safeURL)) "") (cond (ne $tf "") (printf "&family=%s" ($tf | safeURL)) "") }}
 <link rel="stylesheet" href="{{ $fontUrl }}" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" />
 
 {{ $mainCSS := resources.Get "css/main.css" }}
 {{ $tailwindCSS := $mainCSS | css.TailwindCSS (dict "inlineImports" true) }}

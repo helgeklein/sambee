@@ -302,21 +302,35 @@ This section should group features by user task, not by subsystem.
 
 Recommended groups:
 
-- Access and navigate
-  - SMB shares and local drives
-  - single-pane and dual-pane layouts
-  - keyboard navigation
-  - instant navigation to any directory
-- Preview and review
-  - image gallery and viewer controls
+- Access
+  - SMB shares
+  - Local drives
+- Navigate
+  - Single-pane and dual-pane layouts
+  - Efficient keyboard navigation
+  - Instant navigation to any directory
+- Preview
+  - Fast swiping through images
+  - Feels native on desktop and mobile
   - PDF search
-  - Markdown viewing and editing
-- Manage files
-  - copy, move, rename, delete, create folder, upload, download
-- Continue work in desktop apps
-  - native editing via Companion
-  - upload-back workflow
-  - conflict handling and recovery
+- Markdown
+  - First-class Markdown support
+  - View and edit
+  - WYSIWYG editing
+- File managment
+  - File and folder rename, delete, upload, download
+  - Copy/move between local drives and SMB sahres
+- Edit in desktop apps
+  - Native editing via Companion
+  - Upload-back workflow
+  - Conflict handling and recovery
+- UI themes
+  - Adjust the appeareance of the UI
+  - Friendly light and dark themes included
+- Speed & efficiency
+  - Optimized SMB protocol implementation
+  - Low resource requirements
+  - On-the-fly format conversions
 
 Editorial note:
 

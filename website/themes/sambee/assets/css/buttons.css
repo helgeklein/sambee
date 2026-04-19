@@ -11,7 +11,8 @@ Base Buttons
 }
 
 .btn-sm {
-  @apply px-4 py-2 text-[0.68rem];
+  font-size: var(--font-size-label-sm);
+  @apply px-4 py-2;
 }
 
 /*

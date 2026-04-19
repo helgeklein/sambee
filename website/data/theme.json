@@ -1,0 +1,110 @@
+{
+  "colors": {
+    "default": {
+      "theme_color": {
+        "primary": "#7c5800",
+        "secondary": "#7c5800",
+        "body": "#fbf9f4",
+        "border": "#d4c4ae",
+        "light": "#f5f3ee",
+        "dark": "#1b1c19",
+        "code-block-background": "#f5f3ee",
+        "code-inline-background": "#f0eee9"
+      },
+      "text_color": {
+        "text": "#1b1c19",
+        "text_dark": "#1b1c19",
+        "text_light": "#504535"
+      },
+      "surface_color": {
+        "page": "#fbf9f4",
+        "base": "#fbf9f4",
+        "low": "#f5f3ee",
+        "mid": "#f0eee9",
+        "high": "#eae8e3",
+        "inverse": "#1b1c19"
+      },
+      "rule_color": {
+        "soft": "#d4c4ae",
+        "strong": "#827562"
+      },
+      "action_color": {
+        "fill": "#ebb035",
+        "fill_text": "#624500",
+        "text": "#7c5800"
+      },
+      "status_color": {
+        "note": "#1b1c19",
+        "tip": "#7c5800",
+        "info": "#006496",
+        "warning": "#ebb035",
+        "danger": "#ba1a1a"
+      }
+    },
+    "darkmode": {
+      "theme_color": {
+        "primary": "#f9bc41",
+        "secondary": "#f9bc41",
+        "body": "#1b1c19",
+        "border": "#504535",
+        "light": "#24231f",
+        "dark": "#f2f1ec",
+        "code-inline-background": "#2b2925",
+        "code-block-background": "#24231f"
+      },
+      "text_color": {
+        "text": "#d4c4ae",
+        "text_dark": "#f2f1ec",
+        "text_light": "#9c8f7a"
+      },
+      "surface_color": {
+        "page": "#1b1c19",
+        "base": "#1b1c19",
+        "low": "#24231f",
+        "mid": "#2b2925",
+        "high": "#302e2a",
+        "inverse": "#f2f1ec"
+      },
+      "rule_color": {
+        "soft": "#3b3935",
+        "strong": "#504535"
+      },
+      "action_color": {
+        "fill": "#f9bc41",
+        "fill_text": "#422d00",
+        "text": "#f9bc41"
+      },
+      "status_color": {
+        "note": "#f2f1ec",
+        "tip": "#f9bc41",
+        "info": "#91ccff",
+        "warning": "#f9bc41",
+        "danger": "#ffb4ab"
+      }
+    }
+  },
+  "fonts": {
+    "font_family": {
+      "primary": "Work Sans:wght@400;500;600;700",
+      "secondary": "Newsreader:opsz,wght@6..72,400..800",
+      "tertiary": "Space Grotesk:wght@400;500;700"
+    },
+    "font_family_type": {
+      "primary": "sans-serif",
+      "secondary": "serif",
+      "tertiary": "sans-serif"
+    },
+    "font_size": {
+      "base": "16",
+      "scale_sm": "0.9"
+    },
+    "heading_sizes": {
+      "h1": "4.5rem",
+      "h2": "3rem",
+      "h3": "2rem",
+      "h4": "1.5rem",
+      "h5": "1rem",
+      "h6": "0.875rem"
+    }
+  }
+}

@@ -18,8 +18,79 @@ Header Controls
 ==============================
 */
 
+.nav-header {
+   @apply sticky top-0 z-30 border-b-2 border-clr-rule-strong bg-clr-surface-page dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page;
+   @apply mb-6 lg:mb-10;
+}
+
+.nav-header--home {
+   @apply mb-0;
+}
+
+.nav-bar {
+   @apply relative flex min-h-[4rem] flex-wrap items-center justify-between gap-x-2 py-2.5 md:min-h-[4.5rem] md:gap-x-4 md:py-3;
+}
+
+.nav-bar--home {
+   @apply lg:min-h-[3.9rem] lg:py-2.5;
+}
+
+.nav-brand {
+   @apply flex items-center gap-3;
+}
+
+.nav-brand--home {
+   @apply lg:gap-0;
+}
+
+.nav-brand-link {
+   color: inherit;
+   text-decoration: none;
+}
+
+.nav-brand-link--home {
+   @apply flex items-center gap-2 md:gap-2.5 lg:gap-3;
+}
+
+.nav-brand-mark {
+   @apply flex h-8 w-8 items-center justify-center md:h-10 md:w-10;
+}
+
+.nav-brand-mark-icon {
+   @apply h-8 w-8 md:h-10 md:w-10;
+}
+
+.nav-brand-box {
+   @apply flex h-12 w-12 items-center justify-center border border-clr-rule-strong bg-clr-surface-low px-2 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
+}
+
+.nav-brand-logo-link {
+   @apply block flex h-full w-full items-center justify-center text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.nav-brand-meta {
+   @apply hidden lg:flex lg:flex-col lg:gap-0.5;
+}
+
+.nav-brand-title {
+   @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.nav-brand-title--home {
+   @apply font-tertiary text-[1rem] font-bold uppercase tracking-[0.005em] md:text-lg lg:text-[1.52rem] lg:tracking-[-0.015em];
+}
+
+.nav-brand-title--docs {
+   @apply font-secondary text-xl font-bold italic leading-none;
+}
+
 .nav-brand-kicker {
-   @apply font-tertiary text-[0.62rem] uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
+   font-size: var(--font-size-label-xs);
+   @apply font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.nav-actions {
+   @apply order-1 ml-auto flex items-center gap-2 md:order-2 lg:ml-0 lg:gap-0;
 }
 
 .nav-toggle {
@@ -144,9 +215,13 @@ body.nav-menu-open {
       background: transparent;
       gap: 0.25rem;
       order: 1;
-      margin-left: 1.5rem;
+      margin-left: 2.5rem;
       margin-right: auto;
       border-top: none;
+   }
+
+   .nav-menu--home {
+      gap: 1rem;
    }
 
    body.nav-menu-open {
@@ -287,7 +362,8 @@ Submenus
 }
 
 .nav-submenu-heading {
-   @apply block font-tertiary text-[0.7rem] uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light;
+   font-size: var(--font-size-label-sm);
+   @apply block font-tertiary uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light;
    padding: 0.75rem 1.25rem 0.25rem;
 }
 
@@ -383,27 +459,83 @@ Submenus
 }
 
 .theme-switcher {
-   @apply inline-flex items-center;
+   display: inline-flex;
+   align-items: center;
    min-width: 2.5rem;
    min-height: 1.5rem;
 }
 
+.nav-theme-switcher {
+   @apply ml-1;
+}
+
+.nav-search-button {
+   @apply inline-flex cursor-pointer items-center justify-center text-clr-text-dark transition-colors duration-200;
+   @apply hover:text-clr-action-text dark:text-clr-darkmode-text-dark dark:hover:text-clr-darkmode-action-text;
+   min-width: 1.25rem;
+   min-height: 1.25rem;
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+   .nav-search-button {
+      @apply mr-5 border-r border-clr-rule-strong pr-5 dark:border-clr-darkmode-rule-strong;
+      font-size: theme('fontSize.xl');
+      line-height: theme('fontSize.xl[1].lineHeight');
+   }
+
+   .nav-search-button--solo {
+      @apply mr-0 border-r-0 pr-0;
+   }
+
+   .nav-theme-switcher {
+      @apply ml-0 mr-5;
+   }
+}
+
 .theme-switcher label {
-   @apply bg-clr-rule-soft relative inline-block h-4 cursor-pointer;
-   @apply w-6 lg:w-10;
+   border-radius: 9999px;
+   position: relative;
+   display: inline-block;
+   width: 1.5rem;
+   height: 1rem;
+   cursor: pointer;
+   background-color: var(--color-clr-rule-soft);
 }
 
 .theme-switcher input {
-   @apply absolute opacity-0;
+   position: absolute;
+   opacity: 0;
 }
 
 .theme-switcher span {
-   @apply bg-clr-text-dark dark:bg-clr-darkmode-text-dark;
-   @apply absolute -top-1 left-0 flex h-6 w-6 items-center justify-center;
-   @apply transition-all duration-300;
+   border-radius: 9999px;
+   position: absolute;
+   top: -0.25rem;
+   left: 0;
+   display: flex;
+   width: 1.5rem;
+   height: 1.5rem;
+   align-items: center;
+   justify-content: center;
+   background-color: var(--color-clr-text-dark);
+   transition: all 300ms var(--default-transition-timing-function);
 }
 
 .theme-switcher input:checked + label span {
-   @apply lg:left-4;
+   left: 1rem;
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+   .theme-switcher label {
+      width: 2.5rem;
+   }
+
+   .theme-switcher input:checked + label span {
+      left: 1rem;
+   }
+}
+
+.dark .theme-switcher span {
+   background-color: var(--color-clr-darkmode-text-dark);
 }
 

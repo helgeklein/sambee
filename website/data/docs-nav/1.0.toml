@@ -1,0 +1,26 @@
+[[books]]
+slug = "end-user"
+title = "End-User"
+landing_doc_id = "end-user-index"
+
+  [[books.sections]]
+  title = "Getting Started"
+  doc_ids = ["install"]
+
+[[books]]
+slug = "admin"
+title = "Admin"
+landing_doc_id = "admin-index"
+
+  [[books.sections]]
+  title = "Configuration"
+  doc_ids = ["configuration"]
+
+[[books]]
+slug = "developer"
+title = "Developer"
+landing_doc_id = "developer-index"
+
+  [[books.sections]]
+  title = "Architecture"
+  doc_ids = ["architecture"]

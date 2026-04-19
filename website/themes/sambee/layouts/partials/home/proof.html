@@ -2,24 +2,24 @@
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section bg-clr-surface-low dark:bg-clr-darkmode-surface-low">
-  <div class="flex flex-col gap-10 px-5 py-8 md:px-8 md:py-14 lg:flex-row lg:items-start lg:gap-16">
+  <div class="site-gutter flex flex-col gap-10 py-8 md:py-14 lg:flex-row lg:items-start lg:gap-16">
     <div class="w-full lg:w-[34%]">
       <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
       <h2 class="home-section-title home-section-title--proof mb-6 max-w-none lg:max-w-[8ch]">{{ $section.title }}</h2>
-      <p class="max-w-sm text-base leading-[1.76] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.body }}</p>
+      <p class="home-copy home-copy--lead max-w-sm">{{ $section.body }}</p>
     </div>
     <div class="w-full lg:w-[66%]">
       {{/* Evidence items stay deliberately terse so the supporting categories are scannable. */}}
       <div class="grid gap-x-8 gap-y-7 sm:grid-cols-2 md:gap-y-8 lg:gap-x-12 lg:gap-y-10">
         {{ range $section.items }}
         <div class="flex flex-col gap-3">
-          <span class="border-t border-clr-rule-soft pt-4 font-tertiary text-[0.62rem] uppercase tracking-[0.16em] text-clr-action-text dark:border-clr-darkmode-rule-soft dark:text-clr-darkmode-action-text">{{ .category }}</span>
-          <strong class="font-tertiary text-[0.95rem] uppercase tracking-[0.1em] text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ .label }}</strong>
+          <span class="home-label home-label--sm home-label--accent border-t border-clr-rule-soft pt-4 dark:border-clr-darkmode-rule-soft">{{ .category }}</span>
+          <strong class="home-label home-label--ink text-[0.95rem] tracking-[0.1em]">{{ .label }}</strong>
         </div>
         {{ end }}
       </div>
       <div class="mt-10 flex flex-col items-start gap-3 border-t border-clr-rule-soft pt-6 dark:border-clr-darkmode-rule-soft md:mt-14 md:flex-row md:items-center md:justify-between md:gap-0">
-        <span class="font-tertiary text-[0.58rem] font-bold uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.status_label }}</span>
+        <span class="home-label home-label--xs home-label--bold home-label--muted">{{ $section.status_label }}</span>
         <div class="flex gap-1.5" aria-hidden="true"><span class="block h-1.5 w-1.5 bg-clr-action-fill dark:bg-clr-darkmode-action-fill"></span><span class="block h-1.5 w-1.5 bg-clr-action-fill opacity-40 dark:bg-clr-darkmode-action-fill"></span><span class="block h-1.5 w-1.5 bg-clr-action-fill opacity-15 dark:bg-clr-darkmode-action-fill"></span></div>
       </div>
     </div>

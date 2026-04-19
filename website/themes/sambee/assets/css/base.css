@@ -20,6 +20,15 @@ Variables
   --code-font-size: 0.875em;
   /* Shared bottom margin for block content such as lists, tables, and pre blocks. */
   --content-block-margin: 0.875em;
+  /* Shared text scale for semantic component classes. */
+  --font-size-copy-sm: 0.875rem;
+  --font-size-copy-base: 1rem;
+  --font-size-label-xs: 0.625rem;
+  --font-size-label-sm: 0.75rem;
+  /* Shared line-height scale for semantic component classes. */
+  --line-height-copy-base: 1.5;
+  --line-height-heading-tight: 1.1;
+  --line-height-heading-normal: 1.3;
 }
 
 /*
@@ -32,6 +41,7 @@ Smooth scrolling stays disabled until JavaScript restores the page state.
 That avoids fighting the browser's native scroll restoration during refresh.
 */
 html {
+  font-size: var(--text-size-base);
   scroll-padding-top: var(--header-height);
 }
 
@@ -52,7 +62,8 @@ body {
   @apply flex flex-col min-h-screen;
   @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
   @apply text-clr-text dark:text-clr-darkmode-text;
-  @apply text-size-base font-primary font-normal leading-[1.55];
+  @apply text-size-base font-primary font-normal;
+  line-height: var(--line-height-copy-base);
 }
 
 /*
@@ -67,11 +78,12 @@ h3,
 h4,
 h5,
 h6 {
-  @apply font-secondary font-bold leading-[0.96] tracking-[-0.03em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply font-secondary font-bold text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  line-height: var(--line-height-heading-normal);
 }
 
 /* Heading font sizes and line heights */
-/* Rem calculations use the browser base font size, typically 16px. */
+/* Rem calculations use the site root font size, fixed to 16px. */
 h1,
 .h1 {
   @apply text-size-h1-sm/[1.25] md:text-size-h1/[1.25];
@@ -90,11 +102,11 @@ h4,
 }
 h5,
 .h5 {
-  @apply text-size-h5/[1.35] font-tertiary uppercase tracking-[0.16em];
+  @apply text-size-h5/[1.35] font-tertiary uppercase;
 }
 h6,
 .h6 {
-  @apply text-size-h6/[1.35] font-tertiary uppercase tracking-[0.16em];
+  @apply text-size-h6/[1.35] font-tertiary uppercase;
 }
 
 /* Heading top & bottom margins */
