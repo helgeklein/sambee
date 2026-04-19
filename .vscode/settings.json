@@ -69,6 +69,13 @@
   "files.exclude": {
     "**/.vscode": false
   },
+  "files.associations": {
+    "website/themes/sambee/assets/css/*.css": "tailwindcss",
+    "website/assets/css/*.css": "tailwindcss"
+  },
+  "css.validate": false,
+  "less.validate": false,
+  "scss.validate": false,
   // File Watching Optimizations
   "files.watcherExclude": {
     "**/__pycache__/**": true,
