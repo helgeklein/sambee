@@ -6,22 +6,33 @@
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="home-features-panel">
-    <div class="home-features-grid">
+  <div class="home-features-panel site-gutter">
+    <div class="home-features-ledger">
+      {{ $featureIndex := 0 }}
       {{ range $group := $section.groups }}
-      <article class="home-feature-card group">
-        <h3 class="home-feature-title"><span class="home-feature-icon" aria-hidden="true">{{ partial "home/feature-icon.html" (dict "id" $group.id) }}</span><span>{{ $group.title }}</span></h3>
-        {{ with $group.bullets }}
-        <ul class="home-feature-bullets" aria-label="{{ $group.title }} features">
-          {{ range . }}
-          <li class="home-feature-bullet">{{ . }}</li>
+      <article class="home-feature-ledger">
+        <div class="home-feature-ledger-grid">
+          <div class="home-feature-summary">
+            <h3 class="home-feature-heading">{{ $group.title }}</h3>
+            {{ with $group.summary }}
+            <p class="home-feature-summary-copy">{{ . }}</p>
+            {{ end }}
+          </div>
+          {{ with $group.items }}
+          <ol class="home-feature-items" aria-label="{{ $group.title }} details">
+            {{ range $item := . }}
+            {{ $featureIndex = add $featureIndex 1 }}
+            <li class="home-feature-item">
+              <span class="home-feature-index">{{ printf "%02d." $featureIndex }}</span>
+              <div class="home-feature-item-copy">
+                <h4 class="home-feature-item-title">{{ $item.title }}</h4>
+                <p class="home-feature-item-body">{{ $item.body }}</p>
+              </div>
+            </li>
+            {{ end }}
+          </ol>
           {{ end }}
-        </ul>
-        {{ else }}
-          {{ with $group.body }}
-          <p class="home-copy home-copy--feature">{{ . }}</p>
-          {{ end }}
-        {{ end }}
+        </div>
       </article>
       {{ end }}
     </div>
