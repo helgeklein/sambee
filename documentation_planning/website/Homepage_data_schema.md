@@ -74,7 +74,7 @@ hero:
   enabled: true
   kicker: Free and Open Source Software Designed for Self-Hosting
   title: Browser-based file access for SMB shares and local drives
-  deck: Explore, preview, and manage files directly in the browser.
+  subtitle: Explore, preview, and manage files directly in the browser.
   supporting_points:
     - Self-hosted
     - Desktop and mobile

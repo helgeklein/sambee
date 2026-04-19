@@ -23,22 +23,12 @@ Variables
   /* Shared text scale for semantic component classes. */
   --font-size-copy-sm: 0.875rem;
   --font-size-copy-base: 1rem;
-  --font-size-copy-lg: 1.125rem;
   --font-size-label-xs: 0.625rem;
   --font-size-label-sm: 0.75rem;
   /* Shared line-height scale for semantic component classes. */
-  --line-height-label: 1.2;
-  --line-height-ui: 1.3;
-  --line-height-copy-base: 1.6;
-  --line-height-copy-relaxed: 1.7;
-  --line-height-copy-loose: 1.8;
-  --line-height-display-tight: 1;
-  --line-height-display-compact: 1.05;
-  --line-height-display-relaxed: 1.1;
-  --line-height-display-copy: 1.45;
-  --line-height-display-copy-relaxed: 1.5;
-  --line-height-heading-tight: 0.96;
-  --line-height-heading-base: 1.2;
+  --line-height-copy-base: 1.5;
+  --line-height-heading-tight: 1.1;
+  --line-height-heading-normal: 1.3;
 }
 
 /*
@@ -88,8 +78,8 @@ h3,
 h4,
 h5,
 h6 {
-  @apply font-secondary font-bold tracking-[-0.03em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
-  line-height: var(--line-height-heading-tight);
+  @apply font-secondary font-bold text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  line-height: var(--line-height-heading-normal);
 }
 
 /* Heading font sizes and line heights */
@@ -112,11 +102,11 @@ h4,
 }
 h5,
 .h5 {
-  @apply text-size-h5/[1.35] font-tertiary uppercase tracking-[0.16em];
+  @apply text-size-h5/[1.35] font-tertiary uppercase;
 }
 h6,
 .h6 {
-  @apply text-size-h6/[1.35] font-tertiary uppercase tracking-[0.16em];
+  @apply text-size-h6/[1.35] font-tertiary uppercase;
 }
 
 /* Heading top & bottom margins */

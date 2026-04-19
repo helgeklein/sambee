@@ -77,7 +77,6 @@ Layout Shells
   font-size: var(--font-size-label-sm);
   font-weight: var(--eyebrow-font-weight-normal);
   letter-spacing: 0.22em;
-  line-height: var(--line-height-label);
   text-transform: uppercase;
   color: var(--color-clr-action-text);
 }
@@ -160,7 +159,6 @@ Cards And Panels
 
 .lede {
   @apply max-w-3xl text-lg text-clr-text-light dark:text-clr-darkmode-text;
-  line-height: var(--line-height-copy-relaxed);
 }
 
 .button-row,

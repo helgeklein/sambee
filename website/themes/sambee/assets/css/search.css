@@ -238,10 +238,8 @@ Results Container
 
 .search-result-title {
   font-weight: 600;
-  font-size: var(--font-size-copy-base);
   color: var(--color-clr-text, #333);
   margin-bottom: 4px;
-  line-height: var(--line-height-ui);
 
   .dark & {
     color: var(--color-clr-darkmode-text-dark, #fff);
@@ -250,7 +248,6 @@ Results Container
 
 .search-result-excerpt {
   font-size: var(--font-size-copy-sm);
-  line-height: var(--line-height-copy-base);
   color: var(--color-clr-text-light, #666);
   display: -webkit-box;
   -webkit-line-clamp: 2;
