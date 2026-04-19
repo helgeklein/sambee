@@ -1,0 +1,242 @@
+meta:
+  slug: home
+  title: Sambee
+  description: Browser-based SMB and local-drive access without forcing a cloud-first storage model.
+
+hero:
+  enabled: true
+  kicker: Free and Open Source Software Designed for Self-Hosting
+  title: Browser-based file access for SMB shares and local drives
+  subtitle: Explore, preview, and manage files directly in the browser.
+  ctas:
+    - label: See Features
+      href: "#features"
+      kind: primary
+    - label: Admin Docs
+      href: /docs/1.0/admin/
+      kind: secondary
+
+problem_value:
+  enabled: true
+  items:
+    - id: problem
+      eyebrow: The Problem
+      title: Cloud Lock-In
+      body: >-
+        Cloud-first file access tools are not the right fit for every
+        environment. Many teams want browser access to internal files without
+        giving up infrastructure control or pushing storage into the cloud.
+    - id: gap
+      eyebrow: The Gap
+      title: Legacy Tools
+      body: >-
+        Traditional file managers still work well on local desktops, but they
+        are less suited to browser-based work styles and mobile access. Sambee
+        closes that gap by bringing SMB shares and local drives into the
+        browser.
+    - id: value
+      eyebrow: The Value
+      title: Convenience & Control
+      body: >-
+        Use Sambee when you want cloud-like convenience for browsing and
+        previewing files, but need deployment, access, and storage to stay
+        under your control.
+
+benefits:
+  enabled: true
+  eyebrow: Technical Overview
+  title: Core Benefits
+  items:
+    - id: self_hosted_control
+      marker: 01 // OWNERSHIP
+      title: Self-hosted control
+      body: Keep file access in your own environment instead of routing everyday file handling through cloud storage.
+    - id: better_file_handling
+      marker: 02 // NAVIGATION
+      title: Better file handling
+      body: Browse large SMB directories with search, keyboard shortcuts, dual-pane navigation, and instant navigation to any directory.
+    - id: rich_previews
+      marker: 03 // PREVIEW
+      title: Rich previews
+      body: View images, PDFs, and Markdown directly in the browser, including formats browsers do not handle well on their own.
+    - id: native_editing
+      marker: 04 // EDITING
+      title: Native editing
+      body: Open files in Word, Photoshop, LibreOffice, and other installed desktop apps through Sambee Companion.
+    - id: built_for_desktop_and_mobile
+      marker: 05 // MOBILITY
+      title: Built for desktop & mobile
+      body: Use the same system from a workstation, tablet, or phone without giving up core functionality.
+    - id: fits_existing_infrastructure
+      marker: 06 // INTEGRATION
+      title: Fits existing infrastructure
+      body: Deploy with Docker, place it behind your reverse proxy, and connect it to the SMB storage you already use.
+
+features:
+  enabled: true
+  id: features
+  eyebrow: Functionality Overview
+  title: Features
+  groups:
+    - id: access
+      title: Access
+      summary: Connect Sambee to your existing storage. Access local drives in the same way as remote SMB shares.
+      items:
+        - title: SMB shares
+          body: Connect to Windows file servers, NAS devices, Samba servers, and other SMB-compatible storage.
+        - title: Local drives
+          body: Connect to local drives (requires the optional Sambee Companion app).
+    - id: navigate
+      title: Navigate
+      summary: Move through large file trees quickly with an interface built for speed.
+      items:
+        - title: Single-pane and dual-pane layouts
+          body: Switch between focused browsing and side-by-side workflows depending on whether you are reviewing, comparing, or moving files.
+        - title: Efficient keyboard navigation
+          body: Move through large file trees faster with keyboard-first controls built for speed and efficiency.
+        - title: Instant navigation to any directory
+          body: Jump straight to your target folder instead of having to remember and navigate complex directory hierarchies.
+    - id: preview
+      title: Preview
+      summary: Inspect many types of files directly in the browser.
+      items:
+        - title: Fast swiping through images
+          body: Move quickly even through large image sets with a fast and responsive viewer.
+        - title: Desktop and mobile-friendly viewing
+          body: Viewing, browsing, and searching files feels natural on both desktop and mobile devices.
+        - title: PDF search
+          body: Search inside PDF documents to quickly find specific content.
+    - id: markdown
+      title: Markdown
+      summary: View, search, and edit Markdown files without opening another app.
+      items:
+        - title: First-class Markdown support
+          body: Full Markdown support for rendering, searching, and editing without needing to switch into a separate editor.
+        - title: View and edit
+          body: View Markdown files with rich formatting, seamlessly switch to editing mode when needed.
+        - title: WYSIWYG editing
+          body: Edit directly in the rendered view. Switch to Markdown syntax only upon preference.
+    - id: file_management
+      title: File management
+      summary: Handle the everyday file operations that normally force users back to desktop file managers.
+      items:
+        - title: Rename, delete, upload, and download
+          body: Take care of common file and folder operations from one browser interface.
+        - title: Copy and move across storage locations
+          body: Move files and folders between local drives and SMB shares.
+    - id: desktop_app_editing
+      title: Edit in desktop apps
+      summary: Open and edit any file in its installed desktop application directly from your browser.
+      items:
+        - title: Native editing via Sambee Companion
+          body: Open files in Word, Photoshop, LibreOffice, and other installed desktop apps directly from Sambee.
+        - title: Save back to source location
+          body: Sambee collects edited files from the desktop app and saves them back to their source location.
+        - title: Conflict handling and recovery
+          body: Never lose work with built-in conflict handling.
+    - id: ui_themes
+      title: UI themes
+      summary: Choose between different themes or create your own to make the user interface your own.
+      items:
+        - title: Adjustable interface appearance
+          body: Tune Sambee's UI to your preferences and environments with themes.
+        - title: Included light and dark themes
+          body: Choose between friendly light and dark themes, designed to be easy on the eyes.
+    - id: speed_and_efficiency
+      title: Speed and efficiency
+      summary: Support fast day-to-day browsing by keeping the underlying system efficient as well as the interface.
+      items:
+        - title: Optimized SMB protocol implementation
+          body: Modern SMB protocol implementation optimized for high throughput and low latency.
+        - title: Low resource requirements
+          body: Sambee requires only a single Docker container and runs efficiently even on smaller machines.
+        - title: On-the-fly format conversions
+          body: Sambee converts files only when needed while previewing them in the browser.
+
+supported_formats:
+  enabled: true
+  eyebrow: Preview Support
+  title: Supported formats
+  body: >-
+    Sambee supports in-browser previewing for a broad range of file types,
+    including images, PDFs, and Markdown.
+  supporting_link:
+    label: See full viewer support
+    href: /docs/1.0/end-user/
+  formats:
+    - label: PSD
+    - label: TIFF
+    - label: HEIC
+    - label: EPS
+    - label: AI
+    - label: PDF
+    - label: MD
+    - label: JPG
+    - label: XLS
+
+companion:
+  enabled: true
+  eyebrow: Module // Companion-Bridge
+  title: Extend Sambee to the local desktop
+  body: >-
+    The companion app extends Sambee to the local desktop, connecting
+    Sambee to local drives and enabling native desktop editing.
+  bullets:
+    - access local drives
+    - open files in installed desktop applications
+    - return edited files to the source location
+  note_title: COM-04 // Deployment Note
+  note_body: Companion is optional for browser-based use, but required for local-drive access and native desktop-app editing.
+  cta:
+    label: Install Companion
+    href: /docs/1.0/end-user/install/
+    kind: primary
+
+deployment:
+  enabled: true
+  title: Self-hosted and easy to fit
+  body: >-
+    Sambee is designed for environments that care about control. Deploy it
+    with Docker, run it behind your reverse proxy, and connect it to the SMB
+    storage you already use.
+  secondary_body: >-
+    The goal is to make the storage you already trust easier to access from
+    the browser.
+  cta:
+    label: Admin Docs
+    href: /docs/1.0/admin/
+    kind: secondary
+
+proof:
+  enabled: true
+  eyebrow: MAP-01 // ENV_SCOPE
+  title: Built for real file environments
+  body: It is designed for environments that value control, inspectability, and infrastructure fit.
+  status_label: INFRA_MAP // STABLE_READY
+  items:
+    - category: Connectivity
+      label: NAS devices
+    - category: Protocol Support
+      label: Samba servers
+    - category: Enterprise
+      label: Windows file servers
+    - category: Client Access
+      label: Desktop and mobile browsers
+    - category: Installation
+      label: Self-hosted deployments
+    - category: Governance
+      label: Open-source codebase
+
+final_cta:
+  enabled: true
+  title: Choose the best way to explore Sambee
+  ctas:
+    - label: See Features
+      href: "#features"
+      kind: primary
+    - label: Admin Docs
+      href: /docs/1.0/admin/
+      kind: secondary
+    - label: Read Docs
+      href: /docs/
+      kind: tertiary

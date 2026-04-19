@@ -155,16 +155,6 @@ Shared Typography
   @apply tracking-[0.16em];
 }
 
-.home-label--md {
-  font-size: var(--font-size-label-sm);
-  @apply tracking-[0.18em];
-}
-
-.home-label--lg {
-  font-size: var(--font-size-label-sm);
-  @apply tracking-[0.16em];
-}
-
 /*
 ==============================
 Hero
@@ -362,7 +352,7 @@ Features
 }
 
 .home-feature-heading {
-  @apply mb-4 font-secondary text-[1.95rem] font-semibold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[2.35rem];
+  @apply mb-4 font-secondary font-semibold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-feature-summary-copy {
@@ -382,7 +372,7 @@ Features
 }
 
 .home-feature-index {
-  font-size: var(--font-size-label-sm);
+  font-size: var(--font-size-copy-sm);
   @apply font-tertiary leading-tight text-clr-primary dark:text-clr-darkmode-primary;
 }
 
@@ -391,8 +381,8 @@ Features
 }
 
 .home-feature-item-title {
-  font-size: var(--font-size-label-sm);
-  @apply mb-1 font-tertiary font-bold uppercase leading-tight tracking-[0.16em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  font-size: var(--font-size-copy-sm);
+  @apply mb-1 font-tertiary font-bold uppercase leading-tight tracking-[0.08em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-feature-item-body {
