@@ -1,37 +1,24 @@
 {{/* Purpose: Renders the global site header, navigation, and search entry point. */}}
 {{ $isHome := .IsHome }}
-{{ $headerMarginClass := "mb-6 lg:mb-10" }}
-{{ $navLayoutClass := "" }}
-{{ $brandWrapperClass := "" }}
-{{ $menuClass := "" }}
-{{ $actionsWrapperClass := "order-1 ml-auto flex items-center gap-2 md:order-2 lg:ml-0 lg:gap-0" }}
 
-{{/* Derive the few class differences between the homepage masthead and inner-page header. */}}
-{{ if $isHome }}
-  {{ $headerMarginClass = "mb-0" }}
-  {{ $navLayoutClass = " lg:min-h-[3.9rem] lg:py-2.5" }}
-  {{ $brandWrapperClass = " lg:gap-0" }}
-  {{ $menuClass = " lg:gap-4" }}
-{{ end }}
-
-<header class="sticky top-0 z-30 border-b-2 border-clr-rule-strong bg-clr-surface-page dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page {{ $headerMarginClass }}">
-  <nav class="nav-bar site-frame site-gutter relative flex min-h-[4rem] flex-wrap items-center justify-between gap-x-2 py-2.5 md:min-h-[4.5rem] md:gap-x-4 md:py-3{{ $navLayoutClass }}" aria-label="Primary">
+<header class="nav-header{{ if $isHome }} nav-header--home{{ end }}">
+  <nav class="nav-bar site-frame site-gutter{{ if $isHome }} nav-bar--home{{ end }}" aria-label="Primary">
     {{/* Home uses a wide wordmark; inner pages switch to the compact boxed logo treatment. */}}
-    <div class="flex items-center gap-3{{ $brandWrapperClass }}">
+    <div class="nav-brand{{ if $isHome }} nav-brand--home{{ end }}">
       {{ if $isHome }}
-      <a class="flex items-center gap-2 no-underline md:gap-2.5 lg:gap-3" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
-        <span class="flex h-8 w-8 items-center justify-center md:h-10 md:w-10" aria-hidden="true">{{ partial "icons/brand-mark.html" (dict "class" "h-8 w-8 md:h-10 md:w-10") }}</span>
-        <span class="font-tertiary text-[1rem] font-bold uppercase tracking-[0.005em] text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-lg lg:text-[1.52rem] lg:tracking-[-0.015em]">{{ site.Title }}</span>
+      <a class="nav-brand-link nav-brand-link--home" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
+        <span class="nav-brand-mark" aria-hidden="true">{{ partial "icons/brand-mark.html" (dict "class" "nav-brand-mark-icon") }}</span>
+        <span class="nav-brand-title nav-brand-title--home">{{ site.Title }}</span>
       </a>
       {{ else }}
-      <div class="flex h-12 w-12 items-center justify-center border border-clr-rule-strong bg-clr-surface-low px-2 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low">
-        <a class="block flex h-full w-full items-center justify-center text-clr-text-dark dark:text-clr-darkmode-text-dark" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
+      <div class="nav-brand-box">
+        <a class="nav-brand-logo-link" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
           {{ partial "logo.html" . }}
         </a>
       </div>
-      <div class="hidden lg:flex lg:flex-col lg:gap-0.5"{{ if $isHome }} aria-hidden="false"{{ else }} aria-hidden="true"{{ end }}>
-        {{ if not $isHome }}<span class="nav-brand-kicker">Docs-first software</span>{{ end }}
-        <span class="{{ if $isHome }}font-tertiary text-xl uppercase tracking-[0.08em] not-italic{{ else }}font-secondary text-xl font-bold italic leading-none{{ end }} text-clr-text-dark dark:text-clr-darkmode-text-dark">{{ site.Title }}</span>
+      <div class="nav-brand-meta" aria-hidden="true">
+        <span class="nav-brand-kicker">Docs-first software</span>
+        <span class="nav-brand-title nav-brand-title--docs">{{ site.Title }}</span>
       </div>
       {{ end }}
     </div>
@@ -42,7 +29,7 @@
     </button>
 
     {{/* Skip the redundant Home item on the homepage itself, but keep the rest of the main menu unchanged. */}}
-    <ul id="nav-menu" class="nav-menu{{ $menuClass }}">
+    <ul id="nav-menu" class="nav-menu{{ if $isHome }} nav-menu--home{{ end }}">
       {{ range site.Menus.main }}
         {{ if not (and $isHome (eq .Name "Home")) }}
         {{ $isExternal := or (hasPrefix .URL "http://") (hasPrefix .URL "https://") }}
@@ -78,7 +65,7 @@
     </ul>
 
     {{/* Search and theme actions mirror the donor site ordering: search first, then theme toggle. */}}
-    <div class="{{ $actionsWrapperClass }}">
+    <div class="nav-actions">
       {{ with site.Params.search }}
         {{ if .enable }}
         {{/* Search is optional at the site level, but always triggered through this shared control. */}}
