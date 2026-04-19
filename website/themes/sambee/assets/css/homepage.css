@@ -216,7 +216,7 @@ Problem / Value
 */
 
 .home-problem-card {
-  @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8;
+  @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 transition-colors duration-300 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:hover:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8 hover:bg-clr-surface-page;
 }
 
 @media (min-width: theme(--breakpoint-md)) {
