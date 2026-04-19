@@ -67,10 +67,6 @@ Layout Shells
   @apply px-5 md:px-8;
 }
 
-.site-gutter-nav {
-  @apply px-5 md:px-6 lg:px-8;
-}
-
 .eyebrow {
   display: inline-flex;
   font-family: var(--eyebrow-font-family);
