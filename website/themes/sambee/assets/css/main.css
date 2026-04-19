@@ -25,8 +25,8 @@
 /* Define a Tailwind variant "dark" that lets us write "dark:" utilities */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Auto-generated theme from "data/theme.json" */
-@import "./generated-theme.css";
+/* Auto-generated Tailwind theme tokens from "data/theme.json" */
+@import "./generated-theme.tailwind.css";
 
 @layer base {
   @import "./base.css";

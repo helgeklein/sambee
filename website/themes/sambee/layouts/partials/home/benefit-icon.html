@@ -1,0 +1,16 @@
+{{/* Purpose: Renders the Material Symbols icon used by each homepage benefit card. */}}
+{{- $id := .id -}}
+{{- $class := .class | default "" -}}
+{{- if eq $id "self_hosted_control" -}}
+<span class="material-symbols-outlined home-benefit-symbol {{ $class }}" aria-hidden="true">shield_lock</span>
+{{- else if eq $id "better_everyday_file_handling" -}}
+<span class="material-symbols-outlined home-benefit-symbol {{ $class }}" aria-hidden="true">dynamic_form</span>
+{{- else if eq $id "rich_previews_before_download" -}}
+<span class="material-symbols-outlined home-benefit-symbol {{ $class }}" aria-hidden="true">image_search</span>
+{{- else if eq $id "native_editing_when_needed" -}}
+<span class="material-symbols-outlined home-benefit-symbol {{ $class }}" aria-hidden="true">edit_square</span>
+{{- else if eq $id "built_for_desktop_and_mobile" -}}
+<span class="material-symbols-outlined home-benefit-symbol {{ $class }}" aria-hidden="true">devices</span>
+{{- else if eq $id "fits_existing_infrastructure" -}}
+<span class="material-symbols-outlined home-benefit-symbol {{ $class }}" aria-hidden="true">hub</span>
+{{- end -}}

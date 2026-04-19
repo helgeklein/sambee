@@ -1,27 +1,21 @@
 {{/* Purpose: Shows the homepage benefits grid sourced from structured content data. */}}
 {{ $section := .section }}
 {{ if $section.enabled }}
-{{ $count := len $section.items }}
 <section class="shell-section ledger-shell home-section" id="features-overview">
   <div class="home-section-header site-gutter">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="grid gap-0 md:grid-cols-2 xl:grid-cols-3">
-    {{ range $index, $item := $section.items }}
-    {{/* Border rules depend on card position so the grid stays visually balanced across breakpoints. */}}
-    {{ $position := add $index 1 }}
-    {{ $isLast := eq $position $count }}
-    {{ $isEveryThird := eq (mod $position 3) 0 }}
-    {{ $isInLastTwo := ge $position (sub $count 1) }}
-    <article class="home-benefit-card {{ if $isLast }}md:border-r-0{{ end }} {{ if $isEveryThird }}xl:border-r-0{{ end }} {{ if $isInLastTwo }}xl:border-b-0{{ end }}">
-      <div class="flex flex-col gap-5 md:gap-6">
-        <div class="flex items-start justify-between gap-6">
+  <div class="home-benefits-grid">
+    {{ range $item := $section.items }}
+    <article class="home-benefit-card group">
+      <div class="home-benefit-body">
+        <div class="home-benefit-header-row">
           <span class="home-benefit-marker">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
-          <span class="home-benefit-corner" aria-hidden="true"></span>
+          <span class="home-benefit-icon" aria-hidden="true">{{ partial "home/benefit-icon.html" (dict "id" $item.id) }}</span>
         </div>
         <h3 class="home-benefit-title">{{ $item.title }}</h3>
-        <p class="home-benefit-copy home-copy home-copy--standard">{{ $item.body }}</p>
+        <p class="home-benefit-copy home-copy">{{ $item.body }}</p>
       </div>
       <div class="home-benefit-trail" aria-hidden="true">
         <span class="home-benefit-trail-line home-benefit-trail-line--long"></span><span class="home-benefit-trail-line home-benefit-trail-line--short"></span>
