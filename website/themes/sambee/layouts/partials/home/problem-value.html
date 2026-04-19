@@ -4,16 +4,13 @@
 <section class="shell-section ledger-shell home-section">
   <div class="grid gap-0 md:grid-cols-3">
     {{ range $section.items }}
-    {{/* Tone color is keyed off the semantic item id so content can stay data-only. */}}
-    {{ $toneClass := cond (eq .id "problem") "text-red-700 dark:text-red-300" (cond (eq .id "gap") "text-clr-text-light dark:text-clr-darkmode-text-light" "text-clr-action-text dark:text-clr-darkmode-action-text") }}
-    {{/* The final card intentionally drops the desktop right border to finish the triptych cleanly. */}}
-    <article class="home-problem-card {{ if eq .id "value" }}md:border-r-0{{ end }}">
-      <div class="eyebrow-icon-row flex gap-3 {{ $toneClass }}">
+    <article class="home-problem-card">
+      <div class="eyebrow-icon-row home-problem-row home-problem-row--{{ .id }}">
         <span class="home-problem-icon" aria-hidden="true">{{ partial "home/problem-icon.html" (dict "id" .id "class" "h-5 w-5") }}</span>
-        <span class="eyebrow eyebrow--strong eyebrow--icon-label mb-0 text-inherit">{{ .eyebrow }}</span>
+        <span class="eyebrow eyebrow--strong eyebrow--icon-label home-problem-eyebrow">{{ .eyebrow }}</span>
       </div>
       <h2 class="home-problem-title">{{ .title }}</h2>
-      <p class="home-copy home-copy--tight">{{ .body }}</p>
+      <p class="home-copy">{{ .body }}</p>
     </article>
     {{ end }}
   </div>

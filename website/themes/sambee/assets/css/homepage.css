@@ -1,5 +1,11 @@
 /* Purpose: Holds homepage-specific section, component, and typography styles. */
 
+/*
+==============================
+Section Chrome
+==============================
+*/
+
 .home-section {
   --home-section-divider-width: 2px;
   border-top: var(--home-section-divider-width) solid var(--color-clr-rule-strong);
@@ -67,6 +73,7 @@
   }
 }
 
+/* Pull adjacent sections together so the double rules collapse into a single divider. */
 .site-main > [data-pagefind-body] > .home-section:first-child,
 .home-section + .home-section {
   margin-top: calc(var(--home-section-divider-width) * -1);
@@ -88,104 +95,11 @@
   border-color: var(--color-clr-darkmode-rule-soft);
 }
 
-.home-hero-inner {
-  @apply px-5 py-6 md:px-6 lg:px-16 lg:py-12;
-}
-
-.home-hero-content {
-  @apply mx-auto flex flex-col text-center lg:mx-0 lg:text-left;
-}
-
-.home-hero-kicker {
-  font-size: var(--font-size-label-xs);
-  @apply inline-flex items-center justify-center gap-3 text-clr-primary dark:text-clr-darkmode-primary md:text-xs lg:justify-start;
-}
-
-.home-hero-kicker-rule {
-  @apply hidden h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary lg:block;
-}
-
-.home-hero-title {
-  @apply mt-4 mb-0 font-secondary text-[2.85rem] md:text-[3.55rem] lg:text-7xl font-extrabold tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
-  line-height: var(--line-height-heading-tight);
-}
-
-.home-hero-subtitle {
-  @apply mx-auto mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mx-0 lg:mt-4;
-}
-
-.home-hero-actions {
-  @apply mt-8 flex flex-wrap justify-center gap-3 md:mt-6 md:gap-4 lg:mt-16 lg:justify-start;
-}
-
-.home-hero-cta {
-  @apply w-full justify-center px-6 py-3.5 md:w-auto md:px-10 md:py-5;
-}
-
-.home-hero-cta--link {
-  @apply md:self-center md:px-0;
-}
-
-.home-formats-heading {
-  font-size: var(--font-size-label-sm);
-  @apply mb-0;
-}
-
-.home-formats-link {
-  font-size: var(--font-size-label-sm);
-  @apply inline-flex items-center gap-1 font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
-}
-
-.home-formats-grid {
-  @apply grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4;
-}
-
-.home-format-card {
-  @apply flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text;
-}
-
-.home-format-card-art {
-  @apply flex items-center justify-center;
-}
-
-.home-format-label {
-  font-size: var(--font-size-label-xs);
-  @apply font-tertiary font-bold uppercase tracking-[0.18em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.home-final-cta-panel {
-  @apply relative overflow-hidden bg-clr-surface-inverse py-12 text-center text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:py-20 lg:py-[5.6rem];
-}
-
-.home-final-cta-overlay {
-  @apply absolute inset-0 opacity-[0.22];
-  background-image: repeating-linear-gradient(45deg, rgba(242, 241, 236, 0.14), rgba(242, 241, 236, 0.14) 1px, transparent 1px, transparent 11px);
-}
-
-.home-final-cta-content {
-  @apply relative z-10 mx-auto flex flex-col items-center;
-}
-
-.home-final-cta-title {
-  @apply mb-7 font-secondary text-[2.8rem] font-bold italic tracking-tight text-white dark:text-clr-darkmode-surface-page md:mb-9 md:text-[4rem] lg:text-[5.35rem];
-  line-height: var(--line-height-heading-tight);
-}
-
-.home-final-cta-actions {
-  @apply flex w-full flex-col items-center justify-center gap-3 md:flex-row md:gap-6;
-}
-
-.home-final-cta-button {
-  @apply min-h-[3.7rem] w-full max-w-none px-6 py-3.5 md:min-h-[5.8rem] md:max-w-[19rem] md:px-8 md:py-5;
-}
-
-.home-final-cta-button--primary {
-  @apply border-[#f2f1ec] bg-clr-action-fill text-clr-action-fill-text hover:bg-[#f2f1ec] hover:text-clr-text-dark;
-}
-
-.home-final-cta-button--secondary {
-  @apply border-[#948773] bg-transparent text-white hover:bg-white/8 dark:border-[#948773] dark:text-clr-darkmode-surface-page;
-}
+/*
+==============================
+Shared Typography
+==============================
+*/
 
 .home-copy {
   @apply text-clr-text-light dark:text-clr-darkmode-text-light;
@@ -205,11 +119,6 @@
 
 .home-copy--deployment {
   @apply md:text-lg;
-}
-
-@media (min-width: theme(--breakpoint-md)) {
-  .home-copy--large {
-  }
 }
 
 .home-label {
@@ -256,6 +165,103 @@
   @apply tracking-[0.16em];
 }
 
+/*
+==============================
+Hero
+==============================
+*/
+
+.home-hero-inner {
+  @apply px-5 py-6 md:px-6 lg:px-16 lg:py-12;
+}
+
+.home-hero-content {
+  @apply mx-auto flex flex-col text-center lg:mx-0 lg:text-left;
+}
+
+.home-hero-kicker {
+  font-size: var(--font-size-label-xs);
+  @apply inline-flex items-center justify-center gap-3 text-clr-primary dark:text-clr-darkmode-primary md:text-xs lg:justify-start;
+}
+
+.home-hero-kicker-rule {
+  @apply hidden h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary lg:block;
+}
+
+.home-hero-title {
+  @apply mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.55rem] lg:text-7xl;
+  line-height: var(--line-height-heading-tight);
+}
+
+.home-hero-subtitle {
+  @apply mx-auto mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mx-0 lg:mt-4;
+}
+
+.home-hero-actions {
+  @apply mt-8 flex flex-wrap justify-center gap-3 md:mt-6 md:gap-4 lg:mt-16 lg:justify-start;
+}
+
+.home-hero-cta {
+  @apply w-full justify-center px-6 py-3.5 md:w-auto md:px-10 md:py-5;
+}
+
+.home-hero-cta--link {
+  @apply md:self-center md:px-0;
+}
+
+/*
+==============================
+Problem / Value
+==============================
+*/
+
+.home-problem-card {
+  @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8;
+}
+
+@media (min-width: theme(--breakpoint-md)) {
+  .home-problem-card:last-child {
+    border-right: 0;
+  }
+}
+
+.home-problem-row--problem {
+  @apply text-red-700 dark:text-red-300;
+}
+
+.home-problem-row--gap {
+  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
+.home-problem-row--value {
+  @apply text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.home-problem-icon {
+  @apply flex h-5 w-5 shrink-0 items-center justify-center;
+}
+
+.home-problem-symbol {
+  font-size: 1.25rem;
+  line-height: 1;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.home-problem-eyebrow {
+  margin-bottom: 0;
+  color: inherit;
+}
+
+.home-problem-title {
+  @apply mt-1 font-secondary text-[1.5rem] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+/*
+==============================
+Benefits
+==============================
+*/
+
 .home-benefit-card {
   @apply flex h-full min-h-0 flex-col justify-between border-b border-clr-rule-soft bg-clr-surface-low p-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[20rem] md:border-r md:p-10;
 }
@@ -294,19 +300,87 @@
   @apply w-2;
 }
 
-.home-problem-card {
-  @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8;
-}
-
-.home-problem-icon {
-  @apply flex h-5 w-5 shrink-0 items-center justify-center;
-}
-
-.home-problem-title {
-  @apply mt-1 font-secondary text-[1.5rem] text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
+/*
+==============================
+Features
+==============================
+*/
 
 .home-feature-title {
   font-size: var(--font-size-label-sm);
   @apply font-tertiary font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+/*
+==============================
+Supported Formats
+==============================
+*/
+
+.home-formats-heading {
+  font-size: var(--font-size-label-sm);
+  @apply mb-0;
+}
+
+.home-formats-link {
+  font-size: var(--font-size-label-sm);
+  @apply inline-flex items-center gap-1 font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
+}
+
+.home-formats-grid {
+  @apply grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4;
+}
+
+.home-format-card {
+  @apply flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text;
+}
+
+.home-format-card-art {
+  @apply flex items-center justify-center;
+}
+
+.home-format-label {
+  font-size: var(--font-size-label-xs);
+  @apply font-tertiary font-bold uppercase tracking-[0.18em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+/*
+==============================
+Final CTA
+==============================
+*/
+
+.home-final-cta-panel {
+  @apply relative overflow-hidden bg-clr-surface-inverse py-12 text-center text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:py-20 lg:py-[5.6rem];
+}
+
+.home-final-cta-overlay {
+  @apply absolute inset-0 opacity-[0.22];
+  /* The diagonal texture keeps the full-bleed panel from reading as a flat block. */
+  background-image: repeating-linear-gradient(45deg, rgba(242, 241, 236, 0.14), rgba(242, 241, 236, 0.14) 1px, transparent 1px, transparent 11px);
+}
+
+.home-final-cta-content {
+  @apply relative z-10 mx-auto flex flex-col items-center;
+}
+
+.home-final-cta-title {
+  @apply mb-7 font-secondary text-[2.8rem] font-bold italic tracking-tight text-white dark:text-clr-darkmode-surface-page md:mb-9 md:text-[4rem] lg:text-[5.35rem];
+  line-height: var(--line-height-heading-tight);
+}
+
+.home-final-cta-actions {
+  @apply flex w-full flex-col items-center justify-center gap-3 md:flex-row md:gap-6;
+}
+
+.home-final-cta-button {
+  @apply min-h-[3.7rem] w-full max-w-none px-6 py-3.5 md:min-h-[5.8rem] md:max-w-[19rem] md:px-8 md:py-5;
+}
+
+.home-final-cta-button--primary {
+  @apply border-[#f2f1ec] bg-clr-action-fill text-clr-action-fill-text hover:bg-[#f2f1ec] hover:text-clr-text-dark;
+}
+
+.home-final-cta-button--secondary {
+  @apply border-[#948773] bg-transparent text-white hover:bg-white/8 dark:border-[#948773] dark:text-clr-darkmode-surface-page;
 }

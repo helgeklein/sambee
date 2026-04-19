@@ -93,7 +93,9 @@ Layout Shells
 }
 
 .eyebrow-icon-row {
+  display: flex;
   align-items: center;
+  gap: 0.75rem;
 }
 
 .dark .eyebrow {
