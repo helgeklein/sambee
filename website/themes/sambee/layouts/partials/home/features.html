@@ -6,14 +6,25 @@
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="site-gutter grid gap-x-8 gap-y-7 py-6 md:grid-cols-2 md:py-10 md:gap-y-9 xl:grid-cols-4">
-    {{/* Each feature group is a simple title/body pair, keeping the data file lightweight. */}}
-    {{ range $section.groups }}
-    <article class="flex flex-col gap-2.5">
-      <h3 class="home-feature-title">{{ .title }}</h3>
-      <p class="home-copy home-copy--feature">{{ .body }}</p>
-    </article>
-    {{ end }}
+  <div class="home-features-panel">
+    <div class="home-features-grid">
+      {{ range $group := $section.groups }}
+      <article class="home-feature-card group">
+        <h3 class="home-feature-title"><span class="home-feature-icon" aria-hidden="true">{{ partial "home/feature-icon.html" (dict "id" $group.id) }}</span><span>{{ $group.title }}</span></h3>
+        {{ with $group.bullets }}
+        <ul class="home-feature-bullets" aria-label="{{ $group.title }} features">
+          {{ range . }}
+          <li class="home-feature-bullet">{{ . }}</li>
+          {{ end }}
+        </ul>
+        {{ else }}
+          {{ with $group.body }}
+          <p class="home-copy home-copy--feature">{{ . }}</p>
+          {{ end }}
+        {{ end }}
+      </article>
+      {{ end }}
+    </div>
   </div>
 </section>
 {{ end }}
