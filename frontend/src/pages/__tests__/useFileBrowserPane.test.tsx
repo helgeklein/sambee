@@ -173,4 +173,32 @@ describe("useFileBrowserPane", () => {
       expect(restoredResult.current.viewInfo?.path).toBe("readme.txt");
     });
   });
+
+  it("normalizes same-drive absolute Windows paths for local-drive panes", async () => {
+    const localDriveConnection = {
+      ...mockConnections[0],
+      id: "local-drive:d",
+      slug: "d",
+      type: "local",
+      name: "Drive D",
+    };
+
+    const { result } = renderHook(
+      () =>
+        useFileBrowserPane({
+          rowHeight: 40,
+          connections: [localDriveConnection],
+        }),
+      { wrapper }
+    );
+
+    act(() => {
+      result.current.applyLocation("local-drive:d", "d:\\temp");
+    });
+
+    await waitFor(() => {
+      expect(result.current.connectionId).toBe("local-drive:d");
+      expect(result.current.currentPath).toBe("temp");
+    });
+  });
 });
