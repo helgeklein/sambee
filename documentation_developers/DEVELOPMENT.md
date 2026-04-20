@@ -38,6 +38,7 @@ If you're developing **outside the dev container**, run once:
 ### Dependency Trust Rules
 
 - Use `npm ci` in `frontend/`, `companion/`, and `website/` for routine installs. Only use a dependency update PR to change `package.json` and `package-lock.json` together.
+- Keep companion Tauri JavaScript packages and Rust crates on matching major.minor versions. Dependabot routes those updates through the `companion-tauri` multi-ecosystem group in `.github/dependabot.yml`; validate dependency update PRs with `/usr/bin/python3 scripts/check_tauri_version_alignment.py`.
 - Keep high-risk frontend ecosystem packages pinned to exact reviewed versions in `package.json`. Treat major upgrades for `@mui/material`, `@mui/icons-material`, `react`, `react-dom`, `react-router-dom`, `react-markdown`, `i18next`, `react-i18next`, `typescript`, `jsdom`, `vite`, `@vitejs/plugin-react`, and `@preact/preset-vite` as coordinated manual changes rather than routine Dependabot updates.
 - Keep Python pinned to the reviewed `3.13.12` baseline across production Docker, the devcontainer image, and GitHub Actions. Treat Python runtime upgrades as coordinated manual changes rather than routine Dependabot updates.
 - Use `pip install --require-hashes -r requirements-dev.lock.txt` for backend installs. Treat `requirements*.txt` changes as reviewed source, not setup noise.

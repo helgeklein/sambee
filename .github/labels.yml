@@ -1,0 +1,27 @@
+- name: dependencies
+  color: "0e8a16"
+  description: Dependency update and supply-chain maintenance work.
+
+- name: github-actions
+  color: "1d76db"
+  description: Changes related to GitHub Actions workflows and actions.
+
+- name: python
+  color: "3572a5"
+  description: Changes affecting Python dependencies or tooling.
+
+- name: frontend
+  color: "fbca04"
+  description: Changes affecting the frontend application or dependencies.
+
+- name: companion
+  color: "5319e7"
+  description: Changes affecting the companion app or its dependencies.
+
+- name: rust
+  color: "b7410e"
+  description: Changes affecting Rust code or cargo dependencies.
+
+- name: docker
+  color: "0052cc"
+  description: Changes affecting Docker images, containers, or related tooling.
