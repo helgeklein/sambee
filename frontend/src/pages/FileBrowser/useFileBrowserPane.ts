@@ -863,7 +863,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const handleViewIndexChange = useCallback((index: number) => {
     currentViewIndexRef.current = index;
     setViewInfo((prev) => {
-      if (!prev || !prev.images || prev.images.length === 0) return prev;
+      if (!prev?.images || prev.images.length === 0) return prev;
       const nextPath = prev.images[index] ?? prev.path;
       if (prev.currentIndex === index && prev.path === nextPath) return prev;
       return { ...prev, currentIndex: index, path: nextPath };

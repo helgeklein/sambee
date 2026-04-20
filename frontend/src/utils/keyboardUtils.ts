@@ -55,7 +55,7 @@ export function createEscapeHandler(onEscape?: () => void): (e: React.KeyboardEv
  */
 export function blurActiveToolbarControl(contentRef?: React.RefObject<HTMLElement | null>): boolean {
   const active = document.activeElement as HTMLElement | null;
-  if (!active || !active.matches(INTERACTIVE_ELEMENT_SELECTOR)) {
+  if (!active?.matches(INTERACTIVE_ELEMENT_SELECTOR)) {
     return false;
   }
 
