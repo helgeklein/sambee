@@ -12,7 +12,7 @@
       <div class="home-benefit-body">
         <div class="home-benefit-header-row">
           <span class="home-benefit-marker">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
-          <span class="home-benefit-icon" aria-hidden="true">{{ partial "home/benefit-icon.html" (dict "id" $item.id) }}</span>
+          <span class="home-benefit-icon" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
         </div>
         <h3 class="home-benefit-title">{{ $item.title }}</h3>
         <p class="home-benefit-copy home-copy">{{ $item.body }}</p>

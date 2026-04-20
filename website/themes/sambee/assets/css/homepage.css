@@ -348,11 +348,28 @@ Features
 }
 
 .home-feature-summary {
+  --home-feature-icon-baseline-shift: -0.08em;
   @apply md:col-span-5;
 }
 
+.home-feature-heading-row {
+  @apply mb-4 flex flex-nowrap items-baseline gap-3;
+}
+
+.home-feature-icon {
+  @apply shrink-0 text-clr-primary opacity-40 dark:text-clr-darkmode-primary;
+}
+
+.home-feature-symbol {
+  display: inline-block;
+  font-size: 1.6rem;
+  line-height: 1;
+  vertical-align: var(--home-feature-icon-baseline-shift);
+  font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 24;
+}
+
 .home-feature-heading {
-  @apply mb-4 font-secondary font-semibold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply m-0 font-secondary font-semibold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-feature-summary-copy {

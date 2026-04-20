@@ -20,6 +20,7 @@ problem_value:
   enabled: true
   items:
     - id: problem
+      icon: cloud_lock
       eyebrow: The Problem
       title: Cloud Lock-In
       body: >-
@@ -27,6 +28,7 @@ problem_value:
         environment. Many teams want browser access to internal files without
         giving up infrastructure control or pushing storage into the cloud.
     - id: gap
+      icon: horizontal_distribute
       eyebrow: The Gap
       title: Legacy Tools
       body: >-
@@ -35,6 +37,7 @@ problem_value:
         closes that gap by bringing SMB shares and local drives into the
         browser.
     - id: value
+      icon: verified_user
       eyebrow: The Value
       title: Convenience & Control
       body: >-
@@ -44,30 +47,36 @@ problem_value:
 
 benefits:
   enabled: true
-  eyebrow: Technical Overview
-  title: Core Benefits
+  eyebrow: Why Sambee
+  title: Benefits
   items:
     - id: self_hosted_control
+      icon: shield_lock
       marker: 01 // OWNERSHIP
       title: Self-hosted control
       body: Keep file access in your own environment instead of routing everyday file handling through cloud storage.
     - id: better_file_handling
+      icon: dynamic_form
       marker: 02 // NAVIGATION
       title: Better file handling
       body: Browse large SMB directories with search, keyboard shortcuts, dual-pane navigation, and instant navigation to any directory.
     - id: rich_previews
+      icon: image_search
       marker: 03 // PREVIEW
       title: Rich previews
       body: View images, PDFs, and Markdown directly in the browser, including formats browsers do not handle well on their own.
     - id: native_editing
+      icon: edit_square
       marker: 04 // EDITING
       title: Native editing
       body: Open files in Word, Photoshop, LibreOffice, and other installed desktop apps through Sambee Companion.
     - id: built_for_desktop_and_mobile
+      icon: devices
       marker: 05 // MOBILITY
       title: Built for desktop & mobile
       body: Use the same system from a workstation, tablet, or phone without giving up core functionality.
     - id: fits_existing_infrastructure
+      icon: hub
       marker: 06 // INTEGRATION
       title: Fits existing infrastructure
       body: Deploy with Docker, place it behind your reverse proxy, and connect it to the SMB storage you already use.
@@ -75,10 +84,11 @@ benefits:
 features:
   enabled: true
   id: features
-  eyebrow: Functionality Overview
+  eyebrow: What Sambee Does
   title: Features
   groups:
     - id: access
+      icon: folder_managed
       title: Access
       summary: Connect Sambee to your existing storage. Access local drives in the same way as remote SMB shares.
       items:
@@ -87,6 +97,7 @@ features:
         - title: Local drives
           body: Connect to local drives (requires the optional Sambee Companion app).
     - id: navigate
+      icon: route
       title: Navigate
       summary: Move through large file trees quickly with an interface built for speed.
       items:
@@ -97,6 +108,7 @@ features:
         - title: Instant navigation to any directory
           body: Jump straight to your target folder instead of having to remember and navigate complex directory hierarchies.
     - id: preview
+      icon: pageview
       title: Preview
       summary: Inspect many types of files directly in the browser.
       items:
@@ -107,6 +119,7 @@ features:
         - title: PDF search
           body: Search inside PDF documents to quickly find specific content.
     - id: markdown
+      icon: markdown
       title: Markdown
       summary: View, search, and edit Markdown files without opening another app.
       items:
@@ -117,6 +130,7 @@ features:
         - title: WYSIWYG editing
           body: Edit directly in the rendered view. Switch to Markdown syntax only upon preference.
     - id: file_management
+      icon: drive_file_move
       title: File management
       summary: Handle the everyday file operations that normally force users back to desktop file managers.
       items:
@@ -125,6 +139,7 @@ features:
         - title: Copy and move across storage locations
           body: Move files and folders between local drives and SMB shares.
     - id: desktop_app_editing
+      icon: open_in_new
       title: Edit in desktop apps
       summary: Open and edit any file in its installed desktop application directly from your browser.
       items:
@@ -135,6 +150,7 @@ features:
         - title: Conflict handling and recovery
           body: Never lose work with built-in conflict handling.
     - id: ui_themes
+      icon: palette
       title: UI themes
       summary: Choose between different themes or create your own to make the user interface your own.
       items:
@@ -143,6 +159,7 @@ features:
         - title: Included light and dark themes
           body: Choose between friendly light and dark themes, designed to be easy on the eyes.
     - id: speed_and_efficiency
+      icon: bolt
       title: Speed and efficiency
       summary: Support fast day-to-day browsing by keeping the underlying system efficient as well as the interface.
       items:
