@@ -7,9 +7,6 @@ env:
   COMPANION_RELEASE_REPO_BRANCH: main
 
 on:
-  push:
-    tags:
-      - 'companion-v*'
   workflow_dispatch:
     inputs:
       platforms:
@@ -42,19 +39,9 @@ jobs:
     steps:
       - id: set-matrix
         run: |
-          ALL='[
-            {"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64","bundles":"deb,appimage"},
-            {"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"},
-            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis"},
-            {"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"nsis"}
-          ]'
-          TAG_RELEASE='[
-            {"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis"}
-          ]'
+          ALL='[{"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64","bundles":"deb,appimage"},{"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis"},{"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"nsis"}]'
           SELECTED="${{ github.event.inputs.platforms }}"
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
-            echo "matrix={\"include\":$TAG_RELEASE}" >> "$GITHUB_OUTPUT"
-          elif [[ -z "$SELECTED" || "$SELECTED" == "all" ]]; then
+          if [[ -z "$SELECTED" || "$SELECTED" == "all" ]]; then
             echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
           else
             FILTERED=$(echo "$ALL" | jq -c "[.[] | select(.label == \"$SELECTED\")]")
