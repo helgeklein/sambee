@@ -408,33 +408,28 @@ Features
 
 /*
 ==============================
-Supported Formats
+Preview Support
 ==============================
 */
 
-.home-formats-heading {
-  font-size: var(--font-size-label-sm);
-  @apply mb-0;
-}
-
-.home-formats-link {
+.home-preview-link {
   font-size: var(--font-size-label-sm);
   @apply inline-flex items-center gap-1 font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
 }
 
-.home-formats-grid {
+.home-preview-grid {
   @apply grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4;
 }
 
-.home-format-card {
-  @apply flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text;
+.home-preview-card {
+  @apply flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-low px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:text-clr-darkmode-action-text;
 }
 
-.home-format-card-art {
+.home-preview-card-art {
   @apply flex items-center justify-center;
 }
 
-.home-format-label {
+.home-preview-label {
   font-size: var(--font-size-label-xs);
   @apply font-tertiary font-bold uppercase tracking-[0.18em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
