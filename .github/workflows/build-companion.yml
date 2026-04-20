@@ -120,7 +120,15 @@ jobs:
         run: cd companion && npm ci
 
       - name: Verify Tauri package version alignment
-        run: /usr/bin/python3 scripts/check_tauri_version_alignment.py
+        shell: bash
+        run: |
+          if command -v python3 >/dev/null 2>&1; then
+            python3 scripts/check_tauri_version_alignment.py
+          elif command -v python >/dev/null 2>&1; then
+            python scripts/check_tauri_version_alignment.py
+          else
+            py scripts/check_tauri_version_alignment.py
+          fi
 
       # ── Code signing tools (Windows only) ──
       - name: Install trusted-signing-cli
