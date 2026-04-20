@@ -170,10 +170,10 @@ features:
         - title: On-the-fly format conversions
           body: Sambee converts files only when needed while previewing them in the browser.
 
-supported_formats:
+preview_support:
   enabled: true
-  eyebrow: Preview Support
-  title: Supported formats
+  eyebrow: Broad file type support
+  title: Viewers
   body: >-
     Sambee supports in-browser previewing for a broad range of file types,
     including images, PDFs, and Markdown.
@@ -182,14 +182,23 @@ supported_formats:
     href: /docs/1.0/end-user/
   formats:
     - label: PSD
+      icon: image
     - label: TIFF
+      icon: image
     - label: HEIC
+      icon: image
     - label: EPS
+      icon: palette
     - label: AI
+      icon: palette
     - label: PDF
+      icon: picture_as_pdf
     - label: MD
+      icon: markdown
     - label: JPG
+      icon: image
     - label: XLS
+      icon: table_chart
 
 companion:
   enabled: true

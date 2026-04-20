@@ -408,35 +408,61 @@ Features
 
 /*
 ==============================
-Supported Formats
+Preview Support
 ==============================
 */
 
-.home-formats-heading {
-  font-size: var(--font-size-label-sm);
-  @apply mb-0;
-}
-
-.home-formats-link {
+.home-preview-link {
   font-size: var(--font-size-label-sm);
   @apply inline-flex items-center gap-1 font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
 }
 
-.home-formats-grid {
-  @apply grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3 md:grid-cols-9 md:gap-4;
+.home-preview-body {
+  @apply py-8 md:py-10;
 }
 
-.home-format-card {
-  @apply flex aspect-square flex-col items-center justify-center gap-3.5 border border-clr-rule-soft bg-clr-surface-base px-2 py-3 text-clr-action-text dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base dark:text-clr-darkmode-action-text;
+.home-preview-intro {
+  @apply mb-8 flex flex-col items-start gap-4 md:mb-10 md:gap-5;
 }
 
-.home-format-card-art {
+.home-preview-copy {
+  @apply m-0 leading-relaxed;
+}
+
+.home-preview-actions {
+  @apply flex items-center;
+}
+
+.home-preview-list {
+  @apply m-0 flex list-none flex-wrap gap-2.5 p-0 md:gap-3;
+}
+
+.home-preview-item {
+  @apply inline-flex items-center gap-2.5 border border-clr-rule-soft bg-clr-surface-low px-3 py-2 text-clr-action-text transition-[background-color,border-color] duration-200 hover:bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:text-clr-darkmode-action-text dark:hover:bg-clr-darkmode-surface-page;
+}
+
+.home-preview-item-art {
   @apply flex items-center justify-center;
 }
 
-.home-format-label {
+.home-preview-symbol {
+  display: inline-block;
+  font-size: 1.1rem;
+  line-height: 1;
+  font-variation-settings: 'FILL' 0, 'wght' 450, 'GRAD' 0, 'opsz' 20;
+}
+
+.home-preview-label {
   font-size: var(--font-size-label-xs);
-  @apply font-tertiary font-bold uppercase tracking-[0.18em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply font-tertiary font-bold uppercase tracking-[0.14em] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.home-preview-item:focus-within {
+  border-color: var(--color-clr-rule-strong);
+}
+
+.dark .home-preview-item:focus-within {
+  border-color: var(--color-clr-darkmode-rule-strong);
 }
 
 /*

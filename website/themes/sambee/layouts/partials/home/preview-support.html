@@ -1,0 +1,32 @@
+{{/* Purpose: Highlights file preview coverage using homepage-configured font icons. */}}
+{{ $section := .section }}
+{{ if $section.enabled }}
+<section class="shell-section ledger-shell home-section" id="preview-support">
+  <div class="home-section-header site-gutter">
+    <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
+    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
+  </div>
+  <div class="home-preview-body site-gutter">
+    <div class="home-preview-intro">
+      <p class="home-preview-copy home-copy home-copy--lead">{{ $section.body }}</p>
+      {{ with $section.supporting_link }}
+      {{/* Optional supporting link points to broader format coverage without changing the core grid. */}}
+      <div class="home-preview-actions">
+        <a class="home-preview-link" href="{{ .href }}">{{ .label }}</a>
+      </div>
+      {{ end }}
+    </div>
+    <ul class="home-preview-list" aria-label="Preview-supported file types">
+    {{/* Icons come from homepage data so format presentation stays content-driven. */}}
+    {{ range $section.formats }}
+    <li class="home-preview-item">
+      <span class="home-preview-item-art" aria-hidden="true">
+        <span class="material-symbols-outlined home-preview-symbol">{{ .icon | default "draft" }}</span>
+      </span>
+      <span class="home-preview-label">{{ .label }}</span>
+    </li>
+    {{ end }}
+    </ul>
+  </div>
+</section>
+{{ end }}
