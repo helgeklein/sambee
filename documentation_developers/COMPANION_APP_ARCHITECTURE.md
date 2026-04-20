@@ -929,7 +929,7 @@ A GitHub Actions workflow (`build-companion.yml`) builds the companion for all s
 | Windows x86_64    | `windows-latest` |
 | Windows ARM64     | `windows-latest` |
 
-The workflow runs on tags matching `companion-v*` and on manual `workflow_dispatch` runs.
+The workflow runs manually via `workflow_dispatch` and creates or updates the draft release for the current synced version.
 
 ---
 
