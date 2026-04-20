@@ -954,8 +954,8 @@ pytokens==0.4.1 \
     --hash=sha256:ee44d0f85b803321710f9239f335aafe16553b39106384cef8e6de40cb4ef2f6 \
     --hash=sha256:f66a6bbe741bd431f6d741e617e0f39ec7257ca1f89089593479347cc4d13324
     # via black
-pyvips==2.2.3 \
-    --hash=sha256:43bceced0db492654c93008246a58a508e0373ae1621116b87b322f2ac72212f
+pyvips==3.1.1 \
+    --hash=sha256:84fe744d023b1084ac2516bb17064cacd41c7f8aabf8e524dd383534941b9301
     # via -r requirements.txt
 pyyaml==6.0.3 \
     --hash=sha256:00c4bdeba853cc34e7dd471f16b4114f4162dc03e6b7afcc2128711f0eca823c \
