@@ -6,6 +6,7 @@ multi-ecosystem-groups:
       day: monday
       time: "05:30"
       timezone: UTC
+    open-pull-requests-limit: 5
     labels:
       - dependencies
       - companion
@@ -137,7 +138,6 @@ updates:
       day: monday
       time: "05:30"
       timezone: UTC
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - companion
@@ -176,7 +176,6 @@ updates:
       day: monday
       time: "05:40"
       timezone: UTC
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - rust
