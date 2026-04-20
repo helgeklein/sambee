@@ -73,6 +73,13 @@ The `dependency-security.yml` workflow runs separate dependency-focused checks:
 
 Use it to validate dependency update PRs in addition to the normal test workflow.
 
+## Labels Workflow
+
+The `sync-labels.yml` workflow manages repository labels from `.github/labels.yml`.
+
+- Keep Dependabot labels defined there so dependency PR labeling is deterministic.
+- The workflow uses `skip-delete: true`, so labels not declared in `.github/labels.yml` are left alone.
+
 ### Manual Cache Management
 
 To clear all caches:
