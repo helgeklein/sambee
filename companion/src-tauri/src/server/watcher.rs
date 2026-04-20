@@ -8,7 +8,7 @@
 //! client subscribes and stopped when the last client unsubscribes.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::Duration;
 
 use log::{info, warn};
@@ -76,7 +76,7 @@ impl DirectoryWatcher {
     /// - `drive` — drive identifier (e.g. `"c"`, `"root"`).
     /// - `path`  — relative directory path within the drive.
     /// - `root`  — absolute filesystem root of the drive.
-    pub async fn subscribe(&self, drive: &str, path: &str, root: &PathBuf) -> Result<(), String> {
+    pub async fn subscribe(&self, drive: &str, path: &str, root: &Path) -> Result<(), String> {
         let key = format!("{drive}:{path}");
         let mut entries = self.entries.lock().await;
 
@@ -87,13 +87,15 @@ impl DirectoryWatcher {
             return Ok(());
         }
 
+        let canonical_root = root.canonicalize().map_err(|e| format!("Drive root inaccessible: {e}"))?;
+
         // Resolve the filesystem path to watch
         let watch_path = if path.is_empty() {
-            root.clone()
+            canonical_root.clone()
         } else {
-            let joined = root.join(path);
+            let joined = canonical_root.join(path);
             let canonical = joined.canonicalize().map_err(|e| format!("Cannot resolve path: {e}"))?;
-            if !canonical.starts_with(root) {
+            if !canonical.starts_with(&canonical_root) {
                 return Err("Path is outside drive root".into());
             }
             canonical
