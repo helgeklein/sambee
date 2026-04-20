@@ -6,7 +6,7 @@
     {{ range $section.items }}
     <article class="home-problem-card">
       <div class="eyebrow-icon-row home-problem-row home-problem-row--{{ .id }}">
-        <span class="home-problem-icon" aria-hidden="true">{{ partial "home/problem-icon.html" (dict "id" .id "class" "h-5 w-5") }}</span>
+        <span class="home-problem-icon" aria-hidden="true"><span class="material-symbols-outlined home-problem-symbol h-5 w-5">{{ .icon | default "apps" }}</span></span>
         <span class="eyebrow eyebrow--strong eyebrow--icon-label home-problem-eyebrow">{{ .eyebrow }}</span>
       </div>
       <h2 class="home-problem-title">{{ .title }}</h2>

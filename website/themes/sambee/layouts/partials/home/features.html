@@ -13,7 +13,10 @@
       <article class="home-feature-ledger">
         <div class="home-feature-ledger-grid">
           <div class="home-feature-summary">
-            <h3 class="home-feature-heading">{{ $group.title }}</h3>
+            <div class="home-feature-heading-row">
+              <span class="home-feature-icon" aria-hidden="true"><span class="material-symbols-outlined home-feature-symbol">{{ $group.icon | default "apps" }}</span></span>
+              <h3 class="home-feature-heading">{{ $group.title }}</h3>
+            </div>
             {{ with $group.summary }}
             <p class="home-feature-summary-copy">{{ . }}</p>
             {{ end }}
