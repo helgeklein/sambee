@@ -22,7 +22,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } fro
 import { useDirectorySearchProvider } from "../../components/FileBrowser/search";
 import api from "../../services/api";
 import { isClientTimeoutError, isLocalAbortError } from "../../services/backendAvailability";
-import { isLocalDrive } from "../../services/backendRouter";
+import { isLocalDrive, normalizeLocalDrivePath } from "../../services/backendRouter";
 import { logger } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
@@ -166,15 +166,17 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
+      const normalizedPath = normalizeLocalDrivePath(nextConnectionId, nextPath);
+
       pendingLocationRef.current = {
         connectionId: nextConnectionId,
-        path: nextPath,
+        path: normalizedPath,
       };
 
-      prepareDirectoryTransition(nextConnectionId, nextPath);
-      setCurrentPath(nextPath);
+      prepareDirectoryTransition(nextConnectionId, normalizedPath);
+      setCurrentPath(normalizedPath);
       setViewInfo(null);
-      onNavigatePath?.(nextPath);
+      onNavigatePath?.(normalizedPath);
 
       if (options?.blurActiveElement && document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
@@ -1570,8 +1572,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
             }
           : null
       );
+      const normalizedPath = normalizeLocalDrivePath(snapshot.connectionId, snapshot.path);
       setConnectionId(snapshot.connectionId);
-      setCurrentPath(snapshot.path);
+      setCurrentPath(normalizedPath);
       setFiles(nextItems);
       setLoading(false);
       setError(null);
@@ -1589,9 +1592,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         lastAppliedRouteSyncTokenRef.current = routeSyncToken;
       }
 
+      const normalizedPath = normalizeLocalDrivePath(nextConnectionId, nextPath);
+
       const pendingLocation = pendingLocationRef.current;
       if (pendingLocation) {
-        if (pendingLocation.connectionId === nextConnectionId && pendingLocation.path === nextPath) {
+        if (pendingLocation.connectionId === nextConnectionId && pendingLocation.path === normalizedPath) {
           pendingLocationRef.current = null;
         } else {
           return;
@@ -1601,11 +1606,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const connectionChanged = connectionIdRef.current !== nextConnectionId;
 
       if (connectionChanged) {
-        const nextCacheKey = `${nextConnectionId}:${nextPath}`;
+        const nextCacheKey = `${nextConnectionId}:${normalizedPath}`;
         const seededSnapshot = directoryCache.current.get(nextCacheKey);
-        prepareDirectoryTransition(nextConnectionId, nextPath);
+        prepareDirectoryTransition(nextConnectionId, normalizedPath);
         setConnectionId(nextConnectionId);
-        setCurrentPath(nextPath);
+        setCurrentPath(normalizedPath);
         setViewInfo(null);
         setSelectedFiles(new Set());
         directoryCache.current.clear();
@@ -1617,9 +1622,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
-      if (currentPathRef.current !== nextPath) {
-        prepareDirectoryTransition(nextConnectionId, nextPath);
-        setCurrentPath(nextPath);
+      if (currentPathRef.current !== normalizedPath) {
+        prepareDirectoryTransition(nextConnectionId, normalizedPath);
+        setCurrentPath(normalizedPath);
         setViewInfo(null);
         setSelectedFiles(new Set());
       }

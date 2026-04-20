@@ -149,16 +149,23 @@ async fn handle_ws_message(
     match (action, conn_id) {
         (Some("subscribe"), Some(connection_id)) => {
             let drive = connection_id.strip_prefix(LOCAL_DRIVE_PREFIX).unwrap_or(connection_id);
-            let key = format!("{drive}:{path}");
+            let normalized_path = match normalize_drive_relative_path(drive, path) {
+                Ok(normalized) => normalized,
+                Err(e) => {
+                    warn!("WS subscribe failed for {drive}:{path}: {e}");
+                    return Ok(());
+                }
+            };
+            let key = format!("{drive}:{normalized_path}");
 
             if let Some(root) = drives::resolve_drive_path(drive) {
-                match state.watcher.subscribe(drive, path, &root).await {
+                match state.watcher.subscribe(drive, &normalized_path, &root).await {
                     Ok(()) => {
                         subscriptions.insert(key);
                         let reply = serde_json::json!({
                             "type": "subscribed",
                             "connection_id": connection_id,
-                            "path": path,
+                            "path": normalized_path,
                         });
                         socket
                             .send(Message::Text(reply.to_string().into()))
@@ -175,16 +182,23 @@ async fn handle_ws_message(
         }
         (Some("unsubscribe"), Some(connection_id)) => {
             let drive = connection_id.strip_prefix(LOCAL_DRIVE_PREFIX).unwrap_or(connection_id);
-            let key = format!("{drive}:{path}");
+            let normalized_path = match normalize_drive_relative_path(drive, path) {
+                Ok(normalized) => normalized,
+                Err(e) => {
+                    warn!("WS unsubscribe failed for {drive}:{path}: {e}");
+                    return Ok(());
+                }
+            };
+            let key = format!("{drive}:{normalized_path}");
 
             if subscriptions.remove(&key) {
-                state.watcher.unsubscribe(drive, path).await;
+                state.watcher.unsubscribe(drive, &normalized_path).await;
             }
 
             let reply = serde_json::json!({
                 "type": "unsubscribed",
                 "connection_id": connection_id,
-                "path": path,
+                "path": normalized_path,
             });
             let _ = socket.send(Message::Text(reply.to_string().into())).await;
         }
@@ -341,14 +355,15 @@ pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQu
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
 
     let relative = query.path.as_deref().unwrap_or("");
-    let full_path = resolve_safe_path(&base_path, relative)?;
+    let normalized_relative = normalize_drive_relative_path(&drive, relative)?;
+    let full_path = resolve_safe_path(&base_path, &drive, relative)?;
 
     let mut items = Vec::new();
 
     let mut entries = tokio::fs::read_dir(&full_path).await.map_err(|e| map_io_error(e, &full_path))?;
 
     while let Some(entry) = entries.next_entry().await.map_err(ApiError::Io)? {
-        match build_file_info(&entry, relative).await {
+        match build_file_info(&entry, &normalized_relative).await {
             Ok(info) => items.push(info),
             Err(e) => {
                 // Skip entries we can't stat (e.g., broken symlinks)
@@ -360,7 +375,7 @@ pub async fn browse_list(Path(drive): Path<String>, Query(query): Query<BrowseQu
     let total = items.len();
 
     Ok(Json(DirectoryListing {
-        path: relative.to_string(),
+        path: normalized_relative,
         items,
         total,
     }))
@@ -371,7 +386,8 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
 
     let relative = query.path.as_deref().unwrap_or("");
-    let full_path = resolve_safe_path(&base_path, relative)?;
+    let normalized_relative = normalize_drive_relative_path(&drive, relative)?;
+    let full_path = resolve_safe_path(&base_path, &drive, relative)?;
 
     let metadata = tokio::fs::metadata(&full_path).await.map_err(|e| map_io_error(e, &full_path))?;
 
@@ -391,7 +407,7 @@ pub async fn browse_info(Path(drive): Path<String>, Query(query): Query<BrowseQu
 
     Ok(Json(FileInfo {
         name,
-        path: relative.to_string(),
+        path: normalized_relative,
         file_type,
         size,
         mime_type,
@@ -483,7 +499,7 @@ fn resolve_viewer_path(drive: &str, query: &ViewerQuery) -> Result<(PathBuf, Str
     let base_path = drives::resolve_drive_path(drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
 
     let relative = query.path.as_deref().unwrap_or("");
-    let full_path = resolve_safe_path(&base_path, relative)?;
+    let full_path = resolve_safe_path(&base_path, drive, relative)?;
 
     // Viewer endpoints must target files, not directories
     let metadata = std::fs::metadata(&full_path).map_err(|e| map_io_error(e, &full_path))?;
@@ -507,12 +523,12 @@ fn resolve_viewer_path(drive: &str, query: &ViewerQuery) -> Result<(PathBuf, Str
 pub async fn browse_delete(Path(drive): Path<String>, Query(query): Query<BrowseQuery>) -> Result<StatusCode, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
 
-    let relative = query.path.as_deref().unwrap_or("");
+    let relative = normalize_drive_relative_path(&drive, query.path.as_deref().unwrap_or(""))?;
     if relative.is_empty() {
         return Err(ApiError::BadRequest("Cannot delete the drive root".to_string()));
     }
 
-    let full_path = resolve_safe_path(&base_path, relative)?;
+    let full_path = resolve_safe_path(&base_path, &drive, &relative)?;
 
     let metadata = tokio::fs::metadata(&full_path).await.map_err(|e| map_io_error(e, &full_path))?;
 
@@ -542,11 +558,13 @@ pub async fn browse_rename(Path(drive): Path<String>, Json(body): Json<RenameReq
 
     validate_name(&body.new_name)?;
 
-    if body.path.is_empty() {
+    let relative_path = normalize_drive_relative_path(&drive, &body.path)?;
+
+    if relative_path.is_empty() {
         return Err(ApiError::BadRequest("Cannot rename the drive root".to_string()));
     }
 
-    let full_path = resolve_safe_path(&base_path, &body.path)?;
+    let full_path = resolve_safe_path(&base_path, &drive, &body.path)?;
 
     let parent = full_path
         .parent()
@@ -565,7 +583,7 @@ pub async fn browse_rename(Path(drive): Path<String>, Json(body): Json<RenameReq
         .map_err(|e| map_io_error(e, &full_path))?;
 
     // Build the new relative path for the response
-    let parent_relative = body.path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+    let parent_relative = relative_path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
     let new_relative = if parent_relative.is_empty() {
         body.new_name.clone()
     } else {
@@ -594,10 +612,11 @@ pub async fn browse_create(Path(drive): Path<String>, Json(body): Json<CreateIte
 
     validate_name(&body.name)?;
 
-    let parent_path = resolve_safe_path(&base_path, &body.parent_path)?;
+    let parent_relative = normalize_drive_relative_path(&drive, &body.parent_path)?;
+    let parent_path = resolve_safe_path(&base_path, &drive, &body.parent_path)?;
 
     if !parent_path.is_dir() {
-        return Err(ApiError::NotFound(format!("Parent directory not found: {}", body.parent_path)));
+        return Err(ApiError::NotFound(format!("Parent directory not found: {parent_relative}")));
     }
 
     let new_path = parent_path.join(&body.name);
@@ -614,10 +633,10 @@ pub async fn browse_create(Path(drive): Path<String>, Json(body): Json<CreateIte
         }
     }
 
-    let new_relative = if body.parent_path.is_empty() {
+    let new_relative = if parent_relative.is_empty() {
         body.name.clone()
     } else {
-        format!("{}/{}", body.parent_path, body.name)
+        format!("{}/{}", parent_relative, body.name)
     };
 
     let info = build_file_info_from_path(&new_path, &new_relative).await?;
@@ -646,12 +665,12 @@ pub struct CopyMoveRequest {
 /// different local drive (e.g. copying from drive C to drive D).
 pub async fn browse_copy(Path(drive): Path<String>, Json(body): Json<CopyMoveRequest>) -> Result<StatusCode, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let dest_base = resolve_dest_drive(&drive, &body.dest_connection_id)?;
+    let (dest_drive, dest_base) = resolve_dest_drive(&drive, &body.dest_connection_id)?;
 
     validate_copy_move_paths(&body.source_path, &body.dest_path)?;
 
-    let source = resolve_safe_path(&base_path, &body.source_path)?;
-    let dest = resolve_safe_path_for_new(&dest_base, &body.dest_path)?;
+    let source = resolve_safe_path(&base_path, &drive, &body.source_path)?;
+    let dest = resolve_safe_path_for_new(&dest_base, &dest_drive, &body.dest_path)?;
 
     if dest.exists() && !body.overwrite {
         return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
@@ -683,13 +702,13 @@ pub async fn browse_copy(Path(drive): Path<String>, Json(body): Json<CopyMoveReq
 /// since `rename()` does not work across mount points.
 pub async fn browse_move(Path(drive): Path<String>, Json(body): Json<CopyMoveRequest>) -> Result<StatusCode, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let dest_base = resolve_dest_drive(&drive, &body.dest_connection_id)?;
+    let (dest_drive, dest_base) = resolve_dest_drive(&drive, &body.dest_connection_id)?;
     let is_cross_drive = base_path != dest_base;
 
     validate_copy_move_paths(&body.source_path, &body.dest_path)?;
 
-    let source = resolve_safe_path(&base_path, &body.source_path)?;
-    let dest = resolve_safe_path_for_new(&dest_base, &body.dest_path)?;
+    let source = resolve_safe_path(&base_path, &drive, &body.source_path)?;
+    let dest = resolve_safe_path_for_new(&dest_base, &dest_drive, &body.dest_path)?;
 
     if dest.exists() && !body.overwrite {
         return Err(build_conflict_error(&source, &dest, &body.source_path, &body.dest_path).await);
@@ -744,7 +763,7 @@ pub struct OpenRequest {
 /// directly from disk. No lock, no temp copy, no upload — zero latency.
 pub async fn browse_open(Path(drive): Path<String>, Json(body): Json<OpenRequest>) -> Result<StatusCode, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let file_path = resolve_safe_path(&base_path, &body.path)?;
+    let file_path = resolve_safe_path(&base_path, &drive, &body.path)?;
 
     if !file_path.is_file() {
         return Err(ApiError::BadRequest(format!("Not a file: {}", file_path.display())));
@@ -959,7 +978,8 @@ pub async fn browse_upload(
     mut multipart: axum::extract::Multipart,
 ) -> Result<Json<UploadResponse>, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
-    let dest = resolve_safe_path_for_new(&base_path, &query.path)?;
+    let normalized_path = normalize_drive_relative_path(&drive, &query.path)?;
+    let dest = resolve_safe_path_for_new(&base_path, &drive, &query.path)?;
 
     // Read the file field from the multipart body
     let mut file_data: Option<Vec<u8>> = None;
@@ -1000,7 +1020,7 @@ pub async fn browse_upload(
 
     Ok(Json(UploadResponse {
         status: "ok".to_string(),
-        path: query.path,
+        path: normalized_path,
         size,
         last_modified,
     }))
@@ -1013,29 +1033,56 @@ pub async fn browse_upload(
 /// If `dest_connection_id` is `None` or refers to the same drive, returns
 /// the source `base_path`. If it refers to a different local drive, resolves
 /// and returns that drive's root path.
-fn resolve_dest_drive(source_drive: &str, dest_connection_id: &Option<String>) -> Result<PathBuf, ApiError> {
+fn resolve_dest_drive(source_drive: &str, dest_connection_id: &Option<String>) -> Result<(String, PathBuf), ApiError> {
     let dest_drive_id = match dest_connection_id {
         Some(conn_id) => {
             // Extract drive ID from "local-drive:X" format
-            conn_id.strip_prefix(LOCAL_DRIVE_PREFIX).unwrap_or(conn_id)
+            conn_id.strip_prefix(LOCAL_DRIVE_PREFIX).unwrap_or(conn_id).to_string()
         }
         None => {
-            return drives::resolve_drive_path(source_drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {source_drive}")))
+            let base =
+                drives::resolve_drive_path(source_drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {source_drive}")))?;
+            return Ok((source_drive.to_string(), base));
         }
     };
 
     // Same drive — no cross-drive operation needed
     if dest_drive_id == source_drive {
-        return drives::resolve_drive_path(source_drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {source_drive}")));
+        let base = drives::resolve_drive_path(source_drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {source_drive}")))?;
+        return Ok((source_drive.to_string(), base));
     }
 
-    drives::resolve_drive_path(dest_drive_id).ok_or_else(|| ApiError::NotFound(format!("Unknown destination drive: {dest_drive_id}")))
+    let base = drives::resolve_drive_path(&dest_drive_id)
+        .ok_or_else(|| ApiError::NotFound(format!("Unknown destination drive: {dest_drive_id}")))?;
+    Ok((dest_drive_id, base))
+}
+
+fn normalize_drive_relative_path(drive: &str, path: &str) -> Result<String, ApiError> {
+    let normalized = path.replace('\\', "/");
+
+    if drive.len() == 1 {
+        let bytes = normalized.as_bytes();
+        if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            let requested_drive = normalized[..1].to_ascii_lowercase();
+            let active_drive = drive.to_ascii_lowercase();
+
+            if requested_drive == active_drive {
+                return Ok(normalized[2..].trim_start_matches('/').to_string());
+            }
+
+            return Err(ApiError::BadRequest(format!(
+                "Path targets drive {requested_drive}, not drive {active_drive}"
+            )));
+        }
+    }
+
+    Ok(normalized.trim_start_matches('/').to_string())
 }
 
 /// Resolve a relative path against a base path, preventing path traversal.
-fn resolve_safe_path(base: &std::path::Path, relative: &str) -> Result<PathBuf, ApiError> {
+fn resolve_safe_path(base: &std::path::Path, drive: &str, relative: &str) -> Result<PathBuf, ApiError> {
     // Normalize the relative path — reject any ".." components
-    let clean = relative.replace('\\', "/").trim_start_matches('/').to_string();
+    let clean = normalize_drive_relative_path(drive, relative)?;
 
     for component in clean.split('/') {
         if component == ".." {
@@ -1166,8 +1213,8 @@ fn validate_copy_move_paths(source: &str, dest: &str) -> Result<(), ApiError> {
 ///
 /// Unlike `resolve_safe_path`, this validates the *parent* directory exists
 /// and checks the full path stays within the drive boundary.
-fn resolve_safe_path_for_new(base: &std::path::Path, relative: &str) -> Result<PathBuf, ApiError> {
-    let clean = relative.replace('\\', "/").trim_start_matches('/').to_string();
+fn resolve_safe_path_for_new(base: &std::path::Path, drive: &str, relative: &str) -> Result<PathBuf, ApiError> {
+    let clean = normalize_drive_relative_path(drive, relative)?;
 
     for component in clean.split('/') {
         if component == ".." {
@@ -1261,4 +1308,22 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_drive_relative_path;
+
+    #[test]
+    fn normalizes_same_drive_absolute_windows_paths() {
+        assert_eq!(normalize_drive_relative_path("d", r"d:\temp").unwrap(), "temp");
+        assert_eq!(normalize_drive_relative_path("d", "d:/temp").unwrap(), "temp");
+        assert_eq!(normalize_drive_relative_path("d", "d:temp").unwrap(), "temp");
+    }
+
+    #[test]
+    fn rejects_absolute_paths_for_different_windows_drive() {
+        let err = normalize_drive_relative_path("d", r"c:\temp").unwrap_err();
+        assert!(format!("{err}").contains("Path targets drive c, not drive d"));
+    }
 }

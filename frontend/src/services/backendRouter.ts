@@ -18,6 +18,9 @@ import { COMPANION_BASE_URL, type DriveInfo } from "./companion";
 /** Prefix used for synthetic connection IDs representing local drives. */
 export const LOCAL_DRIVE_PREFIX = "local-drive:";
 
+const FORWARD_SLASH = "/";
+const BACKSLASH = "\\";
+
 /** Connection type value for local drives. */
 export const CONNECTION_TYPE_LOCAL = "local";
 
@@ -63,6 +66,32 @@ export function extractDriveId(connectionId: string): string {
  */
 export function isLocalDrive(connectionId: string): boolean {
   return connectionId.startsWith(LOCAL_DRIVE_PREFIX);
+}
+
+/**
+ * Normalize a local-drive path into the drive-relative format expected by the
+ * browser state and companion API.
+ *
+ * Windows absolute inputs like `d:\temp` or `d:/temp` become `temp` when the
+ * active connection targets drive `d`. Leading separators are also removed so
+ * `/temp` and `\temp` resolve to `temp`.
+ */
+export function normalizeLocalDrivePath(connectionId: string, path: string): string {
+  if (!isLocalDrive(connectionId)) {
+    return path;
+  }
+
+  const normalizedSeparators = path.replaceAll(BACKSLASH, FORWARD_SLASH);
+  const driveId = extractDriveId(connectionId);
+
+  if (driveId.length === 1 && /^[A-Za-z]:/.test(normalizedSeparators)) {
+    const requestedDrive = normalizedSeparators[0]?.toLowerCase();
+    if (requestedDrive === driveId.toLowerCase()) {
+      return normalizedSeparators.slice(2).replace(/^\/+/, "");
+    }
+  }
+
+  return normalizedSeparators.replace(/^\/+/, "");
 }
 
 /**
