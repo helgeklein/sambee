@@ -196,7 +196,7 @@ preview_support:
     - label: MD
       icon: markdown
     - label: JPG
-      icon: photo
+      icon: image
     - label: XLS
       icon: table_chart
 
