@@ -1,4 +1,17 @@
 version: 2
+multi-ecosystem-groups:
+  companion-tauri:
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:30"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - companion
+      - rust
+
 updates:
   - package-ecosystem: github-actions
     directory: "/"
@@ -125,10 +138,12 @@ updates:
       day: monday
       time: "05:30"
       timezone: UTC
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - companion
+    patterns:
+      - "@tauri-apps/*"
+    multi-ecosystem-group: companion-tauri
     ignore:
       # Companion build-tool, localization, compiler, and test-runtime major
       # upgrades should be upgraded deliberately with manual testing.
@@ -151,6 +166,8 @@ updates:
       companion-npm:
         patterns:
           - "*"
+        exclude-patterns:
+          - "@tauri-apps/*"
 
   - package-ecosystem: cargo
     directory: "/companion/src-tauri"
@@ -159,14 +176,20 @@ updates:
       day: monday
       time: "05:40"
       timezone: UTC
-    open-pull-requests-limit: 5
     labels:
       - dependencies
       - rust
+    patterns:
+      - "tauri"
+      - "tauri-*"
+    multi-ecosystem-group: companion-tauri
     groups:
       companion-rust:
         patterns:
           - "*"
+        exclude-patterns:
+          - "tauri"
+          - "tauri-*"
 
   - package-ecosystem: docker
     directory: "/"
