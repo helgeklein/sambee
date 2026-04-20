@@ -1,4 +1,4 @@
-{{/* Purpose: Highlights file preview coverage using reusable specimen icons. */}}
+{{/* Purpose: Highlights file preview coverage using homepage-configured font icons. */}}
 {{ $section := .section }}
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="preview-support">
@@ -6,25 +6,27 @@
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
   </div>
-  <div class="site-gutter pb-8 md:pb-9">
-    <div class="mb-5 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
-      <p class="max-w-3xl text-sm leading-[1.7] text-clr-text-light dark:text-clr-darkmode-text-light">{{ $section.body }}</p>
+  <div class="home-preview-body site-gutter">
+    <div class="home-preview-intro">
+      <p class="home-preview-copy home-copy home-copy--lead">{{ $section.body }}</p>
       {{ with $section.supporting_link }}
       {{/* Optional supporting link points to broader format coverage without changing the core grid. */}}
-      <a class="home-preview-link" href="{{ .href }}">{{ .label }}</a>
+      <div class="home-preview-actions">
+        <a class="home-preview-link" href="{{ .href }}">{{ .label }}</a>
+      </div>
       {{ end }}
     </div>
-    <div class="home-preview-grid">
-    {{/* The specimen partial keeps per-format SVG differences in one place. */}}
+    <ul class="home-preview-list" aria-label="Preview-supported file types">
+    {{/* Icons come from homepage data so format presentation stays content-driven. */}}
     {{ range $section.formats }}
-    <article class="home-preview-card" aria-label="{{ .label }} preview support">
-      <div class="home-preview-card-art">
-        {{ partial "home/format-specimen.html" (dict "label" .label "class" "home-format-art h-9 w-9 md:h-10 md:w-10") }}
-      </div>
+    <li class="home-preview-item">
+      <span class="home-preview-item-art" aria-hidden="true">
+        <span class="material-symbols-outlined home-preview-symbol">{{ .icon | default "draft" }}</span>
+      </span>
       <span class="home-preview-label">{{ .label }}</span>
-    </article>
+    </li>
     {{ end }}
-    </div>
+    </ul>
   </div>
 </section>
 {{ end }}

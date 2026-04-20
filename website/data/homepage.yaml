@@ -182,14 +182,23 @@ preview_support:
     href: /docs/1.0/end-user/
   formats:
     - label: PSD
+      icon: image
     - label: TIFF
+      icon: image
     - label: HEIC
+      icon: image
     - label: EPS
+      icon: palette
     - label: AI
+      icon: palette
     - label: PDF
+      icon: picture_as_pdf
     - label: MD
+      icon: markdown
     - label: JPG
+      icon: photo
     - label: XLS
+      icon: table_chart
 
 companion:
   enabled: true
