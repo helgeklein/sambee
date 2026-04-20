@@ -135,10 +135,10 @@ Companion release builds are automated in the main repository.
 
 Current workflow shape:
 
-1. A Companion tag matching `companion-v*` triggers the build workflow.
-2. CI builds the configured platform matrix.
+1. An operator runs the Companion build workflow manually from the main repository.
+2. CI builds the selected platform matrix.
 3. CI signs updater artifacts with the Tauri updater signing key.
-4. CI creates or updates a draft release in the dedicated `sambee-companion` repository.
+4. CI creates or updates a draft release in the dedicated `sambee-companion` repository using the current synced version.
 5. CI uploads the produced assets to that draft release.
 6. A human reviews and publishes or discards the draft release.
 
