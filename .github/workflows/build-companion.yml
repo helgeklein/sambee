@@ -119,6 +119,9 @@ jobs:
         if: steps.node-cache.outputs.cache-hit != 'true'
         run: cd companion && npm ci
 
+      - name: Verify Tauri package version alignment
+        run: /usr/bin/python3 scripts/check_tauri_version_alignment.py
+
       # ── Code signing tools (Windows only) ──
       - name: Install trusted-signing-cli
         if: runner.os == 'Windows'

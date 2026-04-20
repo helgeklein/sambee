@@ -197,6 +197,9 @@ jobs:
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
 
+    - name: Verify Tauri package version alignment
+      run: /usr/bin/python3 scripts/check_tauri_version_alignment.py
+
     - name: Install Tauri system dependencies
       run: |
         sudo apt-get update
