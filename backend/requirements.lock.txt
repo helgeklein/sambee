@@ -576,9 +576,9 @@ six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
     # via ecdsa
-smbprotocol==1.15.0 \
-    --hash=sha256:1fbfe19be3afca25a27e3bccc0de54614c6a8d3443b1fac829763b4901fb1c06 \
-    --hash=sha256:3c892f4c22ab147d0576a3a8d34279831b26ab4695b7df911a334bc41f6d652a
+smbprotocol==1.16.1 \
+    --hash=sha256:0f9c35b2a0103314da06aecaffa8821f060a9773ad82cc0d7f29130083d598b4 \
+    --hash=sha256:ad7a31662792817c6da3629a3cfb96a51d8213e993ebd0c0a7ee750d2b1f8ec8
     # via -r requirements.txt
 sqlalchemy==2.0.49 \
     --hash=sha256:01146546d84185f12721a1d2ce0c6673451a7894d1460b592d378ca4871a0c72 \
