@@ -4,6 +4,10 @@ import type { CurrentUserSettings } from "../../types";
 const API_BASE = "http://localhost:3000/api";
 const COMPANION_API_BASE = "http://localhost:21549/api";
 
+function hasBearerAuthorizationHeader(authHeader: string | null): authHeader is string {
+  return authHeader?.startsWith("Bearer ") ?? false;
+}
+
 function createAdvancedSettingsResponse() {
   return {
     smb: {
@@ -151,7 +155,7 @@ export const handlers = [
   http.get(`${API_BASE}/auth/me`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -186,7 +190,7 @@ export const handlers = [
   http.post(`${API_BASE}/auth/change-password`, async ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -209,7 +213,7 @@ export const handlers = [
   http.get(`${API_BASE}/auth/me/settings`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -219,7 +223,7 @@ export const handlers = [
   http.put(`${API_BASE}/auth/me/settings`, async ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -315,7 +319,7 @@ export const handlers = [
   http.get(`${API_BASE}/connections`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -353,7 +357,7 @@ export const handlers = [
   http.post(`${API_BASE}/connections`, async ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -398,7 +402,7 @@ export const handlers = [
   http.put(`${API_BASE}/connections/:id`, async ({ request, params }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -419,7 +423,7 @@ export const handlers = [
   http.delete(`${API_BASE}/connections/:id`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -547,7 +551,7 @@ export const handlers = [
   http.get(`${API_BASE}/browse/:connectionId/list`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -616,7 +620,7 @@ export const handlers = [
   http.get(`${API_BASE}/viewer/:connectionId/start`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 
@@ -635,7 +639,7 @@ export const handlers = [
   http.get(`${API_BASE}/viewer/:connectionId/file`, ({ request }) => {
     const authHeader = request.headers.get("Authorization");
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (!hasBearerAuthorizationHeader(authHeader)) {
       return HttpResponse.json({ detail: "Could not validate credentials" }, { status: 401 });
     }
 

@@ -24,14 +24,12 @@ import {
   insertTable$,
   insertThematicBreak$,
   ListsToggle,
-  linkDialogPlugin,
   linkPlugin,
   listsPlugin,
   MDXEditor,
   type MDXEditorMethods,
   MultipleChoiceToggleGroup,
   markdownShortcutPlugin,
-  openLinkEditDialog$,
   quotePlugin,
   Separator,
   tablePlugin,
@@ -42,9 +40,26 @@ import {
   viewMode$,
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
+import { TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { mergeRegister } from "@lexical/utils";
 import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
-import { Box, GlobalStyles, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, useMediaQuery, useTheme } from "@mui/material";
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  GlobalStyles,
+  IconButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  TextField,
+  useMediaQuery,
+  useTheme,
+} from "@mui/material";
 import {
   $createNodeSelection,
   $createRangeSelection,
@@ -58,12 +73,26 @@ import {
   CAN_REDO_COMMAND,
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
+  COMMAND_PRIORITY_HIGH,
+  KEY_DOWN_COMMAND,
   type LexicalEditor,
   type NodeKey,
   REDO_COMMAND,
   UNDO_COMMAND,
 } from "lexical";
-import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  forwardRef,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { MARKDOWN_EDITOR_SHORTCUTS } from "../../config/keyboardShortcuts";
 import { withShortcut } from "../../hooks/useKeyboardShortcuts";
@@ -84,6 +113,7 @@ const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
 const MARKDOWN_EDITOR_CONTENT_CLASS = "sambee-markdown-editor-content";
 const MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE = "txt";
+const MARKDOWN_LINK_DIALOG_MAX_WIDTH = "sm";
 const MARKDOWN_CODE_BLOCK_LANGUAGES = {
   txt: "Plain text",
   css: "CSS",
@@ -230,6 +260,135 @@ function formatEditorTooltip(label: string, shortcutLabel?: string): string {
   return shortcutLabel ? `${label} (${shortcutLabel})` : label;
 }
 
+const MarkdownLinkDialogContext = createContext<(() => void) | null>(null);
+
+function useMarkdownLinkDialog(): () => void {
+  return useContext(MarkdownLinkDialogContext) ?? (() => {});
+}
+
+const MarkdownLinkDialogProvider = ({
+  children,
+  onLinkApplied,
+  preserveEditorSelection,
+  readOnly,
+  restoreEditorSelection,
+}: {
+  children: ReactNode;
+  onLinkApplied?: () => void;
+  preserveEditorSelection: () => void;
+  readOnly: boolean;
+  restoreEditorSelection: () => boolean;
+}) => {
+  const { t } = useTranslation();
+  const activeEditor = useCellValue(activeEditor$);
+  const [isOpen, setIsOpen] = useState(false);
+  const [dialogSessionId, setDialogSessionId] = useState(0);
+  const linkUrlInputRef = useRef<HTMLInputElement | null>(null);
+  const shouldRestoreSelectionOnCloseRef = useRef(false);
+
+  const openLinkDialog = useCallback(() => {
+    if (!activeEditor) {
+      return;
+    }
+
+    preserveEditorSelection();
+    shouldRestoreSelectionOnCloseRef.current = true;
+    setDialogSessionId((currentSessionId) => currentSessionId + 1);
+    setIsOpen(true);
+  }, [activeEditor, preserveEditorSelection]);
+
+  const closeLinkDialog = useCallback(() => {
+    setIsOpen(false);
+  }, []);
+
+  const submitLinkDialog = useCallback(() => {
+    if (!activeEditor) {
+      closeLinkDialog();
+      return;
+    }
+
+    const normalizedUrl = linkUrlInputRef.current?.value.trim() ?? "";
+    if (!normalizedUrl) {
+      return;
+    }
+
+    shouldRestoreSelectionOnCloseRef.current = false;
+    restoreEditorSelection();
+    activeEditor.dispatchCommand(TOGGLE_LINK_COMMAND, {
+      url: normalizedUrl,
+    });
+    onLinkApplied?.();
+    closeLinkDialog();
+  }, [activeEditor, closeLinkDialog, onLinkApplied, restoreEditorSelection]);
+
+  useEffect(() => {
+    if (!activeEditor || readOnly) {
+      return;
+    }
+
+    return activeEditor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => {
+        if (event.key.toLowerCase() !== "k" || !(IS_APPLE ? event.metaKey : event.ctrlKey)) {
+          return false;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        openLinkDialog();
+        return true;
+      },
+      COMMAND_PRIORITY_HIGH
+    );
+  }, [activeEditor, openLinkDialog, readOnly]);
+
+  return (
+    <MarkdownLinkDialogContext.Provider value={openLinkDialog}>
+      {children}
+      <Dialog
+        open={isOpen}
+        onClose={closeLinkDialog}
+        fullWidth
+        maxWidth={MARKDOWN_LINK_DIALOG_MAX_WIDTH}
+        TransitionProps={{
+          onExited: () => {
+            if (!shouldRestoreSelectionOnCloseRef.current) {
+              return;
+            }
+
+            shouldRestoreSelectionOnCloseRef.current = false;
+            restoreEditorSelection();
+          },
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !(event.shiftKey || event.ctrlKey || event.metaKey || event.altKey)) {
+            event.preventDefault();
+            submitLinkDialog();
+          }
+        }}
+      >
+        <DialogTitle>{t("viewer.edit.createLink", { defaultValue: "Create link" })}</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 2, overflow: "visible", pt: 2.5 }}>
+          <TextField
+            key={`markdown-link-url-${dialogSessionId}`}
+            autoFocus
+            inputRef={linkUrlInputRef}
+            label={t("viewer.edit.linkUrl", { defaultValue: "Link URL" })}
+            fullWidth
+            required
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeLinkDialog}>{t("common.cancel", { defaultValue: "Cancel" })}</Button>
+          <Button variant="contained" onClick={submitLinkDialog}>
+            {t("common.apply", { defaultValue: "Apply" })}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </MarkdownLinkDialogContext.Provider>
+  );
+};
+
 const MarkdownRichEditorCommandBridge = ({
   onCommandsChange,
 }: {
@@ -239,7 +398,7 @@ const MarkdownRichEditorCommandBridge = ({
   const insertCodeBlock = usePublisher(insertCodeBlock$);
   const insertTable = usePublisher(insertTable$);
   const insertThematicBreak = usePublisher(insertThematicBreak$);
-  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const openLinkDialog = useMarkdownLinkDialog();
 
   useEffect(() => {
     onCommandsChange({
@@ -429,7 +588,7 @@ const InsertCodeBlockButton = () => {
 
 const CreateLinkButton = () => {
   const iconComponentFor = useGurxCellValue(iconComponentFor$);
-  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const openLinkDialog = useMarkdownLinkDialog();
   const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.CREATE_LINK);
 
   return (
@@ -680,7 +839,7 @@ const MarkdownMobileBulletListButton = ({ activeBackground, hoverBackground }: {
 
 const MarkdownMobileLinkButton = ({ activeBackground, hoverBackground }: { activeBackground: string; hoverBackground: string }) => {
   const iconComponentFor = useGurxCellValue(iconComponentFor$);
-  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const openLinkDialog = useMarkdownLinkDialog();
   const title = withShortcut(MARKDOWN_EDITOR_SHORTCUTS.CREATE_LINK);
 
   return (
@@ -710,7 +869,7 @@ const MarkdownMobileMoreActionsMenu = () => {
   const insertCodeBlock = usePublisher(insertCodeBlock$);
   const insertTable = usePublisher(insertTable$);
   const insertThematicBreak = usePublisher(insertThematicBreak$);
-  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  const openLinkDialog = useMarkdownLinkDialog();
   const setViewMode = usePublisher(viewMode$);
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
@@ -1113,6 +1272,10 @@ const MarkdownResponsiveToolbar = ({
   activeBackground,
   hoverBackground,
   isMobile,
+  onLinkApplied,
+  preserveEditorSelection,
+  readOnly,
+  restoreEditorSelection,
   onSearchStateChange,
   onCurrentRangeChange,
   onSearchCommandsChange,
@@ -1124,6 +1287,10 @@ const MarkdownResponsiveToolbar = ({
   activeBackground: string;
   hoverBackground: string;
   isMobile: boolean;
+  onLinkApplied?: () => void;
+  preserveEditorSelection: () => void;
+  readOnly: boolean;
+  restoreEditorSelection: () => boolean;
   onSearchStateChange?: (state: MarkdownRichEditorSearchState) => void;
   onCurrentRangeChange: (range: Range | null) => void;
   onSearchCommandsChange: (commands: MarkdownRichEditorSearchCommands | null) => void;
@@ -1133,7 +1300,12 @@ const MarkdownResponsiveToolbar = ({
   searchText: string;
 }) => {
   return (
-    <>
+    <MarkdownLinkDialogProvider
+      onLinkApplied={onLinkApplied}
+      preserveEditorSelection={preserveEditorSelection}
+      readOnly={readOnly}
+      restoreEditorSelection={restoreEditorSelection}
+    >
       <MarkdownRichEditorSearchBridge
         searchText={searchText}
         searchOpen={searchOpen}
@@ -1148,7 +1320,7 @@ const MarkdownResponsiveToolbar = ({
       ) : (
         <MarkdownDesktopToolbar />
       )}
-    </>
+    </MarkdownLinkDialogProvider>
   );
 };
 
@@ -1726,7 +1898,6 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         codeBlockPlugin({ defaultCodeBlockLanguage: MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE }),
         codeMirrorPlugin({ codeBlockLanguages: MARKDOWN_CODE_BLOCK_LANGUAGES }),
         linkPlugin(),
-        linkDialogPlugin(),
         markdownShortcutPlugin(),
         mdxEditorSearchPlugin(),
         diffSourcePlugin({ viewMode: "rich-text", diffMarkdown }),
@@ -1737,6 +1908,12 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 activeBackground={secondaryToolbarColors.pillBackground}
                 hoverBackground={secondaryToolbarColors.hoverBackground}
                 isMobile={isMobile}
+                onLinkApplied={onUserEdit}
+                preserveEditorSelection={() => {
+                  preservedSelectionRef.current = captureSelection();
+                }}
+                readOnly={readOnly}
+                restoreEditorSelection={() => restoreSelection(preservedSelectionRef.current)}
                 searchText={searchText}
                 searchOpen={searchOpen}
                 onSearchStateChange={onSearchStateChange}
@@ -1760,11 +1937,15 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       [
         diffMarkdown,
         isMobile,
+        onUserEdit,
+        readOnly,
         onSearchStateChange,
         searchOpen,
         searchText,
         secondaryToolbarColors.hoverBackground,
         secondaryToolbarColors.pillBackground,
+        captureSelection,
+        restoreSelection,
       ]
     );
 

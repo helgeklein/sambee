@@ -147,7 +147,7 @@ class LoggingConfigManager {
    * Check if cached config is still valid
    */
   private isCacheValid(config: LoggingConfig | null = this.config): boolean {
-    if (!config || !config.timestamp) {
+    if (!config?.timestamp) {
       return false;
     }
     return Date.now() - config.timestamp < CACHE_DURATION_MS;
