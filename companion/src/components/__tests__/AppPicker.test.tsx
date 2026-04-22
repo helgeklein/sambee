@@ -4,7 +4,7 @@ import { setLocale, translate } from "../../i18n";
 import type { NativeApp } from "../../types";
 import { AppPicker } from "../AppPicker";
 
-const APP_PICKER_HEIGHT_BUFFER = 12;
+const APP_PICKER_ROUNDING_BUFFER = 1;
 
 const { invokeMock, openDialogMock, getPreferredAppMock, setPreferredAppMock, setSizeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -150,6 +150,20 @@ describe("AppPicker", () => {
       return 0;
     });
 
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element) => {
+      if (element instanceof HTMLElement && element.classList.contains("app-picker")) {
+        return {
+          borderTopWidth: "1px",
+          borderBottomWidth: "1px",
+        } as CSSStyleDeclaration;
+      }
+
+      return {
+        borderTopWidth: "0px",
+        borderBottomWidth: "0px",
+      } as CSSStyleDeclaration;
+    });
+
     render(<AppPicker extension="xlsx" onSelect={vi.fn()} onCancel={vi.fn()} />);
 
     await waitFor(() => {
@@ -157,6 +171,6 @@ describe("AppPicker", () => {
     });
 
     const resizedHeights = setSizeMock.mock.calls.map(([size]) => size.height);
-    expect(Math.max(...resizedHeights)).toBe(472 + APP_PICKER_HEIGHT_BUFFER);
+    expect(Math.max(...resizedHeights)).toBe(472 + 2 + APP_PICKER_ROUNDING_BUFFER);
   });
 });

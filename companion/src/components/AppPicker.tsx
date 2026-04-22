@@ -51,7 +51,7 @@ const APP_PICKER_FALLBACK_WIDTH = 420;
 const APP_PICKER_MIN_HEIGHT = 220;
 const APP_PICKER_SCREEN_MARGIN = 48;
 const APP_PICKER_HEIGHT_EPSILON = 1;
-const APP_PICKER_HEIGHT_BUFFER = 12;
+const APP_PICKER_ROUNDING_BUFFER = 1;
 
 //
 // AppPicker
@@ -309,6 +309,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       panelRef={panelRef}
       titleId={titleId}
       panelClassName="app-picker"
+      overlayClassName="app-picker-shell"
       includeDefaultOverlayClass={false}
       includeDefaultPanelClass={false}
     >
@@ -404,9 +405,17 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
 function measureAppPickerHeight(panel: HTMLDivElement): number {
   const panelRectHeight = Math.ceil(panel.getBoundingClientRect().height);
-  const panelScrollHeight = Math.ceil(panel.scrollHeight);
+  const panelScrollHeight = Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel));
 
-  return Math.max(panelRectHeight, panelScrollHeight) + APP_PICKER_HEIGHT_BUFFER;
+  return Math.max(panelRectHeight, panelScrollHeight) + APP_PICKER_ROUNDING_BUFFER;
+}
+
+function getVerticalBorderWidth(panel: HTMLDivElement): number {
+  const styles = window.getComputedStyle(panel);
+  const borderTopWidth = Number.parseFloat(styles.borderTopWidth || "0");
+  const borderBottomWidth = Number.parseFloat(styles.borderBottomWidth || "0");
+
+  return borderTopWidth + borderBottomWidth;
 }
 
 function getAppPickerMaxHeight(): number {

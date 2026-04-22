@@ -6,6 +6,14 @@
  * prefers-color-scheme blocks needed — the theme is applied programmatically.
  */
 
+.app-picker-shell {
+  min-height: 100vh;
+  background: var(--bg-default, #f6f1e8);
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 .app-picker {
   display: flex;
   flex-direction: column;
@@ -14,10 +22,6 @@
   min-width: 400px;
   max-width: 500px;
   min-height: 0;
-  /* Borderless window: add subtle outline so edges are visible */
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 8px;
-  overflow: hidden;
 }
 
 /* ─── Header ─── */
