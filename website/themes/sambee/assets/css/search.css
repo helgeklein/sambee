@@ -7,12 +7,27 @@ Modal Shell
 */
 
 .search-modal {
+  --search-accent: var(--color-clr-action-text, #7c5800);
+  --search-accent-strong: var(--color-clr-action-fill, #ebb035);
+  --search-accent-contrast: var(--color-clr-action-fill-text, #624500);
+  --search-accent-soft: var(--color-clr-surface-mid, #f0eee9);
+  --search-accent-soft-strong: var(--color-clr-surface-high, #eae8e3);
+  --search-focus-ring: color-mix(in srgb, var(--color-clr-action-fill, #ebb035) 30%, transparent);
   position: fixed;
   inset: 0;
   z-index: 9999;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.15s ease, visibility 0.15s ease;
+
+  .dark & {
+    --search-accent: var(--color-clr-darkmode-action-text, #f9bc41);
+    --search-accent-strong: var(--color-clr-darkmode-action-fill, #f9bc41);
+    --search-accent-contrast: var(--color-clr-darkmode-action-fill-text, #422d00);
+    --search-accent-soft: var(--color-clr-darkmode-surface-mid, #2b2925);
+    --search-accent-soft-strong: var(--color-clr-darkmode-surface-high, #302e2a);
+    --search-focus-ring: color-mix(in srgb, var(--color-clr-darkmode-action-fill, #f9bc41) 34%, transparent);
+  }
 
   &.show {
     opacity: 1;
@@ -114,8 +129,8 @@ Search Input Area
     }
 
     &:focus {
-      border-color: var(--color-clr-primary, #00CC9E);
-      box-shadow: 0 0 0 3px rgba(0, 204, 158, 0.15);
+      border-color: var(--search-accent);
+      box-shadow: 0 0 0 3px var(--search-focus-ring);
     }
 
     &::placeholder {
@@ -193,16 +208,12 @@ Results Container
 
   &:hover,
   &.selected {
-    border-color: var(--color-clr-primary, #00CC9E);
-    background-color: rgba(0, 204, 158, 0.05);
-
-    .dark & {
-      background-color: rgba(0, 204, 158, 0.1);
-    }
+    border-color: var(--search-accent);
+    background-color: var(--search-accent-soft);
   }
 
   &.selected {
-    outline: 2px solid var(--color-clr-primary, #00CC9E);
+    outline: 2px solid var(--search-accent);
     outline-offset: -2px;
   }
 }
@@ -260,8 +271,8 @@ Results Container
 
   /* Highlight marks in excerpts */
   mark {
-    background-color: rgba(0, 204, 158, 0.3);
-    color: inherit;
+    background-color: var(--search-accent-strong);
+    color: var(--search-accent-contrast);
     padding: 1px 2px;
     border-radius: 2px;
   }
@@ -347,7 +358,7 @@ Progressive Loading
   margin-top: 8px;
   font-size: var(--font-size-copy-sm);
   font-weight: 500;
-  color: var(--color-clr-primary, #00CC9E);
+  color: var(--search-accent);
   background-color: transparent;
   border: 1px dashed var(--color-clr-border, #e5e5e5);
   border-radius: 6px;
@@ -355,12 +366,8 @@ Progressive Loading
   transition: background-color 0.15s ease, border-color 0.15s ease;
 
   &:hover {
-    background-color: rgba(0, 204, 158, 0.05);
-    border-color: var(--color-clr-primary, #00CC9E);
-
-    .dark & {
-      background-color: rgba(0, 204, 158, 0.1);
-    }
+    background-color: var(--search-accent-soft);
+    border-color: var(--search-accent);
   }
 
   .dark & {
