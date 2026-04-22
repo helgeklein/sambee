@@ -317,16 +317,16 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
         {translate("appPicker.title", { extension })}
       </h2>
 
-      {state.kind === "loading" && <div class="app-picker__loading">{translate("appPicker.loading")}</div>}
+      {state.kind === "loading" && <div class="app-picker__status app-picker__loading">{translate("appPicker.loading")}</div>}
 
-      {state.kind === "error" && <div class="app-picker__error">{state.message}</div>}
+      {state.kind === "error" && <div class="app-picker__status app-picker__error">{state.message}</div>}
 
       {state.kind === "loaded" && state.apps.length === 0 && (
-        <div class="app-picker__empty">{translate("appPicker.empty", { extension })}</div>
+        <div class="app-picker__status app-picker__empty">{translate("appPicker.empty", { extension })}</div>
       )}
 
       {state.kind === "loaded" && state.apps.length > 0 && (
-        <>
+        <div class="app-picker__content">
           <div
             class="app-picker__list"
             role="listbox"
@@ -378,7 +378,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
             <input type="checkbox" checked={alwaysUse} onChange={(e) => setAlwaysUse((e.target as HTMLInputElement).checked)} />
             {translate("appPicker.alwaysUse", { extension })}
           </label>
-        </>
+        </div>
       )}
 
       <div class="app-picker__actions">
