@@ -77,7 +77,7 @@ describe("Companion API", () => {
         data: { uri_token: "tok-456", expires_in: 60 },
       } as AxiosResponse);
 
-      const themeJson = JSON.stringify({ id: "dark", mode: "dark", primary: "#90caf9" });
+      const themeJson = JSON.stringify({ id: "dark", mode: "dark", primary: { main: "#90caf9" } });
       const uri = await apiService.getCompanionUri("conn-2", "Photos/img.jpg", themeJson);
 
       const expectedThemeB64 = btoa(themeJson);
