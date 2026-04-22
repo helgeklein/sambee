@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Generate responsive WebP derivatives for website asset images.
+
+Source images live under ``website/assets/images``. For each JPG or PNG source,
+this script writes WebP variants into a sibling ``generated/`` directory using
+the naming scheme ``{stem}_{width}w.webp``.
+
+The shared Hugo partial ``components/responsive-image.html`` resolves these
+derivatives and emits fingerprinted ``srcset`` markup at render time.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+ASSETS_DIR = Path(__file__).parent.parent / "assets" / "images"
+TARGET_WIDTHS = [372, 500, 744, 852, 1000, 1280, 1704]
+WEBP_QUALITY = 82
+MAX_WORKERS = 4
+MAGICK_CMD = "magick"
+
+
+def get_image_dimensions(image_path: Path) -> tuple[int, int] | None:
+    """Return image dimensions as ``(width, height)`` or ``None`` on failure."""
+    try:
+        result = subprocess.run(
+            [MAGICK_CMD, "identify", "-format", "%w %h", str(image_path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+    try:
+        width, height = map(int, result.stdout.strip().split())
+    except ValueError:
+        return None
+    return width, height
+
+
+def generate_webp(
+    source_path: Path, target_width: int, force: bool = False
+) -> Path | None:
+    """Generate a single WebP derivative for ``source_path`` at ``target_width``."""
+    generated_dir = source_path.parent / "generated"
+    output_path = generated_dir / f"{source_path.stem}_{target_width}w.webp"
+
+    if output_path.exists() and not force:
+        return None
+
+    dimensions = get_image_dimensions(source_path)
+    if not dimensions:
+        print(f"  Warning: could not read dimensions for {source_path}")
+        return None
+
+    source_width, _ = dimensions
+    if source_width < target_width:
+        return None
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        subprocess.run(
+            [
+                MAGICK_CMD,
+                str(source_path),
+                "-resize",
+                f"{target_width}x",
+                "-quality",
+                str(WEBP_QUALITY),
+                "-define",
+                "webp:method=6",
+                str(output_path),
+            ],
+            capture_output=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        stderr = (
+            error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr
+        )
+        print(f"  Error converting {source_path}: {stderr}")
+        return None
+
+    return output_path
+
+
+def process_image(image_path: Path, force: bool = False) -> list[Path]:
+    """Generate all configured derivatives for a single source image."""
+    generated_files: list[Path] = []
+    for width in TARGET_WIDTHS:
+        result = generate_webp(image_path, width, force)
+        if result:
+            generated_files.append(result)
+    return generated_files
+
+
+def find_source_images() -> list[Path]:
+    """Return JPG and PNG sources, excluding already-generated derivative files."""
+    images: list[Path] = []
+    for pattern in ("*.jpg", "*.jpeg", "*.png", "*.JPG", "*.JPEG", "*.PNG"):
+        images.extend(ASSETS_DIR.rglob(pattern))
+
+    return sorted(
+        image
+        for image in images
+        if image.parent.name != "generated"
+        and not any(f"_{width}w" in image.stem for width in TARGET_WIDTHS)
+        and "_hu_" not in image.stem
+    )
+
+
+def ensure_magick() -> bool:
+    """Return ``True`` when ImageMagick is available and usable."""
+    try:
+        result = subprocess.run(
+            [MAGICK_CMD, "--version"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        print("Error: ImageMagick 'magick' command not found")
+        return False
+
+    print(f"Using: {result.stdout.splitlines()[0]}")
+    return True
+
+
+def main() -> int:
+    """Generate missing WebP derivatives for site assets."""
+    force = "--force" in sys.argv
+
+    if not ASSETS_DIR.exists():
+        print(f"No asset image directory found at {ASSETS_DIR}; nothing to do.")
+        return 0
+
+    if not ensure_magick():
+        return 1
+
+    source_images = find_source_images()
+    print(f"Scanning for source images in {ASSETS_DIR}...")
+    print(f"Found {len(source_images)} source images")
+
+    if not source_images:
+        print("No images to process")
+        return 0
+
+    total_generated = 0
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {
+            executor.submit(process_image, image, force): image
+            for image in source_images
+        }
+        for future in as_completed(futures):
+            image_path = futures[future]
+            try:
+                generated = future.result()
+            except (
+                Exception
+            ) as error:  # pragma: no cover - defensive top-level reporting
+                print(f"  Error processing {image_path}: {error}")
+                continue
+
+            if generated:
+                total_generated += len(generated)
+                print(f"  Generated {len(generated)} WebP files for {image_path.name}")
+
+    print(f"\nDone! Generated {total_generated} WebP files")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

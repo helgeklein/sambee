@@ -4,11 +4,12 @@ import { setLocale, translate } from "../../i18n";
 import type { NativeApp } from "../../types";
 import { AppPicker } from "../AppPicker";
 
-const { invokeMock, openDialogMock, getPreferredAppMock, setPreferredAppMock } = vi.hoisted(() => ({
+const { invokeMock, openDialogMock, getPreferredAppMock, setPreferredAppMock, setSizeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   openDialogMock: vi.fn(),
   getPreferredAppMock: vi.fn(),
   setPreferredAppMock: vi.fn(),
+  setSizeMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -17,6 +18,24 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: openDialogMock,
+}));
+
+vi.mock("@tauri-apps/api/dpi", () => ({
+  LogicalSize: class {
+    width: number;
+    height: number;
+
+    constructor(width: number, height: number) {
+      this.width = width;
+      this.height = height;
+    }
+  },
+}));
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({
+    setSize: setSizeMock,
+  }),
 }));
 
 vi.mock("../../stores/appPreferences", () => ({
@@ -30,6 +49,7 @@ describe("AppPicker", () => {
     openDialogMock.mockReset();
     getPreferredAppMock.mockReset();
     setPreferredAppMock.mockReset();
+    setSizeMock.mockReset();
   });
 
   afterEach(async () => {

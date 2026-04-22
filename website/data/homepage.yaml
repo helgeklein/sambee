@@ -178,31 +178,57 @@ preview_support:
     Sambee supports in-browser previewing for a broad range of file types,
     including images, PDFs, and Markdown.
   supporting_link:
-    label: See full viewer support
+    label: See full viewer support →
     href: /docs/1.0/end-user/
-  formats:
-    - label: PSD
+  groups:
+    - title: Classic image formats
       icon: image
-    - label: TIFF
+      formats:
+        - label: JPG
+          detail: JPEG interchange format
+        - label: PNG
+          detail: Portable Network Graphics
+        - label: GIF
+          detail: Graphics Interchange Format
+        - label: SVG
+          detail: Scalable Vector Graphics
+        - label: BMP
+          detail: Bitmap image format
+        - label: ICO
+          detail: Windows icon resource
+    - title: Modern image formats
       icon: image
-    - label: HEIC
+      formats:
+        - label: HEIC
+          detail: High Efficiency Image Container
+        - label: JXL
+          detail: JPEG XL container
+        - label: AVIF
+          detail: AV1 image file format
+        - label: WEBP
+          detail: Google WebP image format
+    - title: Professional graphics
       icon: image
-    - label: EPS
-      icon: palette
-    - label: AI
-      icon: palette
-    - label: PDF
-      icon: picture_as_pdf
-    - label: MD
-      icon: markdown
-    - label: JPG
-      icon: image
-    - label: XLS
-      icon: table_chart
+      formats:
+        - label: PSD
+          detail: Adobe Photoshop document
+        - label: AI
+          detail: Adobe Illustrator artwork
+        - label: EPS
+          detail: Encapsulated PostScript
+        - label: TIFF
+          detail: Tagged Image File Format
+    - title: Documents
+      icon: description
+      formats:
+        - label: PDF
+          detail: Portable Document Format
+        - label: MD
+          detail: CommonMark-compatible text
 
 companion:
   enabled: true
-  eyebrow: Module // Companion-Bridge
+  eyebrow: Companion App
   title: Extend Sambee to the local desktop
   body: >-
     The companion app extends Sambee to the local desktop, connecting
@@ -211,6 +237,9 @@ companion:
     - access local drives
     - open files in installed desktop applications
     - return edited files to the source location
+  preview_image:
+    src: images/home/companion-screenshot.png
+    alt: Screenshot of the Sambee Companion application
   note_title: COM-04 // Deployment Note
   note_body: Companion is optional for browser-based use, but required for local-drive access and native desktop-app editing.
   cta:
@@ -235,9 +264,9 @@ deployment:
 
 proof:
   enabled: true
-  eyebrow: MAP-01 // ENV_SCOPE
-  title: Built for real file environments
-  body: It is designed for environments that value control, inspectability, and infrastructure fit.
+  eyebrow: Designed for control
+  title: Built for your environment
+  body: Sambee is designed for environments that value control, inspectability, and infrastructure fit.
   status_label: INFRA_MAP // STABLE_READY
   items:
     - category: Connectivity
@@ -252,17 +281,3 @@ proof:
       label: Self-hosted deployments
     - category: Governance
       label: Open-source codebase
-
-final_cta:
-  enabled: true
-  title: Choose the best way to explore Sambee
-  ctas:
-    - label: See Features
-      href: "#features"
-      kind: primary
-    - label: Admin Docs
-      href: /docs/1.0/admin/
-      kind: secondary
-    - label: Read Docs
-      href: /docs/
-      kind: tertiary

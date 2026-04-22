@@ -55,6 +55,20 @@
       "problemMatcher": []
     },
     {
+      "label": "Website: Generate WebP Images",
+      "type": "shell",
+      "command": "python3 scripts/generate-webp.py",
+      "options": {
+        "cwd": "${workspaceFolder}/website"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Backend: Run Tests",
       "type": "shell",
       "command": "pytest -v",

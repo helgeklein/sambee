@@ -16,6 +16,8 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { translate } from "../i18n";
@@ -45,6 +47,11 @@ interface AppPickerProps {
 /** Loading states for the picker. */
 type PickerState = { kind: "loading" } | { kind: "loaded"; apps: NativeApp[] } | { kind: "error"; message: string };
 
+const APP_PICKER_FALLBACK_WIDTH = 420;
+const APP_PICKER_MIN_HEIGHT = 220;
+const APP_PICKER_SCREEN_MARGIN = 48;
+const APP_PICKER_HEIGHT_EPSILON = 1;
+
 //
 // AppPicker
 //
@@ -60,7 +67,49 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [alwaysUse, setAlwaysUse] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const resizeFrameRef = useRef<number | null>(null);
+  const lastWindowHeightRef = useRef<number | null>(null);
   const titleId = `app-picker-title-${extension}`;
+
+  const resizeWindowToContent = useCallback(async () => {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const measuredHeight = Math.ceil(panel.getBoundingClientRect().height);
+    if (measuredHeight <= 0) {
+      return;
+    }
+
+    const maxHeight = Math.max(APP_PICKER_MIN_HEIGHT, window.screen.availHeight - APP_PICKER_SCREEN_MARGIN);
+    const targetHeight = Math.min(Math.max(measuredHeight, APP_PICKER_MIN_HEIGHT), maxHeight);
+
+    if (lastWindowHeightRef.current !== null && Math.abs(lastWindowHeightRef.current - targetHeight) < APP_PICKER_HEIGHT_EPSILON) {
+      return;
+    }
+
+    lastWindowHeightRef.current = targetHeight;
+
+    try {
+      const targetWidth = window.innerWidth > 0 ? Math.ceil(window.innerWidth) : APP_PICKER_FALLBACK_WIDTH;
+      await getCurrentWindow().setSize(new LogicalSize(targetWidth, targetHeight));
+    } catch (err: unknown) {
+      log.warn("Failed to resize app picker window:", err);
+    }
+  }, []);
+
+  const scheduleWindowResize = useCallback(() => {
+    if (resizeFrameRef.current !== null) {
+      window.cancelAnimationFrame(resizeFrameRef.current);
+    }
+
+    resizeFrameRef.current = window.requestAnimationFrame(() => {
+      resizeFrameRef.current = null;
+      void resizeWindowToContent();
+    });
+  }, [resizeWindowToContent]);
 
   // Keep the listbox focused and scroll the selected item into view
   useEffect(() => {
@@ -71,6 +120,33 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
     // navigates between the list and the other dialog controls.
     listRef.current.focus({ preventScroll: true });
   }, [selectedIndex]);
+
+  useEffect(() => {
+    scheduleWindowResize();
+
+    return () => {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
+  }, [scheduleWindowResize, state.kind, state.kind === "loaded" ? state.apps.length : 0]);
+
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined" || !panelRef.current) {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      scheduleWindowResize();
+    });
+
+    observer.observe(panelRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [scheduleWindowResize]);
 
   // Fetch available apps and check for a saved preference
   useEffect(() => {
@@ -229,6 +305,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
     <ModalDialog
       onRequestClose={onCancel}
       initialFocusRef={listRef}
+      panelRef={panelRef}
       titleId={titleId}
       panelClassName="app-picker"
       includeDefaultOverlayClass={false}

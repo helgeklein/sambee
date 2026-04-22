@@ -28,8 +28,8 @@
             <li class="home-feature-item">
               <span class="home-feature-index">{{ printf "%02d." $featureIndex }}</span>
               <div class="home-feature-item-copy">
-                <h4 class="home-feature-item-title">{{ $item.title }}</h4>
-                <p class="home-feature-item-body">{{ $item.body }}</p>
+                <h4 class="home-feature-item-title home-label home-label--bold home-label--ink home-label--detail">{{ $item.title }}</h4>
+                <p class="home-feature-item-body home-copy home-copy--detail">{{ $item.body }}</p>
               </div>
             </li>
             {{ end }}

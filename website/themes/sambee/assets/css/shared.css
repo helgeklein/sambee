@@ -102,6 +102,15 @@ Layout Shells
   color: var(--color-clr-darkmode-action-text);
 }
 
+/* Newsreader editorial titles should use the real italic font face, not synthesized oblique. */
+.home-section-title,
+.home-title--card,
+.home-final-cta-title,
+.nav-brand-title--docs {
+  font-family: var(--font-secondary);
+  font-style: italic;
+}
+
 .ledger-shell + .ledger-shell:not(.home-section),
 .shell-section + .shell-section:not(.home-section),
 .docs-overview + .docs-overview {

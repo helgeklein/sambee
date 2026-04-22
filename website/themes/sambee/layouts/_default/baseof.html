@@ -27,7 +27,7 @@
   {{/* Global chrome sits outside the page-specific main content block. */}}
   {{ partial "essentials/header.html" . }}
   {{ partial "search-modal.html" . }}
-  <main class="site-main">
+  <main class="site-main{{ if .IsHome }} site-main--home{{ end }}">
     {{/* Individual layouts fill this slot with page-specific sections. */}}
     {{ block "main" . }}{{ end }}
   </main>
