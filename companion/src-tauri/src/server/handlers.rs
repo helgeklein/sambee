@@ -73,7 +73,13 @@ pub async fn ws_upgrade(
         .origin
         .ok_or_else(|| ApiError::Forbidden("Missing origin query param".into()))?;
 
-    auth::validate_hmac_public(&state, &origin_val, &hmac_val, &ts_val)?;
+    let log_context = auth::AuthLogContext {
+        auth_transport: "query",
+        method: "GET",
+        path: "/api/ws",
+    };
+
+    auth::validate_hmac_public(&state, &origin_val, &hmac_val, &ts_val, &log_context)?;
 
     Ok(ws.on_upgrade(move |socket| handle_ws_connection(socket, state)))
 }
