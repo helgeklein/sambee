@@ -28,7 +28,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from jwt.exceptions import InvalidTokenError
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
@@ -242,17 +244,14 @@ async def exchange_companion_token(
     session JWT is returned.
     """
 
-    from jose import JWTError
-    from jose import jwt as jose_jwt
-
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired URI token",
     )
 
     try:
-        payload = jose_jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
-    except JWTError:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
+    except InvalidTokenError:
         logger.warning("Companion token exchange failed: invalid JWT")
         raise credentials_exception
 

@@ -3,7 +3,7 @@ uvicorn[standard]==0.44.0
 python-multipart==0.0.26
 sqlmodel==0.0.38
 cryptography==46.0.7
-python-jose[cryptography]==3.5.0
+PyJWT==2.12.1
 argon2-cffi==25.1.0
 smbprotocol==1.16.1
 pydantic==2.13.3

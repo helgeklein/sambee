@@ -971,6 +971,17 @@ Paired browser origins are tracked separately from the legacy `allowedServers` p
 - Localization sync validates RFC 3339 timestamps before accepting updates.
 - Request and path validation for local-drive operations is handled in the Axum localhost API layer.
 
+### 15.5 Linux-only RustSec audit findings
+
+`cargo audit` currently reports RustSec advisories against unmaintained GTK3 bindings such as `gtk`, `gdkx11`, `gdkx11-sys`, and `gdkwayland-sys`. In the current dependency graph these crates are pulled in through the Linux Tauri runtime path (`tauri` -> `tauri-runtime-wry` -> `tao` / `wry`) rather than through Sambee-specific code.
+
+Triage status:
+
+- The findings affect the Linux Companion build path only.
+- They do not affect the currently supported Companion targets.
+- There is no low-risk repository-local fix at present; the practical fix depends on upstream Tauri/WRY moving away from the GTK3 dependency chain.
+- Keep running `cargo audit` and treat new RustSec findings normally. This exception is limited to the current Linux GTK3 advisories.
+
 ---
 
 ## 16. SMB File Locking

@@ -13,10 +13,10 @@ import base64
 import json
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi.testclient import TestClient
-from jose import jwt
 from sqlmodel import Session
 
 from app.core.config import settings, static
@@ -173,7 +173,7 @@ class TestAuthenticationBypass:
             "exp": datetime.now(timezone.utc) + timedelta(hours=1),
         }
         # Sign with a different secret
-        invalid_token = jwt.encode(payload, "wrong_secret_key", algorithm="HS256")
+        invalid_token = jwt.encode(payload, "wrong_secret_key_that_is_at_least_32_bytes_long", algorithm="HS256")
 
         response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {invalid_token}"})
         assert response.status_code == 401

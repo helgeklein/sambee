@@ -1,5 +1,8 @@
 #!/bin/bash
 
+PIP_AUDIT_VERSION="2.10.0"
+CARGO_AUDIT_VERSION="0.22.1"
+
 echo "🚀 Setting up Sambee development environment..."
 
 # Setup Git hooks for automatic commit tracking
@@ -19,6 +22,11 @@ cd /workspace/backend
 pip install --upgrade pip
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
+
+echo "🔍 Installing Python audit tooling..."
+if ! pip-audit --version 2>/dev/null | grep -q "${PIP_AUDIT_VERSION}"; then
+    python -m pip install --user "pip-audit==${PIP_AUDIT_VERSION}"
+fi
 
 # Create config.toml file if it doesn't exist (MUST happen before database init)
 cd /workspace
@@ -66,6 +74,11 @@ if [ -d /workspace/companion ]; then
     npm install
     echo "🦀 Fetching Rust dependencies..."
     cd src-tauri && cargo fetch && cd ..
+
+    echo "🔍 Installing Rust audit tooling..."
+    if ! cargo audit --version 2>/dev/null | grep -q "${CARGO_AUDIT_VERSION}"; then
+        cargo install cargo-audit --version "${CARGO_AUDIT_VERSION}" --locked
+    fi
 
     # Install Windows cross-check toolchain (mingw-w64 for type-checking
     # Windows-specific Rust code without needing MSVC or a Windows machine)

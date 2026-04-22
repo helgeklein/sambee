@@ -25,6 +25,7 @@ The project includes a complete dev container configuration for consistent devel
    - Configure Git hooks for automatic commit tracking
     - Install Python dependencies from the hashed lockfiles
     - Install Node modules from the committed lockfiles
+    - Install `pip-audit` and `cargo-audit` at the same pinned versions used in CI
    - Initialize the database
    - Create default `config.toml` file with secure keys
 
@@ -303,6 +304,14 @@ The workflow covers:
 - Companion Rust dependencies: `cargo audit`
 
 Run the relevant audit locally before merging dependency updates, especially when changing lockfiles or pinned versions.
+
+Current Companion Rust audit triage:
+- `cargo audit` currently reports Linux-only RustSec advisories for unmaintained GTK3 crates pulled in through the Tauri `tao`/`wry` stack.
+- Those findings apply to the Linux Companion build path, not the currently supported Companion targets.
+- Treat them as documented upstream risk until Sambee supports Linux Companion formally or the Tauri stack removes the GTK3 dependency chain.
+- Do not suppress or ignore other `cargo audit` findings.
+
+Inside the dev container, `pip-audit` and `cargo-audit` are installed automatically during post-create setup using the same pinned versions as `.github/workflows/dependency-security.yml`.
 
 ### Local Development with Virtual Environment
 

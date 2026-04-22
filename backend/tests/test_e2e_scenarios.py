@@ -10,7 +10,7 @@ Tests cover complete user journeys and workflows:
 - Error recovery scenarios
 """
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -485,7 +485,7 @@ class TestWebSocketScenarios:
 
         try:
             with patch("app.api.websocket.get_monitor") as mock_get_monitor:
-                mock_get_monitor.return_value = AsyncMock()
+                mock_get_monitor.return_value = MagicMock()
 
                 await manager.connect(mock_ws, regular_user)
                 subscribed = await manager.subscribe(mock_ws, str(connection.id), "/documents")
@@ -528,7 +528,7 @@ class TestWebSocketScenarios:
 
         try:
             with patch("app.api.websocket.get_monitor") as mock_get_monitor:
-                mock_get_monitor.return_value = AsyncMock()
+                mock_get_monitor.return_value = MagicMock()
 
                 await manager.connect(mock_ws1, regular_user)
                 await manager.connect(mock_ws2, regular_user)
