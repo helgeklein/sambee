@@ -4,6 +4,8 @@ import { setLocale, translate } from "../../i18n";
 import type { NativeApp } from "../../types";
 import { AppPicker } from "../AppPicker";
 
+const APP_PICKER_HEIGHT_BUFFER = 12;
+
 const { invokeMock, openDialogMock, getPreferredAppMock, setPreferredAppMock, setSizeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   openDialogMock: vi.fn(),
@@ -53,6 +55,7 @@ describe("AppPicker", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await setLocale("en");
   });
 
@@ -88,5 +91,76 @@ describe("AppPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "[Óṕéń]" }));
 
     expect(onSelect).toHaveBeenCalledWith(apps[0], false);
+  });
+
+  it("resizes to the document height when the visible panel box is clipped", async () => {
+    await setLocale("en");
+
+    const apps: NativeApp[] = [
+      {
+        name: "Excel",
+        executable: "C:/Program Files/Microsoft Office/root/Office16/EXCEL.EXE",
+        icon: null,
+        is_default: true,
+      },
+      {
+        name: "LibreOffice Calc",
+        executable: "C:/Program Files/LibreOffice/program/scalc.exe",
+        icon: null,
+        is_default: false,
+      },
+    ];
+
+    invokeMock.mockResolvedValue(apps);
+    getPreferredAppMock.mockResolvedValue(null);
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("app-picker")) {
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 420,
+          bottom: 320,
+          width: 420,
+          height: 320,
+          toJSON: () => ({}),
+        };
+      }
+
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        toJSON: () => ({}),
+      };
+    });
+
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (this === document.documentElement) {
+        return 472;
+      }
+
+      if (this === document.body || this.classList.contains("app-picker")) {
+        return 440;
+      }
+
+      return 0;
+    });
+
+    render(<AppPicker extension="xlsx" onSelect={vi.fn()} onCancel={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(setSizeMock).toHaveBeenCalled();
+    });
+
+    const resizedHeights = setSizeMock.mock.calls.map(([size]) => size.height);
+    expect(Math.max(...resizedHeights)).toBe(472 + APP_PICKER_HEIGHT_BUFFER);
   });
 });

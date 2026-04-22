@@ -51,6 +51,7 @@ const APP_PICKER_FALLBACK_WIDTH = 420;
 const APP_PICKER_MIN_HEIGHT = 220;
 const APP_PICKER_SCREEN_MARGIN = 48;
 const APP_PICKER_HEIGHT_EPSILON = 1;
+const APP_PICKER_HEIGHT_BUFFER = 12;
 
 //
 // AppPicker
@@ -78,12 +79,12 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       return;
     }
 
-    const measuredHeight = Math.ceil(panel.getBoundingClientRect().height);
+    const measuredHeight = measureAppPickerHeight(panel);
     if (measuredHeight <= 0) {
       return;
     }
 
-    const maxHeight = Math.max(APP_PICKER_MIN_HEIGHT, window.screen.availHeight - APP_PICKER_SCREEN_MARGIN);
+    const maxHeight = getAppPickerMaxHeight();
     const targetHeight = Math.min(Math.max(measuredHeight, APP_PICKER_MIN_HEIGHT), maxHeight);
 
     if (lastWindowHeightRef.current !== null && Math.abs(lastWindowHeightRef.current - targetHeight) < APP_PICKER_HEIGHT_EPSILON) {
@@ -399,6 +400,24 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       </div>
     </ModalDialog>
   );
+}
+
+function measureAppPickerHeight(panel: HTMLDivElement): number {
+  const panelRectHeight = Math.ceil(panel.getBoundingClientRect().height);
+  const panelScrollHeight = Math.ceil(panel.scrollHeight);
+  const bodyScrollHeight = Math.ceil(document.body.scrollHeight);
+  const documentScrollHeight = Math.ceil(document.documentElement.scrollHeight);
+
+  return Math.max(panelRectHeight, panelScrollHeight, bodyScrollHeight, documentScrollHeight) + APP_PICKER_HEIGHT_BUFFER;
+}
+
+function getAppPickerMaxHeight(): number {
+  const availableScreenHeight = window.screen.availHeight;
+  if (availableScreenHeight > 0) {
+    return Math.max(APP_PICKER_MIN_HEIGHT, availableScreenHeight - APP_PICKER_SCREEN_MARGIN);
+  }
+
+  return Number.POSITIVE_INFINITY;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
