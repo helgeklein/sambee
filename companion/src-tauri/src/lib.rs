@@ -62,8 +62,8 @@ const PAIRING_HEIGHT: f64 = 500.0;
 /// Width (logical pixels) of the app picker window.
 const APP_PICKER_WIDTH: f64 = 420.0;
 
-/// Height (logical pixels) of the app picker window.
-const APP_PICKER_HEIGHT: f64 = 480.0;
+/// Initial height (logical pixels) of the app picker window before the webview resizes it.
+const APP_PICKER_INITIAL_HEIGHT: f64 = 320.0;
 
 /// Delay before emitting UI events to a newly-created main window.
 const MAIN_WINDOW_CREATED_EVENT_DELAY_MS: u64 = 400;
@@ -294,8 +294,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     }
 
     // Ensure the main window exists so the app picker can be displayed
-    let newly_created =
-        ensure_main_window(&app, "Sambee Companion — Choose Application", APP_PICKER_WIDTH, APP_PICKER_HEIGHT).unwrap_or(false);
+    let newly_created = ensure_main_window(
+        &app,
+        "Sambee Companion — Choose Application",
+        APP_PICKER_WIDTH,
+        APP_PICKER_INITIAL_HEIGHT,
+    )
+    .unwrap_or(false);
 
     // Delay event emission if the window was just created
     let delay_ms = if newly_created {

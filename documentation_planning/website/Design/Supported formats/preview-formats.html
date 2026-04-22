@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Archival Modernist Systems - Viewers</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..800&amp;family=Space+Grotesk:wght@300..700&amp;family=Work+Sans:wght@300..700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#fbf9f4",
+                        "on-tertiary-container": "#004e77",
+                        "on-error": "#ffffff",
+                        "surface-container-high": "#eae8e3",
+                        "surface-bright": "#fbf9f4",
+                        "on-secondary": "#ffffff",
+                        "on-primary": "#ffffff",
+                        "inverse-primary": "#f9bc41",
+                        "surface-tint": "#7c5800",
+                        "on-tertiary": "#ffffff",
+                        "inverse-on-surface": "#f2f1ec",
+                        "surface-dim": "#dbdad5",
+                        "surface-container-low": "#f5f3ee",
+                        "surface-variant": "#e4e2dd",
+                        "on-surface": "#1b1c19",
+                        "outline-variant": "#d4c4ae",
+                        "surface-container": "#f0eee9",
+                        "on-primary-fixed-variant": "#5e4200",
+                        "on-secondary-fixed-variant": "#444749",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#c5c7c9",
+                        "tertiary-fixed": "#cce5ff",
+                        "secondary": "#5c5f61",
+                        "on-secondary-fixed": "#191c1e",
+                        "on-tertiary-fixed": "#001e31",
+                        "tertiary": "#006496",
+                        "primary-container": "#ebb035",
+                        "outline": "#827562",
+                        "on-error-container": "#93000a",
+                        "tertiary-container": "#72c1ff",
+                        "surface-container-highest": "#e4e2dd",
+                        "secondary-fixed": "#e1e2e5",
+                        "on-primary-container": "#624500",
+                        "tertiary-fixed-dim": "#91ccff",
+                        "secondary-container": "#dee0e2",
+                        "background": "#fbf9f4",
+                        "primary-fixed": "#ffdea7",
+                        "inverse-surface": "#30312e",
+                        "on-primary-fixed": "#271900",
+                        "on-background": "#1b1c19",
+                        "primary": "#7c5800",
+                        "primary-fixed-dim": "#f9bc41",
+                        "error-container": "#ffdad6",
+                        "on-secondary-container": "#606365",
+                        "on-surface-variant": "#504535",
+                        "error": "#ba1a1a",
+                        "on-tertiary-fixed-variant": "#004b72"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0rem",
+                        "lg": "0rem",
+                        "xl": "0rem",
+                        "full": "0px"
+                    },
+                    "spacing": {},
+                    "fontFamily": {
+                        "headline": ["Newsreader", "serif"],
+                        "body": ["Work Sans", "sans-serif"],
+                        "label": ["Space Grotesk", "monospace"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body min-h-screen flex flex-col antialiased">
+<!-- TopNavBar -->
+<nav class="bg-[#fbf9f4] dark:bg-[#1b1c19] text-[#7c5800] dark:text-[#ebb035] font-serif font-bold text-lg tracking-tight fixed top-0 w-full border-b-2 border-[#827562] z-50 flex justify-between items-center h-14 px-6">
+<div class="font-serif text-xl font-bold text-[#1b1c19] dark:text-[#fbf9f4] uppercase">ARCHIVE_FILE_SYSTEM</div>
+<div class="hidden md:flex gap-6 items-center">
+<a class="text-[#827562] font-mono uppercase text-xs hover:bg-[#eae8e3] dark:hover:bg-[#2d2d2d] transition-colors p-2" href="#">DOCUMENTATION</a>
+<a class="text-[#827562] font-mono uppercase text-xs hover:bg-[#eae8e3] dark:hover:bg-[#2d2d2d] transition-colors p-2" href="#">REGISTRY</a>
+<a class="text-[#827562] font-mono uppercase text-xs hover:bg-[#eae8e3] dark:hover:bg-[#2d2d2d] transition-colors p-2" href="#">PROTOCOLS</a>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-[#1b1c19]">search</span>
+<button class="bg-primary-container text-on-primary-container font-label text-sm px-4 py-1 uppercase tracking-widest border border-outline hover:bg-on-surface hover:text-inverse-on-surface transition-colors">DOWNLOAD_CLI</button>
+</div>
+</nav>
+<div class="flex flex-1 pt-14">
+<!-- SideNavBar -->
+<aside class="bg-[#f5f3ee] dark:bg-[#1b1c19] text-[#7c5800] dark:text-[#ebb035] font-mono uppercase text-xs tracking-widest fixed left-0 top-14 h-full w-64 border-r border-[#827562] flex flex-col py-4 hidden md:flex z-40">
+<div class="px-6 mb-8 border-b border-[#827562] pb-4">
+<h2 class="font-serif text-lg font-bold text-on-surface">TECHNICAL_INDEX</h2>
+<p class="text-xs text-outline mt-1">V2.04_STABLE</p>
+</div>
+<nav class="flex flex-col">
+<a class="flex items-center gap-3 px-6 py-3 text-[#827562] border-b border-[#d4c4ae] hover:bg-[#d4c4ae] dark:hover:bg-[#827562]" href="#">
+<span class="material-symbols-outlined text-lg">folder_zip</span>
+<span>CORE_ENGINE</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 bg-[#ebb035] text-[#1b1c19] font-bold border-b border-[#827562]" href="#">
+<span class="material-symbols-outlined text-lg">description</span>
+<span>FILE_TYPES</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#827562] border-b border-[#d4c4ae] hover:bg-[#d4c4ae] dark:hover:bg-[#827562]" href="#">
+<span class="material-symbols-outlined text-lg">shield</span>
+<span>SECURITY_LOG</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#827562] border-b border-[#d4c4ae] hover:bg-[#d4c4ae] dark:hover:bg-[#827562]" href="#">
+<span class="material-symbols-outlined text-lg">database</span>
+<span>METADATA</span>
+</a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#827562] border-b border-[#d4c4ae] hover:bg-[#d4c4ae] dark:hover:bg-[#827562]" href="#">
+<span class="material-symbols-outlined text-lg">code</span>
+<span>API_REFS</span>
+</a>
+</nav>
+</aside>
+<!-- Main Content -->
+<main class="flex-1 md:ml-64 p-6 md:p-12 bg-surface">
+<header class="mb-12 border-b-2 border-outline pb-6">
+<h1 class="font-headline text-5xl font-bold text-on-surface mb-2 tracking-tight">Supported File Formats</h1>
+<p class="font-body text-on-surface-variant text-lg max-w-3xl">Comprehensive index of archival, rendering, and processing capabilities natively supported by the Technical Index viewer protocol.</p>
+</header>
+<!-- Structured Inventory Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0 border-t border-l border-outline-variant">
+<!-- Cell 1 -->
+<div class="border-b border-r border-outline-variant p-6 bg-surface hover:bg-surface-container-low transition-colors group">
+<div class="flex justify-between items-start mb-6 border-b border-outline-variant pb-2">
+<span class="font-label text-sm text-outline tracking-widest">01 // IMAGE_RASTER</span>
+<span class="w-3 h-3 bg-primary-container border border-outline"></span>
+</div>
+<ul class="space-y-4">
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">JPEG / JPG</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">ISO/IEC 10918-1</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">PNG</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">ISO/IEC 15948</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">TIFF</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Rev 6.0</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">WebP</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">VP8/VP8L</span>
+</li>
+</ul>
+</div>
+<!-- Cell 2 -->
+<div class="border-b border-r border-outline-variant p-6 bg-surface hover:bg-surface-container-low transition-colors group">
+<div class="flex justify-between items-start mb-6 border-b border-outline-variant pb-2">
+<span class="font-label text-sm text-outline tracking-widest">02 // IMAGE_VECTOR</span>
+<span class="w-3 h-3 bg-primary-container border border-outline"></span>
+</div>
+<ul class="space-y-4">
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">SVG</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">W3C 1.1</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">EPS</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">DSC 3.0</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">AI</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Adobe Proprietary</span>
+</li>
+</ul>
+</div>
+<!-- Cell 3 -->
+<div class="border-b border-r border-outline-variant p-6 bg-surface hover:bg-surface-container-low transition-colors group">
+<div class="flex justify-between items-start mb-6 border-b border-outline-variant pb-2">
+<span class="font-label text-sm text-outline tracking-widest">03 // RAW_DATA</span>
+<span class="w-3 h-3 bg-surface border border-outline"></span>
+</div>
+<ul class="space-y-4">
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">DNG</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Adobe DNG 1.6</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">CR2 / CR3</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Canon Raw</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">NEF</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Nikon Electronic Format</span>
+</li>
+</ul>
+</div>
+<!-- Cell 4 -->
+<div class="border-b border-r border-outline-variant p-6 bg-surface hover:bg-surface-container-low transition-colors group">
+<div class="flex justify-between items-start mb-6 border-b border-outline-variant pb-2">
+<span class="font-label text-sm text-outline tracking-widest">04 // DOCUMENT</span>
+<span class="w-3 h-3 bg-primary-container border border-outline"></span>
+</div>
+<ul class="space-y-4">
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">PDF</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">ISO 32000-2</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">TXT</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">UTF-8 / ASCII</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">MD</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">CommonMark</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">CSV</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">RFC 4180</span>
+</li>
+</ul>
+</div>
+<!-- Cell 5 -->
+<div class="border-b border-r border-outline-variant p-6 bg-surface hover:bg-surface-container-low transition-colors group">
+<div class="flex justify-between items-start mb-6 border-b border-outline-variant pb-2">
+<span class="font-label text-sm text-outline tracking-widest">05 // ARCHIVE</span>
+<span class="w-3 h-3 bg-primary-container border border-outline"></span>
+</div>
+<ul class="space-y-4">
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">ZIP</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">PKWARE</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">TAR.GZ</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">GNU Tar/Gzip</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">7Z</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">LZMA2</span>
+</li>
+</ul>
+</div>
+<!-- Cell 6 -->
+<div class="border-b border-r border-outline-variant p-6 bg-surface hover:bg-surface-container-low transition-colors group">
+<div class="flex justify-between items-start mb-6 border-b border-outline-variant pb-2">
+<span class="font-label text-sm text-outline tracking-widest">06 // 3D_MODEL</span>
+<span class="w-3 h-3 bg-surface border border-outline"></span>
+</div>
+<ul class="space-y-4">
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">GLTF / GLB</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Khronos 2.0</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">OBJ</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Wavefront</span>
+</li>
+<li class="flex flex-col">
+<span class="font-headline text-2xl font-bold text-on-surface">STL</span>
+<span class="font-label text-xs text-on-surface-variant mt-1">Standard Triangle Language</span>
+</li>
+</ul>
+</div>
+</div>
+</main>
+</div>
+<!-- Footer -->
+<footer class="bg-[#1b1c19] dark:bg-[#000000] text-[#ebb035] font-mono text-[10px] uppercase text-[#f2f1ec] w-full border-t-2 border-[#7c5800] mt-auto flex flex-col md:flex-row justify-between items-center px-12 py-8 gap-4 z-50 relative md:ml-64 md:w-[calc(100%-16rem)]">
+<span class="text-[#d4c4ae]">© 2024 ARCHIVAL_MODERNIST_SYSTEMS. ALL RIGHTS RESERVED.</span>
+<div class="flex gap-6">
+<a class="text-[#d4c4ae] hover:text-white transition-colors" href="#">TERMS_OF_SERVICE</a>
+<a class="text-[#d4c4ae] hover:text-white transition-colors" href="#">SYSTEM_STATUS</a>
+<a class="text-[#d4c4ae] hover:text-white transition-colors" href="#">SOURCE_CODE</a>
+</div>
+</footer>
+</body></html>

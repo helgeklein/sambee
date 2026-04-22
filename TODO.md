@@ -14,6 +14,9 @@
   - TIFF
   - ICO (test with uberAgent icon)
 
+- Additional formats
+   - DCM (medical image format)
+
 ## Text viewer and editor
 
 - Support various text-based files

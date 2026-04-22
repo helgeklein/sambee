@@ -1,0 +1,86 @@
+{{/* Purpose: Render a responsive image from the Hugo assets pipeline with optional pre-generated WebP derivatives. */}}
+{{- $src := .Src | default "" -}}
+{{- $class := .Class | default "" -}}
+{{- $alt := .Alt | default "" -}}
+{{- $loading := .Loading | default "lazy" -}}
+{{- $fetchpriority := .FetchPriority | default "" -}}
+{{- $sizes := .Sizes | default "100vw" -}}
+{{- $widths := .Widths | default (slice 372 500 744 852 1000 1280 1704) -}}
+
+{{- $assetPath := $src -}}
+{{- if hasPrefix $src "/" -}}
+  {{- $assetPath = strings.TrimPrefix "/" $src -}}
+{{- end -}}
+
+{{- $image := false -}}
+{{- with resources.Get $assetPath -}}
+  {{- $image = . -}}
+{{- else -}}
+  {{- with index (resources.Match $assetPath) 0 -}}
+    {{- $image = . -}}
+  {{- else -}}
+  {{- $altPath := replaceRE "^images/" "" $assetPath -}}
+  {{- with resources.Get (printf "images/%s" $altPath) -}}
+    {{- $image = . -}}
+  {{- else -}}
+    {{- with index (resources.Match (printf "images/%s" $altPath)) 0 -}}
+      {{- $image = . -}}
+    {{- end -}}
+  {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if and $image (gt $image.Width 0) (gt $image.Height 0) -}}
+  {{- $imageExt := path.Ext $image.Name | lower -}}
+  {{- if or (eq $imageExt ".svg") (eq $imageExt ".gif") -}}
+<img src="{{ $image.RelPermalink }}" alt="{{ $alt }}" class="{{ $class }}"
+   loading="{{ $loading }}" decoding="async"{{ with $fetchpriority }} fetchpriority="{{ . }}"{{ end }}>
+  {{- else -}}
+    {{- $imageStem := path.Base $image.Name | replaceRE `\.[^.]+$` "" -}}
+    {{- $imageDir := path.Dir $assetPath -}}
+    {{- $srcsetParts := slice -}}
+    {{- $smallestUrl := "" -}}
+    {{- $smallestWidth := 999999 -}}
+
+    {{- range $targetWidth := $widths -}}
+      {{- if le $targetWidth $image.Width -}}
+        {{- $webpPath := printf "%s/generated/%s_%dw.webp" $imageDir $imageStem $targetWidth -}}
+        {{- with resources.Get $webpPath -}}
+          {{- $fingerprinted := . | fingerprint -}}
+          {{- $srcsetParts = $srcsetParts | append (printf "%s %dw" $fingerprinted.RelPermalink $targetWidth) -}}
+          {{- if lt $targetWidth $smallestWidth -}}
+            {{- $smallestWidth = $targetWidth -}}
+            {{- $smallestUrl = $fingerprinted.RelPermalink -}}
+          {{- end -}}
+        {{- else -}}
+          {{- with index (resources.Match $webpPath) 0 -}}
+            {{- $fingerprinted := . | fingerprint -}}
+            {{- $srcsetParts = $srcsetParts | append (printf "%s %dw" $fingerprinted.RelPermalink $targetWidth) -}}
+            {{- if lt $targetWidth $smallestWidth -}}
+              {{- $smallestWidth = $targetWidth -}}
+              {{- $smallestUrl = $fingerprinted.RelPermalink -}}
+            {{- end -}}
+          {{- end -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+
+    {{- if eq (len $srcsetParts) 0 -}}
+      {{- $fallback := $image | fingerprint -}}
+      {{- $smallestUrl = $fallback.RelPermalink -}}
+      {{- $srcsetParts = slice (printf "%s %dw" $fallback.RelPermalink $image.Width) -}}
+    {{- end -}}
+<img src="{{ $smallestUrl }}" alt="{{ $alt }}" class="{{ $class }}"
+   srcset="{{ delimit $srcsetParts ", " }}"
+   sizes="{{ $sizes }}"
+   width="{{ $image.Width }}" height="{{ $image.Height }}"
+   style="height: auto;"
+   loading="{{ $loading }}" decoding="async"{{ with $fetchpriority }} fetchpriority="{{ . }}"{{ end }}>
+  {{- end -}}
+{{- else if hasPrefix $src "http" -}}
+<img src="{{ $src }}" alt="{{ $alt }}" class="{{ $class }}"
+   loading="{{ $loading }}" decoding="async"{{ with $fetchpriority }} fetchpriority="{{ . }}"{{ end }}>
+{{- else if $src -}}
+<img src="{{ $src | absURL }}" alt="{{ $alt }}" class="{{ $class }}"
+   loading="{{ $loading }}" decoding="async"{{ with $fetchpriority }} fetchpriority="{{ . }}"{{ end }}>
+{{- end -}}

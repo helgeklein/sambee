@@ -81,7 +81,7 @@ Header Controls
 }
 
 .nav-brand-title--docs {
-   @apply font-secondary text-xl font-bold italic leading-none;
+   @apply text-xl font-bold leading-none;
 }
 
 .nav-brand-kicker {

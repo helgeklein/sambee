@@ -16,6 +16,19 @@ home = ["HTML"]
 section = ["HTML"]
 page = ["HTML"]
 
+[imaging]
+quality = 80
+resampleFilter = "Lanczos"
+
+[caches]
+  [caches.images]
+    dir = ":resourceDir/_gen"
+    maxAge = "8760h"
+
+  [caches.assets]
+    dir = ":resourceDir/_gen"
+    maxAge = "720h"
+
 [markup]
   [markup.goldmark]
     [markup.goldmark.renderer]

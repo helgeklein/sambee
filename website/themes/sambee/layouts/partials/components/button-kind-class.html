@@ -1,0 +1,9 @@
+{{/* Purpose: Maps a content-level CTA kind to the corresponding shared button style class. */}}
+{{- $kind := .kind | default "link" -}}
+{{- if eq $kind "primary" -}}
+btn-bg-secondary
+{{- else if eq $kind "secondary" -}}
+btn-outline-secondary
+{{- else -}}
+btn-link-secondary
+{{- end -}}

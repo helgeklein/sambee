@@ -1,13 +1,15 @@
 {{/* Purpose: Summarizes deployment positioning and sends visitors to the next action. */}}
 {{ $section := .section }}
 {{ if $section.enabled }}
-<section class="shell-section ledger-shell home-section bg-clr-surface-page dark:bg-clr-darkmode-surface-page">
-  <div class="site-gutter py-10 text-center md:py-[4.6rem]">
+{{ $cta := $section.cta }}
+{{ $ctaClass := partial "components/button-kind-class.html" (dict "kind" $cta.kind) }}
+<section class="shell-section ledger-shell home-section home-deployment">
+  <div class="site-gutter home-deployment-body">
     {{/* This section is intentionally simple: one statement, one explanation, one action. */}}
-    <h2 class="home-section-title home-section-title--compact mb-7">{{ $section.title }}</h2>
-    <p class="home-copy home-copy--deployment mx-auto mb-8 max-w-2xl">{{ $section.body }}</p>
-    <div class="ledger-actions justify-center">
-      <a class="btn {{ if eq $section.cta.kind "primary" }}btn-bg-secondary{{ else if eq $section.cta.kind "secondary" }}btn-outline-secondary{{ else }}btn-link-secondary{{ end }}" href="{{ $section.cta.href }}">{{ $section.cta.label }}</a>
+    <h2 class="home-section-title home-deployment-title">{{ $section.title }}</h2>
+    <p class="home-copy home-copy--deployment home-deployment-copy">{{ $section.body }}</p>
+    <div class="ledger-actions home-deployment-actions">
+      <a class="btn home-deployment-cta {{ $ctaClass }}" href="{{ $cta.href }}">{{ $cta.label }}</a>
     </div>
   </div>
 </section>

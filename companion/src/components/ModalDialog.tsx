@@ -27,6 +27,7 @@ interface ModalDialogProps {
   role?: "dialog" | "alertdialog";
   onRequestClose?: () => void;
   initialFocusRef?: RefObject<HTMLElement | null>;
+  panelRef?: RefObject<HTMLDivElement | null>;
   panelClassName?: string;
   overlayClassName?: string;
   includeDefaultPanelClass?: boolean;
@@ -44,17 +45,28 @@ export function ModalDialog({
   role = "dialog",
   onRequestClose,
   initialFocusRef,
+  panelRef,
   panelClassName,
   overlayClassName,
   includeDefaultPanelClass = true,
   includeDefaultOverlayClass = true,
 }: ModalDialogProps) {
-  const panelRef = useRef<HTMLDivElement | null>(null);
+  const internalPanelRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+
+  const setPanelElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      internalPanelRef.current = element;
+      if (panelRef) {
+        panelRef.current = element;
+      }
+    },
+    [panelRef]
+  );
 
   const focusInitialElement = useCallback(() => {
     const preferredTarget = initialFocusRef?.current;
-    const fallbackTarget = getFocusableElements(panelRef.current)[0] ?? panelRef.current;
+    const fallbackTarget = getFocusableElements(internalPanelRef.current)[0] ?? internalPanelRef.current;
     const target = preferredTarget ?? fallbackTarget;
     target?.focus();
   }, [initialFocusRef]);
@@ -74,7 +86,7 @@ export function ModalDialog({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!panelRef.current) {
+      if (!internalPanelRef.current) {
         return;
       }
 
@@ -88,10 +100,10 @@ export function ModalDialog({
         return;
       }
 
-      const focusableElements = getFocusableElements(panelRef.current);
+      const focusableElements = getFocusableElements(internalPanelRef.current);
       if (focusableElements.length === 0) {
         event.preventDefault();
-        panelRef.current.focus();
+        internalPanelRef.current.focus();
         return;
       }
 
@@ -100,14 +112,14 @@ export function ModalDialog({
       const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
       if (event.shiftKey) {
-        if (!activeElement || activeElement === firstElement || !panelRef.current.contains(activeElement)) {
+        if (!activeElement || activeElement === firstElement || !internalPanelRef.current.contains(activeElement)) {
           event.preventDefault();
           lastElement.focus();
         }
         return;
       }
 
-      if (!activeElement || activeElement === lastElement || !panelRef.current.contains(activeElement)) {
+      if (!activeElement || activeElement === lastElement || !internalPanelRef.current.contains(activeElement)) {
         event.preventDefault();
         firstElement.focus();
       }
@@ -123,7 +135,7 @@ export function ModalDialog({
   const panelClass = [includeDefaultPanelClass ? "dialog-panel" : "", panelClassName ?? ""].filter(Boolean).join(" ");
 
   const sharedDialogProps = {
-    ref: panelRef,
+    ref: setPanelElement,
     class: panelClass,
     "aria-modal": "true",
     "aria-labelledby": titleId,

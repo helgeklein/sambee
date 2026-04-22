@@ -140,6 +140,27 @@ The website dev server runs at: http://localhost:1313
 
 Search should be available during normal development without running a separate indexing command.
 
+### Website Image Pipeline
+
+Website-owned screenshots and other responsive images belong under `website/assets/images/` so Hugo can resolve them through the asset pipeline.
+
+The site now includes a component-level responsive image workflow for homepage and other template-driven images:
+
+- source images live in `website/assets/images/...`
+- generated WebP derivatives live next to the source file in a `generated/` subdirectory
+- Hugo fingerprints the generated files and emits `srcset` from the shared partial
+
+To generate responsive WebP derivatives for JPG and PNG sources:
+
+```bash
+cd website
+npm run images:generate
+```
+
+The corresponding VS Code task is `Website: Generate WebP Images`.
+
+The companion homepage section expects its screenshot at `website/assets/images/home/companion-screenshot.png` by default. If that file is missing, the section falls back to the placeholder preview panel.
+
 To stop it directly:
 
 ```bash
