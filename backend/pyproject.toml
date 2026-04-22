@@ -26,9 +26,6 @@ markers = [
     "security: Security vulnerability tests",
 ]
 filterwarnings = [
-    # Ignore third-party deprecation warnings we can't fix
-    # python-jose uses datetime.utcnow() which is deprecated in Python 3.12+
-    "ignore:datetime.datetime.utcnow:DeprecationWarning:jose",
     # Ignore resource warnings from test cleanup (handled in fixtures)
     "ignore::ResourceWarning",
 ]
@@ -111,7 +108,6 @@ warn_required_dynamic_aliases = true
 module = [
     "smbclient.*",
     "passlib.*",
-    "jose.*",
     "magic.*",
     "pyvips.*",
 ]

@@ -3,12 +3,13 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+import jwt
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError
 from sqlmodel import Session, select
 
 from app.core.auth_methods import AuthMethod
@@ -177,7 +178,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
         subject: str | None = payload.get("sub")
         if subject is None:
             raise credentials_exception
-    except JWTError:
+    except InvalidTokenError:
         raise credentials_exception
 
     user = _get_user_from_subject(subject, session)

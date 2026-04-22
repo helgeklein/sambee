@@ -5,6 +5,7 @@ Tests login, token generation/validation, password hashing, and encryption.
 
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
@@ -106,8 +107,6 @@ class TestTokenGeneration:
 
     def test_token_contains_username(self):
         """Test that token can be decoded to retrieve username."""
-        from jose import jwt
-
         from app.core.config import settings, static
 
         username = "testuser"
