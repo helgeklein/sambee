@@ -405,10 +405,8 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 function measureAppPickerHeight(panel: HTMLDivElement): number {
   const panelRectHeight = Math.ceil(panel.getBoundingClientRect().height);
   const panelScrollHeight = Math.ceil(panel.scrollHeight);
-  const bodyScrollHeight = Math.ceil(document.body.scrollHeight);
-  const documentScrollHeight = Math.ceil(document.documentElement.scrollHeight);
 
-  return Math.max(panelRectHeight, panelScrollHeight, bodyScrollHeight, documentScrollHeight) + APP_PICKER_HEIGHT_BUFFER;
+  return Math.max(panelRectHeight, panelScrollHeight) + APP_PICKER_HEIGHT_BUFFER;
 }
 
 function getAppPickerMaxHeight(): number {

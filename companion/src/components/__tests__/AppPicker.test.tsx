@@ -93,7 +93,7 @@ describe("AppPicker", () => {
     expect(onSelect).toHaveBeenCalledWith(apps[0], false);
   });
 
-  it("resizes to the document height when the visible panel box is clipped", async () => {
+  it("resizes to the picker panel's intrinsic height when the visible box is clipped", async () => {
     await setLocale("en");
 
     const apps: NativeApp[] = [
@@ -143,12 +143,8 @@ describe("AppPicker", () => {
     });
 
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-      if (this === document.documentElement) {
+      if (this.classList.contains("app-picker")) {
         return 472;
-      }
-
-      if (this === document.body || this.classList.contains("app-picker")) {
-        return 440;
       }
 
       return 0;
