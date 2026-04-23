@@ -16,6 +16,16 @@ use tauri_plugin_shell::ShellExt;
 
 use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
 
+fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
+    let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
+        error!("Failed to launch {}: {e}", app_executable);
+        format!("Failed to launch {app_executable}: {e}")
+    })?;
+
+    info!("Process spawned successfully for {}", app_executable);
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit context (sent to the Done Editing window)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -142,22 +152,31 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
                     info!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
                 }
                 Err(handler_err) => {
-                    warn!("IAssocHandler invocation failed ({}), falling back to shell open", handler_err);
+                    warn!(
+                        "IAssocHandler invocation failed ({}), trying direct launch of selected executable",
+                        handler_err
+                    );
 
-                    // Fall back to shell().open() which uses ShellExecuteEx
-                    // internally. This properly delegates to the OS default
-                    // handler and works for all handler types (EXE, DLL-based
-                    // like Windows Photo Viewer, UWP/Store apps).
-                    //
-                    // Note: this opens with the system default rather than
-                    // the user-selected app, but it's better than failing.
-                    info!("Fallback: opening {:?} via system default (shell open)", path_str);
-                    #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
-                    app.shell().open(path_str, None).map_err(|e| {
-                        error!("Fallback shell.open() also failed for {}: {e}", local_path.display());
-                        format!("Failed to open file: {e}")
-                    })?;
-                    info!("Fallback shell.open() succeeded for {}", local_path.display());
+                    match launch_explicit_app(app, app_executable, path_str) {
+                        Ok(()) => {
+                            info!("Direct launch fallback succeeded for {}", local_path.display());
+                        }
+                        Err(launch_err) => {
+                            warn!(
+                                "Direct launch fallback failed ({}), falling back to system default shell open",
+                                launch_err
+                            );
+
+                            // Final fallback: delegate to the OS default handler.
+                            info!("Fallback: opening {:?} via system default (shell open)", path_str);
+                            #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
+                            app.shell().open(path_str, None).map_err(|e| {
+                                error!("Fallback shell.open() also failed for {}: {e}", local_path.display());
+                                format!("Failed to open file: {e}")
+                            })?;
+                            info!("Fallback shell.open() succeeded for {}", local_path.display());
+                        }
+                    }
                 }
             }
         }
@@ -165,11 +184,7 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         // On non-Windows platforms, spawn the application directly
         #[cfg(not(target_os = "windows"))]
         {
-            let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
-                error!("Failed to launch {}: {e}", app_executable);
-                format!("Failed to launch {app_executable}: {e}")
-            })?;
-            info!("Process spawned successfully for {}", app_executable);
+            launch_explicit_app(app, app_executable, path_str)?;
         }
     }
 
