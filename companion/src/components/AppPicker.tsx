@@ -45,9 +45,23 @@ interface AppPickerProps {
 }
 
 /** Loading states for the picker. */
-type PickerState = { kind: "loading" } | { kind: "loaded"; apps: NativeApp[] } | { kind: "error"; message: string };
+export type AppPickerViewState = { kind: "loading" } | { kind: "loaded"; apps: NativeApp[] } | { kind: "error"; message: string };
 
-const APP_PICKER_FALLBACK_WIDTH = 420;
+interface AppPickerViewProps {
+  extension: string;
+  state: AppPickerViewState;
+  selectedIndex: number;
+  alwaysUse: boolean;
+  onSelectIndex: (index: number) => void;
+  onAlwaysUseChange: (value: boolean) => void;
+  onOpen: () => void;
+  onCancel: () => void;
+  onBrowse: () => void;
+  browseDisabled?: boolean;
+  panelRef?: { current: HTMLDivElement | null };
+}
+
+export const APP_PICKER_FALLBACK_WIDTH = 420;
 const APP_PICKER_MIN_HEIGHT = 220;
 const APP_PICKER_SCREEN_MARGIN = 48;
 const APP_PICKER_HEIGHT_EPSILON = 1;
@@ -64,15 +78,13 @@ const APP_PICKER_ROUNDING_BUFFER = 1;
  * Supports "Always use" persistence and a "Browse" fallback.
  */
 export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
-  const [state, setState] = useState<PickerState>({ kind: "loading" });
+  const [state, setState] = useState<AppPickerViewState>({ kind: "loading" });
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [alwaysUse, setAlwaysUse] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const lastWindowHeightRef = useRef<number | null>(null);
   const lastWindowScaleFactorRef = useRef<number | null>(null);
-  const titleId = `app-picker-title-${extension}`;
 
   const resizeWindowToContent = useCallback(async () => {
     const panel = panelRef.current;
@@ -119,16 +131,6 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       void resizeWindowToContent();
     });
   }, [resizeWindowToContent]);
-
-  // Keep the listbox focused and scroll the selected item into view
-  useEffect(() => {
-    if (selectedIndex < 0 || !listRef.current) return;
-    const item = listRef.current.children[selectedIndex] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
-    // Focus the listbox container (not individual items) so Tab
-    // navigates between the list and the other dialog controls.
-    listRef.current.focus({ preventScroll: true });
-  }, [selectedIndex]);
 
   useEffect(() => {
     scheduleWindowResize();
@@ -292,41 +294,95 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
     }
   }, [state]);
 
-  //
-  // handleListKeyDown
-  //
-  /** Keyboard navigation within the app listbox. */
+  return (
+    <AppPickerView
+      extension={extension}
+      state={state}
+      selectedIndex={selectedIndex}
+      alwaysUse={alwaysUse}
+      onSelectIndex={setSelectedIndex}
+      onAlwaysUseChange={setAlwaysUse}
+      onOpen={() => {
+        void handleOpen();
+      }}
+      onCancel={onCancel}
+      onBrowse={() => {
+        void handleBrowse();
+      }}
+      browseDisabled={state.kind === "loading"}
+      panelRef={panelRef}
+    />
+  );
+}
+
+/**
+ * Browser-safe app picker view that renders the real dialog UI from plain props.
+ *
+ * This lets the production component keep its Tauri integration while preview
+ * routes can reuse the same markup and styles with mock data.
+ */
+export function AppPickerView({
+  extension,
+  state,
+  selectedIndex,
+  alwaysUse,
+  onSelectIndex,
+  onAlwaysUseChange,
+  onOpen,
+  onCancel,
+  onBrowse,
+  browseDisabled = false,
+  panelRef,
+}: AppPickerViewProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const titleId = `app-picker-title-${extension}`;
+
+  useEffect(() => {
+    if (state.kind !== "loaded" || selectedIndex < 0 || !listRef.current) {
+      return;
+    }
+
+    const item = listRef.current.children[selectedIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest" });
+    listRef.current.focus({ preventScroll: true });
+  }, [selectedIndex, state]);
+
   const handleListKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (state.kind !== "loaded") return;
+      if (state.kind !== "loaded") {
+        return;
+      }
+
       const count = state.apps.length;
-      if (count === 0) return;
+      if (count === 0) {
+        return;
+      }
 
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setSelectedIndex((i) => Math.min(i + 1, count - 1));
+          onSelectIndex(Math.min(selectedIndex + 1, count - 1));
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
+          onSelectIndex(Math.max(selectedIndex - 1, 0));
           break;
         case "Home":
           e.preventDefault();
-          setSelectedIndex(0);
+          onSelectIndex(0);
           break;
         case "End":
           e.preventDefault();
-          setSelectedIndex(count - 1);
+          onSelectIndex(count - 1);
           break;
         case "Enter":
         case " ":
           e.preventDefault();
-          handleOpen();
+          onOpen();
           break;
       }
     },
-    [state, handleOpen]
+    [onOpen, onSelectIndex, selectedIndex, state]
   );
 
   return (
@@ -371,14 +427,13 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
                 tabIndex={-1}
                 aria-selected={index === selectedIndex}
                 onClick={() => {
-                  setSelectedIndex(index);
+                  onSelectIndex(index);
                   listRef.current?.focus();
                 }}
-                // Keyboard events bubble up to the listbox container's onKeyDown.
                 onKeyDown={() => {}}
                 onDblClick={() => {
-                  setSelectedIndex(index);
-                  handleOpen();
+                  onSelectIndex(index);
+                  onOpen();
                 }}
               >
                 {app.icon ? (
@@ -402,14 +457,14 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
           </div>
 
           <label class="app-picker__always-use">
-            <input type="checkbox" checked={alwaysUse} onChange={(e) => setAlwaysUse((e.target as HTMLInputElement).checked)} />
+            <input type="checkbox" checked={alwaysUse} onChange={(e) => onAlwaysUseChange((e.target as HTMLInputElement).checked)} />
             {translate("appPicker.alwaysUse", { extension })}
           </label>
         </div>
       )}
 
       <div class="app-picker__actions">
-        <button type="button" class="app-picker__browse-btn" onClick={handleBrowse} disabled={state.kind === "loading"}>
+        <button type="button" class="app-picker__browse-btn" onClick={onBrowse} disabled={browseDisabled}>
           {translate("appPicker.browseButton")}
         </button>
         <div class="app-picker__btn-group">
@@ -419,7 +474,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
           <button
             type="button"
             class="app-picker__btn app-picker__btn--primary"
-            onClick={handleOpen}
+            onClick={onOpen}
             disabled={state.kind !== "loaded" || selectedIndex < 0}
           >
             {translate("common.actions.open")}
@@ -430,7 +485,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
   );
 }
 
-function measureAppPickerHeight(panel: HTMLDivElement): number {
+export function measureAppPickerHeight(panel: HTMLDivElement): number {
   const shell = panel.parentElement instanceof HTMLDivElement ? panel.parentElement : null;
   if (!shell) {
     return Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel)) + APP_PICKER_ROUNDING_BUFFER;
