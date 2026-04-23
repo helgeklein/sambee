@@ -179,13 +179,14 @@
 
 .app-picker__actions {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   flex-shrink: 0;
-  justify-content: space-between;
   gap: 0.5rem;
 }
 
 .app-picker__browse-btn {
+  align-self: flex-start;
   font-size: 0.8125rem;
   color: var(--text-secondary, #1f262bb3);
   background: none;
@@ -201,8 +202,8 @@
 
 .app-picker__btn-group {
   display: flex;
+  justify-content: flex-end;
   gap: 0.5rem;
-  margin-left: auto;
 }
 
 .app-picker__btn {
