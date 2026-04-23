@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
@@ -22,7 +22,7 @@ fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) ->
         format!("Failed to launch {app_executable}: {e}")
     })?;
 
-    info!("Process spawned successfully for {}", app_executable);
+    debug!("Process spawned successfully for {}", app_executable);
     Ok(())
 }
 
@@ -118,7 +118,7 @@ pub fn get_done_editing_context(app: AppHandle, window_label: String) -> Result<
 pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str) -> Result<(), String> {
     let path_str = local_path.to_str().ok_or_else(|| "Invalid file path encoding".to_string())?;
 
-    info!(
+    debug!(
         "open_in_native_app: executable={:?}, path={:?}, exists={}",
         app_executable,
         path_str,
@@ -127,15 +127,15 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
 
     if app_executable.is_empty() {
         // Use system default via xdg-open / open / start
-        info!("Opening with system default: {}", local_path.display());
+        debug!("Opening with system default: {}", local_path.display());
         #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
         app.shell().open(path_str, None).map_err(|e| {
             error!("shell.open() failed for {}: {e}", local_path.display());
             format!("Failed to open file with system default: {e}")
         })?;
-        info!("shell.open() succeeded for {}", local_path.display());
+        debug!("shell.open() succeeded for {}", local_path.display());
     } else {
-        info!("Opening with {}: {}", app_executable, local_path.display());
+        debug!("Opening with {}: {}", app_executable, local_path.display());
 
         // On Windows, use IAssocHandler::Invoke() which properly handles both
         // traditional Win32 applications and UWP/Store apps (e.g. Windows
@@ -145,21 +145,21 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         {
             let extension = local_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-            info!("Windows: attempting IAssocHandler::Invoke() for extension={:?}", extension);
+            debug!("Windows: attempting IAssocHandler::Invoke() for extension={:?}", extension);
 
             match crate::app_registry::windows::invoke_assoc_handler(extension, app_executable, path_str) {
                 Ok(()) => {
-                    info!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
+                    debug!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
                 }
                 Err(handler_err) => {
-                    warn!(
+                    debug!(
                         "IAssocHandler invocation failed ({}), trying direct launch of selected executable",
                         handler_err
                     );
 
                     match launch_explicit_app(app, app_executable, path_str) {
                         Ok(()) => {
-                            info!("Direct launch fallback succeeded for {}", local_path.display());
+                            debug!("Direct launch fallback succeeded for {}", local_path.display());
                         }
                         Err(launch_err) => {
                             warn!(
@@ -168,13 +168,13 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
                             );
 
                             // Final fallback: delegate to the OS default handler.
-                            info!("Fallback: opening {:?} via system default (shell open)", path_str);
+                            debug!("Fallback: opening {:?} via system default (shell open)", path_str);
                             #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
                             app.shell().open(path_str, None).map_err(|e| {
                                 error!("Fallback shell.open() also failed for {}: {e}", local_path.display());
                                 format!("Failed to open file: {e}")
                             })?;
-                            info!("Fallback shell.open() succeeded for {}", local_path.display());
+                            debug!("Fallback shell.open() succeeded for {}", local_path.display());
                         }
                     }
                 }

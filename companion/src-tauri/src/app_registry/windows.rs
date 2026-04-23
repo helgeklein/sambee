@@ -823,7 +823,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
             debug!("Handler #{handler_count}: name={:?}, ui_name={:?}", handler_name, ui_name);
 
             if PathBuf::from(&handler_name) == target_exe {
-                info!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
+                debug!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
                 matched_handler = Some(handler);
                 break;
             }
@@ -835,7 +835,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
             "No association handler found matching {:?} after checking {handler_count} handler(s) for {dotted_ext}",
             handler_exe_path
         );
-        log::error!("{msg}");
+        debug!("{msg}");
         return Err(msg);
     }
     let handler = matched_handler.unwrap();
@@ -849,7 +849,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
     //
     // Previous approach of IShellItemArray → QueryInterface<IDataObject> failed
     // with E_NOINTERFACE (0x80004002) because those are unrelated interfaces.
-    info!("Creating IDataObject for file: {file_path}");
+    debug!("Creating IDataObject for file: {file_path}");
     let wide_file: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
 
     unsafe {
@@ -867,7 +867,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
         })?;
         debug!("IDataObject obtained via BindToHandler(BHID_DataObject)");
 
-        info!("Calling IAssocHandler::Invoke()...");
+        debug!("Calling IAssocHandler::Invoke()...");
         handler.Invoke(&data_object).map_err(|e| {
             let msg = format!("IAssocHandler::Invoke failed: {e} (the target app may not support this activation method)");
             log::error!("{msg}");
@@ -875,7 +875,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
         })?;
     }
 
-    info!("Successfully opened file via IAssocHandler::Invoke(): {file_path}");
+    debug!("Successfully opened file via IAssocHandler::Invoke(): {file_path}");
     Ok(())
 }
 
