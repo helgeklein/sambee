@@ -71,6 +71,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const lastWindowHeightRef = useRef<number | null>(null);
+  const lastWindowScaleFactorRef = useRef<number | null>(null);
   const titleId = `app-picker-title-${extension}`;
 
   const resizeWindowToContent = useCallback(async () => {
@@ -86,16 +87,23 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
     const maxHeight = getAppPickerMaxHeight();
     const targetHeight = Math.min(Math.max(measuredHeight, APP_PICKER_MIN_HEIGHT), maxHeight);
+    const appWindow = getCurrentWindow();
+    const currentScaleFactor = await appWindow.scaleFactor();
 
-    if (lastWindowHeightRef.current !== null && Math.abs(lastWindowHeightRef.current - targetHeight) < APP_PICKER_HEIGHT_EPSILON) {
+    if (
+      lastWindowHeightRef.current !== null &&
+      Math.abs(lastWindowHeightRef.current - targetHeight) < APP_PICKER_HEIGHT_EPSILON &&
+      lastWindowScaleFactorRef.current !== null &&
+      Math.abs(lastWindowScaleFactorRef.current - currentScaleFactor) < Number.EPSILON
+    ) {
       return;
     }
 
     lastWindowHeightRef.current = targetHeight;
+    lastWindowScaleFactorRef.current = currentScaleFactor;
 
     try {
-      const targetWidth = window.innerWidth > 0 ? Math.ceil(window.innerWidth) : APP_PICKER_FALLBACK_WIDTH;
-      await getCurrentWindow().setSize(new LogicalSize(targetWidth, targetHeight));
+      await appWindow.setSize(new LogicalSize(APP_PICKER_FALLBACK_WIDTH, targetHeight));
     } catch (err: unknown) {
       log.warn("Failed to resize app picker window:", err);
     }
@@ -146,6 +154,25 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
     return () => {
       observer.disconnect();
+    };
+  }, [scheduleWindowResize]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    void getCurrentWindow()
+      .onScaleChanged(() => {
+        scheduleWindowResize();
+      })
+      .then((dispose) => {
+        unlisten = dispose;
+      })
+      .catch((err: unknown) => {
+        log.warn("Failed to subscribe to app picker scale changes:", err);
+      });
+
+    return () => {
+      unlisten?.();
     };
   }, [scheduleWindowResize]);
 

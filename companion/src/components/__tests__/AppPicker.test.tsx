@@ -6,13 +6,16 @@ import { AppPicker } from "../AppPicker";
 
 const APP_PICKER_ROUNDING_BUFFER = 1;
 
-const { invokeMock, openDialogMock, getPreferredAppMock, setPreferredAppMock, setSizeMock } = vi.hoisted(() => ({
-  invokeMock: vi.fn(),
-  openDialogMock: vi.fn(),
-  getPreferredAppMock: vi.fn(),
-  setPreferredAppMock: vi.fn(),
-  setSizeMock: vi.fn(),
-}));
+const { invokeMock, openDialogMock, getPreferredAppMock, setPreferredAppMock, setSizeMock, scaleFactorMock, onScaleChangedMock } =
+  vi.hoisted(() => ({
+    invokeMock: vi.fn(),
+    openDialogMock: vi.fn(),
+    getPreferredAppMock: vi.fn(),
+    setPreferredAppMock: vi.fn(),
+    setSizeMock: vi.fn(),
+    scaleFactorMock: vi.fn(),
+    onScaleChangedMock: vi.fn(),
+  }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
@@ -36,6 +39,8 @@ vi.mock("@tauri-apps/api/dpi", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
+    onScaleChanged: onScaleChangedMock,
+    scaleFactor: scaleFactorMock,
     setSize: setSizeMock,
   }),
 }));
@@ -52,6 +57,10 @@ describe("AppPicker", () => {
     getPreferredAppMock.mockReset();
     setPreferredAppMock.mockReset();
     setSizeMock.mockReset();
+    scaleFactorMock.mockReset();
+    onScaleChangedMock.mockReset();
+    scaleFactorMock.mockResolvedValue(1);
+    onScaleChangedMock.mockResolvedValue(() => {});
   });
 
   afterEach(async () => {
