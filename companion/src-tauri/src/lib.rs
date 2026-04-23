@@ -501,7 +501,7 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
         .maximizable(false)
         .fullscreen(false)
         .decorations(false)
-        .shadow(true)
+        .shadow(false)
         .always_on_top(true)
         .center()
         .focused(true)

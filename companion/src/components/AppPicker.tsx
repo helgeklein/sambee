@@ -537,76 +537,78 @@ export function AppPickerView({
 
       {state.kind === "loaded" && state.apps.length > 0 && (
         <div class="app-picker__content">
-          <div
-            class="app-picker__list"
-            role="listbox"
-            ref={listRef}
-            tabIndex={0}
-            aria-activedescendant={
-              selectedIndex >= 0
-                ? selectedIndex === browseItemIndex
-                  ? `app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`
-                  : `app-picker-item-${selectedIndex}`
-                : undefined
-            }
-            onKeyDown={handleListKeyDown}
-          >
-            {appSections.map((section) => (
-              <div key={section.heading} class="app-picker__section" role="presentation">
-                <div class="app-picker__section-heading" role="presentation">
-                  {section.heading}
-                </div>
-                {section.apps.map(({ app, index }) => (
-                  <div
-                    key={app.executable}
-                    id={`app-picker-item-${index}`}
-                    class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
-                    role="option"
-                    tabIndex={-1}
-                    aria-selected={index === selectedIndex}
-                    onClick={() => {
-                      onSelectIndex(index);
-                      listRef.current?.focus();
-                    }}
-                    onKeyDown={() => {}}
-                    onDblClick={() => {
-                      onSelectIndex(index);
-                      onOpen();
-                    }}
-                  >
-                    {app.icon ? (
-                      <img
-                        class="app-picker__icon"
-                        src={`data:image/png;base64,${app.icon}`}
-                        alt={translate("appPicker.iconAlt", { appName: app.name })}
-                      />
-                    ) : (
-                      <div class="app-picker__icon-placeholder">📄</div>
-                    )}
-                    <div class="app-picker__info">
-                      <span class="app-picker__name">{app.name}</span>
-                      <span class="app-picker__path">{app.executable}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-
+          <div class="app-picker__list-frame">
             <div
-              id={`app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`}
-              class={`app-picker__item app-picker__item--browse${isBrowseItemSelected ? " app-picker__item--selected" : ""}`}
-              role="option"
-              tabIndex={-1}
-              aria-selected={isBrowseItemSelected}
-              onClick={() => {
-                onSelectIndex(browseItemIndex);
-                listRef.current?.focus();
-                onBrowse();
-              }}
-              onKeyDown={() => {}}
+              class="app-picker__list"
+              role="listbox"
+              ref={listRef}
+              tabIndex={0}
+              aria-activedescendant={
+                selectedIndex >= 0
+                  ? selectedIndex === browseItemIndex
+                    ? `app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`
+                    : `app-picker-item-${selectedIndex}`
+                  : undefined
+              }
+              onKeyDown={handleListKeyDown}
             >
-              <div class="app-picker__info app-picker__info--browse">
-                <span class="app-picker__name">{translate("appPicker.chooseAnotherApp")}</span>
+              {appSections.map((section) => (
+                <div key={section.heading} class="app-picker__section" role="presentation">
+                  <div class="app-picker__section-heading" role="presentation">
+                    {section.heading}
+                  </div>
+                  {section.apps.map(({ app, index }) => (
+                    <div
+                      key={app.executable}
+                      id={`app-picker-item-${index}`}
+                      class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === selectedIndex}
+                      onClick={() => {
+                        onSelectIndex(index);
+                        listRef.current?.focus();
+                      }}
+                      onKeyDown={() => {}}
+                      onDblClick={() => {
+                        onSelectIndex(index);
+                        onOpen();
+                      }}
+                    >
+                      {app.icon ? (
+                        <img
+                          class="app-picker__icon"
+                          src={`data:image/png;base64,${app.icon}`}
+                          alt={translate("appPicker.iconAlt", { appName: app.name })}
+                        />
+                      ) : (
+                        <div class="app-picker__icon-placeholder">📄</div>
+                      )}
+                      <div class="app-picker__info">
+                        <span class="app-picker__name">{app.name}</span>
+                        <span class="app-picker__path">{app.executable}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+
+              <div
+                id={`app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`}
+                class={`app-picker__item app-picker__item--browse${isBrowseItemSelected ? " app-picker__item--selected" : ""}`}
+                role="option"
+                tabIndex={-1}
+                aria-selected={isBrowseItemSelected}
+                onClick={() => {
+                  onSelectIndex(browseItemIndex);
+                  listRef.current?.focus();
+                  onBrowse();
+                }}
+                onKeyDown={() => {}}
+              >
+                <div class="app-picker__info app-picker__info--browse">
+                  <span class="app-picker__name">{translate("appPicker.chooseAnotherApp")}</span>
+                </div>
               </div>
             </div>
           </div>

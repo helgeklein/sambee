@@ -65,11 +65,9 @@
 
 /* ─── App list ─── */
 
-.app-picker__list {
+.app-picker__list-frame {
   display: flex;
   flex: 1 1 auto;
-  flex-direction: column;
-  gap: 0.5rem;
   max-height: 324px;
   min-height: calc(
     (var(--app-picker-row-height) * var(--app-picker-visible-rows)) +
@@ -77,12 +75,21 @@
     (var(--app-picker-list-padding-y) * 2) +
     (var(--app-picker-list-border-width) * 2)
   );
+  overflow: hidden;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: 6px;
+}
+
+.app-picker__list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.5rem;
   overflow-y: scroll;
   scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   scrollbar-color: var(--app-picker-scrollbar-thumb) var(--app-picker-scrollbar-track);
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 6px;
+  min-height: 0;
   padding: 0.25rem 0.25rem 0.25rem 0rem;
 }
 
