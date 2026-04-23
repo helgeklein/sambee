@@ -31,6 +31,9 @@ pub struct NativeApp {
 
     /// Whether this app is the OS default handler for the file type.
     pub is_default: bool,
+
+    /// Whether the OS reports this app as a recommended/suggested handler.
+    pub is_recommended: bool,
 }
 
 /// Trait for platform-specific app enumeration.

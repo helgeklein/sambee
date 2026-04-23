@@ -77,6 +77,7 @@ describe("AppPicker", () => {
         executable: "/usr/bin/libreoffice",
         icon: null,
         is_default: true,
+        is_recommended: true,
       },
     ];
 
@@ -92,10 +93,10 @@ describe("AppPicker", () => {
       expect(screen.getByRole("heading", { name: "[Ćħóóšé åń åṕṕ ťó óṕéń ťħíš .docx ƒíĺé]" })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("[Ɓŕóŵšé ƒóŕ åńóťħéŕ åṕṕ…]")).toBeInTheDocument();
+    expect(screen.getByText(translate("appPicker.chooseAnotherApp"))).toBeInTheDocument();
     expect(screen.getByText("[Ćåńćéĺ]")).toBeInTheDocument();
     expect(screen.getByText("[Óṕéń]")).toBeInTheDocument();
-    expect(screen.getByText(`LibreOffice Writer ${translate("appPicker.defaultBadge")}`)).toBeInTheDocument();
+    expect(screen.getByText("LibreOffice Writer")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "[Óṕéń]" }));
 
@@ -111,12 +112,14 @@ describe("AppPicker", () => {
         executable: "C:/Program Files/Microsoft Office/root/Office16/EXCEL.EXE",
         icon: null,
         is_default: true,
+        is_recommended: true,
       },
       {
         name: "LibreOffice Calc",
         executable: "C:/Program Files/LibreOffice/program/scalc.exe",
         icon: null,
         is_default: false,
+        is_recommended: true,
       },
     ];
 

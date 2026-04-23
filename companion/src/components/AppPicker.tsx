@@ -62,6 +62,53 @@ interface AppPickerViewProps {
 
 const BROWSE_ITEM_ID_SUFFIX = "browse";
 
+interface AppPickerSection {
+  heading: string;
+  apps: Array<{ app: NativeApp; index: number }>;
+}
+
+function syncScrollbarBalanceSize(listElement: HTMLDivElement): void {
+  const computedStyle = window.getComputedStyle(listElement);
+  const borderLeftWidth = Number.parseFloat(computedStyle.borderLeftWidth || "0");
+  const borderRightWidth = Number.parseFloat(computedStyle.borderRightWidth || "0");
+  const measuredScrollbarWidth = Math.max(0, listElement.offsetWidth - listElement.clientWidth - borderLeftWidth - borderRightWidth);
+
+  listElement.style.setProperty("--app-picker-scrollbar-balance-size", `${measuredScrollbarWidth}px`);
+}
+
+function ensureOptionAndSectionVisible(listElement: HTMLDivElement, itemElement: HTMLElement): void {
+  const listRect = listElement.getBoundingClientRect();
+  const itemRect = itemElement.getBoundingClientRect();
+
+  if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
+    itemElement.scrollIntoView({ block: "nearest" });
+  }
+
+  const sectionElement = itemElement.closest<HTMLElement>(".app-picker__section");
+  const headingElement = sectionElement?.querySelector<HTMLElement>(".app-picker__section-heading");
+  if (!headingElement) {
+    return;
+  }
+
+  const headingRect = headingElement.getBoundingClientRect();
+  if (headingRect.top < listRect.top) {
+    const topOffset = headingElement.offsetTop - listElement.offsetTop;
+    listElement.scrollTop = Math.max(0, topOffset - 4);
+  }
+}
+
+function buildAppPickerSections(apps: NativeApp[]): AppPickerSection[] {
+  const defaultApps = apps.flatMap((app, index) => (app.is_default ? [{ app, index }] : []));
+  const suggestedApps = apps.flatMap((app, index) => (app.is_default || !app.is_recommended ? [] : [{ app, index }]));
+  const moreOptionsApps = apps.flatMap((app, index) => (!app.is_default && !app.is_recommended ? [{ app, index }] : []));
+
+  return [
+    { heading: translate("appPicker.sectionDefault"), apps: defaultApps },
+    { heading: translate("appPicker.sectionSuggested"), apps: suggestedApps },
+    { heading: translate("appPicker.sectionMoreOptions"), apps: moreOptionsApps },
+  ].filter((section) => section.apps.length > 0);
+}
+
 export const APP_PICKER_FALLBACK_WIDTH = 420;
 const APP_PICKER_MIN_HEIGHT = 220;
 const APP_PICKER_SCREEN_MARGIN = 48;
@@ -278,6 +325,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
         executable: filePath,
         icon: null,
         is_default: false,
+        is_recommended: false,
       };
 
       // Add to the apps list (if not already present) and select it
@@ -334,19 +382,59 @@ export function AppPickerView({
   panelRef,
 }: AppPickerViewProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const previousSelectedIndexRef = useRef(-1);
   const titleId = `app-picker-title-${extension}`;
   const browseItemIndex = state.kind === "loaded" ? state.apps.length : -1;
   const isBrowseItemSelected = state.kind === "loaded" && selectedIndex === browseItemIndex;
+  const appSections = state.kind === "loaded" ? buildAppPickerSections(state.apps) : [];
 
   useEffect(() => {
-    if (state.kind !== "loaded" || selectedIndex < 0 || !listRef.current) {
+    const listElement = listRef.current;
+    if (!listElement) {
       return;
     }
 
-    const item = listRef.current.children[selectedIndex] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
-    listRef.current.focus({ preventScroll: true });
-  }, [selectedIndex, state]);
+    const updateScrollbarMetrics = () => {
+      syncScrollbarBalanceSize(listElement);
+    };
+
+    updateScrollbarMetrics();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateScrollbarMetrics();
+    });
+
+    observer.observe(listElement);
+    return () => {
+      observer.disconnect();
+    };
+  }, [appSections.length, state.kind]);
+
+  useEffect(() => {
+    if (state.kind !== "loaded" || selectedIndex < 0 || !listRef.current) {
+      previousSelectedIndexRef.current = selectedIndex;
+      return;
+    }
+
+    const shouldAutoScroll = shouldAutoScrollRef.current || previousSelectedIndexRef.current < 0;
+    previousSelectedIndexRef.current = selectedIndex;
+    shouldAutoScrollRef.current = false;
+
+    if (!shouldAutoScroll) {
+      return;
+    }
+
+    const targetId = selectedIndex === browseItemIndex ? `app-picker-item-${BROWSE_ITEM_ID_SUFFIX}` : `app-picker-item-${selectedIndex}`;
+    const item = listRef.current.querySelector<HTMLElement>(`#${targetId}`) ?? undefined;
+    if (item) {
+      ensureOptionAndSectionVisible(listRef.current, item);
+    }
+  }, [browseItemIndex, selectedIndex, state]);
 
   const handleListKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -362,18 +450,22 @@ export function AppPickerView({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
+          shouldAutoScrollRef.current = true;
           onSelectIndex(Math.min(selectedIndex + 1, count - 1));
           break;
         case "ArrowUp":
           e.preventDefault();
+          shouldAutoScrollRef.current = true;
           onSelectIndex(Math.max(selectedIndex - 1, 0));
           break;
         case "Home":
           e.preventDefault();
+          shouldAutoScrollRef.current = true;
           onSelectIndex(0);
           break;
         case "End":
           e.preventDefault();
+          shouldAutoScrollRef.current = true;
           onSelectIndex(count - 1);
           break;
         case "Enter":
@@ -430,40 +522,44 @@ export function AppPickerView({
             }
             onKeyDown={handleListKeyDown}
           >
-            {state.apps.map((app, index) => (
-              <div
-                key={app.executable}
-                id={`app-picker-item-${index}`}
-                class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
-                role="option"
-                tabIndex={-1}
-                aria-selected={index === selectedIndex}
-                onClick={() => {
-                  onSelectIndex(index);
-                  listRef.current?.focus();
-                }}
-                onKeyDown={() => {}}
-                onDblClick={() => {
-                  onSelectIndex(index);
-                  onOpen();
-                }}
-              >
-                {app.icon ? (
-                  <img
-                    class="app-picker__icon"
-                    src={`data:image/png;base64,${app.icon}`}
-                    alt={translate("appPicker.iconAlt", { appName: app.name })}
-                  />
-                ) : (
-                  <div class="app-picker__icon-placeholder">📄</div>
-                )}
-                <div class="app-picker__info">
-                  <span class="app-picker__name">
-                    {app.name}
-                    {app.is_default && ` ${translate("appPicker.defaultBadge")}`}
-                  </span>
-                  <span class="app-picker__path">{app.executable}</span>
+            {appSections.map((section) => (
+              <div key={section.heading} class="app-picker__section" role="presentation">
+                <div class="app-picker__section-heading" role="presentation">
+                  {section.heading}
                 </div>
+                {section.apps.map(({ app, index }) => (
+                  <div
+                    key={app.executable}
+                    id={`app-picker-item-${index}`}
+                    class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === selectedIndex}
+                    onClick={() => {
+                      onSelectIndex(index);
+                      listRef.current?.focus();
+                    }}
+                    onKeyDown={() => {}}
+                    onDblClick={() => {
+                      onSelectIndex(index);
+                      onOpen();
+                    }}
+                  >
+                    {app.icon ? (
+                      <img
+                        class="app-picker__icon"
+                        src={`data:image/png;base64,${app.icon}`}
+                        alt={translate("appPicker.iconAlt", { appName: app.name })}
+                      />
+                    ) : (
+                      <div class="app-picker__icon-placeholder">📄</div>
+                    )}
+                    <div class="app-picker__info">
+                      <span class="app-picker__name">{app.name}</span>
+                      <span class="app-picker__path">{app.executable}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
 

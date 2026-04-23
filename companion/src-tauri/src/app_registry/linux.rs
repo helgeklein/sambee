@@ -339,6 +339,7 @@ impl LinuxAppRegistry {
             executable,
             icon: entry.icon.clone(),
             is_default,
+            is_recommended: false,
         }
     }
 

@@ -22,4 +22,7 @@ export interface NativeApp {
 
   /** Whether this app is the OS default handler for the file type. */
   is_default: boolean;
+
+  /** Whether the OS reports this app as a recommended/suggested handler. */
+  is_recommended: boolean;
 }

@@ -11,7 +11,12 @@
   --app-picker-list-padding-y: 0.25rem;
   --app-picker-list-gap: 0.25rem;
   --app-picker-list-border-width: 1px;
-  --app-picker-visible-rows: 4;
+  --app-picker-visible-rows: 5;
+  --app-picker-scrollbar-size: 14px;
+  --app-picker-scrollbar-balance-size: 0px;
+  --app-picker-scrollbar-track: var(--bg-default, #f6f1e8);
+  --app-picker-scrollbar-thumb: color-mix(in srgb, var(--accent-dark, #d4a020) 34%, var(--border-color, #d1d5db));
+  --app-picker-scrollbar-thumb-hover: color-mix(in srgb, var(--accent-dark, #d4a020) 52%, var(--border-color, #d1d5db));
 }
 
 .app-picker-shell {
@@ -64,18 +69,60 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 0.25rem;
-  max-height: 260px;
+  gap: 0.5rem;
+  max-height: 324px;
   min-height: calc(
     (var(--app-picker-row-height) * var(--app-picker-visible-rows)) +
     (var(--app-picker-list-gap) * (var(--app-picker-visible-rows) - 1)) +
     (var(--app-picker-list-padding-y) * 2) +
     (var(--app-picker-list-border-width) * 2)
   );
-  overflow-y: auto;
+  overflow-y: scroll;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-picker-scrollbar-thumb) var(--app-picker-scrollbar-track);
   border: 1px solid var(--border-color, #d1d5db);
   border-radius: 6px;
-  padding: 0.25rem;
+  padding: 0.25rem 0.25rem 0.25rem 0rem;
+}
+
+.app-picker__list::-webkit-scrollbar {
+  width: var(--app-picker-scrollbar-size);
+}
+
+.app-picker__list::-webkit-scrollbar-track {
+  background: var(--app-picker-scrollbar-track);
+  border-left: 1px solid color-mix(in srgb, var(--border-color, #d1d5db) 72%, transparent);
+  border-radius: 0 5px 5px 0;
+}
+
+.app-picker__list::-webkit-scrollbar-thumb {
+  background: var(--app-picker-scrollbar-thumb);
+  border: 3px solid var(--app-picker-scrollbar-track);
+  border-radius: 999px;
+}
+
+.app-picker__list::-webkit-scrollbar-thumb:hover {
+  background: var(--app-picker-scrollbar-thumb-hover);
+}
+
+.app-picker__list::-webkit-scrollbar-corner {
+  background: var(--app-picker-scrollbar-track);
+}
+
+.app-picker__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.app-picker__section-heading {
+  padding: 0.25rem 0.375rem 0;
+  color: var(--text-secondary, #1f262bb3);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .app-picker__list:focus-visible {

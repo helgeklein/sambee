@@ -276,6 +276,7 @@ impl WindowsAppRegistry {
                     icon: extract_icon_from_resource(&executable, 0),
                     executable,
                     is_default,
+                    is_recommended: false,
                 });
             }
         }
@@ -428,6 +429,7 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
                 icon,
                 executable: exe_path,
                 is_default: false,
+                is_recommended,
             });
         }
     }

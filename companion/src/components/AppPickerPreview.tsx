@@ -17,18 +17,21 @@ const PREVIEW_APPS: NativeApp[] = [
     executable: "C:\\Program Files\\WindowsApps\\Microsoft.WindowsNotepad_11.2501.31.0_x64__8wekyb3d8bbwe\\Notepad\\Notepad.exe",
     icon: null,
     is_default: true,
+    is_recommended: true,
   },
   {
     name: "LibreOffice Calc",
     executable: "C:\\Program Files\\LibreOffice\\program\\scalc.exe",
     icon: null,
     is_default: false,
+    is_recommended: true,
   },
   {
     name: "OnlyOffice Desktop Editors",
     executable: "C:\\Users\\demo\\AppData\\Local\\Programs\\ONLYOFFICE\\DesktopEditors\\DesktopEditors.exe",
     icon: null,
     is_default: false,
+    is_recommended: false,
   },
 ];
 
@@ -189,6 +192,7 @@ export function AppPickerPreview() {
                     executable: PREVIEW_BROWSED_APP_PATH,
                     icon: null,
                     is_default: false,
+                    is_recommended: false,
                   },
                 ];
                 setSelectedIndex(updatedApps.length - 1);
