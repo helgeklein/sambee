@@ -2,15 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { render } from "preact";
 import { App } from "./App";
-import { AppPickerPreview } from "./components/AppPickerPreview";
 import { DoneEditingWindow } from "./components/DoneEditingWindow";
 import { PairingWindow } from "./components/PairingWindow";
+import { PreviewHome } from "./components/PreviewHome";
 import { applyCompanionLocalization, type CompanionLocalizationState } from "./i18n";
 import { applyFallbackTheme, applyThemeFromBase64 } from "./lib/theme";
 import { scheduleUpdateCheck } from "./lib/updateCheck";
+import { COMPANION_PREVIEWS } from "./previews";
 import "./styles/global.css";
-
-const APP_PICKER_PREVIEW_PATH = "/preview/app-picker";
 
 /**
  * Entry point — routes to the appropriate component based on the window's
@@ -27,7 +26,10 @@ const APP_PICKER_PREVIEW_PATH = "/preview/app-picker";
 applyFallbackTheme();
 
 const path = window.location.pathname;
-const isAppPickerPreview = path === APP_PICKER_PREVIEW_PATH;
+const isBrowserPreviewRuntime = !("__TAURI_INTERNALS__" in window);
+const activePreview = COMPANION_PREVIEWS.find((preview) => preview.path === path) ?? null;
+const isPreviewHome = isBrowserPreviewRuntime && path === "/";
+const isPreviewRoute = activePreview !== null;
 
 // Block browser-style reload shortcuts so the companion behaves like a native app.
 const preventReloadShortcut = (event: KeyboardEvent) => {
@@ -40,11 +42,11 @@ const preventReloadShortcut = (event: KeyboardEvent) => {
   event.stopPropagation();
 };
 
-if (!isAppPickerPreview) {
+if (!isBrowserPreviewRuntime) {
   window.addEventListener("keydown", preventReloadShortcut, true);
 }
 
-if (!isAppPickerPreview) {
+if (!isBrowserPreviewRuntime) {
   listen<string>("apply-theme", (event) => {
     applyThemeFromBase64(event.payload);
   });
@@ -68,8 +70,11 @@ if (!isAppPickerPreview) {
 
 const root = document.getElementById("app");
 if (root) {
-  if (isAppPickerPreview) {
-    render(<AppPickerPreview />, root);
+  if (isPreviewRoute && activePreview) {
+    const PreviewComponent = activePreview.component;
+    render(<PreviewComponent />, root);
+  } else if (isPreviewHome) {
+    render(<PreviewHome previews={COMPANION_PREVIEWS} />, root);
   } else if (path === "/done-editing") {
     render(<DoneEditingWindow />, root);
   } else if (path === "/pairing") {
