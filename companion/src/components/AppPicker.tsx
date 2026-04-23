@@ -432,11 +432,8 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
 function measureAppPickerHeight(panel: HTMLDivElement): number {
   const shell = panel.parentElement instanceof HTMLDivElement ? panel.parentElement : null;
-  const panelRectHeight = Math.ceil(panel.getBoundingClientRect().height);
-  const panelScrollHeight = Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel));
-
   if (!shell) {
-    return Math.max(panelRectHeight, panelScrollHeight) + APP_PICKER_ROUNDING_BUFFER;
+    return Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel)) + APP_PICKER_ROUNDING_BUFFER;
   }
 
   const previousShellHeight = shell.style.height;
@@ -457,7 +454,7 @@ function measureAppPickerHeight(panel: HTMLDivElement): number {
   panel.style.height = previousPanelHeight;
   panel.style.flex = previousPanelFlex;
 
-  return Math.max(panelRectHeight, panelScrollHeight, intrinsicShellHeight) + APP_PICKER_ROUNDING_BUFFER;
+  return intrinsicShellHeight + APP_PICKER_ROUNDING_BUFFER;
 }
 
 function getVerticalBorderWidth(panel: HTMLDivElement): number {
