@@ -16,7 +16,8 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use log::debug;
-use windows::core::{PCWSTR, PWSTR};
+use windows::core::{Interface, PCWSTR, PWSTR};
+use windows::Win32::Foundation::S_OK;
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC, HGDIOBJ,
 };
@@ -415,8 +416,10 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
             // Extract icon (try handler's icon location, fall back to exe)
             let icon = extract_handler_icon(&handler, &exe_path);
 
-            // IsRecommended() returns S_OK for recommended handlers
-            let is_recommended = handler.IsRecommended().is_ok();
+            // IsRecommended returns S_OK for recommended handlers and S_FALSE
+            // for valid but non-recommended handlers, so Result::is_ok() would
+            // incorrectly classify both as recommended.
+            let is_recommended = is_handler_recommended(&handler);
             let idx = apps.len();
 
             if is_recommended && first_recommended.is_none() {
@@ -443,6 +446,10 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
     debug!("SHAssocEnumHandlers returned {} handler(s) for {}", apps.len(), extension);
 
     Some(apps)
+}
+
+fn is_handler_recommended(handler: &IAssocHandler) -> bool {
+    unsafe { (handler.vtable().IsRecommended)(handler.as_raw()) == S_OK }
 }
 
 //

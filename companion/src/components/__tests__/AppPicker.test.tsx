@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../i18n";
 import type { NativeApp } from "../../types";
-import { AppPicker } from "../AppPicker";
+import { AppPicker, AppPickerView } from "../AppPicker";
 
 const APP_PICKER_ROUNDING_BUFFER = 1;
 
@@ -184,5 +184,75 @@ describe("AppPicker", () => {
 
     const resizedHeights = setSizeMock.mock.calls.map(([size]) => size.height);
     expect(Math.max(...resizedHeights)).toBe(472 + 2 + APP_PICKER_ROUNDING_BUFFER);
+  });
+
+  it("moves focus to the listbox after apps finish loading", async () => {
+    await setLocale("en");
+
+    const apps: NativeApp[] = [
+      {
+        name: "Excel",
+        executable: "C:/Program Files/Microsoft Office/root/Office16/EXCEL.EXE",
+        icon: null,
+        is_default: true,
+        is_recommended: true,
+      },
+    ];
+
+    invokeMock.mockResolvedValue(apps);
+    getPreferredAppMock.mockResolvedValue(null);
+
+    render(<AppPicker extension="xlsx" onSelect={vi.fn()} onCancel={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("listbox")).toHaveFocus();
+    });
+  });
+
+  it("renders non-recommended apps under More options", async () => {
+    await setLocale("en");
+
+    const apps: NativeApp[] = [
+      {
+        name: "Excel",
+        executable: "C:/Program Files/Microsoft Office/root/Office16/EXCEL.EXE",
+        icon: null,
+        is_default: true,
+        is_recommended: true,
+      },
+      {
+        name: "LibreOffice Calc",
+        executable: "C:/Program Files/LibreOffice/program/scalc.exe",
+        icon: null,
+        is_default: false,
+        is_recommended: true,
+      },
+      {
+        name: "CSV Toolkit",
+        executable: "C:/Tools/csv-toolkit.exe",
+        icon: null,
+        is_default: false,
+        is_recommended: false,
+      },
+    ];
+
+    render(
+      <AppPickerView
+        extension="csv"
+        state={{ kind: "loaded", apps }}
+        selectedIndex={0}
+        alwaysUse={false}
+        onSelectIndex={vi.fn()}
+        onAlwaysUseChange={vi.fn()}
+        onOpen={vi.fn()}
+        onCancel={vi.fn()}
+        onBrowse={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText(translate("appPicker.sectionSuggested"))).toBeInTheDocument();
+    expect(screen.getByText(translate("appPicker.sectionMoreOptions"))).toBeInTheDocument();
+    expect(screen.getByText("LibreOffice Calc")).toBeInTheDocument();
+    expect(screen.getByText("CSV Toolkit")).toBeInTheDocument();
   });
 });

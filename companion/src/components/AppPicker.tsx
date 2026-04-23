@@ -67,6 +67,8 @@ interface AppPickerSection {
   apps: Array<{ app: NativeApp; index: number }>;
 }
 
+const APP_PICKER_SECTION_SCROLL_MARGIN = 4;
+
 function syncScrollbarBalanceSize(listElement: HTMLDivElement): void {
   const computedStyle = window.getComputedStyle(listElement);
   const borderLeftWidth = Number.parseFloat(computedStyle.borderLeftWidth || "0");
@@ -90,10 +92,18 @@ function ensureOptionAndSectionVisible(listElement: HTMLDivElement, itemElement:
     return;
   }
 
+  const refreshedListRect = listElement.getBoundingClientRect();
+  const refreshedItemRect = itemElement.getBoundingClientRect();
   const headingRect = headingElement.getBoundingClientRect();
-  if (headingRect.top < listRect.top) {
+  const itemTopWithinViewport = refreshedItemRect.top - refreshedListRect.top;
+  const headingTopWithinViewport = headingRect.top - refreshedListRect.top;
+  const headingClearance = headingElement.offsetHeight + APP_PICKER_SECTION_SCROLL_MARGIN;
+  const isItemNearTop = itemTopWithinViewport <= headingClearance + itemElement.offsetHeight;
+  const canRevealHeadingWithoutHidingItem = headingClearance + itemElement.offsetHeight <= listElement.clientHeight;
+
+  if (headingTopWithinViewport < 0 && isItemNearTop && canRevealHeadingWithoutHidingItem) {
     const topOffset = headingElement.offsetTop - listElement.offsetTop;
-    listElement.scrollTop = Math.max(0, topOffset - 4);
+    listElement.scrollTop = Math.max(0, topOffset - APP_PICKER_SECTION_SCROLL_MARGIN);
   }
 }
 
@@ -384,10 +394,27 @@ export function AppPickerView({
   const listRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousSelectedIndexRef = useRef(-1);
+  const hasFocusedLoadedListRef = useRef(false);
   const titleId = `app-picker-title-${extension}`;
   const browseItemIndex = state.kind === "loaded" ? state.apps.length : -1;
   const isBrowseItemSelected = state.kind === "loaded" && selectedIndex === browseItemIndex;
   const appSections = state.kind === "loaded" ? buildAppPickerSections(state.apps) : [];
+
+  useEffect(() => {
+    if (state.kind !== "loaded" || state.apps.length === 0 || !listRef.current || hasFocusedLoadedListRef.current) {
+      return;
+    }
+
+    hasFocusedLoadedListRef.current = true;
+    const listElement = listRef.current;
+    const timer = window.setTimeout(() => {
+      listElement.focus({ preventScroll: true });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [state]);
 
   useEffect(() => {
     const listElement = listRef.current;
