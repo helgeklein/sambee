@@ -19,7 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { translate } from "../i18n";
 import { log } from "../lib/logger";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
@@ -95,13 +95,15 @@ function ensureOptionAndSectionVisible(listElement: HTMLDivElement, itemElement:
   const refreshedListRect = listElement.getBoundingClientRect();
   const refreshedItemRect = itemElement.getBoundingClientRect();
   const headingRect = headingElement.getBoundingClientRect();
+  const firstItemInSection = sectionElement?.querySelector<HTMLElement>(".app-picker__item");
   const itemTopWithinViewport = refreshedItemRect.top - refreshedListRect.top;
   const headingTopWithinViewport = headingRect.top - refreshedListRect.top;
   const headingClearance = headingElement.offsetHeight + APP_PICKER_SECTION_SCROLL_MARGIN;
-  const isItemNearTop = itemTopWithinViewport <= headingClearance + itemElement.offsetHeight;
+  const isItemEnteringHiddenHeadingZone = itemTopWithinViewport < headingClearance;
+  const isFirstItemInSection = firstItemInSection === itemElement;
   const canRevealHeadingWithoutHidingItem = headingClearance + itemElement.offsetHeight <= listElement.clientHeight;
 
-  if (headingTopWithinViewport < 0 && isItemNearTop && canRevealHeadingWithoutHidingItem) {
+  if (headingTopWithinViewport < 0 && isFirstItemInSection && isItemEnteringHiddenHeadingZone && canRevealHeadingWithoutHidingItem) {
     const topOffset = headingElement.offsetTop - listElement.offsetTop;
     listElement.scrollTop = Math.max(0, topOffset - APP_PICKER_SECTION_SCROLL_MARGIN);
   }
@@ -442,7 +444,7 @@ export function AppPickerView({
     };
   }, [appSections.length, state.kind]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (state.kind !== "loaded" || selectedIndex < 0 || !listRef.current) {
       previousSelectedIndexRef.current = selectedIndex;
       return;
