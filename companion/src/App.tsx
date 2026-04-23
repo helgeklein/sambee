@@ -51,6 +51,8 @@ export function App() {
 
   // Listen for Tauri events from the Rust backend
   useEffect(() => {
+    let disposed = false;
+
     const unlistenPicker = listen<AppPickerEventPayload>("show-app-picker", (event) => {
       setView({
         kind: "app-picker",
@@ -73,7 +75,27 @@ export function App() {
       setView({ kind: "preferences" });
     });
 
+    void Promise.all([unlistenPicker, unlistenRecovery, unlistenLargeFile, unlistenPreferences]).then(async () => {
+      if (disposed) {
+        return;
+      }
+
+      try {
+        const pendingPicker = await invoke<AppPickerEventPayload | null>("consume_pending_app_picker");
+        if (!disposed && pendingPicker) {
+          setView({
+            kind: "app-picker",
+            extension: pendingPicker.extension,
+            requestId: pendingPicker.request_id,
+          });
+        }
+      } catch (err) {
+        log.warn("Failed to consume pending app picker state:", err);
+      }
+    });
+
     return () => {
+      disposed = true;
       unlistenPicker.then((fn) => fn());
       unlistenRecovery.then((fn) => fn());
       unlistenLargeFile.then((fn) => fn());

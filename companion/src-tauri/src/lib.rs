@@ -26,6 +26,33 @@ use crate::server::pairing::PairingState;
 use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
 use crate::uri::SambeeUri;
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PendingAppPickerRequest {
+    pub extension: String,
+    pub request_id: String,
+}
+
+#[derive(Clone, Default)]
+pub struct PendingMainWindowAppPicker(pub Arc<RwLock<Option<PendingAppPickerRequest>>>);
+
+impl PendingMainWindowAppPicker {
+    pub fn set(&self, request: PendingAppPickerRequest) {
+        if let Ok(mut lock) = self.0.write() {
+            *lock = Some(request);
+        }
+    }
+
+    pub fn take(&self) -> Option<PendingAppPickerRequest> {
+        self.0.write().ok().and_then(|mut lock| lock.take())
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut lock) = self.0.write() {
+            *lock = None;
+        }
+    }
+}
+
 /// ID used for the system tray icon, allowing retrieval via `app.tray_by_id()`.
 const TRAY_ICON_ID: &str = "sambee-main";
 
@@ -291,6 +318,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     // Register the pending selection
     if let Some(pending) = app.try_state::<PendingAppSelections>() {
         pending.insert(request_id.clone(), tx);
+    }
+
+    if let Some(pending_picker) = app.try_state::<PendingMainWindowAppPicker>() {
+        pending_picker.set(PendingAppPickerRequest {
+            extension: file_extension.clone(),
+            request_id: request_id.clone(),
+        });
     }
 
     // Ensure the main window exists so the app picker can be displayed
@@ -832,10 +866,12 @@ pub fn run() {
         .manage(ThemeState::default())
         .manage(PendingConfirmations::default())
         .manage(PendingAppSelections::default())
+        .manage(PendingMainWindowAppPicker::default())
         .manage(Arc::new(PairingState::new()))
         .manage(Arc::new(LocalizationState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::app_picker::get_apps_for_file,
+            commands::app_picker::consume_pending_app_picker,
             commands::localization::get_synced_localization,
             commands::open_file::get_done_editing_context,
             commands::open_file::finish_editing,

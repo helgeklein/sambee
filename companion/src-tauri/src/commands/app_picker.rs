@@ -4,6 +4,7 @@
 //! desktop applications that can open a given file extension.
 
 use crate::app_registry::{get_registry, NativeApp};
+use crate::{PendingAppPickerRequest, PendingMainWindowAppPicker};
 
 //
 // get_apps_for_file
@@ -16,4 +17,9 @@ use crate::app_registry::{get_registry, NativeApp};
 pub fn get_apps_for_file(extension: String) -> Vec<NativeApp> {
     let registry = get_registry();
     registry.apps_for_extension(&extension)
+}
+
+#[tauri::command]
+pub fn consume_pending_app_picker(pending_app_picker: tauri::State<'_, PendingMainWindowAppPicker>) -> Option<PendingAppPickerRequest> {
+    pending_app_picker.take()
 }

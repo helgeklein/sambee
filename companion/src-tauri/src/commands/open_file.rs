@@ -655,6 +655,10 @@ pub fn respond_app_selection(app: AppHandle, request_id: String, executable: Str
         .try_state::<crate::sync::operations::PendingAppSelections>()
         .ok_or_else(|| "PendingAppSelections not available".to_string())?;
 
+    if let Some(pending_picker) = app.try_state::<crate::PendingMainWindowAppPicker>() {
+        pending_picker.clear();
+    }
+
     let selection = if executable.is_empty() {
         None
     } else {
