@@ -119,7 +119,7 @@ function themeToVariables(theme: CompanionTheme): Record<string, string> {
     "--primary-main": theme.primary.main,
     "--primary-light": theme.primary.light ?? theme.primary.main,
     "--primary-dark": theme.primary.dark ?? theme.primary.main,
-    "--primary-contrast": theme.primary.contrastText ?? (isDark ? "#1F262B" : "#FFFFFF"),
+    "--primary-contrast": theme.primary.contrastText ?? "#1F262B",
 
     // Backgrounds
     "--bg-default": theme.background?.default ?? (isDark ? "#1F262B" : "#F6F1E8"),
