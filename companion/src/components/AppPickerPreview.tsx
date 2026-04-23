@@ -195,7 +195,6 @@ export function AppPickerPreview() {
                 return updatedApps;
               });
             }}
-            browseDisabled={status === "loading"}
             panelRef={panelRef}
           />
         </div>

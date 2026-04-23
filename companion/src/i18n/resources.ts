@@ -103,6 +103,7 @@ export const EN_TRANSLATIONS = {
     defaultBadge: "(default)",
     alwaysUse: "Always use this app for .{{extension}} files",
     browseButton: "Browse for another app…",
+    chooseAnotherApp: "Choose another app",
     iconAlt: "{{appName}} icon",
   },
   preferences: {

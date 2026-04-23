@@ -57,9 +57,10 @@ interface AppPickerViewProps {
   onOpen: () => void;
   onCancel: () => void;
   onBrowse: () => void;
-  browseDisabled?: boolean;
   panelRef?: { current: HTMLDivElement | null };
 }
+
+const BROWSE_ITEM_ID_SUFFIX = "browse";
 
 export const APP_PICKER_FALLBACK_WIDTH = 420;
 const APP_PICKER_MIN_HEIGHT = 220;
@@ -309,7 +310,6 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       onBrowse={() => {
         void handleBrowse();
       }}
-      browseDisabled={state.kind === "loading"}
       panelRef={panelRef}
     />
   );
@@ -331,11 +331,12 @@ export function AppPickerView({
   onOpen,
   onCancel,
   onBrowse,
-  browseDisabled = false,
   panelRef,
 }: AppPickerViewProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const titleId = `app-picker-title-${extension}`;
+  const browseItemIndex = state.kind === "loaded" ? state.apps.length : -1;
+  const isBrowseItemSelected = state.kind === "loaded" && selectedIndex === browseItemIndex;
 
   useEffect(() => {
     if (state.kind !== "loaded" || selectedIndex < 0 || !listRef.current) {
@@ -353,7 +354,7 @@ export function AppPickerView({
         return;
       }
 
-      const count = state.apps.length;
+      const count = state.apps.length + 1;
       if (count === 0) {
         return;
       }
@@ -378,11 +379,16 @@ export function AppPickerView({
         case "Enter":
         case " ":
           e.preventDefault();
+          if (selectedIndex === state.apps.length) {
+            onBrowse();
+            return;
+          }
+
           onOpen();
           break;
       }
     },
-    [onOpen, onSelectIndex, selectedIndex, state]
+    [onBrowse, onOpen, onSelectIndex, selectedIndex, state]
   );
 
   return (
@@ -415,7 +421,13 @@ export function AppPickerView({
             role="listbox"
             ref={listRef}
             tabIndex={0}
-            aria-activedescendant={selectedIndex >= 0 ? `app-picker-item-${selectedIndex}` : undefined}
+            aria-activedescendant={
+              selectedIndex >= 0
+                ? selectedIndex === browseItemIndex
+                  ? `app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`
+                  : `app-picker-item-${selectedIndex}`
+                : undefined
+            }
             onKeyDown={handleListKeyDown}
           >
             {state.apps.map((app, index) => (
@@ -454,6 +466,24 @@ export function AppPickerView({
                 </div>
               </div>
             ))}
+
+            <div
+              id={`app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`}
+              class={`app-picker__item app-picker__item--browse${isBrowseItemSelected ? " app-picker__item--selected" : ""}`}
+              role="option"
+              tabIndex={-1}
+              aria-selected={isBrowseItemSelected}
+              onClick={() => {
+                onSelectIndex(browseItemIndex);
+                listRef.current?.focus();
+                onBrowse();
+              }}
+              onKeyDown={() => {}}
+            >
+              <div class="app-picker__info app-picker__info--browse">
+                <span class="app-picker__name">{translate("appPicker.chooseAnotherApp")}</span>
+              </div>
+            </div>
           </div>
 
           <label class="app-picker__always-use">
@@ -464,9 +494,6 @@ export function AppPickerView({
       )}
 
       <div class="app-picker__actions">
-        <button type="button" class="app-picker__browse-btn" onClick={onBrowse} disabled={browseDisabled}>
-          {translate("appPicker.browseButton")}
-        </button>
         <div class="app-picker__btn-group">
           <button type="button" class="app-picker__btn" onClick={onCancel}>
             {translate("common.actions.cancel")}
@@ -475,7 +502,7 @@ export function AppPickerView({
             type="button"
             class="app-picker__btn app-picker__btn--primary"
             onClick={onOpen}
-            disabled={state.kind !== "loaded" || selectedIndex < 0}
+            disabled={state.kind !== "loaded" || selectedIndex < 0 || isBrowseItemSelected}
           >
             {translate("common.actions.open")}
           </button>
