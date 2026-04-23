@@ -206,37 +206,7 @@
 }
 
 .app-picker__btn {
-  padding: 0.4375rem 1rem;
-  border-radius: 4px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: 1px solid var(--border-color, #d1d5db);
-  background-color: var(--btn-bg, #f3f4f6);
-  color: inherit;
-  transition:
-    background-color 0.1s,
-    border-color 0.1s;
-}
-
-.app-picker__btn:hover {
-  background-color: var(--btn-bg-hover, #e5e7eb);
-}
-
-.app-picker__btn--primary {
-  background-color: var(--accent-color, #f4c430);
-  border-color: var(--accent-color, #f4c430);
-  color: var(--primary-contrast, #1f262b);
-}
-
-.app-picker__btn--primary:hover {
-  background-color: var(--accent-dark, #d4a020);
-  border-color: var(--accent-dark, #d4a020);
-}
-
-.app-picker__btn--primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  min-width: 132px;
 }
 
 /* ─── States ─── */

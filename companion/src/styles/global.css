@@ -15,6 +15,25 @@
   line-height: 1.5;
   font-weight: 400;
 
+  --companion-btn-min-height: 40px;
+  --companion-btn-radius: 12px;
+  --companion-btn-padding: 0.5rem 1rem;
+  --companion-btn-font-size: 0.875rem;
+  --companion-btn-font-weight: 600;
+  --companion-btn-shadow-rest: none;
+  --companion-btn-shadow-hover: none;
+  --companion-btn-focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent-dark, #d4a020) 24%, transparent);
+  --companion-btn-secondary-bg: var(--action-selected, rgba(244, 196, 48, 0.16));
+  --companion-btn-secondary-bg-hover: color-mix(in srgb, var(--accent-color, #f4c430) 18%, var(--bg-paper, #ffffff));
+  --companion-btn-secondary-bg-focus: color-mix(in srgb, var(--accent-color, #f4c430) 20%, var(--bg-paper, #ffffff));
+  --companion-btn-secondary-border: color-mix(in srgb, var(--accent-dark, #d4a020) 32%, transparent);
+  --companion-btn-danger-bg: color-mix(in srgb, var(--danger-color, #dc2626) 8%, var(--bg-paper, #ffffff));
+  --companion-btn-danger-bg-hover: color-mix(in srgb, var(--danger-color, #dc2626) 12%, var(--bg-paper, #ffffff));
+  --companion-btn-danger-bg-focus: color-mix(in srgb, var(--danger-color, #dc2626) 14%, var(--bg-paper, #ffffff));
+  --companion-btn-danger-border: color-mix(in srgb, var(--danger-color, #dc2626) 38%, transparent);
+  --companion-btn-primary-shadow-rest: 0 2px 8px rgba(31, 38, 43, 0.16);
+  --companion-btn-primary-shadow-hover: 0 6px 14px rgba(31, 38, 43, 0.22);
+
   color: var(--text-primary, #1f262b);
   background-color: var(--bg-default, #f6f1e8);
 
@@ -49,6 +68,161 @@ h1 {
 
 p {
   color: var(--text-secondary, #1f262bb3);
+}
+
+.dialog-btn,
+.app-picker__btn,
+.preferences__action-btn,
+.preferences__confirm-btn,
+.preferences__server-remove-btn,
+.pairing-request__primary-btn,
+.pairing-request__secondary-btn,
+.btn-primary,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--companion-btn-min-height);
+  padding: var(--companion-btn-padding);
+  border: 1px solid transparent;
+  border-radius: var(--companion-btn-radius);
+  font: inherit;
+  font-size: var(--companion-btn-font-size);
+  font-weight: var(--companion-btn-font-weight);
+  line-height: 1.2;
+  text-align: center;
+  color: var(--text-primary, #1f262b);
+  background: transparent;
+  box-shadow: var(--companion-btn-shadow-rest);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    color 0.15s ease;
+  appearance: none;
+}
+
+.dialog-btn:disabled,
+.app-picker__btn:disabled,
+.preferences__action-btn:disabled,
+.preferences__confirm-btn:disabled,
+.preferences__server-remove-btn:disabled,
+.pairing-request__primary-btn:disabled,
+.pairing-request__secondary-btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.dialog-btn:focus-visible,
+.app-picker__btn:focus-visible,
+.preferences__action-btn:focus-visible,
+.preferences__confirm-btn:focus-visible,
+.preferences__server-remove-btn:focus-visible,
+.pairing-request__primary-btn:focus-visible,
+.pairing-request__secondary-btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+  outline: none;
+  box-shadow: var(--companion-btn-focus-ring), var(--companion-btn-shadow-hover);
+}
+
+.dialog-btn:focus:not(:focus-visible),
+.app-picker__btn:focus:not(:focus-visible),
+.preferences__action-btn:focus:not(:focus-visible),
+.preferences__confirm-btn:focus:not(:focus-visible),
+.preferences__server-remove-btn:focus:not(:focus-visible),
+.pairing-request__primary-btn:focus:not(:focus-visible),
+.pairing-request__secondary-btn:focus:not(:focus-visible),
+.btn-primary:focus:not(:focus-visible),
+.btn-secondary:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.dialog-btn--ghost,
+.app-picker__btn:not(.app-picker__btn--primary),
+.preferences__action-btn--secondary,
+.preferences__confirm-btn--ghost,
+.pairing-request__secondary-btn {
+  background: var(--companion-btn-secondary-bg);
+  border-color: var(--companion-btn-secondary-border);
+  color: var(--text-primary, #1f262b);
+}
+
+.dialog-btn--ghost:hover:not(:disabled),
+.app-picker__btn:not(.app-picker__btn--primary):hover:not(:disabled),
+.preferences__action-btn--secondary:hover:not(:disabled),
+.preferences__confirm-btn--ghost:hover:not(:disabled),
+.pairing-request__secondary-btn:hover:not(:disabled) {
+  background: var(--companion-btn-secondary-bg-hover);
+  border-color: var(--accent-dark, #d4a020);
+}
+
+.dialog-btn--ghost:focus-visible,
+.app-picker__btn:not(.app-picker__btn--primary):focus-visible,
+.preferences__action-btn--secondary:focus-visible,
+.preferences__confirm-btn--ghost:focus-visible,
+.pairing-request__secondary-btn:focus-visible {
+  background: var(--companion-btn-secondary-bg-focus);
+  border-color: var(--accent-dark, #d4a020);
+}
+
+.dialog-btn--primary,
+.app-picker__btn--primary,
+.preferences__action-btn--primary,
+.pairing-request__primary-btn,
+.btn-primary,
+.preferences__confirm-btn:not(.preferences__confirm-btn--ghost):not(.preferences__confirm-btn--danger) {
+  background: var(--accent-color, #f4c430);
+  border-color: var(--accent-color, #f4c430);
+  color: var(--primary-contrast, #1f262b);
+  --companion-btn-shadow-rest: var(--companion-btn-primary-shadow-rest);
+  --companion-btn-shadow-hover: var(--companion-btn-primary-shadow-hover);
+}
+
+.dialog-btn--primary:hover:not(:disabled),
+.app-picker__btn--primary:hover:not(:disabled),
+.preferences__action-btn--primary:hover:not(:disabled),
+.pairing-request__primary-btn:hover:not(:disabled),
+.btn-primary:hover:not(:disabled),
+.preferences__confirm-btn:not(.preferences__confirm-btn--ghost):not(.preferences__confirm-btn--danger):hover:not(:disabled) {
+  background: var(--accent-dark, #d4a020);
+  border-color: var(--accent-dark, #d4a020);
+  box-shadow: var(--companion-btn-shadow-hover);
+}
+
+.dialog-btn--danger,
+.preferences__confirm-btn--danger,
+.preferences__server-remove-btn,
+.btn-secondary {
+  background: var(--companion-btn-danger-bg);
+  border-color: var(--companion-btn-danger-border);
+  color: var(--danger-text, #dc2626);
+}
+
+.dialog-btn--danger:hover:not(:disabled),
+.preferences__confirm-btn--danger:hover:not(:disabled),
+.preferences__server-remove-btn:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled) {
+  background: var(--companion-btn-danger-bg-hover);
+  border-color: var(--danger-color, #dc2626);
+}
+
+.dialog-btn--danger:focus-visible,
+.preferences__confirm-btn--danger:focus-visible,
+.preferences__server-remove-btn:focus-visible,
+.btn-secondary:focus-visible {
+  background: var(--companion-btn-danger-bg-focus);
+  border-color: var(--danger-color, #dc2626);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-color, #dc2626) 18%, transparent);
+}
+
+html[data-theme="dark"] {
+  --companion-btn-primary-shadow-rest: 0 2px 10px rgba(0, 0, 0, 0.34);
+  --companion-btn-primary-shadow-hover: 0 6px 18px rgba(0, 0, 0, 0.42);
 }
 
 @media (prefers-color-scheme: dark) {
