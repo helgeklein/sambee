@@ -39,6 +39,20 @@ enum HandlerIdentifier<'a> {
     Executable(PathBuf),
 }
 
+fn normalize_windows_identifier(value: &str) -> String {
+    value.trim().replace('/', "\\").to_ascii_lowercase()
+}
+
+fn matches_handler_identifier(target_identifier: &HandlerIdentifier<'_>, handler_name: &str) -> bool {
+    match target_identifier {
+        HandlerIdentifier::HandlerName(name) => normalize_windows_identifier(name) == normalize_windows_identifier(handler_name),
+        HandlerIdentifier::Executable(executable) => {
+            normalize_windows_identifier(&executable.to_string_lossy()) == normalize_windows_identifier(handler_name)
+        }
+        HandlerIdentifier::Progid(_) => false,
+    }
+}
+
 fn make_handler_name_id(handler_name: &str) -> String {
     format!("{HANDLER_NAME_PREFIX}{handler_name}")
 }
@@ -852,11 +866,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_identifier: &str, file_path
 
             debug!("Handler #{handler_count}: name={:?}, ui_name={:?}", handler_name, ui_name);
 
-            let is_match = match &target_identifier {
-                HandlerIdentifier::HandlerName(name) => *name == handler_name,
-                HandlerIdentifier::Executable(executable) => PathBuf::from(&handler_name) == *executable,
-                HandlerIdentifier::Progid(_) => false,
-            };
+            let is_match = matches_handler_identifier(&target_identifier, &handler_name);
 
             if is_match {
                 debug!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
@@ -962,6 +972,25 @@ mod tests {
             parse_handler_identifier(executable),
             HandlerIdentifier::Executable(PathBuf::from(executable))
         );
+    }
+
+    #[test]
+    fn test_matches_handler_identifier_is_case_insensitive_for_handler_names() {
+        let identifier = parse_handler_identifier(&make_handler_name_id(
+            r"C:\Program Files\WindowsApps\Microsoft.WindowsNotepad\Notepad\Notepad.exe",
+        ));
+
+        assert!(matches_handler_identifier(
+            &identifier,
+            r"c:\program files\windowsapps\microsoft.windowsnotepad\notepad\notepad.exe"
+        ));
+    }
+
+    #[test]
+    fn test_matches_handler_identifier_normalizes_path_separators() {
+        let identifier = parse_handler_identifier(r"C:\Windows\System32\notepad.exe");
+
+        assert!(matches_handler_identifier(&identifier, "C:/Windows/System32/notepad.exe"));
     }
 
     //

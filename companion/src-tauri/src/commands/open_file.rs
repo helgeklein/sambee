@@ -26,6 +26,13 @@ fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) ->
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn should_skip_explicit_windows_launch(app_executable: &str, handler_id: Option<&str>) -> bool {
+    let normalized_executable = app_executable.replace('/', "\\").to_ascii_lowercase();
+    let has_opaque_handler = handler_id.is_some_and(|value| !value.is_empty() && value.contains(':'));
+    has_opaque_handler || normalized_executable.contains("\\windowsapps\\")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit context (sent to the Done Editing window)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -158,6 +165,28 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
                 }
                 Err(handler_err) => {
                     warn!("IAssocHandler invocation failed for {:?}: {}", preferred_handler_id, handler_err);
+
+                    if should_skip_explicit_windows_launch(app_executable, handler_id) {
+                        warn!(
+                            "Skipping direct launch fallback for Windows packaged handler {:?}; trying system shell open instead",
+                            preferred_handler_id
+                        );
+
+                        #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
+                        app.shell().open(path_str, None).map_err(|e| {
+                            error!(
+                                "Packaged-app shell.open() fallback failed for {} after handler invoke error: {e}",
+                                local_path.display()
+                            );
+                            format!("Failed to open file after packaged-app handler fallback: {e}")
+                        })?;
+
+                        warn!(
+                            "Used system shell.open() fallback for {} after packaged-handler invoke failure",
+                            local_path.display()
+                        );
+                        return Ok(());
+                    }
 
                     match launch_explicit_app(app, app_executable, path_str) {
                         Ok(()) => {
