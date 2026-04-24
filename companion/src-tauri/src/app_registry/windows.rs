@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use log::debug;
@@ -23,7 +24,9 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{ExtractIconExW, IAssocHandler, SHAssocEnumHandlers, ASSOC_FILTER};
-use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, DispatchMessageW, GetIconInfo, PeekMessageW, TranslateMessage, HICON, ICONINFO, MSG, PM_NOREMOVE, PM_REMOVE,
+};
 use winreg::enums::*;
 use winreg::RegKey;
 
@@ -78,6 +81,10 @@ fn parse_handler_identifier(handler_identifier: &str) -> HandlerIdentifier<'_> {
 /// Registry path prefix for user's per-extension file associations.
 const USER_FILE_EXTS_PREFIX: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts";
 
+/// Keep the STA apartment alive briefly after handler invocation so Windows can
+/// finish any message-based activation work for packaged handlers.
+const HANDLER_INVOKE_MESSAGE_PUMP_MS: u64 = 1500;
+
 /// Return all registered handlers, not just recommended ones.
 const ASSOC_FILTER_ALL: ASSOC_FILTER = ASSOC_FILTER(0);
 
@@ -90,25 +97,54 @@ const ASSOC_FILTER_ALL: ASSOC_FILTER = ASSOC_FILTER(0);
 /// Calls `CoInitializeEx` on creation and `CoUninitialize` on drop.
 /// Safe to use when COM may or may not already be initialized — the
 /// COM library uses reference counting internally.
-struct ComInit;
+struct ComInit {
+    initialized: bool,
+}
 
 impl ComInit {
     //
     // new
     //
-    fn new() -> Self {
+    fn new() -> Result<Self, String> {
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map(|()| Self { initialized: true })
+                .map_err(|e| format!("CoInitializeEx(COINIT_APARTMENTTHREADED) failed: {e}"))
         }
-        ComInit
     }
 }
 
 impl Drop for ComInit {
     fn drop(&mut self) {
-        unsafe {
-            CoUninitialize();
+        if self.initialized {
+            unsafe {
+                CoUninitialize();
+            }
         }
+    }
+}
+
+fn ensure_sta_message_queue() {
+    unsafe {
+        let mut message = MSG::default();
+        let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
+    }
+}
+
+fn pump_sta_messages_for(duration: Duration) {
+    let deadline = Instant::now() + duration;
+
+    while Instant::now() < deadline {
+        unsafe {
+            let mut message = MSG::default();
+            while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -399,7 +435,7 @@ impl AppRegistry for WindowsAppRegistry {
 ///
 /// Returns `None` if the COM API is unavailable or fails.
 fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
-    let _com = ComInit::new();
+    let _com = ComInit::new().ok()?;
 
     let wide: Vec<u16> = OsStr::new(extension).encode_wide().chain(std::iter::once(0)).collect();
 
@@ -776,6 +812,16 @@ fn extract_executable_from_command(command: &str) -> Option<PathBuf> {
 /// (e.g. Windows Photos) cannot be launched via direct process creation —
 /// they require activation through the Windows Shell infrastructure.
 pub fn invoke_assoc_handler(extension: &str, handler_identifier: &str, file_path: &str) -> Result<(), String> {
+    let extension = extension.to_string();
+    let handler_identifier = handler_identifier.to_string();
+    let file_path = file_path.to_string();
+
+    std::thread::spawn(move || invoke_assoc_handler_in_sta(&extension, &handler_identifier, &file_path))
+        .join()
+        .map_err(|_| "STA association handler thread panicked".to_string())?
+}
+
+fn invoke_assoc_handler_in_sta(extension: &str, handler_identifier: &str, file_path: &str) -> Result<(), String> {
     use log::info;
     use windows::Win32::System::Com::IDataObject;
     use windows::Win32::UI::Shell::{IShellItem, SHCreateItemFromParsingName};
@@ -797,8 +843,10 @@ pub fn invoke_assoc_handler(extension: &str, handler_identifier: &str, file_path
         extension, handler_identifier, file_path
     );
 
-    let _com = ComInit::new();
+    let _com = ComInit::new()?;
     debug!("COM initialized for handler invocation");
+    ensure_sta_message_queue();
+    debug!("STA message queue initialized for handler invocation");
 
     let dotted_ext = if extension.starts_with('.') {
         extension.to_string()
@@ -933,6 +981,12 @@ pub fn invoke_assoc_handler(extension: &str, handler_identifier: &str, file_path
             msg
         })?;
     }
+
+    debug!(
+        "Pumping STA messages for {} ms after handler invocation",
+        HANDLER_INVOKE_MESSAGE_PUMP_MS
+    );
+    pump_sta_messages_for(Duration::from_millis(HANDLER_INVOKE_MESSAGE_PUMP_MS));
 
     debug!("Successfully opened file via IAssocHandler::Invoke(): {file_path}");
     Ok(())
