@@ -78,54 +78,17 @@
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 
 .btn-primary {
-  display: block;
   width: 100%;
-  padding: 10px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--primary-contrast, #1f262b);
-  background: var(--accent-color, #f4c430);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s;
-  text-align: center;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-dark, #d4a020);
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .btn-secondary {
-  display: block;
   width: auto;
   margin: 4px auto 0;
-  padding: 6px 16px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-color, #1f262b);
-  background: transparent;
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 4px;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-  text-align: center;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--danger-bg, rgba(220, 38, 38, 0.06));
-  border-color: var(--danger-border, rgba(220, 38, 38, 0.2));
 }
 
 .btn-small {
-  font-size: 11px;
+  min-height: 32px;
+  font-size: 12px;
   padding: 4px 12px;
 }
 

@@ -99,29 +99,6 @@
 
 .pairing-request__primary-btn,
 .pairing-request__secondary-btn {
-  border-radius: 999px;
-  padding: 0.7rem 1rem;
+  min-width: 152px;
   font-size: 0.95rem;
-  font-weight: 700;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-
-.pairing-request__secondary-btn {
-  border-color: var(--border-color, #d1d5db);
-  background: var(--bg-elevated, #fff);
-  color: var(--text-color, #1f262b);
-}
-
-.pairing-request__primary-btn {
-  background: var(--accent-color, #f4c430);
-  color: #1f262b;
-}
-
-.pairing-request__secondary-btn:hover {
-  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
-}
-
-.pairing-request__primary-btn:hover {
-  filter: brightness(0.98);
 }

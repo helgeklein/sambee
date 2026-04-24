@@ -133,52 +133,8 @@
 }
 
 .preferences__action-btn {
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 999px;
-  padding: 0.45rem 0.8rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    box-shadow 0.12s ease,
-    color 0.12s ease;
-}
-
-.preferences__action-btn:focus-visible {
-  outline: none;
-  border-color: var(--accent-dark, #d4a020);
-  box-shadow: 0 0 0 2px var(--accent-light, #f6e58d);
-}
-
-.preferences__action-btn:focus:not(:focus-visible) {
-  outline: none;
-}
-
-.preferences__action-btn:disabled {
-  cursor: wait;
-  opacity: 0.7;
-}
-
-.preferences__action-btn--secondary {
-  background: var(--btn-bg, #f3f4f6);
-  color: var(--text-color, #1f262b);
-}
-
-.preferences__action-btn--secondary:hover:not(:disabled) {
-  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
-}
-
-.preferences__action-btn--primary {
-  background: var(--accent-color, #f4c430);
-  border-color: var(--accent-dark, #d4a020);
-  color: var(--accent-contrast, #231700);
-}
-
-.preferences__action-btn--primary:hover:not(:disabled) {
-  background: var(--accent-dark, #d4a020);
-  color: #fff8e1;
+  min-width: 132px;
+  font-size: 0.8125rem;
 }
 
 /* ── Checkbox row ──────────────────────────────────────────────────────── */
@@ -260,36 +216,11 @@
 }
 
 .preferences__server-remove-btn {
-  background: var(--danger-surface, rgba(220, 38, 38, 0.08));
-  border: 1px solid var(--danger-border, rgba(220, 38, 38, 0.2));
-  cursor: pointer;
   font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--danger-text, #dc2626);
-  padding: 0.2rem 0.45rem;
+  min-height: 28px;
+  padding: 0.2rem 0.55rem;
   line-height: 1;
   flex-shrink: 0;
-  border-radius: 999px;
-}
-
-.preferences__server-remove-btn:hover {
-  background: var(--danger-surface-hover, rgba(220, 38, 38, 0.14));
-  color: #b91c1c;
-}
-
-.preferences__server-remove-btn:focus-visible {
-  outline: none;
-  border-color: var(--danger-text, #dc2626);
-  box-shadow: 0 0 0 2px var(--danger-border, #fecaca);
-}
-
-.preferences__server-remove-btn:focus:not(:focus-visible) {
-  outline: none;
-}
-
-.preferences__server-remove-btn:disabled {
-  cursor: wait;
-  opacity: 0.7;
 }
 
 .preferences__server-empty {
@@ -395,53 +326,6 @@
 }
 
 .preferences__confirm-btn {
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 999px;
-  padding: 0.45rem 0.8rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    border-color 0.12s ease,
-    box-shadow 0.12s ease;
-}
-
-.preferences__confirm-btn:focus-visible {
-  outline: none;
-  border-color: var(--accent-dark, #d4a020);
-  box-shadow: 0 0 0 2px var(--accent-light, #f6e58d);
-}
-
-.preferences__confirm-btn:focus:not(:focus-visible) {
-  outline: none;
-}
-
-.preferences__confirm-btn--ghost {
-  background: var(--btn-bg, #f3f4f6);
-  color: var(--text-color, #1f262b);
-}
-
-.preferences__confirm-btn--ghost:hover {
-  background: var(--btn-bg-hover, #e5e7eb);
-}
-
-.preferences__confirm-btn--danger {
-  background: var(--danger-surface, rgba(220, 38, 38, 0.08));
-  border-color: var(--danger-border, rgba(220, 38, 38, 0.2));
-  color: var(--danger-text, #dc2626);
-}
-
-.preferences__confirm-btn--danger:hover {
-  background: var(--danger-surface-hover, rgba(220, 38, 38, 0.14));
-}
-
-.preferences__confirm-btn--danger:focus-visible {
-  border-color: var(--danger-text, #dc2626);
-  box-shadow: 0 0 0 2px var(--danger-border, #fecaca);
-}
-
-.preferences__confirm-btn:disabled {
-  cursor: wait;
-  opacity: 0.7;
+  min-width: 124px;
+  font-size: 0.8125rem;
 }

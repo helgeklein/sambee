@@ -4,10 +4,13 @@ import { setLocale, translate } from "../../i18n";
 import { DoneEditingWindow } from "../DoneEditingWindow";
 
 const HOLD_DURATION_MS = 1500;
+const DONE_EDITING_DEFAULT_HEIGHT = 200;
+const DONE_EDITING_EXPANDED_HEIGHT = 240;
 
-const { invokeMock, listenHandlers } = vi.hoisted(() => ({
+const { invokeMock, listenHandlers, setSizeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
+  setSizeMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -23,9 +26,22 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
+vi.mock("@tauri-apps/api/dpi", () => ({
+  LogicalSize: class {
+    width: number;
+    height: number;
+
+    constructor(width: number, height: number) {
+      this.width = width;
+      this.height = height;
+    }
+  },
+}));
+
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     label: "done-editing-test",
+    setSize: setSizeMock,
   }),
 }));
 
@@ -45,6 +61,8 @@ describe("DoneEditingWindow", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     listenHandlers.clear();
+    setSizeMock.mockReset();
+    setSizeMock.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -97,6 +115,13 @@ describe("DoneEditingWindow", () => {
       expect(screen.getByText("✎ report.docx")).toBeInTheDocument();
     });
 
+    expect(setSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 340, height: DONE_EDITING_DEFAULT_HEIGHT }));
+
+    const initialDoneButton = screen.getByText(translate("doneEditing.buttons.doneClose")).closest("button");
+
+    expect(initialDoneButton).not.toBeNull();
+    expect(initialDoneButton).toHaveFocus();
+
     expect(screen.getByText(translate("doneEditing.openedIn", { appName: "LibreOffice Writer" }))).toBeInTheDocument();
 
     emitEvent("file-status", {
@@ -112,12 +137,23 @@ describe("DoneEditingWindow", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(translate("doneEditing.buttons.discardHold"))).toBeInTheDocument();
 
+    await waitFor(() => {
+      expect(setSizeMock).toHaveBeenCalledWith(expect.objectContaining({ width: 340, height: DONE_EDITING_EXPANDED_HEIGHT }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(translate("doneEditing.buttons.doneUpload"))).toBeInTheDocument();
+    });
+
     const doneButton = screen.getByText(translate("doneEditing.buttons.doneUpload")).closest("button");
 
     expect(doneButton).not.toBeNull();
 
     fireEvent.mouseDown(doneButton!);
     vi.advanceTimersByTime(16);
+
+    expect(invokeMock).not.toHaveBeenCalledWith("finish_editing", { operationId: "edit-1" });
+
     fireEvent.mouseUp(doneButton!);
 
     await waitFor(() => {

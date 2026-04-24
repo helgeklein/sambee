@@ -32,6 +32,23 @@ pub struct DownloadResult {
     pub operation_id: uuid::Uuid,
 }
 
+fn validate_download_size(remote_path: &str, expected_size: Option<u64>, actual_size: u64) -> Result<(), String> {
+    if let Some(expected_size) = expected_size {
+        if actual_size != expected_size {
+            error!(
+                "Download size mismatch for {}: expected {} byte(s), received {} byte(s)",
+                remote_path, expected_size, actual_size
+            );
+            return Err(format!(
+                "Downloaded file size mismatch for {}: expected {} byte(s), received {} byte(s)",
+                remote_path, expected_size, actual_size
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,6 +67,7 @@ pub async fn download_file(
     connection_id: &str,
     remote_path: &str,
     session_token: &str,
+    expected_size: Option<u64>,
 ) -> Result<DownloadResult, String> {
     let operation_id = uuid::Uuid::new_v4();
 
@@ -99,6 +117,11 @@ pub async fn download_file(
         format!("Failed to read download response: {e}")
     })?;
 
+    if let Err(e) = validate_download_size(remote_path, expected_size, bytes.len() as u64) {
+        let _ = fs::remove_dir_all(&op_dir);
+        return Err(e);
+    }
+
     fs::write(&local_path, &bytes).map_err(|e| {
         let _ = fs::remove_dir_all(&op_dir);
         format!("Failed to write temp file {}: {e}", local_path.display())
@@ -109,7 +132,12 @@ pub async fn download_file(
         .and_then(|m| m.modified())
         .unwrap_or_else(|_| SystemTime::now());
 
-    info!("Download complete: {} bytes → {}", bytes.len(), local_path.display());
+    info!(
+        "Download complete: {} bytes → {} (expected {:?})",
+        bytes.len(),
+        local_path.display(),
+        expected_size
+    );
 
     Ok(DownloadResult {
         local_path,
@@ -131,7 +159,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_download_bad_server() {
-        let result = download_file("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
+        let result = download_file("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token", None).await;
         assert!(result.is_err());
     }
 
@@ -147,5 +175,20 @@ mod tests {
         };
         assert!(result.local_path.to_string_lossy().contains("file-copy.txt"));
         assert!(!result.operation_id.is_nil());
+    }
+
+    #[test]
+    fn test_validate_download_size_matches_expected() {
+        let result = validate_download_size("/docs/test.txt", Some(12), 12);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_download_size_detects_mismatch() {
+        let result = validate_download_size("/docs/test.txt", Some(12), 0);
+        assert_eq!(
+            result.unwrap_err(),
+            "Downloaded file size mismatch for /docs/test.txt: expected 12 byte(s), received 0 byte(s)"
+        );
     }
 }

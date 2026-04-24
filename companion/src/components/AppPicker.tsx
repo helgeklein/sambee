@@ -19,12 +19,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { translate } from "../i18n";
 import { log } from "../lib/logger";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
 import type { NativeApp } from "../types";
-import { ModalDialog } from "./ModalDialog";
 import "../styles/app-picker.css";
 
 /** Props for the AppPicker component. */
@@ -45,12 +44,125 @@ interface AppPickerProps {
 }
 
 /** Loading states for the picker. */
-type PickerState = { kind: "loading" } | { kind: "loaded"; apps: NativeApp[] } | { kind: "error"; message: string };
+export type AppPickerViewState = { kind: "loading" } | { kind: "loaded"; apps: NativeApp[] } | { kind: "error"; message: string };
 
-const APP_PICKER_FALLBACK_WIDTH = 420;
-const APP_PICKER_MIN_HEIGHT = 220;
-const APP_PICKER_SCREEN_MARGIN = 48;
+interface AppPickerViewProps {
+  extension: string;
+  state: AppPickerViewState;
+  selectedIndex: number;
+  alwaysUse: boolean;
+  onSelectIndex: (index: number) => void;
+  onAlwaysUseChange: (value: boolean) => void;
+  onOpen: () => void;
+  onCancel: () => void;
+  onBrowse: () => void;
+  panelRef?: { current: HTMLDivElement | null };
+}
+
+const BROWSE_ITEM_ID_SUFFIX = "browse";
+
+interface AppPickerSection {
+  heading: string;
+  apps: Array<{ app: NativeApp; index: number }>;
+}
+
+const APP_PICKER_SECTION_SCROLL_MARGIN = 4;
+
+function syncScrollbarBalanceSize(listElement: HTMLDivElement): void {
+  const computedStyle = window.getComputedStyle(listElement);
+  const borderLeftWidth = Number.parseFloat(computedStyle.borderLeftWidth || "0");
+  const borderRightWidth = Number.parseFloat(computedStyle.borderRightWidth || "0");
+  const measuredScrollbarWidth = listElement.offsetWidth - listElement.clientWidth - borderLeftWidth - borderRightWidth;
+  const safeScrollbarWidth = Number.isFinite(measuredScrollbarWidth) ? Math.max(0, measuredScrollbarWidth) : 0;
+
+  listElement.style.setProperty("--app-picker-scrollbar-balance-size", `${safeScrollbarWidth}px`);
+}
+
+function ensureOptionAndSectionVisible(listElement: HTMLDivElement, itemElement: HTMLElement): void {
+  const listRect = listElement.getBoundingClientRect();
+  const itemRect = itemElement.getBoundingClientRect();
+
+  if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
+    itemElement.scrollIntoView({ block: "nearest" });
+  }
+
+  const sectionElement = itemElement.closest<HTMLElement>(".app-picker__section");
+  const headingElement = sectionElement?.querySelector<HTMLElement>(".app-picker__section-heading");
+  if (!headingElement) {
+    return;
+  }
+
+  const refreshedListRect = listElement.getBoundingClientRect();
+  const refreshedItemRect = itemElement.getBoundingClientRect();
+  const headingRect = headingElement.getBoundingClientRect();
+  const firstItemInSection = sectionElement?.querySelector<HTMLElement>(".app-picker__item");
+  const itemTopWithinViewport = refreshedItemRect.top - refreshedListRect.top;
+  const headingTopWithinViewport = headingRect.top - refreshedListRect.top;
+  const headingClearance = headingElement.offsetHeight + APP_PICKER_SECTION_SCROLL_MARGIN;
+  const isItemEnteringHiddenHeadingZone = itemTopWithinViewport < headingClearance;
+  const isFirstItemInSection = firstItemInSection === itemElement;
+  const canRevealHeadingWithoutHidingItem = headingClearance + itemElement.offsetHeight <= listElement.clientHeight;
+
+  if (headingTopWithinViewport < 0 && isFirstItemInSection && isItemEnteringHiddenHeadingZone && canRevealHeadingWithoutHidingItem) {
+    const topOffset = headingElement.offsetTop - listElement.offsetTop;
+    listElement.scrollTop = Math.max(0, topOffset - APP_PICKER_SECTION_SCROLL_MARGIN);
+  }
+}
+
+function getPagedSelectionIndex(listElement: HTMLDivElement, currentIndex: number, direction: 1 | -1): number {
+  const optionElements = Array.from(listElement.querySelectorAll<HTMLElement>(".app-picker__item"));
+  if (optionElements.length === 0) {
+    return 0;
+  }
+
+  const safeCurrentIndex = Math.min(Math.max(currentIndex, 0), optionElements.length - 1);
+  const currentOptionElement = optionElements[safeCurrentIndex];
+  const targetOffsetTop = currentOptionElement.offsetTop + direction * listElement.clientHeight;
+
+  if (direction > 0) {
+    let targetIndex = safeCurrentIndex;
+
+    for (let index = safeCurrentIndex + 1; index < optionElements.length; index += 1) {
+      if (optionElements[index].offsetTop <= targetOffsetTop) {
+        targetIndex = index;
+        continue;
+      }
+
+      break;
+    }
+
+    return targetIndex === safeCurrentIndex ? Math.min(safeCurrentIndex + 1, optionElements.length - 1) : targetIndex;
+  }
+
+  let targetIndex = safeCurrentIndex;
+
+  for (let index = safeCurrentIndex - 1; index >= 0; index -= 1) {
+    if (optionElements[index].offsetTop >= targetOffsetTop) {
+      targetIndex = index;
+      continue;
+    }
+
+    break;
+  }
+
+  return targetIndex === safeCurrentIndex ? Math.max(safeCurrentIndex - 1, 0) : targetIndex;
+}
+
+function buildAppPickerSections(apps: NativeApp[]): AppPickerSection[] {
+  const defaultApps = apps.flatMap((app, index) => (app.is_default ? [{ app, index }] : []));
+  const suggestedApps = apps.flatMap((app, index) => (app.is_default || !app.is_recommended ? [] : [{ app, index }]));
+  const moreOptionsApps = apps.flatMap((app, index) => (!app.is_default && !app.is_recommended ? [{ app, index }] : []));
+
+  return [
+    { heading: translate("appPicker.sectionDefault"), apps: defaultApps },
+    { heading: translate("appPicker.sectionSuggested"), apps: suggestedApps },
+    { heading: translate("appPicker.sectionMoreOptions"), apps: moreOptionsApps },
+  ].filter((section) => section.apps.length > 0);
+}
+
+export const APP_PICKER_FALLBACK_WIDTH = 420;
 const APP_PICKER_HEIGHT_EPSILON = 1;
+const APP_PICKER_ROUNDING_BUFFER = 1;
 
 //
 // AppPicker
@@ -63,14 +175,13 @@ const APP_PICKER_HEIGHT_EPSILON = 1;
  * Supports "Always use" persistence and a "Browse" fallback.
  */
 export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
-  const [state, setState] = useState<PickerState>({ kind: "loading" });
+  const [state, setState] = useState<AppPickerViewState>({ kind: "loading" });
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [alwaysUse, setAlwaysUse] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const lastWindowHeightRef = useRef<number | null>(null);
-  const titleId = `app-picker-title-${extension}`;
+  const lastWindowScaleFactorRef = useRef<number | null>(null);
 
   const resizeWindowToContent = useCallback(async () => {
     const panel = panelRef.current;
@@ -78,23 +189,28 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       return;
     }
 
-    const measuredHeight = Math.ceil(panel.getBoundingClientRect().height);
-    if (measuredHeight <= 0) {
+    const targetHeight = measureAppPickerHeight(panel);
+    if (targetHeight <= 0) {
       return;
     }
 
-    const maxHeight = Math.max(APP_PICKER_MIN_HEIGHT, window.screen.availHeight - APP_PICKER_SCREEN_MARGIN);
-    const targetHeight = Math.min(Math.max(measuredHeight, APP_PICKER_MIN_HEIGHT), maxHeight);
+    const appWindow = getCurrentWindow();
+    const currentScaleFactor = await appWindow.scaleFactor();
 
-    if (lastWindowHeightRef.current !== null && Math.abs(lastWindowHeightRef.current - targetHeight) < APP_PICKER_HEIGHT_EPSILON) {
+    if (
+      lastWindowHeightRef.current !== null &&
+      Math.abs(lastWindowHeightRef.current - targetHeight) < APP_PICKER_HEIGHT_EPSILON &&
+      lastWindowScaleFactorRef.current !== null &&
+      Math.abs(lastWindowScaleFactorRef.current - currentScaleFactor) < Number.EPSILON
+    ) {
       return;
     }
 
     lastWindowHeightRef.current = targetHeight;
+    lastWindowScaleFactorRef.current = currentScaleFactor;
 
     try {
-      const targetWidth = window.innerWidth > 0 ? Math.ceil(window.innerWidth) : APP_PICKER_FALLBACK_WIDTH;
-      await getCurrentWindow().setSize(new LogicalSize(targetWidth, targetHeight));
+      await appWindow.setSize(new LogicalSize(APP_PICKER_FALLBACK_WIDTH, targetHeight));
     } catch (err: unknown) {
       log.warn("Failed to resize app picker window:", err);
     }
@@ -110,16 +226,6 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       void resizeWindowToContent();
     });
   }, [resizeWindowToContent]);
-
-  // Keep the listbox focused and scroll the selected item into view
-  useEffect(() => {
-    if (selectedIndex < 0 || !listRef.current) return;
-    const item = listRef.current.children[selectedIndex] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
-    // Focus the listbox container (not individual items) so Tab
-    // navigates between the list and the other dialog controls.
-    listRef.current.focus({ preventScroll: true });
-  }, [selectedIndex]);
 
   useEffect(() => {
     scheduleWindowResize();
@@ -145,6 +251,25 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
     return () => {
       observer.disconnect();
+    };
+  }, [scheduleWindowResize]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+
+    void getCurrentWindow()
+      .onScaleChanged(() => {
+        scheduleWindowResize();
+      })
+      .then((dispose) => {
+        unlisten = dispose;
+      })
+      .catch((err: unknown) => {
+        log.warn("Failed to subscribe to app picker scale changes:", err);
+      });
+
+    return () => {
+      unlisten?.();
     };
   }, [scheduleWindowResize]);
 
@@ -247,6 +372,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
         executable: filePath,
         icon: null,
         is_default: false,
+        is_recommended: false,
       };
 
       // Add to the apps list (if not already present) and select it
@@ -264,125 +390,293 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
     }
   }, [state]);
 
-  //
-  // handleListKeyDown
-  //
-  /** Keyboard navigation within the app listbox. */
+  return (
+    <AppPickerView
+      extension={extension}
+      state={state}
+      selectedIndex={selectedIndex}
+      alwaysUse={alwaysUse}
+      onSelectIndex={setSelectedIndex}
+      onAlwaysUseChange={setAlwaysUse}
+      onOpen={() => {
+        void handleOpen();
+      }}
+      onCancel={onCancel}
+      onBrowse={() => {
+        void handleBrowse();
+      }}
+      panelRef={panelRef}
+    />
+  );
+}
+
+/**
+ * Browser-safe app picker view that renders the real dialog UI from plain props.
+ *
+ * This lets the production component keep its Tauri integration while preview
+ * routes can reuse the same markup and styles with mock data.
+ */
+export function AppPickerView({
+  extension,
+  state,
+  selectedIndex,
+  alwaysUse,
+  onSelectIndex,
+  onAlwaysUseChange,
+  onOpen,
+  onCancel,
+  onBrowse,
+  panelRef,
+}: AppPickerViewProps) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const previousSelectedIndexRef = useRef(-1);
+  const hasFocusedLoadedListRef = useRef(false);
+  const titleId = `app-picker-title-${extension}`;
+  const browseItemIndex = state.kind === "loaded" ? state.apps.length : -1;
+  const isBrowseItemSelected = state.kind === "loaded" && selectedIndex === browseItemIndex;
+  const appSections = state.kind === "loaded" ? buildAppPickerSections(state.apps) : [];
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      onCancel();
+    };
+
+    document.addEventListener("keydown", handleEscape, true);
+    return () => {
+      document.removeEventListener("keydown", handleEscape, true);
+    };
+  }, [onCancel]);
+
+  useEffect(() => {
+    if (state.kind !== "loaded" || state.apps.length === 0 || !listRef.current || hasFocusedLoadedListRef.current) {
+      return;
+    }
+
+    hasFocusedLoadedListRef.current = true;
+    const listElement = listRef.current;
+    const timer = window.setTimeout(() => {
+      listElement.focus({ preventScroll: true });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [state]);
+
+  useEffect(() => {
+    const listElement = listRef.current;
+    if (!listElement) {
+      return;
+    }
+
+    const updateScrollbarMetrics = () => {
+      syncScrollbarBalanceSize(listElement);
+    };
+
+    updateScrollbarMetrics();
+
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateScrollbarMetrics();
+    });
+
+    observer.observe(listElement);
+    return () => {
+      observer.disconnect();
+    };
+  }, [appSections.length, state.kind]);
+
+  useLayoutEffect(() => {
+    if (state.kind !== "loaded" || selectedIndex < 0 || !listRef.current) {
+      previousSelectedIndexRef.current = selectedIndex;
+      return;
+    }
+
+    const shouldAutoScroll = shouldAutoScrollRef.current || previousSelectedIndexRef.current < 0;
+    previousSelectedIndexRef.current = selectedIndex;
+    shouldAutoScrollRef.current = false;
+
+    if (!shouldAutoScroll) {
+      return;
+    }
+
+    const targetId = selectedIndex === browseItemIndex ? `app-picker-item-${BROWSE_ITEM_ID_SUFFIX}` : `app-picker-item-${selectedIndex}`;
+    const item = listRef.current.querySelector<HTMLElement>(`#${targetId}`) ?? undefined;
+    if (item) {
+      ensureOptionAndSectionVisible(listRef.current, item);
+    }
+  }, [browseItemIndex, selectedIndex, state]);
+
   const handleListKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (state.kind !== "loaded") return;
-      const count = state.apps.length;
-      if (count === 0) return;
+      if (state.kind !== "loaded") {
+        return;
+      }
+
+      const count = state.apps.length + 1;
+      if (count === 0) {
+        return;
+      }
+
+      const listElement = listRef.current;
 
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
-          setSelectedIndex((i) => Math.min(i + 1, count - 1));
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(Math.min(selectedIndex + 1, count - 1));
           break;
         case "ArrowUp":
           e.preventDefault();
-          setSelectedIndex((i) => Math.max(i - 1, 0));
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(Math.max(selectedIndex - 1, 0));
           break;
         case "Home":
           e.preventDefault();
-          setSelectedIndex(0);
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(0);
           break;
         case "End":
           e.preventDefault();
-          setSelectedIndex(count - 1);
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(count - 1);
           break;
+        case "PageDown": {
+          e.preventDefault();
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(listElement ? getPagedSelectionIndex(listElement, selectedIndex, 1) : Math.min(selectedIndex + 1, count - 1));
+          break;
+        }
+        case "PageUp": {
+          e.preventDefault();
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(listElement ? getPagedSelectionIndex(listElement, selectedIndex, -1) : Math.max(selectedIndex - 1, 0));
+          break;
+        }
         case "Enter":
         case " ":
           e.preventDefault();
-          handleOpen();
+          if (selectedIndex === state.apps.length) {
+            onBrowse();
+            return;
+          }
+
+          onOpen();
           break;
       }
     },
-    [state, handleOpen]
+    [onBrowse, onOpen, onSelectIndex, selectedIndex, state]
   );
 
   return (
-    <ModalDialog
-      onRequestClose={onCancel}
-      initialFocusRef={listRef}
-      panelRef={panelRef}
-      titleId={titleId}
-      panelClassName="app-picker"
-      includeDefaultOverlayClass={false}
-      includeDefaultPanelClass={false}
-    >
+    <div ref={panelRef} class="app-picker" role="dialog" aria-labelledby={titleId} aria-modal="true" tabIndex={-1}>
       <h2 id={titleId} class="app-picker__header">
         {translate("appPicker.title", { extension })}
       </h2>
 
-      {state.kind === "loading" && <div class="app-picker__loading">{translate("appPicker.loading")}</div>}
+      {state.kind === "loading" && <div class="app-picker__status app-picker__loading">{translate("appPicker.loading")}</div>}
 
-      {state.kind === "error" && <div class="app-picker__error">{state.message}</div>}
+      {state.kind === "error" && <div class="app-picker__status app-picker__error">{state.message}</div>}
 
       {state.kind === "loaded" && state.apps.length === 0 && (
-        <div class="app-picker__empty">{translate("appPicker.empty", { extension })}</div>
+        <div class="app-picker__status app-picker__empty">{translate("appPicker.empty", { extension })}</div>
       )}
 
       {state.kind === "loaded" && state.apps.length > 0 && (
-        <>
-          <div
-            class="app-picker__list"
-            role="listbox"
-            ref={listRef}
-            tabIndex={0}
-            aria-activedescendant={selectedIndex >= 0 ? `app-picker-item-${selectedIndex}` : undefined}
-            onKeyDown={handleListKeyDown}
-          >
-            {state.apps.map((app, index) => (
+        <div class="app-picker__content">
+          <div class="app-picker__list-frame">
+            <div
+              class="app-picker__list"
+              role="listbox"
+              ref={listRef}
+              tabIndex={0}
+              aria-activedescendant={
+                selectedIndex >= 0
+                  ? selectedIndex === browseItemIndex
+                    ? `app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`
+                    : `app-picker-item-${selectedIndex}`
+                  : undefined
+              }
+              onKeyDown={handleListKeyDown}
+            >
+              {appSections.map((section) => (
+                <div key={section.heading} class="app-picker__section" role="presentation">
+                  <div class="app-picker__section-heading" role="presentation">
+                    {section.heading}
+                  </div>
+                  {section.apps.map(({ app, index }) => (
+                    <div
+                      key={app.executable}
+                      id={`app-picker-item-${index}`}
+                      class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
+                      role="option"
+                      tabIndex={-1}
+                      aria-selected={index === selectedIndex}
+                      onClick={() => {
+                        onSelectIndex(index);
+                        listRef.current?.focus();
+                      }}
+                      onKeyDown={() => {}}
+                      onDblClick={() => {
+                        onSelectIndex(index);
+                        onOpen();
+                      }}
+                    >
+                      {app.icon ? (
+                        <img
+                          class="app-picker__icon"
+                          src={`data:image/png;base64,${app.icon}`}
+                          alt={translate("appPicker.iconAlt", { appName: app.name })}
+                        />
+                      ) : (
+                        <div class="app-picker__icon-placeholder">📄</div>
+                      )}
+                      <div class="app-picker__info">
+                        <span class="app-picker__name">{app.name}</span>
+                        <span class="app-picker__path">{app.executable}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+
               <div
-                key={app.executable}
-                id={`app-picker-item-${index}`}
-                class={`app-picker__item${index === selectedIndex ? " app-picker__item--selected" : ""}`}
+                id={`app-picker-item-${BROWSE_ITEM_ID_SUFFIX}`}
+                class={`app-picker__item app-picker__item--browse${isBrowseItemSelected ? " app-picker__item--selected" : ""}`}
                 role="option"
                 tabIndex={-1}
-                aria-selected={index === selectedIndex}
+                aria-selected={isBrowseItemSelected}
                 onClick={() => {
-                  setSelectedIndex(index);
+                  onSelectIndex(browseItemIndex);
                   listRef.current?.focus();
+                  onBrowse();
                 }}
-                // Keyboard events bubble up to the listbox container's onKeyDown.
                 onKeyDown={() => {}}
-                onDblClick={() => {
-                  setSelectedIndex(index);
-                  handleOpen();
-                }}
               >
-                {app.icon ? (
-                  <img
-                    class="app-picker__icon"
-                    src={`data:image/png;base64,${app.icon}`}
-                    alt={translate("appPicker.iconAlt", { appName: app.name })}
-                  />
-                ) : (
-                  <div class="app-picker__icon-placeholder">📄</div>
-                )}
-                <div class="app-picker__info">
-                  <span class="app-picker__name">
-                    {app.name}
-                    {app.is_default && ` ${translate("appPicker.defaultBadge")}`}
-                  </span>
-                  <span class="app-picker__path">{app.executable}</span>
+                <div class="app-picker__info app-picker__info--browse">
+                  <span class="app-picker__name">{translate("appPicker.chooseAnotherApp")}</span>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
 
           <label class="app-picker__always-use">
-            <input type="checkbox" checked={alwaysUse} onChange={(e) => setAlwaysUse((e.target as HTMLInputElement).checked)} />
+            <input type="checkbox" checked={alwaysUse} onChange={(e) => onAlwaysUseChange((e.target as HTMLInputElement).checked)} />
             {translate("appPicker.alwaysUse", { extension })}
           </label>
-        </>
+        </div>
       )}
 
       <div class="app-picker__actions">
-        <button type="button" class="app-picker__browse-btn" onClick={handleBrowse} disabled={state.kind === "loading"}>
-          {translate("appPicker.browseButton")}
-        </button>
         <div class="app-picker__btn-group">
           <button type="button" class="app-picker__btn" onClick={onCancel}>
             {translate("common.actions.cancel")}
@@ -390,15 +684,38 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
           <button
             type="button"
             class="app-picker__btn app-picker__btn--primary"
-            onClick={handleOpen}
-            disabled={state.kind !== "loaded" || selectedIndex < 0}
+            onClick={onOpen}
+            disabled={state.kind !== "loaded" || selectedIndex < 0 || isBrowseItemSelected}
           >
             {translate("common.actions.open")}
           </button>
         </div>
       </div>
-    </ModalDialog>
+    </div>
   );
+}
+
+export function measureAppPickerHeight(panel: HTMLDivElement): number {
+  const previousPanelHeight = panel.style.height;
+  const previousPanelFlex = panel.style.flex;
+
+  panel.style.height = "auto";
+  panel.style.flex = "none";
+
+  const intrinsicPanelHeight = Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel));
+
+  panel.style.height = previousPanelHeight;
+  panel.style.flex = previousPanelFlex;
+
+  return intrinsicPanelHeight + APP_PICKER_ROUNDING_BUFFER;
+}
+
+function getVerticalBorderWidth(panel: HTMLDivElement): number {
+  const styles = window.getComputedStyle(panel);
+  const borderTopWidth = Number.parseFloat(styles.borderTopWidth || "0");
+  const borderBottomWidth = Number.parseFloat(styles.borderBottomWidth || "0");
+
+  return borderTopWidth + borderBottomWidth;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

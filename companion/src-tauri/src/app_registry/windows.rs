@@ -13,20 +13,68 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use log::debug;
-use windows::core::{PCWSTR, PWSTR};
+use windows::core::{Interface, PCWSTR, PWSTR};
+use windows::Win32::Foundation::S_OK;
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC, HGDIOBJ,
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED};
-use windows::Win32::UI::Shell::{ExtractIconExW, IAssocHandler, SHAssocEnumHandlers, ASSOC_FILTER};
-use windows::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, HICON, ICONINFO};
+use windows::Win32::UI::Shell::{
+    BHID_DataObject, ExtractIconExW, IAssocHandler, IShellItem, SHAssocEnumHandlers, SHCreateItemFromParsingName, ASSOC_FILTER,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, DispatchMessageW, GetIconInfo, PeekMessageW, TranslateMessage, HICON, ICONINFO, MSG, PM_NOREMOVE, PM_REMOVE,
+};
 use winreg::enums::*;
 use winreg::RegKey;
 
 use super::{AppRegistry, NativeApp};
+
+const HANDLER_NAME_PREFIX: &str = "handler-name:";
+const PROGID_PREFIX: &str = "progid:";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HandlerIdentifier<'a> {
+    HandlerName(&'a str),
+    Progid(&'a str),
+    Executable(PathBuf),
+}
+
+fn normalize_windows_identifier(value: &str) -> String {
+    value.trim().replace('/', "\\").to_ascii_lowercase()
+}
+
+fn matches_handler_identifier(target_identifier: &HandlerIdentifier<'_>, handler_name: &str) -> bool {
+    match target_identifier {
+        HandlerIdentifier::HandlerName(name) => normalize_windows_identifier(name) == normalize_windows_identifier(handler_name),
+        HandlerIdentifier::Executable(executable) => {
+            normalize_windows_identifier(&executable.to_string_lossy()) == normalize_windows_identifier(handler_name)
+        }
+        HandlerIdentifier::Progid(_) => false,
+    }
+}
+
+fn make_handler_name_id(handler_name: &str) -> String {
+    format!("{HANDLER_NAME_PREFIX}{handler_name}")
+}
+
+fn make_progid_id(progid: &str) -> String {
+    format!("{PROGID_PREFIX}{progid}")
+}
+
+fn parse_handler_identifier(handler_identifier: &str) -> HandlerIdentifier<'_> {
+    if let Some(handler_name) = handler_identifier.strip_prefix(HANDLER_NAME_PREFIX) {
+        HandlerIdentifier::HandlerName(handler_name)
+    } else if let Some(progid) = handler_identifier.strip_prefix(PROGID_PREFIX) {
+        HandlerIdentifier::Progid(progid)
+    } else {
+        HandlerIdentifier::Executable(PathBuf::from(handler_identifier))
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -34,6 +82,10 @@ use super::{AppRegistry, NativeApp};
 
 /// Registry path prefix for user's per-extension file associations.
 const USER_FILE_EXTS_PREFIX: &str = r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts";
+
+/// Keep the STA apartment alive briefly after handler invocation so Windows can
+/// finish any message-based activation work for packaged handlers.
+const HANDLER_INVOKE_MESSAGE_PUMP_MS: u64 = 1500;
 
 /// Return all registered handlers, not just recommended ones.
 const ASSOC_FILTER_ALL: ASSOC_FILTER = ASSOC_FILTER(0);
@@ -47,25 +99,54 @@ const ASSOC_FILTER_ALL: ASSOC_FILTER = ASSOC_FILTER(0);
 /// Calls `CoInitializeEx` on creation and `CoUninitialize` on drop.
 /// Safe to use when COM may or may not already be initialized — the
 /// COM library uses reference counting internally.
-struct ComInit;
+struct ComInit {
+    initialized: bool,
+}
 
 impl ComInit {
     //
     // new
     //
-    fn new() -> Self {
+    fn new() -> Result<Self, String> {
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map(|()| Self { initialized: true })
+                .map_err(|e| format!("CoInitializeEx(COINIT_APARTMENTTHREADED) failed: {e}"))
         }
-        ComInit
     }
 }
 
 impl Drop for ComInit {
     fn drop(&mut self) {
-        unsafe {
-            CoUninitialize();
+        if self.initialized {
+            unsafe {
+                CoUninitialize();
+            }
         }
+    }
+}
+
+fn ensure_sta_message_queue() {
+    unsafe {
+        let mut message = MSG::default();
+        let _ = PeekMessageW(&mut message, None, 0, 0, PM_NOREMOVE);
+    }
+}
+
+fn pump_sta_messages_for(duration: Duration) {
+    let deadline = Instant::now() + duration;
+
+    while Instant::now() < deadline {
+        unsafe {
+            let mut message = MSG::default();
+            while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -275,7 +356,9 @@ impl WindowsAppRegistry {
                     name,
                     icon: extract_icon_from_resource(&executable, 0),
                     executable,
+                    handler_id: Some(make_progid_id(progid)),
                     is_default,
+                    is_recommended: false,
                 });
             }
         }
@@ -354,7 +437,7 @@ impl AppRegistry for WindowsAppRegistry {
 ///
 /// Returns `None` if the COM API is unavailable or fails.
 fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
-    let _com = ComInit::new();
+    let _com = ComInit::new().ok()?;
 
     let wide: Vec<u16> = OsStr::new(extension).encode_wide().chain(std::iter::once(0)).collect();
 
@@ -397,11 +480,11 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
             }
 
             // Get the executable path
-            let exe_path = match handler.GetName() {
+            let (handler_name, exe_path) = match handler.GetName() {
                 Ok(p) => {
                     let s = pwstr_to_string(p);
                     CoTaskMemFree(Some(p.0 as *const std::ffi::c_void));
-                    PathBuf::from(s)
+                    (s.clone(), PathBuf::from(s))
                 }
                 Err(_) => continue,
             };
@@ -414,8 +497,10 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
             // Extract icon (try handler's icon location, fall back to exe)
             let icon = extract_handler_icon(&handler, &exe_path);
 
-            // IsRecommended() returns S_OK for recommended handlers
-            let is_recommended = handler.IsRecommended().is_ok();
+            // IsRecommended returns S_OK for recommended handlers and S_FALSE
+            // for valid but non-recommended handlers, so Result::is_ok() would
+            // incorrectly classify both as recommended.
+            let is_recommended = is_handler_recommended(&handler);
             let idx = apps.len();
 
             if is_recommended && first_recommended.is_none() {
@@ -427,7 +512,9 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
                 name,
                 icon,
                 executable: exe_path,
+                handler_id: Some(make_handler_name_id(&handler_name)),
                 is_default: false,
+                is_recommended,
             });
         }
     }
@@ -441,6 +528,10 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
     debug!("SHAssocEnumHandlers returned {} handler(s) for {}", apps.len(), extension);
 
     Some(apps)
+}
+
+fn is_handler_recommended(handler: &IAssocHandler) -> bool {
+    unsafe { (handler.vtable().IsRecommended)(handler.as_raw()) == S_OK }
 }
 
 //
@@ -722,30 +813,29 @@ fn extract_executable_from_command(command: &str) -> Option<PathBuf> {
 /// This is preferred over `CreateProcess` on Windows because UWP/Store apps
 /// (e.g. Windows Photos) cannot be launched via direct process creation —
 /// they require activation through the Windows Shell infrastructure.
-pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: &str) -> Result<(), String> {
+pub fn invoke_assoc_handler(extension: &str, handler_identifier: &str, file_path: &str) -> Result<(), String> {
+    let extension = extension.to_string();
+    let handler_identifier = handler_identifier.to_string();
+    let file_path = file_path.to_string();
+
+    std::thread::spawn(move || invoke_assoc_handler_in_sta(&extension, &handler_identifier, &file_path))
+        .join()
+        .map_err(|_| "STA association handler thread panicked".to_string())?
+}
+
+fn invoke_assoc_handler_in_sta(extension: &str, handler_identifier: &str, file_path: &str) -> Result<(), String> {
     use log::info;
     use windows::Win32::System::Com::IDataObject;
-    use windows::Win32::UI::Shell::{IShellItem, SHCreateItemFromParsingName};
-
-    /// BHID_DataObject (Windows 8+) — binds an `IShellItem` to `IDataObject`
-    /// via `BindToHandler`. This is the MSDN-documented way to obtain the
-    /// `IDataObject` that `IAssocHandler::Invoke()` requires.
-    ///
-    /// See: <https://learn.microsoft.com/en-us/windows/win32/shell/bhid-constants>
-    const BHID_DATA_OBJECT: windows::core::GUID = windows::core::GUID {
-        data1: 0xB8C0BD9F,
-        data2: 0xED24,
-        data3: 0x455C,
-        data4: [0x83, 0xE6, 0xD5, 0x39, 0x0C, 0x4F, 0xE8, 0xC4],
-    };
 
     info!(
-        "invoke_assoc_handler: extension={:?}, handler_exe={:?}, file={:?}",
-        extension, handler_exe_path, file_path
+        "invoke_assoc_handler: extension={:?}, handler_identifier={:?}, file={:?}",
+        extension, handler_identifier, file_path
     );
 
-    let _com = ComInit::new();
+    let _com = ComInit::new()?;
     debug!("COM initialized for handler invocation");
+    ensure_sta_message_queue();
+    debug!("STA message queue initialized for handler invocation");
 
     let dotted_ext = if extension.starts_with('.') {
         extension.to_string()
@@ -765,7 +855,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
     };
     debug!("SHAssocEnumHandlers succeeded for {dotted_ext}");
 
-    let target_exe = PathBuf::from(handler_exe_path);
+    let target_identifier = parse_handler_identifier(handler_identifier);
     let mut matched_handler: Option<IAssocHandler> = None;
     let mut handler_count: usize = 0;
 
@@ -813,8 +903,10 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
 
             debug!("Handler #{handler_count}: name={:?}, ui_name={:?}", handler_name, ui_name);
 
-            if PathBuf::from(&handler_name) == target_exe {
-                info!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
+            let is_match = matches_handler_identifier(&target_identifier, &handler_name);
+
+            if is_match {
+                debug!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
                 matched_handler = Some(handler);
                 break;
             }
@@ -822,43 +914,49 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
     }
 
     if matched_handler.is_none() {
+        if let HandlerIdentifier::Progid(progid) = &target_identifier {
+            debug!(
+                "No direct shell handler name match for {:?}; falling back to ProgID resolution",
+                progid
+            );
+            let resolved = WindowsAppRegistry::resolve_progid(progid)
+                .ok_or_else(|| format!("Could not resolve ProgID {:?} to an executable", progid))?;
+
+            return invoke_assoc_handler(extension, &resolved.0.to_string_lossy(), file_path);
+        }
+    }
+
+    if matched_handler.is_none() {
         let msg = format!(
             "No association handler found matching {:?} after checking {handler_count} handler(s) for {dotted_ext}",
-            handler_exe_path
+            handler_identifier
         );
-        log::error!("{msg}");
+        debug!("{msg}");
         return Err(msg);
     }
     let handler = matched_handler.unwrap();
 
-    // Create IDataObject from the file path for IAssocHandler::Invoke().
-    //
-    // Uses IShellItem::BindToHandler with BHID_DataObject to obtain a proper
-    // IDataObject. This is the MSDN-documented approach and works for all
-    // handler types: Win32 EXE, legacy DLL-based handlers (e.g. Windows Photo
-    // Viewer), and UWP/Store apps.
-    //
-    // Previous approach of IShellItemArray → QueryInterface<IDataObject> failed
-    // with E_NOINTERFACE (0x80004002) because those are unrelated interfaces.
-    info!("Creating IDataObject for file: {file_path}");
     let wide_file: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
-
-    unsafe {
-        let shell_item: IShellItem = SHCreateItemFromParsingName(PCWSTR(wide_file.as_ptr()), None).map_err(|e| {
+    let shell_item: IShellItem = unsafe {
+        SHCreateItemFromParsingName(PCWSTR(wide_file.as_ptr()), None).map_err(|e| {
             let msg = format!("SHCreateItemFromParsingName failed for {file_path}: {e}");
             log::error!("{msg}");
             msg
-        })?;
-        debug!("IShellItem created successfully");
+        })?
+    };
+    debug!("Shell item created successfully for handler invocation");
 
-        let data_object: IDataObject = shell_item.BindToHandler(None, &BHID_DATA_OBJECT).map_err(|e| {
-            let msg = format!("BindToHandler(BHID_DataObject) failed for {file_path}: {e}");
+    let data_object: IDataObject = unsafe {
+        shell_item.BindToHandler(None, &BHID_DataObject).map_err(|e| {
+            let msg = format!("IShellItem::BindToHandler(BHID_DataObject) failed for {file_path}: {e}");
             log::error!("{msg}");
             msg
-        })?;
-        debug!("IDataObject obtained via BindToHandler(BHID_DataObject)");
+        })?
+    };
+    debug!("Shell IDataObject created successfully");
 
-        info!("Calling IAssocHandler::Invoke()...");
+    unsafe {
+        debug!("Calling IAssocHandler::Invoke()...");
         handler.Invoke(&data_object).map_err(|e| {
             let msg = format!("IAssocHandler::Invoke failed: {e} (the target app may not support this activation method)");
             log::error!("{msg}");
@@ -866,7 +964,13 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
         })?;
     }
 
-    info!("Successfully opened file via IAssocHandler::Invoke(): {file_path}");
+    debug!(
+        "Pumping STA messages for {} ms after handler invocation",
+        HANDLER_INVOKE_MESSAGE_PUMP_MS
+    );
+    pump_sta_messages_for(Duration::from_millis(HANDLER_INVOKE_MESSAGE_PUMP_MS));
+
+    debug!("Successfully opened file via IAssocHandler::Invoke(): {file_path}");
     Ok(())
 }
 
@@ -877,6 +981,53 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_make_and_parse_handler_name_identifier() {
+        let handler_name = r"C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2501.31.0_x64__8wekyb3d8bbwe\Notepad\Notepad.exe";
+        let identifier = make_handler_name_id(handler_name);
+
+        assert_eq!(identifier, format!("{HANDLER_NAME_PREFIX}{handler_name}"));
+        assert_eq!(parse_handler_identifier(&identifier), HandlerIdentifier::HandlerName(handler_name));
+    }
+
+    #[test]
+    fn test_make_and_parse_progid_identifier() {
+        let progid = "Applications\\Notepad.exe";
+        let identifier = make_progid_id(progid);
+
+        assert_eq!(identifier, format!("{PROGID_PREFIX}{progid}"));
+        assert_eq!(parse_handler_identifier(&identifier), HandlerIdentifier::Progid(progid));
+    }
+
+    #[test]
+    fn test_parse_handler_identifier_falls_back_to_executable_path() {
+        let executable = r"C:\Windows\System32\notepad.exe";
+
+        assert_eq!(
+            parse_handler_identifier(executable),
+            HandlerIdentifier::Executable(PathBuf::from(executable))
+        );
+    }
+
+    #[test]
+    fn test_matches_handler_identifier_is_case_insensitive_for_handler_names() {
+        let identifier = parse_handler_identifier(&make_handler_name_id(
+            r"C:\Program Files\WindowsApps\Microsoft.WindowsNotepad\Notepad\Notepad.exe",
+        ));
+
+        assert!(matches_handler_identifier(
+            &identifier,
+            r"c:\program files\windowsapps\microsoft.windowsnotepad\notepad\notepad.exe"
+        ));
+    }
+
+    #[test]
+    fn test_matches_handler_identifier_normalizes_path_separators() {
+        let identifier = parse_handler_identifier(r"C:\Windows\System32\notepad.exe");
+
+        assert!(matches_handler_identifier(&identifier, "C:/Windows/System32/notepad.exe"));
+    }
 
     //
     // test_extract_executable_quoted

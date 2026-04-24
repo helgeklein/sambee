@@ -148,6 +148,23 @@
       }
     },
     {
+      "label": "Companion: Start Dev Server",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": {
+        "cwd": "${workspaceFolder}/companion"
+      },
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "development",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Companion: Type Check + Lint",
       "type": "shell",
       "command": "npx tsc --noEmit 2>&1 && echo '✓ TypeScript type check passed' && cd src-tauri && cargo clippy --lib --tests -- -D warnings 2>&1 && echo '✓ Clippy passed' && RUSTFLAGS='-A dead_code' cargo check --target x86_64-pc-windows-gnu 2>&1 && echo '✓ Windows cross-check passed' && cargo fmt --check 2>&1 && echo '✓ Rust formatting OK' && cd .. && npm run lint 2>&1 && echo '✓ Biome lint passed' && echo '' && echo '══════════════════════════════════' && echo '  All companion checks passed ✓' && echo '══════════════════════════════════'",

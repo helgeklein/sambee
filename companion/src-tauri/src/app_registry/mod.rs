@@ -26,11 +26,17 @@ pub struct NativeApp {
     /// Path to the application executable.
     pub executable: PathBuf,
 
+    /// Opaque OS-specific handler identifier used to re-select this app later.
+    pub handler_id: Option<String>,
+
     /// Optional Base64-encoded PNG icon bytes for display in the picker UI.
     pub icon: Option<String>,
 
     /// Whether this app is the OS default handler for the file type.
     pub is_default: bool,
+
+    /// Whether the OS reports this app as a recommended/suggested handler.
+    pub is_recommended: bool,
 }
 
 /// Trait for platform-specific app enumeration.

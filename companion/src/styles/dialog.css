@@ -97,56 +97,7 @@
 /* ── Dialog buttons ────────────────────────────────────────────────────── */
 
 .dialog-btn {
-  display: block;
   width: 100%;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--border-color, #d1d5db);
-  border-radius: 6px;
-  cursor: pointer;
-  text-align: center;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-
-.dialog-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.dialog-btn--primary {
-  color: var(--primary-contrast, #1f262b);
-  background: var(--accent-color, #f4c430);
-  border-color: var(--accent-color, #f4c430);
-  font-weight: 600;
-}
-
-.dialog-btn--primary:hover:not(:disabled) {
-  background: var(--accent-dark, #d4a020);
-  border-color: var(--accent-dark, #d4a020);
-}
-
-.dialog-btn--danger {
-  color: #fff;
-  background: var(--danger-color, #dc2626);
-  border-color: var(--danger-color, #dc2626);
-}
-
-.dialog-btn--danger:hover:not(:disabled) {
-  background: #b91c1c;
-  border-color: #b91c1c;
-}
-
-.dialog-btn--ghost {
-  color: var(--text-color, #1f262b);
-  background: transparent;
-  border-color: var(--border-color, #d1d5db);
-}
-
-.dialog-btn--ghost:hover:not(:disabled) {
-  background: var(--track-color, #e5e7eb);
 }
 
 /* ── Error in dialog ───────────────────────────────────────────────────── */
@@ -203,6 +154,7 @@
 
 .recovery-item-actions .dialog-btn {
   width: auto;
+  min-height: 36px;
   padding: 6px 12px;
   font-size: 12px;
 }

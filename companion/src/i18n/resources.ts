@@ -100,9 +100,13 @@ export const EN_TRANSLATIONS = {
     loading: "Loading available applications…",
     browseDialogTitle: "Browse for application",
     empty: "No registered applications found for .{{extension}} files.",
+    sectionDefault: "Default",
+    sectionSuggested: "Suggested apps",
+    sectionMoreOptions: "More options",
     defaultBadge: "(default)",
     alwaysUse: "Always use this app for .{{extension}} files",
     browseButton: "Browse for another app…",
+    chooseAnotherApp: "Choose another app",
     iconAlt: "{{appName}} icon",
   },
   preferences: {

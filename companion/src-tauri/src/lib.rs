@@ -26,6 +26,37 @@ use crate::server::pairing::PairingState;
 use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
 use crate::uri::SambeeUri;
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PendingAppPickerRequest {
+    pub extension: String,
+    pub request_id: String,
+}
+
+#[derive(Clone, Default)]
+pub struct PendingMainWindowAppPicker(pub Arc<RwLock<Option<PendingAppPickerRequest>>>);
+
+impl PendingMainWindowAppPicker {
+    pub fn set(&self, request: PendingAppPickerRequest) {
+        if let Ok(mut lock) = self.0.write() {
+            *lock = Some(request);
+        }
+    }
+
+    pub fn get(&self) -> Option<PendingAppPickerRequest> {
+        self.0.read().ok().and_then(|lock| lock.clone())
+    }
+
+    pub fn take(&self) -> Option<PendingAppPickerRequest> {
+        self.0.write().ok().and_then(|mut lock| lock.take())
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut lock) = self.0.write() {
+            *lock = None;
+        }
+    }
+}
+
 /// ID used for the system tray icon, allowing retrieval via `app.tray_by_id()`.
 const TRAY_ICON_ID: &str = "sambee-main";
 
@@ -146,8 +177,10 @@ fn handle_deep_links(app: &tauri::AppHandle, urls: Vec<url::Url>) {
                 // Kick off the full edit lifecycle asynchronously
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
+                    let notification_handle = app_handle.clone();
                     if let Err(e) = start_edit_lifecycle(app_handle, parsed).await {
                         error!("Edit lifecycle failed: {e}");
+                        let _ = notification_handle.emit("notification", serde_json::json!({ "message": e }));
                     }
                 });
             }
@@ -232,7 +265,8 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
-    let download_result = commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token)
+    let expected_download_size = file_info.as_ref().ok().and_then(|info| info.size);
+    let download_result = commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token, expected_download_size)
         .await
         .inspect_err(|_e| {
             // Release lock on download failure (best-effort)
@@ -293,6 +327,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         pending.insert(request_id.clone(), tx);
     }
 
+    if let Some(pending_picker) = app.try_state::<PendingMainWindowAppPicker>() {
+        pending_picker.set(PendingAppPickerRequest {
+            extension: file_extension.clone(),
+            request_id: request_id.clone(),
+        });
+    }
+
     // Ensure the main window exists so the app picker can be displayed
     let newly_created = ensure_main_window(
         &app,
@@ -346,10 +387,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         let _ = win.hide();
     }
 
-    let (app_executable, app_display_name) = match selection {
+    let (app_executable, app_handler_id, app_display_name) = match selection {
         Some(selected) => {
-            info!("User selected app: {} ({})", selected.name, selected.executable);
-            (selected.executable, selected.name)
+            info!(
+                "User selected app: {} ({}) handler={:?}",
+                selected.name, selected.executable, selected.handler_id
+            );
+            (selected.executable, selected.handler_id, selected.name)
         }
         None => {
             // User cancelled — release lock and clean up
@@ -365,7 +409,18 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     };
 
     info!("Step 5b: Opening file in {}...", app_display_name);
-    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable).await?;
+    if let Err(e) =
+        commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await
+    {
+        let _ = commands::upload::release_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
+        let _ = sync::recycle::recycle_file(&download_result.local_path);
+        store.remove(operation.id);
+        refresh_tray_menu(&app);
+        if let Err(sidecar_err) = sync::operations::remove_operation_sidecar(&operation) {
+            warn!("Failed to remove sidecar after open failure: {sidecar_err}");
+        }
+        return Err(e);
+    }
 
     // Update the operation with the selected app
     store.update_app(&operation.id, &app_display_name);
@@ -451,8 +506,11 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = win.set_title(title);
         let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
-        // App picker uses a borderless floating panel style
-        let _ = win.set_decorations(false);
+        let _ = win.set_resizable(false);
+        let _ = win.set_maximizable(false);
+        let _ = win.set_minimizable(false);
+        let _ = win.set_closable(true);
+        let _ = win.set_decorations(true);
         let _ = win.set_always_on_top(true);
         let _ = win.center();
         let _ = win.show();
@@ -465,9 +523,10 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
         .inner_size(width, height)
         .resizable(false)
         .maximizable(false)
+        .minimizable(false)
+        .closable(true)
         .fullscreen(false)
-        .decorations(false)
-        .shadow(true)
+        .decorations(true)
         .always_on_top(true)
         .center()
         .focused(true)
@@ -485,7 +544,10 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
 pub(crate) fn show_preferences_window(app: &tauri::AppHandle) {
     // Re-use the existing main window if it is already open
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        // Restore normal window chrome (may have been hidden for app picker)
+        let _ = win.set_resizable(false);
+        let _ = win.set_maximizable(false);
+        let _ = win.set_minimizable(true);
+        let _ = win.set_closable(true);
         let _ = win.set_decorations(true);
         let _ = win.set_always_on_top(false);
         let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -506,6 +568,8 @@ pub(crate) fn show_preferences_window(app: &tauri::AppHandle) {
         .inner_size(PREFERENCES_WIDTH, PREFERENCES_HEIGHT)
         .resizable(false)
         .maximizable(false)
+        .minimizable(true)
+        .closable(true)
         .fullscreen(false)
         .center()
         .build()
@@ -832,10 +896,12 @@ pub fn run() {
         .manage(ThemeState::default())
         .manage(PendingConfirmations::default())
         .manage(PendingAppSelections::default())
+        .manage(PendingMainWindowAppPicker::default())
         .manage(Arc::new(PairingState::new()))
         .manage(Arc::new(LocalizationState::new()))
         .invoke_handler(tauri::generate_handler![
             commands::app_picker::get_apps_for_file,
+            commands::app_picker::consume_pending_app_picker,
             commands::localization::get_synced_localization,
             commands::open_file::get_done_editing_context,
             commands::open_file::finish_editing,
@@ -905,7 +971,36 @@ pub fn run() {
             // Intercept close on companion UI windows: hide instead of quitting
             // so the tray app keeps running and windows can be reused.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == MAIN_WINDOW_LABEL || window.label() == PAIRING_WINDOW_LABEL {
+                if window.label() == MAIN_WINDOW_LABEL {
+                    api.prevent_close();
+
+                    if let Some(pending_picker) = window
+                        .app_handle()
+                        .try_state::<PendingMainWindowAppPicker>()
+                        .and_then(|state| state.get())
+                    {
+                        if let Some(pending) = window.app_handle().try_state::<PendingAppSelections>() {
+                            if pending.respond(&pending_picker.request_id, None) {
+                                info!(
+                                    "App picker close intercepted — cancelled pending request {}",
+                                    pending_picker.request_id
+                                );
+                            } else {
+                                warn!(
+                                    "App picker close intercepted but no pending selection found for {}",
+                                    pending_picker.request_id
+                                );
+                            }
+                        }
+
+                        if let Some(state) = window.app_handle().try_state::<PendingMainWindowAppPicker>() {
+                            state.clear();
+                        }
+                    }
+
+                    let _ = window.hide();
+                    info!("Companion window '{}' close intercepted — hidden to tray", window.label());
+                } else if window.label() == PAIRING_WINDOW_LABEL {
                     api.prevent_close();
                     let _ = window.hide();
                     info!("Companion window '{}' close intercepted — hidden to tray", window.label());

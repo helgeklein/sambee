@@ -1396,7 +1396,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         const themeJson = JSON.stringify({
           id: currentTheme.id,
           mode: currentTheme.mode,
-          primary: currentTheme.primary.main,
+          primary: {
+            main: currentTheme.primary.main,
+          },
         });
         const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
         logger.info("Opening file in companion app", { path: filePath }, "companion");
@@ -1431,7 +1433,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
           const themeJson = JSON.stringify({
             id: currentTheme.id,
             mode: currentTheme.mode,
-            primary: currentTheme.primary.main,
+            primary: {
+              main: currentTheme.primary.main,
+            },
           });
           const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
           logger.info("Opening file in companion app (context menu)", { path: filePath }, "companion");

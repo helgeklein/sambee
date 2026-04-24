@@ -1,0 +1,27 @@
+.preview-index-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--border-color, #d1d5db) 80%, transparent);
+  border-radius: 999px;
+  color: var(--text-primary, #1f262b);
+  background: color-mix(in srgb, var(--bg-paper, #ffffff) 92%, transparent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  backdrop-filter: blur(10px);
+}
+
+.preview-index-link:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.preview-index-link:focus-visible {
+  outline: none;
+  box-shadow:
+    var(--companion-btn-focus-ring),
+    0 6px 18px rgba(0, 0, 0, 0.08);
+}

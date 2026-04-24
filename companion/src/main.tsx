@@ -4,9 +4,11 @@ import { render } from "preact";
 import { App } from "./App";
 import { DoneEditingWindow } from "./components/DoneEditingWindow";
 import { PairingWindow } from "./components/PairingWindow";
+import { PreviewHome } from "./components/PreviewHome";
 import { applyCompanionLocalization, type CompanionLocalizationState } from "./i18n";
 import { applyFallbackTheme, applyThemeFromBase64 } from "./lib/theme";
 import { scheduleUpdateCheck } from "./lib/updateCheck";
+import { COMPANION_PREVIEWS } from "./previews";
 import "./styles/global.css";
 
 /**
@@ -23,6 +25,12 @@ import "./styles/global.css";
 // Apply a sensible default theme before the first paint.
 applyFallbackTheme();
 
+const path = window.location.pathname;
+const isBrowserPreviewRuntime = !("__TAURI_INTERNALS__" in window);
+const activePreview = COMPANION_PREVIEWS.find((preview) => preview.path === path) ?? null;
+const isPreviewHome = isBrowserPreviewRuntime && path === "/";
+const isPreviewRoute = activePreview !== null;
+
 // Block browser-style reload shortcuts so the companion behaves like a native app.
 const preventReloadShortcut = (event: KeyboardEvent) => {
   const isReloadShortcut = event.key === "F5" || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "r");
@@ -34,34 +42,40 @@ const preventReloadShortcut = (event: KeyboardEvent) => {
   event.stopPropagation();
 };
 
-window.addEventListener("keydown", preventReloadShortcut, true);
+if (!isBrowserPreviewRuntime) {
+  window.addEventListener("keydown", preventReloadShortcut, true);
+}
 
-// Listen for theme updates from the Rust backend (deep-link URI payload).
-listen<string>("apply-theme", (event) => {
-  applyThemeFromBase64(event.payload);
-});
-
-listen<CompanionLocalizationState>("localization-updated", (event) => {
-  void applyCompanionLocalization(event.payload);
-});
-
-void invoke<CompanionLocalizationState | null>("get_synced_localization")
-  .then((state) => {
-    if (!state) {
-      return;
-    }
-
-    return applyCompanionLocalization(state);
-  })
-  .catch(() => {
-    // Ignore hydration failures; the companion falls back to local defaults.
+if (!isBrowserPreviewRuntime) {
+  listen<string>("apply-theme", (event) => {
+    applyThemeFromBase64(event.payload);
   });
+
+  listen<CompanionLocalizationState>("localization-updated", (event) => {
+    void applyCompanionLocalization(event.payload);
+  });
+
+  void invoke<CompanionLocalizationState | null>("get_synced_localization")
+    .then((state) => {
+      if (!state) {
+        return;
+      }
+
+      return applyCompanionLocalization(state);
+    })
+    .catch(() => {
+      // Ignore hydration failures; the companion falls back to local defaults.
+    });
+}
 
 const root = document.getElementById("app");
 if (root) {
-  const path = window.location.pathname;
-
-  if (path === "/done-editing") {
+  if (isPreviewRoute && activePreview) {
+    const PreviewComponent = activePreview.component;
+    render(<PreviewComponent />, root);
+  } else if (isPreviewHome) {
+    render(<PreviewHome previews={COMPANION_PREVIEWS} />, root);
+  } else if (path === "/done-editing") {
     render(<DoneEditingWindow />, root);
   } else if (path === "/pairing") {
     render(<PairingWindow />, root);

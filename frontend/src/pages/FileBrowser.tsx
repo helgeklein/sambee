@@ -91,6 +91,8 @@ import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 // ============================================================================
 
 const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
+const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
+const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
@@ -935,6 +937,25 @@ const Browser: React.FC = () => {
 
     let disposed = false;
     let activeWs: WebSocket | null = null;
+    let connectTimeoutId: number | null = null;
+
+    const clearConnectTimeout = () => {
+      if (connectTimeoutId !== null) {
+        window.clearTimeout(connectTimeoutId);
+        connectTimeoutId = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (disposed || companionReconnectRef.current !== null) {
+        return;
+      }
+
+      companionReconnectRef.current = window.setTimeout(() => {
+        companionReconnectRef.current = null;
+        void connectCompanionWs();
+      }, COMPANION_WEBSOCKET_RECONNECT_DELAY_MS);
+    };
 
     const connectCompanionWs = async () => {
       if (disposed) return;
@@ -946,7 +967,26 @@ const Browser: React.FC = () => {
       const ws = new WebSocket(wsUrl);
       activeWs = ws;
 
+      const connectStartedAt = Date.now();
+      clearConnectTimeout();
+      connectTimeoutId = window.setTimeout(() => {
+        if (disposed || activeWs !== ws || ws.readyState !== WebSocket.CONNECTING) {
+          return;
+        }
+
+        logger.warn(
+          "Companion WebSocket connection attempt timed out; closing stale socket before auth expires",
+          {
+            elapsedMs: Date.now() - connectStartedAt,
+            timeoutMs: COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS,
+          },
+          "websocket"
+        );
+        ws.close();
+      }, COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS);
+
       ws.onopen = () => {
+        clearConnectTimeout();
         if (disposed) {
           ws.close();
           return;
@@ -981,6 +1021,7 @@ const Browser: React.FC = () => {
       };
 
       ws.onclose = () => {
+        clearConnectTimeout();
         if (disposed) {
           if (activeWs === ws) {
             activeWs = null;
@@ -995,18 +1036,15 @@ const Browser: React.FC = () => {
         }
         companionWsRef.current = null;
 
-        if (!disposed) {
-          companionReconnectRef.current = window.setTimeout(() => {
-            connectCompanionWs();
-          }, 5000);
-        }
+        scheduleReconnect();
       };
     };
 
-    connectCompanionWs();
+    void connectCompanionWs();
 
     return () => {
       disposed = true;
+      clearConnectTimeout();
       if (companionReconnectRef.current) {
         clearTimeout(companionReconnectRef.current);
         companionReconnectRef.current = null;

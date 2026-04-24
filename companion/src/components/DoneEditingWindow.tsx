@@ -12,58 +12,59 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import type { JSX } from "preact";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { translate } from "../i18n";
 import { useI18n } from "../i18n/useI18n";
 import type { ConflictInfo } from "./ConflictDialog";
 import { ConflictDialog } from "./ConflictDialog";
 import "../styles/done-editing.css";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Hold duration in milliseconds before action fires. */
 const HOLD_DURATION_MS = 1500;
-
-/** Hold duration in seconds for translated assistive labels. */
 const HOLD_DURATION_SECONDS = HOLD_DURATION_MS / 1000;
-
-/** Prefix returned by `finish_editing` when a conflict is detected. */
 const CONFLICT_PREFIX = "conflict:";
+const DONE_EDITING_WINDOW_WIDTH = 340;
+const DONE_EDITING_DEFAULT_HEIGHT = 200;
+const DONE_EDITING_EXPANDED_HEIGHT = 240;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Context payload received from the Rust backend via "edit-context" event. */
-interface EditContext {
+export interface DoneEditingContext {
   operation_id: string;
   filename: string;
   app_name: string;
 }
 
-/** File status sent from the Rust file polling background task. */
-type FileStatus = { kind: "unchanged" } | { kind: "modified"; modifiedAt: string };
+export type DoneEditingFileStatus = { kind: "unchanged" } | { kind: "modified"; modifiedAt: string };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────────────────────────────────────────
+export type DoneEditingButtonHandlers = Pick<
+  JSX.HTMLAttributes<HTMLButtonElement>,
+  "onMouseDown" | "onMouseUp" | "onMouseLeave" | "onKeyDown" | "onKeyUp"
+>;
 
-//
-// DoneEditingWindow
-//
-/**
- * Main component for the Done Editing secondary window.
- */
+interface DoneEditingWindowViewProps {
+  context: DoneEditingContext;
+  fileStatus: DoneEditingFileStatus;
+  processing: boolean;
+  uploadProgress: number;
+  error: string | null;
+  conflict: ConflictInfo | null;
+  holdProgress: number;
+  discardHoldProgress: number;
+  doneButtonLabel: string;
+  doneAriaLabel: string;
+  discardAriaLabel: string;
+  doneHandlers: DoneEditingButtonHandlers;
+  discardHandlers: DoneEditingButtonHandlers;
+  onConflictResolved: () => void;
+  autoFocusPrimary?: boolean;
+}
+
 export function DoneEditingWindow() {
   const { t } = useI18n();
-  const [context, setContext] = useState<EditContext | null>(null);
-  const [fileStatus, setFileStatus] = useState<FileStatus>({
-    kind: "unchanged",
-  });
+  const [context, setContext] = useState<DoneEditingContext | null>(null);
+  const [fileStatus, setFileStatus] = useState<DoneEditingFileStatus>({ kind: "unchanged" });
   const [holdProgress, setHoldProgress] = useState(0);
   const [discardHoldProgress, setDiscardHoldProgress] = useState(0);
   const [processing, setProcessing] = useState(false);
@@ -73,20 +74,18 @@ export function DoneEditingWindow() {
 
   const holdStart = useRef<number | null>(null);
   const discardHoldStart = useRef<number | null>(null);
-  const animFrame = useRef<number>(0);
-  /** Stores the action callback when hold duration is met, fires on key/mouse release. */
+  const holdAnimationFrame = useRef<number>(0);
+  const discardAnimationFrame = useRef<number>(0);
   const pendingAction = useRef<(() => void) | null>(null);
 
   const isModified = fileStatus.kind === "modified";
 
-  // ── Event listeners ──────────────────────────────────────────────────
-
   useEffect(() => {
-    const unlistenContext = listen<EditContext>("edit-context", (event) => {
+    const unlistenContext = listen<DoneEditingContext>("edit-context", (event) => {
       setContext(event.payload);
     });
 
-    const unlistenStatus = listen<FileStatus>("file-status", (event) => {
+    const unlistenStatus = listen<DoneEditingFileStatus>("file-status", (event) => {
       setFileStatus(event.payload);
     });
 
@@ -94,7 +93,7 @@ export function DoneEditingWindow() {
       setUploadProgress(event.payload.progress);
     });
 
-    void invoke<EditContext>("get_done_editing_context", {
+    void invoke<DoneEditingContext>("get_done_editing_context", {
       windowLabel: getCurrentWindow().label,
     })
       .then((payload) => {
@@ -105,154 +104,143 @@ export function DoneEditingWindow() {
       });
 
     return () => {
-      unlistenContext.then((fn) => fn());
-      unlistenStatus.then((fn) => fn());
-      unlistenUpload.then((fn) => fn());
+      void unlistenContext.then((fn) => fn());
+      void unlistenStatus.then((fn) => fn());
+      void unlistenUpload.then((fn) => fn());
     };
   }, []);
 
-  // ── Hold-to-confirm logic ────────────────────────────────────────────
-
-  //
-  // startHold
-  //
   const startHold = useCallback(
-    (setter: (v: number) => void, startRef: { current: number | null }, onComplete: () => void) => {
+    (
+      setter: (value: number) => void,
+      startRef: { current: number | null },
+      animationFrameRef: { current: number },
+      onComplete: () => void
+    ) => {
       if (processing) return;
+
       startRef.current = performance.now();
       pendingAction.current = null;
 
       const tick = () => {
         if (startRef.current === null) return;
+
         const elapsed = performance.now() - startRef.current;
         const progress = Math.min(elapsed / HOLD_DURATION_MS, 1);
         setter(progress);
 
         if (progress >= 1) {
-          // Hold duration met — wait for key/mouse release before firing
-          // to prevent the release event from leaking into the next focused window.
           startRef.current = null;
           pendingAction.current = onComplete;
-        } else {
-          animFrame.current = requestAnimationFrame(tick);
+          return;
         }
+
+        animationFrameRef.current = requestAnimationFrame(tick);
       };
+
       tick();
     },
     [processing]
   );
 
-  //
-  // cancelHold
-  //
-  const cancelHold = useCallback((setter: (v: number) => void, startRef: { current: number | null }) => {
-    startRef.current = null;
-    cancelAnimationFrame(animFrame.current);
-    pendingAction.current = null;
-    setter(0);
-  }, []);
+  const cancelHold = useCallback(
+    (setter: (value: number) => void, startRef: { current: number | null }, animationFrameRef: { current: number }) => {
+      startRef.current = null;
+      cancelAnimationFrame(animationFrameRef.current);
+      pendingAction.current = null;
+      setter(0);
+    },
+    []
+  );
 
-  //
-  // releaseHold
-  //
-  /** Fires the pending action on key/mouse release, or cancels if hold was incomplete. */
   const releaseHold = useCallback(
-    (setter: (v: number) => void, startRef: { current: number | null }) => {
+    (setter: (value: number) => void, startRef: { current: number | null }, animationFrameRef: { current: number }) => {
       if (pendingAction.current) {
         const action = pendingAction.current;
         pendingAction.current = null;
         setter(0);
         action();
-      } else {
-        cancelHold(setter, startRef);
+        return;
       }
+
+      cancelHold(setter, startRef, animationFrameRef);
     },
     [cancelHold]
   );
 
-  // ── Actions ──────────────────────────────────────────────────────────
-
-  //
-  // confirmDone
-  //
   const confirmDone = useCallback(async () => {
     if (!context) return;
+
     setProcessing(true);
     setError(null);
+
     try {
       const result = await invoke<string>("finish_editing", {
         operationId: context.operation_id,
       });
 
-      // Check if the result indicates a conflict
       if (typeof result === "string" && result.startsWith(CONFLICT_PREFIX)) {
         const conflictJson = result.slice(CONFLICT_PREFIX.length);
         try {
-          const info: ConflictInfo = JSON.parse(conflictJson);
-          setConflict(info);
+          setConflict(JSON.parse(conflictJson) as ConflictInfo);
           setProcessing(false);
         } catch {
           setError(translate("doneEditing.parseConflictError"));
           setProcessing(false);
         }
-        return;
       }
-      // Normal success — window will be closed by Rust
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      setError(String(err));
       setProcessing(false);
     }
   }, [context]);
 
-  //
-  // confirmDiscard
-  //
   const confirmDiscard = useCallback(async () => {
     if (!context) return;
+
     setProcessing(true);
     setError(null);
+
     try {
       await invoke("discard_editing", {
         operationId: context.operation_id,
       });
-    } catch (e) {
-      setError(String(e));
+    } catch (err) {
+      setError(String(err));
       setProcessing(false);
     }
   }, [context]);
 
-  // ── Event handler factories ──────────────────────────────────────────
-
-  //
-  // makeHandlers
-  //
   const makeHandlers = useCallback(
-    (setter: (v: number) => void, startRef: { current: number | null }, onComplete: () => void) => ({
-      onMouseDown: () => startHold(setter, startRef, onComplete),
-      onMouseUp: () => releaseHold(setter, startRef),
-      onMouseLeave: () => cancelHold(setter, startRef),
-      onKeyDown: (e: KeyboardEvent) => {
-        if (e.repeat) return;
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          startHold(setter, startRef, onComplete);
+    (
+      setter: (value: number) => void,
+      startRef: { current: number | null },
+      animationFrameRef: { current: number },
+      onComplete: () => void
+    ): DoneEditingButtonHandlers => ({
+      onMouseDown: () => startHold(setter, startRef, animationFrameRef, onComplete),
+      onMouseUp: () => releaseHold(setter, startRef, animationFrameRef),
+      onMouseLeave: () => cancelHold(setter, startRef, animationFrameRef),
+      onKeyDown: (event) => {
+        if (event.repeat) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          startHold(setter, startRef, animationFrameRef, onComplete);
         }
       },
-      onKeyUp: (e: KeyboardEvent) => {
-        if (e.key === "Enter" || e.key === " ") {
-          releaseHold(setter, startRef);
-        } else if (e.key === "Escape") {
-          cancelHold(setter, startRef);
+      onKeyUp: (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          releaseHold(setter, startRef, animationFrameRef);
+        } else if (event.key === "Escape") {
+          cancelHold(setter, startRef, animationFrameRef);
         }
       },
     }),
-    [startHold, cancelHold, releaseHold]
+    [cancelHold, releaseHold, startHold]
   );
 
-  const doneHandlers = makeHandlers(setHoldProgress, holdStart, confirmDone);
-  const discardHandlers = makeHandlers(setDiscardHoldProgress, discardHoldStart, confirmDiscard);
-
-  // ── Button label ─────────────────────────────────────────────────────
+  const doneHandlers = makeHandlers(setHoldProgress, holdStart, holdAnimationFrame, confirmDone);
+  const discardHandlers = makeHandlers(setDiscardHoldProgress, discardHoldStart, discardAnimationFrame, confirmDiscard);
 
   const doneButtonLabel = processing
     ? isModified
@@ -262,8 +250,6 @@ export function DoneEditingWindow() {
       ? t("doneEditing.buttons.doneUpload")
       : t("doneEditing.buttons.doneClose");
 
-  // ── Render ───────────────────────────────────────────────────────────
-
   if (!context) {
     return (
       <div class="done-editing-window done-editing-window--loading">
@@ -272,17 +258,88 @@ export function DoneEditingWindow() {
     );
   }
 
-  // Show conflict resolution dialog if a conflict was detected
+  return (
+    <DoneEditingWindowView
+      context={context}
+      fileStatus={fileStatus}
+      processing={processing}
+      uploadProgress={uploadProgress}
+      error={error}
+      conflict={conflict}
+      holdProgress={holdProgress}
+      discardHoldProgress={discardHoldProgress}
+      doneButtonLabel={doneButtonLabel}
+      doneAriaLabel={
+        isModified
+          ? t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
+          : t("doneEditing.aria.confirmClose", { seconds: HOLD_DURATION_SECONDS })
+      }
+      discardAriaLabel={t("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_SECONDS })}
+      doneHandlers={doneHandlers}
+      discardHandlers={discardHandlers}
+      autoFocusPrimary
+      onConflictResolved={() => {
+        setConflict(null);
+        setProcessing(false);
+      }}
+    />
+  );
+}
+
+export function DoneEditingWindowView({
+  context,
+  fileStatus,
+  processing,
+  uploadProgress,
+  error,
+  conflict,
+  holdProgress,
+  discardHoldProgress,
+  doneButtonLabel,
+  doneAriaLabel,
+  discardAriaLabel,
+  doneHandlers,
+  discardHandlers,
+  autoFocusPrimary = false,
+  onConflictResolved,
+}: DoneEditingWindowViewProps) {
+  const { t } = useI18n();
+  const isModified = fileStatus.kind === "modified";
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const isExpanded = isModified && !processing;
+  const lastWindowHeightRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!autoFocusPrimary || processing || conflict) {
+      return;
+    }
+
+    primaryButtonRef.current?.focus({ preventScroll: true });
+  }, [autoFocusPrimary, conflict, processing]);
+
+  useLayoutEffect(() => {
+    if (conflict) {
+      return;
+    }
+
+    const targetHeight = isExpanded ? DONE_EDITING_EXPANDED_HEIGHT : DONE_EDITING_DEFAULT_HEIGHT;
+
+    if (lastWindowHeightRef.current === targetHeight) {
+      return;
+    }
+
+    lastWindowHeightRef.current = targetHeight;
+
+    void getCurrentWindow()
+      .setSize(new LogicalSize(DONE_EDITING_WINDOW_WIDTH, targetHeight))
+      .catch((err: unknown) => {
+        console.warn("Failed to resize Done Editing window", err);
+        lastWindowHeightRef.current = null;
+      });
+  }, [conflict, isExpanded]);
+
   if (conflict) {
-    return (
-      <ConflictDialog
-        conflict={conflict}
-        onResolved={() => {
-          setConflict(null);
-          setProcessing(false);
-        }}
-      />
-    );
+    return <ConflictDialog conflict={conflict} onResolved={onConflictResolved} />;
   }
 
   return (
@@ -290,7 +347,6 @@ export function DoneEditingWindow() {
       <h2 class="done-editing-title">✎ {context.filename}</h2>
       <p class="done-editing-app">{t("doneEditing.openedIn", { appName: context.app_name })}</p>
 
-      {/* Live file change status */}
       <p class={`file-status ${isModified ? "file-status--modified" : "file-status--unchanged"}`}>
         {t("doneEditing.statusLabel")}{" "}
         {isModified && fileStatus.kind === "modified"
@@ -298,20 +354,9 @@ export function DoneEditingWindow() {
           : t("doneEditing.unchanged")}
       </p>
 
-      {/* Error display */}
       {error && <p class="done-editing-error">{error}</p>}
 
-      {/* Primary: Done Editing (always visible) */}
-      <button
-        class="btn-primary"
-        {...doneHandlers}
-        disabled={processing}
-        aria-label={
-          isModified
-            ? t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
-            : t("doneEditing.aria.confirmClose", { seconds: HOLD_DURATION_SECONDS })
-        }
-      >
+      <button ref={primaryButtonRef} class="btn-primary" {...doneHandlers} disabled={processing} aria-label={doneAriaLabel}>
         {doneButtonLabel}
       </button>
       {holdProgress > 0 && (
@@ -320,7 +365,6 @@ export function DoneEditingWindow() {
         </div>
       )}
 
-      {/* Upload progress (visible only while uploading a modified file) */}
       {processing && isModified && (
         <div
           class="upload-progress-track"
@@ -333,15 +377,9 @@ export function DoneEditingWindow() {
         </div>
       )}
 
-      {/* Secondary: Discard Changes (only visible when file is modified) */}
       {isModified && !processing && (
         <>
-          <button
-            class="btn-secondary btn-small"
-            {...discardHandlers}
-            disabled={processing}
-            aria-label={t("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_SECONDS })}
-          >
+          <button class="btn-secondary btn-small" {...discardHandlers} disabled={processing} aria-label={discardAriaLabel}>
             {t("doneEditing.buttons.discardHold")}
           </button>
           {discardHoldProgress > 0 && (

@@ -9,12 +9,29 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
 use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
+
+fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
+    let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
+        error!("Failed to launch {}: {e}", app_executable);
+        format!("Failed to launch {app_executable}: {e}")
+    })?;
+
+    debug!("Process spawned successfully for {}", app_executable);
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn should_skip_explicit_windows_launch(app_executable: &str, handler_id: Option<&str>) -> bool {
+    let normalized_executable = app_executable.replace('/', "\\").to_ascii_lowercase();
+    let has_opaque_handler = handler_id.is_some_and(|value| !value.is_empty() && value.contains(':'));
+    has_opaque_handler || normalized_executable.contains("\\windowsapps\\")
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit context (sent to the Done Editing window)
@@ -105,27 +122,28 @@ pub fn get_done_editing_context(app: AppHandle, window_label: String) -> Result<
 ///
 /// Uses `tauri_plugin_shell` `open()` API. Falls back to the system default
 /// if `app_executable` is empty.
-pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str) -> Result<(), String> {
+pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str, handler_id: Option<&str>) -> Result<(), String> {
     let path_str = local_path.to_str().ok_or_else(|| "Invalid file path encoding".to_string())?;
 
-    info!(
-        "open_in_native_app: executable={:?}, path={:?}, exists={}",
+    debug!(
+        "open_in_native_app: executable={:?}, handler_id={:?}, path={:?}, exists={}",
         app_executable,
+        handler_id,
         path_str,
         local_path.exists()
     );
 
     if app_executable.is_empty() {
         // Use system default via xdg-open / open / start
-        info!("Opening with system default: {}", local_path.display());
+        debug!("Opening with system default: {}", local_path.display());
         #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
         app.shell().open(path_str, None).map_err(|e| {
             error!("shell.open() failed for {}: {e}", local_path.display());
             format!("Failed to open file with system default: {e}")
         })?;
-        info!("shell.open() succeeded for {}", local_path.display());
+        debug!("shell.open() succeeded for {}", local_path.display());
     } else {
-        info!("Opening with {}: {}", app_executable, local_path.display());
+        debug!("Opening with {}: {}", app_executable, local_path.display());
 
         // On Windows, use IAssocHandler::Invoke() which properly handles both
         // traditional Win32 applications and UWP/Store apps (e.g. Windows
@@ -134,30 +152,62 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         #[cfg(target_os = "windows")]
         {
             let extension = local_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let preferred_handler_id = handler_id.filter(|value| !value.is_empty()).unwrap_or(app_executable);
 
-            info!("Windows: attempting IAssocHandler::Invoke() for extension={:?}", extension);
+            debug!(
+                "Windows: attempting shell handler invocation for extension={:?}, handler={:?}",
+                extension, preferred_handler_id
+            );
 
-            match crate::app_registry::windows::invoke_assoc_handler(extension, app_executable, path_str) {
+            match crate::app_registry::windows::invoke_assoc_handler(extension, preferred_handler_id, path_str) {
                 Ok(()) => {
-                    info!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
+                    debug!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
                 }
                 Err(handler_err) => {
-                    warn!("IAssocHandler invocation failed ({}), falling back to shell open", handler_err);
+                    warn!("IAssocHandler invocation failed for {:?}: {}", preferred_handler_id, handler_err);
 
-                    // Fall back to shell().open() which uses ShellExecuteEx
-                    // internally. This properly delegates to the OS default
-                    // handler and works for all handler types (EXE, DLL-based
-                    // like Windows Photo Viewer, UWP/Store apps).
-                    //
-                    // Note: this opens with the system default rather than
-                    // the user-selected app, but it's better than failing.
-                    info!("Fallback: opening {:?} via system default (shell open)", path_str);
-                    #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
-                    app.shell().open(path_str, None).map_err(|e| {
-                        error!("Fallback shell.open() also failed for {}: {e}", local_path.display());
-                        format!("Failed to open file: {e}")
-                    })?;
-                    info!("Fallback shell.open() succeeded for {}", local_path.display());
+                    if should_skip_explicit_windows_launch(app_executable, handler_id) {
+                        warn!(
+                            "Skipping direct launch fallback for Windows packaged handler {:?}; trying system shell open instead",
+                            preferred_handler_id
+                        );
+
+                        #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
+                        app.shell().open(path_str, None).map_err(|e| {
+                            error!(
+                                "Packaged-app shell.open() fallback failed for {} after handler invoke error: {e}",
+                                local_path.display()
+                            );
+                            format!("Failed to open file after packaged-app handler fallback: {e}")
+                        })?;
+
+                        warn!(
+                            "Used system shell.open() fallback for {} after packaged-handler invoke failure",
+                            local_path.display()
+                        );
+                        return Ok(());
+                    }
+
+                    match launch_explicit_app(app, app_executable, path_str) {
+                        Ok(()) => {
+                            debug!("Direct launch fallback succeeded for {}", local_path.display());
+                        }
+                        Err(launch_err) => {
+                            warn!(
+                                "Direct launch fallback failed ({}), falling back to system default shell open",
+                                launch_err
+                            );
+
+                            // Final fallback: delegate to the OS default handler.
+                            debug!("Fallback: opening {:?} via system default (shell open)", path_str);
+                            #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
+                            app.shell().open(path_str, None).map_err(|e| {
+                                error!("Fallback shell.open() also failed for {}: {e}", local_path.display());
+                                format!("Failed to open file: {e}")
+                            })?;
+                            debug!("Fallback shell.open() succeeded for {}", local_path.display());
+                        }
+                    }
                 }
             }
         }
@@ -165,11 +215,7 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         // On non-Windows platforms, spawn the application directly
         #[cfg(not(target_os = "windows"))]
         {
-            let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
-                error!("Failed to launch {}: {e}", app_executable);
-                format!("Failed to launch {app_executable}: {e}")
-            })?;
-            info!("Process spawned successfully for {}", app_executable);
+            launch_explicit_app(app, app_executable, path_str)?;
         }
     }
 
@@ -635,16 +681,27 @@ pub fn confirm_large_download(app: AppHandle, confirm_id: String, proceed: bool)
 /// When the user cancels, `executable` is an empty string, which signals
 /// cancellation to the waiting lifecycle.
 #[tauri::command]
-pub fn respond_app_selection(app: AppHandle, request_id: String, executable: String, app_name: String) -> Result<(), String> {
+pub fn respond_app_selection(
+    app: AppHandle,
+    request_id: String,
+    executable: String,
+    app_name: String,
+    handler_id: Option<String>,
+) -> Result<(), String> {
     let pending = app
         .try_state::<crate::sync::operations::PendingAppSelections>()
         .ok_or_else(|| "PendingAppSelections not available".to_string())?;
+
+    if let Some(pending_picker) = app.try_state::<crate::PendingMainWindowAppPicker>() {
+        pending_picker.clear();
+    }
 
     let selection = if executable.is_empty() {
         None
     } else {
         Some(crate::sync::operations::SelectedApp {
             executable,
+            handler_id,
             name: app_name,
         })
     };
