@@ -128,6 +128,10 @@ describe("DoneEditingWindow", () => {
     fireEvent.mouseDown(doneButton!);
     vi.advanceTimersByTime(16);
 
+    expect(invokeMock).not.toHaveBeenCalledWith("finish_editing", { operationId: "edit-1" });
+
+    fireEvent.mouseUp(doneButton!);
+
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("finish_editing", { operationId: "edit-1" });
     });

@@ -72,6 +72,7 @@ export function DoneEditingWindow() {
   const discardHoldStart = useRef<number | null>(null);
   const holdAnimationFrame = useRef<number>(0);
   const discardAnimationFrame = useRef<number>(0);
+  const pendingAction = useRef<(() => void) | null>(null);
 
   const isModified = fileStatus.kind === "modified";
 
@@ -115,6 +116,7 @@ export function DoneEditingWindow() {
       if (processing) return;
 
       startRef.current = performance.now();
+      pendingAction.current = null;
 
       const tick = () => {
         if (startRef.current === null) return;
@@ -125,8 +127,7 @@ export function DoneEditingWindow() {
 
         if (progress >= 1) {
           startRef.current = null;
-          setter(0);
-          onComplete();
+          pendingAction.current = onComplete;
           return;
         }
 
@@ -142,6 +143,7 @@ export function DoneEditingWindow() {
     (setter: (value: number) => void, startRef: { current: number | null }, animationFrameRef: { current: number }) => {
       startRef.current = null;
       cancelAnimationFrame(animationFrameRef.current);
+      pendingAction.current = null;
       setter(0);
     },
     []
@@ -149,7 +151,11 @@ export function DoneEditingWindow() {
 
   const releaseHold = useCallback(
     (setter: (value: number) => void, startRef: { current: number | null }, animationFrameRef: { current: number }) => {
-      if (startRef.current === null) {
+      if (pendingAction.current) {
+        const action = pendingAction.current;
+        pendingAction.current = null;
+        setter(0);
+        action();
         return;
       }
 
