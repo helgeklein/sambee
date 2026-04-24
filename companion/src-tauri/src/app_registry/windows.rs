@@ -23,9 +23,8 @@ use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC, HGDIOBJ,
 };
 use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_APARTMENTTHREADED};
-use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
-    ExtractIconExW, IAssocHandler, IShellFolder, SHAssocEnumHandlers, SHBindToParent, SHCreateDataObject, SHParseDisplayName, ASSOC_FILTER,
+    BHID_DataObject, ExtractIconExW, IAssocHandler, IShellItem, SHAssocEnumHandlers, SHCreateItemFromParsingName, ASSOC_FILTER,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyIcon, DispatchMessageW, GetIconInfo, PeekMessageW, TranslateMessage, HICON, ICONINFO, MSG, PM_NOREMOVE, PM_REMOVE,
@@ -148,104 +147,6 @@ fn pump_sta_messages_for(duration: Duration) {
         }
 
         std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-struct AbsolutePidl(*mut ITEMIDLIST);
-
-impl AbsolutePidl {
-    fn as_ptr(&self) -> *const ITEMIDLIST {
-        self.0 as *const ITEMIDLIST
-    }
-
-    fn as_mut_ptr(&self) -> *mut ITEMIDLIST {
-        self.0
-    }
-}
-
-impl Drop for AbsolutePidl {
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            unsafe {
-                CoTaskMemFree(Some(self.0 as *const std::ffi::c_void));
-            }
-        }
-    }
-}
-
-fn clone_parent_pidl_words(absolute_pidl: *const ITEMIDLIST, child_pidl: *const ITEMIDLIST, file_path: &str) -> Result<Vec<u16>, String> {
-    let absolute_addr = absolute_pidl as usize;
-    let child_addr = child_pidl as usize;
-    let parent_len_bytes = child_addr.checked_sub(absolute_addr).ok_or_else(|| {
-        let msg = format!("Child PIDL was not contained within the absolute PIDL for {file_path}");
-        log::error!("{msg}");
-        msg
-    })?;
-
-    if parent_len_bytes == 0 {
-        let msg = format!("Parent PIDL length was zero for {file_path}");
-        log::error!("{msg}");
-        return Err(msg);
-    }
-
-    if parent_len_bytes % std::mem::size_of::<u16>() != 0 {
-        let msg = format!("Parent PIDL length was not 2-byte aligned for {file_path}");
-        log::error!("{msg}");
-        return Err(msg);
-    }
-
-    let parent_len_words = parent_len_bytes / std::mem::size_of::<u16>();
-    let mut parent_words = vec![0u16; parent_len_words + 1];
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(absolute_pidl as *const u16, parent_words.as_mut_ptr(), parent_len_words);
-    }
-
-    Ok(parent_words)
-}
-
-fn create_shell_data_object_for_path(file_path: &str) -> Result<windows::Win32::System::Com::IDataObject, String> {
-    let wide_file: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
-    let mut absolute_pidl: *mut ITEMIDLIST = std::ptr::null_mut();
-
-    unsafe {
-        SHParseDisplayName(PCWSTR(wide_file.as_ptr()), None, &mut absolute_pidl, 0, None).map_err(|e| {
-            let msg = format!("SHParseDisplayName failed for {file_path}: {e}");
-            log::error!("{msg}");
-            msg
-        })?;
-    }
-
-    let absolute_pidl = AbsolutePidl(absolute_pidl);
-    debug!("Absolute PIDL created successfully");
-
-    let mut child_pidl: *mut ITEMIDLIST = std::ptr::null_mut();
-    let _parent_folder: IShellFolder = unsafe {
-        SHBindToParent(absolute_pidl.as_ptr(), Some(&mut child_pidl)).map_err(|e| {
-            let msg = format!("SHBindToParent failed for {file_path}: {e}");
-            log::error!("{msg}");
-            msg
-        })?
-    };
-
-    if child_pidl.is_null() {
-        let msg = format!("SHBindToParent returned a null child PIDL for {file_path}");
-        log::error!("{msg}");
-        return Err(msg);
-    }
-    debug!("Child PIDL resolved successfully");
-
-    let parent_pidl_words = clone_parent_pidl_words(absolute_pidl.as_ptr(), child_pidl as *const ITEMIDLIST, file_path)?;
-    debug!("Parent PIDL created successfully");
-
-    let child_pidls = [child_pidl as *const ITEMIDLIST];
-
-    unsafe {
-        SHCreateDataObject(Some(parent_pidl_words.as_ptr() as *const ITEMIDLIST), Some(&child_pidls), None).map_err(|e| {
-            let msg = format!("SHCreateDataObject failed for {file_path}: {e}");
-            log::error!("{msg}");
-            msg
-        })
     }
 }
 
@@ -1035,13 +936,24 @@ fn invoke_assoc_handler_in_sta(extension: &str, handler_identifier: &str, file_p
     }
     let handler = matched_handler.unwrap();
 
-    // Create the canonical shell IDataObject for this filesystem item using
-    // PIDLs and SHCreateDataObject rather than asking an IShellItem to synthesize
-    // one via BHID_DataObject. This matches the Shell's normal file-selection
-    // data-object shape more closely for association handler invocation.
-    debug!("Creating canonical shell IDataObject for file: {file_path}");
-    let data_object: IDataObject = create_shell_data_object_for_path(file_path)?;
-    debug!("Canonical shell IDataObject created successfully");
+    let wide_file: Vec<u16> = OsStr::new(file_path).encode_wide().chain(std::iter::once(0)).collect();
+    let shell_item: IShellItem = unsafe {
+        SHCreateItemFromParsingName(PCWSTR(wide_file.as_ptr()), None).map_err(|e| {
+            let msg = format!("SHCreateItemFromParsingName failed for {file_path}: {e}");
+            log::error!("{msg}");
+            msg
+        })?
+    };
+    debug!("Shell item created successfully for handler invocation");
+
+    let data_object: IDataObject = unsafe {
+        shell_item.BindToHandler(None, &BHID_DataObject).map_err(|e| {
+            let msg = format!("IShellItem::BindToHandler(BHID_DataObject) failed for {file_path}: {e}");
+            log::error!("{msg}");
+            msg
+        })?
+    };
+    debug!("Shell IDataObject created successfully");
 
     unsafe {
         debug!("Calling IAssocHandler::Invoke()...");
