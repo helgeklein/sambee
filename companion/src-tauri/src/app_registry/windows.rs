@@ -29,6 +29,34 @@ use winreg::RegKey;
 
 use super::{AppRegistry, NativeApp};
 
+const HANDLER_NAME_PREFIX: &str = "handler-name:";
+const PROGID_PREFIX: &str = "progid:";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HandlerIdentifier<'a> {
+    HandlerName(&'a str),
+    Progid(&'a str),
+    Executable(PathBuf),
+}
+
+fn make_handler_name_id(handler_name: &str) -> String {
+    format!("{HANDLER_NAME_PREFIX}{handler_name}")
+}
+
+fn make_progid_id(progid: &str) -> String {
+    format!("{PROGID_PREFIX}{progid}")
+}
+
+fn parse_handler_identifier(handler_identifier: &str) -> HandlerIdentifier<'_> {
+    if let Some(handler_name) = handler_identifier.strip_prefix(HANDLER_NAME_PREFIX) {
+        HandlerIdentifier::HandlerName(handler_name)
+    } else if let Some(progid) = handler_identifier.strip_prefix(PROGID_PREFIX) {
+        HandlerIdentifier::Progid(progid)
+    } else {
+        HandlerIdentifier::Executable(PathBuf::from(handler_identifier))
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,6 +304,7 @@ impl WindowsAppRegistry {
                     name,
                     icon: extract_icon_from_resource(&executable, 0),
                     executable,
+                    handler_id: Some(make_progid_id(progid)),
                     is_default,
                     is_recommended: false,
                 });
@@ -399,11 +428,11 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
             }
 
             // Get the executable path
-            let exe_path = match handler.GetName() {
+            let (handler_name, exe_path) = match handler.GetName() {
                 Ok(p) => {
                     let s = pwstr_to_string(p);
                     CoTaskMemFree(Some(p.0 as *const std::ffi::c_void));
-                    PathBuf::from(s)
+                    (s.clone(), PathBuf::from(s))
                 }
                 Err(_) => continue,
             };
@@ -431,6 +460,7 @@ fn enumerate_assoc_handlers(extension: &str) -> Option<Vec<NativeApp>> {
                 name,
                 icon,
                 executable: exe_path,
+                handler_id: Some(make_handler_name_id(&handler_name)),
                 is_default: false,
                 is_recommended,
             });
@@ -731,7 +761,7 @@ fn extract_executable_from_command(command: &str) -> Option<PathBuf> {
 /// This is preferred over `CreateProcess` on Windows because UWP/Store apps
 /// (e.g. Windows Photos) cannot be launched via direct process creation —
 /// they require activation through the Windows Shell infrastructure.
-pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: &str) -> Result<(), String> {
+pub fn invoke_assoc_handler(extension: &str, handler_identifier: &str, file_path: &str) -> Result<(), String> {
     use log::info;
     use windows::Win32::System::Com::IDataObject;
     use windows::Win32::UI::Shell::{IShellItem, SHCreateItemFromParsingName};
@@ -749,8 +779,8 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
     };
 
     info!(
-        "invoke_assoc_handler: extension={:?}, handler_exe={:?}, file={:?}",
-        extension, handler_exe_path, file_path
+        "invoke_assoc_handler: extension={:?}, handler_identifier={:?}, file={:?}",
+        extension, handler_identifier, file_path
     );
 
     let _com = ComInit::new();
@@ -774,7 +804,7 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
     };
     debug!("SHAssocEnumHandlers succeeded for {dotted_ext}");
 
-    let target_exe = PathBuf::from(handler_exe_path);
+    let target_identifier = parse_handler_identifier(handler_identifier);
     let mut matched_handler: Option<IAssocHandler> = None;
     let mut handler_count: usize = 0;
 
@@ -822,7 +852,13 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
 
             debug!("Handler #{handler_count}: name={:?}, ui_name={:?}", handler_name, ui_name);
 
-            if PathBuf::from(&handler_name) == target_exe {
+            let is_match = match &target_identifier {
+                HandlerIdentifier::HandlerName(name) => *name == handler_name,
+                HandlerIdentifier::Executable(executable) => PathBuf::from(&handler_name) == *executable,
+                HandlerIdentifier::Progid(_) => false,
+            };
+
+            if is_match {
                 debug!("Matched handler #{handler_count}: {:?} ({})", handler_name, ui_name);
                 matched_handler = Some(handler);
                 break;
@@ -831,9 +867,22 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
     }
 
     if matched_handler.is_none() {
+        if let HandlerIdentifier::Progid(progid) = &target_identifier {
+            debug!(
+                "No direct shell handler name match for {:?}; falling back to ProgID resolution",
+                progid
+            );
+            let resolved = WindowsAppRegistry::resolve_progid(progid)
+                .ok_or_else(|| format!("Could not resolve ProgID {:?} to an executable", progid))?;
+
+            return invoke_assoc_handler(extension, &resolved.0.to_string_lossy(), file_path);
+        }
+    }
+
+    if matched_handler.is_none() {
         let msg = format!(
             "No association handler found matching {:?} after checking {handler_count} handler(s) for {dotted_ext}",
-            handler_exe_path
+            handler_identifier
         );
         debug!("{msg}");
         return Err(msg);
@@ -886,6 +935,34 @@ pub fn invoke_assoc_handler(extension: &str, handler_exe_path: &str, file_path: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_make_and_parse_handler_name_identifier() {
+        let handler_name = r"C:\Program Files\WindowsApps\Microsoft.WindowsNotepad_11.2501.31.0_x64__8wekyb3d8bbwe\Notepad\Notepad.exe";
+        let identifier = make_handler_name_id(handler_name);
+
+        assert_eq!(identifier, format!("{HANDLER_NAME_PREFIX}{handler_name}"));
+        assert_eq!(parse_handler_identifier(&identifier), HandlerIdentifier::HandlerName(handler_name));
+    }
+
+    #[test]
+    fn test_make_and_parse_progid_identifier() {
+        let progid = "Applications\\Notepad.exe";
+        let identifier = make_progid_id(progid);
+
+        assert_eq!(identifier, format!("{PROGID_PREFIX}{progid}"));
+        assert_eq!(parse_handler_identifier(&identifier), HandlerIdentifier::Progid(progid));
+    }
+
+    #[test]
+    fn test_parse_handler_identifier_falls_back_to_executable_path() {
+        let executable = r"C:\Windows\System32\notepad.exe";
+
+        assert_eq!(
+            parse_handler_identifier(executable),
+            HandlerIdentifier::Executable(PathBuf::from(executable))
+        );
+    }
 
     //
     // test_extract_executable_quoted

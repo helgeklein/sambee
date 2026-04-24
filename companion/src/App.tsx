@@ -116,6 +116,7 @@ export function App() {
           requestId: view.requestId,
           executable: app.executable,
           appName: app.name,
+          handlerId: app.handler_id ?? null,
         });
       } catch (err) {
         log.error("Failed to send app selection:", err);

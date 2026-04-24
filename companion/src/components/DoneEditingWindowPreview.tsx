@@ -8,6 +8,8 @@ import {
   DoneEditingWindowView,
 } from "./DoneEditingWindow";
 
+const PREVIEW_TITLEBAR_HEIGHT = 38;
+
 type PreviewFileState = "unchanged" | "modified";
 type PreviewWindowState = "idle" | "processing" | "error";
 
@@ -80,6 +82,18 @@ export function DoneEditingWindowPreview() {
       ]}
     >
       <div class="dialog-preview__inline-window dialog-preview__inline-window--done-editing">
+        <div class="dialog-preview__titlebar" aria-hidden="true">
+          <div class="dialog-preview__titlebar-label">Sambee Companion — Editing</div>
+          <div class="dialog-preview__titlebar-controls">
+            <button type="button" class="dialog-preview__titlebar-btn dialog-preview__titlebar-btn--disabled" tabIndex={-1}>
+              <span class="dialog-preview__titlebar-icon dialog-preview__titlebar-icon--minimize" />
+            </button>
+            <button type="button" class="dialog-preview__titlebar-btn dialog-preview__titlebar-btn--disabled" tabIndex={-1}>
+              <span class="dialog-preview__titlebar-icon dialog-preview__titlebar-icon--close" />
+            </button>
+          </div>
+        </div>
+        <div class="dialog-preview__window-meta">340 x {260 + PREVIEW_TITLEBAR_HEIGHT}</div>
         <DoneEditingWindowView
           context={PREVIEW_CONTEXT}
           fileStatus={fileStatus}
@@ -98,6 +112,7 @@ export function DoneEditingWindowPreview() {
           discardAriaLabel={translate("doneEditing.aria.discardChanges", { seconds: 1.5 })}
           doneHandlers={NOOP_BUTTON_HANDLERS}
           discardHandlers={NOOP_BUTTON_HANDLERS}
+          autoFocusPrimary
           onConflictResolved={() => {}}
         />
       </div>

@@ -17,6 +17,9 @@ export interface NativeApp {
   /** Path to the application executable. */
   executable: string;
 
+  /** Optional OS-specific handler identifier used to re-select this app later. */
+  handler_id?: string | null;
+
   /** Optional Base64-encoded PNG icon for display in the picker UI. */
   icon: string | null;
 

@@ -115,12 +115,13 @@ pub fn get_done_editing_context(app: AppHandle, window_label: String) -> Result<
 ///
 /// Uses `tauri_plugin_shell` `open()` API. Falls back to the system default
 /// if `app_executable` is empty.
-pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str) -> Result<(), String> {
+pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executable: &str, handler_id: Option<&str>) -> Result<(), String> {
     let path_str = local_path.to_str().ok_or_else(|| "Invalid file path encoding".to_string())?;
 
     debug!(
-        "open_in_native_app: executable={:?}, path={:?}, exists={}",
+        "open_in_native_app: executable={:?}, handler_id={:?}, path={:?}, exists={}",
         app_executable,
+        handler_id,
         path_str,
         local_path.exists()
     );
@@ -144,18 +145,19 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
         #[cfg(target_os = "windows")]
         {
             let extension = local_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let preferred_handler_id = handler_id.filter(|value| !value.is_empty()).unwrap_or(app_executable);
 
-            debug!("Windows: attempting IAssocHandler::Invoke() for extension={:?}", extension);
+            debug!(
+                "Windows: attempting shell handler invocation for extension={:?}, handler={:?}",
+                extension, preferred_handler_id
+            );
 
-            match crate::app_registry::windows::invoke_assoc_handler(extension, app_executable, path_str) {
+            match crate::app_registry::windows::invoke_assoc_handler(extension, preferred_handler_id, path_str) {
                 Ok(()) => {
                     debug!("IAssocHandler::Invoke() succeeded for {}", local_path.display());
                 }
                 Err(handler_err) => {
-                    debug!(
-                        "IAssocHandler invocation failed ({}), trying direct launch of selected executable",
-                        handler_err
-                    );
+                    warn!("IAssocHandler invocation failed for {:?}: {}", preferred_handler_id, handler_err);
 
                     match launch_explicit_app(app, app_executable, path_str) {
                         Ok(()) => {
@@ -650,7 +652,13 @@ pub fn confirm_large_download(app: AppHandle, confirm_id: String, proceed: bool)
 /// When the user cancels, `executable` is an empty string, which signals
 /// cancellation to the waiting lifecycle.
 #[tauri::command]
-pub fn respond_app_selection(app: AppHandle, request_id: String, executable: String, app_name: String) -> Result<(), String> {
+pub fn respond_app_selection(
+    app: AppHandle,
+    request_id: String,
+    executable: String,
+    app_name: String,
+    handler_id: Option<String>,
+) -> Result<(), String> {
     let pending = app
         .try_state::<crate::sync::operations::PendingAppSelections>()
         .ok_or_else(|| "PendingAppSelections not available".to_string())?;
@@ -664,6 +672,7 @@ pub fn respond_app_selection(app: AppHandle, request_id: String, executable: Str
     } else {
         Some(crate::sync::operations::SelectedApp {
             executable,
+            handler_id,
             name: app_name,
         })
     };

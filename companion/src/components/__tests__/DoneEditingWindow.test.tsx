@@ -97,6 +97,11 @@ describe("DoneEditingWindow", () => {
       expect(screen.getByText("✎ report.docx")).toBeInTheDocument();
     });
 
+    const initialDoneButton = screen.getByText(translate("doneEditing.buttons.doneClose")).closest("button");
+
+    expect(initialDoneButton).not.toBeNull();
+    expect(initialDoneButton).toHaveFocus();
+
     expect(screen.getByText(translate("doneEditing.openedIn", { appName: "LibreOffice Writer" }))).toBeInTheDocument();
 
     emitEvent("file-status", {
@@ -112,13 +117,16 @@ describe("DoneEditingWindow", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(translate("doneEditing.buttons.discardHold"))).toBeInTheDocument();
 
+    await waitFor(() => {
+      expect(screen.getByText(translate("doneEditing.buttons.doneUpload"))).toBeInTheDocument();
+    });
+
     const doneButton = screen.getByText(translate("doneEditing.buttons.doneUpload")).closest("button");
 
     expect(doneButton).not.toBeNull();
 
     fireEvent.mouseDown(doneButton!);
     vi.advanceTimersByTime(16);
-    fireEvent.mouseUp(doneButton!);
 
     await waitFor(() => {
       expect(invokeMock).toHaveBeenCalledWith("finish_editing", { operationId: "edit-1" });

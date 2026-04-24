@@ -26,6 +26,9 @@ pub struct NativeApp {
     /// Path to the application executable.
     pub executable: PathBuf,
 
+    /// Opaque OS-specific handler identifier used to re-select this app later.
+    pub handler_id: Option<String>,
+
     /// Optional Base64-encoded PNG icon bytes for display in the picker UI.
     pub icon: Option<String>,
 

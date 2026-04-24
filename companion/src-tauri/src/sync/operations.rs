@@ -289,6 +289,9 @@ pub struct SelectedApp {
     /// Path to the application executable (e.g. "/usr/bin/libreoffice").
     pub executable: String,
 
+    /// Opaque OS-specific handler identifier used for Windows shell handlers.
+    pub handler_id: Option<String>,
+
     /// Human-readable display name (e.g. "LibreOffice Writer").
     pub name: String,
 }

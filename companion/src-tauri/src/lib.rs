@@ -384,10 +384,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         let _ = win.hide();
     }
 
-    let (app_executable, app_display_name) = match selection {
+    let (app_executable, app_handler_id, app_display_name) = match selection {
         Some(selected) => {
-            info!("User selected app: {} ({})", selected.name, selected.executable);
-            (selected.executable, selected.name)
+            info!(
+                "User selected app: {} ({}) handler={:?}",
+                selected.name, selected.executable, selected.handler_id
+            );
+            (selected.executable, selected.handler_id, selected.name)
         }
         None => {
             // User cancelled — release lock and clean up
@@ -403,7 +406,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     };
 
     info!("Step 5b: Opening file in {}...", app_display_name);
-    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable).await?;
+    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await?;
 
     // Update the operation with the selected app
     store.update_app(&operation.id, &app_display_name);

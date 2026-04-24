@@ -15,7 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { JSX } from "preact";
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { translate } from "../i18n";
 import { useI18n } from "../i18n/useI18n";
 import type { ConflictInfo } from "./ConflictDialog";
@@ -54,6 +54,7 @@ interface DoneEditingWindowViewProps {
   doneHandlers: DoneEditingButtonHandlers;
   discardHandlers: DoneEditingButtonHandlers;
   onConflictResolved: () => void;
+  autoFocusPrimary?: boolean;
 }
 
 export function DoneEditingWindow() {
@@ -69,8 +70,8 @@ export function DoneEditingWindow() {
 
   const holdStart = useRef<number | null>(null);
   const discardHoldStart = useRef<number | null>(null);
-  const animFrame = useRef<number>(0);
-  const pendingAction = useRef<(() => void) | null>(null);
+  const holdAnimationFrame = useRef<number>(0);
+  const discardAnimationFrame = useRef<number>(0);
 
   const isModified = fileStatus.kind === "modified";
 
@@ -105,11 +106,15 @@ export function DoneEditingWindow() {
   }, []);
 
   const startHold = useCallback(
-    (setter: (value: number) => void, startRef: { current: number | null }, onComplete: () => void) => {
+    (
+      setter: (value: number) => void,
+      startRef: { current: number | null },
+      animationFrameRef: { current: number },
+      onComplete: () => void
+    ) => {
       if (processing) return;
 
       startRef.current = performance.now();
-      pendingAction.current = null;
 
       const tick = () => {
         if (startRef.current === null) return;
@@ -120,11 +125,12 @@ export function DoneEditingWindow() {
 
         if (progress >= 1) {
           startRef.current = null;
-          pendingAction.current = onComplete;
+          setter(0);
+          onComplete();
           return;
         }
 
-        animFrame.current = requestAnimationFrame(tick);
+        animationFrameRef.current = requestAnimationFrame(tick);
       };
 
       tick();
@@ -132,24 +138,22 @@ export function DoneEditingWindow() {
     [processing]
   );
 
-  const cancelHold = useCallback((setter: (value: number) => void, startRef: { current: number | null }) => {
-    startRef.current = null;
-    cancelAnimationFrame(animFrame.current);
-    pendingAction.current = null;
-    setter(0);
-  }, []);
+  const cancelHold = useCallback(
+    (setter: (value: number) => void, startRef: { current: number | null }, animationFrameRef: { current: number }) => {
+      startRef.current = null;
+      cancelAnimationFrame(animationFrameRef.current);
+      setter(0);
+    },
+    []
+  );
 
   const releaseHold = useCallback(
-    (setter: (value: number) => void, startRef: { current: number | null }) => {
-      if (pendingAction.current) {
-        const action = pendingAction.current;
-        pendingAction.current = null;
-        setter(0);
-        action();
+    (setter: (value: number) => void, startRef: { current: number | null }, animationFrameRef: { current: number }) => {
+      if (startRef.current === null) {
         return;
       }
 
-      cancelHold(setter, startRef);
+      cancelHold(setter, startRef, animationFrameRef);
     },
     [cancelHold]
   );
@@ -198,30 +202,35 @@ export function DoneEditingWindow() {
   }, [context]);
 
   const makeHandlers = useCallback(
-    (setter: (value: number) => void, startRef: { current: number | null }, onComplete: () => void): DoneEditingButtonHandlers => ({
-      onMouseDown: () => startHold(setter, startRef, onComplete),
-      onMouseUp: () => releaseHold(setter, startRef),
-      onMouseLeave: () => cancelHold(setter, startRef),
+    (
+      setter: (value: number) => void,
+      startRef: { current: number | null },
+      animationFrameRef: { current: number },
+      onComplete: () => void
+    ): DoneEditingButtonHandlers => ({
+      onMouseDown: () => startHold(setter, startRef, animationFrameRef, onComplete),
+      onMouseUp: () => releaseHold(setter, startRef, animationFrameRef),
+      onMouseLeave: () => cancelHold(setter, startRef, animationFrameRef),
       onKeyDown: (event) => {
         if (event.repeat) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          startHold(setter, startRef, onComplete);
+          startHold(setter, startRef, animationFrameRef, onComplete);
         }
       },
       onKeyUp: (event) => {
         if (event.key === "Enter" || event.key === " ") {
-          releaseHold(setter, startRef);
+          releaseHold(setter, startRef, animationFrameRef);
         } else if (event.key === "Escape") {
-          cancelHold(setter, startRef);
+          cancelHold(setter, startRef, animationFrameRef);
         }
       },
     }),
     [cancelHold, releaseHold, startHold]
   );
 
-  const doneHandlers = makeHandlers(setHoldProgress, holdStart, confirmDone);
-  const discardHandlers = makeHandlers(setDiscardHoldProgress, discardHoldStart, confirmDiscard);
+  const doneHandlers = makeHandlers(setHoldProgress, holdStart, holdAnimationFrame, confirmDone);
+  const discardHandlers = makeHandlers(setDiscardHoldProgress, discardHoldStart, discardAnimationFrame, confirmDiscard);
 
   const doneButtonLabel = processing
     ? isModified
@@ -258,6 +267,7 @@ export function DoneEditingWindow() {
       discardAriaLabel={t("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_SECONDS })}
       doneHandlers={doneHandlers}
       discardHandlers={discardHandlers}
+      autoFocusPrimary
       onConflictResolved={() => {
         setConflict(null);
         setProcessing(false);
@@ -280,10 +290,20 @@ export function DoneEditingWindowView({
   discardAriaLabel,
   doneHandlers,
   discardHandlers,
+  autoFocusPrimary = false,
   onConflictResolved,
 }: DoneEditingWindowViewProps) {
   const { t } = useI18n();
   const isModified = fileStatus.kind === "modified";
+  const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (!autoFocusPrimary || processing || conflict) {
+      return;
+    }
+
+    primaryButtonRef.current?.focus({ preventScroll: true });
+  }, [autoFocusPrimary, conflict, processing]);
 
   if (conflict) {
     return <ConflictDialog conflict={conflict} onResolved={onConflictResolved} />;
@@ -303,7 +323,7 @@ export function DoneEditingWindowView({
 
       {error && <p class="done-editing-error">{error}</p>}
 
-      <button class="btn-primary" {...doneHandlers} disabled={processing} aria-label={doneAriaLabel}>
+      <button ref={primaryButtonRef} class="btn-primary" {...doneHandlers} disabled={processing} aria-label={doneAriaLabel}>
         {doneButtonLabel}
       </button>
       {holdProgress > 0 && (

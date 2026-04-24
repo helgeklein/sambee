@@ -337,6 +337,7 @@ impl LinuxAppRegistry {
         NativeApp {
             name: entry.name.clone(),
             executable,
+            handler_id: None,
             icon: entry.icon.clone(),
             is_default,
             is_recommended: false,
