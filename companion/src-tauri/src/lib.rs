@@ -42,6 +42,10 @@ impl PendingMainWindowAppPicker {
         }
     }
 
+    pub fn get(&self) -> Option<PendingAppPickerRequest> {
+        self.0.read().ok().and_then(|lock| lock.clone())
+    }
+
     pub fn take(&self) -> Option<PendingAppPickerRequest> {
         self.0.write().ok().and_then(|mut lock| lock.take())
     }
@@ -485,8 +489,11 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = win.set_title(title);
         let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));
-        // App picker uses a borderless floating panel style
-        let _ = win.set_decorations(false);
+        let _ = win.set_resizable(false);
+        let _ = win.set_maximizable(false);
+        let _ = win.set_minimizable(false);
+        let _ = win.set_closable(true);
+        let _ = win.set_decorations(true);
         let _ = win.set_always_on_top(true);
         let _ = win.center();
         let _ = win.show();
@@ -499,9 +506,10 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
         .inner_size(width, height)
         .resizable(false)
         .maximizable(false)
+        .minimizable(false)
+        .closable(true)
         .fullscreen(false)
-        .decorations(false)
-        .shadow(false)
+        .decorations(true)
         .always_on_top(true)
         .center()
         .focused(true)
@@ -519,7 +527,10 @@ fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f
 pub(crate) fn show_preferences_window(app: &tauri::AppHandle) {
     // Re-use the existing main window if it is already open
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        // Restore normal window chrome (may have been hidden for app picker)
+        let _ = win.set_resizable(false);
+        let _ = win.set_maximizable(false);
+        let _ = win.set_minimizable(true);
+        let _ = win.set_closable(true);
         let _ = win.set_decorations(true);
         let _ = win.set_always_on_top(false);
         let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize {
@@ -540,6 +551,8 @@ pub(crate) fn show_preferences_window(app: &tauri::AppHandle) {
         .inner_size(PREFERENCES_WIDTH, PREFERENCES_HEIGHT)
         .resizable(false)
         .maximizable(false)
+        .minimizable(true)
+        .closable(true)
         .fullscreen(false)
         .center()
         .build()
@@ -941,7 +954,36 @@ pub fn run() {
             // Intercept close on companion UI windows: hide instead of quitting
             // so the tray app keeps running and windows can be reused.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if window.label() == MAIN_WINDOW_LABEL || window.label() == PAIRING_WINDOW_LABEL {
+                if window.label() == MAIN_WINDOW_LABEL {
+                    api.prevent_close();
+
+                    if let Some(pending_picker) = window
+                        .app_handle()
+                        .try_state::<PendingMainWindowAppPicker>()
+                        .and_then(|state| state.get())
+                    {
+                        if let Some(pending) = window.app_handle().try_state::<PendingAppSelections>() {
+                            if pending.respond(&pending_picker.request_id, None) {
+                                info!(
+                                    "App picker close intercepted — cancelled pending request {}",
+                                    pending_picker.request_id
+                                );
+                            } else {
+                                warn!(
+                                    "App picker close intercepted but no pending selection found for {}",
+                                    pending_picker.request_id
+                                );
+                            }
+                        }
+
+                        if let Some(state) = window.app_handle().try_state::<PendingMainWindowAppPicker>() {
+                            state.clear();
+                        }
+                    }
+
+                    let _ = window.hide();
+                    info!("Companion window '{}' close intercepted — hidden to tray", window.label());
+                } else if window.label() == PAIRING_WINDOW_LABEL {
                     api.prevent_close();
                     let _ = window.hide();
                     info!("Companion window '{}' close intercepted — hidden to tray", window.label());

@@ -23,6 +23,7 @@
   --companion-btn-shadow-rest: none;
   --companion-btn-shadow-hover: none;
   --companion-btn-focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent-dark, #d4a020) 24%, transparent);
+  --companion-btn-primary-focus-ring: 0 0 0 1px var(--action-focus, var(--accent-dark, #d4a020));
   --companion-btn-secondary-bg: var(--action-selected, rgba(244, 196, 48, 0.16));
   --companion-btn-secondary-bg-hover: color-mix(in srgb, var(--accent-color, #f4c430) 18%, var(--bg-paper, #ffffff));
   --companion-btn-secondary-bg-focus: color-mix(in srgb, var(--accent-color, #f4c430) 20%, var(--bg-paper, #ffffff));
@@ -192,6 +193,15 @@ p {
   background: var(--accent-dark, #d4a020);
   border-color: var(--accent-dark, #d4a020);
   box-shadow: var(--companion-btn-shadow-hover);
+}
+
+.dialog-btn--primary:focus-visible,
+.app-picker__btn--primary:focus-visible,
+.preferences__action-btn--primary:focus-visible,
+.pairing-request__primary-btn:focus-visible,
+.btn-primary:focus-visible,
+.preferences__confirm-btn:not(.preferences__confirm-btn--ghost):not(.preferences__confirm-btn--danger):focus-visible {
+  box-shadow: var(--companion-btn-shadow-hover), var(--companion-btn-primary-focus-ring);
 }
 
 .dialog-btn--danger,

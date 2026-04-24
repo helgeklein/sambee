@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { translate } from "../i18n";
 import { applyTheme, getDefaultTheme } from "../lib/theme";
 import type { NativeApp } from "../types";
-import { APP_PICKER_FALLBACK_WIDTH, AppPickerView, type AppPickerViewState, measureAppPickerHeight } from "./AppPicker";
+import { APP_PICKER_FALLBACK_WIDTH, AppPickerView, type AppPickerViewState } from "./AppPicker";
+import { PreviewIndexLink } from "./PreviewIndexLink";
 import "../styles/app-picker-preview.css";
+
+const PREVIEW_TITLEBAR_HEIGHT = 38;
 
 type PreviewThemeMode = "light" | "dark";
 type PreviewStatus = "loaded" | "loading" | "empty" | "error";
@@ -162,7 +165,10 @@ export function AppPickerPreview() {
     }
 
     const updatePreviewHeight = () => {
-      setPreviewHeight(measureAppPickerHeight(panel));
+      const styles = window.getComputedStyle(panel);
+      const borderTopWidth = Number.parseFloat(styles.borderTopWidth || "0");
+      const borderBottomWidth = Number.parseFloat(styles.borderBottomWidth || "0");
+      setPreviewHeight(Math.ceil(panel.scrollHeight + borderTopWidth + borderBottomWidth));
     };
 
     updatePreviewHeight();
@@ -189,8 +195,12 @@ export function AppPickerPreview() {
       style={{
         "--app-picker-preview-width": `${APP_PICKER_FALLBACK_WIDTH}px`,
         "--app-picker-preview-height": `${previewHeight}px`,
+        "--app-picker-preview-window-height": `${previewHeight + PREVIEW_TITLEBAR_HEIGHT}px`,
       }}
     >
+      <div class="app-picker-preview__nav">
+        <PreviewIndexLink />
+      </div>
       <div class="app-picker-preview__toolbar">
         <div class="app-picker-preview__group">
           <label class="app-picker-preview__field">
@@ -223,26 +233,35 @@ export function AppPickerPreview() {
           </label>
         </div>
 
-        <div class="app-picker-preview__group">
-          <button
-            type="button"
-            class="app-picker-preview__toolbar-btn"
-            onClick={() => {
-              setApps(PREVIEW_APPS);
-              setAlwaysUse(false);
-              setSelectedIndex(0);
-              setStatus("loaded");
-            }}
-          >
-            Reset Preview
-          </button>
-        </div>
+        <button
+          type="button"
+          class="app-picker-preview__toolbar-btn"
+          onClick={() => {
+            setApps(PREVIEW_APPS);
+            setAlwaysUse(false);
+            setSelectedIndex(0);
+            setStatus("loaded");
+          }}
+        >
+          Reset Preview
+        </button>
       </div>
 
       <div class="app-picker-preview__viewport">
         <div class="app-picker-preview__window">
+          <div class="app-picker-preview__titlebar" aria-hidden="true">
+            <div class="app-picker-preview__titlebar-label">Sambee Companion — Choose Application</div>
+            <div class="app-picker-preview__titlebar-controls">
+              <button type="button" class="app-picker-preview__titlebar-btn app-picker-preview__titlebar-btn--disabled" tabIndex={-1}>
+                <span class="app-picker-preview__titlebar-icon app-picker-preview__titlebar-icon--minimize" />
+              </button>
+              <button type="button" class="app-picker-preview__titlebar-btn" tabIndex={-1}>
+                <span class="app-picker-preview__titlebar-icon app-picker-preview__titlebar-icon--close" />
+              </button>
+            </div>
+          </div>
           <div class="app-picker-preview__window-meta">
-            {APP_PICKER_FALLBACK_WIDTH} x {previewHeight}
+            {APP_PICKER_FALLBACK_WIDTH} x {previewHeight + PREVIEW_TITLEBAR_HEIGHT}
           </div>
           <AppPickerView
             extension={extension}

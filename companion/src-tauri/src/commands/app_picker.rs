@@ -21,5 +21,5 @@ pub fn get_apps_for_file(extension: String) -> Vec<NativeApp> {
 
 #[tauri::command]
 pub fn consume_pending_app_picker(pending_app_picker: tauri::State<'_, PendingMainWindowAppPicker>) -> Option<PendingAppPickerRequest> {
-    pending_app_picker.take()
+    pending_app_picker.get()
 }

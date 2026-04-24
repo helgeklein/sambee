@@ -24,7 +24,6 @@ import { translate } from "../i18n";
 import { log } from "../lib/logger";
 import { getPreferredApp, setPreferredApp } from "../stores/appPreferences";
 import type { NativeApp } from "../types";
-import { ModalDialog } from "./ModalDialog";
 import "../styles/app-picker.css";
 
 /** Props for the AppPicker component. */
@@ -73,9 +72,10 @@ function syncScrollbarBalanceSize(listElement: HTMLDivElement): void {
   const computedStyle = window.getComputedStyle(listElement);
   const borderLeftWidth = Number.parseFloat(computedStyle.borderLeftWidth || "0");
   const borderRightWidth = Number.parseFloat(computedStyle.borderRightWidth || "0");
-  const measuredScrollbarWidth = Math.max(0, listElement.offsetWidth - listElement.clientWidth - borderLeftWidth - borderRightWidth);
+  const measuredScrollbarWidth = listElement.offsetWidth - listElement.clientWidth - borderLeftWidth - borderRightWidth;
+  const safeScrollbarWidth = Number.isFinite(measuredScrollbarWidth) ? Math.max(0, measuredScrollbarWidth) : 0;
 
-  listElement.style.setProperty("--app-picker-scrollbar-balance-size", `${measuredScrollbarWidth}px`);
+  listElement.style.setProperty("--app-picker-scrollbar-balance-size", `${safeScrollbarWidth}px`);
 }
 
 function ensureOptionAndSectionVisible(listElement: HTMLDivElement, itemElement: HTMLElement): void {
@@ -109,6 +109,45 @@ function ensureOptionAndSectionVisible(listElement: HTMLDivElement, itemElement:
   }
 }
 
+function getPagedSelectionIndex(listElement: HTMLDivElement, currentIndex: number, direction: 1 | -1): number {
+  const optionElements = Array.from(listElement.querySelectorAll<HTMLElement>(".app-picker__item"));
+  if (optionElements.length === 0) {
+    return 0;
+  }
+
+  const safeCurrentIndex = Math.min(Math.max(currentIndex, 0), optionElements.length - 1);
+  const currentOptionElement = optionElements[safeCurrentIndex];
+  const targetOffsetTop = currentOptionElement.offsetTop + direction * listElement.clientHeight;
+
+  if (direction > 0) {
+    let targetIndex = safeCurrentIndex;
+
+    for (let index = safeCurrentIndex + 1; index < optionElements.length; index += 1) {
+      if (optionElements[index].offsetTop <= targetOffsetTop) {
+        targetIndex = index;
+        continue;
+      }
+
+      break;
+    }
+
+    return targetIndex === safeCurrentIndex ? Math.min(safeCurrentIndex + 1, optionElements.length - 1) : targetIndex;
+  }
+
+  let targetIndex = safeCurrentIndex;
+
+  for (let index = safeCurrentIndex - 1; index >= 0; index -= 1) {
+    if (optionElements[index].offsetTop >= targetOffsetTop) {
+      targetIndex = index;
+      continue;
+    }
+
+    break;
+  }
+
+  return targetIndex === safeCurrentIndex ? Math.max(safeCurrentIndex - 1, 0) : targetIndex;
+}
+
 function buildAppPickerSections(apps: NativeApp[]): AppPickerSection[] {
   const defaultApps = apps.flatMap((app, index) => (app.is_default ? [{ app, index }] : []));
   const suggestedApps = apps.flatMap((app, index) => (app.is_default || !app.is_recommended ? [] : [{ app, index }]));
@@ -122,8 +161,6 @@ function buildAppPickerSections(apps: NativeApp[]): AppPickerSection[] {
 }
 
 export const APP_PICKER_FALLBACK_WIDTH = 420;
-const APP_PICKER_MIN_HEIGHT = 220;
-const APP_PICKER_SCREEN_MARGIN = 48;
 const APP_PICKER_HEIGHT_EPSILON = 1;
 const APP_PICKER_ROUNDING_BUFFER = 1;
 
@@ -152,13 +189,11 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
       return;
     }
 
-    const measuredHeight = measureAppPickerHeight(panel);
-    if (measuredHeight <= 0) {
+    const targetHeight = measureAppPickerHeight(panel);
+    if (targetHeight <= 0) {
       return;
     }
 
-    const maxHeight = getAppPickerMaxHeight();
-    const targetHeight = Math.min(Math.max(measuredHeight, APP_PICKER_MIN_HEIGHT), maxHeight);
     const appWindow = getCurrentWindow();
     const currentScaleFactor = await appWindow.scaleFactor();
 
@@ -403,6 +438,22 @@ export function AppPickerView({
   const appSections = state.kind === "loaded" ? buildAppPickerSections(state.apps) : [];
 
   useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      onCancel();
+    };
+
+    document.addEventListener("keydown", handleEscape, true);
+    return () => {
+      document.removeEventListener("keydown", handleEscape, true);
+    };
+  }, [onCancel]);
+
+  useEffect(() => {
     if (state.kind !== "loaded" || state.apps.length === 0 || !listRef.current || hasFocusedLoadedListRef.current) {
       return;
     }
@@ -476,6 +527,8 @@ export function AppPickerView({
         return;
       }
 
+      const listElement = listRef.current;
+
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
@@ -497,6 +550,18 @@ export function AppPickerView({
           shouldAutoScrollRef.current = true;
           onSelectIndex(count - 1);
           break;
+        case "PageDown": {
+          e.preventDefault();
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(listElement ? getPagedSelectionIndex(listElement, selectedIndex, 1) : Math.min(selectedIndex + 1, count - 1));
+          break;
+        }
+        case "PageUp": {
+          e.preventDefault();
+          shouldAutoScrollRef.current = true;
+          onSelectIndex(listElement ? getPagedSelectionIndex(listElement, selectedIndex, -1) : Math.max(selectedIndex - 1, 0));
+          break;
+        }
         case "Enter":
         case " ":
           e.preventDefault();
@@ -513,16 +578,7 @@ export function AppPickerView({
   );
 
   return (
-    <ModalDialog
-      onRequestClose={onCancel}
-      initialFocusRef={listRef}
-      panelRef={panelRef}
-      titleId={titleId}
-      panelClassName="app-picker"
-      overlayClassName="app-picker-shell"
-      includeDefaultOverlayClass={false}
-      includeDefaultPanelClass={false}
-    >
+    <div ref={panelRef} class="app-picker" role="dialog" aria-labelledby={titleId} aria-modal="true" tabIndex={-1}>
       <h2 id={titleId} class="app-picker__header">
         {translate("appPicker.title", { extension })}
       </h2>
@@ -635,35 +691,23 @@ export function AppPickerView({
           </button>
         </div>
       </div>
-    </ModalDialog>
+    </div>
   );
 }
 
 export function measureAppPickerHeight(panel: HTMLDivElement): number {
-  const shell = panel.parentElement instanceof HTMLDivElement ? panel.parentElement : null;
-  if (!shell) {
-    return Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel)) + APP_PICKER_ROUNDING_BUFFER;
-  }
-
-  const previousShellHeight = shell.style.height;
-  const previousShellMinHeight = shell.style.minHeight;
   const previousPanelHeight = panel.style.height;
   const previousPanelFlex = panel.style.flex;
 
-  shell.style.height = "auto";
-  shell.style.minHeight = "0";
   panel.style.height = "auto";
   panel.style.flex = "none";
 
   const intrinsicPanelHeight = Math.ceil(panel.scrollHeight + getVerticalBorderWidth(panel));
-  const intrinsicShellHeight = intrinsicPanelHeight + getVerticalBorderWidth(shell);
 
-  shell.style.height = previousShellHeight;
-  shell.style.minHeight = previousShellMinHeight;
   panel.style.height = previousPanelHeight;
   panel.style.flex = previousPanelFlex;
 
-  return intrinsicShellHeight + APP_PICKER_ROUNDING_BUFFER;
+  return intrinsicPanelHeight + APP_PICKER_ROUNDING_BUFFER;
 }
 
 function getVerticalBorderWidth(panel: HTMLDivElement): number {
@@ -672,15 +716,6 @@ function getVerticalBorderWidth(panel: HTMLDivElement): number {
   const borderBottomWidth = Number.parseFloat(styles.borderBottomWidth || "0");
 
   return borderTopWidth + borderBottomWidth;
-}
-
-function getAppPickerMaxHeight(): number {
-  const availableScreenHeight = window.screen.availHeight;
-  if (availableScreenHeight > 0) {
-    return Math.max(APP_PICKER_MIN_HEIGHT, availableScreenHeight - APP_PICKER_SCREEN_MARGIN);
-  }
-
-  return Number.POSITIVE_INFINITY;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

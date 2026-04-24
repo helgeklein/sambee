@@ -41,6 +41,12 @@ interface RecoveryDialogProps {
   leftovers: LeftoverInfo[];
   /** Called when all leftovers have been handled (or dismissed). */
   onDone: () => void;
+  /** Optional override used by browser previews for upload. */
+  onUploadAction?: (operationDir: string) => Promise<void>;
+  /** Optional override used by browser previews for discard. */
+  onDiscardAction?: (operationDir: string) => Promise<void>;
+  /** Optional override used by browser previews for dismiss. */
+  onDismissAction?: (operationDir: string) => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +69,7 @@ interface ItemState {
 /**
  * Displays recovery cards for leftover operations found on startup.
  */
-export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
+export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAction, onDismissAction }: RecoveryDialogProps) {
   const [states, setStates] = useState<Record<string, ItemState>>(() => {
     const init: Record<string, ItemState> = {};
     for (const l of leftovers) {
@@ -102,7 +108,11 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
     async (operationDir: string) => {
       updateItemState(operationDir, { loading: true, error: null });
       try {
-        await invoke("recovery_upload", { operationDir });
+        if (onUploadAction) {
+          await onUploadAction(operationDir);
+        } else {
+          await invoke("recovery_upload", { operationDir });
+        }
         const updated = {
           ...states,
           [operationDir]: { loading: false, error: null, resolved: true },
@@ -113,7 +123,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
         updateItemState(operationDir, { loading: false, error: String(e) });
       }
     },
-    [states, updateItemState, checkAllResolved]
+    [checkAllResolved, onUploadAction, states, updateItemState]
   );
 
   //
@@ -123,7 +133,11 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
     async (operationDir: string) => {
       updateItemState(operationDir, { loading: true, error: null });
       try {
-        await invoke("recovery_discard", { operationDir });
+        if (onDiscardAction) {
+          await onDiscardAction(operationDir);
+        } else {
+          await invoke("recovery_discard", { operationDir });
+        }
         const updated = {
           ...states,
           [operationDir]: { loading: false, error: null, resolved: true },
@@ -134,7 +148,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
         updateItemState(operationDir, { loading: false, error: String(e) });
       }
     },
-    [states, updateItemState, checkAllResolved]
+    [checkAllResolved, onDiscardAction, states, updateItemState]
   );
 
   //
@@ -144,7 +158,11 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
     async (operationDir: string) => {
       updateItemState(operationDir, { loading: true, error: null });
       try {
-        await invoke("recovery_dismiss", { operationDir });
+        if (onDismissAction) {
+          await onDismissAction(operationDir);
+        } else {
+          await invoke("recovery_dismiss", { operationDir });
+        }
         const updated = {
           ...states,
           [operationDir]: { loading: false, error: null, resolved: true },
@@ -155,7 +173,7 @@ export function RecoveryDialog({ leftovers, onDone }: RecoveryDialogProps) {
         updateItemState(operationDir, { loading: false, error: String(e) });
       }
     },
-    [states, updateItemState, checkAllResolved]
+    [checkAllResolved, onDismissAction, states, updateItemState]
   );
 
   //

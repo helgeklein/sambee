@@ -39,6 +39,12 @@ interface ConflictDialogProps {
   conflict: ConflictInfo;
   /** Called when the dialog is resolved or cancelled. */
   onResolved: () => void;
+  /** Optional override used by browser previews for the overwrite action. */
+  onOverwriteAction?: () => Promise<void>;
+  /** Optional override used by browser previews for the save-copy action. */
+  onSaveCopyAction?: () => Promise<void>;
+  /** Optional lifecycle hook used by previews after a successful action. */
+  onActionComplete?: (action: "overwrite" | "saveCopy" | "cancel") => void;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,7 +57,7 @@ interface ConflictDialogProps {
 /**
  * Inline conflict resolution dialog.
  */
-export function ConflictDialog({ conflict, onResolved }: ConflictDialogProps) {
+export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSaveCopyAction, onActionComplete }: ConflictDialogProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,15 +68,19 @@ export function ConflictDialog({ conflict, onResolved }: ConflictDialogProps) {
     setLoading(true);
     setError(null);
     try {
-      await invoke("resolve_conflict_overwrite", {
-        operationId: conflict.operation_id,
-      });
-      // Window will be closed by the Rust command
+      if (onOverwriteAction) {
+        await onOverwriteAction();
+      } else {
+        await invoke("resolve_conflict_overwrite", {
+          operationId: conflict.operation_id,
+        });
+      }
+      onActionComplete?.("overwrite");
     } catch (e) {
       setError(String(e));
       setLoading(false);
     }
-  }, [conflict.operation_id]);
+  }, [conflict.operation_id, onActionComplete, onOverwriteAction]);
 
   //
   // handleSaveAsCopy
@@ -79,22 +89,27 @@ export function ConflictDialog({ conflict, onResolved }: ConflictDialogProps) {
     setLoading(true);
     setError(null);
     try {
-      await invoke("resolve_conflict_save_copy", {
-        operationId: conflict.operation_id,
-      });
-      // Window will be closed by the Rust command
+      if (onSaveCopyAction) {
+        await onSaveCopyAction();
+      } else {
+        await invoke("resolve_conflict_save_copy", {
+          operationId: conflict.operation_id,
+        });
+      }
+      onActionComplete?.("saveCopy");
     } catch (e) {
       setError(String(e));
       setLoading(false);
     }
-  }, [conflict.operation_id]);
+  }, [conflict.operation_id, onActionComplete, onSaveCopyAction]);
 
   //
   // handleCancel
   //
   const handleCancel = useCallback(() => {
+    onActionComplete?.("cancel");
     onResolved();
-  }, [onResolved]);
+  }, [onActionComplete, onResolved]);
 
   return (
     <div class="done-editing-window">

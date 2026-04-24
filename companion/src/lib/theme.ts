@@ -49,6 +49,7 @@ export interface CompanionTheme {
   action?: {
     hover?: string;
     selected?: string;
+    focus?: string;
   };
 }
 
@@ -76,6 +77,7 @@ const SAMBEE_LIGHT: CompanionTheme = {
   action: {
     hover: "#F4C43014",
     selected: "#F4C43029",
+    focus: "#F4C430",
   },
 };
 
@@ -99,6 +101,7 @@ const SAMBEE_DARK: CompanionTheme = {
   action: {
     hover: "#F4C43014",
     selected: "#F4C43029",
+    focus: "#F4C430",
   },
 };
 
@@ -132,6 +135,7 @@ function themeToVariables(theme: CompanionTheme): Record<string, string> {
     // Actions
     "--action-hover": theme.action?.hover ?? `${theme.primary.main}14`,
     "--action-selected": theme.action?.selected ?? `${theme.primary.main}29`,
+    "--action-focus": theme.action?.focus ?? theme.primary.main,
 
     // Semantic aliases used directly by companion CSS
     "--accent-color": theme.primary.main,

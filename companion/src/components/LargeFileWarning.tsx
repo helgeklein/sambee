@@ -38,6 +38,8 @@ interface LargeFileWarningProps {
   info: LargeFileInfo;
   /** Called after the user responds (proceed or cancel). */
   onResolved: () => void;
+  /** Optional override used by browser previews for the confirm action. */
+  onRespondAction?: (proceed: boolean) => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +52,7 @@ interface LargeFileWarningProps {
 /**
  * Blocking dialog that asks whether to proceed with a large file download.
  */
-export function LargeFileWarning({ info, onResolved }: LargeFileWarningProps) {
+export function LargeFileWarning({ info, onResolved, onRespondAction }: LargeFileWarningProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,17 +64,21 @@ export function LargeFileWarning({ info, onResolved }: LargeFileWarningProps) {
       setLoading(true);
       setError(null);
       try {
-        await invoke("confirm_large_download", {
-          confirmId: info.confirm_id,
-          proceed,
-        });
+        if (onRespondAction) {
+          await onRespondAction(proceed);
+        } else {
+          await invoke("confirm_large_download", {
+            confirmId: info.confirm_id,
+            proceed,
+          });
+        }
         onResolved();
       } catch (e) {
         setError(String(e));
         setLoading(false);
       }
     },
-    [info.confirm_id, onResolved]
+    [info.confirm_id, onResolved, onRespondAction]
   );
 
   //
