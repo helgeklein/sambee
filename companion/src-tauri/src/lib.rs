@@ -177,8 +177,10 @@ fn handle_deep_links(app: &tauri::AppHandle, urls: Vec<url::Url>) {
                 // Kick off the full edit lifecycle asynchronously
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
+                    let notification_handle = app_handle.clone();
                     if let Err(e) = start_edit_lifecycle(app_handle, parsed).await {
                         error!("Edit lifecycle failed: {e}");
+                        let _ = notification_handle.emit("notification", serde_json::json!({ "message": e }));
                     }
                 });
             }
@@ -263,7 +265,8 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
-    let download_result = commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token)
+    let expected_download_size = file_info.as_ref().ok().and_then(|info| info.size);
+    let download_result = commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token, expected_download_size)
         .await
         .inspect_err(|_e| {
             // Release lock on download failure (best-effort)
@@ -406,7 +409,18 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     };
 
     info!("Step 5b: Opening file in {}...", app_display_name);
-    commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await?;
+    if let Err(e) =
+        commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await
+    {
+        let _ = commands::upload::release_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
+        let _ = sync::recycle::recycle_file(&download_result.local_path);
+        store.remove(operation.id);
+        refresh_tray_menu(&app);
+        if let Err(sidecar_err) = sync::operations::remove_operation_sidecar(&operation) {
+            warn!("Failed to remove sidecar after open failure: {sidecar_err}");
+        }
+        return Err(e);
+    }
 
     // Update the operation with the selected app
     store.update_app(&operation.id, &app_display_name);
