@@ -56,7 +56,7 @@ pub struct EditContext {
 const DONE_EDITING_WIDTH: f64 = 340.0;
 
 /// Height of the Done Editing window in logical pixels.
-const DONE_EDITING_HEIGHT: f64 = 240.0;
+const DONE_EDITING_HEIGHT: f64 = 200.0;
 
 /// Margin from the top-left screen edge for the first window (logical pixels).
 const DONE_EDITING_MARGIN: f64 = 24.0;

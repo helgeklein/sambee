@@ -12,6 +12,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { JSX } from "preact";
@@ -25,6 +26,9 @@ import "../styles/done-editing.css";
 const HOLD_DURATION_MS = 1500;
 const HOLD_DURATION_SECONDS = HOLD_DURATION_MS / 1000;
 const CONFLICT_PREFIX = "conflict:";
+const DONE_EDITING_WINDOW_WIDTH = 340;
+const DONE_EDITING_DEFAULT_HEIGHT = 200;
+const DONE_EDITING_EXPANDED_HEIGHT = 240;
 
 export interface DoneEditingContext {
   operation_id: string;
@@ -302,6 +306,8 @@ export function DoneEditingWindowView({
   const { t } = useI18n();
   const isModified = fileStatus.kind === "modified";
   const primaryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const isExpanded = isModified && !processing;
+  const lastWindowHeightRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     if (!autoFocusPrimary || processing || conflict) {
@@ -310,6 +316,27 @@ export function DoneEditingWindowView({
 
     primaryButtonRef.current?.focus({ preventScroll: true });
   }, [autoFocusPrimary, conflict, processing]);
+
+  useLayoutEffect(() => {
+    if (conflict) {
+      return;
+    }
+
+    const targetHeight = isExpanded ? DONE_EDITING_EXPANDED_HEIGHT : DONE_EDITING_DEFAULT_HEIGHT;
+
+    if (lastWindowHeightRef.current === targetHeight) {
+      return;
+    }
+
+    lastWindowHeightRef.current = targetHeight;
+
+    void getCurrentWindow()
+      .setSize(new LogicalSize(DONE_EDITING_WINDOW_WIDTH, targetHeight))
+      .catch((err: unknown) => {
+        console.warn("Failed to resize Done Editing window", err);
+        lastWindowHeightRef.current = null;
+      });
+  }, [conflict, isExpanded]);
 
   if (conflict) {
     return <ConflictDialog conflict={conflict} onResolved={onConflictResolved} />;
