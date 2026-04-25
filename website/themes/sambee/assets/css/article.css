@@ -24,7 +24,7 @@ Article Shell
 }
 
 .docs-article-region {
-  @apply px-5 py-8 md:px-8 md:py-10;
+  @apply py-8 md:py-10;
 }
 
 .docs-article-region--book {

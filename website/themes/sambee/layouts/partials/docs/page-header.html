@@ -17,17 +17,6 @@
 {{ end }}
 
 <header class="docs-page-header">
-  <div class="docs-page-header-meta site-gutter">
-    <div class="docs-page-header-rail">
-      <div class="docs-page-header-primary">
-        {{ partial "docs/version-switcher.html" . }}
-      </div>
-      <div class="docs-page-header-secondary">
-        {{ with $bookTitle }}<span class="docs-page-stamp docs-page-stamp--book">{{ . }}</span>{{ end }}
-        {{ with $versionStatus }}<span class="docs-page-stamp docs-page-stamp--status">{{ upper . }}</span>{{ end }}
-      </div>
-    </div>
-  </div>
   <div class="docs-page-title-band site-gutter">
     <span class="docs-page-kicker">
       <span class="docs-page-kicker-rule" aria-hidden="true"></span>
