@@ -7,4 +7,4 @@
   {{ $scripts = $scripts | minify }}
 {{ end }}
 {{ $scripts = $scripts | fingerprint }}
-<script defer src="{{ $scripts.RelPermalink }}" integrity="{{ $scripts.Data.Integrity }}"></script>
+<script defer src="{{ $scripts.RelPermalink }}" {{ if hugo.IsProduction }}integrity="{{ $scripts.Data.Integrity }}"{{ end }}></script>
