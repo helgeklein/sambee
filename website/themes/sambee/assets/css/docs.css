@@ -62,7 +62,7 @@ Layout Shells
 }
 
 .docs-shell--page {
-  @apply lg:grid lg:grid-cols-[16rem_minmax(0,1fr)];
+  @apply lg:grid lg:grid-cols-[13.75rem_minmax(0,1fr)];
 }
 
 .docs-main-column {
@@ -123,20 +123,8 @@ Article Shell
 */
 
 .article-toc-container {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  margin: 0 auto;
-  align-items: flex-start;
+  margin: 0;
   width: 100%;
-  justify-content: center;
-}
-
-@media (min-width: theme(--breakpoint-xl)) {
-  .article-toc-container {
-    flex-direction: row;
-    gap: 2.5rem;
-  }
 }
 
 .docs-article-region {
@@ -148,10 +136,9 @@ Article Shell
 }
 
 .article-wrapper {
-  /* Fill remaining horizontal space while allowing narrow layouts to shrink gracefully. */
-  flex: 1 1 auto;
+  margin-inline: auto;
   min-width: 0;
-  max-width: var(--article-content-width);
+  width: 100%;
 }
 
 .docs-article-column {
@@ -159,7 +146,7 @@ Article Shell
 }
 
 .article-content {
-  max-width: var(--article-content-width);
+  max-width: none;
 }
 
 .docs-content--article {
