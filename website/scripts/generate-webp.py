@@ -18,10 +18,28 @@ from pathlib import Path
 
 ASSETS_DIR = Path(__file__).parent.parent / "assets" / "images"
 TARGET_WIDTHS = [372, 500, 744, 852, 1000, 1280, 1704]
-WEBP_QUALITY = 82
+WEBP_PHOTO_QUALITY = 82
 MAX_WORKERS = 4
 MAGICK_CMD = "magick"
 VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+
+
+def build_webp_encode_args(source_path: Path) -> list[str]:
+    """Return ImageMagick WebP encoding arguments for the source asset type."""
+    if source_path.suffix.lower() == ".png":
+        return [
+            "-define",
+            "webp:lossless=true",
+            "-define",
+            "webp:method=6",
+        ]
+
+    return [
+        "-quality",
+        str(WEBP_PHOTO_QUALITY),
+        "-define",
+        "webp:method=6",
+    ]
 
 
 def get_image_dimensions(image_path: Path) -> tuple[int, int] | None:
@@ -66,6 +84,7 @@ def generate_webp(
         return None
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    encode_args = build_webp_encode_args(source_path)
 
     try:
         subprocess.run(
@@ -74,10 +93,7 @@ def generate_webp(
                 str(source_path),
                 "-resize",
                 f"{target_width}x",
-                "-quality",
-                str(WEBP_QUALITY),
-                "-define",
-                "webp:method=6",
+                *encode_args,
                 str(output_path),
             ],
             capture_output=True,
