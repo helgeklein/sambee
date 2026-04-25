@@ -58,6 +58,15 @@ When you click **Open in App** in the Sambee web interface for the first time:
 
 On subsequent uses, the file opens automatically in your chosen application.
 
+## Network Environment
+
+For HTTPS connections to Sambee, the Companion integrates with your operating system's network and trust settings:
+
+- **System proxy support** — if your OS is configured to use an HTTP/HTTPS proxy, the Companion uses those settings automatically
+- **Native certificate store support** — the Companion trusts certificates from your OS certificate store, including internal or company-managed root CAs that have been installed there
+
+This is especially useful in corporate environments where outbound traffic must go through a proxy or where Sambee uses certificates issued by an internal PKI.
+
 ## System Tray
 
 The Companion lives in your system tray (Windows/Linux) or menu bar (macOS). Right-click the tray icon to see:
