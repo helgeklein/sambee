@@ -1,0 +1,17 @@
+{{/* Purpose: Render a typed docs admonition with consistent ledger styling. */}}
+{{ $kind := .Get "type" | default "note" | lower }}
+{{ $allowedKinds := slice "note" "tip" "info" "warning" "danger" }}
+{{ if not (in $allowedKinds $kind) }}
+  {{ $kind = "note" }}
+{{ end }}
+{{ $title := .Get "title" | default (upper $kind) }}
+
+<div class="admonition admonition--{{ $kind }}" role="note">
+  <div class="admonition__icon" aria-hidden="true"></div>
+  <div class="admonition__body">
+    <p class="admonition__title">{{ $title }}</p>
+    <div class="admonition__content">
+      {{ .Inner | .Page.RenderString }}
+    </div>
+  </div>
+</div>
