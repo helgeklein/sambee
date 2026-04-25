@@ -20,6 +20,7 @@
     "concurrently": "^9.2.1",
     "pagefind": "^1.4.0",
     "tailwind-bootstrap-grid": "^6.0.0",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.1.18",
+    "wrangler": "^3.114.17"
   }
 }
