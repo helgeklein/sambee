@@ -94,11 +94,11 @@ def generate_webp(
 
 
 def get_target_widths(source_width: int) -> list[int]:
-    """Return configured widths, ensuring undersized sources still get one WebP."""
+    """Return configured widths plus the original width when needed."""
     target_widths = [width for width in TARGET_WIDTHS if width <= source_width]
-    if target_widths:
-        return target_widths
-    return [source_width]
+    if source_width not in target_widths:
+        target_widths.append(source_width)
+    return target_widths
 
 
 def process_image(image_path: Path, force: bool = False) -> list[Path]:

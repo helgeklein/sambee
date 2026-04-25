@@ -39,7 +39,7 @@
     {{- $imageStem := path.Base $image.Name | replaceRE `\.[^.]+$` "" -}}
     {{- $imageDir := path.Dir $assetPath -}}
     {{- $lookupWidths := $widths -}}
-    {{- if and (gt (len $widths) 0) (lt $image.Width (index $widths 0)) -}}
+    {{- if not (in $lookupWidths $image.Width) -}}
       {{- $lookupWidths = sort ($lookupWidths | append $image.Width) -}}
     {{- end -}}
     {{- $srcsetParts := slice -}}
