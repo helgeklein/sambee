@@ -535,11 +535,19 @@ Companion
 }
 
 .home-companion-preview {
-  @apply border-t-2 border-clr-rule-strong bg-clr-surface-low p-5 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low md:p-6 lg:border-t-0 lg:border-l lg:p-10;
+  @apply border-t-2 border-clr-rule-strong bg-clr-surface-low p-8 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low lg:border-t-0 lg:border-l;
 }
 
 .home-companion-preview-image {
-  @apply block h-[23rem] w-full max-w-full object-contain shadow-xl shadow-black/20 md:h-[31rem] dark:shadow-black/45;
+  @apply block h-[23rem] w-full max-w-full object-contain md:h-[31rem];
+  --home-companion-preview-shadow-primary: rgb(0 0 0 / 0.14);
+  --home-companion-preview-shadow-secondary: rgb(0 0 0 / 0.08);
+  filter: drop-shadow(0 8px 12px var(--home-companion-preview-shadow-primary)) drop-shadow(0 3px 4px var(--home-companion-preview-shadow-secondary));
+}
+
+.dark .home-companion-preview-image {
+  --home-companion-preview-shadow-primary: rgb(0 0 0 / 0.28);
+  --home-companion-preview-shadow-secondary: rgb(0 0 0 / 0.18);
 }
 
 .home-companion-preview-placeholder {

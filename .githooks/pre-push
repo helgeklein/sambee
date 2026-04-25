@@ -6,6 +6,8 @@
 
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 remote_name=${1:-unknown}
 remote_url=${2:-unknown}
 
@@ -29,4 +31,4 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     fi
 done
 
-exit 0
+"$HOOK_DIR/_git-lfs-hook" pre-push "$@"

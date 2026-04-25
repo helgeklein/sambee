@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+hook_name=${1:?hook name is required}
+shift || true
+
+if ! command -v git-lfs >/dev/null 2>&1; then
+    echo >&2
+    echo >&2 "This repository is configured for Git LFS but 'git-lfs' was not found on your path."
+    echo >&2 "Install Git LFS and run 'git lfs install', or remove the relevant LFS hook integration if that is intentional."
+    exit 2
+fi
+
+git lfs "$hook_name" "$@"

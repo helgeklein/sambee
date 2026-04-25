@@ -29,7 +29,7 @@ The project includes a complete dev container configuration for consistent devel
    - Initialize the database
    - Create default `config.toml` file with secure keys
 
-**Note on Git Hooks:** The dev container automatically configures Git to use hooks from `.githooks/`. These hooks update the `GIT_COMMIT` file after commits and checkouts, ensuring Docker builds always have the current commit hash.
+**Note on Git Hooks:** The dev container automatically configures Git to use hooks from `.githooks/`. These hooks update the `GIT_COMMIT` file after commits and checkouts, preserve the repository's Git LFS hook integration, and block pushes of `wip/*` branches.
 
 If you're developing **outside the dev container**, run once:
 ```bash
@@ -149,12 +149,22 @@ The site now includes a component-level responsive image workflow for homepage a
 - source images live in `website/assets/images/...`
 - generated WebP derivatives live next to the source file in a `generated/` subdirectory
 - Hugo fingerprints the generated files and emits `srcset` from the shared partial
+- raster images are expected to have generated WebPs; the site does not fall back to originals when they are missing
 
 To generate responsive WebP derivatives for JPG and PNG sources:
 
 ```bash
 cd website
 npm run images:generate
+```
+
+During local development, `npm run dev` also starts a WebP watcher that regenerates derivatives automatically when raster source images change.
+
+To validate that every raster source image has generated WebPs:
+
+```bash
+cd website
+npm run images:validate
 ```
 
 The corresponding VS Code task is `Website: Generate WebP Images`.

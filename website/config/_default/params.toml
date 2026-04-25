@@ -2,6 +2,10 @@ description = "Browser-based SMB and local-drive access with versioned product d
 theme_default = "system"
 theme_switcher = true
 
+[cdn]
+files_base_url = ""
+images_base_url = ""
+
 [footer]
 github_url = "https://github.com/helgeklein/sambee"
 imprint_url = "#"

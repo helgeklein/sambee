@@ -38,11 +38,15 @@
   {{- else -}}
     {{- $imageStem := path.Base $image.Name | replaceRE `\.[^.]+$` "" -}}
     {{- $imageDir := path.Dir $assetPath -}}
+    {{- $lookupWidths := $widths -}}
+    {{- if not (in $lookupWidths $image.Width) -}}
+      {{- $lookupWidths = sort ($lookupWidths | append $image.Width) -}}
+    {{- end -}}
     {{- $srcsetParts := slice -}}
     {{- $smallestUrl := "" -}}
     {{- $smallestWidth := 999999 -}}
 
-    {{- range $targetWidth := $widths -}}
+    {{- range $targetWidth := $lookupWidths -}}
       {{- if le $targetWidth $image.Width -}}
         {{- $webpPath := printf "%s/generated/%s_%dw.webp" $imageDir $imageStem $targetWidth -}}
         {{- with resources.Get $webpPath -}}
@@ -66,16 +70,15 @@
     {{- end -}}
 
     {{- if eq (len $srcsetParts) 0 -}}
-      {{- $fallback := $image | fingerprint -}}
-      {{- $smallestUrl = $fallback.RelPermalink -}}
-      {{- $srcsetParts = slice (printf "%s %dw" $fallback.RelPermalink $image.Width) -}}
-    {{- end -}}
+      {{- errorf "Missing generated WebP derivatives for raster image %q. Run website/scripts/generate-webp.py or start the local WebP watcher before building." $assetPath -}}
+    {{- else -}}
 <img src="{{ $smallestUrl }}" alt="{{ $alt }}" class="{{ $class }}"
    srcset="{{ delimit $srcsetParts ", " }}"
    sizes="{{ $sizes }}"
    width="{{ $image.Width }}" height="{{ $image.Height }}"
    style="height: auto;"
    loading="{{ $loading }}" decoding="async"{{ with $fetchpriority }} fetchpriority="{{ . }}"{{ end }}>
+    {{- end -}}
   {{- end -}}
 {{- else if hasPrefix $src "http" -}}
 <img src="{{ $src }}" alt="{{ $alt }}" class="{{ $class }}"

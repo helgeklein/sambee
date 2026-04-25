@@ -132,6 +132,8 @@ fi
 require_command node
 require_command npm
 require_command hugo
+require_command python3
+require_command magick
 require_command lsof
 
 cd "$PROJECT_DIR"
@@ -140,6 +142,8 @@ echo "🌐 Starting Sambee website development server..."
 echo "✓ Node.js: $(node --version)"
 echo "✓ npm: $(npm --version)"
 echo "✓ Hugo: $(hugo version | head -n 1)"
+echo "✓ Python: $(python3 --version)"
+echo "✓ ImageMagick: $(magick --version | head -n 1)"
 
 install_dependencies_if_needed
 stop_existing_website_server
