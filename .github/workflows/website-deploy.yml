@@ -17,17 +17,6 @@ on:
       - '.github/workflows/website-deploy.yml'
       - 'website/**'
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: 'Deploy website to Cloudflare Pages'
-        required: false
-        type: boolean
-        default: true
-      sync_r2:
-        description: 'Sync website media to Cloudflare R2'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -131,10 +120,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: build
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'true') ||
-      (github.ref == 'refs/heads/main' && github.event_name == 'push')
+    if: false
     steps:
+    - name: Deployment disabled
+      run: |
+        echo 'Website deployment is temporarily disabled until Cloudflare R2/Pages is configured.'
+        exit 0
+
     - name: Checkout website package files
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -182,7 +174,7 @@ jobs:
           core.info(`Deleted artifact: ${target.name}`);
 
     - name: Sync images to Cloudflare R2 (/website/public/images/)
-      if: github.ref == 'refs/heads/main' || github.event.inputs.sync_r2 == 'true'
+      if: false
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -199,7 +191,7 @@ jobs:
           --cache-control "public,max-age=31536000,immutable"
 
     - name: Sync downloads to Cloudflare R2 (/website/public/files/)
-      if: github.ref == 'refs/heads/main' || github.event.inputs.sync_r2 == 'true'
+      if: false
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -215,6 +207,7 @@ jobs:
           --cache-control "public,max-age=31536000,immutable"
 
     - name: Deploy to Cloudflare Pages
+      if: false
       uses: cloudflare/wrangler-action@v3
       with:
         apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
