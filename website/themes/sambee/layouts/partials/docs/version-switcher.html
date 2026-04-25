@@ -2,9 +2,10 @@
 {{ $currentVersion := .Params.product_version }}
 {{ $book := .Params.book }}
 {{ $docId := .Params.doc_id }}
+{{ $versions := index (index hugo.Data "docs-versions") "versions" }}
 <div class="version-switcher">
   <span class="version-switcher-label">Version</span>
-  {{ range $version := hugo.Data.docs_versions.versions }}
+  {{ range $version := $versions }}
     {{ if eq $version.slug $currentVersion }}
       {{/* Keep the active version non-clickable to emphasize the current context. */}}
       <span class="version-chip version-chip-current">{{ $version.label }}</span>

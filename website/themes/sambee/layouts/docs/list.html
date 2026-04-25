@@ -1,7 +1,9 @@
 {{/* Purpose: Chooses the correct documentation list layout for overview, version, and book pages. */}}
 {{ define "main" }}
-{{ $currentVersion := hugo.Data.docs_versions.current }}
-{{ $navData := index hugo.Data.docs_nav $currentVersion }}
+{{ $docsVersions := index hugo.Data "docs-versions" }}
+{{ $docsNav := index hugo.Data "docs-nav" }}
+{{ $currentVersion := $docsVersions.current }}
+{{ $navData := index $docsNav $currentVersion }}
 
 {{/* Top-level docs landing page. */}}
 {{ if and (not .Params.product_version) (not .Params.book) }}
@@ -32,7 +34,7 @@
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
-  {{ $versionNav := index hugo.Data.docs_nav .Params.product_version }}
+  {{ $versionNav := index $docsNav .Params.product_version }}
   {{ with $versionNav }}
   {{/* A version page lists every book available in that release. */}}
   <div class="ledger-cards book-grid">
@@ -48,20 +50,22 @@
 </section>
 {{/* Book landing page that shows the sidebar and version switcher. */}}
 {{ else if and .Params.product_version .Params.book }}
-<section class="docs-shell ledger-grid-rail">
+<section class="docs-shell docs-shell--page">
   <aside class="docs-sidebar">
     {{/* Book landing pages reuse the same sidebar tree as article pages. */}}
     {{ partial "docs/sidebar.html" . }}
   </aside>
-  <article class="docs-content">
-    {{ partial "docs/version-switcher.html" . }}
-    <div class="docs-meta">
-      <span class="docs-meta-chip">Version {{ .Params.product_version }}</span>
-      <span class="docs-meta-chip">{{ .Params.book }}</span>
+  <div class="docs-main-column">
+    {{ partial "docs/breadcrumbs.html" . }}
+    {{ partial "docs/page-header.html" . }}
+    <div class="article-toc-container docs-article-region docs-article-region--book">
+      <div class="article-wrapper docs-article-column">
+        <article class="docs-content docs-content--article">
+          <div class="content article-content" data-pagefind-body>{{ .Content }}</div>
+        </article>
+      </div>
     </div>
-    <h1>{{ .Title }}</h1>
-    <div class="content" data-pagefind-body>{{ .Content }}</div>
-  </article>
+  </div>
 </section>
 {{ else }}
 {{/* Fallback for docs content that does not fit the usual hierarchy. */}}

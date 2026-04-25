@@ -220,6 +220,73 @@ Documentation Navigation
   top: calc(var(--header-height) + 1.5rem);
 }
 
+.docs-shell--page {
+  @apply lg:grid lg:grid-cols-[16rem_minmax(0,1fr)];
+}
+
+.docs-main-column {
+  @apply min-w-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft lg:border-t-0 lg:border-l;
+}
+
+.docs-breadcrumb-row {
+  @apply border-b border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-breadcrumbs {
+  @apply px-5 py-4 md:px-8;
+}
+
+.docs-breadcrumb-list {
+  @apply m-0 flex flex-wrap items-center gap-1 list-none p-0;
+}
+
+.docs-breadcrumb-item {
+  font-size: var(--font-size-label-xs);
+  @apply font-tertiary uppercase tracking-[0.2em] text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
+.docs-breadcrumb-link {
+  @apply transition-colors duration-150 hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
+}
+
+.docs-breadcrumb-separator {
+  @apply mr-1 text-clr-rule-strong dark:text-clr-darkmode-rule-strong;
+}
+
+.docs-breadcrumb-current {
+  @apply font-bold text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.docs-page-header {
+  @apply border-b-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong;
+}
+
+.docs-page-header-meta {
+  @apply border-b border-clr-rule-soft py-6 dark:border-clr-darkmode-rule-soft md:py-7;
+}
+
+.docs-page-title-band {
+  @apply py-8 md:py-12;
+}
+
+.docs-page-kicker {
+  font-size: var(--font-size-label-xs);
+  @apply inline-flex items-center gap-3 font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.docs-page-kicker-rule {
+  @apply block h-px w-10 bg-clr-primary dark:bg-clr-darkmode-primary;
+}
+
+.docs-page-title {
+  @apply mt-5 mb-0 font-secondary text-[2.9rem] font-extrabold italic tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[4.25rem] lg:text-[5rem];
+  line-height: 0.9;
+}
+
+.docs-page-description {
+  @apply mt-5 max-w-3xl text-clr-text-light dark:text-clr-darkmode-text-light;
+}
+
 .docs-sidebar-title {
   @apply mb-4 text-xl font-secondary text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
@@ -250,6 +317,11 @@ Documentation Navigation
 
 .docs-meta {
   @apply mb-5 flex flex-wrap gap-2;
+}
+
+.docs-page-header .docs-meta,
+.docs-page-header .version-switcher {
+  @apply mb-0;
 }
 
 /*

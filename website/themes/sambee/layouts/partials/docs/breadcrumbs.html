@@ -1,0 +1,57 @@
+{{/* Purpose: Render docs breadcrumbs from the current version and book context. */}}
+{{ $version := .Params.product_version }}
+{{ $book := .Params.book }}
+{{ $versionPage := false }}
+{{ $bookPage := false }}
+{{ $versionLabel := $version }}
+
+{{ with $version }}
+  {{ with site.GetPage (printf "/docs/%s" .) }}
+    {{ $versionPage = . }}
+  {{ end }}
+  {{ with (index hugo.Data "docs-versions").versions }}
+    {{ with index (where . "slug" $version) 0 }}
+    {{ $versionLabel = .label | default $version }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+
+{{ with and $version $book (site.GetPage (printf "/docs/%s/%s" $version $book)) }}
+  {{ $bookPage = . }}
+{{ end }}
+
+<div class="docs-breadcrumb-row">
+  <nav class="docs-breadcrumbs" aria-label="Breadcrumb">
+    <ol class="docs-breadcrumb-list">
+      <li class="docs-breadcrumb-item">
+        <a class="docs-breadcrumb-link" href="/docs/">Documentation</a>
+      </li>
+      {{ with $versionPage }}
+      <li class="docs-breadcrumb-item">
+        <span class="docs-breadcrumb-separator" aria-hidden="true">/</span>
+        {{ if eq $.RelPermalink .RelPermalink }}
+        <span class="docs-breadcrumb-current">Version {{ $versionLabel }}</span>
+        {{ else }}
+        <a class="docs-breadcrumb-link" href="{{ .RelPermalink }}">Version {{ $versionLabel }}</a>
+        {{ end }}
+      </li>
+      {{ end }}
+      {{ with $bookPage }}
+      <li class="docs-breadcrumb-item">
+        <span class="docs-breadcrumb-separator" aria-hidden="true">/</span>
+        {{ if eq $.RelPermalink .RelPermalink }}
+        <span class="docs-breadcrumb-current">{{ .Title }}</span>
+        {{ else }}
+        <a class="docs-breadcrumb-link" href="{{ .RelPermalink }}">{{ .Title }}</a>
+        {{ end }}
+      </li>
+      {{ end }}
+      {{ if and $bookPage (ne .RelPermalink $bookPage.RelPermalink) }}
+      <li class="docs-breadcrumb-item">
+        <span class="docs-breadcrumb-separator" aria-hidden="true">/</span>
+        <span class="docs-breadcrumb-current">{{ .Title }}</span>
+      </li>
+      {{ end }}
+    </ol>
+  </nav>
+</div>

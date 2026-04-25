@@ -1,7 +1,7 @@
 {{/* Purpose: Renders the documentation sidebar for the active book and version. */}}
 {{ $version := .Params.product_version }}
 {{ $book := .Params.book }}
-{{ $navData := index hugo.Data.docs_nav $version }}
+{{ $navData := index (index hugo.Data "docs-nav") $version }}
 {{ $bookPage := site.GetPage (printf "/docs/%s/%s" $version $book) }}
 {{ $bookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $book }}
 
