@@ -216,7 +216,7 @@ Documentation Navigation
 */
 
 .docs-sidebar {
-  @apply border-r-0 bg-clr-surface-low p-5 lg:sticky dark:bg-clr-darkmode-surface-low;
+  @apply border-r border-clr-rule-soft bg-clr-surface-low px-0 py-0 lg:sticky dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low;
   top: calc(var(--header-height) + 1.5rem);
 }
 
@@ -225,11 +225,11 @@ Documentation Navigation
 }
 
 .docs-main-column {
-  @apply min-w-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft lg:border-t-0 lg:border-l;
+  @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page lg:border-t-0 lg:border-l;
 }
 
 .docs-breadcrumb-row {
-  @apply border-b border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+  @apply border-b border-clr-rule-soft bg-clr-surface-low dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low;
 }
 
 .docs-breadcrumbs {
@@ -262,11 +262,20 @@ Documentation Navigation
 }
 
 .docs-page-header-meta {
-  @apply border-b border-clr-rule-soft py-6 dark:border-clr-darkmode-rule-soft md:py-7;
+  @apply border-b border-clr-rule-soft bg-clr-surface-low py-5 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low md:py-6;
+}
+
+.docs-page-header-rail {
+  @apply flex flex-col gap-4 md:flex-row md:items-center md:justify-between;
+}
+
+.docs-page-header-primary,
+.docs-page-header-secondary {
+  @apply flex flex-wrap items-center gap-2;
 }
 
 .docs-page-title-band {
-  @apply py-8 md:py-12;
+  @apply bg-clr-surface-page py-8 dark:bg-clr-darkmode-surface-page md:py-12;
 }
 
 .docs-page-kicker {
@@ -287,41 +296,69 @@ Documentation Navigation
   @apply mt-5 max-w-3xl text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
+.docs-page-stamp {
+  @apply inline-flex items-center border px-3 py-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em];
+}
+
+.docs-page-stamp--book {
+  @apply border-clr-rule-strong bg-clr-surface-page text-clr-text-dark dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark;
+}
+
+.docs-page-stamp--status {
+  @apply border-clr-primary bg-clr-action-fill/15 text-clr-action-text dark:border-clr-darkmode-primary dark:bg-clr-darkmode-action-fill/15 dark:text-clr-darkmode-action-text;
+}
+
+.docs-sidebar-header {
+  @apply border-b-2 border-clr-rule-strong px-5 py-6 dark:border-clr-darkmode-rule-strong md:px-6;
+}
+
+.docs-sidebar-kicker {
+  font-size: var(--font-size-label-xs);
+  @apply font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.docs-sidebar-header-row {
+  @apply mt-3 flex items-start justify-between gap-4;
+}
+
+.docs-sidebar-heading {
+  @apply m-0 font-secondary text-[1.7rem] font-bold italic leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
+}
+
+.docs-sidebar-version {
+  @apply inline-flex shrink-0 items-center border border-clr-rule-strong bg-clr-surface-page px-2.5 py-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark;
+}
+
 .docs-sidebar-title {
-  @apply mb-4 text-xl font-secondary text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply border-b border-clr-rule-soft px-5 py-4 font-secondary text-lg font-bold italic text-clr-text-dark dark:border-clr-darkmode-rule-soft dark:text-clr-darkmode-text-dark md:px-6;
 }
 
 .docs-nav-group + .docs-nav-group {
-  @apply mt-6;
+  @apply mt-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
 }
 
 .docs-nav-group strong {
-  @apply text-sm font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
+  @apply block px-5 py-3 text-[0.68rem] font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light md:px-6;
 }
 
 .docs-nav-list {
-  @apply mt-3 list-none p-0;
+  @apply m-0 list-none p-0;
 }
 
 .docs-nav-list li + li {
-  @apply mt-2;
+  @apply mt-0 border-t border-clr-rule-soft/60 dark:border-clr-darkmode-rule-soft/60;
 }
 
 .docs-sidebar-link {
-  @apply text-sm text-clr-text transition-colors duration-150 hover:text-clr-action-text dark:text-clr-darkmode-text dark:hover:text-clr-darkmode-action-text;
+  @apply block px-5 py-3 font-tertiary text-[0.72rem] font-medium uppercase tracking-[0.12em] text-clr-text transition-colors duration-150 hover:bg-clr-surface-high hover:text-clr-text-dark dark:text-clr-darkmode-text dark:hover:bg-clr-darkmode-surface-high dark:hover:text-clr-darkmode-text-dark md:px-6;
 }
 
 .docs-sidebar-link-current {
-  @apply border-l-4 border-clr-action-fill pl-3 font-bold text-clr-action-text dark:border-clr-darkmode-action-fill dark:text-clr-darkmode-action-text;
+  @apply border-l-4 border-clr-primary bg-clr-surface-inverse px-5 py-3 font-tertiary text-[0.72rem] font-bold uppercase tracking-[0.14em] text-white dark:border-clr-darkmode-primary dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:px-6;
 }
 
 .docs-meta {
   @apply mb-5 flex flex-wrap gap-2;
-}
-
-.docs-page-header .docs-meta,
-.docs-page-header .version-switcher {
-  @apply mb-0;
 }
 
 /*
@@ -443,11 +480,11 @@ Version Switcher
 }
 
 .version-switcher-label {
-  @apply mr-1 text-sm font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light;
+  @apply mr-2 text-[0.68rem] font-tertiary uppercase tracking-[0.2em] text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 .version-chip {
-  @apply text-clr-text hover:border-clr-action-fill hover:text-clr-action-text dark:text-clr-darkmode-text dark:hover:border-clr-darkmode-action-fill dark:hover:text-clr-darkmode-action-text;
+  @apply text-[0.68rem] text-clr-text hover:border-clr-action-fill hover:text-clr-action-text dark:text-clr-darkmode-text dark:hover:border-clr-darkmode-action-fill dark:hover:text-clr-darkmode-action-text;
 }
 
 .version-chip-current {

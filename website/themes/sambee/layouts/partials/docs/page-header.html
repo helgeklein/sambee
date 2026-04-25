@@ -18,11 +18,14 @@
 
 <header class="docs-page-header">
   <div class="docs-page-header-meta site-gutter">
-    {{ partial "docs/version-switcher.html" . }}
-    <div class="docs-meta">
-      <span class="docs-meta-chip">Version {{ $versionLabel }}</span>
-      {{ with $bookTitle }}<span class="docs-meta-chip">{{ . }}</span>{{ end }}
-      {{ with $versionStatus }}<span class="docs-meta-chip">{{ upper . }}</span>{{ end }}
+    <div class="docs-page-header-rail">
+      <div class="docs-page-header-primary">
+        {{ partial "docs/version-switcher.html" . }}
+      </div>
+      <div class="docs-page-header-secondary">
+        {{ with $bookTitle }}<span class="docs-page-stamp docs-page-stamp--book">{{ . }}</span>{{ end }}
+        {{ with $versionStatus }}<span class="docs-page-stamp docs-page-stamp--status">{{ upper . }}</span>{{ end }}
+      </div>
     </div>
   </div>
   <div class="docs-page-title-band site-gutter">

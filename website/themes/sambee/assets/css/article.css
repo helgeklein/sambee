@@ -48,6 +48,7 @@ Article Shell
 
 .docs-content--article {
   width: 100%;
+  background-color: transparent;
 }
 
 .docs-toc {

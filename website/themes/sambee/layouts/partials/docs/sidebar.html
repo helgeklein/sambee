@@ -7,6 +7,13 @@
 
 {{/* Front matter drives the active docs tree; the data file supplies the canonical section order. */}}
 {{ if and $navData $book }}
+  <div class="docs-sidebar-header">
+    <span class="docs-sidebar-kicker">Documentation</span>
+    <div class="docs-sidebar-header-row">
+      <h2 class="docs-sidebar-heading">{{ with $bookPage }}{{ .Title }}{{ else }}{{ $book }}{{ end }}</h2>
+      <span class="docs-sidebar-version">v{{ $version }}</span>
+    </div>
+  </div>
   {{ range $navData.books }}
     {{ if eq .slug $book }}
       <div>
