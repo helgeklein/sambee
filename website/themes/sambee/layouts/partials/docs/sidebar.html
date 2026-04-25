@@ -2,16 +2,30 @@
 {{ $version := .Params.product_version }}
 {{ $book := .Params.book }}
 {{ $navData := index (index hugo.Data "docs-nav") $version }}
+{{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
 {{ $bookPage := site.GetPage (printf "/docs/%s/%s" $version $book) }}
 {{ $bookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $book }}
 
 {{/* Front matter drives the active docs tree; the data file supplies the canonical section order. */}}
 {{ if and $navData $book }}
   <div class="docs-sidebar-header">
-    <span class="docs-sidebar-kicker">Documentation</span>
     <div class="docs-sidebar-header-row">
-      <h2 class="docs-sidebar-heading">{{ with $bookPage }}{{ .Title }}{{ else }}{{ $book }}{{ end }}</h2>
-      <span class="docs-sidebar-version">v{{ $version }}</span>
+      <h2 class="docs-sidebar-heading">Documentation</h2>
+      <div class="docs-sidebar-version-control">
+        <label class="sr-only" for="docs-sidebar-version-select">Documentation version</label>
+        <select id="docs-sidebar-version-select" class="docs-sidebar-version-select" onchange="if (this.value) { window.location.href = this.value; }">
+          {{ range $docsVersions }}
+            {{ $targetURL := printf "/docs/%s/" .slug }}
+            {{ with site.GetPage (printf "/docs/%s" .slug) }}
+              {{ $targetURL = .RelPermalink }}
+            {{ end }}
+            {{ with and $book (site.GetPage (printf "/docs/%s/%s" .slug $book)) }}
+              {{ $targetURL = .RelPermalink }}
+            {{ end }}
+            <option value="{{ $targetURL }}"{{ if eq .slug $version }} selected{{ end }}>{{ .label | default .slug }}</option>
+          {{ end }}
+        </select>
+      </div>
     </div>
   </div>
   {{ range $navData.books }}
