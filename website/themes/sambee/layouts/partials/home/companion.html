@@ -15,7 +15,7 @@
     </div>
     <div class="home-companion-grid">
       <div class="home-companion-summary">
-        <p class="home-copy home-companion-lede">{{ $section.body }}</p>
+        <p class="home-copy">{{ $section.body }}</p>
       </div>
       <div class="home-companion-details">
         {{ with $section.bullets }}
@@ -31,9 +31,9 @@
       </div>
     </div>
   </div>
-  {{/* Right column: screenshot-ready panel; swap the placeholder body for a real image when the asset is available. */}}
+  {{ if $previewSrc }}
+  {{/* Right column: render the companion preview panel only when an image is configured. */}}
   <aside class="home-companion-preview" aria-label="Companion interface preview">
-    {{ if $previewSrc }}
     {{ partial "components/responsive-image.html" (dict
       "Src" $previewSrc
       "Alt" $previewAlt
@@ -42,12 +42,7 @@
       "Sizes" "(min-width: 1024px) 388px, calc(100vw - 4rem)"
       "Widths" (slice 372 500 744 852 1000 1280 1704)
     ) }}
-    {{ else }}
-    <div class="home-companion-preview-placeholder">
-      <span class="home-label home-label--xs home-label--bold home-label--accent">Companion screenshot</span>
-      <p class="home-copy home-companion-preview-placeholder-copy">Replace this placeholder with the real companion screenshot when the asset is ready.</p>
-    </div>
-    {{ end }}
   </aside>
+  {{ end }}
 </section>
 {{ end }}

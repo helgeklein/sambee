@@ -377,10 +377,6 @@ Features
   @apply mb-1;
 }
 
-.home-feature-item-body {
-  @apply m-0;
-}
-
 /*
 ==============================
 Preview Support
@@ -485,10 +481,6 @@ Companion
   @apply flex flex-col;
 }
 
-.home-companion-lede {
-  @apply max-w-none lg:max-w-[18rem];
-}
-
 .home-companion-actions {
   @apply mt-2 lg:col-span-2 lg:mt-8;
 }
@@ -530,14 +522,6 @@ Companion
   --home-companion-preview-shadow-secondary: rgb(0 0 0 / 0.18);
 }
 
-.home-companion-preview-placeholder {
-  @apply flex min-h-[23rem] w-full flex-col items-center justify-center gap-4 border-2 border-dashed border-clr-rule-soft bg-clr-surface-page px-6 py-8 text-center dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page md:min-h-[31rem];
-}
-
-.home-companion-preview-placeholder-copy {
-  @apply m-0 max-w-[22rem];
-}
-
 /*
 ==============================
 Deployment
@@ -574,7 +558,7 @@ Proof
 */
 
 .home-proof {
-  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+  @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
 }
 
 .home-proof-body {
@@ -591,10 +575,6 @@ Proof
 
 .home-proof-title {
   @apply mb-6;
-}
-
-.home-proof-copy {
-  @apply max-w-sm;
 }
 
 .home-proof-details {
