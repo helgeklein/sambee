@@ -11,9 +11,17 @@
   <div class="docs-sidebar-header">
     <div class="docs-sidebar-header-row">
       <h2 class="docs-sidebar-heading">Documentation</h2>
-      <div class="docs-sidebar-version-control">
-        <label class="sr-only" for="docs-sidebar-version-select">Documentation version</label>
-        <select id="docs-sidebar-version-select" class="docs-sidebar-version-select" onchange="if (this.value) { window.location.href = this.value; }">
+      <details class="docs-sidebar-version-control">
+        <summary class="docs-sidebar-version-trigger">
+          <span class="sr-only">Documentation version</span>
+          <span class="docs-sidebar-version-value">
+            {{ range $docsVersions }}
+              {{ if eq .slug $version }}v{{ .label | default .slug }}{{ end }}
+            {{ end }}
+          </span>
+          <span class="docs-sidebar-version-icon material-symbols-outlined" aria-hidden="true">unfold_more</span>
+        </summary>
+        <div class="docs-sidebar-version-menu" aria-label="Documentation versions">
           {{ range $docsVersions }}
             {{ $targetURL := printf "/docs/%s/" .slug }}
             {{ with site.GetPage (printf "/docs/%s" .slug) }}
@@ -22,10 +30,15 @@
             {{ with and $book (site.GetPage (printf "/docs/%s/%s" .slug $book)) }}
               {{ $targetURL = .RelPermalink }}
             {{ end }}
-            <option value="{{ $targetURL }}"{{ if eq .slug $version }} selected{{ end }}>{{ .label | default .slug }}</option>
+            {{ $label := printf "v%s" (.label | default .slug) }}
+            {{ if eq .slug $version }}
+              <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current" data-close-version-dropdown aria-current="true">{{ $label }}</button>
+            {{ else }}
+              <a class="docs-sidebar-version-option" href="{{ $targetURL }}">{{ $label }}</a>
+            {{ end }}
           {{ end }}
-        </select>
-      </div>
+        </div>
+      </details>
     </div>
   </div>
   {{ range $navData.books }}

@@ -4,6 +4,8 @@
 
    const COPY_BUTTON_SELECTOR = '.content pre, .content .highlight';
    const COPY_BUTTON_CLASS = 'code-copy-btn';
+   const DOCS_VERSION_DROPDOWN_SELECTOR = '.docs-sidebar-version-control';
+   const DOCS_VERSION_DROPDOWN_CLOSE_SELECTOR = '[data-close-version-dropdown]';
 
    function createCopyButton() {
       const button = document.createElement('button');
@@ -42,9 +44,52 @@
       });
    }
 
-   if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initCodeCopyButtons);
-   } else {
+    function initDocsVersionDropdowns() {
+      const dropdowns = document.querySelectorAll(DOCS_VERSION_DROPDOWN_SELECTOR);
+
+      if (!dropdowns.length) {
+         return;
+      }
+
+      document.querySelectorAll(DOCS_VERSION_DROPDOWN_CLOSE_SELECTOR).forEach((button) => {
+         button.addEventListener('click', () => {
+            const dropdown = button.closest(DOCS_VERSION_DROPDOWN_SELECTOR);
+
+            if (dropdown) {
+               dropdown.open = false;
+            }
+         });
+      });
+
+      document.addEventListener('click', (event) => {
+         dropdowns.forEach((dropdown) => {
+            if (dropdown.open && !dropdown.contains(event.target)) {
+               dropdown.open = false;
+            }
+         });
+      });
+
+      document.addEventListener('keydown', (event) => {
+         if (event.key !== 'Escape') {
+            return;
+         }
+
+         dropdowns.forEach((dropdown) => {
+            if (dropdown.open) {
+               dropdown.open = false;
+            }
+         });
+      });
+   }
+
+   function init() {
       initCodeCopyButtons();
+      initDocsVersionDropdowns();
+   }
+
+   if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+   } else {
+      init();
    }
 })();
