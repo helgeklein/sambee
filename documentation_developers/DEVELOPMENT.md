@@ -149,12 +149,22 @@ The site now includes a component-level responsive image workflow for homepage a
 - source images live in `website/assets/images/...`
 - generated WebP derivatives live next to the source file in a `generated/` subdirectory
 - Hugo fingerprints the generated files and emits `srcset` from the shared partial
+- raster images are expected to have generated WebPs; the site does not fall back to originals when they are missing
 
 To generate responsive WebP derivatives for JPG and PNG sources:
 
 ```bash
 cd website
 npm run images:generate
+```
+
+During local development, `npm run dev` also starts a WebP watcher that regenerates derivatives automatically when raster source images change.
+
+To validate that every raster source image has generated WebPs:
+
+```bash
+cd website
+npm run images:validate
 ```
 
 The corresponding VS Code task is `Website: Generate WebP Images`.

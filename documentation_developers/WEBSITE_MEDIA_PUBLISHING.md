@@ -8,6 +8,7 @@ donor site's implemented behavior.
 - Source images are committed in the repository.
 - Pre-generated WebP derivatives are committed in the repository.
 - Both source and generated media are tracked with Git LFS.
+- Every raster source image must have generated WebP derivatives.
 - CI pulls media from Git LFS before building.
 - CI publishes built media from `website/public` rather than generating missing
   derivatives during deployment.
@@ -24,7 +25,7 @@ git lfs pull
 ```
 
 If Git LFS objects are not present, website builds may succeed with broken image
-references or fall back to originals instead of donor-style responsive WebPs.
+references or missing WebP derivatives.
 
 ## Source Of Truth
 
@@ -48,23 +49,33 @@ website/assets/images/home/generated/companion-screenshot_500w.webp
 When adding or changing a website image:
 
 1. Add or update the source file under `website/assets/images/`.
-2. Generate responsive WebP derivatives:
+2. Start the website preview task or run `npm run dev` while editing.
+3. The local WebP watcher regenerates missing derivatives automatically when a
+  JPG, JPEG, or PNG source image changes.
+4. For batch generation or recovery, generate responsive WebP derivatives
+  manually:
 
    ```bash
    cd website
    npm run images:generate
    ```
 
-3. Review the generated files in the matching `generated/` directory.
-4. Commit the source image and all generated WebP files together.
+5. Review the generated files in the matching `generated/` directory.
+6. Commit the source image and all generated WebP files together.
 
 Do not rely on CI to create missing derivatives. Donor parity requires CI to use
 what is already committed.
 
+Raster images do not fall back to the original source file when generated WebPs
+are missing. Missing derivatives are a defect and should fail validation or the
+Hugo build.
+
 ## Build And Publish Expectations
 
 - Local development should pull LFS objects before serving the website.
+- Local development should run the WebP watcher during `npm run dev`.
 - CI should restore and pull Git LFS objects before the website build.
+- CI should validate generated WebP coverage for every raster source image.
 - CI should sync built media from `website/public/images/` and
   `website/public/files/` to object storage.
 - CI should deploy the HTML site separately from the media sync.
@@ -75,6 +86,7 @@ It mirrors the donor's actual implementation pattern:
 - build on pull requests and pushes
 - restore `.git/lfs` cache and run `git lfs pull`
 - restore `website/resources/_gen` cache for faster Hugo rebuilds
+- validate that every raster source image has generated WebP derivatives
 - build the Hugo site and Pagefind index inside `website/`
 - upload `website/public` as a short-lived artifact
 - on deploy, sync `website/public/images/` and `website/public/files/` to R2
@@ -109,5 +121,6 @@ separate concern and is not required for strict donor parity.
 
 - New or changed source images are tracked by Git LFS.
 - Matching generated WebPs exist and are tracked by Git LFS.
+- Every raster source image has at least one matching generated WebP.
 - No `generated/` directories are gitignored.
 - Website image changes are committed together with their derivatives.

@@ -21,6 +21,7 @@ TARGET_WIDTHS = [372, 500, 744, 852, 1000, 1280, 1704]
 WEBP_QUALITY = 82
 MAX_WORKERS = 4
 MAGICK_CMD = "magick"
+VALID_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 def get_image_dimensions(image_path: Path) -> tuple[int, int] | None:
@@ -43,7 +44,10 @@ def get_image_dimensions(image_path: Path) -> tuple[int, int] | None:
 
 
 def generate_webp(
-    source_path: Path, target_width: int, force: bool = False
+    source_path: Path,
+    target_width: int,
+    force: bool = False,
+    dimensions: tuple[int, int] | None = None,
 ) -> Path | None:
     """Generate a single WebP derivative for ``source_path`` at ``target_width``."""
     generated_dir = source_path.parent / "generated"
@@ -52,7 +56,7 @@ def generate_webp(
     if output_path.exists() and not force:
         return None
 
-    dimensions = get_image_dimensions(source_path)
+    dimensions = dimensions or get_image_dimensions(source_path)
     if not dimensions:
         print(f"  Warning: could not read dimensions for {source_path}")
         return None
@@ -89,11 +93,25 @@ def generate_webp(
     return output_path
 
 
+def get_target_widths(source_width: int) -> list[int]:
+    """Return configured widths, ensuring undersized sources still get one WebP."""
+    target_widths = [width for width in TARGET_WIDTHS if width <= source_width]
+    if target_widths:
+        return target_widths
+    return [source_width]
+
+
 def process_image(image_path: Path, force: bool = False) -> list[Path]:
     """Generate all configured derivatives for a single source image."""
+    dimensions = get_image_dimensions(image_path)
+    if not dimensions:
+        print(f"  Warning: could not read dimensions for {image_path}")
+        return []
+
+    source_width, _ = dimensions
     generated_files: list[Path] = []
-    for width in TARGET_WIDTHS:
-        result = generate_webp(image_path, width, force)
+    for width in get_target_widths(source_width):
+        result = generate_webp(image_path, width, force, dimensions)
         if result:
             generated_files.append(result)
     return generated_files
@@ -112,6 +130,48 @@ def find_source_images() -> list[Path]:
         and not any(f"_{width}w" in image.stem for width in TARGET_WIDTHS)
         and "_hu_" not in image.stem
     )
+
+
+def resolve_requested_source_images(path_args: list[str]) -> list[Path]:
+    """Return validated source images requested explicitly on the command line."""
+    resolved_images: dict[Path, None] = {}
+
+    for raw_path in path_args:
+        candidate = Path(raw_path)
+        if not candidate.is_absolute():
+            candidate = (Path.cwd() / candidate).resolve()
+        else:
+            candidate = candidate.resolve()
+
+        if not candidate.exists() or not candidate.is_file():
+            print(f"  Warning: requested image does not exist: {raw_path}")
+            continue
+
+        try:
+            candidate.relative_to(ASSETS_DIR)
+        except ValueError:
+            print(f"  Warning: requested image is outside {ASSETS_DIR}: {raw_path}")
+            continue
+
+        if candidate.parent.name == "generated":
+            print(f"  Warning: ignoring generated derivative path: {raw_path}")
+            continue
+
+        if candidate.suffix.lower() not in VALID_EXTENSIONS:
+            print(f"  Warning: ignoring unsupported file type: {raw_path}")
+            continue
+
+        if any(f"_{width}w" in candidate.stem for width in TARGET_WIDTHS):
+            print(f"  Warning: ignoring derivative-like filename: {raw_path}")
+            continue
+
+        if "_hu_" in candidate.stem:
+            print(f"  Warning: ignoring Hugo-generated asset: {raw_path}")
+            continue
+
+        resolved_images[candidate] = None
+
+    return sorted(resolved_images)
 
 
 def ensure_magick() -> bool:
@@ -134,6 +194,7 @@ def ensure_magick() -> bool:
 def main() -> int:
     """Generate missing WebP derivatives for site assets."""
     force = "--force" in sys.argv
+    path_args = [arg for arg in sys.argv[1:] if arg != "--force"]
 
     if not ASSETS_DIR.exists():
         print(f"No asset image directory found at {ASSETS_DIR}; nothing to do.")
@@ -142,8 +203,12 @@ def main() -> int:
     if not ensure_magick():
         return 1
 
-    source_images = find_source_images()
-    print(f"Scanning for source images in {ASSETS_DIR}...")
+    if path_args:
+        source_images = resolve_requested_source_images(path_args)
+        print(f"Processing requested source images in {ASSETS_DIR}...")
+    else:
+        source_images = find_source_images()
+        print(f"Scanning for source images in {ASSETS_DIR}...")
     print(f"Found {len(source_images)} source images")
 
     if not source_images:

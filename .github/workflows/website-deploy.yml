@@ -93,6 +93,9 @@ jobs:
     - name: Install website dependencies
       run: cd website && npm ci
 
+    - name: Validate generated WebP coverage
+      run: cd website && npm run images:validate
+
     - name: Build website
       run: |
         cd website
