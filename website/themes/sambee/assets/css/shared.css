@@ -280,20 +280,20 @@ Documentation Navigation
 
 .docs-page-kicker {
   font-size: var(--font-size-label-xs);
-  @apply inline-flex items-center gap-3 font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
+  @apply inline-flex items-center gap-3 text-clr-primary dark:text-clr-darkmode-primary md:text-xs;
 }
 
 .docs-page-kicker-rule {
-  @apply block h-px w-10 bg-clr-primary dark:bg-clr-darkmode-primary;
+  @apply block h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary;
 }
 
 .docs-page-title {
-  @apply mt-5 mb-0 font-secondary text-[2.9rem] font-extrabold italic tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[4.25rem] lg:text-[5rem];
-  line-height: 0.9;
+  @apply mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.55rem] lg:text-7xl;
+  line-height: var(--line-height-heading-tight);
 }
 
 .docs-page-description {
-  @apply mt-5 max-w-3xl text-clr-text-light dark:text-clr-darkmode-text-light;
+  @apply mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mt-4;
 }
 
 .docs-page-stamp {
