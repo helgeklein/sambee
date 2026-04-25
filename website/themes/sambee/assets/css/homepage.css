@@ -13,6 +13,9 @@ Section Chrome
 }
 
 .site-main--home {
+  --home-copy-font-size: var(--font-size-copy-base);
+  --home-copy-font-weight: 400;
+  --home-copy-line-height: 1.625rem;
   @apply pb-0;
 }
 
@@ -23,6 +26,8 @@ Section Chrome
 
 .home-section-title {
   margin: 0;
+  font-family: var(--font-secondary);
+  font-style: italic;
   font-weight: 700;
   color: var(--color-clr-text-dark);
 }
@@ -67,27 +72,14 @@ Shared Typography
 */
 
 .home-copy {
-  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-.home-copy--lead {
-  @apply text-base;
-}
-
-.home-copy--large {
-  @apply md:text-lg;
+  font-size: var(--home-copy-font-size);
+  font-weight: var(--home-copy-font-weight);
+  line-height: var(--home-copy-line-height);
+  @apply max-w-none text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 .home-copy--note {
   @apply italic;
-}
-
-.home-copy--deployment {
-  @apply md:text-lg;
-}
-
-.home-copy--detail {
-  @apply text-sm leading-relaxed;
 }
 
 .home-title--card {
@@ -237,7 +229,7 @@ Problem / Value
 }
 
 .home-problem-title {
-  @apply mt-1 font-secondary text-[1.5rem] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply mt-1 font-secondary text-[1.5rem] font-bold text-clr-text-dark not-italic dark:text-clr-darkmode-text-dark;
 }
 
 /*
@@ -287,11 +279,7 @@ Benefits
 }
 
 .home-benefit-title {
-  @apply mt-1 text-[1.5rem];
-}
-
-.home-benefit-copy {
-  @apply max-w-none;
+  @apply mt-1 font-secondary text-[1.5rem] font-bold not-italic;
 }
 
 .home-benefit-trail {
@@ -340,7 +328,7 @@ Features
 }
 
 .home-feature-summary {
-  --home-feature-icon-baseline-shift: -0.08em;
+  --home-feature-icon-baseline-shift: -0.17em;
   @apply md:col-span-5;
 }
 
@@ -361,11 +349,7 @@ Features
 }
 
 .home-feature-heading {
-  @apply m-0 font-secondary font-semibold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.home-feature-summary-copy {
-  @apply max-w-none text-base leading-relaxed text-clr-text-light dark:text-clr-darkmode-text-light;
+  @apply m-0 font-secondary text-[1.5rem] font-bold leading-tight text-clr-text-dark not-italic dark:text-clr-darkmode-text-dark;
 }
 
 .home-feature-items {
@@ -416,10 +400,6 @@ Preview Support
   @apply mb-8 flex flex-col items-start gap-4 md:mb-10 md:gap-5;
 }
 
-.home-preview-copy {
-  @apply m-0 leading-relaxed;
-}
-
 .home-preview-actions {
   @apply flex items-center pt-6 md:pt-8;
 }
@@ -468,7 +448,7 @@ Preview Support
 }
 
 .home-preview-label {
-  @apply text-[1.35rem] md:text-[1.55rem];
+  @apply font-secondary text-[1.5rem] font-bold leading-tight text-clr-text-dark not-italic dark:text-clr-darkmode-text-dark;
 }
 
 .home-preview-detail {
