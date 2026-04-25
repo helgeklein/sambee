@@ -3,10 +3,16 @@
 # post-merge
 #
 # Git hook that runs after git merge (including git pull)
-# Updates GIT_COMMIT file with current HEAD
+# Updates GIT_COMMIT file with current HEAD and preserves Git LFS merge hooks.
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Get the short commit hash of HEAD
 GIT_COMMIT=$(git rev-parse --short HEAD)
 
 # Write to GIT_COMMIT file in repository root
 echo "$GIT_COMMIT" > GIT_COMMIT
+
+"$HOOK_DIR/_git-lfs-hook" post-merge "$@"

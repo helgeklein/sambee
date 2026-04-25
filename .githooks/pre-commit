@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if ! command -v git-lfs >/dev/null 2>&1; then
+    echo "ERROR: Git LFS is not installed." >&2
+    echo "Install it, then run 'git lfs install'." >&2
+    exit 1
+fi
+
+if ! git lfs env >/dev/null 2>&1; then
+    echo "ERROR: Git LFS is not initialized in this repository." >&2
+    echo "Run 'git lfs install'." >&2
+    exit 1
+fi
+
+staged_files=()
+while IFS= read -r -d '' file; do
+    staged_files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
+
+if [[ ${#staged_files[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+lfs_required=false
+for file in "${staged_files[@]}"; do
+    filter=$(git check-attr filter -- "$file" | awk '{print $3}')
+
+    if [[ "$filter" == "lfs" ]]; then
+        lfs_required=true
+        first_line=$(git show ":$file" 2>/dev/null | head -n1)
+
+        if [[ "$first_line" != "version https://git-lfs.github.com/spec/v1" ]]; then
+            staged_size=$(git show ":$file" 2>/dev/null | wc -c)
+
+            echo "ERROR: File should be stored as an LFS pointer but is not: $file" >&2
+            echo "Staged content size: $staged_size bytes" >&2
+            echo "First line: $first_line" >&2
+            echo "Fix: re-run 'git lfs install' and re-add the file." >&2
+            exit 1
+        fi
+    fi
+done
+
+if [[ "$lfs_required" == true ]] && ! git lfs ls-files >/dev/null 2>&1; then
+    echo "ERROR: Git LFS commands are failing in this repository." >&2
+    echo "Run 'git lfs install'." >&2
+    exit 1
+fi
+
+exit 0

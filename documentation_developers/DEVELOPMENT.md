@@ -29,7 +29,7 @@ The project includes a complete dev container configuration for consistent devel
    - Initialize the database
    - Create default `config.toml` file with secure keys
 
-**Note on Git Hooks:** The dev container automatically configures Git to use hooks from `.githooks/`. These hooks update the `GIT_COMMIT` file after commits and checkouts, ensuring Docker builds always have the current commit hash.
+**Note on Git Hooks:** The dev container automatically configures Git to use hooks from `.githooks/`. These hooks update the `GIT_COMMIT` file after commits and checkouts, preserve the repository's Git LFS hook integration, and block pushes of `wip/*` branches.
 
 If you're developing **outside the dev container**, run once:
 ```bash
