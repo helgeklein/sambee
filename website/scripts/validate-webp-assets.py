@@ -38,7 +38,9 @@ def main() -> int:
         return 0
 
     source_images = find_source_images()
-    print(f"Validating generated WebP coverage for {len(source_images)} raster images...")
+    print(
+        f"Validating generated WebP coverage for {len(source_images)} raster images..."
+    )
 
     missing = [image for image in source_images if not has_generated_webp(image)]
     if not missing:
@@ -50,7 +52,9 @@ def main() -> int:
         relative_path = image.relative_to(ASSETS_DIR.parent)
         print(f"  - {relative_path}")
 
-    print("\nRun 'python3 scripts/generate-webp.py' or start the website dev watcher to generate missing derivatives.")
+    print(
+        "\nRun 'python3 scripts/generate-webp.py' or start the website dev watcher to generate missing derivatives."
+    )
     return 1
 
 
