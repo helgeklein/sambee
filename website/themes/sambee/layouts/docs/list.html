@@ -15,12 +15,17 @@
   </div>
   {{ with $navData }}
   {{/* The current docs_nav data file is the source of truth for which books exist. */}}
-  <div class="ledger-cards book-grid">
+  <div class="docs-index-list" aria-label="Documentation books">
     {{ range .books }}
-    <article class="docs-card">
-      <span class="docs-card-kicker">Version {{ $currentVersion }}</span>
-      <h2><a href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">{{ .title }}</a></h2>
-      <p>{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+    <article class="docs-index-item">
+      <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">
+        <div class="docs-index-body">
+          <span class="docs-index-kicker">Version {{ $currentVersion }}</span>
+          <h2 class="docs-index-title">{{ .title }}</h2>
+          <p class="docs-index-summary">{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+        </div>
+        <span class="docs-index-arrow material-symbols-outlined" aria-hidden="true">chevron_right</span>
+      </a>
     </article>
     {{ end }}
   </div>
@@ -37,12 +42,17 @@
   {{ $versionNav := index $docsNav .Params.product_version }}
   {{ with $versionNav }}
   {{/* A version page lists every book available in that release. */}}
-  <div class="ledger-cards book-grid">
+  <div class="docs-index-list" aria-label="Documentation books for this version">
     {{ range .books }}
-    <article class="docs-card">
-      <span class="docs-card-kicker">Book</span>
-      <h2><a href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">{{ .title }}</a></h2>
-      <p>Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+    <article class="docs-index-item">
+      <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">
+        <div class="docs-index-body">
+          <span class="docs-index-kicker">Book</span>
+          <h2 class="docs-index-title">{{ .title }}</h2>
+          <p class="docs-index-summary">Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+        </div>
+        <span class="docs-index-arrow material-symbols-outlined" aria-hidden="true">chevron_right</span>
+      </a>
     </article>
     {{ end }}
   </div>

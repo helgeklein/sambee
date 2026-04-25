@@ -15,8 +15,6 @@ Layout Shells
 
 .ledger-shell,
 .shell-section,
-.docs-overview,
-.docs-shell,
 .site-frame {
   @apply mx-auto w-full;
 }
@@ -24,8 +22,6 @@ Layout Shells
 @media (min-width: theme(--breakpoint-sm)) {
   .ledger-shell,
   .shell-section,
-  .docs-overview,
-  .docs-shell,
   .site-frame {
     max-width: 540px;
   }
@@ -34,8 +30,6 @@ Layout Shells
 @media (min-width: theme(--breakpoint-md)) {
   .ledger-shell,
   .shell-section,
-  .docs-overview,
-  .docs-shell,
   .site-frame {
     max-width: 900px;
   }
@@ -44,8 +38,6 @@ Layout Shells
 @media (min-width: theme(--breakpoint-lg)) {
   .ledger-shell,
   .shell-section,
-  .docs-overview,
-  .docs-shell,
   .site-frame {
     max-width: 1131px;
   }
@@ -58,8 +50,7 @@ Layout Shells
 }
 
 .ledger-shell,
-.shell-section,
-.docs-overview {
+.shell-section {
   @apply border-x border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page;
 }
 
@@ -112,13 +103,8 @@ Layout Shells
 }
 
 .ledger-shell + .ledger-shell:not(.home-section),
-.shell-section + .shell-section:not(.home-section),
-.docs-overview + .docs-overview {
+.shell-section + .shell-section:not(.home-section) {
   @apply border-t-0;
-}
-
-.docs-shell {
-  @apply border-x border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
 }
 
 /*
@@ -127,18 +113,13 @@ Cards And Panels
 ==============================
 */
 .hero-copy,
-.hero-card,
-.docs-card,
-.docs-sidebar,
-.docs-content {
+.hero-card {
   @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
 }
 
 .ledger-panel-body,
 .hero-copy,
-.hero-card,
-.docs-card,
-.docs-content {
+.hero-card {
   @apply p-6 lg:p-8;
 }
 
@@ -173,172 +154,33 @@ Cards And Panels
   @apply mt-8 flex flex-wrap gap-3;
 }
 
-.ledger-cards,
-.book-grid {
+.ledger-cards {
   @apply grid gap-0 border-t border-clr-rule-soft md:grid-cols-2 xl:grid-cols-3 dark:border-clr-darkmode-rule-soft;
 }
 
-.ledger-card,
-.docs-card {
+.ledger-card {
   @apply border-t-0 border-l-0 p-6 transition-colors duration-200 hover:bg-clr-surface-low dark:hover:bg-clr-darkmode-surface-low;
 }
 
 @media (min-width: theme(--breakpoint-md)) {
-  .ledger-card:last-child,
-  .docs-card:last-child {
+  .ledger-card:last-child {
     @apply border-r;
   }
 }
 
 @media (min-width: theme(--breakpoint-xl)) {
-  .ledger-card:last-child,
-  .docs-card:last-child {
+  .ledger-card:last-child {
     @apply border-r-0;
   }
 }
 
-.docs-card h2,
-.docs-card h3,
 .ledger-card h2,
 .ledger-card h3 {
   @apply mb-3;
 }
 
-.docs-card p,
 .ledger-card p {
   @apply my-0 text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-/*
-==============================
-Documentation Navigation
-==============================
-*/
-
-.docs-sidebar {
-  @apply border-r border-clr-rule-soft bg-clr-surface-low px-0 py-0 lg:sticky dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low;
-  top: calc(var(--header-height) + 1.5rem);
-}
-
-.docs-shell--page {
-  @apply lg:grid lg:grid-cols-[16rem_minmax(0,1fr)];
-}
-
-.docs-main-column {
-  @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page lg:border-t-0 lg:border-l;
-}
-
-.docs-breadcrumb-row {
-  @apply border-b border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page;
-}
-
-.docs-breadcrumbs {
-  @apply pt-3 pb-2;
-}
-
-.docs-breadcrumb-list {
-  @apply m-0 flex flex-wrap items-center gap-1 list-none p-0;
-}
-
-.docs-breadcrumb-item {
-  @apply inline-flex items-center gap-1 text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-.docs-breadcrumb-link {
-  @apply transition-colors duration-150 hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
-}
-
-.docs-breadcrumb-separator {
-  @apply inline-flex items-center text-clr-rule-strong dark:text-clr-darkmode-rule-strong;
-}
-
-.docs-breadcrumb-symbol {
-  font-size: 0.8rem;
-  line-height: 1;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
-}
-
-.docs-breadcrumb-current {
-  @apply font-bold text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.docs-page-header {
-  @apply border-b-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong;
-}
-
-.docs-page-title-band {
-  @apply bg-clr-surface-page py-6 dark:bg-clr-darkmode-surface-page md:py-8;
-}
-
-.docs-page-kicker {
-  font-size: var(--font-size-label-xs);
-  @apply inline-flex items-center gap-3 text-clr-primary dark:text-clr-darkmode-primary md:text-xs;
-}
-
-.docs-page-kicker-rule {
-  @apply block h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary;
-}
-
-.docs-page-title {
-  @apply mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.55rem] lg:text-7xl;
-  line-height: var(--line-height-heading-tight);
-}
-
-.docs-page-description {
-  @apply mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mt-4;
-}
-
-.docs-sidebar-header {
-  @apply border-b-2 border-clr-rule-strong px-5 py-6 dark:border-clr-darkmode-rule-strong md:px-6;
-}
-
-.docs-sidebar-kicker {
-  font-size: var(--font-size-label-xs);
-  @apply font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
-}
-
-.docs-sidebar-header-row {
-  @apply mt-3 flex items-start justify-between gap-4;
-}
-
-.docs-sidebar-heading {
-  @apply m-0 font-secondary text-[1.7rem] font-bold italic leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.docs-sidebar-version {
-  @apply inline-flex shrink-0 items-center border border-clr-rule-strong bg-clr-surface-page px-2.5 py-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.16em] text-clr-text-dark dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark;
-}
-
-.docs-sidebar-title {
-  @apply border-b border-clr-rule-soft px-5 py-4 font-secondary text-lg font-bold italic text-clr-text-dark dark:border-clr-darkmode-rule-soft dark:text-clr-darkmode-text-dark md:px-6;
-}
-
-.docs-nav-group + .docs-nav-group {
-  @apply mt-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
-}
-
-.docs-nav-group strong {
-  @apply block px-5 py-3 text-[0.68rem] font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light md:px-6;
-}
-
-.docs-nav-list {
-  @apply m-0 list-none p-0;
-}
-
-.docs-nav-list li + li {
-  @apply mt-0 border-t border-clr-rule-soft/60 dark:border-clr-darkmode-rule-soft/60;
-}
-
-.docs-sidebar-link {
-  @apply block px-5 py-3 font-tertiary text-[0.72rem] font-medium uppercase tracking-[0.12em] text-clr-text transition-colors duration-150 hover:bg-clr-surface-high hover:text-clr-text-dark dark:text-clr-darkmode-text dark:hover:bg-clr-darkmode-surface-high dark:hover:text-clr-darkmode-text-dark md:px-6;
-}
-
-.docs-sidebar-link-current {
-  @apply border-l-4 border-clr-primary bg-clr-surface-inverse px-5 py-3 font-tertiary text-[0.72rem] font-bold uppercase tracking-[0.14em] text-white dark:border-clr-darkmode-primary dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:px-6;
-}
-
-.docs-meta {
-  @apply mb-5 flex flex-wrap gap-2;
 }
 
 /*
@@ -347,9 +189,7 @@ Chips And Status Labels
 ==============================
 */
 
-.ledger-chip,
-.docs-meta-chip,
-.version-chip {
+.ledger-chip {
   @apply inline-flex items-center border border-clr-rule-strong bg-clr-surface-low px-3 py-1 text-sm font-tertiary uppercase tracking-[0.14em] dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
 }
 
