@@ -3,8 +3,6 @@
 {{ $book := .Params.book }}
 {{ $navData := index (index hugo.Data "docs-nav") $version }}
 {{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
-{{ $bookPage := site.GetPage (printf "/docs/%s/%s" $version $book) }}
-{{ $bookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $book }}
 
 {{/* Front matter drives the active docs tree; the data file supplies the canonical section order. */}}
 {{ if and $navData $book }}
@@ -42,16 +40,22 @@
     </div>
   </div>
   {{ range $navData.books }}
-    {{ if eq .slug $book }}
-      <div>
-        <div class="docs-sidebar-title">
-          {{/* Prefer the generated section landing page title when it exists. */}}
-          {{ with $bookPage }}
-          <a href="{{ .RelPermalink }}">{{ .Title }}</a>
-          {{ else }}
-          {{ .title }}
-          {{ end }}
-        </div>
+    {{ $bookSlug := .slug }}
+    {{ $isCurrentBook := eq $bookSlug $book }}
+    {{ $currentBookPage := site.GetPage (printf "/docs/%s/%s" $version $bookSlug) }}
+    {{ $currentBookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $bookSlug }}
+    {{ $bookTitleClass := "docs-sidebar-title" }}
+    {{ if $isCurrentBook }}
+      {{ $bookTitleClass = printf "%s %s" $bookTitleClass "docs-sidebar-title-current" }}
+    {{ end }}
+    <div>
+      {{/* Prefer the generated section landing page title when it exists. */}}
+      {{ with $currentBookPage }}
+      <a class="{{ $bookTitleClass }}" href="{{ .RelPermalink }}">{{ .Title }}</a>
+      {{ else }}
+      <div class="{{ $bookTitleClass }}">{{ .title }}</div>
+      {{ end }}
+      {{ if $isCurrentBook }}
         {{ range .sections }}
         {{/* Sections follow docs_nav order; individual pages are matched by doc_id. */}}
         <section class="docs-nav-group">
@@ -59,7 +63,7 @@
           <ul class="docs-nav-list">
             {{ range .doc_ids }}
               {{ $docId := . }}
-              {{ $matches := where $bookPages "Params.doc_id" $docId }}
+              {{ $matches := where $currentBookPages "Params.doc_id" $docId }}
               {{ if gt (len $matches) 0 }}
               {{ $target := index $matches 0 }}
               {{ $isCurrentPage := eq $target.RelPermalink $.RelPermalink }}
@@ -76,7 +80,7 @@
           </ul>
         </section>
         {{ end }}
-      </div>
-    {{ end }}
+      {{ end }}
+    </div>
   {{ end }}
 {{ end }}

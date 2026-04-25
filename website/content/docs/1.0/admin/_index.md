@@ -1,5 +1,5 @@
 +++
-title = "Admin"
+title = "Admin Guide"
 doc_id = "admin-index"
 product_version = "1.0"
 book = "admin"

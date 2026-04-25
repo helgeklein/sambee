@@ -372,7 +372,15 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-title {
-  @apply border-b border-clr-rule-soft px-5 py-4 font-secondary text-lg font-bold italic text-clr-text-dark dark:border-clr-darkmode-rule-soft dark:text-clr-darkmode-text-dark md:px-6;
+  @apply block border-b-2 border-clr-rule-soft bg-clr-surface-page px-5 py-5 font-secondary text-[1.25rem] font-bold italic text-clr-text-dark no-underline transition-colors duration-150 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark md:px-6;
+}
+
+.docs-sidebar-title-current {
+  @apply border-b;
+}
+
+.docs-sidebar-title:hover {
+  @apply transition-colors duration-150 hover:text-clr-primary dark:hover:text-clr-darkmode-primary;
 }
 
 .docs-nav-group + .docs-nav-group {
@@ -380,7 +388,7 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-nav-group strong {
-  @apply block px-5 py-3 text-[0.68rem] font-tertiary uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light md:px-6;
+  @apply block px-5 pt-4 pb-2 text-[0.68rem] font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text dark:text-clr-darkmode-action-text md:px-6;
 }
 
 .docs-nav-list {
@@ -388,15 +396,20 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-nav-list li + li {
-  @apply mt-0 border-t border-clr-rule-soft/60 dark:border-clr-darkmode-rule-soft/60;
+  @apply mt-1;
 }
 
 .docs-sidebar-link {
-  @apply block px-5 py-3 font-tertiary text-[0.72rem] font-medium uppercase tracking-[0.12em] text-clr-text transition-colors duration-150 hover:bg-clr-surface-high hover:text-clr-text-dark dark:text-clr-darkmode-text dark:hover:bg-clr-darkmode-surface-high dark:hover:text-clr-darkmode-text-dark md:px-6;
+  @apply block bg-transparent pr-5 pl-8 py-2.5 font-primary text-[0.95rem] font-medium leading-snug text-clr-text-light transition-colors duration-150 hover:bg-clr-surface-mid hover:text-clr-text-dark dark:text-clr-darkmode-text-light dark:hover:bg-clr-darkmode-surface-mid dark:hover:text-clr-darkmode-text-dark md:pr-6 md:pl-9;
 }
 
 .docs-sidebar-link-current {
-  @apply border-l-4 border-clr-primary bg-clr-surface-inverse px-5 py-3 font-tertiary text-[0.72rem] font-bold uppercase tracking-[0.14em] text-white dark:border-clr-darkmode-primary dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page md:px-6;
+  @apply bg-clr-surface-mid pr-5 pl-8 py-2.5 font-primary text-[0.95rem] font-semibold leading-snug text-clr-text-dark dark:bg-clr-darkmode-surface-mid dark:text-clr-darkmode-text-dark md:pr-6 md:pl-9;
+  box-shadow: inset 2px 0 0 var(--color-clr-primary);
+}
+
+.dark .docs-sidebar-link-current {
+  box-shadow: inset 2px 0 0 var(--color-clr-darkmode-primary);
 }
 
 .docs-meta {

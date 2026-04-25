@@ -1,6 +1,6 @@
 [[books]]
 slug = "end-user"
-title = "End-User"
+title = "User Guide"
 landing_doc_id = "end-user-index"
 
   [[books.sections]]
@@ -9,7 +9,7 @@ landing_doc_id = "end-user-index"
 
 [[books]]
 slug = "admin"
-title = "Admin"
+title = "Admin Guide"
 landing_doc_id = "admin-index"
 
   [[books.sections]]
@@ -18,7 +18,7 @@ landing_doc_id = "admin-index"
 
 [[books]]
 slug = "developer"
-title = "Developer"
+title = "Developer Guide"
 landing_doc_id = "developer-index"
 
   [[books.sections]]
