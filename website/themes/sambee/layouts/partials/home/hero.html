@@ -4,12 +4,12 @@
 <section class="shell-section ledger-shell home-section">
   <div class="home-hero-inner">
     <div class="home-hero-content">
-      <span class="eyebrow eyebrow--stacked home-hero-kicker">
+      <span class="type-eyebrow type-color-accent eyebrow-stack home-hero-kicker">
         <span class="home-hero-kicker-rule" aria-hidden="true"></span>
         {{ $hero.kicker }}
       </span>
-      <h1 class="home-hero-title type-display-hero">{{ $hero.title }}</h1>
-      <p class="home-hero-subtitle type-subtitle-hero">{{ $hero.subtitle }}</p>
+      <h1 class="home-hero-title type-display-hero type-color-ink">{{ $hero.title }}</h1>
+      <p class="home-hero-subtitle type-subtitle-hero type-color-muted">{{ $hero.subtitle }}</p>
       {{ with $hero.ctas }}
       {{/* CTA styling stays data-driven so the section can mix button treatments without duplicating markup. */}}
       <div class="home-hero-actions">

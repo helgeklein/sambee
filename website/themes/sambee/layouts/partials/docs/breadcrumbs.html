@@ -24,7 +24,7 @@
   <nav class="docs-breadcrumbs site-gutter" aria-label="Breadcrumb">
     <ol class="docs-breadcrumb-list">
       {{ if $bookPage }}
-      <li class="docs-breadcrumb-item eyebrow">
+      <li class="docs-breadcrumb-item type-eyebrow">
         {{ if eq .RelPermalink $bookPage.RelPermalink }}
         <span class="docs-breadcrumb-current">{{ $bookPage.Title }}</span>
         {{ else }}
@@ -32,17 +32,17 @@
         {{ end }}
       </li>
       {{ if and $bookPage (ne .RelPermalink $bookPage.RelPermalink) }}
-      <li class="docs-breadcrumb-item eyebrow">
+      <li class="docs-breadcrumb-item type-eyebrow">
         <span class="docs-breadcrumb-separator" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
         <span class="docs-breadcrumb-current">{{ .Title }}</span>
       </li>
       {{ end }}
       {{ else }}
-      <li class="docs-breadcrumb-item eyebrow">
+      <li class="docs-breadcrumb-item type-eyebrow">
         <a class="docs-breadcrumb-link" href="/docs/">Documentation</a>
       </li>
       {{ with $versionPage }}
-      <li class="docs-breadcrumb-item eyebrow">
+      <li class="docs-breadcrumb-item type-eyebrow">
         <span class="docs-breadcrumb-separator" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
         {{ if eq $.RelPermalink .RelPermalink }}
         <span class="docs-breadcrumb-current">Version {{ $versionLabel }}</span>

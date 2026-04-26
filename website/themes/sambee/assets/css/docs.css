@@ -21,6 +21,18 @@ Layout Shells
 .docs-overview,
 .docs-shell {
   @apply mx-auto w-full;
+
+  @media (min-width: theme(--breakpoint-sm)) {
+    max-width: 540px;
+  }
+
+  @media (min-width: theme(--breakpoint-md)) {
+    max-width: 900px;
+  }
+
+  @media (min-width: theme(--breakpoint-lg)) {
+    max-width: 1131px;
+  }
 }
 
 .site-main:has(.docs-overview),
@@ -30,27 +42,6 @@ Layout Shells
 
 .site-main:has(.docs-shell--page) {
   display: flex;
-}
-
-@media (min-width: theme(--breakpoint-sm)) {
-  .docs-overview,
-  .docs-shell {
-    max-width: 540px;
-  }
-}
-
-@media (min-width: theme(--breakpoint-md)) {
-  .docs-overview,
-  .docs-shell {
-    max-width: 900px;
-  }
-}
-
-@media (min-width: theme(--breakpoint-lg)) {
-  .docs-overview,
-  .docs-shell {
-    max-width: 1131px;
-  }
 }
 
 .docs-overview {
@@ -163,10 +154,8 @@ Article Shell
 
 .docs-toc {
   display: none;
-}
 
-@media (min-width: theme(--breakpoint-xl)) {
-  .docs-toc {
+  @media (min-width: theme(--breakpoint-xl)) {
     display: block;
     width: var(--article-toc-width);
     flex: 0 0 var(--article-toc-width);

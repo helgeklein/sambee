@@ -23,7 +23,6 @@ Section Chrome
 
 .home-section-title {
   margin: 0;
-  color: var(--color-clr-text-dark);
 }
 
 /* Pull adjacent sections together so the double rules collapse into a single divider. */
@@ -40,10 +39,6 @@ Section Chrome
   border-color: var(--color-clr-darkmode-rule-strong);
 }
 
-.dark .home-section-title {
-  color: var(--color-clr-darkmode-text-dark);
-}
-
 .dark .home-section-header {
   border-color: var(--color-clr-darkmode-rule-soft);
 }
@@ -55,23 +50,7 @@ Shared Typography
 */
 
 .home-copy {
-  @apply max-w-none text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-.home-copy--note {
-  @apply italic;
-}
-
-.home-label--ink {
-  @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.home-label--accent {
-  @apply text-clr-action-text dark:text-clr-darkmode-action-text;
-}
-
-.home-label--muted {
-  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
+  @apply max-w-none;
 }
 
 
@@ -98,11 +77,11 @@ Hero
 }
 
 .home-hero-title {
-  @apply mt-4 mb-0 text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply mt-4 mb-0;
 }
 
 .home-hero-subtitle {
-  @apply mx-auto mt-[0.5rem] text-clr-text-light dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mx-0 lg:mt-4;
+  @apply mx-auto mt-[0.5rem] md:mt-[0.3rem] lg:mx-0 lg:mt-4;
 }
 
 .home-hero-actions {
@@ -127,8 +106,8 @@ Problem / Value
   @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 transition-colors duration-300 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:hover:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8 hover:bg-clr-surface-page;
 }
 
-@media (min-width: theme(--breakpoint-md)) {
-  .home-problem-card:last-child {
+.home-problem-card:last-child {
+  @media (min-width: theme(--breakpoint-md)) {
     border-right: 0;
   }
 }
@@ -161,7 +140,7 @@ Problem / Value
 }
 
 .home-problem-title {
-  @apply mt-1 text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply mt-1;
 }
 
 /*
@@ -178,12 +157,14 @@ Benefits
   @apply flex min-h-0 flex-col justify-between border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 transition-colors duration-300 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:hover:bg-clr-darkmode-surface-low md:min-h-[17rem] md:border-b md:border-r md:px-8 md:py-8 hover:bg-clr-surface-page;
 }
 
-@media (min-width: theme(--breakpoint-md)) {
-  .home-benefit-card:nth-child(3n) {
+.home-benefit-card:nth-child(3n) {
+  @media (min-width: theme(--breakpoint-md)) {
     border-right: 0;
   }
+}
 
-  .home-benefit-card:nth-last-child(-n + 3) {
+.home-benefit-card:nth-last-child(-n + 3) {
+  @media (min-width: theme(--breakpoint-md)) {
     border-bottom: 0;
   }
 }
@@ -207,7 +188,7 @@ Benefits
 }
 
 .home-benefit-title {
-  @apply mt-1 text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply mt-1;
 }
 
 .home-benefit-trail {
@@ -277,7 +258,7 @@ Features
 }
 
 .home-feature-heading {
-  @apply m-0 text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply m-0;
 }
 
 .home-feature-items {
@@ -293,7 +274,6 @@ Features
 }
 
 .home-feature-index {
-  @apply text-clr-primary dark:text-clr-darkmode-primary;
 }
 
 .home-feature-item-copy {
@@ -366,7 +346,6 @@ Preview Support
 }
 
 .home-preview-label {
-  @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-preview-detail {

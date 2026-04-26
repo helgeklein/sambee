@@ -5,12 +5,12 @@
   <div class="grid gap-0 md:grid-cols-3">
     {{ range $section.items }}
     <article class="home-problem-card">
-      <div class="eyebrow-icon-row home-problem-row home-problem-row--{{ .id }}">
+      <div class="eyebrow-row home-problem-row home-problem-row--{{ .id }}">
         <span class="home-problem-icon" aria-hidden="true"><span class="material-symbols-outlined home-problem-symbol h-5 w-5">{{ .icon | default "apps" }}</span></span>
-        <span class="eyebrow eyebrow--strong eyebrow--icon-label home-problem-eyebrow">{{ .eyebrow }}</span>
+        <span class="type-eyebrow type-eyebrow-strong eyebrow-inline home-problem-eyebrow">{{ .eyebrow }}</span>
       </div>
-      <h3 class="home-problem-title type-editorial-md">{{ .title }}</h3>
-      <p class="home-copy type-copy-relaxed">{{ .body }}</p>
+      <h3 class="home-problem-title type-editorial-md type-color-ink">{{ .title }}</h3>
+      <p class="home-copy type-copy-relaxed type-color-muted">{{ .body }}</p>
     </article>
     {{ end }}
   </div>

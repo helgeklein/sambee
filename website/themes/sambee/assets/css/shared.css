@@ -13,41 +13,27 @@ Layout Shells
   --eyebrow-md-letter-spacing: 0.18em;
   --eyebrow-xl-letter-spacing: 0.22em;
   @apply flex-1 pb-12;
+
+  @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
+    @apply pb-8;
+  }
 }
 
 .ledger-shell,
 .shell-section,
 .site-frame {
   @apply mx-auto w-full;
-}
 
-@media (min-width: theme(--breakpoint-sm)) {
-  .ledger-shell,
-  .shell-section,
-  .site-frame {
+  @media (min-width: theme(--breakpoint-sm)) {
     max-width: 540px;
   }
-}
 
-@media (min-width: theme(--breakpoint-md)) {
-  .ledger-shell,
-  .shell-section,
-  .site-frame {
+  @media (min-width: theme(--breakpoint-md)) {
     max-width: 900px;
   }
-}
 
-@media (min-width: theme(--breakpoint-lg)) {
-  .ledger-shell,
-  .shell-section,
-  .site-frame {
+  @media (min-width: theme(--breakpoint-lg)) {
     max-width: 1131px;
-  }
-}
-
-@media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
-  .site-main {
-    @apply pb-8;
   }
 }
 
@@ -60,41 +46,56 @@ Layout Shells
   @apply px-5 md:px-8;
 }
 
-.eyebrow {
-  display: inline-flex;
-  font-family: var(--eyebrow-font-family);
-  font-size: var(--font-size-label-sm);
-  font-weight: var(--eyebrow-font-weight-normal);
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--color-clr-action-text);
-  letter-spacing: var(--eyebrow-xl-letter-spacing);
-}
+/*
+==============================
+Eyebrow Helpers
+==============================
+*/
 
-.eyebrow--stacked {
+.eyebrow-stack {
   margin-bottom: 1rem;
 }
 
-.eyebrow--strong {
-  font-weight: var(--eyebrow-font-weight-strong);
-  letter-spacing: var(--eyebrow-md-letter-spacing);
-}
-
-.eyebrow--icon-label {
-  display: inline-flex;
+.eyebrow-inline {
   align-items: center;
   min-height: 1.25rem;
   line-height: 1;
 }
 
-.eyebrow-icon-row {
+.eyebrow-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
-.dark .eyebrow {
-  color: var(--color-clr-darkmode-action-text);
+/*
+==============================
+Type Colors
+==============================
+*/
+
+.type-color-accent {
+  color: var(--color-clr-action-text);
+
+  .dark & {
+    color: var(--color-clr-darkmode-action-text);
+  }
+}
+
+.type-color-ink {
+  color: var(--color-clr-text-dark);
+
+  .dark & {
+    color: var(--color-clr-darkmode-text-dark);
+  }
+}
+
+.type-color-muted {
+  color: var(--color-clr-text-light);
+
+  .dark & {
+    color: var(--color-clr-darkmode-text-light);
+  }
 }
 
 /*
@@ -102,6 +103,21 @@ Layout Shells
 Type Styles
 ==============================
 */
+
+.type-eyebrow {
+  display: inline-flex;
+  font-family: var(--eyebrow-font-family);
+  font-size: var(--font-size-label-sm);
+  font-weight: var(--eyebrow-font-weight-normal);
+  letter-spacing: var(--eyebrow-xl-letter-spacing);
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.type-eyebrow-strong {
+  font-weight: var(--eyebrow-font-weight-strong);
+  letter-spacing: var(--eyebrow-md-letter-spacing);
+}
 
 .type-section-title {
   font-family: var(--font-secondary);
@@ -172,16 +188,12 @@ Type Styles
   font-style: normal;
   letter-spacing: var(--tracking-tight);
   line-height: var(--line-height-heading-tight);
-}
 
-@media (min-width: theme(--breakpoint-md)) {
-  .type-display-hero {
+  @media (min-width: theme(--breakpoint-md)) {
     font-size: 3.55rem;
   }
-}
 
-@media (min-width: theme(--breakpoint-lg)) {
-  .type-display-hero {
+  @media (min-width: theme(--breakpoint-lg)) {
     font-size: var(--text-7xl);
   }
 }
@@ -281,14 +293,12 @@ Cards And Panels
   @apply border-t-0 border-l-0 p-6 transition-colors duration-200 hover:bg-clr-surface-low dark:hover:bg-clr-darkmode-surface-low;
 }
 
-@media (min-width: theme(--breakpoint-md)) {
-  .ledger-card:last-child {
+.ledger-card:last-child {
+  @media (min-width: theme(--breakpoint-md)) {
     @apply border-r;
   }
-}
 
-@media (min-width: theme(--breakpoint-xl)) {
-  .ledger-card:last-child {
+  @media (min-width: theme(--breakpoint-xl)) {
     @apply border-r-0;
   }
 }
@@ -300,16 +310,6 @@ Cards And Panels
 
 .ledger-card p {
   @apply my-0 text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-/*
-==============================
-Chips And Status Labels
-==============================
-*/
-
-.ledger-chip {
-  @apply inline-flex items-center border border-clr-rule-strong bg-clr-surface-low px-3 py-1 text-sm font-tertiary uppercase tracking-[0.14em] dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
 }
 
 /*
@@ -349,10 +349,6 @@ Ledger Grid Helpers
 
 .ledger-cell-grid-3 {
   @apply md:grid-cols-2 xl:grid-cols-3;
-}
-
-.ledger-stamp {
-  @apply inline-flex items-center border-2 border-clr-primary bg-clr-action-fill px-4 py-2 font-tertiary text-xs uppercase tracking-[0.18em] text-clr-action-fill-text dark:border-clr-darkmode-primary dark:bg-clr-darkmode-action-fill dark:text-clr-darkmode-action-fill-text;
 }
 
 .ledger-band {

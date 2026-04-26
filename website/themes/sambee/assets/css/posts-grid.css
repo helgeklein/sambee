@@ -40,10 +40,8 @@ Featured Post Layout
   .post-latest {
     display: none;
   }
-}
 
-@media (min-width: theme(--breakpoint-md)) {
-  .posts-grid__featured {
+  @media (min-width: theme(--breakpoint-md)) {
     .featured-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);

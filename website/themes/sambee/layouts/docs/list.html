@@ -9,7 +9,7 @@
 {{ if and (not .Params.product_version) (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="eyebrow eyebrow--stacked">Documentation</span>
+    <span class="type-eyebrow type-color-accent eyebrow-stack">Documentation</span>
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
@@ -35,7 +35,7 @@
 {{ else if and .Params.product_version (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="eyebrow eyebrow--stacked">Version {{ .Params.product_version }}</span>
+    <span class="type-eyebrow type-color-accent eyebrow-stack">Version {{ .Params.product_version }}</span>
     <h1>{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
