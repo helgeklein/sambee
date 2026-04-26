@@ -50,18 +50,6 @@ Header Controls
    @apply h-8 w-8 md:h-10 md:w-10;
 }
 
-.nav-brand-box {
-   @apply flex h-12 w-12 items-center justify-center border border-clr-rule-strong bg-clr-surface-low px-2 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
-}
-
-.nav-brand-logo-link {
-   @apply block flex h-full w-full items-center justify-center text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.nav-brand-meta {
-   @apply hidden lg:flex lg:flex-col lg:gap-0.5;
-}
-
 .nav-brand-title {
    @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }

@@ -410,73 +410,16 @@ Type Styles
 Cards And Panels
 ==============================
 */
-.hero-copy,
-.hero-card {
-  @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
-}
-
-.ledger-panel-body,
-.hero-copy,
-.hero-card {
-  @apply p-6 lg:p-8;
-}
-
-.ledger-panel-muted,
-.hero-card {
-  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
-}
-
-.ledger-panel-high {
-  @apply bg-clr-surface-high dark:bg-clr-darkmode-surface-high;
-}
-
-.ledger-panel-ink,
-.ledger-band {
-  @apply bg-clr-surface-inverse text-white dark:bg-clr-darkmode-surface-inverse dark:text-clr-darkmode-surface-page;
-}
-
 .hero {
   @apply border-b-2 border-clr-rule-strong py-0 dark:border-clr-darkmode-rule-strong;
-}
-
-.hero-card {
-  @apply border-l-0 lg:min-h-full;
 }
 
 .lede {
   @apply max-w-3xl text-lg text-clr-text-light dark:text-clr-darkmode-text;
 }
 
-.button-row,
 .ledger-actions {
   @apply mt-8 flex flex-wrap gap-3;
-}
-
-.ledger-cards {
-  @apply grid gap-0 border-t border-clr-rule-soft md:grid-cols-2 xl:grid-cols-3 dark:border-clr-darkmode-rule-soft;
-}
-
-.ledger-card {
-  @apply border-t-0 border-l-0 p-6 transition-colors duration-200 hover:bg-clr-surface-low dark:hover:bg-clr-darkmode-surface-low;
-}
-
-.ledger-card:last-child {
-  @media (min-width: theme(--breakpoint-md)) {
-    @apply border-r;
-  }
-
-  @media (min-width: theme(--breakpoint-xl)) {
-    @apply border-r-0;
-  }
-}
-
-.ledger-card h2,
-.ledger-card h3 {
-  @apply mb-3;
-}
-
-.ledger-card p {
-  @apply my-0 text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 /*
@@ -484,61 +427,6 @@ Cards And Panels
 Ledger Grid Helpers
 ==============================
 */
-
-.ledger-cell {
-  @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
-}
-
-.ledger-cell-muted {
-  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
-}
-
-.ledger-cell-high {
-  @apply bg-clr-surface-high dark:bg-clr-darkmode-surface-high;
-}
-
-.ledger-cell-body {
-  @apply p-6 lg:p-8;
-}
-
-.ledger-cell-grid {
-  @apply grid gap-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
-}
-
-.ledger-cell-grid > .ledger-cell,
-.ledger-cell-grid > .ledger-panel {
-  @apply border-t-0 border-l-0;
-}
-
-.ledger-cell-grid-2 {
-  @apply md:grid-cols-2;
-}
-
-.ledger-cell-grid-3 {
-  @apply md:grid-cols-2 xl:grid-cols-3;
-}
-
-.ledger-band {
-  @apply border-y-2 border-clr-rule-strong px-6 py-10 dark:border-clr-darkmode-rule-strong;
-}
-
-.ledger-matrix {
-  @apply overflow-x-auto border border-clr-rule-strong bg-clr-surface-base dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-base;
-}
-
-.ledger-matrix table {
-  @apply w-full border-collapse;
-}
-
-.ledger-matrix th,
-.ledger-matrix td {
-  @apply border border-clr-rule-soft px-4 py-3 text-left dark:border-clr-darkmode-rule-soft;
-}
-
-.ledger-matrix th {
-  font-size: var(--font-size-label-sm);
-  @apply bg-clr-surface-high font-tertiary uppercase tracking-[0.16em] dark:bg-clr-darkmode-surface-high;
-}
 
 .ledger-meta {
   font-size: var(--font-size-label-sm);
