@@ -93,17 +93,15 @@
         {{ end }}
         {{ $sectionChildrenId := printf "%s-%s" $bookChildrenId (.title | urlize) }}
         <section class="docs-nav-group">
-          <div class="docs-nav-group-row">
-            <strong>{{ .title }}</strong>
-            <button
-              type="button"
-              class="docs-sidebar-toggle docs-sidebar-toggle--nested"
-              aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
-              aria-controls="{{ $sectionChildrenId }}"
-              aria-label="Toggle {{ .title }} pages">
-              {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
-            </button>
-          </div>
+          <button
+            type="button"
+            class="docs-sidebar-toggle docs-nav-group-toggle"
+            aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
+            aria-controls="{{ $sectionChildrenId }}"
+            aria-label="Toggle {{ .title }} pages">
+            <span class="docs-nav-group-label">{{ .title }}</span>
+            {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
+          </button>
           <ul id="{{ $sectionChildrenId }}" class="docs-nav-list"{{ if not $isCurrentSection }} hidden{{ end }}>
             {{ range $sectionPages }}
               {{ $isCurrentPage := eq .RelPermalink $.RelPermalink }}

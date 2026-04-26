@@ -437,12 +437,12 @@ a.docs-sidebar-version-option:focus-visible {
   @apply mt-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
 }
 
-.docs-nav-group-row {
-  @apply flex items-stretch;
+.docs-nav-group-toggle {
+  @apply flex w-full items-center justify-between gap-3 bg-transparent px-5 pt-4 pb-2 text-left text-clr-action-text transition-colors duration-150 hover:text-clr-primary dark:text-clr-darkmode-action-text dark:hover:text-clr-darkmode-primary md:px-6;
 }
 
-.docs-nav-group strong {
-  @apply block min-w-0 flex-1 px-5 pt-4 pb-2 text-[0.68rem] font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text dark:text-clr-darkmode-action-text md:px-6;
+.docs-nav-group-label {
+  @apply block min-w-0 flex-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em];
 }
 
 .docs-nav-list {
