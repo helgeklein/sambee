@@ -142,8 +142,7 @@ Hero
 }
 
 .home-hero-kicker {
-  font-size: var(--font-size-label-xs);
-  @apply inline-flex items-center justify-center gap-3 text-clr-primary dark:text-clr-darkmode-primary md:text-xs lg:justify-start;
+  @apply inline-flex items-center justify-center gap-3 lg:justify-start;
 }
 
 .home-hero-kicker-rule {
@@ -212,7 +211,6 @@ Problem / Value
 .home-problem-eyebrow {
   margin-bottom: 0;
   color: inherit;
-  letter-spacing: var(--home-label-wide-letter-spacing);
 }
 
 .home-problem-title {
@@ -249,10 +247,6 @@ Benefits
 
 .home-benefit-header-row {
   @apply flex items-start justify-between gap-6;
-}
-
-.home-benefit-marker {
-  @apply text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
 .home-benefit-icon {
@@ -391,7 +385,7 @@ Preview Support
 }
 
 .home-preview-group-header {
-  @apply mb-3 flex items-start justify-between gap-4 border-b border-clr-rule-soft pb-0 dark:border-clr-darkmode-rule-soft;
+  @apply mb-3 flex items-end justify-between gap-4 border-b border-clr-rule-soft pb-2 dark:border-clr-darkmode-rule-soft;
 }
 
 .home-preview-group-title {
@@ -401,7 +395,7 @@ Preview Support
 }
 
 .home-preview-group-icon {
-  @apply flex h-8 w-8 shrink-0 items-start justify-center text-clr-action-text/75 dark:text-clr-darkmode-action-text/75;
+  @apply flex h-8 w-8 shrink-0 items-end justify-center text-clr-action-text/75 dark:text-clr-darkmode-action-text/75;
 }
 
 .home-preview-group-symbol {

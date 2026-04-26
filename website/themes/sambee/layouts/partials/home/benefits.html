@@ -11,7 +11,7 @@
     <article class="home-benefit-card group">
       <div class="home-benefit-body">
         <div class="home-benefit-header-row">
-          <span class="home-benefit-marker home-label home-label--marker home-label--accent">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
+          <span class="eyebrow eyebrow--strong">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
           <span class="home-benefit-icon" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
         </div>
         <h3 class="home-benefit-title home-title--card">{{ $item.title }}</h3>
