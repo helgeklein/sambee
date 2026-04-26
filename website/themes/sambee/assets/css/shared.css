@@ -53,10 +53,12 @@ Eyebrow Helpers
 */
 
 .eyebrow-stack {
+  display: block;
   margin-bottom: 1rem;
 }
 
 .eyebrow-inline {
+  display: inline-flex;
   align-items: center;
   min-height: 1.25rem;
   line-height: 1;
@@ -274,7 +276,6 @@ Type Styles
 */
 
 .type-eyebrow {
-  display: inline-flex;
   font-family: var(--eyebrow-font-family);
   font-size: var(--font-size-label-sm);
   font-weight: var(--eyebrow-font-weight-normal);
@@ -316,6 +317,13 @@ Type Styles
   text-transform: uppercase;
 }
 
+.type-label-xs {
+  font-size: var(--font-size-label-xs);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  line-height: inherit;
+}
+
 .type-label-sm {
   font-size: var(--font-size-label-sm);
   font-weight: 400;
@@ -329,25 +337,20 @@ Type Styles
   line-height: inherit;
 }
 
-.type-label-meta {
-  font-size: var(--font-size-label-xs);
-  font-weight: 400;
-  letter-spacing: 0.1em;
-  line-height: inherit;
-}
-
-.type-label-detail {
-  font-size: var(--font-size-copy-sm);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  line-height: var(--line-height-heading-tight);
-}
-
 .type-label-medium {
   font-size: var(--font-size-label-sm);
   font-weight: 500;
   letter-spacing: 0.1em;
   line-height: inherit;
+}
+
+.type-list-item-title {
+  font-family: var(--font-tertiary);
+  text-transform: uppercase;
+  font-size: var(--font-size-copy-sm);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: var(--line-height-heading-tight);
 }
 
 .type-display-hero {
@@ -400,11 +403,6 @@ Type Styles
   font-style: normal;
   letter-spacing: normal;
   line-height: var(--line-height-heading-tight);
-}
-
-.ledger-shell + .ledger-shell:not(.home-section),
-.shell-section + .shell-section:not(.home-section) {
-  @apply border-t-0;
 }
 
 /*
