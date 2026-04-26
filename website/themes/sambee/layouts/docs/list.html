@@ -20,11 +20,11 @@
     <article class="docs-index-item">
       <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">
         <div class="docs-index-body">
-          <span class="docs-index-kicker">Version {{ $currentVersion }}</span>
-          <h2 class="docs-index-title">{{ .title }}</h2>
-          <p class="docs-index-summary">{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+          <span class="docs-index-kicker type-color-accent">Version {{ $currentVersion }}</span>
+          <h2 class="docs-index-title type-color-ink">{{ .title }}</h2>
+          <p class="docs-index-summary type-color-muted">{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
         </div>
-        <span class="docs-index-arrow material-symbols-outlined" aria-hidden="true">chevron_right</span>
+        <span class="docs-index-arrow material-symbols-outlined ui-color-rule" aria-hidden="true">chevron_right</span>
       </a>
     </article>
     {{ end }}
@@ -47,11 +47,11 @@
     <article class="docs-index-item">
       <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">
         <div class="docs-index-body">
-          <span class="docs-index-kicker">Book</span>
-          <h2 class="docs-index-title">{{ .title }}</h2>
-          <p class="docs-index-summary">Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+          <span class="docs-index-kicker type-color-accent">Book</span>
+          <h2 class="docs-index-title type-color-ink">{{ .title }}</h2>
+          <p class="docs-index-summary type-color-muted">Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
         </div>
-        <span class="docs-index-arrow material-symbols-outlined" aria-hidden="true">chevron_right</span>
+        <span class="docs-index-arrow material-symbols-outlined ui-color-rule" aria-hidden="true">chevron_right</span>
       </a>
     </article>
     {{ end }}

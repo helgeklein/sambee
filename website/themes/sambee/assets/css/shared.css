@@ -90,6 +90,14 @@ UI Colors
   }
 }
 
+.ui-color-rule {
+  color: var(--color-clr-rule-strong);
+
+  .dark & {
+    color: var(--color-clr-darkmode-rule-strong);
+  }
+}
+
 .ui-bg-primary {
   background-color: var(--color-clr-primary);
 
@@ -106,6 +114,30 @@ UI Colors
   }
 }
 
+.ui-bg-rule {
+  background-color: var(--color-clr-rule-strong);
+
+  .dark & {
+    background-color: var(--color-clr-darkmode-rule-strong);
+  }
+}
+
+.ui-bg-surface-low {
+  background-color: var(--color-clr-surface-low);
+
+  .dark & {
+    background-color: var(--color-clr-darkmode-surface-low);
+  }
+}
+
+.ui-bg-surface-mid {
+  background-color: var(--color-clr-surface-mid);
+
+  .dark & {
+    background-color: var(--color-clr-darkmode-surface-mid);
+  }
+}
+
 /*
 ==============================
 UI Helpers
@@ -119,6 +151,90 @@ UI Helpers
 .ui-list-dot-item::before {
   content: "";
   @apply absolute left-0 top-[0.4rem] block h-1.5 w-1.5 bg-current;
+}
+
+.ui-transition-color {
+  @apply transition-colors duration-150;
+}
+
+.ui-hover-surface-base {
+  &:hover,
+  &:focus-visible {
+    background-color: var(--color-clr-surface-base);
+  }
+
+  .dark &:hover,
+  .dark &:focus-visible {
+    background-color: var(--color-clr-darkmode-surface-base);
+  }
+}
+
+.ui-hover-surface-low {
+  &:hover,
+  &:focus-visible {
+    background-color: var(--color-clr-surface-low);
+  }
+
+  .dark &:hover,
+  .dark &:focus-visible {
+    background-color: var(--color-clr-darkmode-surface-low);
+  }
+}
+
+.ui-hover-surface-mid {
+  &:hover,
+  &:focus-visible {
+    background-color: var(--color-clr-surface-mid);
+  }
+
+  .dark &:hover,
+  .dark &:focus-visible {
+    background-color: var(--color-clr-darkmode-surface-mid);
+  }
+}
+
+.ui-current-primary-inset {
+  box-shadow: inset 2px 0 0 var(--color-clr-primary);
+
+  .dark & {
+    box-shadow: inset 2px 0 0 var(--color-clr-darkmode-primary);
+  }
+}
+
+.type-hover-accent {
+  &:hover,
+  &:focus-visible {
+    color: var(--color-clr-action-text);
+  }
+
+  .dark &:hover,
+  .dark &:focus-visible {
+    color: var(--color-clr-darkmode-action-text);
+  }
+}
+
+.type-hover-ink {
+  &:hover,
+  &:focus-visible {
+    color: var(--color-clr-text-dark);
+  }
+
+  .dark &:hover,
+  .dark &:focus-visible {
+    color: var(--color-clr-darkmode-text-dark);
+  }
+}
+
+.ui-hover-primary {
+  &:hover,
+  &:focus-visible {
+    color: var(--color-clr-primary);
+  }
+
+  .dark &:hover,
+  .dark &:focus-visible {
+    color: var(--color-clr-darkmode-primary);
+  }
 }
 
 /*
