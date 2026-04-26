@@ -60,6 +60,7 @@ html.scroll-smooth {
 body {
   /* Keep the footer pinned to the bottom on short pages. */
   @apply flex flex-col min-h-screen;
+  min-height: 100dvh;
   @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
   @apply text-clr-text dark:text-clr-darkmode-text;
   @apply text-size-base font-primary font-normal;

@@ -10,7 +10,7 @@ Layout Shells
   --eyebrow-font-weight-normal: 400;
   --eyebrow-font-weight-strong: 700;
   --eyebrow-rule-thickness: 2px;
-  @apply pb-12;
+  @apply flex-1 pb-12;
 }
 
 .ledger-shell,
