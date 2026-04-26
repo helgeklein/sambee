@@ -21,7 +21,7 @@
         {{ with $section.bullets }}
         <ul class="home-companion-list" aria-label="Companion capabilities">
           {{ range $bullet := . }}
-          <li class="home-companion-item home-label home-label--medium home-label--ink home-label--list">{{ $bullet }}</li>
+          <li class="home-companion-item home-label home-label--ink">{{ $bullet }}</li>
           {{ end }}
         </ul>
         {{ end }}

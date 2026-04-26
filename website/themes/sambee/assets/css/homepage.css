@@ -16,6 +16,8 @@ Section Chrome
   --home-copy-font-size: var(--font-size-copy-base);
   --home-copy-font-weight: 400;
   --home-copy-line-height: 1.625rem;
+  --home-label-regular-letter-spacing: 0.1em;
+  --home-label-wide-letter-spacing: 0.18em;
   @apply pb-0;
 }
 
@@ -103,42 +105,26 @@ Shared Typography
   @apply text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
-.home-label--medium {
-  @apply font-medium;
-}
-
-.home-label--bold {
-  @apply font-bold;
-}
-
-.home-label--xs {
-  font-size: var(--font-size-label-xs);
-  @apply tracking-[0.18em];
-}
-
 .home-label--sm {
   font-size: var(--font-size-label-sm);
-  @apply tracking-[0.16em];
+  letter-spacing: var(--home-label-regular-letter-spacing);
 }
 
 .home-label--marker {
   font-size: var(--font-size-label-sm);
-  @apply font-bold tracking-[0.18em];
+  @apply font-bold;
+  letter-spacing: var(--home-label-wide-letter-spacing);
 }
 
 .home-label--meta {
   font-size: var(--font-size-label-xs);
-  @apply tracking-[0.1em];
+  letter-spacing: var(--home-label-regular-letter-spacing);
 }
 
 .home-label--detail {
   font-size: var(--font-size-copy-sm);
-  @apply leading-tight tracking-[0.08em];
-}
-
-.home-label--list {
-  font-size: 0.72rem;
-  @apply leading-[1.65] tracking-[0.12em] md:text-[0.78rem] md:tracking-[0.14em];
+  @apply leading-tight;
+  letter-spacing: var(--home-label-regular-letter-spacing);
 }
 
 /*
@@ -226,6 +212,7 @@ Problem / Value
 .home-problem-eyebrow {
   margin-bottom: 0;
   color: inherit;
+  letter-spacing: var(--home-label-wide-letter-spacing);
 }
 
 .home-problem-title {
@@ -383,11 +370,6 @@ Preview Support
 ==============================
 */
 
-.home-preview-link {
-  font-size: var(--font-size-label-sm);
-  @apply inline-flex items-center gap-1 font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
-}
-
 .home-preview-body {
   @apply bg-clr-surface-low py-8 dark:bg-clr-darkmode-surface-low md:py-10;
 }
@@ -413,7 +395,9 @@ Preview Support
 }
 
 .home-preview-group-title {
-  @apply m-0;
+  font-size: var(--font-size-label-sm);
+  letter-spacing: var(--home-label-wide-letter-spacing);
+  @apply m-0 font-tertiary font-bold uppercase;
 }
 
 .home-preview-group-icon {
@@ -498,7 +482,10 @@ Companion
 }
 
 .home-companion-item {
+  font-size: var(--font-size-label-sm);
+  letter-spacing: var(--home-label-regular-letter-spacing);
   @apply relative pl-5;
+  @apply font-medium;
 }
 
 .home-companion-item::before {

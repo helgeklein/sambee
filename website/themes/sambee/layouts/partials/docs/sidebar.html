@@ -17,7 +17,7 @@
               {{ if eq .slug $version }}v{{ .label | default .slug }}{{ end }}
             {{ end }}
           </span>
-          <span class="docs-sidebar-version-icon material-symbols-outlined" aria-hidden="true">unfold_more</span>
+          {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-version-icon") }}
         </summary>
         <div class="docs-sidebar-version-menu" aria-label="Documentation versions">
           {{ range $docsVersions }}

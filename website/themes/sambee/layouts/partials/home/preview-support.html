@@ -16,7 +16,7 @@
       {{ $groupId := printf "preview-group-%s" (anchorize $group.title) }}
       <article class="home-preview-group group" aria-labelledby="{{ $groupId }}">
         <div class="home-preview-group-header">
-          <h3 class="home-preview-group-title home-label home-label--marker home-label--accent" id="{{ $groupId }}">{{ printf "%02d // %s" (add $index 1) $group.title }}</h3>
+          <h3 class="home-preview-group-title home-label--accent" id="{{ $groupId }}">{{ printf "%02d // %s" (add $index 1) $group.title }}</h3>
           <span class="home-preview-group-icon" aria-hidden="true">
             <span class="material-symbols-outlined home-preview-group-symbol">{{ $group.icon | default "draft" }}</span>
           </span>
@@ -37,7 +37,7 @@
    {{ with $section.supporting_link }}
    {{/* Optional supporting link points to broader format coverage without changing the core grid. */}}
    <div class="home-preview-actions">
-      <a class="home-preview-link" href="{{ .href }}">{{ .label }}</a>
+      <a class="home-label home-label--accent home-label--marker" href="{{ .href }}">{{ .label }}</a>
    </div>
    {{ end }}
   </div>

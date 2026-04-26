@@ -330,11 +330,10 @@ Documentation Navigation
 }
 
 .docs-sidebar-version-icon {
-  font-size: 0.875rem;
-  line-height: 1;
+  @apply h-4 w-4 shrink-0 fill-current;
   color: var(--color-clr-rule-strong);
   transition: transform 150ms ease;
-  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 20;
+  transform: rotate(90deg);
 }
 
 .dark .docs-sidebar-version-icon {
@@ -342,7 +341,7 @@ Documentation Navigation
 }
 
 .docs-sidebar-version-control[open] .docs-sidebar-version-icon {
-  transform: rotate(180deg);
+  transform: rotate(-90deg);
 }
 
 .docs-sidebar-version-menu {
@@ -386,7 +385,7 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-title {
-  @apply flex min-w-0 flex-1 items-center gap-3 bg-clr-surface-page px-5 py-5 font-secondary text-[1.25rem] font-bold italic text-clr-text-dark no-underline transition-colors duration-150 dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark md:px-6;
+  @apply flex min-w-0 flex-1 items-center gap-3 bg-clr-surface-page px-5 py-5 font-secondary text-[1.125rem] font-bold text-clr-text-dark no-underline transition-colors duration-150 dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark md:px-6;
 }
 
 .docs-sidebar-title-current {
@@ -442,7 +441,7 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-nav-group-label {
-  @apply block min-w-0 flex-1 font-tertiary text-[0.68rem] font-bold uppercase tracking-[0.18em];
+  @apply block min-w-0 flex-1 font-tertiary text-[0.75rem] font-bold uppercase tracking-[0.08em];
 }
 
 .docs-nav-list {

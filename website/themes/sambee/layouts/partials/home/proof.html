@@ -14,8 +14,8 @@
       <div class="home-proof-items" aria-label="Environment fit proof points">
         {{ range $section.items }}
         <article class="home-proof-item">
-          <span class="home-label home-label--sm home-label--accent home-proof-category">{{ .category }}</span>
-          <strong class="home-label home-label--ink home-proof-label">{{ .label }}</strong>
+          <span class="home-proof-category home-label home-label--sm home-label--accent">{{ .category }}</span>
+          <strong class="home-label home-label--ink">{{ .label }}</strong>
         </article>
         {{ end }}
       </div>
