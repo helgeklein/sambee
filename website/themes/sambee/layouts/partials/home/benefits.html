@@ -4,7 +4,7 @@
 <section class="shell-section ledger-shell home-section" id="features-overview">
   <div class="home-section-header site-gutter">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
+    <h2 class="home-section-title type-editorial-italic type-section-title">{{ $section.title }}</h2>
   </div>
   <div class="home-benefits-grid">
     {{ range $item := $section.items }}
@@ -14,8 +14,8 @@
           <span class="eyebrow eyebrow--strong">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
           <span class="home-benefit-icon" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
         </div>
-        <h3 class="home-benefit-title home-title--card">{{ $item.title }}</h3>
-        <p class="home-copy">{{ $item.body }}</p>
+        <h3 class="home-benefit-title type-editorial-md-tight">{{ $item.title }}</h3>
+        <p class="home-copy type-copy-relaxed">{{ $item.body }}</p>
       </div>
       <div class="home-benefit-trail" aria-hidden="true">
         <span class="home-benefit-trail-line home-benefit-trail-line--long"></span><span class="home-benefit-trail-line home-benefit-trail-line--short"></span>

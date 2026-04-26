@@ -4,11 +4,11 @@
 <section class="shell-section ledger-shell home-section" id="preview-support">
   <div class="home-section-header site-gutter">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
+    <h2 class="home-section-title type-editorial-italic type-section-title">{{ $section.title }}</h2>
   </div>
   <div class="home-preview-body site-gutter">
     <div class="home-preview-intro">
-      <p class="home-copy">{{ $section.body }}</p>
+      <p class="home-copy type-copy-relaxed">{{ $section.body }}</p>
     </div>
     <div class="home-preview-groups" aria-label="Preview-supported file types">
     {{/* Grouped preview data keeps the coverage list readable as format support grows. */}}
@@ -16,7 +16,7 @@
       {{ $groupId := printf "preview-group-%s" (anchorize $group.title) }}
       <article class="home-preview-group group" aria-labelledby="{{ $groupId }}">
         <div class="home-preview-group-header">
-          <h3 class="home-preview-group-title home-label--accent" id="{{ $groupId }}">{{ printf "%02d // %s" (add $index 1) $group.title }}</h3>
+          <h3 class="home-preview-group-title type-label type-label-strong home-label--accent" id="{{ $groupId }}">{{ printf "%02d // %s" (add $index 1) $group.title }}</h3>
           <span class="home-preview-group-icon" aria-hidden="true">
             <span class="material-symbols-outlined home-preview-group-symbol">{{ $group.icon | default "draft" }}</span>
           </span>
@@ -25,8 +25,8 @@
         {{ range $group.formats }}
           <li class="home-preview-item">
             <div class="home-preview-copy-block">
-              <span class="home-preview-label">{{ .label }}</span>
-              {{ with .detail }}<span class="home-preview-detail home-label home-label--muted home-label--meta">{{ . }}</span>{{ end }}
+              <span class="home-preview-label type-editorial-md-tight">{{ .label }}</span>
+              {{ with .detail }}<span class="home-preview-detail type-label type-label-meta home-label--muted">{{ . }}</span>{{ end }}
             </div>
           </li>
         {{ end }}
@@ -37,7 +37,7 @@
    {{ with $section.supporting_link }}
    {{/* Optional supporting link points to broader format coverage without changing the core grid. */}}
    <div class="home-preview-actions">
-      <a class="home-label home-label--accent home-label--marker" href="{{ .href }}">{{ .label }}</a>
+      <a class="type-label type-label-strong home-label--accent" href="{{ .href }}">{{ .label }}</a>
    </div>
    {{ end }}
   </div>

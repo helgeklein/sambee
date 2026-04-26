@@ -11,17 +11,17 @@
   <div class="site-gutter home-companion-copy">
     <div class="home-companion-intro">
       <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-      <h2 class="home-section-title home-section-title--standard home-companion-title">{{ $section.title }}</h2>
+      <h2 class="home-section-title type-editorial-italic type-section-title home-companion-title">{{ $section.title }}</h2>
     </div>
     <div class="home-companion-grid">
       <div class="home-companion-summary">
-        <p class="home-copy">{{ $section.body }}</p>
+        <p class="home-copy type-copy-relaxed">{{ $section.body }}</p>
       </div>
       <div class="home-companion-details">
         {{ with $section.bullets }}
         <ul class="home-companion-list" aria-label="Companion capabilities">
           {{ range $bullet := . }}
-          <li class="home-companion-item home-label home-label--ink">{{ $bullet }}</li>
+          <li class="home-companion-item type-label type-label-medium home-label--ink">{{ $bullet }}</li>
           {{ end }}
         </ul>
         {{ end }}

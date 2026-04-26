@@ -97,13 +97,138 @@ Layout Shells
   color: var(--color-clr-darkmode-action-text);
 }
 
-/* Newsreader editorial titles should use the real italic font face, not synthesized oblique. */
-.home-section-title,
-.home-title--card,
-.home-final-cta-title,
-.nav-brand-title--docs {
+/*
+==============================
+Type Styles
+==============================
+*/
+
+.type-editorial-italic {
   font-family: var(--font-secondary);
   font-style: italic;
+  font-weight: 700;
+  letter-spacing: normal;
+}
+
+.type-section-title {
+  font-size: var(--text-4xl);
+  line-height: var(--line-height-heading-tight);
+}
+
+@media (min-width: theme(--breakpoint-md)) {
+  .type-section-title {
+    font-size: var(--text-5xl);
+  }
+}
+
+.type-heading-h2 {
+  font-size: var(--text-size-h2);
+  line-height: 1.15;
+}
+
+.type-copy-relaxed {
+  font-family: var(--font-primary);
+  font-size: var(--font-size-copy-base);
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: 1.625rem;
+}
+
+.type-label {
+  font-family: var(--font-tertiary);
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.type-label-sm {
+  font-size: var(--font-size-label-sm);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+}
+
+.type-label-strong {
+  font-size: var(--font-size-label-sm);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: inherit;
+}
+
+.type-label-meta {
+  font-size: var(--font-size-label-xs);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  line-height: inherit;
+}
+
+.type-label-detail {
+  font-size: var(--font-size-copy-sm);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: var(--line-height-heading-tight);
+}
+
+.type-label-medium {
+  font-size: var(--font-size-label-sm);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  line-height: inherit;
+}
+
+.type-display-hero {
+  font-family: var(--font-secondary);
+  font-size: 2.85rem;
+  font-weight: 800;
+  font-style: normal;
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--line-height-heading-tight);
+}
+
+@media (min-width: theme(--breakpoint-md)) {
+  .type-display-hero {
+    font-size: 3.55rem;
+  }
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+  .type-display-hero {
+    font-size: var(--text-7xl);
+  }
+}
+
+.type-subtitle-hero {
+  font-family: var(--font-primary);
+  font-size: 1.6rem;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: -0.1rem;
+  line-height: var(--line-height-copy-base);
+}
+
+.type-editorial-md,
+.type-editorial-md-tight {
+  font-family: var(--font-secondary);
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: normal;
+}
+
+.type-editorial-md {
+  line-height: 1.2;
+}
+
+.type-editorial-md-tight {
+  line-height: var(--line-height-heading-tight);
+}
+
+.type-index {
+  font-family: var(--font-tertiary);
+  font-size: var(--font-size-copy-sm);
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: var(--line-height-heading-tight);
 }
 
 .ledger-shell + .ledger-shell:not(.home-section),

@@ -4,7 +4,7 @@
 <section class="shell-section ledger-shell home-section" id="{{ $section.id }}">
   <div class="home-section-header site-gutter">
     <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
+    <h2 class="home-section-title type-editorial-italic type-section-title">{{ $section.title }}</h2>
   </div>
   <div class="home-features-panel site-gutter">
     <div class="home-features-ledger">
@@ -15,10 +15,10 @@
           <div class="home-feature-summary">
             <div class="home-feature-heading-row">
               <span class="home-feature-icon" aria-hidden="true"><span class="material-symbols-outlined home-feature-symbol">{{ $group.icon | default "apps" }}</span></span>
-              <h3 class="home-feature-heading">{{ $group.title }}</h3>
+              <h3 class="home-feature-heading type-editorial-md-tight">{{ $group.title }}</h3>
             </div>
             {{ with $group.summary }}
-            <p class="home-copy">{{ . }}</p>
+            <p class="home-copy type-copy-relaxed">{{ . }}</p>
             {{ end }}
           </div>
           {{ with $group.items }}
@@ -26,10 +26,10 @@
             {{ range $item := . }}
             {{ $featureIndex = add $featureIndex 1 }}
             <li class="home-feature-item">
-              <span class="home-feature-index">{{ printf "%02d." $featureIndex }}</span>
+              <span class="home-feature-index type-index">{{ printf "%02d." $featureIndex }}</span>
               <div class="home-feature-item-copy">
-                <h4 class="home-feature-item-title home-label home-label--ink home-label--detail">{{ $item.title }}</h4>
-                <p class="home-copy">{{ $item.body }}</p>
+                <h4 class="home-feature-item-title type-label type-label-detail home-label--ink">{{ $item.title }}</h4>
+                <p class="home-copy type-copy-relaxed">{{ $item.body }}</p>
               </div>
             </li>
             {{ end }}

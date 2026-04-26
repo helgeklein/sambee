@@ -6,16 +6,16 @@
     <div class="home-proof-grid">
       <div class="home-proof-intro">
       <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-      <h2 class="home-section-title home-section-title--standard home-proof-title">{{ $section.title }}</h2>
-      <p class="home-copy">{{ $section.body }}</p>
+      <h2 class="home-section-title type-editorial-italic type-section-title home-proof-title">{{ $section.title }}</h2>
+      <p class="home-copy type-copy-relaxed">{{ $section.body }}</p>
       </div>
       <div class="home-proof-details">
       {{/* Evidence items stay deliberately terse so the supporting categories are scannable. */}}
       <div class="home-proof-items" aria-label="Environment fit proof points">
         {{ range $section.items }}
         <article class="home-proof-item">
-          <span class="home-proof-category home-label home-label--sm home-label--accent">{{ .category }}</span>
-          <strong class="home-label home-label--ink">{{ .label }}</strong>
+          <span class="home-proof-category type-label type-label-sm home-label--accent">{{ .category }}</span>
+          <strong class="type-label home-label--ink">{{ .label }}</strong>
         </article>
         {{ end }}
       </div>

@@ -70,10 +70,6 @@ Header Controls
    @apply font-tertiary text-[1rem] font-bold uppercase tracking-[0.005em] md:text-lg lg:text-[1.52rem] lg:tracking-[-0.015em];
 }
 
-.nav-brand-title--docs {
-   @apply text-xl font-bold leading-none;
-}
-
 .nav-brand-kicker {
    font-size: var(--font-size-label-xs);
    @apply font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;

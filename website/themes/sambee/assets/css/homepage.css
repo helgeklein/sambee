@@ -13,11 +13,6 @@ Section Chrome
 }
 
 .site-main--home {
-  --home-copy-font-size: var(--font-size-copy-base);
-  --home-copy-font-weight: 400;
-  --home-copy-line-height: 1.625rem;
-  --home-label-regular-letter-spacing: 0.1em;
-  --home-label-wide-letter-spacing: 0.18em;
   @apply pb-0;
 }
 
@@ -28,21 +23,7 @@ Section Chrome
 
 .home-section-title {
   margin: 0;
-  font-family: var(--font-secondary);
-  font-style: italic;
-  font-weight: 700;
   color: var(--color-clr-text-dark);
-}
-
-.home-section-title--standard {
-  font-size: var(--text-4xl);
-  line-height: var(--line-height-heading-tight);
-}
-
-@media (min-width: theme(--breakpoint-md)) {
-  .home-section-title--standard {
-    font-size: var(--text-5xl);
-  }
 }
 
 /* Pull adjacent sections together so the double rules collapse into a single divider. */
@@ -74,23 +55,11 @@ Shared Typography
 */
 
 .home-copy {
-  font-size: var(--home-copy-font-size);
-  font-weight: var(--home-copy-font-weight);
-  line-height: var(--home-copy-line-height);
   @apply max-w-none text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
 .home-copy--note {
   @apply italic;
-}
-
-.home-title--card {
-  @apply font-bold text-clr-text-dark dark:text-clr-darkmode-text-dark;
-  line-height: var(--line-height-heading-tight);
-}
-
-.home-label {
-  @apply font-tertiary uppercase;
 }
 
 .home-label--ink {
@@ -105,27 +74,6 @@ Shared Typography
   @apply text-clr-text-light dark:text-clr-darkmode-text-light;
 }
 
-.home-label--sm {
-  font-size: var(--font-size-label-sm);
-  letter-spacing: var(--home-label-regular-letter-spacing);
-}
-
-.home-label--marker {
-  font-size: var(--font-size-label-sm);
-  @apply font-bold;
-  letter-spacing: var(--home-label-wide-letter-spacing);
-}
-
-.home-label--meta {
-  font-size: var(--font-size-label-xs);
-  letter-spacing: var(--home-label-regular-letter-spacing);
-}
-
-.home-label--detail {
-  font-size: var(--font-size-copy-sm);
-  @apply leading-tight;
-  letter-spacing: var(--home-label-regular-letter-spacing);
-}
 
 /*
 ==============================
@@ -150,12 +98,11 @@ Hero
 }
 
 .home-hero-title {
-  @apply mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.55rem] lg:text-7xl;
-  line-height: var(--line-height-heading-tight);
+  @apply mt-4 mb-0 text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-hero-subtitle {
-  @apply mx-auto mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mx-0 lg:mt-4;
+  @apply mx-auto mt-[0.5rem] text-clr-text-light dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mx-0 lg:mt-4;
 }
 
 .home-hero-actions {
@@ -214,7 +161,7 @@ Problem / Value
 }
 
 .home-problem-title {
-  @apply mt-1 font-secondary text-[1.5rem] font-bold text-clr-text-dark not-italic dark:text-clr-darkmode-text-dark;
+  @apply mt-1 text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 /*
@@ -260,7 +207,7 @@ Benefits
 }
 
 .home-benefit-title {
-  @apply mt-1 font-secondary text-[1.5rem] font-bold not-italic;
+  @apply mt-1 text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-benefit-trail {
@@ -330,7 +277,7 @@ Features
 }
 
 .home-feature-heading {
-  @apply m-0 font-secondary text-[1.5rem] font-bold leading-tight text-clr-text-dark not-italic dark:text-clr-darkmode-text-dark;
+  @apply m-0 text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-feature-items {
@@ -346,8 +293,7 @@ Features
 }
 
 .home-feature-index {
-  font-size: var(--font-size-copy-sm);
-  @apply font-tertiary leading-tight text-clr-primary dark:text-clr-darkmode-primary;
+  @apply text-clr-primary dark:text-clr-darkmode-primary;
 }
 
 .home-feature-item-copy {
@@ -389,9 +335,7 @@ Preview Support
 }
 
 .home-preview-group-title {
-  font-size: var(--font-size-label-sm);
-  letter-spacing: var(--home-label-wide-letter-spacing);
-  @apply m-0 font-tertiary font-bold uppercase;
+  @apply m-0;
 }
 
 .home-preview-group-icon {
@@ -422,7 +366,7 @@ Preview Support
 }
 
 .home-preview-label {
-  @apply font-secondary text-[1.5rem] font-bold leading-tight text-clr-text-dark not-italic dark:text-clr-darkmode-text-dark;
+  @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
 }
 
 .home-preview-detail {
@@ -476,10 +420,7 @@ Companion
 }
 
 .home-companion-item {
-  font-size: var(--font-size-label-sm);
-  letter-spacing: var(--home-label-regular-letter-spacing);
   @apply relative pl-5;
-  @apply font-medium;
 }
 
 .home-companion-item::before {
