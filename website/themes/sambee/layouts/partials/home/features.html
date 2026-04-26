@@ -18,7 +18,7 @@
               <h3 class="home-feature-heading type-editorial-md-tight type-color-ink">{{ $group.title }}</h3>
             </div>
             {{ with $group.summary }}
-            <p class="home-copy type-copy-relaxed type-color-muted">{{ . }}</p>
+            <p class="type-copy-relaxed type-color-muted">{{ . }}</p>
             {{ end }}
           </div>
           {{ with $group.items }}
@@ -29,7 +29,7 @@
               <span class="home-feature-index type-index type-color-accent">{{ printf "%02d." $featureIndex }}</span>
               <div class="home-feature-item-copy">
                 <div class="home-feature-item-title type-list-item-title type-color-ink">{{ $item.title }}</div>
-                <p class="home-copy type-copy-relaxed type-color-muted">{{ $item.body }}</p>
+                <p class="type-copy-relaxed type-color-muted">{{ $item.body }}</p>
               </div>
             </li>
             {{ end }}
