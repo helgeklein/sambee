@@ -28,6 +28,10 @@ Layout Shells
   @apply pb-0;
 }
 
+.site-main:has(.docs-shell--page) {
+  display: flex;
+}
+
 @media (min-width: theme(--breakpoint-sm)) {
   .docs-overview,
   .docs-shell {
@@ -62,6 +66,8 @@ Layout Shells
 }
 
 .docs-shell--page {
+  flex: 1 1 auto;
+  min-height: 100%;
   @apply lg:grid lg:grid-cols-[13.75rem_minmax(0,1fr)];
 }
 
