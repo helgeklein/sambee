@@ -12,13 +12,13 @@
       <div class="home-benefit-body">
         <div class="home-benefit-header-row">
           <span class="type-eyebrow type-eyebrow-strong type-color-accent">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
-          <span class="home-benefit-icon" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
+          <span class="home-benefit-icon ui-color-primary" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
         </div>
         <h3 class="home-benefit-title type-editorial-md-tight type-color-ink">{{ $item.title }}</h3>
         <p class="home-copy type-copy-relaxed type-color-muted">{{ $item.body }}</p>
       </div>
       <div class="home-benefit-trail" aria-hidden="true">
-        <span class="home-benefit-trail-line home-benefit-trail-line--long"></span><span class="home-benefit-trail-line home-benefit-trail-line--short"></span>
+        <span class="home-benefit-trail-line home-benefit-trail-line--long ui-bg-accent-soft"></span><span class="home-benefit-trail-line home-benefit-trail-line--short ui-bg-accent-soft"></span>
       </div>
     </article>
     {{ end }}

@@ -70,6 +70,59 @@ Eyebrow Helpers
 
 /*
 ==============================
+UI Colors
+==============================
+*/
+
+.ui-color-primary {
+  color: var(--color-clr-primary);
+
+  .dark & {
+    color: var(--color-clr-darkmode-primary);
+  }
+}
+
+.ui-color-accent-soft {
+  color: color-mix(in srgb, var(--color-clr-action-text) 75%, transparent);
+
+  .dark & {
+    color: color-mix(in srgb, var(--color-clr-darkmode-action-text) 75%, transparent);
+  }
+}
+
+.ui-bg-primary {
+  background-color: var(--color-clr-primary);
+
+  .dark & {
+    background-color: var(--color-clr-darkmode-primary);
+  }
+}
+
+.ui-bg-accent-soft {
+  background-color: color-mix(in srgb, var(--color-clr-action-text) 40%, transparent);
+
+  .dark & {
+    background-color: color-mix(in srgb, var(--color-clr-darkmode-action-text) 40%, transparent);
+  }
+}
+
+/*
+==============================
+UI Helpers
+==============================
+*/
+
+.ui-list-dot-item {
+  @apply relative pl-5;
+}
+
+.ui-list-dot-item::before {
+  content: "";
+  @apply absolute left-0 top-[0.4rem] block h-1.5 w-1.5 bg-current;
+}
+
+/*
+==============================
 Type Colors
 ==============================
 */

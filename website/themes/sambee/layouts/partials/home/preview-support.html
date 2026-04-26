@@ -17,7 +17,7 @@
       <article class="home-preview-group group" aria-labelledby="{{ $groupId }}">
         <div class="home-preview-group-header">
           <h3 class="home-preview-group-title type-label type-label-strong type-color-accent" id="{{ $groupId }}">{{ printf "%02d // %s" (add $index 1) $group.title }}</h3>
-          <span class="home-preview-group-icon" aria-hidden="true">
+          <span class="home-preview-group-icon ui-color-accent-soft" aria-hidden="true">
             <span class="material-symbols-outlined home-preview-group-symbol">{{ $group.icon | default "draft" }}</span>
           </span>
         </div>

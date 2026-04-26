@@ -73,7 +73,7 @@ Hero
 }
 
 .home-hero-kicker-rule {
-  @apply hidden h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary lg:block;
+  @apply hidden h-[2px] w-12 lg:block;
 }
 
 .home-hero-title {
@@ -178,7 +178,7 @@ Benefits
 }
 
 .home-benefit-icon {
-  @apply flex h-6 w-6 shrink-0 items-center justify-center text-clr-primary opacity-40 transition-opacity duration-300 group-hover:opacity-100 dark:text-clr-darkmode-primary;
+  @apply flex h-6 w-6 shrink-0 items-center justify-center opacity-40 transition-opacity duration-300 group-hover:opacity-100;
 }
 
 .home-benefit-symbol {
@@ -196,7 +196,7 @@ Benefits
 }
 
 .home-benefit-trail-line {
-  @apply block h-0.5 bg-clr-action-text/40 dark:bg-clr-darkmode-action-text/40;
+  @apply block h-0.5;
 }
 
 .home-benefit-trail-line--long {
@@ -246,7 +246,7 @@ Features
 }
 
 .home-feature-icon {
-  @apply shrink-0 text-clr-primary opacity-40 dark:text-clr-darkmode-primary;
+  @apply shrink-0 opacity-40;
 }
 
 .home-feature-symbol {
@@ -319,7 +319,7 @@ Preview Support
 }
 
 .home-preview-group-icon {
-  @apply flex h-8 w-8 shrink-0 items-end justify-center text-clr-action-text/75 dark:text-clr-darkmode-action-text/75;
+  @apply flex h-8 w-8 shrink-0 items-end justify-center;
 }
 
 .home-preview-group-symbol {
@@ -396,15 +396,6 @@ Companion
 
 .home-companion-list {
   @apply m-0 flex list-none flex-col gap-3 p-0;
-}
-
-.home-companion-item {
-  @apply relative pl-5;
-}
-
-.home-companion-item::before {
-  content: "";
-  @apply absolute left-0 top-[0.4rem] block h-1.5 w-1.5 bg-clr-primary dark:bg-clr-darkmode-primary;
 }
 
 .home-companion-preview {
