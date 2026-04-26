@@ -42,7 +42,7 @@
     * so the mobile menu is positioned directly below the header
     */
    function updateHeaderHeight() {
-      const header = document.querySelector('.header');
+      const header = document.querySelector('.nav-header');
       if (header) {
          const height = header.offsetHeight;
          document.documentElement.style.setProperty('--header-height', `${height}px`);

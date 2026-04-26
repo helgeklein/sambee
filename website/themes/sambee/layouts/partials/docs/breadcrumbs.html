@@ -1,0 +1,57 @@
+{{/* Purpose: Render docs breadcrumbs from the current version and book context. */}}
+{{ $version := .Params.product_version }}
+{{ $book := .Params.book }}
+{{ $versionPage := false }}
+{{ $bookPage := false }}
+{{ $versionLabel := $version }}
+
+{{ with $version }}
+  {{ with site.GetPage (printf "/docs/%s" .) }}
+    {{ $versionPage = . }}
+  {{ end }}
+  {{ with (index hugo.Data "docs-versions").versions }}
+    {{ with index (where . "slug" $version) 0 }}
+    {{ $versionLabel = .label | default $version }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+
+{{ with and $version $book (site.GetPage (printf "/docs/%s/%s" $version $book)) }}
+  {{ $bookPage = . }}
+{{ end }}
+
+<div class="docs-breadcrumb-row">
+  <nav class="docs-breadcrumbs site-gutter" aria-label="Breadcrumb">
+    <ol class="docs-breadcrumb-list">
+      {{ if $bookPage }}
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+        {{ if eq .RelPermalink $bookPage.RelPermalink }}
+        <span class="docs-breadcrumb-current type-color-ink">{{ $bookPage.Title }}</span>
+        {{ else }}
+        <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
+        {{ end }}
+      </li>
+      {{ if and $bookPage (ne .RelPermalink $bookPage.RelPermalink) }}
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        <span class="docs-breadcrumb-current type-color-ink">{{ .Title }}</span>
+      </li>
+      {{ end }}
+      {{ else }}
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+        <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="/docs/">Documentation</a>
+      </li>
+      {{ with $versionPage }}
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        {{ if eq $.RelPermalink .RelPermalink }}
+        <span class="docs-breadcrumb-current type-color-ink">Version {{ $versionLabel }}</span>
+        {{ else }}
+        <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="{{ .RelPermalink }}">Version {{ $versionLabel }}</a>
+        {{ end }}
+      </li>
+      {{ end }}
+      {{ end }}
+    </ol>
+  </nav>
+</div>

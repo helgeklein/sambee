@@ -1,24 +1,31 @@
 {{/* Purpose: Chooses the correct documentation list layout for overview, version, and book pages. */}}
 {{ define "main" }}
-{{ $currentVersion := hugo.Data.docs_versions.current }}
-{{ $navData := index hugo.Data.docs_nav $currentVersion }}
+{{ $docsVersions := index hugo.Data "docs-versions" }}
+{{ $docsNav := index hugo.Data "docs-nav" }}
+{{ $currentVersion := $docsVersions.current }}
+{{ $navData := index $docsNav $currentVersion }}
 
 {{/* Top-level docs landing page. */}}
 {{ if and (not .Params.product_version) (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="eyebrow eyebrow--stacked">Documentation</span>
-    <h1>{{ .Title }}</h1>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">Documentation</span>
+    <h1 class="type-section-title type-color-ink">{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ with $navData }}
   {{/* The current docs_nav data file is the source of truth for which books exist. */}}
-  <div class="ledger-cards book-grid">
+  <div class="docs-index-list" aria-label="Documentation books">
     {{ range .books }}
-    <article class="docs-card">
-      <span class="docs-card-kicker">Version {{ $currentVersion }}</span>
-      <h2><a href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">{{ .title }}</a></h2>
-      <p>{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+    <article class="docs-index-item">
+      <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">
+        <div class="docs-index-body">
+          <span class="docs-index-kicker type-label-eyebrow type-color-accent">Version {{ $currentVersion }}</span>
+          <h2 class="docs-index-title type-editorial-xl type-color-ink">{{ .title }}</h2>
+          <p class="docs-index-summary type-copy-relaxed type-color-muted">{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+        </div>
+        <span class="docs-index-arrow material-symbols-outlined ui-color-rule" aria-hidden="true">chevron_right</span>
+      </a>
     </article>
     {{ end }}
   </div>
@@ -28,19 +35,24 @@
 {{ else if and .Params.product_version (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="eyebrow eyebrow--stacked">Version {{ .Params.product_version }}</span>
-    <h1>{{ .Title }}</h1>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">Version {{ .Params.product_version }}</span>
+    <h1 class="type-section-title type-color-ink">{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
-  {{ $versionNav := index hugo.Data.docs_nav .Params.product_version }}
+  {{ $versionNav := index $docsNav .Params.product_version }}
   {{ with $versionNav }}
   {{/* A version page lists every book available in that release. */}}
-  <div class="ledger-cards book-grid">
+  <div class="docs-index-list" aria-label="Documentation books for this version">
     {{ range .books }}
-    <article class="docs-card">
-      <span class="docs-card-kicker">Book</span>
-      <h2><a href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">{{ .title }}</a></h2>
-      <p>Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+    <article class="docs-index-item">
+      <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">
+        <div class="docs-index-body">
+          <span class="docs-index-kicker type-label-eyebrow type-color-accent">Book</span>
+          <h2 class="docs-index-title type-editorial-xl type-color-ink">{{ .title }}</h2>
+          <p class="docs-index-summary type-copy-relaxed type-color-muted">Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+        </div>
+        <span class="docs-index-arrow material-symbols-outlined ui-color-rule" aria-hidden="true">chevron_right</span>
+      </a>
     </article>
     {{ end }}
   </div>
@@ -48,26 +60,28 @@
 </section>
 {{/* Book landing page that shows the sidebar and version switcher. */}}
 {{ else if and .Params.product_version .Params.book }}
-<section class="docs-shell ledger-grid-rail">
+<section class="docs-shell docs-shell--page">
   <aside class="docs-sidebar">
     {{/* Book landing pages reuse the same sidebar tree as article pages. */}}
     {{ partial "docs/sidebar.html" . }}
   </aside>
-  <article class="docs-content">
-    {{ partial "docs/version-switcher.html" . }}
-    <div class="docs-meta">
-      <span class="docs-meta-chip">Version {{ .Params.product_version }}</span>
-      <span class="docs-meta-chip">{{ .Params.book }}</span>
+  <div class="docs-main-column">
+    {{ partial "docs/breadcrumbs.html" . }}
+    {{ partial "docs/page-header.html" . }}
+    <div class="article-toc-container docs-article-region docs-article-region--book site-gutter">
+      <div class="article-wrapper docs-article-column">
+        <article class="docs-content docs-content--article">
+          <div class="content article-content" data-pagefind-body>{{ .Content }}</div>
+        </article>
+      </div>
     </div>
-    <h1>{{ .Title }}</h1>
-    <div class="content" data-pagefind-body>{{ .Content }}</div>
-  </article>
+  </div>
 </section>
 {{ else }}
 {{/* Fallback for docs content that does not fit the usual hierarchy. */}}
 <section class="shell-section ledger-shell">
   <article class="docs-content">
-    <h1>{{ .Title }}</h1>
+    <h1 class="type-section-title type-color-ink">{{ .Title }}</h1>
     <div class="content" data-pagefind-body>{{ .Content }}</div>
   </article>
 </section>

@@ -1,48 +1,124 @@
 {{/* Purpose: Renders the documentation sidebar for the active book and version. */}}
 {{ $version := .Params.product_version }}
 {{ $book := .Params.book }}
-{{ $navData := index hugo.Data.docs_nav $version }}
-{{ $bookPage := site.GetPage (printf "/docs/%s/%s" $version $book) }}
-{{ $bookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $book }}
+{{ $navData := index (index hugo.Data "docs-nav") $version }}
+{{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
 
 {{/* Front matter drives the active docs tree; the data file supplies the canonical section order. */}}
 {{ if and $navData $book }}
-  {{ range $navData.books }}
-    {{ if eq .slug $book }}
-      <div>
-        <div class="docs-sidebar-title">
-          {{/* Prefer the generated section landing page title when it exists. */}}
-          {{ with $bookPage }}
-          <a href="{{ .RelPermalink }}">{{ .Title }}</a>
-          {{ else }}
-          {{ .title }}
+  <div class="docs-sidebar-header">
+    <div class="docs-sidebar-header-row">
+      <h2 class="docs-sidebar-heading type-editorial-md-tight type-color-ink">Documentation</h2>
+      <details class="docs-sidebar-version-control">
+        <summary class="docs-sidebar-version-trigger type-label type-label-strong type-color-accent ui-transition-color ui-hover-primary ui-hover-surface-base">
+          <span class="sr-only">Documentation version</span>
+          <span class="docs-sidebar-version-value">
+            {{ range $docsVersions }}
+              {{ if eq .slug $version }}v{{ .label | default .slug }}{{ end }}
+            {{ end }}
+          </span>
+          {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-version-icon ui-color-rule") }}
+        </summary>
+        <div class="docs-sidebar-version-menu" aria-label="Documentation versions">
+          {{ range $docsVersions }}
+            {{ $targetURL := printf "/docs/%s/" .slug }}
+            {{ with site.GetPage (printf "/docs/%s" .slug) }}
+              {{ $targetURL = .RelPermalink }}
+            {{ end }}
+            {{ with and $book (site.GetPage (printf "/docs/%s/%s" .slug $book)) }}
+              {{ $targetURL = .RelPermalink }}
+            {{ end }}
+            {{ $label := printf "v%s" (.label | default .slug) }}
+            {{ if eq .slug $version }}
+              <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current type-label type-label-strong type-color-ink ui-bg-surface-low ui-current-primary-inset" data-close-version-dropdown aria-current="true">{{ $label }}</button>
+            {{ else }}
+              <a class="docs-sidebar-version-option type-label type-label-strong type-color-ink ui-transition-color ui-hover-primary ui-hover-surface-low" href="{{ $targetURL }}">{{ $label }}</a>
+            {{ end }}
           {{ end }}
         </div>
+      </details>
+    </div>
+  </div>
+  {{ range $navData.books }}
+    {{ $bookSlug := .slug }}
+    {{ $isCurrentBook := eq $bookSlug $book }}
+    {{ $currentBookPage := site.GetPage (printf "/docs/%s/%s" $version $bookSlug) }}
+    {{ $currentBookContentPages := where (where site.Pages "Params.product_version" $version) "Params.book" $bookSlug }}
+    {{ $currentBookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $bookSlug }}
+    {{ $hasChildPages := gt (len $currentBookPages) 0 }}
+    {{ $bookChildrenId := printf "docs-sidebar-book-%s-%s" $version $bookSlug }}
+    {{ $bookTitleClass := "docs-sidebar-title" }}
+    {{ if $isCurrentBook }}
+      {{ $bookTitleClass = printf "%s %s" $bookTitleClass "docs-sidebar-title-current" }}
+    {{ end }}
+    <div class="docs-sidebar-book{{ if $isCurrentBook }} docs-sidebar-book-current{{ end }}{{ if $hasChildPages }} docs-sidebar-book-has-children{{ end }}">
+      {{/* Prefer the generated section landing page title when it exists. */}}
+      <div class="docs-sidebar-title-row">
+        {{ with $currentBookPage }}
+        <a class="{{ $bookTitleClass }} type-editorial-sm-tight type-color-ink ui-transition-color ui-hover-primary" href="{{ .RelPermalink }}">
+          <span class="docs-sidebar-title-label">{{ .Title }}</span>
+        </a>
+        {{ else }}
+        <div class="{{ $bookTitleClass }} type-editorial-sm-tight type-color-ink">
+          <span class="docs-sidebar-title-label">{{ .title }}</span>
+        </div>
+        {{ end }}
+        {{ if $hasChildPages }}
+        <button
+          type="button"
+          class="docs-sidebar-toggle ui-color-rule ui-transition-color ui-hover-primary"
+          aria-expanded="{{ if $isCurrentBook }}true{{ else }}false{{ end }}"
+          aria-controls="{{ $bookChildrenId }}"
+          aria-label="Toggle {{ .title }} section navigation">
+          {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
+        </button>
+        {{ end }}
+      </div>
+      {{ if $hasChildPages }}
+      <div id="{{ $bookChildrenId }}" class="docs-sidebar-children"{{ if not $isCurrentBook }} hidden{{ end }}>
         {{ range .sections }}
         {{/* Sections follow docs_nav order; individual pages are matched by doc_id. */}}
+        {{ $sectionPages := slice }}
+        {{ $isCurrentSection := false }}
+        {{ range .doc_ids }}
+          {{ $docId := . }}
+          {{ $matches := where $currentBookContentPages "Params.doc_id" $docId }}
+          {{ if gt (len $matches) 0 }}
+            {{ $target := index $matches 0 }}
+            {{ $sectionPages = $sectionPages | append $target }}
+            {{ if eq $target.RelPermalink $.RelPermalink }}
+              {{ $isCurrentSection = true }}
+            {{ end }}
+          {{ end }}
+        {{ end }}
+        {{ $sectionChildrenId := printf "%s-%s" $bookChildrenId (.title | urlize) }}
         <section class="docs-nav-group">
-          <strong>{{ .title }}</strong>
-          <ul class="docs-nav-list">
-            {{ range .doc_ids }}
-              {{ $docId := . }}
-              {{ $matches := where $bookPages "Params.doc_id" $docId }}
-              {{ if gt (len $matches) 0 }}
-              {{ $target := index $matches 0 }}
-              {{ $isCurrentPage := eq $target.RelPermalink $.RelPermalink }}
+          <button
+            type="button"
+            class="docs-sidebar-toggle docs-nav-group-toggle type-color-accent ui-transition-color ui-hover-primary"
+            aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
+            aria-controls="{{ $sectionChildrenId }}"
+            aria-label="Toggle {{ .title }} pages">
+            <span class="docs-nav-group-label type-label type-label-strong">{{ .title }}</span>
+            {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
+          </button>
+          <ul id="{{ $sectionChildrenId }}" class="docs-nav-list"{{ if not $isCurrentSection }} hidden{{ end }}>
+            {{ range $sectionPages }}
+              {{ $isCurrentPage := eq .RelPermalink $.RelPermalink }}
               <li>
                 {{/* The current page is rendered as text to avoid linking to itself. */}}
                 {{ if $isCurrentPage }}
-                <span class="docs-sidebar-link docs-sidebar-link-current">{{ $target.Title }}</span>
+                <span class="docs-sidebar-link docs-sidebar-link-current type-color-ink ui-bg-surface-mid ui-current-primary-inset">{{ .Title }}</span>
                 {{ else }}
-                <a class="docs-sidebar-link" href="{{ $target.RelPermalink }}">{{ $target.Title }}</a>
+                <a class="docs-sidebar-link type-color-muted ui-transition-color type-hover-ink ui-hover-surface-mid" href="{{ .RelPermalink }}">{{ .Title }}</a>
                 {{ end }}
               </li>
-              {{ end }}
             {{ end }}
           </ul>
         </section>
         {{ end }}
       </div>
-    {{ end }}
+      {{ end }}
+    </div>
   {{ end }}
 {{ end }}

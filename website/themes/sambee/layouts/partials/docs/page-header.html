@@ -1,0 +1,27 @@
+{{/* Purpose: Render the docs page header band with version controls and context chips. */}}
+{{ $version := .Params.product_version }}
+{{ $book := .Params.book }}
+{{ $versionLabel := $version }}
+{{ $versionStatus := "" }}
+{{ $bookTitle := "" }}
+
+{{ with (index hugo.Data "docs-versions").versions }}
+  {{ with index (where . "slug" $version) 0 }}
+    {{ $versionLabel = .label | default $version }}
+    {{ $versionStatus = .status | default "" }}
+  {{ end }}
+{{ end }}
+
+{{ with and $version $book (site.GetPage (printf "/docs/%s/%s" $version $book)) }}
+  {{ $bookTitle = .Title }}
+{{ end }}
+
+<header class="docs-page-header">
+  <div class="docs-page-title-band site-gutter">
+    <span class="docs-page-kicker type-label-eyebrow ui-color-primary">
+      <span class="docs-page-kicker-rule ui-bg-primary" aria-hidden="true"></span>
+      Sambee {{ $versionLabel }}
+    </span>
+    <h1 class="docs-page-title type-display-hero type-color-ink">{{ .Title }}</h1>
+  </div>
+</header>

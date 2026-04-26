@@ -10,6 +10,7 @@ html:not(.dark) .content pre,
 html:not(.dark) .content .highlight {
    background-color: var(--color-clr-code-block-background);
    color: var(--color-clr-text-dark);
+   border: 1px solid var(--color-clr-rule-strong);
 }
 
 html:not(.dark) .content pre code {
@@ -20,6 +21,7 @@ html:not(.dark) .content pre code {
 html.dark .content pre,
 html.dark .content .highlight {
    background-color: var(--color-clr-darkmode-code-block-background);
+   border: 1px solid var(--color-clr-darkmode-rule-strong);
 }
 
 /* Inline code inherits the same palette as larger code surfaces. */
@@ -29,6 +31,7 @@ html.dark .content .highlight {
    font-size: var(--code-font-size);
    font-weight: normal;
    padding: 0.125rem 0.375rem;
+   border: 1px solid var(--color-clr-rule-soft);
 }
 
 html.dark .content code:not(pre code) {
@@ -39,9 +42,15 @@ html.dark .content code:not(pre code) {
 /* Code block font size, spacing, and overflow */
 .content pre {
    font-size: var(--code-font-size);
-   padding: 1em;
-   margin: var(--content-block-margin) 0;
+   padding: 1.25rem;
+   margin: 1.25rem 0;
    overflow-x: auto;
+   line-height: 1.65;
+}
+
+.content pre code {
+   display: block;
+   min-width: max-content;
 }
 
 /*
@@ -58,11 +67,11 @@ Copy Button
 
 .code-copy-btn {
    position: absolute;
-   top: 0.5rem;
-   right: 0.5rem;
-   padding: 0.375rem;
-   background-color: #e0e0e0;
-   border: none;
+   top: 0.75rem;
+   right: 0.75rem;
+   padding: 0.375rem 0.5rem;
+   background-color: var(--color-clr-surface-high);
+   border: 1px solid var(--color-clr-rule-strong);
    cursor: pointer;
    opacity: 0;
    transition: opacity 0.2s ease, background-color 0.2s ease;
@@ -91,7 +100,7 @@ Copy Button
 }
 
 .code-copy-btn:hover {
-   background-color: #d0d0d0;
+   background-color: var(--color-clr-surface-page);
 }
 
 .code-copy-btn.copied {
@@ -99,12 +108,13 @@ Copy Button
 }
 
 html.dark .code-copy-btn {
-   background-color: #4a4a4a;
+   background-color: var(--color-clr-darkmode-surface-high);
+   border-color: var(--color-clr-darkmode-rule-strong);
    color: var(--color-clr-text-light);
 }
 
 html.dark .code-copy-btn:hover {
-   background-color: #5a5a5a;
+   background-color: var(--color-clr-darkmode-surface-page);
 }
 
 html.dark .code-copy-btn.copied {

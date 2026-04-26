@@ -1,0 +1,444 @@
+/* Purpose: Holds documentation-specific shell, navigation, article, and card styles. */
+
+/*
+==============================
+Layout Shells
+==============================
+*/
+
+/*
+==============================
+Panels And Indexes
+==============================
+/* Purpose: Holds documentation-specific shell, navigation, article, and index styles. */
+
+/*
+==============================
+Layout Shells
+==============================
+*/
+
+.docs-overview,
+.docs-shell {
+  @apply mx-auto w-full;
+
+  @media (min-width: theme(--breakpoint-sm)) {
+    max-width: 540px;
+  }
+
+  @media (min-width: theme(--breakpoint-md)) {
+    max-width: 900px;
+  }
+
+  @media (min-width: theme(--breakpoint-lg)) {
+    max-width: 1131px;
+  }
+}
+
+.site-main:has(.docs-overview),
+.site-main:has(.docs-shell) {
+  @apply pb-0;
+}
+
+.site-main:has(.docs-shell--page) {
+  display: flex;
+}
+
+.docs-overview {
+  @apply border-x border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page;
+}
+
+.docs-overview + .docs-overview {
+  @apply border-t-0;
+}
+
+.docs-shell {
+  @apply border-x border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-shell--page {
+  flex: 1 1 auto;
+  min-height: 100%;
+  @apply lg:grid lg:grid-cols-[13.75rem_minmax(0,1fr)];
+}
+
+.docs-main-column {
+  @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page lg:border-t-0 lg:border-l;
+}
+
+/*
+==============================
+Panels And Indexes
+==============================
+*/
+
+.docs-sidebar,
+.docs-content {
+  @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
+}
+
+.docs-index-list {
+  @apply border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-index-item {
+  @apply border-x border-b border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
+}
+
+.docs-index-link {
+  @apply flex items-start justify-between gap-6 px-5 py-5 transition-colors duration-150 hover:bg-clr-surface-low dark:hover:bg-clr-darkmode-surface-low md:px-8 md:py-6;
+}
+
+.docs-index-body {
+  @apply min-w-0;
+}
+
+.docs-index-kicker {
+}
+
+.docs-index-title {
+  @apply mt-3 mb-0;
+}
+
+.docs-index-summary {
+  @apply mt-3 mb-0 max-w-3xl md:text-lg;
+}
+
+.docs-index-arrow {
+  @apply mt-1 shrink-0;
+  font-size: 1.5rem;
+  line-height: 1;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/*
+==============================
+Article Shell
+==============================
+*/
+
+.article-toc-container {
+  margin: 0;
+  width: 100%;
+}
+
+.docs-article-region {
+  @apply py-8 md:py-10;
+}
+
+.docs-article-region--book {
+  @apply xl:block;
+}
+
+.article-wrapper {
+  margin-inline: auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.docs-article-column {
+  width: 100%;
+}
+
+.article-content {
+  max-width: none;
+}
+
+.docs-content--article {
+  @apply border-0;
+  width: 100%;
+  background-color: transparent;
+}
+
+.docs-toc {
+  display: none;
+
+  @media (min-width: theme(--breakpoint-xl)) {
+    display: block;
+    width: var(--article-toc-width);
+    flex: 0 0 var(--article-toc-width);
+  }
+}
+
+.docs-toc-inner {
+  @apply sticky border-l border-clr-rule-soft pl-8 dark:border-clr-darkmode-rule-soft;
+  top: var(--toc-position-top);
+}
+
+.docs-toc-header {
+  @apply mb-6 flex items-center gap-2;
+}
+
+.docs-toc-rule {
+  @apply block h-px w-4;
+}
+
+.docs-toc-title {
+}
+
+.docs-toc-body nav > ul,
+.docs-toc-body ul {
+  @apply m-0 list-none p-0;
+}
+
+.docs-toc-body li + li {
+  @apply mt-4;
+}
+
+.docs-toc-body li ul {
+  @apply mt-3 border-l border-clr-rule-soft pl-4 dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-toc-body a {
+  @apply font-secondary text-lg font-bold italic leading-tight text-clr-text-dark transition-colors duration-150 hover:text-clr-action-text dark:text-clr-darkmode-text-dark dark:hover:text-clr-darkmode-action-text;
+}
+
+/*
+==============================
+Documentation Navigation
+==============================
+*/
+
+.docs-sidebar {
+  @apply border-r border-clr-rule-soft bg-clr-surface-low px-0 py-0 lg:sticky dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low;
+  top: calc(var(--header-height) + 1.5rem);
+}
+
+.docs-breadcrumb-row {
+  @apply border-b border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page;
+}
+
+.docs-breadcrumbs {
+  @apply pt-3 pb-2;
+}
+
+.docs-breadcrumb-list {
+  @apply m-0 flex flex-wrap items-center gap-1 list-none p-0;
+}
+
+.docs-breadcrumb-item {
+  @apply inline-flex items-center gap-1;
+}
+
+.docs-breadcrumb-link {
+  @apply no-underline;
+}
+
+.docs-breadcrumb-separator {
+  @apply inline-flex items-center;
+}
+
+.docs-breadcrumb-symbol {
+  font-size: 0.8rem;
+  line-height: 1;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+}
+
+.docs-breadcrumb-current {
+  @apply font-bold;
+}
+
+.docs-page-header {
+  @apply border-b border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-page-title-band {
+  @apply bg-clr-surface-page py-6 dark:bg-clr-darkmode-surface-page md:py-8;
+}
+
+.docs-page-kicker {
+  @apply inline-flex items-center gap-3;
+}
+
+.docs-page-kicker-rule {
+  @apply block h-[2px] w-12;
+}
+
+.docs-page-title {
+  @apply mt-4 mb-0;
+}
+
+.docs-page-description {
+  @apply mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mt-4;
+}
+
+.docs-sidebar-header {
+  @apply border-b-2 border-clr-rule-strong px-5 py-6 dark:border-clr-darkmode-rule-strong md:px-6;
+}
+
+.docs-sidebar-header-row {
+  @apply flex flex-col items-start gap-1;
+}
+
+.docs-sidebar-heading {
+  @apply m-0;
+}
+
+.docs-sidebar-version-control {
+  @apply relative inline-block self-start;
+}
+
+.docs-sidebar-version-control[open] {
+  z-index: 10;
+}
+
+.docs-sidebar-version-trigger {
+  list-style: none;
+  @apply inline-flex min-w-[6.5rem] cursor-pointer items-center justify-between gap-3 border border-clr-rule-strong bg-clr-surface-page px-3 py-2 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-page;
+  line-height: 1;
+}
+
+.docs-sidebar-version-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.docs-sidebar-version-trigger:focus {
+  outline: none;
+}
+
+.docs-sidebar-version-trigger:focus-visible {
+  outline: 1px solid var(--color-clr-rule-strong);
+  outline-offset: 4px;
+}
+
+.dark .docs-sidebar-version-trigger:focus-visible {
+  outline-color: var(--color-clr-darkmode-rule-strong);
+}
+
+.docs-sidebar-version-value {
+  line-height: 1;
+}
+
+.docs-sidebar-version-icon {
+  @apply h-4 w-4 shrink-0 fill-current;
+  transition: transform 150ms ease;
+  transform: rotate(90deg);
+}
+
+.docs-sidebar-version-control[open] .docs-sidebar-version-icon {
+  transform: rotate(-90deg);
+}
+
+.docs-sidebar-version-menu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 0.35rem);
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--color-clr-rule-strong);
+  background-color: var(--color-clr-surface-base);
+}
+
+.dark .docs-sidebar-version-menu {
+  border-color: var(--color-clr-darkmode-rule-strong);
+  background-color: var(--color-clr-darkmode-surface-base);
+}
+
+.docs-sidebar-version-option {
+  @apply flex w-full cursor-pointer items-center justify-between bg-clr-surface-base px-3 py-2 dark:bg-clr-darkmode-surface-base;
+  appearance: none;
+  border: 0;
+  line-height: 1;
+  text-align: left;
+}
+
+a.docs-sidebar-version-option:hover,
+a.docs-sidebar-version-option:focus-visible {
+  outline: none;
+}
+
+.docs-sidebar-book + .docs-sidebar-book {
+  @apply border-t-2 border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-sidebar-title-row {
+  @apply flex items-stretch;
+}
+
+.docs-sidebar-title {
+  @apply flex min-w-0 flex-1 items-center gap-3 bg-clr-surface-page px-5 py-5 no-underline dark:bg-clr-darkmode-surface-page md:px-6;
+}
+
+.docs-sidebar-title-current {
+  @apply border-b-0;
+}
+
+.docs-sidebar-title-label {
+  @apply min-w-0 flex-1;
+}
+
+.docs-sidebar-toggle {
+  @apply flex w-12 shrink-0 items-center justify-center bg-clr-surface-page dark:bg-clr-darkmode-surface-page md:w-14;
+  border: 0;
+  cursor: pointer;
+}
+
+.docs-sidebar-toggle:focus {
+  outline: none;
+}
+
+.docs-sidebar-toggle:focus-visible {
+  outline: 1px solid var(--color-clr-rule-strong);
+  outline-offset: -1px;
+}
+
+.dark .docs-sidebar-toggle:focus-visible {
+  outline-color: var(--color-clr-darkmode-rule-strong);
+}
+
+.docs-sidebar-toggle-chevron {
+  @apply h-5 w-5 fill-current;
+  transition: transform 150ms ease;
+}
+
+.docs-sidebar-toggle[aria-expanded="true"] .docs-sidebar-toggle-chevron {
+  transform: rotate(90deg);
+}
+
+.docs-sidebar-toggle--nested {
+  @apply w-10 bg-transparent md:w-10;
+}
+
+.docs-nav-group + .docs-nav-group {
+  @apply mt-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-nav-group-toggle {
+  @apply flex w-full items-center justify-between gap-3 bg-transparent px-5 pt-4 pb-2 text-left md:px-6;
+}
+
+.docs-nav-group-label {
+  @apply block min-w-0 flex-1;
+  line-height: 1;
+}
+
+.docs-nav-list {
+  @apply m-0 list-none p-0;
+}
+
+.docs-nav-list li + li {
+  @apply mt-1;
+}
+
+.docs-sidebar-link {
+  @apply block bg-transparent pr-5 pl-8 py-2.5 font-primary text-[0.95rem] font-medium leading-snug md:pr-6 md:pl-9;
+}
+
+.docs-sidebar-link-current {
+  @apply pr-5 pl-8 py-2.5 font-primary text-[0.95rem] font-semibold leading-snug md:pr-6 md:pl-9;
+}
+
+.docs-meta {
+  @apply mb-5 flex flex-wrap gap-2;
+}
+
+/*
+==============================
+Chips And Status Labels
+==============================
+*/
+
+.docs-meta-chip,
+.version-chip {
+  @apply inline-flex items-center border border-clr-rule-strong bg-clr-surface-low px-3 py-1 text-sm font-tertiary uppercase tracking-[0.14em] dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
+}

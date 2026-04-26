@@ -3,22 +3,22 @@
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="features-overview">
   <div class="home-section-header site-gutter">
-    <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">{{ $section.eyebrow }}</span>
+    <h2 class="home-section-title type-section-title type-color-ink">{{ $section.title }}</h2>
   </div>
   <div class="home-benefits-grid">
     {{ range $item := $section.items }}
     <article class="home-benefit-card group">
       <div class="home-benefit-body">
         <div class="home-benefit-header-row">
-          <span class="home-benefit-marker home-label home-label--marker home-label--accent">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
-          <span class="home-benefit-icon" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
+          <span class="type-label-eyebrow-strong type-color-accent">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
+          <span class="home-benefit-icon ui-color-primary" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
         </div>
-        <h3 class="home-benefit-title home-title--card">{{ $item.title }}</h3>
-        <p class="home-benefit-copy home-copy">{{ $item.body }}</p>
+        <h3 class="home-benefit-title type-editorial-md-tight type-color-ink">{{ $item.title }}</h3>
+        <p class="type-copy-relaxed type-color-muted">{{ $item.body }}</p>
       </div>
       <div class="home-benefit-trail" aria-hidden="true">
-        <span class="home-benefit-trail-line home-benefit-trail-line--long"></span><span class="home-benefit-trail-line home-benefit-trail-line--short"></span>
+        <span class="home-benefit-trail-line home-benefit-trail-line--long ui-bg-accent-soft"></span><span class="home-benefit-trail-line home-benefit-trail-line--short ui-bg-accent-soft"></span>
       </div>
     </article>
     {{ end }}

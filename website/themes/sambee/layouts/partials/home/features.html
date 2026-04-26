@@ -3,8 +3,8 @@
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="{{ $section.id }}">
   <div class="home-section-header site-gutter">
-    <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-    <h2 class="home-section-title home-section-title--standard">{{ $section.title }}</h2>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">{{ $section.eyebrow }}</span>
+    <h2 class="home-section-title type-section-title type-color-ink">{{ $section.title }}</h2>
   </div>
   <div class="home-features-panel site-gutter">
     <div class="home-features-ledger">
@@ -14,11 +14,11 @@
         <div class="home-feature-ledger-grid">
           <div class="home-feature-summary">
             <div class="home-feature-heading-row">
-              <span class="home-feature-icon" aria-hidden="true"><span class="material-symbols-outlined home-feature-symbol">{{ $group.icon | default "apps" }}</span></span>
-              <h3 class="home-feature-heading">{{ $group.title }}</h3>
+              <span class="home-feature-icon ui-color-primary" aria-hidden="true"><span class="material-symbols-outlined home-feature-symbol">{{ $group.icon | default "apps" }}</span></span>
+              <h3 class="home-feature-heading type-editorial-md-tight type-color-ink">{{ $group.title }}</h3>
             </div>
             {{ with $group.summary }}
-            <p class="home-feature-summary-copy">{{ . }}</p>
+            <p class="type-copy-relaxed type-color-muted">{{ . }}</p>
             {{ end }}
           </div>
           {{ with $group.items }}
@@ -26,10 +26,10 @@
             {{ range $item := . }}
             {{ $featureIndex = add $featureIndex 1 }}
             <li class="home-feature-item">
-              <span class="home-feature-index">{{ printf "%02d." $featureIndex }}</span>
+              <span class="home-feature-index type-index type-color-accent">{{ printf "%02d." $featureIndex }}</span>
               <div class="home-feature-item-copy">
-                <h4 class="home-feature-item-title home-label home-label--bold home-label--ink home-label--detail">{{ $item.title }}</h4>
-                <p class="home-feature-item-body home-copy home-copy--detail">{{ $item.body }}</p>
+                <div class="home-feature-item-title type-list-item-title type-color-ink">{{ $item.title }}</div>
+                <p class="type-copy-relaxed type-color-muted">{{ $item.body }}</p>
               </div>
             </li>
             {{ end }}

@@ -1,19 +1,20 @@
 {{/* Purpose: Renders a documentation article with sidebar navigation and version controls. */}}
 {{ define "main" }}
-<section class="docs-shell ledger-grid-rail">
+<section class="docs-shell docs-shell--page">
   <aside class="docs-sidebar">
     {{/* Article pages keep navigation visible alongside the current document. */}}
     {{ partial "docs/sidebar.html" . }}
   </aside>
-  <article class="docs-content">
-    {{/* Version controls and metadata stay above the article body for quick orientation. */}}
-    {{ partial "docs/version-switcher.html" . }}
-    <div class="docs-meta">
-      <span class="docs-meta-chip">Version {{ .Params.product_version }}</span>
-      <span class="docs-meta-chip">{{ .Params.book }}</span>
+  <div class="docs-main-column">
+    {{ partial "docs/breadcrumbs.html" . }}
+    {{ partial "docs/page-header.html" . }}
+    <div class="article-toc-container docs-article-region site-gutter">
+      <div class="article-wrapper docs-article-column">
+        <article class="docs-content docs-content--article">
+          <div class="content article-content" data-pagefind-body>{{ .Content }}</div>
+        </article>
+      </div>
     </div>
-    <h1>{{ .Title }}</h1>
-    <div class="content" data-pagefind-body>{{ .Content }}</div>
-  </article>
+  </div>
 </section>
 {{ end }}

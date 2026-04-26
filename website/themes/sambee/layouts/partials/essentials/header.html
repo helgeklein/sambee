@@ -1,26 +1,13 @@
 {{/* Purpose: Renders the global site header, navigation, and search entry point. */}}
 {{ $isHome := .IsHome }}
 
-<header class="nav-header{{ if $isHome }} nav-header--home{{ end }}">
-  <nav class="nav-bar site-frame site-gutter{{ if $isHome }} nav-bar--home{{ end }}" aria-label="Primary">
-    {{/* Home uses a wide wordmark; inner pages switch to the compact boxed logo treatment. */}}
-    <div class="nav-brand{{ if $isHome }} nav-brand--home{{ end }}">
-      {{ if $isHome }}
+<header class="nav-header">
+  <nav class="nav-bar site-frame site-gutter" aria-label="Primary">
+    <div class="nav-brand">
       <a class="nav-brand-link nav-brand-link--home" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
         <span class="nav-brand-mark" aria-hidden="true">{{ partial "icons/brand-mark.html" (dict "class" "nav-brand-mark-icon") }}</span>
         <span class="nav-brand-title nav-brand-title--home">{{ site.Title }}</span>
       </a>
-      {{ else }}
-      <div class="nav-brand-box">
-        <a class="nav-brand-logo-link" href="{{ site.Home.RelPermalink }}" aria-label="{{ site.Title }} home">
-          {{ partial "logo.html" . }}
-        </a>
-      </div>
-      <div class="nav-brand-meta" aria-hidden="true">
-        <span class="nav-brand-kicker">Docs-first software</span>
-        <span class="nav-brand-title nav-brand-title--docs">{{ site.Title }}</span>
-      </div>
-      {{ end }}
     </div>
 
     <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="nav-menu">
@@ -29,7 +16,7 @@
     </button>
 
     {{/* Skip the redundant Home item on the homepage itself, but keep the rest of the main menu unchanged. */}}
-    <ul id="nav-menu" class="nav-menu{{ if $isHome }} nav-menu--home{{ end }}">
+    <ul id="nav-menu" class="nav-menu nav-menu--home">
       {{ range site.Menus.main }}
         {{ if not (and $isHome (eq .Name "Home")) }}
         {{ $isExternal := or (hasPrefix .URL "http://") (hasPrefix .URL "https://") }}

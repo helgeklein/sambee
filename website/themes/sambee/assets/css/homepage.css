@@ -10,6 +10,10 @@ Section Chrome
   --home-section-divider-width: 2px;
   border-top: var(--home-section-divider-width) solid var(--color-clr-rule-strong);
   border-bottom: 2px solid var(--color-clr-rule-strong);
+
+  .dark & {
+    border-color: var(--color-clr-darkmode-rule-strong);
+  }
 }
 
 .site-main--home {
@@ -19,23 +23,14 @@ Section Chrome
 .home-section-header {
   @apply py-7 md:py-12;
   border-bottom: 1px solid var(--color-clr-rule-soft);
+
+  .dark & {
+    border-color: var(--color-clr-darkmode-rule-soft);
+  }
 }
 
 .home-section-title {
   margin: 0;
-  font-weight: 700;
-  color: var(--color-clr-text-dark);
-}
-
-.home-section-title--standard {
-  font-size: var(--text-4xl);
-  line-height: var(--line-height-heading-tight);
-}
-
-@media (min-width: theme(--breakpoint-md)) {
-  .home-section-title--standard {
-    font-size: var(--text-5xl);
-  }
 }
 
 /* Pull adjacent sections together so the double rules collapse into a single divider. */
@@ -46,107 +41,6 @@ Section Chrome
 
 .site-main > [data-pagefind-body] > .home-section:last-child {
   margin-bottom: calc(var(--home-section-divider-width) * -1);
-}
-
-.dark .home-section {
-  border-color: var(--color-clr-darkmode-rule-strong);
-}
-
-.dark .home-section-title {
-  color: var(--color-clr-darkmode-text-dark);
-}
-
-.dark .home-section-header {
-  border-color: var(--color-clr-darkmode-rule-soft);
-}
-
-/*
-==============================
-Shared Typography
-==============================
-*/
-
-.home-copy {
-  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-.home-copy--lead {
-  @apply text-base;
-}
-
-.home-copy--large {
-  @apply md:text-lg;
-}
-
-.home-copy--note {
-  @apply italic;
-}
-
-.home-copy--deployment {
-  @apply md:text-lg;
-}
-
-.home-copy--detail {
-  @apply text-sm leading-relaxed;
-}
-
-.home-title--card {
-  @apply font-bold text-clr-text-dark dark:text-clr-darkmode-text-dark;
-  line-height: var(--line-height-heading-tight);
-}
-
-.home-label {
-  @apply font-tertiary uppercase;
-}
-
-.home-label--ink {
-  @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.home-label--accent {
-  @apply text-clr-action-text dark:text-clr-darkmode-action-text;
-}
-
-.home-label--muted {
-  @apply text-clr-text-light dark:text-clr-darkmode-text-light;
-}
-
-.home-label--medium {
-  @apply font-medium;
-}
-
-.home-label--bold {
-  @apply font-bold;
-}
-
-.home-label--xs {
-  font-size: var(--font-size-label-xs);
-  @apply tracking-[0.18em];
-}
-
-.home-label--sm {
-  font-size: var(--font-size-label-sm);
-  @apply tracking-[0.16em];
-}
-
-.home-label--marker {
-  font-size: var(--font-size-label-sm);
-  @apply font-bold tracking-[0.18em];
-}
-
-.home-label--meta {
-  font-size: var(--font-size-label-xs);
-  @apply tracking-[0.1em];
-}
-
-.home-label--detail {
-  font-size: var(--font-size-copy-sm);
-  @apply leading-tight tracking-[0.08em];
-}
-
-.home-label--list {
-  font-size: 0.72rem;
-  @apply leading-[1.65] tracking-[0.12em] md:text-[0.78rem] md:tracking-[0.14em];
 }
 
 /*
@@ -164,21 +58,19 @@ Hero
 }
 
 .home-hero-kicker {
-  font-size: var(--font-size-label-xs);
-  @apply inline-flex items-center justify-center gap-3 text-clr-primary dark:text-clr-darkmode-primary md:text-xs lg:justify-start;
+  @apply inline-flex items-center justify-center gap-3 lg:justify-start;
 }
 
 .home-hero-kicker-rule {
-  @apply hidden h-[2px] w-12 bg-clr-primary dark:bg-clr-darkmode-primary lg:block;
+  @apply hidden h-[2px] w-12 lg:block;
 }
 
 .home-hero-title {
-  @apply mt-4 mb-0 font-secondary text-[2.85rem] font-extrabold tracking-tight text-clr-text-dark dark:text-clr-darkmode-text-dark md:text-[3.55rem] lg:text-7xl;
-  line-height: var(--line-height-heading-tight);
+  @apply mt-4 mb-0;
 }
 
 .home-hero-subtitle {
-  @apply mx-auto mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mx-0 lg:mt-4;
+  @apply mx-auto mt-[0.5rem] md:mt-[0.3rem] lg:mx-0 lg:mt-4;
 }
 
 .home-hero-actions {
@@ -203,8 +95,8 @@ Problem / Value
   @apply flex min-h-0 flex-col gap-3 border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 transition-colors duration-300 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:hover:bg-clr-darkmode-surface-low md:min-h-[17rem] md:gap-4 md:border-b-0 md:border-r md:px-8 md:py-8 hover:bg-clr-surface-page;
 }
 
-@media (min-width: theme(--breakpoint-md)) {
-  .home-problem-card:last-child {
+.home-problem-card:last-child {
+  @media (min-width: theme(--breakpoint-md)) {
     border-right: 0;
   }
 }
@@ -237,7 +129,7 @@ Problem / Value
 }
 
 .home-problem-title {
-  @apply mt-1 font-secondary text-[1.5rem] text-clr-text-dark dark:text-clr-darkmode-text-dark;
+  @apply mt-1;
 }
 
 /*
@@ -254,12 +146,14 @@ Benefits
   @apply flex min-h-0 flex-col justify-between border-b border-clr-rule-soft bg-clr-surface-low px-5 py-6 transition-colors duration-300 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low dark:hover:bg-clr-darkmode-surface-low md:min-h-[17rem] md:border-b md:border-r md:px-8 md:py-8 hover:bg-clr-surface-page;
 }
 
-@media (min-width: theme(--breakpoint-md)) {
-  .home-benefit-card:nth-child(3n) {
+.home-benefit-card:nth-child(3n) {
+  @media (min-width: theme(--breakpoint-md)) {
     border-right: 0;
   }
+}
 
-  .home-benefit-card:nth-last-child(-n + 3) {
+.home-benefit-card:nth-last-child(-n + 3) {
+  @media (min-width: theme(--breakpoint-md)) {
     border-bottom: 0;
   }
 }
@@ -272,12 +166,8 @@ Benefits
   @apply flex items-start justify-between gap-6;
 }
 
-.home-benefit-marker {
-  @apply text-clr-action-text dark:text-clr-darkmode-action-text;
-}
-
 .home-benefit-icon {
-  @apply flex h-6 w-6 shrink-0 items-center justify-center text-clr-primary opacity-40 transition-opacity duration-300 group-hover:opacity-100 dark:text-clr-darkmode-primary;
+  @apply flex h-6 w-6 shrink-0 items-center justify-center opacity-40 transition-opacity duration-300 group-hover:opacity-100;
 }
 
 .home-benefit-symbol {
@@ -287,11 +177,7 @@ Benefits
 }
 
 .home-benefit-title {
-  @apply mt-1 text-[1.5rem];
-}
-
-.home-benefit-copy {
-  @apply max-w-none;
+  @apply mt-1;
 }
 
 .home-benefit-trail {
@@ -299,7 +185,7 @@ Benefits
 }
 
 .home-benefit-trail-line {
-  @apply block h-0.5 bg-clr-action-text/40 dark:bg-clr-darkmode-action-text/40;
+  @apply block h-0.5;
 }
 
 .home-benefit-trail-line--long {
@@ -340,7 +226,7 @@ Features
 }
 
 .home-feature-summary {
-  --home-feature-icon-baseline-shift: -0.08em;
+  --home-feature-icon-baseline-shift: -0.17em;
   @apply md:col-span-5;
 }
 
@@ -349,7 +235,7 @@ Features
 }
 
 .home-feature-icon {
-  @apply shrink-0 text-clr-primary opacity-40 dark:text-clr-darkmode-primary;
+  @apply shrink-0 opacity-40;
 }
 
 .home-feature-symbol {
@@ -361,11 +247,7 @@ Features
 }
 
 .home-feature-heading {
-  @apply m-0 font-secondary font-semibold leading-tight text-clr-text-dark dark:text-clr-darkmode-text-dark;
-}
-
-.home-feature-summary-copy {
-  @apply max-w-none text-base leading-relaxed text-clr-text-light dark:text-clr-darkmode-text-light;
+  @apply m-0;
 }
 
 .home-feature-items {
@@ -381,8 +263,6 @@ Features
 }
 
 .home-feature-index {
-  font-size: var(--font-size-copy-sm);
-  @apply font-tertiary leading-tight text-clr-primary dark:text-clr-darkmode-primary;
 }
 
 .home-feature-item-copy {
@@ -393,20 +273,11 @@ Features
   @apply mb-1;
 }
 
-.home-feature-item-body {
-  @apply m-0;
-}
-
 /*
 ==============================
 Preview Support
 ==============================
 */
-
-.home-preview-link {
-  font-size: var(--font-size-label-sm);
-  @apply inline-flex items-center gap-1 font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text hover:underline dark:text-clr-darkmode-action-text;
-}
 
 .home-preview-body {
   @apply bg-clr-surface-low py-8 dark:bg-clr-darkmode-surface-low md:py-10;
@@ -414,10 +285,6 @@ Preview Support
 
 .home-preview-intro {
   @apply mb-8 flex flex-col items-start gap-4 md:mb-10 md:gap-5;
-}
-
-.home-preview-copy {
-  @apply m-0 leading-relaxed;
 }
 
 .home-preview-actions {
@@ -433,7 +300,7 @@ Preview Support
 }
 
 .home-preview-group-header {
-  @apply mb-3 flex items-start justify-between gap-4 border-b border-clr-rule-soft pb-0 dark:border-clr-darkmode-rule-soft;
+  @apply mb-3 flex items-end justify-between gap-4 border-b border-clr-rule-soft pb-2 dark:border-clr-darkmode-rule-soft;
 }
 
 .home-preview-group-title {
@@ -441,7 +308,7 @@ Preview Support
 }
 
 .home-preview-group-icon {
-  @apply flex h-8 w-8 shrink-0 items-start justify-center text-clr-action-text/75 dark:text-clr-darkmode-action-text/75;
+  @apply flex h-8 w-8 shrink-0 items-end justify-center;
 }
 
 .home-preview-group-symbol {
@@ -468,7 +335,6 @@ Preview Support
 }
 
 .home-preview-label {
-  @apply text-[1.35rem] md:text-[1.55rem];
 }
 
 .home-preview-detail {
@@ -505,10 +371,6 @@ Companion
   @apply flex flex-col;
 }
 
-.home-companion-lede {
-  @apply max-w-none lg:max-w-[18rem];
-}
-
 .home-companion-actions {
   @apply mt-2 lg:col-span-2 lg:mt-8;
 }
@@ -525,15 +387,6 @@ Companion
   @apply m-0 flex list-none flex-col gap-3 p-0;
 }
 
-.home-companion-item {
-  @apply relative pl-5;
-}
-
-.home-companion-item::before {
-  content: "";
-  @apply absolute left-0 top-[0.4rem] block h-1.5 w-1.5 bg-clr-primary dark:bg-clr-darkmode-primary;
-}
-
 .home-companion-preview {
   @apply border-t-2 border-clr-rule-strong bg-clr-surface-low p-8 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low lg:border-t-0 lg:border-l;
 }
@@ -548,14 +401,6 @@ Companion
 .dark .home-companion-preview-image {
   --home-companion-preview-shadow-primary: rgb(0 0 0 / 0.28);
   --home-companion-preview-shadow-secondary: rgb(0 0 0 / 0.18);
-}
-
-.home-companion-preview-placeholder {
-  @apply flex min-h-[23rem] w-full flex-col items-center justify-center gap-4 border-2 border-dashed border-clr-rule-soft bg-clr-surface-page px-6 py-8 text-center dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page md:min-h-[31rem];
-}
-
-.home-companion-preview-placeholder-copy {
-  @apply m-0 max-w-[22rem];
 }
 
 /*
@@ -594,7 +439,7 @@ Proof
 */
 
 .home-proof {
-  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+  @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
 }
 
 .home-proof-body {
@@ -611,10 +456,6 @@ Proof
 
 .home-proof-title {
   @apply mb-6;
-}
-
-.home-proof-copy {
-  @apply max-w-sm;
 }
 
 .home-proof-details {

@@ -35,8 +35,6 @@
 @layer components {
   @import "./content.css";
   @import "./buttons.css";
-  @import "./article.css";
-  @import "./posts-grid.css";
   @import "./search.css";
   @import "./navigation.css";
   @import "./footer.css";
@@ -47,9 +45,9 @@
 
 @import "module-overrides.css";
 @import "shared.css";
+@import "docs.css";
 @import "homepage.css";
 
-/* Code styling */
 @import "code.css";
 
 /* Syntax highlighting (Chroma) */

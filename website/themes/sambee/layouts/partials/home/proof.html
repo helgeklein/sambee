@@ -5,17 +5,17 @@
   <div class="site-gutter home-proof-body">
     <div class="home-proof-grid">
       <div class="home-proof-intro">
-      <span class="eyebrow eyebrow--stacked">{{ $section.eyebrow }}</span>
-      <h2 class="home-section-title home-section-title--standard home-proof-title">{{ $section.title }}</h2>
-      <p class="home-copy home-copy--lead home-proof-copy">{{ $section.body }}</p>
+      <span class="type-label-eyebrow type-color-accent eyebrow-stack">{{ $section.eyebrow }}</span>
+      <h2 class="home-section-title type-section-title type-color-ink home-proof-title">{{ $section.title }}</h2>
+      <p class="type-copy-relaxed type-color-muted">{{ $section.body }}</p>
       </div>
       <div class="home-proof-details">
       {{/* Evidence items stay deliberately terse so the supporting categories are scannable. */}}
       <div class="home-proof-items" aria-label="Environment fit proof points">
         {{ range $section.items }}
         <article class="home-proof-item">
-          <span class="home-label home-label--sm home-label--accent home-proof-category">{{ .category }}</span>
-          <strong class="home-label home-label--ink home-proof-label">{{ .label }}</strong>
+          <span class="home-proof-category type-label type-label-sm type-color-accent">{{ .category }}</span>
+          <strong class="type-label type-color-ink">{{ .label }}</strong>
         </article>
         {{ end }}
       </div>
