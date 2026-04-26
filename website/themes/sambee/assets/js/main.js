@@ -6,6 +6,7 @@
    const COPY_BUTTON_CLASS = 'code-copy-btn';
    const DOCS_VERSION_DROPDOWN_SELECTOR = '.docs-sidebar-version-control';
    const DOCS_VERSION_DROPDOWN_CLOSE_SELECTOR = '[data-close-version-dropdown]';
+   const DOCS_SIDEBAR_TOGGLE_SELECTOR = '.docs-sidebar-toggle';
 
    function createCopyButton() {
       const button = document.createElement('button');
@@ -82,9 +83,32 @@
       });
    }
 
+   function initDocsSidebarToggles() {
+      document.querySelectorAll(DOCS_SIDEBAR_TOGGLE_SELECTOR).forEach((button) => {
+         button.addEventListener('click', () => {
+            const targetId = button.getAttribute('aria-controls');
+
+            if (!targetId) {
+               return;
+            }
+
+            const container = document.getElementById(targetId);
+
+            if (!container) {
+               return;
+            }
+
+            const isExpanded = button.getAttribute('aria-expanded') === 'true';
+            button.setAttribute('aria-expanded', String(!isExpanded));
+            container.hidden = isExpanded;
+         });
+      });
+   }
+
    function init() {
       initCodeCopyButtons();
       initDocsVersionDropdowns();
+      initDocsSidebarToggles();
    }
 
    if (document.readyState === 'loading') {

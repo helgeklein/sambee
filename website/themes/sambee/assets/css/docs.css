@@ -377,24 +377,72 @@ a.docs-sidebar-version-option:focus-visible {
   @apply border-l-2 border-clr-primary bg-clr-surface-low pl-[0.625rem] text-clr-text-dark dark:border-clr-darkmode-primary dark:bg-clr-darkmode-surface-low dark:text-clr-darkmode-text-dark;
 }
 
+.docs-sidebar-book + .docs-sidebar-book {
+  @apply border-t-2 border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-sidebar-title-row {
+  @apply flex items-stretch;
+}
+
 .docs-sidebar-title {
-  @apply block border-b-2 border-clr-rule-soft bg-clr-surface-page px-5 py-5 font-secondary text-[1.25rem] font-bold italic text-clr-text-dark no-underline transition-colors duration-150 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark md:px-6;
+  @apply flex min-w-0 flex-1 items-center gap-3 bg-clr-surface-page px-5 py-5 font-secondary text-[1.25rem] font-bold italic text-clr-text-dark no-underline transition-colors duration-150 dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-text-dark md:px-6;
 }
 
 .docs-sidebar-title-current {
-  @apply border-b;
+  @apply border-b-0;
+}
+
+.docs-sidebar-title-label {
+  @apply min-w-0 flex-1;
 }
 
 .docs-sidebar-title:hover {
   @apply transition-colors duration-150 hover:text-clr-primary dark:hover:text-clr-darkmode-primary;
 }
 
+.docs-sidebar-toggle {
+  @apply flex w-12 shrink-0 items-center justify-center bg-clr-surface-page text-clr-rule-strong transition-colors duration-150 hover:text-clr-primary dark:bg-clr-darkmode-surface-page dark:text-clr-darkmode-rule-strong dark:hover:text-clr-darkmode-primary md:w-14;
+  border: 0;
+  cursor: pointer;
+}
+
+.docs-sidebar-toggle:focus {
+  outline: none;
+}
+
+.docs-sidebar-toggle:focus-visible {
+  outline: 1px solid var(--color-clr-rule-strong);
+  outline-offset: -1px;
+}
+
+.dark .docs-sidebar-toggle:focus-visible {
+  outline-color: var(--color-clr-darkmode-rule-strong);
+}
+
+.docs-sidebar-toggle-chevron {
+  @apply h-5 w-5 fill-current;
+  transition: transform 150ms ease;
+}
+
+.docs-sidebar-toggle[aria-expanded="true"] .docs-sidebar-toggle-chevron {
+  transform: rotate(90deg);
+}
+
+.docs-sidebar-toggle--nested {
+  @apply w-10 bg-transparent md:w-10;
+}
+
 .docs-nav-group + .docs-nav-group {
   @apply mt-0 border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
 }
 
+.docs-nav-group-row {
+  @apply flex items-stretch;
+}
+
 .docs-nav-group strong {
-  @apply block px-5 pt-4 pb-2 text-[0.68rem] font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text dark:text-clr-darkmode-action-text md:px-6;
+  @apply block min-w-0 flex-1 px-5 pt-4 pb-2 text-[0.68rem] font-tertiary font-bold uppercase tracking-[0.18em] text-clr-action-text dark:text-clr-darkmode-action-text md:px-6;
 }
 
 .docs-nav-list {

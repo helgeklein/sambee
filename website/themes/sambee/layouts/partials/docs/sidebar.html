@@ -43,43 +43,83 @@
     {{ $bookSlug := .slug }}
     {{ $isCurrentBook := eq $bookSlug $book }}
     {{ $currentBookPage := site.GetPage (printf "/docs/%s/%s" $version $bookSlug) }}
+    {{ $currentBookContentPages := where (where site.Pages "Params.product_version" $version) "Params.book" $bookSlug }}
     {{ $currentBookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $bookSlug }}
+    {{ $hasChildPages := gt (len $currentBookPages) 0 }}
+    {{ $bookChildrenId := printf "docs-sidebar-book-%s-%s" $version $bookSlug }}
     {{ $bookTitleClass := "docs-sidebar-title" }}
     {{ if $isCurrentBook }}
       {{ $bookTitleClass = printf "%s %s" $bookTitleClass "docs-sidebar-title-current" }}
     {{ end }}
-    <div>
+    <div class="docs-sidebar-book{{ if $isCurrentBook }} docs-sidebar-book-current{{ end }}{{ if $hasChildPages }} docs-sidebar-book-has-children{{ end }}">
       {{/* Prefer the generated section landing page title when it exists. */}}
-      {{ with $currentBookPage }}
-      <a class="{{ $bookTitleClass }}" href="{{ .RelPermalink }}">{{ .Title }}</a>
-      {{ else }}
-      <div class="{{ $bookTitleClass }}">{{ .title }}</div>
-      {{ end }}
-      {{ if $isCurrentBook }}
+      <div class="docs-sidebar-title-row">
+        {{ with $currentBookPage }}
+        <a class="{{ $bookTitleClass }}" href="{{ .RelPermalink }}">
+          <span class="docs-sidebar-title-label">{{ .Title }}</span>
+        </a>
+        {{ else }}
+        <div class="{{ $bookTitleClass }}">
+          <span class="docs-sidebar-title-label">{{ .title }}</span>
+        </div>
+        {{ end }}
+        {{ if $hasChildPages }}
+        <button
+          type="button"
+          class="docs-sidebar-toggle"
+          aria-expanded="{{ if $isCurrentBook }}true{{ else }}false{{ end }}"
+          aria-controls="{{ $bookChildrenId }}"
+          aria-label="Toggle {{ .title }} section navigation">
+          {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
+        </button>
+        {{ end }}
+      </div>
+      {{ if $hasChildPages }}
+      <div id="{{ $bookChildrenId }}" class="docs-sidebar-children"{{ if not $isCurrentBook }} hidden{{ end }}>
         {{ range .sections }}
         {{/* Sections follow docs_nav order; individual pages are matched by doc_id. */}}
+        {{ $sectionPages := slice }}
+        {{ $isCurrentSection := false }}
+        {{ range .doc_ids }}
+          {{ $docId := . }}
+          {{ $matches := where $currentBookContentPages "Params.doc_id" $docId }}
+          {{ if gt (len $matches) 0 }}
+            {{ $target := index $matches 0 }}
+            {{ $sectionPages = $sectionPages | append $target }}
+            {{ if eq $target.RelPermalink $.RelPermalink }}
+              {{ $isCurrentSection = true }}
+            {{ end }}
+          {{ end }}
+        {{ end }}
+        {{ $sectionChildrenId := printf "%s-%s" $bookChildrenId (.title | urlize) }}
         <section class="docs-nav-group">
-          <strong>{{ .title }}</strong>
-          <ul class="docs-nav-list">
-            {{ range .doc_ids }}
-              {{ $docId := . }}
-              {{ $matches := where $currentBookPages "Params.doc_id" $docId }}
-              {{ if gt (len $matches) 0 }}
-              {{ $target := index $matches 0 }}
-              {{ $isCurrentPage := eq $target.RelPermalink $.RelPermalink }}
+          <div class="docs-nav-group-row">
+            <strong>{{ .title }}</strong>
+            <button
+              type="button"
+              class="docs-sidebar-toggle docs-sidebar-toggle--nested"
+              aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
+              aria-controls="{{ $sectionChildrenId }}"
+              aria-label="Toggle {{ .title }} pages">
+              {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
+            </button>
+          </div>
+          <ul id="{{ $sectionChildrenId }}" class="docs-nav-list"{{ if not $isCurrentSection }} hidden{{ end }}>
+            {{ range $sectionPages }}
+              {{ $isCurrentPage := eq .RelPermalink $.RelPermalink }}
               <li>
                 {{/* The current page is rendered as text to avoid linking to itself. */}}
                 {{ if $isCurrentPage }}
-                <span class="docs-sidebar-link docs-sidebar-link-current">{{ $target.Title }}</span>
+                <span class="docs-sidebar-link docs-sidebar-link-current">{{ .Title }}</span>
                 {{ else }}
-                <a class="docs-sidebar-link" href="{{ $target.RelPermalink }}">{{ $target.Title }}</a>
+                <a class="docs-sidebar-link" href="{{ .RelPermalink }}">{{ .Title }}</a>
                 {{ end }}
               </li>
-              {{ end }}
             {{ end }}
           </ul>
         </section>
         {{ end }}
+      </div>
       {{ end }}
     </div>
   {{ end }}
