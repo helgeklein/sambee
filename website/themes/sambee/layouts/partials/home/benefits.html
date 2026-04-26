@@ -3,7 +3,7 @@
 {{ if $section.enabled }}
 <section class="shell-section ledger-shell home-section" id="features-overview">
   <div class="home-section-header site-gutter">
-    <span class="type-eyebrow type-color-accent eyebrow-stack">{{ $section.eyebrow }}</span>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">{{ $section.eyebrow }}</span>
     <h2 class="home-section-title type-section-title type-color-ink">{{ $section.title }}</h2>
   </div>
   <div class="home-benefits-grid">
@@ -11,7 +11,7 @@
     <article class="home-benefit-card group">
       <div class="home-benefit-body">
         <div class="home-benefit-header-row">
-          <span class="type-eyebrow type-eyebrow-strong type-color-accent">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
+          <span class="type-label-eyebrow-strong type-color-accent">{{ with $item.marker }}{{ . }}{{ else }}{{ replace $item.id "_" " // " }}{{ end }}</span>
           <span class="home-benefit-icon ui-color-primary" aria-hidden="true"><span class="material-symbols-outlined home-benefit-symbol">{{ $item.icon | default "apps" }}</span></span>
         </div>
         <h3 class="home-benefit-title type-editorial-md-tight type-color-ink">{{ $item.title }}</h3>

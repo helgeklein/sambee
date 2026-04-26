@@ -24,7 +24,7 @@
   <nav class="docs-breadcrumbs site-gutter" aria-label="Breadcrumb">
     <ol class="docs-breadcrumb-list">
       {{ if $bookPage }}
-      <li class="docs-breadcrumb-item type-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
         {{ if eq .RelPermalink $bookPage.RelPermalink }}
         <span class="docs-breadcrumb-current type-color-ink">{{ $bookPage.Title }}</span>
         {{ else }}
@@ -32,17 +32,17 @@
         {{ end }}
       </li>
       {{ if and $bookPage (ne .RelPermalink $bookPage.RelPermalink) }}
-      <li class="docs-breadcrumb-item type-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
         <span class="docs-breadcrumb-current type-color-ink">{{ .Title }}</span>
       </li>
       {{ end }}
       {{ else }}
-      <li class="docs-breadcrumb-item type-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
         <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="/docs/">Documentation</a>
       </li>
       {{ with $versionPage }}
-      <li class="docs-breadcrumb-item type-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
         {{ if eq $.RelPermalink .RelPermalink }}
         <span class="docs-breadcrumb-current type-color-ink">Version {{ $versionLabel }}</span>

@@ -6,12 +6,6 @@ Layout Shells
 ==============================
 */
 .site-main {
-  --eyebrow-font-family: var(--font-tertiary);
-  --eyebrow-font-weight-normal: 400;
-  --eyebrow-font-weight-strong: 700;
-  --eyebrow-rule-thickness: 2px;
-  --eyebrow-md-letter-spacing: 0.18em;
-  --eyebrow-xl-letter-spacing: 0.22em;
   @apply flex-1 pb-12;
 
   @media (max-width: calc(theme(--breakpoint-md) - 0.02px)) {
@@ -275,20 +269,6 @@ Type Styles
 ==============================
 */
 
-.type-eyebrow {
-  font-family: var(--eyebrow-font-family);
-  font-size: var(--font-size-label-sm);
-  font-weight: var(--eyebrow-font-weight-normal);
-  letter-spacing: var(--eyebrow-xl-letter-spacing);
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.type-eyebrow-strong {
-  font-weight: var(--eyebrow-font-weight-strong);
-  letter-spacing: var(--eyebrow-md-letter-spacing);
-}
-
 .type-section-title {
   font-family: var(--font-secondary);
   font-style: italic;
@@ -311,29 +291,48 @@ Type Styles
   line-height: 1.625rem;
 }
 
-.type-label {
-  font-family: var(--font-tertiary);
-  font-style: normal;
-  text-transform: uppercase;
-}
-
-.type-label-xs {
-  font-size: var(--font-size-label-xs);
-  font-weight: 400;
-  letter-spacing: 0.1em;
-  line-height: inherit;
-}
-
 .type-label-sm {
   font-size: var(--font-size-label-sm);
   font-weight: 400;
   letter-spacing: 0.1em;
 }
 
+.type-label {
+  font-family: var(--font-tertiary);
+  font-style: normal;
+  text-transform: uppercase;
+}
+
 .type-label-strong {
   font-size: var(--font-size-label-sm);
   font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.type-label-eyebrow {
+  font-family: var(--font-tertiary);
+  font-size: var(--font-size-label-sm);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  line-height: 1;
+}
+
+.type-label-eyebrow-strong {
+  font-family: var(--font-tertiary);
+  font-size: var(--font-size-label-sm);
+  font-weight: 700;
+  font-style: normal;
+  text-transform: uppercase;
   letter-spacing: 0.18em;
+  line-height: 1;
+}
+
+.type-label-xs {
+  font-size: var(--font-size-label-xs);
+  font-weight: 400;
+  letter-spacing: 0.1em;
   line-height: inherit;
 }
 
@@ -370,6 +369,19 @@ Type Styles
   }
 }
 
+.type-editorial-xl {
+  font-family: var(--font-secondary);
+  font-size: 2rem;
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: normal;
+  line-height: var(--line-height-heading-tight);
+
+  @media (min-width: theme(--breakpoint-md)) {
+    font-size: 2.35rem;
+  }
+}
+
 .type-subtitle-hero {
   font-family: var(--font-primary);
   font-size: 1.6rem;
@@ -393,6 +405,15 @@ Type Styles
 }
 
 .type-editorial-md-tight {
+  line-height: var(--line-height-heading-tight);
+}
+
+.type-editorial-sm-tight {
+  font-family: var(--font-secondary);
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: normal;
   line-height: var(--line-height-heading-tight);
 }
 

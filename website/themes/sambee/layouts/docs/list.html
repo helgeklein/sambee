@@ -9,8 +9,8 @@
 {{ if and (not .Params.product_version) (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="type-eyebrow type-color-accent eyebrow-stack">Documentation</span>
-    <h1>{{ .Title }}</h1>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">Documentation</span>
+    <h1 class="type-section-title type-color-ink">{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ with $navData }}
@@ -20,9 +20,9 @@
     <article class="docs-index-item">
       <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $currentVersion .slug }}">
         <div class="docs-index-body">
-          <span class="docs-index-kicker type-color-accent">Version {{ $currentVersion }}</span>
-          <h2 class="docs-index-title type-color-ink">{{ .title }}</h2>
-          <p class="docs-index-summary type-color-muted">{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
+          <span class="docs-index-kicker type-label-eyebrow type-color-accent">Version {{ $currentVersion }}</span>
+          <h2 class="docs-index-title type-editorial-xl type-color-ink">{{ .title }}</h2>
+          <p class="docs-index-summary type-copy-relaxed type-color-muted">{{ len .sections }} section{{ if ne (len .sections) 1 }}s{{ end }} available in the current documentation set.</p>
         </div>
         <span class="docs-index-arrow material-symbols-outlined ui-color-rule" aria-hidden="true">chevron_right</span>
       </a>
@@ -35,8 +35,8 @@
 {{ else if and .Params.product_version (not .Params.book) }}
 <section class="docs-overview ledger-shell">
   <div class="ledger-section-head docs-header">
-    <span class="type-eyebrow type-color-accent eyebrow-stack">Version {{ .Params.product_version }}</span>
-    <h1>{{ .Title }}</h1>
+    <span class="type-label-eyebrow type-color-accent eyebrow-stack">Version {{ .Params.product_version }}</span>
+    <h1 class="type-section-title type-color-ink">{{ .Title }}</h1>
     <div class="content lede" data-pagefind-body>{{ .Content }}</div>
   </div>
   {{ $versionNav := index $docsNav .Params.product_version }}
@@ -47,9 +47,9 @@
     <article class="docs-index-item">
       <a class="docs-index-link" href="{{ printf "/docs/%s/%s/" $.Params.product_version .slug }}">
         <div class="docs-index-body">
-          <span class="docs-index-kicker type-color-accent">Book</span>
-          <h2 class="docs-index-title type-color-ink">{{ .title }}</h2>
-          <p class="docs-index-summary type-color-muted">Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
+          <span class="docs-index-kicker type-label-eyebrow type-color-accent">Book</span>
+          <h2 class="docs-index-title type-editorial-xl type-color-ink">{{ .title }}</h2>
+          <p class="docs-index-summary type-copy-relaxed type-color-muted">Canonical documentation for Sambee {{ $.Params.product_version }}.</p>
         </div>
         <span class="docs-index-arrow material-symbols-outlined ui-color-rule" aria-hidden="true">chevron_right</span>
       </a>
@@ -81,7 +81,7 @@
 {{/* Fallback for docs content that does not fit the usual hierarchy. */}}
 <section class="shell-section ledger-shell">
   <article class="docs-content">
-    <h1>{{ .Title }}</h1>
+    <h1 class="type-section-title type-color-ink">{{ .Title }}</h1>
     <div class="content" data-pagefind-body>{{ .Content }}</div>
   </article>
 </section>
