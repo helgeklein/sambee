@@ -4,6 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../theme";
 import { ConnectionsSettings } from "../ConnectionsSettings";
 
+const routerFuture = {
+  v7_startTransition: true,
+  v7_relativeSplatPath: true,
+} as const;
+
 vi.mock("../ConnectionSettings", () => ({
   ConnectionSettings: ({ sectionTitle }: { sectionTitle?: string }) => <div>SMB Content: {sectionTitle}</div>,
 }));
@@ -19,7 +24,7 @@ function renderWithTheme(ui: React.ReactElement) {
 describe("ConnectionsSettings", () => {
   it("renders the connections parent page content on desktop", () => {
     renderWithTheme(
-      <MemoryRouter initialEntries={["/browse"]}>
+      <MemoryRouter initialEntries={["/browse"]} future={routerFuture}>
         <ConnectionsSettings forceDesktopLayout />
       </MemoryRouter>
     );
@@ -30,7 +35,7 @@ describe("ConnectionsSettings", () => {
 
   it("renders the connections parent page content on mobile route entry", () => {
     renderWithTheme(
-      <MemoryRouter initialEntries={["/settings/connections"]}>
+      <MemoryRouter initialEntries={["/settings/connections"]} future={routerFuture}>
         <Routes>
           <Route path="/settings/connections" element={<ConnectionsSettings />} />
         </Routes>
