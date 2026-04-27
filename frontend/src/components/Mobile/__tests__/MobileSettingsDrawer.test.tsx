@@ -5,6 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import { MobileSettingsDrawer } from "../MobileSettingsDrawer";
 
+const routerFuture = {
+  v7_startTransition: true,
+  v7_relativeSplatPath: true,
+} as const;
+
 vi.mock("../../Settings/settingsDataSources", () => ({
   prefetchSettingsDataForItems: vi.fn(),
 }));
@@ -26,7 +31,7 @@ vi.mock("../../../pages/LocalDrivesSettings", () => ({
 function renderDrawer() {
   return render(
     <SambeeThemeProvider>
-      <MemoryRouter>
+      <MemoryRouter future={routerFuture}>
         <MobileSettingsDrawer open onClose={vi.fn()} initialView="main" />
       </MemoryRouter>
     </SambeeThemeProvider>

@@ -821,7 +821,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   const handleOpenSearch = useCallback(
     (_event?: KeyboardEvent) => {
-      if (loading || !!error || (isEditing && !editorSearchState.isSearchable)) {
+      if (loading || error || (isEditing && !editorSearchState.isSearchable)) {
         return;
       }
 

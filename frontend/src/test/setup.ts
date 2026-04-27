@@ -1,7 +1,12 @@
 import "@testing-library/jest-dom";
+import * as events from "node:events";
 import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { server } from "./mocks/server";
+
+const TEST_EVENT_TARGET_MAX_LISTENERS = 0;
+
+events.setMaxListeners(TEST_EVENT_TARGET_MAX_LISTENERS);
 
 const mockLocation = {
   href: "http://localhost:3000/",
