@@ -6,7 +6,7 @@ book = "developer"
 description = "Overview of the current Sambee website and docs architecture scaffold."
 +++
 
-This page is a working scaffold for the documentation design system. It exercises the docs shell, content typography, tables, code blocks, and typed admonitions that the final docs sub-site will rely on.
+This page is a working scaffold for the documentation design system. It exercises the docs shell, content typography, tables, code blocks, and typed admonitions that the final docs sub-site will rely on. For the broader docs entry point, see the [Developer Guide](/docs/1.0/developer/), and for Hugo authoring details, see the [Hugo documentation](https://gohugo.io/documentation/).
 
 ## Content System
 
@@ -40,6 +40,8 @@ Keep docs-specific structure in docs templates and docs content styles. Do not m
 
 Inline code, dense tables, and framed code blocks are part of the design language rather than afterthoughts. For example, the keyboard shortcut for the search modal remains <kbd>/</kbd>, and code references such as `docs-shell--page` should remain visually distinct from normal prose.
 
+Writers should also be able to reference implementation details inline, such as the `site.Params.footer.github_url` setting, the `createDocsShell()` helper, the `npm run build` command, or a path like `layouts/_default/_markup/render-link.html`, without losing readability inside a paragraph.
+
 ### Example Table
 
 | Surface | Purpose | Notes |
@@ -56,13 +58,39 @@ The admonition colors are driven by the generated theme tokens so the content sy
 
 The code surface should feel framed and deliberate, not soft or floating.
 
-```js
-function createDocsShell(config) {
-	return {
-		sidebar: config.sidebar,
-		header: config.header,
-		tableOfContents: config.tableOfContents,
-	};
+```ts
+interface DocsSection {
+	id: string;
+	title: string;
+	hidden?: boolean;
+}
+
+const DEFAULT_SECTION_LIMIT = 12;
+
+export async function buildDocsIndex(
+	sections: DocsSection[],
+	locale = "en-US",
+): Promise<Map<string, string>> {
+	const visibleSections = sections
+		.filter((section) => !section.hidden)
+		.slice(0, DEFAULT_SECTION_LIMIT);
+
+	// Keep labels stable so the right rail does not jump during hydration.
+	const formatter = new Intl.NumberFormat(locale, {
+		minimumIntegerDigits: 2,
+	});
+
+	try {
+		return new Map(
+			visibleSections.map((section, index) => {
+				const label = `${formatter.format(index + 1)}.${section.title ?? "overview"}`;
+				return [section.id, label.toLowerCase()];
+			}),
+		);
+	} catch (error) {
+		console.warn("Failed to build docs index", { error, locale });
+		return new Map([["fallback", "overview"]]);
+	}
 }
 ```
 

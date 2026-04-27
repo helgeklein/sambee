@@ -8,15 +8,15 @@
 
 <footer class="site-footer">
   <div class="site-frame site-footer-inner">
-    <div class="site-footer-copy">© {{ now.Year }} {{ site.Title }}</div>
+    <div class="site-footer-copy type-label-eyebrow type-color-muted">© {{ now.Year }} {{ site.Title }}</div>
     <div class="site-footer-repo">
       <a class="site-footer-github-link" href="{{ $githubURL }}" target="_blank" rel="noopener" aria-label="Sambee on GitHub">
         {{ partial "icons/github.html" (dict "class" "site-footer-github-icon") }}
       </a>
     </div>
     <nav class="site-footer-legal" aria-label="Legal links">
-      <a class="site-footer-link" href="{{ $imprintURL }}"{{ if $imprintExternal }} target="_blank" rel="noopener"{{ end }}>Imprint</a>
-      <a class="site-footer-link" href="{{ $privacyURL }}"{{ if $privacyExternal }} target="_blank" rel="noopener"{{ end }}>Privacy Policy</a>
+      <a class="site-footer-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $imprintURL }}"{{ if $imprintExternal }} target="_blank" rel="noopener"{{ end }}>Imprint</a>
+      <a class="site-footer-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $privacyURL }}"{{ if $privacyExternal }} target="_blank" rel="noopener"{{ end }}>Privacy Policy</a>
     </nav>
   </div>
 </footer>

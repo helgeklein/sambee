@@ -66,7 +66,7 @@
   */
 
   ul {
-    list-style-type: disc;
+    list-style-type: square;
     padding-inline-start: 1.5em;
   }
 
@@ -143,14 +143,12 @@
   ==============================
   */
 
-  /* Tables scroll horizontally instead of forcing narrow viewports to overflow. */
+  /* Keep native table layout so columns expand across the available content width. */
   table {
     width: 100%;
     border-collapse: collapse;
     margin: var(--content-block-margin) 0;
     font-size: 0.9375em;
-    overflow-x: auto;
-    display: block;
     border: 1px solid var(--color-clr-rule-strong);
     background-color: var(--color-clr-surface-base);
 

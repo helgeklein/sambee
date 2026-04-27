@@ -1,7 +1,240 @@
-/* Purpose: Reserves syntax-highlighting overrides for future Chroma-heavy content. */
+/* Purpose: Defines the Chroma class-based syntax theme used across documentation code blocks. */
 
 /*
 ==============================
-Reserved Overrides
+Dual Gruvbox Theme Tokens
 ==============================
 */
+
+.content .chroma {
+	--code-syntax-foreground: #3c3836;
+	--code-syntax-line-highlight: #e1d8b3;
+	--code-syntax-line-number: #9d9b9a;
+	--code-syntax-keyword: #af3a03;
+	--code-syntax-type: #b57614;
+	--code-syntax-name-accent: #79740e;
+	--code-syntax-name-constant: #d3869b;
+	--code-syntax-name-danger: #fb4934;
+	--code-syntax-string: #79740e;
+	--code-syntax-string-escape: #076678;
+	--code-syntax-number: #8f3f71;
+	--code-syntax-operator: #af3a03;
+	--code-syntax-comment: #928374;
+	--code-syntax-preprocessor: #427b58;
+	--code-syntax-error-text: #3c3836;
+	--code-syntax-error-surface: #f2cdcd;
+	--code-syntax-generic-deleted: #282828;
+	--code-syntax-generic-deleted-surface: #9d0006;
+	--code-syntax-generic-emphasis: #076678;
+	--code-syntax-generic-inserted: #282828;
+	--code-syntax-generic-inserted-surface: #79740e;
+	--code-syntax-generic-output: #504945;
+	color: var(--code-syntax-foreground);
+	-webkit-text-size-adjust: none;
+}
+
+html.dark .content .chroma {
+	--code-syntax-foreground: #ebdbb2;
+	--code-syntax-line-highlight: #3d3d3d;
+	--code-syntax-line-number: #756d59;
+	--code-syntax-keyword: #fe8019;
+	--code-syntax-type: #fabd2f;
+	--code-syntax-name-accent: #b8bb26;
+	--code-syntax-name-constant: #d3869b;
+	--code-syntax-name-danger: #fb4934;
+	--code-syntax-string: #b8bb26;
+	--code-syntax-string-escape: #83a598;
+	--code-syntax-number: #d3869b;
+	--code-syntax-operator: #fe8019;
+	--code-syntax-comment: #928374;
+	--code-syntax-preprocessor: #8ec07c;
+	--code-syntax-error-text: #ebdbb2;
+	--code-syntax-error-surface: #5a1d1d;
+	--code-syntax-generic-deleted: #282828;
+	--code-syntax-generic-deleted-surface: #fb4934;
+	--code-syntax-generic-emphasis: #83a598;
+	--code-syntax-generic-inserted: #282828;
+	--code-syntax-generic-inserted-surface: #b8bb26;
+	--code-syntax-generic-output: #504945;
+}
+
+/*
+==============================
+Code Surface Overrides
+==============================
+*/
+
+.content .chroma,
+.content .chroma .bg {
+	background-color: transparent;
+}
+
+.content .chroma .hl {
+	background-color: var(--code-syntax-line-highlight);
+}
+
+.content .chroma .ln,
+.content .chroma .lnt {
+	color: var(--code-syntax-line-number);
+}
+
+/*
+==============================
+Chroma Theme Mapping
+==============================
+*/
+
+.content .chroma .err {
+	color: var(--code-syntax-error-text);
+	background-color: var(--code-syntax-error-surface);
+}
+
+.content .chroma .lnlinks {
+	outline: none;
+	text-decoration: none;
+	color: inherit;
+}
+
+.content .chroma .lntd {
+	vertical-align: top;
+	padding: 0;
+	margin: 0;
+	border: 0;
+}
+
+.content .chroma .lntable {
+	border-spacing: 0;
+	padding: 0;
+	margin: 0;
+	border: 0;
+}
+
+.content .chroma .lnt,
+.content .chroma .ln {
+	white-space: pre;
+	-webkit-user-select: none;
+	user-select: none;
+	margin-right: 0.4em;
+	padding: 0 0.4em 0 0.4em;
+}
+
+.content .chroma .line {
+	display: flex;
+}
+
+.content .chroma .k,
+.content .chroma .kc,
+.content .chroma .kd,
+.content .chroma .kn,
+.content .chroma .kp,
+.content .chroma .kr {
+	color: var(--code-syntax-keyword);
+}
+
+.content .chroma .kt,
+.content .chroma .nb,
+.content .chroma .bp,
+.content .chroma .nf,
+.content .chroma .fm,
+.content .chroma .ni {
+	color: var(--code-syntax-type);
+}
+
+.content .chroma .na {
+	color: var(--code-syntax-name-accent);
+	font-weight: bold;
+}
+
+.content .chroma .no {
+	color: var(--code-syntax-name-constant);
+}
+
+.content .chroma .ne,
+.content .chroma .nl,
+.content .chroma .nt {
+	color: var(--code-syntax-name-danger);
+}
+
+.content .chroma .s,
+.content .chroma .sa,
+.content .chroma .sb,
+.content .chroma .sc,
+.content .chroma .dl,
+.content .chroma .sd,
+.content .chroma .s2,
+.content .chroma .se,
+.content .chroma .sh,
+.content .chroma .si,
+.content .chroma .sx,
+.content .chroma .sr,
+.content .chroma .s1 {
+	color: var(--code-syntax-string);
+}
+
+.content .chroma .ss {
+	color: var(--code-syntax-string-escape);
+}
+
+.content .chroma .m,
+.content .chroma .mb,
+.content .chroma .mf,
+.content .chroma .mh,
+.content .chroma .mi,
+.content .chroma .il,
+.content .chroma .mo {
+	color: var(--code-syntax-number);
+}
+
+.content .chroma .o,
+.content .chroma .ow {
+	color: var(--code-syntax-operator);
+}
+
+.content .chroma .c,
+.content .chroma .ch,
+.content .chroma .cm,
+.content .chroma .c1,
+.content .chroma .cs {
+	color: var(--code-syntax-comment);
+	font-style: italic;
+}
+
+.content .chroma .cp,
+.content .chroma .cpf {
+	color: var(--code-syntax-preprocessor);
+}
+
+.content .chroma .cpf {
+	font-style: italic;
+}
+
+.content .chroma .gd {
+	color: var(--code-syntax-generic-deleted);
+	background-color: var(--code-syntax-generic-deleted-surface);
+}
+
+.content .chroma .ge {
+	color: var(--code-syntax-generic-emphasis);
+	text-decoration: underline;
+}
+
+.content .chroma .gr,
+.content .chroma .gt {
+	background-color: var(--code-syntax-generic-deleted-surface);
+	font-weight: bold;
+}
+
+.content .chroma .gh,
+.content .chroma .gu {
+	color: var(--code-syntax-name-accent);
+	font-weight: bold;
+}
+
+.content .chroma .gi {
+	color: var(--code-syntax-generic-inserted);
+	background-color: var(--code-syntax-generic-inserted-surface);
+}
+
+.content .chroma .go {
+	color: var(--code-syntax-generic-output);
+}

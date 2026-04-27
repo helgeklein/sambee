@@ -30,6 +30,10 @@ resampleFilter = "Lanczos"
     maxAge = "720h"
 
 [markup]
+  [markup.highlight]
+    codeFences = true
+    noClasses = false
+    style = "native"
   [markup.goldmark]
     [markup.goldmark.renderer]
       unsafe = true
