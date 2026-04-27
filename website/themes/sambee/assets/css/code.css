@@ -32,7 +32,7 @@ html.dark .content .highlight {
 }
 
 :where(html.dark, .dark) .content code:not(pre code) {
-   background-color: var(--color-clr-darkmode-code-inline-background);
+   background-color: color-mix(in oklab, var(--color-clr-darkmode-surface-high) 72%, var(--color-clr-darkmode-text-dark) 28%);
    color: var(--color-clr-darkmode-text-dark);
    border-color: var(--color-clr-darkmode-rule-soft);
 }

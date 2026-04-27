@@ -1,6 +1,8 @@
 /* Purpose: Defines rich-text typography rules for rendered content blocks. */
 
 .content {
+  --table-cell-padding-inline: 0.675rem;
+
   color: var(--color-clr-text);
 
   .dark & {
@@ -161,7 +163,8 @@
   th,
   td {
     border: 1px solid var(--color-clr-rule-soft);
-    padding: 0.8em 0.9em;
+    padding-block: 0.8em;
+    padding-inline: var(--table-cell-padding-inline);
     text-align: left;
     vertical-align: top;
 
@@ -180,6 +183,7 @@
 
     .dark & {
       background-color: var(--color-clr-darkmode-surface-high);
+      color: var(--color-clr-darkmode-text-dark);
     }
   }
 
@@ -323,8 +327,9 @@
     color: var(--color-clr-surface-page);
 
     .dark & {
-      background-color: var(--color-clr-darkmode-surface-page);
-      color: var(--color-clr-darkmode-surface-inverse);
+      background-color: var(--color-clr-darkmode-surface-high);
+      color: var(--color-clr-darkmode-text-dark);
+      border: 1px solid var(--color-clr-darkmode-rule-strong);
     }
   }
 
@@ -360,12 +365,17 @@
     background-color: var(--color-clr-surface-low);
 
     .dark & {
+      border-left-color: var(--color-clr-darkmode-status-note);
       background-color: var(--color-clr-darkmode-surface-low);
     }
   }
 
   .admonition--note .admonition__title {
     color: var(--color-clr-status-note);
+
+    .dark & {
+      color: var(--color-clr-darkmode-status-note);
+    }
   }
 
   .admonition--tip {
