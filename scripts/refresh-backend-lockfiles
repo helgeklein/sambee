@@ -1,0 +1,146 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+readonly BACKEND_DIR="${REPO_ROOT}/backend"
+readonly EXPECTED_PYTHON_MINOR="3.13"
+readonly PIP_TOOLS_VERSION="7.4.1"
+
+usage() {
+    cat <<'EOF'
+Usage: scripts/refresh-backend-lockfiles [--check]
+
+Regenerate backend lockfiles from the reviewed requirements sources.
+
+Options:
+  --check    Verify that committed lockfiles match regenerated output.
+  -h, --help Show this help message.
+EOF
+}
+
+find_python() {
+    local candidate
+    for candidate in python3.13 python3 python; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 13) else 1)' >/dev/null 2>&1; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        fi
+    done
+
+    echo "Error: Python ${EXPECTED_PYTHON_MINOR} is required to refresh backend lockfiles." >&2
+    return 1
+}
+
+check_repo_layout() {
+    if [[ ! -f "${BACKEND_DIR}/requirements.txt" || ! -f "${BACKEND_DIR}/requirements-dev.txt" ]]; then
+        echo "Error: backend requirements files were not found under ${BACKEND_DIR}." >&2
+        exit 1
+    fi
+}
+
+create_temp_env() {
+    local python_bin="$1"
+
+    TEMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "${TEMP_DIR}"' EXIT
+
+    "$python_bin" -m venv "${TEMP_DIR}/venv"
+    # shellcheck disable=SC1091
+    source "${TEMP_DIR}/venv/bin/activate"
+
+    python -m pip install --quiet --upgrade pip
+    python -m pip install --quiet "pip-tools==${PIP_TOOLS_VERSION}"
+}
+
+compile_lockfiles() {
+    local output_dir="$1"
+
+    mkdir -p "$output_dir"
+
+    (
+        cd "${BACKEND_DIR}"
+        pip-compile \
+            --allow-unsafe \
+            --generate-hashes \
+            --output-file="${output_dir}/requirements.lock.txt" \
+            requirements.txt
+
+        pip-compile \
+            --allow-unsafe \
+            --generate-hashes \
+            --output-file="${output_dir}/requirements-dev.lock.txt" \
+            requirements-dev.txt \
+            requirements.txt
+    )
+}
+
+replace_lockfiles() {
+    local generated_dir="$1"
+
+    mv "${generated_dir}/requirements.lock.txt" "${BACKEND_DIR}/requirements.lock.txt"
+    mv "${generated_dir}/requirements-dev.lock.txt" "${BACKEND_DIR}/requirements-dev.lock.txt"
+}
+
+check_lockfiles() {
+    local generated_dir="$1"
+    local mismatch=0
+
+    if ! cmp -s "${generated_dir}/requirements.lock.txt" "${BACKEND_DIR}/requirements.lock.txt"; then
+        echo "backend/requirements.lock.txt is out of date. Run scripts/refresh-backend-lockfiles." >&2
+        mismatch=1
+    fi
+
+    if ! cmp -s "${generated_dir}/requirements-dev.lock.txt" "${BACKEND_DIR}/requirements-dev.lock.txt"; then
+        echo "backend/requirements-dev.lock.txt is out of date. Run scripts/refresh-backend-lockfiles." >&2
+        mismatch=1
+    fi
+
+    if [[ "$mismatch" -ne 0 ]]; then
+        return 1
+    fi
+
+    echo "Backend lockfiles are up to date."
+}
+
+main() {
+    local mode="update"
+    local python_bin
+
+    case "${1:-}" in
+        "")
+            ;;
+        --check)
+            mode="check"
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Error: unknown argument '${1}'." >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+
+    check_repo_layout
+    python_bin="$(find_python)"
+
+    echo "Using ${python_bin} to refresh backend lockfiles."
+    create_temp_env "$python_bin"
+    compile_lockfiles "${TEMP_DIR}/generated"
+
+    if [[ "$mode" == "check" ]]; then
+        check_lockfiles "${TEMP_DIR}/generated"
+        return 0
+    fi
+
+    replace_lockfiles "${TEMP_DIR}/generated"
+    echo "Refreshed backend lockfiles with pip-tools ${PIP_TOOLS_VERSION}."
+}
+
+main "$@"
