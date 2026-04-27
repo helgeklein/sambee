@@ -58,11 +58,6 @@ Header Controls
    @apply font-tertiary text-[1rem] font-bold uppercase tracking-[0.005em] md:text-lg lg:text-[1.52rem] lg:tracking-[-0.015em];
 }
 
-.nav-brand-kicker {
-   font-size: var(--font-size-label-xs);
-   @apply font-tertiary uppercase tracking-[0.22em] text-clr-action-text dark:text-clr-darkmode-action-text;
-}
-
 .nav-actions {
    @apply order-1 ml-auto flex items-center gap-2 md:order-2 lg:ml-0 lg:gap-0;
 }
@@ -215,7 +210,8 @@ Top-Level Items
 }
 
 .nav-link {
-   @apply block font-tertiary text-sm font-medium uppercase tracking-[0.1em] text-clr-text-dark transition-colors duration-200 dark:text-clr-darkmode-text-dark;
+   @apply block font-tertiary text-sm font-medium uppercase text-clr-text-dark transition-colors duration-200 dark:text-clr-darkmode-text-dark;
+   letter-spacing: var(--tracking-label);
    padding: 1rem 1.25rem;
    padding-right: 3.75rem;
 
@@ -377,26 +373,6 @@ Submenus
    @media (min-width: theme(--breakpoint-lg)) {
       border-top-color: theme('colors.clr-darkmode-rule-soft');
    }
-}
-
-.nav-submenu-heading {
-   font-size: var(--font-size-label-sm);
-   @apply block font-tertiary uppercase tracking-[0.16em] text-clr-text-light dark:text-clr-darkmode-text-light;
-   padding: 0.75rem 1.25rem 0.25rem;
-
-   @media (min-width: theme(--breakpoint-lg)) {
-      padding: 0.85rem 1rem 0.35rem;
-   }
-}
-
-.nav-submenu-heading--link {
-   @apply hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
-   transition: color 0.2s ease;
-   text-decoration: none;
-}
-
-.nav-submenu-heading--link.active {
-   @apply text-clr-action-text dark:text-clr-darkmode-action-text;
 }
 
 .nav-submenu-items {

@@ -15,10 +15,10 @@
           <div class="home-feature-summary">
             <div class="home-feature-heading-row">
               <span class="home-feature-icon ui-color-primary" aria-hidden="true"><span class="material-symbols-outlined home-feature-symbol">{{ $group.icon | default "apps" }}</span></span>
-              <h3 class="home-feature-heading type-editorial-md-tight type-color-ink">{{ $group.title }}</h3>
+              <h3 class="home-feature-heading type-title-md-tight type-color-ink">{{ $group.title }}</h3>
             </div>
             {{ with $group.summary }}
-            <p class="type-copy-relaxed type-color-muted">{{ . }}</p>
+            <p class="type-copy type-color-muted">{{ . }}</p>
             {{ end }}
           </div>
           {{ with $group.items }}
@@ -26,10 +26,10 @@
             {{ range $item := . }}
             {{ $featureIndex = add $featureIndex 1 }}
             <li class="home-feature-item">
-              <span class="home-feature-index type-index type-color-accent">{{ printf "%02d." $featureIndex }}</span>
+              <span class="home-feature-index type-list-index type-color-accent">{{ printf "%02d." $featureIndex }}</span>
               <div class="home-feature-item-copy">
                 <div class="home-feature-item-title type-list-item-title type-color-ink">{{ $item.title }}</div>
-                <p class="type-copy-relaxed type-color-muted">{{ $item.body }}</p>
+                <p class="type-copy type-color-muted">{{ $item.body }}</p>
               </div>
             </li>
             {{ end }}

@@ -8,9 +8,9 @@
 {{ if and $navData $book }}
   <div class="docs-sidebar-header">
     <div class="docs-sidebar-header-row">
-      <h2 class="docs-sidebar-heading type-editorial-md-tight type-color-ink">Documentation</h2>
+      <h2 class="docs-sidebar-heading type-title-md-tight type-color-ink">Documentation</h2>
       <details class="docs-sidebar-version-control">
-        <summary class="docs-sidebar-version-trigger type-label type-label-strong type-color-accent ui-transition-color ui-hover-primary ui-hover-surface-base">
+        <summary class="docs-sidebar-version-trigger type-label-strong type-color-accent ui-transition-color ui-hover-primary ui-hover-surface-base">
           <span class="sr-only">Documentation version</span>
           <span class="docs-sidebar-version-value">
             {{ range $docsVersions }}
@@ -30,9 +30,9 @@
             {{ end }}
             {{ $label := printf "v%s" (.label | default .slug) }}
             {{ if eq .slug $version }}
-              <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current type-label type-label-strong type-color-ink ui-bg-surface-low ui-current-primary-inset" data-close-version-dropdown aria-current="true">{{ $label }}</button>
+              <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current type-label-strong type-color-ink ui-bg-surface-low ui-current-primary-inset" data-close-version-dropdown aria-current="true">{{ $label }}</button>
             {{ else }}
-              <a class="docs-sidebar-version-option type-label type-label-strong type-color-ink ui-transition-color ui-hover-primary ui-hover-surface-low" href="{{ $targetURL }}">{{ $label }}</a>
+              <a class="docs-sidebar-version-option type-label-strong type-color-ink ui-transition-color ui-hover-primary ui-hover-surface-low" href="{{ $targetURL }}">{{ $label }}</a>
             {{ end }}
           {{ end }}
         </div>
@@ -55,11 +55,11 @@
       {{/* Prefer the generated section landing page title when it exists. */}}
       <div class="docs-sidebar-title-row">
         {{ with $currentBookPage }}
-        <a class="{{ $bookTitleClass }} type-editorial-sm-tight type-color-ink ui-transition-color ui-hover-primary" href="{{ .RelPermalink }}">
+        <a class="{{ $bookTitleClass }} type-title-sm-tight type-color-ink ui-transition-color ui-hover-primary" href="{{ .RelPermalink }}">
           <span class="docs-sidebar-title-label">{{ .Title }}</span>
         </a>
         {{ else }}
-        <div class="{{ $bookTitleClass }} type-editorial-sm-tight type-color-ink">
+        <div class="{{ $bookTitleClass }} type-title-sm-tight type-color-ink">
           <span class="docs-sidebar-title-label">{{ .title }}</span>
         </div>
         {{ end }}
@@ -99,7 +99,7 @@
             aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
             aria-controls="{{ $sectionChildrenId }}"
             aria-label="Toggle {{ .title }} pages">
-            <span class="docs-nav-group-label type-label type-label-strong">{{ .title }}</span>
+            <span class="docs-nav-group-label type-label-strong">{{ .title }}</span>
             {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
           </button>
           <ul id="{{ $sectionChildrenId }}" class="docs-nav-list"{{ if not $isCurrentSection }} hidden{{ end }}>
@@ -108,9 +108,9 @@
               <li>
                 {{/* The current page is rendered as text to avoid linking to itself. */}}
                 {{ if $isCurrentPage }}
-                <span class="docs-sidebar-link docs-sidebar-link-current type-color-ink ui-bg-surface-mid ui-current-primary-inset">{{ .Title }}</span>
+                <span class="docs-sidebar-link docs-sidebar-link-current type-docs-nav-strong type-color-ink ui-bg-surface-mid ui-current-primary-inset">{{ .Title }}</span>
                 {{ else }}
-                <a class="docs-sidebar-link type-color-muted ui-transition-color type-hover-ink ui-hover-surface-mid" href="{{ .RelPermalink }}">{{ .Title }}</a>
+                <a class="docs-sidebar-link type-docs-nav type-color-muted ui-transition-color type-hover-ink ui-hover-surface-mid" href="{{ .RelPermalink }}">{{ .Title }}</a>
                 {{ end }}
               </li>
             {{ end }}

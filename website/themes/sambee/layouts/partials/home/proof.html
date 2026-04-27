@@ -7,15 +7,15 @@
       <div class="home-proof-intro">
       <span class="type-label-eyebrow type-color-accent eyebrow-stack">{{ $section.eyebrow }}</span>
       <h2 class="home-section-title type-section-title type-color-ink home-proof-title">{{ $section.title }}</h2>
-      <p class="type-copy-relaxed type-color-muted">{{ $section.body }}</p>
+      <p class="type-copy type-color-muted">{{ $section.body }}</p>
       </div>
       <div class="home-proof-details">
       {{/* Evidence items stay deliberately terse so the supporting categories are scannable. */}}
       <div class="home-proof-items" aria-label="Environment fit proof points">
         {{ range $section.items }}
         <article class="home-proof-item">
-          <span class="home-proof-category type-label type-label-sm type-color-accent">{{ .category }}</span>
-          <strong class="type-label type-color-ink">{{ .label }}</strong>
+          <span class="home-proof-category type-label-sm type-color-accent">{{ .category }}</span>
+          <strong class="type-label-strong type-color-ink">{{ .label }}</strong>
         </article>
         {{ end }}
       </div>

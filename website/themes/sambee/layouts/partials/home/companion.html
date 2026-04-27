@@ -15,13 +15,13 @@
     </div>
     <div class="home-companion-grid">
       <div class="home-companion-summary">
-        <p class="type-copy-relaxed type-color-muted">{{ $section.body }}</p>
+        <p class="type-copy type-color-muted">{{ $section.body }}</p>
       </div>
       <div class="home-companion-details">
         {{ with $section.bullets }}
         <ul class="home-companion-list" aria-label="Companion capabilities">
           {{ range $bullet := . }}
-          <li class="ui-list-dot-item ui-color-primary type-label type-label-medium"><span class="type-color-ink">{{ $bullet }}</span></li>
+          <li class="ui-list-dot-item ui-color-primary type-list-item-label"><span class="type-color-ink">{{ $bullet }}</span></li>
           {{ end }}
         </ul>
         {{ end }}

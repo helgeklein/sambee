@@ -7,11 +7,12 @@ Base Buttons
 */
 
 .btn {
-  @apply inline-flex items-center justify-center border-2 border-transparent px-5 py-3 font-tertiary text-base font-bold uppercase leading-6 tracking-[0.1em] transition-colors duration-200;
+  @apply inline-flex items-center justify-center border-2 border-transparent px-5 py-3 font-tertiary text-base font-bold uppercase leading-6 transition-colors duration-200;
+  letter-spacing: var(--tracking-label);
 }
 
 .btn-sm {
-  font-size: var(--font-size-label-sm);
+  font-size: var(--text-label-sm);
   @apply px-4 py-2;
 }
 

@@ -201,6 +201,7 @@ Documentation Navigation
 
 .docs-sidebar {
   @apply border-r border-clr-rule-soft bg-clr-surface-low px-0 py-0 lg:sticky dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low;
+  border-top-width: 0;
   top: calc(var(--header-height) + 1.5rem);
 }
 
@@ -220,10 +221,6 @@ Documentation Navigation
   @apply inline-flex items-center gap-1;
 }
 
-.docs-breadcrumb-link {
-  @apply no-underline;
-}
-
 .docs-breadcrumb-separator {
   @apply inline-flex items-center;
 }
@@ -232,10 +229,6 @@ Documentation Navigation
   font-size: 0.8rem;
   line-height: 1;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
-}
-
-.docs-breadcrumb-current {
-  @apply font-bold;
 }
 
 .docs-page-header {
@@ -256,10 +249,6 @@ Documentation Navigation
 
 .docs-page-title {
   @apply mt-4 mb-0;
-}
-
-.docs-page-description {
-  @apply mt-[0.5rem] font-primary text-[1.6rem] tracking-[-0.1rem] text-clr-text-light italic dark:text-clr-darkmode-text-light md:mt-[0.3rem] lg:mt-4;
 }
 
 .docs-sidebar-header {
@@ -421,24 +410,14 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-link {
-  @apply block bg-transparent pr-5 pl-8 py-2.5 font-primary text-[0.95rem] font-medium leading-snug md:pr-6 md:pl-9;
+  @apply block bg-transparent pr-5 pl-8 py-2.5 md:pr-6 md:pl-9;
 }
 
 .docs-sidebar-link-current {
-  @apply pr-5 pl-8 py-2.5 font-primary text-[0.95rem] font-semibold leading-snug md:pr-6 md:pl-9;
+  @apply pr-5 pl-8 py-2.5 md:pr-6 md:pl-9;
 }
 
 .docs-meta {
   @apply mb-5 flex flex-wrap gap-2;
 }
 
-/*
-==============================
-Chips And Status Labels
-==============================
-*/
-
-.docs-meta-chip,
-.version-chip {
-  @apply inline-flex items-center border border-clr-rule-strong bg-clr-surface-low px-3 py-1 text-sm font-tertiary uppercase tracking-[0.14em] dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low;
-}

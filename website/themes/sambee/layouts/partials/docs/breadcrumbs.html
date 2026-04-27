@@ -24,30 +24,30 @@
   <nav class="docs-breadcrumbs site-gutter" aria-label="Breadcrumb">
     <ol class="docs-breadcrumb-list">
       {{ if $bookPage }}
-      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item">
         {{ if eq .RelPermalink $bookPage.RelPermalink }}
-        <span class="docs-breadcrumb-current type-color-ink">{{ $bookPage.Title }}</span>
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $bookPage.Title }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
         {{ end }}
       </li>
       {{ if and $bookPage (ne .RelPermalink $bookPage.RelPermalink) }}
-      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
-        <span class="docs-breadcrumb-current type-color-ink">{{ .Title }}</span>
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ .Title }}</span>
       </li>
       {{ end }}
       {{ else }}
-      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
-        <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="/docs/">Documentation</a>
+      <li class="docs-breadcrumb-item">
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="/docs/">Documentation</a>
       </li>
       {{ with $versionPage }}
-      <li class="docs-breadcrumb-item type-label-eyebrow type-color-muted">
+      <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
         {{ if eq $.RelPermalink .RelPermalink }}
-        <span class="docs-breadcrumb-current type-color-ink">Version {{ $versionLabel }}</span>
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">Version {{ $versionLabel }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link ui-transition-color type-hover-accent" href="{{ .RelPermalink }}">Version {{ $versionLabel }}</a>
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ .RelPermalink }}">Version {{ $versionLabel }}</a>
         {{ end }}
       </li>
       {{ end }}

@@ -15,7 +15,7 @@
   --color-clr-border: #d4c4ae;
   --color-clr-light: #f5f3ee;
   --color-clr-dark: #1b1c19;
-  --color-clr-code-block-background: #f5f3ee;
+  --color-clr-code-block-background: #f0eee9;
   --color-clr-code-inline-background: #f0eee9;
   --color-clr-text: #1b1c19;
   --color-clr-text-dark: #1b1c19;
@@ -45,7 +45,7 @@
   --color-clr-darkmode-light: #24231f;
   --color-clr-darkmode-dark: #f2f1ec;
   --color-clr-darkmode-code-inline-background: #2b2925;
-  --color-clr-darkmode-code-block-background: #24231f;
+  --color-clr-darkmode-code-block-background: #1f1914;
   --color-clr-darkmode-text: #d4c4ae;
   --color-clr-darkmode-text-dark: #f2f1ec;
   --color-clr-darkmode-text-light: #9c8f7a;

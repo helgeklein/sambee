@@ -7,18 +7,38 @@
    const DOCS_VERSION_DROPDOWN_SELECTOR = '.docs-sidebar-version-control';
    const DOCS_VERSION_DROPDOWN_CLOSE_SELECTOR = '[data-close-version-dropdown]';
    const DOCS_SIDEBAR_TOGGLE_SELECTOR = '.docs-sidebar-toggle';
+   const COPY_FEEDBACK_TIMEOUT_MS = 1600;
+
+   function getCopyIconMarkup(iconName, label) {
+      return '<span class="material-symbols-outlined" aria-hidden="true">' + iconName + '</span><span class="visually-hidden">' + label + '</span>';
+   }
 
    function createCopyButton() {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = COPY_BUTTON_CLASS;
       button.setAttribute('aria-label', 'Copy code');
-      button.innerHTML = '<span class="icon-copy">Copy</span><span class="icon-check">Copied</span>';
+      button.innerHTML = '<span class="icon-copy">' + getCopyIconMarkup('content_copy', 'Copy code') + '</span><span class="icon-check">' + getCopyIconMarkup('check', 'Copied') + '</span>';
       return button;
    }
 
+   function getCodeText(codeElement) {
+      if (!codeElement) {
+         return '';
+      }
+
+      const chromaLines = codeElement.querySelectorAll('.cl');
+
+      if (chromaLines.length) {
+         return Array.from(chromaLines, (line) => line.textContent || '').join('').replace(/\n$/, '');
+      }
+
+      return (codeElement.textContent || '').replace(/\n$/, '');
+   }
+
    async function copyCode(button, codeElement) {
-      const code = codeElement ? codeElement.innerText : '';
+      const code = getCodeText(codeElement);
+
       if (!code) {
          return;
       }
@@ -26,7 +46,7 @@
       try {
          await navigator.clipboard.writeText(code);
          button.classList.add('copied');
-         window.setTimeout(() => button.classList.remove('copied'), 1600);
+         window.setTimeout(() => button.classList.remove('copied'), COPY_FEEDBACK_TIMEOUT_MS);
       } catch (_error) {
          button.classList.remove('copied');
       }
@@ -34,6 +54,10 @@
 
    function initCodeCopyButtons() {
       document.querySelectorAll(COPY_BUTTON_SELECTOR).forEach((block) => {
+         if (block.tagName === 'PRE' && block.parentElement && block.parentElement.classList.contains('highlight')) {
+            return;
+         }
+
          if (block.querySelector('.' + COPY_BUTTON_CLASS)) {
             return;
          }
