@@ -53,6 +53,7 @@ When a backend dependency audit fails, update the direct requirement files first
 - Change the top-level pins in `requirements.txt` and `requirements-dev.txt`, not just the generated `requirements.lock.txt` files.
 - Regenerate `requirements.lock.txt` and `requirements-dev.lock.txt` with `scripts/refresh-backend-lockfiles` so hashes, tool versions, and transitive dependencies stay consistent.
 - Use `scripts/refresh-backend-lockfiles --check` when you want a read-only verification that the committed backend lockfiles are current.
+- The refresh script uses Python 3.13's bundled `pip` and a pinned `pip-tools` version so lockfile regeneration stays close to the repo's normal backend toolchain without floating onto an unreviewed compiler version.
 - If the resolver reports a conflict, treat that as a real compatibility constraint and update the companion package explicitly. Example: upgrading `pytest` to `9.0.3` also required upgrading `pytest-asyncio` because `pytest-asyncio==1.2.0` required `pytest<9`.
 - After regenerating lockfiles, validate with the relevant backend checks, at minimum `pytest -v` and `mypy app`.
 - Do not hand-edit lockfile hashes except as a last resort. Prefer reproducible regeneration from the direct requirement files.

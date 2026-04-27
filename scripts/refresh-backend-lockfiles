@@ -6,7 +6,9 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 readonly BACKEND_DIR="${REPO_ROOT}/backend"
 readonly EXPECTED_PYTHON_MINOR="3.13"
-readonly PIP_TOOLS_VERSION="7.4.1"
+readonly PIP_TOOLS_VERSION="7.5.3"
+readonly REQUIREMENTS_LOCKFILE_NAME="requirements.lock.txt"
+readonly REQUIREMENTS_DEV_LOCKFILE_NAME="requirements-dev.lock.txt"
 
 usage() {
     cat <<'EOF'
@@ -52,7 +54,8 @@ create_temp_env() {
     # shellcheck disable=SC1091
     source "${TEMP_DIR}/venv/bin/activate"
 
-    python -m pip install --quiet --upgrade pip
+    # Use the interpreter's bundled pip so lockfile refresh matches the
+    # repo's normal Python setup more closely than an independently pinned pip.
     python -m pip install --quiet "pip-tools==${PIP_TOOLS_VERSION}"
 }
 
@@ -66,36 +69,62 @@ compile_lockfiles() {
         pip-compile \
             --allow-unsafe \
             --generate-hashes \
-            --output-file="${output_dir}/requirements.lock.txt" \
+            --output-file="${output_dir}/${REQUIREMENTS_LOCKFILE_NAME}" \
             requirements.txt
 
         pip-compile \
             --allow-unsafe \
             --generate-hashes \
-            --output-file="${output_dir}/requirements-dev.lock.txt" \
+            --output-file="${output_dir}/${REQUIREMENTS_DEV_LOCKFILE_NAME}" \
             requirements-dev.txt \
             requirements.txt
     )
+
+    normalize_lockfile_header "${output_dir}/${REQUIREMENTS_LOCKFILE_NAME}" "${REQUIREMENTS_LOCKFILE_NAME}"
+    normalize_lockfile_header "${output_dir}/${REQUIREMENTS_DEV_LOCKFILE_NAME}" "${REQUIREMENTS_DEV_LOCKFILE_NAME}"
+}
+
+normalize_lockfile_header() {
+    local lockfile_path="$1"
+    local output_file_name="$2"
+
+    python3 - "$lockfile_path" "$output_file_name" <<'PY'
+import pathlib
+import sys
+
+lockfile_path = pathlib.Path(sys.argv[1])
+output_file_name = sys.argv[2]
+lines = lockfile_path.read_text(encoding="utf-8").splitlines()
+
+for index, line in enumerate(lines):
+    if "--output-file=" in line:
+        prefix, _, suffix = line.partition("--output-file=")
+        _, _, remainder = suffix.partition(" ")
+        lines[index] = f"{prefix}--output-file={output_file_name} {remainder}".rstrip()
+        break
+
+lockfile_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
 }
 
 replace_lockfiles() {
     local generated_dir="$1"
 
-    mv "${generated_dir}/requirements.lock.txt" "${BACKEND_DIR}/requirements.lock.txt"
-    mv "${generated_dir}/requirements-dev.lock.txt" "${BACKEND_DIR}/requirements-dev.lock.txt"
+    mv "${generated_dir}/${REQUIREMENTS_LOCKFILE_NAME}" "${BACKEND_DIR}/${REQUIREMENTS_LOCKFILE_NAME}"
+    mv "${generated_dir}/${REQUIREMENTS_DEV_LOCKFILE_NAME}" "${BACKEND_DIR}/${REQUIREMENTS_DEV_LOCKFILE_NAME}"
 }
 
 check_lockfiles() {
     local generated_dir="$1"
     local mismatch=0
 
-    if ! cmp -s "${generated_dir}/requirements.lock.txt" "${BACKEND_DIR}/requirements.lock.txt"; then
-        echo "backend/requirements.lock.txt is out of date. Run scripts/refresh-backend-lockfiles." >&2
+    if ! cmp -s "${generated_dir}/${REQUIREMENTS_LOCKFILE_NAME}" "${BACKEND_DIR}/${REQUIREMENTS_LOCKFILE_NAME}"; then
+        echo "backend/${REQUIREMENTS_LOCKFILE_NAME} is out of date. Run scripts/refresh-backend-lockfiles." >&2
         mismatch=1
     fi
 
-    if ! cmp -s "${generated_dir}/requirements-dev.lock.txt" "${BACKEND_DIR}/requirements-dev.lock.txt"; then
-        echo "backend/requirements-dev.lock.txt is out of date. Run scripts/refresh-backend-lockfiles." >&2
+    if ! cmp -s "${generated_dir}/${REQUIREMENTS_DEV_LOCKFILE_NAME}" "${BACKEND_DIR}/${REQUIREMENTS_DEV_LOCKFILE_NAME}"; then
+        echo "backend/${REQUIREMENTS_DEV_LOCKFILE_NAME} is out of date. Run scripts/refresh-backend-lockfiles." >&2
         mismatch=1
     fi
 
@@ -140,7 +169,7 @@ main() {
     fi
 
     replace_lockfiles "${TEMP_DIR}/generated"
-    echo "Refreshed backend lockfiles with pip-tools ${PIP_TOOLS_VERSION}."
+    echo "Refreshed backend lockfiles with the Python ${EXPECTED_PYTHON_MINOR} bundled pip and pip-tools ${PIP_TOOLS_VERSION}."
 }
 
 main "$@"
