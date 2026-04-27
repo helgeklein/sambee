@@ -28,6 +28,34 @@
 /* Auto-generated Tailwind theme tokens from "data/theme.json" */
 @import "./generated-theme.tailwind.css";
 
+@theme {
+  --text-copy: var(--font-size-copy-base);
+  --text-label-xs: var(--font-size-label-xs);
+  --text-label-sm: var(--font-size-label-sm);
+  --text-list-item-label: var(--font-size-label-sm);
+  --text-list-index: var(--font-size-copy-sm);
+  --text-list-item-title: var(--font-size-copy-sm);
+  --text-docs-nav: 0.95rem;
+  --text-title-sm: 1.125rem;
+  --text-title-md: 1.5rem;
+  --text-title-xl: 2rem;
+  --text-hero-subtitle: 1.6rem;
+  --text-hero-sm: 2.85rem;
+  --text-hero-md: 3.55rem;
+
+  --tracking-label: 0.1em;
+  --tracking-label-strong: 0.14em;
+  --tracking-eyebrow: 0.22em;
+  --tracking-eyebrow-strong: 0.18em;
+  --tracking-list-item-label: 0.1em;
+  --tracking-hero-subtitle: -0.1rem;
+
+  --leading-copy: 1.625rem;
+  --leading-docs-nav: 1.375;
+  --leading-eyebrow: 1;
+  --leading-title-md: 1.2;
+}
+
 @layer base {
   @import "./base.css";
 }

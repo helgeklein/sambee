@@ -85,6 +85,14 @@ The `dependency-security.yml` workflow runs separate dependency-focused checks:
 
 Use it to validate dependency update PRs in addition to the normal test workflow.
 
+## Backend Lockfile Freshness Workflow
+
+The `check-backend-lockfiles.yml` workflow verifies that committed backend lockfiles still match the reviewed requirement sources.
+
+- Runs `scripts/refresh-backend-lockfiles --check` on pushes, pull requests, and manual dispatches that touch backend requirements or the refresh script.
+- Uses read-only repository permissions and does not push commits back to branches.
+- Mirrors the maintainer-side refresh flow so stale lockfiles fail fast in CI before lint or test jobs get confusing dependency errors.
+
 ## Labels Workflow
 
 The `sync-labels.yml` workflow manages repository labels from `.github/labels.yml`.

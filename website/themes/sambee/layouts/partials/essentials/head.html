@@ -17,6 +17,9 @@
 <title>{{ $pageTitle }}</title>
 {{/* Keep search/social metadata aligned with the same resolved title and description. */}}
 <meta name="description" content="{{ $pageDescription }}" />
+<link rel="apple-touch-icon" href="/icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
 {{ with .Permalink }}
 <link rel="canonical" href="{{ . }}" />
 {{ end }}

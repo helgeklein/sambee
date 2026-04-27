@@ -51,10 +51,20 @@ If you're developing **outside the dev container**, run once:
 When a backend dependency audit fails, update the direct requirement files first and regenerate the lockfiles from those reviewed sources.
 
 - Change the top-level pins in `requirements.txt` and `requirements-dev.txt`, not just the generated `requirements.lock.txt` files.
-- Regenerate `requirements.lock.txt` and `requirements-dev.lock.txt` with `pip-compile --allow-unsafe --generate-hashes ...` so hashes and transitive dependencies stay consistent.
+- Regenerate `requirements.lock.txt` and `requirements-dev.lock.txt` with `scripts/refresh-backend-lockfiles` so hashes, tool versions, and transitive dependencies stay consistent.
+- Use `scripts/refresh-backend-lockfiles --check` when you want a read-only verification that the committed backend lockfiles are current.
+- The refresh script uses Python 3.13's bundled `pip` and a pinned `pip-tools` version so lockfile regeneration stays close to the repo's normal backend toolchain without floating onto an unreviewed compiler version.
 - If the resolver reports a conflict, treat that as a real compatibility constraint and update the companion package explicitly. Example: upgrading `pytest` to `9.0.3` also required upgrading `pytest-asyncio` because `pytest-asyncio==1.2.0` required `pytest<9`.
 - After regenerating lockfiles, validate with the relevant backend checks, at minimum `pytest -v` and `mypy app`.
 - Do not hand-edit lockfile hashes except as a last resort. Prefer reproducible regeneration from the direct requirement files.
+
+For an already-open backend Dependabot PR:
+
+- Check out the PR branch locally before changing anything.
+- Review the direct requirement changes in `requirements.txt` and `requirements-dev.txt` first.
+- Run `scripts/refresh-backend-lockfiles --check` if you want a quick freshness check before editing files.
+- Run `scripts/refresh-backend-lockfiles`, review the resulting lockfile diff, then validate with `pytest -v` and `mypy app`.
+- Commit the regenerated lockfiles back to the Dependabot branch instead of hand-editing transitive entries.
 
 ### Troubleshooting Initial Setup
 

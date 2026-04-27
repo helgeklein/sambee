@@ -9,7 +9,7 @@
 }
 
 .site-footer-copy {
-	@apply text-center font-tertiary text-[0.68rem] uppercase tracking-[0.18em] text-clr-text-light dark:text-clr-darkmode-text-light md:text-left;
+	@apply text-center md:text-left;
 }
 
 .site-footer-repo {
@@ -25,9 +25,9 @@
 }
 
 .site-footer-legal {
-	@apply flex flex-wrap justify-center gap-x-5 gap-y-2 text-[0.68rem] uppercase tracking-[0.18em] md:justify-end;
+	@apply flex flex-wrap justify-center gap-x-5 gap-y-2 md:justify-end;
 }
 
 .site-footer-link {
-	@apply text-clr-text-light underline underline-offset-2 transition-colors duration-200 hover:text-clr-text-dark dark:text-clr-darkmode-text-light dark:hover:text-clr-darkmode-text-dark;
+	@apply transition-colors duration-200;
 }
