@@ -8,7 +8,7 @@
         "border": "#d4c4ae",
         "light": "#f5f3ee",
         "dark": "#1b1c19",
-        "code-block-background": "#f5f3ee",
+        "code-block-background": "#f0eee9",
         "code-inline-background": "#f0eee9"
       },
       "text_color": {
@@ -50,7 +50,7 @@
         "light": "#24231f",
         "dark": "#f2f1ec",
         "code-inline-background": "#2b2925",
-        "code-block-background": "#24231f"
+        "code-block-background": "#1f1914"
       },
       "text_color": {
         "text": "#d4c4ae",

@@ -153,6 +153,13 @@ UI Helpers
   @apply transition-colors duration-150;
 }
 
+.ui-hover-weight-strong {
+  &:hover,
+  &:focus-visible {
+    font-weight: 700;
+  }
+}
+
 .ui-hover-surface-base {
   &:hover,
   &:focus-visible {
@@ -269,7 +276,7 @@ Type Styles
 ==============================
 */
 
-.type-section-title {
+@utility type-section-title {
   font-family: var(--font-secondary);
   font-style: italic;
   font-weight: 700;
@@ -282,86 +289,110 @@ Type Styles
   }
 }
 
-.type-copy-relaxed {
+@utility type-copy {
   font-family: var(--font-primary);
-  font-size: var(--font-size-copy-base);
+  font-size: var(--text-copy);
   font-weight: 400;
   font-style: normal;
   letter-spacing: normal;
-  line-height: 1.625rem;
+  line-height: var(--leading-copy);
 }
 
-.type-label-sm {
-  font-size: var(--font-size-label-sm);
-  font-weight: 400;
-  letter-spacing: 0.1em;
-}
-
-.type-label {
+@utility type-label-sm {
   font-family: var(--font-tertiary);
-  font-style: normal;
-  text-transform: uppercase;
-}
-
-.type-label-strong {
-  font-size: var(--font-size-label-sm);
-  font-weight: 700;
-  letter-spacing: 0.14em;
-}
-
-.type-label-eyebrow {
-  font-family: var(--font-tertiary);
-  font-size: var(--font-size-label-sm);
+  font-size: var(--text-label-sm);
   font-weight: 400;
   font-style: normal;
   text-transform: uppercase;
-  letter-spacing: 0.22em;
-  line-height: 1;
+  letter-spacing: var(--tracking-label);
 }
 
-.type-label-eyebrow-strong {
+@utility type-label-strong {
   font-family: var(--font-tertiary);
-  font-size: var(--font-size-label-sm);
+  font-size: var(--text-label-sm);
   font-weight: 700;
   font-style: normal;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  line-height: 1;
+  letter-spacing: var(--tracking-label-strong);
 }
 
-.type-label-xs {
-  font-size: var(--font-size-label-xs);
+@utility type-label-eyebrow {
+  font-family: var(--font-tertiary);
+  font-size: var(--text-label-sm);
   font-weight: 400;
-  letter-spacing: 0.1em;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  line-height: var(--leading-eyebrow);
+}
+
+@utility type-label-eyebrow-strong {
+  font-family: var(--font-tertiary);
+  font-size: var(--text-label-sm);
+  font-weight: 700;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow-strong);
+  line-height: var(--leading-eyebrow);
+}
+
+@utility type-label-xs {
+  font-family: var(--font-tertiary);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
   line-height: inherit;
 }
 
-.type-label-medium {
-  font-size: var(--font-size-label-sm);
+@utility type-list-item-label {
+  font-family: var(--font-tertiary);
+  font-size: var(--text-list-item-label);
   font-weight: 500;
-  letter-spacing: 0.1em;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-list-item-label);
   line-height: inherit;
 }
 
-.type-list-item-title {
+@utility type-list-item-title {
   font-family: var(--font-tertiary);
   text-transform: uppercase;
-  font-size: var(--font-size-copy-sm);
+  font-size: var(--text-list-item-title);
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
   line-height: var(--line-height-heading-tight);
 }
 
-.type-display-hero {
+@utility type-docs-nav {
+  font-family: var(--font-primary);
+  font-size: var(--text-docs-nav);
+  font-weight: 500;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: var(--leading-docs-nav);
+}
+
+@utility type-docs-nav-strong {
+  font-family: var(--font-primary);
+  font-size: var(--text-docs-nav);
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: var(--leading-docs-nav);
+}
+
+@utility type-hero {
   font-family: var(--font-secondary);
-  font-size: 2.85rem;
+  font-size: var(--text-hero-sm);
   font-weight: 800;
   font-style: normal;
   letter-spacing: var(--tracking-tight);
   line-height: var(--line-height-heading-tight);
 
   @media (min-width: theme(--breakpoint-md)) {
-    font-size: 3.55rem;
+    font-size: var(--text-hero-md);
   }
 
   @media (min-width: theme(--breakpoint-lg)) {
@@ -369,9 +400,9 @@ Type Styles
   }
 }
 
-.type-editorial-xl {
+@utility type-title-xl {
   font-family: var(--font-secondary);
-  font-size: 2rem;
+  font-size: var(--text-title-xl);
   font-weight: 700;
   font-style: italic;
   letter-spacing: normal;
@@ -382,44 +413,45 @@ Type Styles
   }
 }
 
-.type-subtitle-hero {
+@utility type-hero-subtitle {
   font-family: var(--font-primary);
-  font-size: 1.6rem;
+  font-size: var(--text-hero-subtitle);
   font-weight: 400;
   font-style: italic;
-  letter-spacing: -0.1rem;
+  letter-spacing: var(--tracking-hero-subtitle);
   line-height: var(--line-height-copy-base);
 }
 
-.type-editorial-md,
-.type-editorial-md-tight {
+@utility type-title-md {
   font-family: var(--font-secondary);
-  font-size: 1.5rem;
+  font-size: var(--text-title-md);
   font-weight: 700;
   font-style: normal;
   letter-spacing: normal;
+  line-height: var(--leading-title-md);
 }
 
-.type-editorial-md {
-  line-height: 1.2;
-}
-
-.type-editorial-md-tight {
-  line-height: var(--line-height-heading-tight);
-}
-
-.type-editorial-sm-tight {
+@utility type-title-md-tight {
   font-family: var(--font-secondary);
-  font-size: 1.125rem;
+  font-size: var(--text-title-md);
   font-weight: 700;
   font-style: normal;
   letter-spacing: normal;
   line-height: var(--line-height-heading-tight);
 }
 
-.type-index {
+@utility type-title-sm-tight {
+  font-family: var(--font-secondary);
+  font-size: var(--text-title-sm);
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: var(--line-height-heading-tight);
+}
+
+@utility type-list-index {
   font-family: var(--font-tertiary);
-  font-size: var(--font-size-copy-sm);
+  font-size: var(--text-list-index);
   font-weight: 400;
   font-style: normal;
   letter-spacing: normal;

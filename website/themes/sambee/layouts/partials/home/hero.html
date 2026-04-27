@@ -8,8 +8,8 @@
         <span class="home-hero-kicker-rule ui-bg-primary" aria-hidden="true"></span>
         {{ $hero.kicker }}
       </span>
-      <h1 class="home-hero-title type-display-hero type-color-ink">{{ $hero.title }}</h1>
-      <p class="home-hero-subtitle type-subtitle-hero type-color-muted">{{ $hero.subtitle }}</p>
+      <h1 class="home-hero-title type-hero type-color-ink">{{ $hero.title }}</h1>
+      <p class="home-hero-subtitle type-hero-subtitle type-color-muted">{{ $hero.subtitle }}</p>
       {{ with $hero.ctas }}
       {{/* CTA styling stays data-driven so the section can mix button treatments without duplicating markup. */}}
       <div class="home-hero-actions">

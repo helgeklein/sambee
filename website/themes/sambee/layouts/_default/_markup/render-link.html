@@ -1,0 +1,4 @@
+{{/* Purpose: Ensures Markdown-rendered external links open in a new tab while internal links stay in-page. */}}
+{{ $destination := .Destination | safeURL }}
+{{ $isExternal := or (hasPrefix .Destination "http://") (hasPrefix .Destination "https://") }}
+<a href="{{ $destination }}"{{ with .Title }} title="{{ . }}"{{ end }}{{ if $isExternal }} target="_blank" rel="noopener noreferrer"{{ end }}>{{ .Text | safeHTML }}</a>
