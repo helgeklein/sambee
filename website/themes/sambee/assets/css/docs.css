@@ -35,6 +35,12 @@ Layout Shells
   }
 }
 
+.docs-shell--page {
+  @media (min-width: theme(--breakpoint-xl)) {
+    max-width: calc(var(--article-container-width) + var(--docs-page-rail-width));
+  }
+}
+
 .site-main:has(.docs-overview),
 .site-main:has(.docs-shell) {
   @apply pb-0;
@@ -59,11 +65,17 @@ Layout Shells
 .docs-shell--page {
   flex: 1 1 auto;
   min-height: 100%;
-  @apply lg:grid lg:grid-cols-[13.75rem_minmax(0,1fr)];
+  @apply lg:grid lg:grid-cols-[var(--docs-page-rail-width)_minmax(0,1fr)] xl:grid-cols-[var(--docs-page-rail-width)_minmax(0,1fr)_var(--docs-page-rail-width)];
+}
+
+@media (min-width: theme(--breakpoint-xl)) {
+  .docs-shell--page {
+    border-right-width: 0;
+  }
 }
 
 .docs-main-column {
-  @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page lg:border-t-0 lg:border-l;
+  @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page lg:border-t-0 lg:border-l xl:border-r;
 }
 
 /*
@@ -75,6 +87,14 @@ Panels And Indexes
 .docs-sidebar,
 .docs-content {
   @apply border border-clr-rule-soft bg-clr-surface-base dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base;
+}
+
+.docs-nav {
+  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+}
+
+.docs-nav--sidebar {
+  @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
 }
 
 .docs-index-list {
@@ -138,6 +158,7 @@ Article Shell
 
 .docs-article-column {
   width: 100%;
+  min-width: 0;
 }
 
 .article-content {
@@ -150,27 +171,48 @@ Article Shell
   background-color: transparent;
 }
 
+.docs-toc-sidebar {
+  display: none;
+
+  @media (min-width: theme(--breakpoint-xl)) {
+    display: block;
+    min-width: 0;
+    align-self: start;
+    position: sticky;
+    top: var(--docs-sticky-top);
+    padding-top: var(--docs-sidebars-padding-top);
+    background-color: var(--color-clr-surface-base);
+  }
+
+  .dark & {
+    @media (min-width: theme(--breakpoint-xl)) {
+      background-color: var(--color-clr-darkmode-surface-base);
+    }
+  }
+}
+
 .docs-toc {
   display: none;
 
   @media (min-width: theme(--breakpoint-xl)) {
     display: block;
-    width: var(--article-toc-width);
-    flex: 0 0 var(--article-toc-width);
+    width: 100%;
+    flex: none;
   }
 }
 
 .docs-toc-inner {
-  @apply sticky border-l border-clr-rule-soft pl-8 dark:border-clr-darkmode-rule-soft;
-  top: var(--toc-position-top);
+  @apply pl-6;
+  max-height: calc(100vh - var(--docs-toc-content-top, var(--docs-toc-fallback-top)) - 2rem);
+  overflow-y: auto;
 }
 
 .docs-toc-header {
-  @apply mb-6 flex items-center gap-2;
+  @apply mb-5 flex items-center gap-3;
 }
 
 .docs-toc-rule {
-  @apply block h-px w-4;
+  @apply block h-[2px] w-6;
 }
 
 .docs-toc-title {
@@ -182,15 +224,30 @@ Article Shell
 }
 
 .docs-toc-body li + li {
-  @apply mt-4;
+  @apply mt-3;
 }
 
 .docs-toc-body li ul {
-  @apply mt-3 border-l border-clr-rule-soft pl-4 dark:border-clr-darkmode-rule-soft;
+  @apply mt-2 pl-3;
 }
 
 .docs-toc-body a {
-  @apply font-secondary text-lg font-bold italic leading-tight text-clr-text-dark transition-colors duration-150 hover:text-clr-action-text dark:text-clr-darkmode-text-dark dark:hover:text-clr-darkmode-action-text;
+  @apply font-tertiary text-sm font-normal leading-snug transition-colors duration-150 hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
+  color: var(--color-clr-text-light);
+  text-decoration: none;
+}
+
+.dark .docs-toc-body a {
+  color: var(--color-clr-darkmode-text-light);
+}
+
+.docs-toc-body a.toc-active {
+  color: var(--color-clr-primary);
+  font-weight: 700;
+}
+
+.dark .docs-toc-body a.toc-active {
+  color: var(--color-clr-darkmode-primary);
 }
 
 /*
@@ -200,9 +257,30 @@ Documentation Navigation
 */
 
 .docs-sidebar {
-  @apply border-r border-clr-rule-soft bg-clr-surface-low px-0 py-0 lg:sticky dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-low;
+  @apply hidden border-r border-clr-rule-soft px-0 py-0 lg:sticky lg:block dark:border-clr-darkmode-rule-soft;
   border-top-width: 0;
-  top: calc(var(--header-height) + 1.5rem);
+  border-bottom-width: 1.5px;
+  top: var(--docs-sticky-top);
+
+  @media (min-width: theme(--breakpoint-lg)) {
+    align-self: start;
+    max-height: calc(100vh - var(--docs-sticky-top) - 1rem);
+    overflow-y: auto;
+  }
+}
+
+@media (min-width: theme(--breakpoint-lg)) {
+  .docs-shell--page > .docs-sidebar {
+    border-left-width: 0;
+    border-right-width: 0;
+  }
+}
+
+.docs-toc-sidebar {
+}
+
+.docs-nav--drawer {
+  @apply border-t-2 border-clr-rule-strong dark:border-clr-darkmode-rule-strong;
 }
 
 .docs-breadcrumb-row {
@@ -252,7 +330,12 @@ Documentation Navigation
 }
 
 .docs-sidebar-header {
-  @apply border-b-2 border-clr-rule-strong px-5 py-6 dark:border-clr-darkmode-rule-strong md:px-6;
+  padding-top: var(--docs-sidebars-padding-top);
+  @apply border-b-[1.5px] border-clr-rule-strong bg-clr-surface-low px-5 pb-6 dark:border-clr-darkmode-rule-strong dark:bg-clr-darkmode-surface-low md:px-6;
+}
+
+.docs-nav--drawer .docs-sidebar-header {
+  @apply p-5;
 }
 
 .docs-sidebar-header-row {
@@ -337,7 +420,11 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-book + .docs-sidebar-book {
-  @apply border-t-2 border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+  @apply border-t-[1.5px] border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-nav--drawer .docs-sidebar-book + .docs-sidebar-book {
+  @apply border-t-[1.5px];
 }
 
 .docs-sidebar-title-row {
@@ -345,7 +432,7 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-title {
-  @apply flex min-w-0 flex-1 items-center gap-3 bg-clr-surface-page px-5 py-5 no-underline dark:bg-clr-darkmode-surface-page md:px-6;
+  @apply flex min-w-0 flex-1 items-center gap-3 bg-transparent px-5 pt-5 pb-2 no-underline md:px-6;
 }
 
 .docs-sidebar-title-current {
@@ -357,7 +444,7 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-toggle {
-  @apply flex w-12 shrink-0 items-center justify-center bg-clr-surface-page dark:bg-clr-darkmode-surface-page md:w-14;
+  @apply flex w-12 shrink-0 items-center justify-center bg-transparent md:w-14;
   border: 0;
   cursor: pointer;
 }
@@ -393,7 +480,11 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-nav-group-toggle {
-  @apply flex w-full items-center justify-between gap-3 bg-transparent px-5 pt-4 pb-2 text-left md:px-6;
+  @apply flex w-full items-center justify-between gap-3 bg-transparent px-5 pt-3 pb-1 text-left md:px-6;
+}
+
+.docs-nav-group:last-child > .docs-nav-group-toggle[aria-expanded="false"] {
+  @apply mb-4;
 }
 
 .docs-nav-group-label {
@@ -402,19 +493,24 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-nav-list {
-  @apply m-0 list-none p-0;
+  @apply m-0 list-none px-0 pt-1 pb-3;
 }
 
 .docs-nav-list li + li {
-  @apply mt-1;
+  @apply mt-0.5;
 }
 
 .docs-sidebar-link {
-  @apply block bg-transparent pr-5 pl-8 py-2.5 md:pr-6 md:pl-9;
+  @apply block bg-transparent pr-5 pl-8 py-1.5 md:pr-6 md:pl-9;
 }
 
 .docs-sidebar-link-current {
-  @apply pr-5 pl-8 py-2.5 md:pr-6 md:pl-9;
+  @apply bg-transparent pr-5 pl-8 py-1.5 md:pr-6 md:pl-9;
+}
+
+.docs-nav--drawer .docs-sidebar-link,
+.docs-nav--drawer .docs-sidebar-link-current {
+  @apply pr-5 pl-7;
 }
 
 .docs-meta {

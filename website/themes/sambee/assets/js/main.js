@@ -7,6 +7,10 @@
    const DOCS_VERSION_DROPDOWN_SELECTOR = '.docs-sidebar-version-control';
    const DOCS_VERSION_DROPDOWN_CLOSE_SELECTOR = '[data-close-version-dropdown]';
    const DOCS_SIDEBAR_TOGGLE_SELECTOR = '.docs-sidebar-toggle';
+   const DOCS_PAGE_SELECTOR = '.docs-shell--page';
+   const DOCS_ARTICLE_REGION_SELECTOR = '.article-toc-container';
+   const DOCS_TOC_SIDEBAR_SELECTOR = '.docs-toc-sidebar';
+   const DOCS_TOC_SELECTOR = '.docs-toc';
    const COPY_FEEDBACK_TIMEOUT_MS = 1600;
 
    function getCopyIconMarkup(iconName, label) {
@@ -129,10 +133,148 @@
       });
    }
 
+   function updateDocsTocStickyOffsets() {
+      document.querySelectorAll(DOCS_PAGE_SELECTOR).forEach((pageShell) => {
+         const tocSidebar = pageShell.querySelector(DOCS_TOC_SIDEBAR_SELECTOR);
+
+         if (!tocSidebar) {
+            pageShell.style.removeProperty('--docs-toc-content-top');
+            return;
+         }
+
+         const tocSidebarRect = tocSidebar.getBoundingClientRect();
+         const contentTop = Math.max(0, tocSidebarRect.top + window.scrollY);
+
+         pageShell.style.setProperty('--docs-toc-content-top', `${contentTop}px`);
+      });
+   }
+
+   function initDocsTocScrollSpy() {
+      const toc = document.querySelector(DOCS_TOC_SELECTOR);
+
+      if (!toc) {
+         return;
+      }
+
+      const tocLinks = toc.querySelectorAll('a[href^="#"]');
+
+      if (!tocLinks.length) {
+         return;
+      }
+
+      const headingIds = Array.from(tocLinks)
+         .map((link) => link.getAttribute('href'))
+         .filter(Boolean)
+         .map((href) => href.substring(1));
+
+      const headings = headingIds
+         .map((id) => document.getElementById(decodeURIComponent(id)))
+         .filter(Boolean);
+
+      if (!headings.length) {
+         return;
+      }
+
+      const linkById = new Map(
+         Array.from(tocLinks).map((link) => [decodeURIComponent((link.getAttribute('href') || '').substring(1)), link])
+      );
+
+      let currentActiveLink = null;
+      let hashNavigationPending = false;
+      let animationFramePending = false;
+
+      function setActiveLink(link) {
+         if (!link || link === currentActiveLink) {
+            return;
+         }
+
+         if (currentActiveLink) {
+            currentActiveLink.classList.remove('toc-active');
+         }
+
+         link.classList.add('toc-active');
+         currentActiveLink = link;
+      }
+
+      function updateActiveLink() {
+         if (animationFramePending) {
+            return;
+         }
+
+         animationFramePending = true;
+
+         requestAnimationFrame(() => {
+            animationFramePending = false;
+
+            if (hashNavigationPending) {
+               return;
+            }
+
+            const stickyTopValue = getComputedStyle(document.querySelector(DOCS_PAGE_SELECTOR) || document.documentElement)
+               .getPropertyValue('--docs-toc-content-top')
+               .trim();
+            const threshold = Number.parseFloat(stickyTopValue) || 120;
+
+            let targetHeading = headings[0];
+
+            for (const heading of headings) {
+               if (heading.getBoundingClientRect().top <= threshold) {
+                  targetHeading = heading;
+               } else {
+                  break;
+               }
+            }
+
+            if (!targetHeading) {
+               return;
+            }
+
+            const targetLink = linkById.get(targetHeading.id);
+
+            setActiveLink(targetLink);
+         });
+      }
+
+      function handleHashNavigation() {
+         const hash = window.location.hash;
+
+         if (!hash) {
+            updateActiveLink();
+            return;
+         }
+
+         const targetLink = linkById.get(decodeURIComponent(hash.substring(1)));
+
+         if (!targetLink) {
+            updateActiveLink();
+            return;
+         }
+
+         hashNavigationPending = true;
+         setActiveLink(targetLink);
+
+         window.setTimeout(() => {
+            hashNavigationPending = false;
+            updateActiveLink();
+         }, 500);
+      }
+
+      window.addEventListener('scroll', updateActiveLink, { passive: true });
+      window.addEventListener('hashchange', handleHashNavigation);
+   window.addEventListener('resize', updateActiveLink);
+
+      updateActiveLink();
+      window.setTimeout(handleHashNavigation, 100);
+   }
+
    function init() {
       initCodeCopyButtons();
       initDocsVersionDropdowns();
       initDocsSidebarToggles();
+      updateDocsTocStickyOffsets();
+      initDocsTocScrollSpy();
+
+      window.addEventListener('resize', updateDocsTocStickyOffsets);
    }
 
    if (document.readyState === 'loading') {

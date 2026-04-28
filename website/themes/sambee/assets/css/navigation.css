@@ -209,6 +209,16 @@ Top-Level Items
    border-bottom-color: theme('colors.clr-darkmode-rule-soft');
 }
 
+.nav-item--docs {
+   @apply lg:hidden;
+   border-bottom: none;
+   margin-top: 0;
+}
+
+.nav-menu--with-docs-drawer > .nav-item:nth-last-child(2) {
+   border-bottom: none;
+}
+
 .nav-link {
    @apply block font-tertiary text-sm font-medium uppercase text-clr-text-dark transition-colors duration-200 dark:text-clr-darkmode-text-dark;
    letter-spacing: var(--tracking-label);
@@ -401,6 +411,19 @@ Submenus
 
 .nav-submenu-link.active {
    @apply font-bold text-clr-action-text dark:text-clr-darkmode-action-text;
+}
+
+.nav-docs-panel {
+   @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+   margin-top: 0;
+}
+
+.nav-docs-header {
+   @apply border-t-0;
+}
+
+.nav-docs-heading {
+   @apply m-0;
 }
 
 .theme-switcher {

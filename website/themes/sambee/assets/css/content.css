@@ -29,7 +29,7 @@
   h4,
   h5,
   h6 {
-    @apply mb-[0.7em] mt-[1.15em];
+    @apply mb-[0.5em] mt-[0.8em];
   }
 
   h2 {
@@ -52,7 +52,7 @@
   ==============================
   */
   p {
-    @apply my-[var(--content-block-margin)];
+    margin-block: 0 var(--content-block-margin);
     line-height: 1.65;
   }
 

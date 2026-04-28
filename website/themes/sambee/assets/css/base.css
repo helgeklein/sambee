@@ -6,16 +6,20 @@ Variables
 ==============================
 */
 :root {
-  /* Header height fallback - updated dynamically via JavaScript. */
-  --header-height: 87px;
-  /* Space between header and content, defined by the site shell. */
-  --header-bottom-margin: 40px;
-  /* TOC offset combines the measured header height with the shell spacing. */
-  --toc-position-top: calc(var(--header-height) + var(--header-bottom-margin));
-  /* Container width: 815px content + 32px gap + 260px TOC + 24px container padding. */
-  --article-container-width: 1131px;
-  --article-content-width: 815px;
-  --article-toc-width: 260px;
+  /* Header height fallback before JavaScript measures the live nav header. */
+  --header-height: 76px;
+  /* Shared inner top inset for both docs sidebars beneath the fixed header. */
+  --docs-sidebars-padding-top: 24px;
+  /* Shared sticky top offset for both docs side rails. */
+  --docs-sticky-top: var(--header-height);
+  /* Extra TOC clearance fallback used before JavaScript measures the live TOC top. */
+  --docs-toc-fallback-gap: 40px;
+  /* Fallback TOC top used for height calculations until the live TOC position is measured. */
+  --docs-toc-fallback-top: calc(var(--header-height) + var(--docs-toc-fallback-gap));
+  /* Shared docs page rail width used by the left navigation and mirrored TOC sidebar. */
+  --docs-page-rail-width: 13.75rem;
+  /* Maximum width of the docs article region excluding the left navigation rail. */
+  --article-container-width: 1100px;
   /* Shared font size for inline code and code blocks. */
   --code-font-size: 0.875em;
   /* Shared bottom margin for block content such as lists, tables, and pre blocks. */
