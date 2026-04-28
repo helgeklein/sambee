@@ -1,0 +1,35 @@
+{{/* Purpose: Renders the documentation version switcher for sidebar and drawer navigation. */}}
+{{ $page := .page }}
+{{ $mode := .mode | default "sidebar" }}
+{{ $version := .version }}
+{{ $book := .book }}
+{{ $docsVersions := .docsVersions | default slice }}
+
+<details class="docs-sidebar-version-control docs-sidebar-version-control--{{ $mode }}">
+  <summary class="docs-sidebar-version-trigger type-label-strong type-color-accent ui-transition-color ui-hover-primary ui-hover-surface-base">
+    <span class="sr-only">Documentation version</span>
+    <span class="docs-sidebar-version-value">
+      {{ range $docsVersions }}
+        {{ if eq .slug $version }}v{{ .label | default .slug }}{{ end }}
+      {{ end }}
+    </span>
+    {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-version-icon ui-color-rule") }}
+  </summary>
+  <div class="docs-sidebar-version-menu" aria-label="Documentation versions">
+    {{ range $docsVersions }}
+      {{ $targetURL := printf "/docs/%s/" .slug }}
+      {{ with site.GetPage (printf "/docs/%s" .slug) }}
+        {{ $targetURL = .RelPermalink }}
+      {{ end }}
+      {{ with and $book (site.GetPage (printf "/docs/%s/%s" .slug $book)) }}
+        {{ $targetURL = .RelPermalink }}
+      {{ end }}
+      {{ $label := printf "v%s" (.label | default .slug) }}
+      {{ if eq .slug $version }}
+        <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current type-label-strong type-color-ink ui-bg-surface-low ui-current-primary-inset" data-close-version-dropdown aria-current="true">{{ $label }}</button>
+      {{ else }}
+        <a class="docs-sidebar-version-option type-label-strong type-color-ink ui-transition-color ui-hover-primary ui-hover-surface-low" href="{{ $targetURL }}">{{ $label }}</a>
+      {{ end }}
+    {{ end }}
+  </div>
+</details>

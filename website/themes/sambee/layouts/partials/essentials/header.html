@@ -1,5 +1,13 @@
 {{/* Purpose: Renders the global site header, navigation, and search entry point. */}}
 {{ $isHome := .IsHome }}
+{{ $docsVersion := .Params.product_version }}
+{{ $docsBook := .Params.book }}
+{{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
+{{ $docsNavData := dict }}
+{{ if $docsVersion }}
+  {{ $docsNavData = index (index hugo.Data "docs-nav") $docsVersion }}
+{{ end }}
+{{ $hasDocsDrawerNav := and $docsVersion $docsBook $docsNavData }}
 
 <header class="nav-header">
   <nav class="nav-bar site-frame site-gutter" aria-label="Primary">
@@ -16,7 +24,7 @@
     </button>
 
     {{/* Skip the redundant Home item on the homepage itself, but keep the rest of the main menu unchanged. */}}
-    <ul id="nav-menu" class="nav-menu nav-menu--home">
+    <ul id="nav-menu" class="nav-menu nav-menu--home{{ if $hasDocsDrawerNav }} nav-menu--with-docs-drawer{{ end }}" aria-label="Primary navigation" aria-hidden="true">
       {{ range site.Menus.main }}
         {{ if not (and $isHome (eq .Name "Home")) }}
         {{ $isExternal := or (hasPrefix .URL "http://") (hasPrefix .URL "https://") }}
@@ -48,6 +56,19 @@
         </li>
         {{ end }}
         {{ end }}
+      {{ end }}
+      {{ if $hasDocsDrawerNav }}
+      <li class="nav-item nav-item--docs" aria-label="Documentation navigation">
+        <div class="nav-docs-panel docs-nav docs-nav--drawer">
+          <div class="nav-docs-header docs-sidebar-header">
+            <div class="docs-sidebar-header-row">
+              <h2 class="nav-docs-heading docs-sidebar-heading type-title-md-tight type-color-ink">Documentation</h2>
+              {{ partial "docs/version-switcher.html" (dict "page" . "mode" "drawer" "version" $docsVersion "book" $docsBook "docsVersions" $docsVersions) }}
+            </div>
+          </div>
+          {{ partial "docs/nav-tree.html" (dict "page" . "mode" "drawer" "version" $docsVersion "book" $docsBook "navData" $docsNavData) }}
+        </div>
+      </li>
       {{ end }}
     </ul>
 

@@ -5,6 +5,7 @@
    const SELECTORS = {
       toggle: '.nav-toggle',
       menu: '.nav-menu',
+      menuInteractive: 'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
       submenuToggle: '.nav-submenu-toggle',
       hasChildren: '.has-children'
    };
@@ -36,6 +37,7 @@
    }
 
    let menuOpen = false;
+   let lastFocusedElement = null;
 
    /**
     * Measure the header height and set it as a CSS variable
@@ -51,10 +53,15 @@
 
    function init() {
       const toggle = document.querySelector(SELECTORS.toggle);
+      const menu = document.querySelector(SELECTORS.menu);
       const submenuToggles = document.querySelectorAll(SELECTORS.submenuToggle);
 
       // Set initial header height
       updateHeaderHeight();
+
+      if (menu) {
+         menu.setAttribute('aria-hidden', 'true');
+      }
 
       if (toggle) {
          toggle.addEventListener('click', handleMenuToggle);
@@ -74,10 +81,20 @@
    function handleMenuToggle(e) {
       const toggle = e.currentTarget;
       menuOpen = !menuOpen;
+      lastFocusedElement = menuOpen ? document.activeElement : lastFocusedElement;
 
       toggle.classList.toggle(CLASSES.active, menuOpen);
       toggle.setAttribute('aria-expanded', String(menuOpen));
       document.body.classList.toggle(CLASSES.menuOpen, menuOpen);
+
+      const menu = document.querySelector(SELECTORS.menu);
+      if (menu) {
+         menu.setAttribute('aria-hidden', String(!menuOpen));
+      }
+
+      if (menuOpen) {
+         focusFirstMenuControl();
+      }
    }
 
    function handleSubmenuToggle(e) {
@@ -122,11 +139,57 @@
          // Return focus to toggle button
          const toggle = document.querySelector(SELECTORS.toggle);
          if (toggle) toggle.focus();
+         return;
+      }
+
+      if (e.key === 'Tab' && menuOpen) {
+         trapFocusInMenu(e);
+      }
+   }
+
+   function getMenuControls() {
+      const menu = document.querySelector(SELECTORS.menu);
+      if (!menu) {
+         return [];
+      }
+
+      return Array.from(menu.querySelectorAll(SELECTORS.menuInteractive)).filter((element) => {
+         if (element.closest('[hidden]')) {
+            return false;
+         }
+
+         return !element.hasAttribute('disabled');
+      });
+   }
+
+   function focusFirstMenuControl() {
+      const controls = getMenuControls();
+      if (controls.length > 0) {
+         controls[0].focus();
+      }
+   }
+
+   function trapFocusInMenu(event) {
+      const controls = getMenuControls();
+      if (controls.length === 0) {
+         return;
+      }
+
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+
+      if (event.shiftKey && document.activeElement === first) {
+         event.preventDefault();
+         last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+         event.preventDefault();
+         first.focus();
       }
    }
 
    function closeMenu() {
       const toggle = document.querySelector(SELECTORS.toggle);
+      const menu = document.querySelector(SELECTORS.menu);
       menuOpen = false;
 
       if (toggle) {
@@ -136,12 +199,21 @@
 
       document.body.classList.remove(CLASSES.menuOpen);
 
+      if (menu) {
+         menu.setAttribute('aria-hidden', 'true');
+      }
+
       // Close all submenus
       document.querySelectorAll('.' + CLASSES.submenuOpen).forEach(el => {
          el.classList.remove(CLASSES.submenuOpen);
          const btn = el.querySelector(':scope > ' + SELECTORS.submenuToggle);
          if (btn) btn.setAttribute('aria-expanded', 'false');
       });
+
+      if (lastFocusedElement instanceof HTMLElement) {
+         lastFocusedElement.focus();
+      }
+      lastFocusedElement = null;
    }
 
    // Initialize on DOM ready
