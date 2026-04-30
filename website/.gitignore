@@ -7,3 +7,4 @@ resources/_gen/*
 !resources/_gen/images/**
 .hugo_build.lock
 data/webp-watch-trigger.json
+.generated/

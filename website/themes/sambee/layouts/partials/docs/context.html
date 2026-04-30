@@ -1,0 +1,59 @@
+{{/* Purpose: Derive docs version, book, section, and page context from the current docs URL hierarchy. */}}
+{{ $segments := slice }}
+{{ with .RelPermalink }}
+  {{ $trimmedPath := trim . "/" }}
+  {{ if $trimmedPath }}
+    {{ $segments = split $trimmedPath "/" }}
+  {{ end }}
+{{ end }}
+
+{{ $isDocs := and (gt (len $segments) 0) (eq (index $segments 0) "docs") }}
+{{ $version := "" }}
+{{ $book := "" }}
+{{ $section := "" }}
+{{ $page := "" }}
+{{ $kind := "" }}
+
+{{ if and $isDocs (ge (len $segments) 2) }}
+  {{ $version = index $segments 1 }}
+{{ end }}
+
+{{ if and $isDocs (ge (len $segments) 3) }}
+  {{ $book = index $segments 2 }}
+{{ end }}
+
+{{ if and $isDocs (ge (len $segments) 4) }}
+  {{ $section = index $segments 3 }}
+{{ end }}
+
+{{ if and $isDocs (ge (len $segments) 5) }}
+  {{ $page = index $segments 4 }}
+{{ end }}
+
+{{ if $isDocs }}
+  {{ if eq (len $segments) 1 }}
+    {{ $kind = "docs-root" }}
+  {{ else if eq (len $segments) 2 }}
+    {{ $kind = "version" }}
+  {{ else if eq (len $segments) 3 }}
+    {{ $kind = "book" }}
+  {{ else if eq (len $segments) 4 }}
+    {{ $kind = "section" }}
+  {{ else if ge (len $segments) 5 }}
+    {{ $kind = "page" }}
+  {{ end }}
+{{ end }}
+
+{{ return (dict
+  "isDocs" $isDocs
+  "version" $version
+  "book" $book
+  "section" $section
+  "page" $page
+  "kind" $kind
+  "isDocsRoot" (eq $kind "docs-root")
+  "isVersion" (eq $kind "version")
+  "isBook" (eq $kind "book")
+  "isSection" (eq $kind "section")
+  "isPage" (eq $kind "page")
+) }}

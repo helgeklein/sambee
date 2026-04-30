@@ -3,6 +3,7 @@ title = "Sambee"
 theme = "sambee"
 defaultContentLanguage = "en"
 enableRobotsTXT = true
+ignoreFiles = ["(^|/)inherit\\.md$", "(^|/)_inherit\\.md$"]
 
 [pagination]
 pagerSize = 10

@@ -64,6 +64,44 @@
   const RESULTS_PER_PAGE = 20;
   const DEFAULT_EMPTY_STATE_HTML = '<p>Start typing to search...</p>';
   const showImages = {{ .show_image | default true }};
+  const docsSearchConfig = {
+    currentVersion: {{ printf "%q" ((index hugo.Data "docs-versions").current | default "") | safeJS }},
+    searchableVersions: {
+      {{- $versions := (index hugo.Data "docs-versions").versions | default slice -}}
+      {{- range $index, $version := $versions -}}
+      {{- if gt $index 0 }},{{ end }}
+      {{ printf "%q" $version.slug | safeJS }}: {{ $version.searchable | default false }}
+      {{- end -}}
+    }
+  };
+
+  function getActiveDocsVersion() {
+    const match = window.location.pathname.match(/^\/docs\/([^/]+)(?:\/|$)/);
+    const requestedVersion = match?.[1] ?? null;
+
+    if (requestedVersion && requestedVersion in docsSearchConfig.searchableVersions) {
+      return requestedVersion;
+    }
+
+    return docsSearchConfig.currentVersion || null;
+  }
+
+  function buildSearchFilters() {
+    const activeDocsVersion = getActiveDocsVersion();
+
+    if (activeDocsVersion) {
+      return {
+        any: [
+          { page_kind: 'site' },
+          { page_kind: 'docs', docs_version: activeDocsVersion },
+        ],
+      };
+    }
+
+    return {
+      page_kind: 'site',
+    };
+  }
 
   // Toggle the magnifier/reset icons to match whether the input currently has a query.
   function setSearchIcons(hasQuery) {
@@ -114,7 +152,9 @@
     const pf = await loadPagefind();
     if (!pf) return;
 
-    const search = await pf.search(query);
+    const search = await pf.search(query, {
+      filters: buildSearchFilters(),
+    });
 
     if (search.results.length === 0) {
       showEmptyState(`<p>No results for "<strong>${escapeHtml(query)}</strong>"</p>`);

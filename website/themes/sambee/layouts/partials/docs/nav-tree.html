@@ -1,5 +1,6 @@
 {{/* Purpose: Renders the documentation book and page tree for sidebar and drawer navigation. */}}
 {{ $page := .page }}
+{{ $pageContext := partial "docs/context.html" $page }}
 {{ $version := .version }}
 {{ $book := .book }}
 {{ $navData := .navData }}
@@ -7,79 +8,106 @@
 
 {{ if and $navData $book }}
   <div class="docs-nav-tree docs-nav-tree--{{ $mode }}">
-    {{ range $navData.books }}
-      {{ $bookSlug := .slug }}
+    {{ range $bookSlug := $navData.books }}
       {{ $isCurrentBook := eq $bookSlug $book }}
       {{ $currentBookPage := site.GetPage (printf "/docs/%s/%s" $version $bookSlug) }}
-      {{ $currentBookContentPages := where (where site.Pages "Params.product_version" $version) "Params.book" $bookSlug }}
-      {{ $currentBookPages := where (where site.RegularPages "Params.product_version" $version) "Params.book" $bookSlug }}
-      {{ $hasChildPages := gt (len $currentBookPages) 0 }}
+      {{ $bookTitle := humanize $bookSlug }}
+      {{ with $currentBookPage }}
+        {{ $bookEffectiveData := partial "docs/effective-page.html" . }}
+        {{ $bookTitle = $bookEffectiveData.page.Title }}
+      {{ end }}
+      {{ $bookSections := slice }}
+      {{ with index $navData.sections $bookSlug }}
+        {{ $bookSections = .items | default slice }}
+      {{ end }}
+      {{ $hasSections := gt (len $bookSections) 0 }}
       {{ $bookChildrenId := printf "docs-sidebar-book-%s-%s-%s" $mode $version $bookSlug }}
       {{ $bookTitleClass := "docs-sidebar-title" }}
       {{ if $isCurrentBook }}
         {{ $bookTitleClass = printf "%s %s" $bookTitleClass "docs-sidebar-title-current" }}
       {{ end }}
-      <div class="docs-sidebar-book{{ if $isCurrentBook }} docs-sidebar-book-current{{ end }}{{ if $hasChildPages }} docs-sidebar-book-has-children{{ end }}">
+      <div class="docs-sidebar-book{{ if $isCurrentBook }} docs-sidebar-book-current{{ end }}{{ if $hasSections }} docs-sidebar-book-has-children{{ end }}">
         <div class="docs-sidebar-title-row">
           {{ with $currentBookPage }}
           <a class="{{ $bookTitleClass }} type-title-sm-tight type-color-ink ui-transition-color ui-hover-primary" href="{{ .RelPermalink }}">
-            <span class="docs-sidebar-title-label">{{ .Title }}</span>
+            <span class="docs-sidebar-title-label">{{ $bookTitle }}</span>
           </a>
           {{ else }}
           <div class="{{ $bookTitleClass }} type-title-sm-tight type-color-ink">
-            <span class="docs-sidebar-title-label">{{ .title }}</span>
+            <span class="docs-sidebar-title-label">{{ $bookTitle }}</span>
           </div>
           {{ end }}
-          {{ if $hasChildPages }}
+          {{ if $hasSections }}
           <button
             type="button"
             class="docs-sidebar-toggle ui-color-rule ui-transition-color ui-hover-primary"
             aria-expanded="{{ if $isCurrentBook }}true{{ else }}false{{ end }}"
             aria-controls="{{ $bookChildrenId }}"
-            aria-label="Toggle {{ .title }} section navigation">
+            aria-label="Toggle {{ $bookTitle }} section navigation">
             {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
           </button>
           {{ end }}
         </div>
-        {{ if $hasChildPages }}
+        {{ if $hasSections }}
         <div id="{{ $bookChildrenId }}" class="docs-sidebar-children"{{ if not $isCurrentBook }} hidden{{ end }}>
-          {{ range .sections }}
-          {{ $sectionPages := slice }}
-          {{ $isCurrentSection := false }}
-          {{ range .doc_ids }}
-            {{ $docId := . }}
-            {{ $matches := where $currentBookContentPages "Params.doc_id" $docId }}
-            {{ if gt (len $matches) 0 }}
-              {{ $target := index $matches 0 }}
-              {{ $sectionPages = $sectionPages | append $target }}
-              {{ if eq $target.RelPermalink $page.RelPermalink }}
-                {{ $isCurrentSection = true }}
-              {{ end }}
+          {{ range $sectionEntry := $bookSections }}
+          {{ $sectionSlug := $sectionEntry.slug }}
+          {{ $sectionTitle := $sectionEntry.title | default (humanize $sectionSlug) }}
+          {{ $sectionPage := site.GetPage (printf "/docs/%s/%s/%s" $version $bookSlug $sectionSlug) }}
+          {{ $pageSlugs := slice }}
+          {{ with index $navData.pages $bookSlug }}
+            {{ with index . $sectionSlug }}
+              {{ $pageSlugs = .items | default slice }}
             {{ end }}
           {{ end }}
-          {{ $sectionChildrenId := printf "%s-%s" $bookChildrenId (.title | urlize) }}
+          {{ $sectionPages := slice }}
+          {{ range $pageSlug := $pageSlugs }}
+            {{ with site.GetPage (printf "/docs/%s/%s/%s/%s" $version $bookSlug $sectionSlug $pageSlug) }}
+              {{ $sectionPages = $sectionPages | append . }}
+            {{ end }}
+          {{ end }}
+          {{ $hasPages := gt (len $sectionPages) 0 }}
+          {{ $isCurrentSection := and $isCurrentBook (eq $sectionSlug $pageContext.section) }}
+          {{ $sectionChildrenId := printf "%s-%s" $bookChildrenId $sectionSlug }}
           <section class="docs-nav-group">
-            <button
-              type="button"
-              class="docs-sidebar-toggle docs-nav-group-toggle type-color-accent ui-transition-color ui-hover-primary"
-              aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
-              aria-controls="{{ $sectionChildrenId }}"
-              aria-label="Toggle {{ .title }} pages">
-              <span class="docs-nav-group-label">{{ .title }}</span>
-              {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
-            </button>
+            <div class="docs-nav-group-row">
+              {{ if $sectionPage }}
+                {{ if and $isCurrentSection (not $pageContext.page) }}
+                <span class="docs-nav-group-link type-docs-nav-group-label type-color-ink ui-current-primary-inset">{{ $sectionTitle }}</span>
+                {{ else }}
+                <a class="docs-nav-group-link type-docs-nav-group-label type-color-accent ui-transition-color ui-hover-primary" href="{{ $sectionPage.RelPermalink }}">{{ $sectionTitle }}</a>
+                {{ end }}
+              {{ else }}
+                <span class="docs-nav-group-link type-docs-nav-group-label type-color-accent">{{ $sectionTitle }}</span>
+              {{ end }}
+              {{ if $hasPages }}
+              <button
+                type="button"
+                class="docs-sidebar-toggle docs-sidebar-toggle--nested ui-color-rule ui-transition-color ui-hover-primary"
+                aria-expanded="{{ if $isCurrentSection }}true{{ else }}false{{ end }}"
+                aria-controls="{{ $sectionChildrenId }}"
+                aria-label="Toggle {{ $sectionTitle }} pages">
+                {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-toggle-chevron") }}
+              </button>
+              {{ end }}
+            </div>
+            {{ if $hasPages }}
             <ul id="{{ $sectionChildrenId }}" class="docs-nav-list"{{ if not $isCurrentSection }} hidden{{ end }}>
               {{ range $sectionPages }}
-                {{ $isCurrentPage := eq .RelPermalink $page.RelPermalink }}
+                {{ $navPageContext := partial "docs/context.html" . }}
+                {{ $navEffectiveData := partial "docs/effective-page.html" . }}
+                {{ $navTitle := $navEffectiveData.page.Title }}
+                {{ $isCurrentPage := and (eq $navPageContext.section $pageContext.section) (eq $navPageContext.page $pageContext.page) }}
                 <li>
                   {{ if $isCurrentPage }}
-                  <span class="docs-sidebar-link docs-sidebar-link-current type-docs-nav-strong type-color-ink ui-current-primary-inset">{{ .Title }}</span>
+                  <span class="docs-sidebar-link docs-sidebar-link-current type-docs-nav type-color-ink ui-current-primary-inset">{{ $navTitle }}</span>
                   {{ else }}
-                  <a class="docs-sidebar-link type-docs-nav type-color-muted ui-transition-color type-hover-ink ui-hover-surface-mid" href="{{ .RelPermalink }}">{{ .Title }}</a>
+                  <a class="docs-sidebar-link type-docs-nav type-color-muted ui-transition-color type-hover-ink ui-hover-surface-mid" href="{{ .RelPermalink }}">{{ $navTitle }}</a>
                   {{ end }}
                 </li>
               {{ end }}
             </ul>
+            {{ end }}
           </section>
           {{ end }}
         </div>

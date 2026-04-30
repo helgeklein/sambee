@@ -1,10 +1,11 @@
 {{/* Purpose: Renders the documentation sidebar for the active book and version. */}}
-{{ $version := .Params.product_version }}
-{{ $book := .Params.book }}
+{{ $docsContext := partial "docs/context.html" . }}
+{{ $version := $docsContext.version }}
+{{ $book := $docsContext.book }}
 {{ $navData := index (index hugo.Data "docs-nav") $version }}
 {{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
 
-{{/* Front matter drives the active docs tree; the data file supplies the canonical section order. */}}
+{{/* URL hierarchy drives the active docs tree; the data file supplies the canonical section order. */}}
 {{ if and $navData $book }}
   <div class="docs-nav docs-nav--sidebar" aria-label="Documentation navigation">
     <div class="docs-sidebar-header">

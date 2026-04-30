@@ -7,6 +7,12 @@
 {{- else -}}
   {{- $initialTheme = site.Params.theme_default -}}
 {{- end -}}
+{{- $docsContext := partial "docs/context.html" . -}}
+{{- $isVersionedDocsPage := and $docsContext.isDocs $docsContext.version -}}
+{{- $pagefindKind := "site" -}}
+{{- if $isVersionedDocsPage -}}
+  {{- $pagefindKind = "docs" -}}
+{{- end -}}
 <!DOCTYPE html>
 <html lang="{{ site.LanguageCode | default `en-US` }}" class="{{ $initialTheme }}">
 <head>
@@ -17,7 +23,15 @@
   {{ end }}
   {{/* Shared metadata and compiled CSS are included for every page type. */}}
   {{ partial "essentials/head.html" . }}
+  <meta data-pagefind-filter="page_kind:{{ $pagefindKind }}">
+  {{ if $isVersionedDocsPage }}
+  <meta data-pagefind-filter="docs_version:{{ $docsContext.version }}">
+  {{ end }}
+  {{ if hugo.IsProduction }}
   {{ partialCached "essentials/style.html" . }}
+  {{ else }}
+  {{ partial "essentials/style.html" . }}
+  {{ end }}
 </head>
 <body>
   {{ if not hugo.IsProduction }}

@@ -1,9 +1,15 @@
 {{/* Purpose: Render docs breadcrumbs from the current version and book context. */}}
-{{ $version := .Params.product_version }}
-{{ $book := .Params.book }}
+{{ $docsContext := partial "docs/context.html" . }}
+{{ $effectivePageData := partial "docs/effective-page.html" . }}
+{{ $effectivePage := $effectivePageData.page }}
+{{ $version := $docsContext.version }}
+{{ $book := $docsContext.book }}
+{{ $section := $docsContext.section }}
 {{ $versionPage := false }}
 {{ $bookPage := false }}
+{{ $sectionPage := false }}
 {{ $versionLabel := $version }}
+{{ $sectionTitle := "" }}
 
 {{ with $version }}
   {{ with site.GetPage (printf "/docs/%s" .) }}
@@ -20,21 +26,46 @@
   {{ $bookPage = . }}
 {{ end }}
 
+{{ $bookTitle := "" }}
+{{ with $bookPage }}
+  {{ $bookEffectiveData := partial "docs/effective-page.html" . }}
+  {{ $bookTitle = $bookEffectiveData.page.Title }}
+{{ end }}
+
+{{ if and $version $book $section }}
+  {{ $sectionTitle = partial "docs/section-title.html" (dict "version" $version "book" $book "section" $section) }}
+  {{ with site.GetPage (printf "/docs/%s/%s/%s" $version $book $section) }}
+    {{ $sectionPage = . }}
+  {{ end }}
+{{ end }}
+
 <div class="docs-breadcrumb-row">
   <nav class="docs-breadcrumbs site-gutter" aria-label="Breadcrumb">
     <ol class="docs-breadcrumb-list">
       {{ if $bookPage }}
       <li class="docs-breadcrumb-item">
         {{ if eq .RelPermalink $bookPage.RelPermalink }}
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $bookPage.Title }}</span>
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $bookTitle }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookPage.RelPermalink }}">{{ $bookPage.Title }}</a>
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookPage.RelPermalink }}">{{ $bookTitle }}</a>
         {{ end }}
       </li>
-      {{ if and $bookPage (ne .RelPermalink $bookPage.RelPermalink) }}
+      {{ if $section }}
       <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ .Title }}</span>
+        {{ if and (eq $docsContext.kind "section") $sectionPage }}
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
+        {{ else if and $sectionPage (eq $docsContext.kind "page") }}
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $sectionPage.RelPermalink }}">{{ $sectionTitle }}</a>
+        {{ else }}
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
+        {{ end }}
+      </li>
+      {{ end }}
+      {{ if eq $docsContext.kind "page" }}
+      <li class="docs-breadcrumb-item">
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $effectivePage.Title }}</span>
       </li>
       {{ end }}
       {{ else }}

@@ -1,23 +1,10 @@
 {{/* Purpose: Renders a documentation article with sidebar navigation and version controls. */}}
 {{ define "main" }}
-<section class="docs-shell docs-shell--page">
-  <aside class="docs-sidebar">
-    {{/* Article pages keep navigation visible alongside the current document. */}}
-    {{ partial "docs/sidebar.html" . }}
-  </aside>
-  <div class="docs-main-column">
-    {{ partial "docs/breadcrumbs.html" . }}
-    {{ partial "docs/page-header.html" . }}
-    <div class="article-toc-container docs-article-region site-gutter">
-      <div class="article-wrapper docs-article-column">
-        <article class="docs-content docs-content--article">
-          <div class="content article-content" data-pagefind-body>{{ .Content }}</div>
-        </article>
-      </div>
-    </div>
-  </div>
-  <div class="docs-toc-sidebar">
-    {{ partial "docs/toc.html" . }}
-  </div>
-</section>
+{{ $renderData := partial "docs/render-data.html" . }}
+{{ partial "docs/article-shell.html" (dict
+  "page" .
+  "effectivePage" $renderData.effectivePage
+  "isSearchIndexed" $renderData.isSearchIndexed
+  "articleRegionClass" "docs-article-region site-gutter"
+) }}
 {{ end }}

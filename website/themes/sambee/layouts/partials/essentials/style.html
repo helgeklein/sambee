@@ -14,5 +14,7 @@
 {{ $styles := slice $tailwindCSS | resources.Concat "css/style.css" }}
 {{ if hugo.IsProduction }}
   {{ $styles = $styles | minify | fingerprint }}
+{{ else }}
+  {{ $styles = $styles | fingerprint }}
 {{ end }}
 <link href="{{ $styles.RelPermalink }}" {{ if hugo.IsProduction }}integrity="{{ $styles.Data.Integrity }}"{{ end }} rel="stylesheet" />

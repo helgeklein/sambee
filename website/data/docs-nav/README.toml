@@ -1,0 +1,62 @@
+# Docs Navigation Data
+#
+# This directory contains the canonical navigation data for versioned docs.
+#
+# Each TOML file in this folder defines the navigation structure for one product
+# version, for example `1.0.toml` for docs under `website/content/docs/1.0/`.
+#
+# The Hugo templates use these files to render:
+# - the docs overview and version landing page book lists
+# - the docs sidebar and drawer navigation
+#
+# File naming:
+# - Use one file per docs version.
+# - Name the file after the version slug, for example `1.0.toml`.
+#
+# Supported structure:
+# - `books`: required array of strings. Ordered list of book slugs for that version.
+# - `[[sections.<book>.items]]`: optional ordered list of section objects for a book.
+# - `[pages.<book>.<section>].items`: optional ordered list of page slugs for a section.
+#
+# `books` items:
+# - Each value is a required book slug, for example `end-user` for `/docs/1.0/end-user/`.
+#
+# `[[sections.<book>.items]]` keys:
+# - `slug`: required string. Section folder slug under the book.
+# - `title`: required string. Human-facing section title shown in the sidebar.
+#
+# `[pages.<book>.<section>].items` values:
+# - Ordered list of page folder slugs under that section.
+#
+# Formatting guidance:
+# - Keep books, section `items` stanzas, and page `items` arrays in the exact order
+#   you want them rendered.
+# - Prefer multi-line page `items` arrays, one entry per line, to keep diffs and
+#   reordering readable.
+#
+# Example:
+#
+# books = [
+#   "end-user",
+#   "admin",
+# ]
+#
+# [[sections.end-user.items]]
+# slug = "getting-started"
+# title = "Getting Started"
+#
+# [pages.end-user.getting-started]
+# items = [
+#   "install",
+#   "first-login",
+# ]
+#
+# Operational rules:
+# - These files control navigation structure only; they do not contain page content.
+# - Book, section, and page existence comes from the content tree.
+# - Page identity comes from filesystem paths, not `doc_id` or product version
+#   front matter.
+# - Unlisted sections or pages may still exist on disk and be directly reachable,
+#   but they must not appear in generated navigation or listings.
+# - Every slug listed here should correspond to a real docs node in the matching
+#   `website/content/docs/<version>/` tree.

@@ -1,0 +1,17 @@
+{{/* Purpose: Resolve the display title for a docs section from nav data. */}}
+{{ $version := .version }}
+{{ $book := .book }}
+{{ $section := .section }}
+{{ $fallback := .fallback | default (humanize $section) }}
+{{ $title := $fallback }}
+{{ $navData := index (index hugo.Data "docs-nav") $version }}
+
+{{ with and $navData $book (index $navData.sections $book) }}
+  {{ range .item | default slice }}
+    {{ if eq .slug $section }}
+      {{ $title = .title | default $fallback }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+
+{{ return $title }}

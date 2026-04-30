@@ -1,25 +1,45 @@
-current = "1.0"
+# Canonical docs version metadata used by Hugo templates for labels, switchers,
+# breadcrumbs, and search filtering.
+#
+# Ordering contract:
+# - [[versions]] entries must be listed in ascending release order, from oldest
+#   to newest.
+# - This declaration order is canonical and may be used by templates and other
+#   docs tooling anywhere a stable version order is needed.
+# - Do not rely on parsing slug values to infer chronology.
+#
+# Supported top-level keys:
+# - current: required string slug for the default/current docs version.
+#   It should match exactly one [[versions]].slug entry below.
+#
+# Supported [[versions]] keys:
+# - slug: required string. Canonical version identifier used in URLs and page
+#   front matter, for example "1.0" for /docs/1.0/.
+# - label: required string. Human-facing version text shown in the UI. This can
+#   differ from slug if needed, for example "v1.0" while slug remains "1.0".
+# - visible: optional boolean. Controls whether the version is listed in UI
+#   selectors such as the version switcher. If omitted, templates treat it as
+#   true.
+# - status: optional string. If present, the version switcher appends it in
+#   parentheses after the version label, for example "v1.1 (preview)".
+#   Typical values include:
+#   - "current": the latest published version.
+#   - "preview": pre-release docs that are already visible.
+# - searchable: required boolean.
+#   - true: include this version in docs search indexing.
+#   - false: exclude this version from docs search indexing. If this version is
+#     selected in the UI, docs search results for that version will be empty.
+#
+# Notes:
+# - Keep entries in release order even if a specific UI later renders them in a
+#   different order.
+# - Docs page version identity is derived from the content path below
+#   website/content/docs/<version>/, not from page front matter.
+# - The current slug should usually also be marked with status = "current".
+current = "0.7"
 
 [[versions]]
-slug = "0.9"
-label = "0.9"
-status = "legacy"
-searchable = false
-
-[[versions]]
-slug = "1.0"
-label = "1.0"
-status = "current"
-searchable = true
-
-[[versions]]
-slug = "1.1"
-label = "1.1"
-status = "preview"
-searchable = false
-
-[[versions]]
-slug = "2.0"
-label = "2.0"
-status = "planned"
+slug = "0.7"
+label = "0.7"
+visible = true
 searchable = false

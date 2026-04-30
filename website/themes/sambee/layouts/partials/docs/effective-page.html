@@ -1,0 +1,67 @@
+{{/* Purpose: Resolve the effective content source page, following inherited docs pages across versions. */}}
+{{ $requestedPage := . }}
+{{ $context := partial "docs/context.html" $requestedPage }}
+{{ $resolvedPage := $requestedPage }}
+{{ $resolvedVersion := $context.version }}
+{{ $isInherited := false }}
+
+{{ $isMarkerPage := false }}
+{{ with $requestedPage.File }}
+  {{ $isMarkerPage = or (eq .LogicalName "inherit.md") (eq .LogicalName "_inherit.md") }}
+{{ end }}
+{{ $isMarkerPage = or $isMarkerPage ($requestedPage.Params.inherit | default false) }}
+
+{{ if and $context.isDocs $context.version }}
+  {{ $versions := (index hugo.Data "docs-versions").versions | default slice }}
+  {{ $requestedIndex := -1 }}
+  {{ range $index, $entry := $versions }}
+    {{ if eq $entry.slug $context.version }}
+      {{ $requestedIndex = $index }}
+    {{ end }}
+  {{ end }}
+
+  {{ if ge $requestedIndex 0 }}
+    {{ $scanVersions := collections.Reverse (first (add $requestedIndex 1) $versions) }}
+    {{ $resolvedFound := false }}
+
+    {{ range $scanVersions }}
+      {{ if not $resolvedFound }}
+        {{ $candidateVersion := .slug }}
+        {{ $candidatePath := "" }}
+
+        {{ if eq $context.kind "version" }}
+          {{ $candidatePath = printf "/docs/%s" $candidateVersion }}
+        {{ else if eq $context.kind "book" }}
+          {{ $candidatePath = printf "/docs/%s/%s" $candidateVersion $context.book }}
+        {{ else if eq $context.kind "section" }}
+          {{ $candidatePath = printf "/docs/%s/%s/%s" $candidateVersion $context.book $context.section }}
+        {{ else if eq $context.kind "page" }}
+          {{ $candidatePath = printf "/docs/%s/%s/%s/%s" $candidateVersion $context.book $context.section $context.page }}
+        {{ end }}
+
+        {{ with and $candidatePath (site.GetPage $candidatePath) }}
+          {{ $isCandidateMarker := false }}
+          {{ with .File }}
+            {{ $isCandidateMarker = or (eq .LogicalName "inherit.md") (eq .LogicalName "_inherit.md") }}
+          {{ end }}
+          {{ $isCandidateMarker = or $isCandidateMarker (.Params.inherit | default false) }}
+          {{ if not $isCandidateMarker }}
+            {{ $resolvedPage = . }}
+            {{ $resolvedVersion = $candidateVersion }}
+            {{ $resolvedFound = true }}
+          {{ end }}
+        {{ end }}
+      {{ end }}
+    {{ end }}
+
+    {{ $isInherited = or (and $resolvedFound (ne $resolvedVersion $context.version)) $isMarkerPage }}
+  {{ end }}
+{{ end }}
+
+{{ return (dict
+  "page" $resolvedPage
+  "requestedPage" $requestedPage
+  "requestedVersion" $context.version
+  "resolvedVersion" $resolvedVersion
+  "isInherited" $isInherited
+) }}

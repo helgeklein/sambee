@@ -1,0 +1,32 @@
+{{/* Purpose: Resolve docs entry pages that should redirect to a version's first book. */}}
+{{ $page := . }}
+{{ $docsContext := partial "docs/context.html" $page }}
+{{ $targetURL := "" }}
+
+{{ if and $docsContext.isDocs (or $docsContext.isDocsRoot $docsContext.isVersion) }}
+  {{ $docsVersions := index hugo.Data "docs-versions" }}
+  {{ $docsNav := index hugo.Data "docs-nav" }}
+  {{ $targetVersion := $docsContext.version }}
+
+  {{ if $docsContext.isDocsRoot }}
+    {{ $targetVersion = $docsVersions.current | default "" }}
+  {{ end }}
+
+  {{ with and $targetVersion (index $docsNav $targetVersion) }}
+    {{ $books := .books | default slice }}
+    {{ if gt (len $books) 0 }}
+      {{ $targetBook := index $books 0 }}
+      {{ with site.GetPage (printf "/docs/%s/%s" $targetVersion $targetBook) }}
+        {{ $targetURL = .RelPermalink }}
+      {{ else }}
+        {{ $targetURL = printf "/docs/%s/%s/" $targetVersion $targetBook }}
+      {{ end }}
+    {{ end }}
+  {{ end }}
+
+  {{ if eq $targetURL $page.RelPermalink }}
+    {{ $targetURL = "" }}
+  {{ end }}
+{{ end }}
+
+{{ return $targetURL }}
