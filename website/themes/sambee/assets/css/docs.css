@@ -223,6 +223,11 @@ Article Shell
   @apply m-0 list-none p-0;
 }
 
+.docs-toc-body li {
+  font-size: var(--text-docs-nav);
+  line-height: var(--leading-docs-nav);
+}
+
 .docs-toc-body li + li {
   @apply mt-3;
 }
@@ -232,7 +237,7 @@ Article Shell
 }
 
 .docs-toc-body a {
-  @apply type-docs-toc-link transition-colors duration-150 hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
+  @apply type-docs-nav transition-colors duration-150 hover:text-clr-action-text dark:hover:text-clr-darkmode-action-text;
   color: var(--color-clr-text-light);
   text-decoration: none;
 }
@@ -243,7 +248,7 @@ Article Shell
 
 .docs-toc-body a.toc-active {
   color: var(--color-clr-primary);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .dark .docs-toc-body a.toc-active {

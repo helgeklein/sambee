@@ -43,4 +43,4 @@ slug = "0.7"
 label = "0.7"
 status = "current"
 visible = true
-searchable = false
+searchable = true

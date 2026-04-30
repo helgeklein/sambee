@@ -374,15 +374,6 @@ Type Styles
   line-height: var(--leading-docs-nav);
 }
 
-@utility type-docs-toc-link {
-  font-family: var(--font-tertiary);
-  font-size: var(--text-sm);
-  font-weight: 400;
-  font-style: normal;
-  letter-spacing: normal;
-  line-height: var(--leading-snug);
-}
-
 @utility type-hero {
   font-family: var(--font-secondary);
   font-size: var(--text-hero-sm);
