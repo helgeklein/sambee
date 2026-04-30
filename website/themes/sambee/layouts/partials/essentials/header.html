@@ -1,7 +1,8 @@
 {{/* Purpose: Renders the global site header, navigation, and search entry point. */}}
 {{ $isHome := .IsHome }}
-{{ $docsVersion := .Params.product_version }}
-{{ $docsBook := .Params.book }}
+{{ $docsContext := partial "docs/context.html" . }}
+{{ $docsVersion := $docsContext.version }}
+{{ $docsBook := $docsContext.book }}
 {{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
 {{ $docsNavData := dict }}
 {{ if $docsVersion }}

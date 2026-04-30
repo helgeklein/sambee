@@ -1,19 +1,25 @@
 {{/* Purpose: Render the docs page header band with version controls and context chips. */}}
-{{ $version := .Params.product_version }}
-{{ $book := .Params.book }}
+{{ $docsContext := partial "docs/context.html" . }}
+{{ $effectivePageData := partial "docs/effective-page.html" . }}
+{{ $effectivePage := $effectivePageData.page }}
+{{ $version := $docsContext.version }}
+{{ $book := $docsContext.book }}
+{{ $section := $docsContext.section }}
 {{ $versionLabel := $version }}
-{{ $versionStatus := "" }}
-{{ $bookTitle := "" }}
+{{ $displayTitle := .Title }}
 
 {{ with (index hugo.Data "docs-versions").versions }}
   {{ with index (where . "slug" $version) 0 }}
     {{ $versionLabel = .label | default $version }}
-    {{ $versionStatus = .status | default "" }}
   {{ end }}
 {{ end }}
 
-{{ with and $version $book (site.GetPage (printf "/docs/%s/%s" $version $book)) }}
-  {{ $bookTitle = .Title }}
+{{ if eq $docsContext.kind "page" }}
+  {{ $displayTitle = $effectivePage.Title }}
+{{ else if eq $docsContext.kind "section" }}
+  {{ $displayTitle = partial "docs/section-title.html" (dict "version" $version "book" $book "section" $section "fallback" $effectivePage.Title) }}
+{{ else if and (or (eq $docsContext.kind "version") (eq $docsContext.kind "book")) $effectivePage.Title }}
+  {{ $displayTitle = $effectivePage.Title }}
 {{ end }}
 
 <header class="docs-page-header">
@@ -22,6 +28,6 @@
       <span class="docs-page-kicker-rule ui-bg-primary" aria-hidden="true"></span>
       Sambee {{ $versionLabel }}
     </span>
-    <h1 class="docs-page-title type-hero type-color-ink">{{ .Title }}</h1>
+    <h1 class="docs-page-title type-hero type-color-ink">{{ $displayTitle }}</h1>
   </div>
 </header>

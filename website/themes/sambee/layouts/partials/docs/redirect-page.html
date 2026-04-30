@@ -1,0 +1,16 @@
+{{/* Purpose: Render a minimal redirect body for docs entry pages that forward to a real book page. */}}
+{{ $targetURL := .targetURL }}
+{{ $heading := .heading | default "Redirecting" }}
+{{ $body := .body | default "This docs entry point now forwards to the first book in the selected version." }}
+<section class="shell-section ledger-shell" data-pagefind-ignore>
+  <article class="docs-content">
+    <h1 class="type-section-title type-color-ink">{{ $heading }}</h1>
+    <div class="content">
+      <p>{{ $body }}</p>
+      <p><a href="{{ $targetURL }}">Continue to the documentation.</a></p>
+    </div>
+  </article>
+</section>
+<script>
+  window.location.replace('{{ $targetURL }}');
+</script>

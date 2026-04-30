@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "build:theme": "node scripts/themeGenerator.js",
+    "docs:materialize-inherited": "python3 scripts/materialize-inherited-docs.py",
+    "docs:validate": "python3 scripts/validate-docs-content.py",
     "build:site": "hugo --source . --cleanDestinationDir",
     "images:generate": "python3 scripts/generate-webp.py",
     "images:generate:force": "python3 scripts/generate-webp.py --force",
@@ -11,7 +13,7 @@
     "build:search-index": "npx pagefind --site public --quiet",
     "dev": "npm run dev:search && concurrently --kill-others-on-fail --names theme,hugo,pagefind,webp \"node scripts/themeGenerator.js --watch\" \"hugo server --source . --renderToMemory=false --bind 0.0.0.0 --port 1313 --disableFastRender --navigateToChanged\" \"node scripts/pagefindWatch.js\" \"node scripts/webpWatch.js\"",
     "dev:search": "rm -rf public && npm run build:search",
-    "build": "npm run build:theme && npm run build:site",
+    "build": "npm run build:theme && npm run docs:validate && npm run docs:materialize-inherited && npm run build:site",
     "preview": "npm run build:search && hugo server --source . --bind 0.0.0.0 --port 1313 --environment production --disableFastRender --navigateToChanged",
     "build:search": "npm run build && npm run build:search-index"
   },

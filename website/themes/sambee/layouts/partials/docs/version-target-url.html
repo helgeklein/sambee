@@ -1,0 +1,42 @@
+{{/* Purpose: Resolve the best docs URL for a target version using the agreed fallback chain. */}}
+{{ $page := .page }}
+{{ $targetVersion := .targetVersion }}
+{{ $context := partial "docs/context.html" $page }}
+{{ $fallbackURL := "/docs/" }}
+
+{{ with site.GetPage "/docs" }}
+  {{ $fallbackURL = .RelPermalink }}
+{{ end }}
+
+{{ if and $context.isDocs $targetVersion }}
+  {{ $candidatePaths := slice }}
+
+  {{ if eq $context.kind "page" }}
+    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s/%s/%s/%s" $targetVersion $context.book $context.section $context.page) }}
+  {{ end }}
+
+  {{ if or (eq $context.kind "page") (eq $context.kind "section") }}
+    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s/%s/%s" $targetVersion $context.book $context.section) }}
+  {{ end }}
+
+  {{ if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") }}
+    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s/%s" $targetVersion $context.book) }}
+  {{ end }}
+
+  {{ if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") (eq $context.kind "version") }}
+    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s" $targetVersion) }}
+  {{ end }}
+
+  {{ $resolved := false }}
+
+  {{ range $candidatePaths }}
+    {{ if not $resolved }}
+      {{ with site.GetPage . }}
+        {{ $fallbackURL = .RelPermalink }}
+        {{ $resolved = true }}
+      {{ end }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+
+{{- $fallbackURL -}}

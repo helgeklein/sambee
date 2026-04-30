@@ -374,13 +374,22 @@ Type Styles
   line-height: var(--leading-docs-nav);
 }
 
-@utility type-docs-nav-strong {
+@utility type-docs-nav-group-label {
   font-family: var(--font-primary);
-  font-size: var(--text-docs-nav);
-  font-weight: 600;
+  font-size: var(--text-size-base);
+  font-weight: 400;
   font-style: normal;
   letter-spacing: normal;
-  line-height: var(--leading-docs-nav);
+  line-height: 1;
+}
+
+@utility type-docs-toc-link {
+  font-family: var(--font-tertiary);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  line-height: var(--leading-snug);
 }
 
 @utility type-hero {

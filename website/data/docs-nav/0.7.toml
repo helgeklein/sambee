@@ -1,0 +1,278 @@
+books = [
+  "user-guide",
+  "admin-guide",
+  "developer-guide",
+]
+
+[[sections.user-guide.items]]
+slug = "getting-started"
+title = "Getting Started"
+
+[[sections.user-guide.items]]
+slug = "accessing-files"
+title = "Accessing Files"
+
+[[sections.user-guide.items]]
+slug = "browsing-and-navigation"
+title = "Browsing And Navigation"
+
+[[sections.user-guide.items]]
+slug = "viewing-and-previewing"
+title = "Viewing And Previewing Files"
+
+[[sections.user-guide.items]]
+slug = "editing-files"
+title = "Editing Files"
+
+[[sections.user-guide.items]]
+slug = "managing-files"
+title = "Managing Files"
+
+[[sections.user-guide.items]]
+slug = "companion-app"
+title = "Companion App"
+
+[[sections.user-guide.items]]
+slug = "troubleshooting"
+title = "Troubleshooting"
+
+[[sections.user-guide.items]]
+slug = "reference"
+title = "Reference"
+
+[pages.user-guide.getting-started]
+items = [
+  "what-sambee-can-access",
+  "first-sign-in-and-interface-tour",
+]
+
+[pages.user-guide.accessing-files]
+items = [
+  "connect-to-an-smb-share",
+  "access-local-drives-and-pair-your-browser",
+]
+
+[pages.user-guide.browsing-and-navigation]
+items = [
+  "browse-search-and-use-dual-pane",
+  "mobile-navigation",
+]
+
+[pages.user-guide.viewing-and-previewing]
+items = [
+  "preview-supported-files",
+  "what-happens-when-a-file-cannot-be-previewed",
+]
+
+[pages.user-guide.editing-files]
+items = [
+  "edit-markdown-in-the-browser",
+  "open-files-in-desktop-apps-and-save-changes-back",
+  "understand-locking-and-conflicts",
+]
+
+[pages.user-guide.managing-files]
+items = [
+  "common-file-management-tasks",
+]
+
+[pages.user-guide.companion-app]
+items = [
+  "install-and-start-the-companion-app",
+  "choose-desktop-apps-and-preferences",
+  "recover-after-interrupted-editing",
+]
+
+[pages.user-guide.troubleshooting]
+items = [
+  "common-user-problems",
+]
+
+[pages.user-guide.reference]
+items = [
+  "supported-file-formats",
+]
+
+[[sections.admin-guide.items]]
+slug = "overview-and-planning"
+title = "Overview And Planning"
+
+[[sections.admin-guide.items]]
+slug = "installation-and-deployment"
+title = "Installation And Deployment"
+
+[[sections.admin-guide.items]]
+slug = "network-and-reverse-proxy"
+title = "Network And Reverse Proxy"
+
+[[sections.admin-guide.items]]
+slug = "configuration"
+title = "Configuration"
+
+[[sections.admin-guide.items]]
+slug = "operations-and-maintenance"
+title = "Operations And Maintenance"
+
+[[sections.admin-guide.items]]
+slug = "user-support-and-escalation"
+title = "User Support And Escalation"
+
+[[sections.admin-guide.items]]
+slug = "troubleshooting"
+title = "Troubleshooting"
+
+[[sections.admin-guide.items]]
+slug = "reference"
+title = "Reference"
+
+[pages.admin-guide.overview-and-planning]
+items = [
+  "what-sambee-requires-to-run",
+]
+
+[pages.admin-guide.installation-and-deployment]
+items = [
+  "deploy-sambee-with-docker",
+  "first-startup-and-first-admin-login",
+]
+
+[pages.admin-guide.network-and-reverse-proxy]
+items = [
+  "put-sambee-behind-a-reverse-proxy",
+]
+
+[pages.admin-guide.configuration]
+items = [
+  "configure-local-settings-and-persistent-storage",
+  "configuration-key-reference",
+]
+
+[pages.admin-guide.operations-and-maintenance]
+items = [
+  "view-logs-and-restart-services",
+  "routine-maintenance-checklist",
+  "update-sambee-safely",
+  "backup-and-restore-planning",
+]
+
+[pages.admin-guide.user-support-and-escalation]
+items = [
+  "support-companion-app-escalation",
+]
+
+[pages.admin-guide.troubleshooting]
+items = [
+  "troubleshoot-startup-and-connectivity-issues",
+  "reset-the-admin-password",
+  "reverse-proxy-misconfiguration",
+]
+
+[pages.admin-guide.reference]
+items = [
+  "port-and-path-reference",
+  "configuration-and-data-paths",
+  "companion-support-reference",
+]
+
+[[sections.developer-guide.items]]
+slug = "project-orientation"
+title = "Project Orientation"
+
+[[sections.developer-guide.items]]
+slug = "local-development-workflow"
+title = "Local Development Workflow"
+
+[[sections.developer-guide.items]]
+slug = "backend-architecture"
+title = "Backend Architecture"
+
+[[sections.developer-guide.items]]
+slug = "frontend-architecture"
+title = "Frontend Architecture"
+
+[[sections.developer-guide.items]]
+slug = "companion-architecture"
+title = "Companion Architecture"
+
+[[sections.developer-guide.items]]
+slug = "website-and-docs-system"
+title = "Website And Docs System"
+
+[[sections.developer-guide.items]]
+slug = "cross-cutting-systems"
+title = "Cross-Cutting Systems"
+
+[[sections.developer-guide.items]]
+slug = "testing-and-quality-gates"
+title = "Testing And Quality Gates"
+
+[[sections.developer-guide.items]]
+slug = "contribution-workflows"
+title = "Contribution Workflows"
+
+[[sections.developer-guide.items]]
+slug = "release-and-versioning"
+title = "Release And Versioning"
+
+[pages.developer-guide.project-orientation]
+items = [
+  "what-sambee-consists-of",
+  "repository-tour",
+]
+
+[pages.developer-guide.local-development-workflow]
+items = [
+  "set-up-the-development-environment",
+  "common-task-commands",
+]
+
+[pages.developer-guide.backend-architecture]
+items = [
+  "backend-overview",
+  "request-flow-and-service-boundaries",
+  "file-operations-and-edit-locking",
+]
+
+[pages.developer-guide.frontend-architecture]
+items = [
+  "frontend-overview",
+  "file-browser-and-navigation-model",
+  "viewer-architecture-and-preview-contracts",
+]
+
+[pages.developer-guide.companion-architecture]
+items = [
+  "companion-overview",
+  "browser-to-companion-trust-model",
+  "local-drive-and-save-back-pipeline",
+]
+
+[pages.developer-guide.website-and-docs-system]
+items = [
+  "website-and-docs-architecture-overview",
+  "docs-versioning-and-navigation-model",
+  "docs-authoring-workflow",
+  "docs-inheritance-and-materialization",
+]
+
+[pages.developer-guide.cross-cutting-systems]
+items = [
+  "logging-and-localization",
+  "frontend-logging-and-tracing",
+]
+
+[pages.developer-guide.testing-and-quality-gates]
+items = [
+  "test-strategy-overview",
+]
+
+[pages.developer-guide.contribution-workflows]
+items = [
+  "how-to-plan-and-review-a-change",
+]
+
+[pages.developer-guide.release-and-versioning]
+items = [
+  "dependency-and-release-workflow",
+  "companion-distribution-and-update-workflow",
+]

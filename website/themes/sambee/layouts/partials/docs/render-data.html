@@ -1,0 +1,21 @@
+{{/* Purpose: Resolve the shared docs render inputs used by docs page templates. */}}
+{{ $page := . }}
+{{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
+{{ $docsContext := partial "docs/context.html" $page }}
+{{ $effectivePageData := partial "docs/effective-page.html" $page }}
+{{ $effectivePage := $effectivePageData.page }}
+{{ $isSearchIndexed := true }}
+
+{{ if and $docsContext.isDocs $docsContext.version }}
+  {{ $isSearchIndexed = false }}
+  {{ with index (where $docsVersions "slug" $docsContext.version) 0 }}
+    {{ $isSearchIndexed = .searchable | default false }}
+  {{ end }}
+{{ end }}
+
+{{ return (dict
+  "page" $page
+  "docsContext" $docsContext
+  "effectivePage" $effectivePage
+  "isSearchIndexed" $isSearchIndexed
+) }}

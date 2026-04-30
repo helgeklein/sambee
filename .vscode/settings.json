@@ -138,7 +138,7 @@
     "npx": true,
     "/^git\\s+(status|diff|log|show|branch)\\b/": true,
     "/^grep (-A|-E|-i)\\b/": true,
-    "/^(/usr/local/bin/)?python(3)? -m (mypy|py_compile|pytest|ruff)\\b/": true,
+    "/^(/usr/local/bin/)?python(3)? -m (mypy|py_compile|pytest|ruff|unittest)\\b/": true,
     "/^time\\b/": true,
     "/^cargo\\s+(build|check|clean|doc|new|init|run|test|bench|update|search|install|uninstall|publish|login|logout|package|metadata|fix|clippy|fmt|tree|verify|watch)\\b/": true,
     "rm": false,

@@ -2,33 +2,39 @@
 {{ $page := .page }}
 {{ $mode := .mode | default "sidebar" }}
 {{ $version := .version }}
-{{ $book := .book }}
 {{ $docsVersions := .docsVersions | default slice }}
+{{ $currentVersionLabel := $version }}
 
 <details class="docs-sidebar-version-control docs-sidebar-version-control--{{ $mode }}">
-  <summary class="docs-sidebar-version-trigger type-label-strong type-color-accent ui-transition-color ui-hover-primary ui-hover-surface-base">
+  <summary class="docs-sidebar-version-trigger type-docs-nav type-color-accent ui-transition-color ui-hover-primary ui-hover-surface-base">
     <span class="sr-only">Documentation version</span>
     <span class="docs-sidebar-version-value">
       {{ range $docsVersions }}
-        {{ if eq .slug $version }}v{{ .label | default .slug }}{{ end }}
+        {{ if eq .slug $version }}
+          {{ $currentVersionLabel = .label | default .slug }}
+          {{ with .status }}
+            {{ $currentVersionLabel = printf "%s (%s)" $currentVersionLabel . }}
+          {{ end }}
+        {{ end }}
       {{ end }}
+      {{ $currentVersionLabel }}
     </span>
     {{ partial "icons/chevron-right.html" (dict "class" "docs-sidebar-version-icon ui-color-rule") }}
   </summary>
   <div class="docs-sidebar-version-menu" aria-label="Documentation versions">
     {{ range $docsVersions }}
-      {{ $targetURL := printf "/docs/%s/" .slug }}
-      {{ with site.GetPage (printf "/docs/%s" .slug) }}
-        {{ $targetURL = .RelPermalink }}
+      {{ $isVisible := .visible | default true }}
+      {{ if or $isVisible (eq .slug $version) }}
+      {{ $targetURL := partial "docs/version-target-url.html" (dict "page" $page "targetVersion" .slug) }}
+      {{ $label := .label | default .slug }}
+      {{ with .status }}
+        {{ $label = printf "%s (%s)" $label . }}
       {{ end }}
-      {{ with and $book (site.GetPage (printf "/docs/%s/%s" .slug $book)) }}
-        {{ $targetURL = .RelPermalink }}
-      {{ end }}
-      {{ $label := printf "v%s" (.label | default .slug) }}
       {{ if eq .slug $version }}
-        <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current type-label-strong type-color-ink ui-bg-surface-low ui-current-primary-inset" data-close-version-dropdown aria-current="true">{{ $label }}</button>
+        <button type="button" class="docs-sidebar-version-option docs-sidebar-version-option-current type-docs-nav type-color-ink ui-bg-surface-low ui-current-primary-inset" data-close-version-dropdown aria-current="true">{{ $label }}</button>
       {{ else }}
-        <a class="docs-sidebar-version-option type-label-strong type-color-ink ui-transition-color ui-hover-primary ui-hover-surface-low" href="{{ $targetURL }}">{{ $label }}</a>
+        <a class="docs-sidebar-version-option type-docs-nav type-color-ink ui-transition-color ui-hover-primary ui-hover-surface-low" href="{{ $targetURL }}">{{ $label }}</a>
+      {{ end }}
       {{ end }}
     {{ end }}
   </div>
