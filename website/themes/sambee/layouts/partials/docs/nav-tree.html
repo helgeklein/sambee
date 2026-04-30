@@ -73,12 +73,12 @@
             <div class="docs-nav-group-row">
               {{ if $sectionPage }}
                 {{ if and $isCurrentSection (not $pageContext.page) }}
-                <span class="docs-nav-group-link type-docs-nav-group-label type-color-ink ui-current-primary-inset">{{ $sectionTitle }}</span>
+                <span class="docs-nav-group-link type-docs-nav type-color-ink ui-current-primary-inset">{{ $sectionTitle }}</span>
                 {{ else }}
-                <a class="docs-nav-group-link type-docs-nav-group-label type-color-accent ui-transition-color ui-hover-primary" href="{{ $sectionPage.RelPermalink }}">{{ $sectionTitle }}</a>
+                <a class="docs-nav-group-link type-docs-nav type-color-accent ui-transition-color ui-hover-primary" href="{{ $sectionPage.RelPermalink }}">{{ $sectionTitle }}</a>
                 {{ end }}
               {{ else }}
-                <span class="docs-nav-group-link type-docs-nav-group-label type-color-accent">{{ $sectionTitle }}</span>
+                <span class="docs-nav-group-link type-docs-nav type-color-accent">{{ $sectionTitle }}</span>
               {{ end }}
               {{ if $hasPages }}
               <button

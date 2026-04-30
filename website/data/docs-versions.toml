@@ -41,5 +41,6 @@ current = "0.7"
 [[versions]]
 slug = "0.7"
 label = "0.7"
+status = "current"
 visible = true
 searchable = false

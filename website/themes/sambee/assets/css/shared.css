@@ -368,19 +368,10 @@ Type Styles
 @utility type-docs-nav {
   font-family: var(--font-primary);
   font-size: var(--text-docs-nav);
-  font-weight: 500;
-  font-style: normal;
-  letter-spacing: normal;
-  line-height: var(--leading-docs-nav);
-}
-
-@utility type-docs-nav-group-label {
-  font-family: var(--font-primary);
-  font-size: var(--text-size-base);
   font-weight: 400;
   font-style: normal;
   letter-spacing: normal;
-  line-height: 1;
+  line-height: var(--leading-docs-nav);
 }
 
 @utility type-docs-toc-link {

@@ -35,7 +35,7 @@
   --text-list-item-label: var(--font-size-label-sm);
   --text-list-index: var(--font-size-copy-sm);
   --text-list-item-title: var(--font-size-copy-sm);
-  --text-docs-nav: 0.95rem;
+  --text-docs-nav: var(--font-size-copy-sm);
   --text-title-sm: 1.125rem;
   --text-title-md: 1.5rem;
   --text-title-xl: 2rem;
