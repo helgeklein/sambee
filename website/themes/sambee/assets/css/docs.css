@@ -546,11 +546,16 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-nav-list {
-  @apply m-0 list-none px-0 pt-1 pb-3;
+  @apply m-0 list-none px-0 pt-0.5 pb-3;
 }
 
 .docs-nav-list li + li {
   @apply mt-0.5;
+}
+
+.docs-nav-list > li:first-child .docs-sidebar-link,
+.docs-nav-list > li:first-child .docs-sidebar-link-current {
+  @apply pt-1;
 }
 
 .docs-sidebar-link {
