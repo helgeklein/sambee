@@ -6,18 +6,6 @@ Layout Shells
 ==============================
 */
 
-/*
-==============================
-Panels And Indexes
-==============================
-/* Purpose: Holds documentation-specific shell, navigation, article, and index styles. */
-
-/*
-==============================
-Layout Shells
-==============================
-*/
-
 .docs-overview,
 .docs-shell {
   @apply mx-auto w-full;
@@ -75,6 +63,17 @@ Layout Shells
 }
 
 .docs-main-column {
+  /* Keep docs heading sizing local to the docs main column instead of branching the shared type scale. */
+  --docs-page-title-size-sm: 2.5rem;
+  --docs-page-title-size-md: 3rem;
+  --docs-page-title-size-lg: 3.4rem;
+  --docs-content-h1-size-sm: 2rem;
+  --docs-content-h1-size-md: 2.4rem;
+  --docs-content-h2-size: 1.75rem;
+  --docs-content-h3-size: 1.5rem;
+  --docs-content-h4-size: 1.25rem;
+  --docs-content-h5-size: 0.8125rem;
+  --docs-content-h6-size: 0.75rem;
   @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page lg:border-t-0 lg:border-l xl:border-r;
 }
 
@@ -169,6 +168,34 @@ Article Shell
   @apply border-0;
   width: 100%;
   background-color: transparent;
+}
+
+.docs-content--article .article-content h1 {
+  font-size: var(--docs-content-h1-size-sm);
+
+  @media (min-width: theme(--breakpoint-md)) {
+    font-size: var(--docs-content-h1-size-md);
+  }
+}
+
+.docs-content--article .article-content h2 {
+  font-size: var(--docs-content-h2-size);
+}
+
+.docs-content--article .article-content h3 {
+  font-size: var(--docs-content-h3-size);
+}
+
+.docs-content--article .article-content h4 {
+  font-size: var(--docs-content-h4-size);
+}
+
+.docs-content--article .article-content h5 {
+  font-size: var(--docs-content-h5-size);
+}
+
+.docs-content--article .article-content h6 {
+  font-size: var(--docs-content-h6-size);
 }
 
 .docs-toc-sidebar {
@@ -332,6 +359,15 @@ Documentation Navigation
 
 .docs-page-title {
   @apply mt-4 mb-0;
+  font-size: var(--docs-page-title-size-sm);
+
+  @media (min-width: theme(--breakpoint-md)) {
+    font-size: var(--docs-page-title-size-md);
+  }
+
+  @media (min-width: theme(--breakpoint-lg)) {
+    font-size: var(--docs-page-title-size-lg);
+  }
 }
 
 .docs-sidebar-header {
