@@ -271,9 +271,13 @@ deployment:
     the browser.
   cta:
     id: deployment-primary
-    label: Admin Docs
-    href: /docs/admin-guide/
+    label: Single-Container Architecture
     kind: secondary
+    target:
+      type: docs
+      book: admin-guide
+      section: overview-and-planning
+      page: deployment-architecture-overview
 
 proof:
   enabled: true
