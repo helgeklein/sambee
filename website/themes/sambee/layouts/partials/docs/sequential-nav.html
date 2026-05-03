@@ -6,6 +6,7 @@
 {{ $navLabel := "Sequential page navigation after article" }}
 {{ $linksClass := printf "docs-sequence-links docs-sequence-links--%s" $mode }}
 {{ $innerClass := "" }}
+{{ $isTop := eq $mode "top" }}
 
 {{ with $nav.previous }}
   {{ $previous = . }}
@@ -13,7 +14,7 @@
 {{ with $nav.next }}
   {{ $next = . }}
 {{ end }}
-{{ if eq $mode "top" }}
+{{ if $isTop }}
   {{ $navLabel = "Sequential page navigation" }}
   {{ $innerClass = "site-gutter" }}
 {{ end }}
@@ -30,10 +31,17 @@
     {{ with $previous }}
     <div class="docs-sequence-item docs-sequence-item--previous">
       <a class="docs-sequence-link docs-sequence-link--previous" href="{{ .url }}" aria-label="Previous: {{ .title }}">
+        {{ if $isTop }}
+        <span class="docs-sequence-top-row docs-sequence-top-row--previous">
+          <span class="material-symbols-outlined docs-sequence-icon" aria-hidden="true">chevron_left</span>
+          <span class="docs-sequence-title docs-sequence-title--top type-docs-nav">{{ .title }}</span>
+        </span>
+        {{ else }}
         <span class="docs-sequence-label type-label-eyebrow">Previous</span>
         <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
-        {{ if and (ne $mode "top") .context }}
+        {{ if .context }}
         <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
+        {{ end }}
         {{ end }}
       </a>
     </div>
@@ -41,10 +49,17 @@
     {{ with $next }}
     <div class="docs-sequence-item docs-sequence-item--next">
       <a class="docs-sequence-link docs-sequence-link--next" href="{{ .url }}" aria-label="Next: {{ .title }}">
+        {{ if $isTop }}
+        <span class="docs-sequence-top-row docs-sequence-top-row--next">
+          <span class="docs-sequence-title docs-sequence-title--top type-docs-nav">{{ .title }}</span>
+          <span class="material-symbols-outlined docs-sequence-icon" aria-hidden="true">chevron_right</span>
+        </span>
+        {{ else }}
         <span class="docs-sequence-label type-label-eyebrow">Next</span>
         <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
-        {{ if and (ne $mode "top") .context }}
+        {{ if .context }}
         <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
+        {{ end }}
         {{ end }}
       </a>
     </div>
