@@ -286,14 +286,14 @@ proof:
   body: Sambee is designed for environments that value control, inspectability, and infrastructure fit.
   status_label: INFRA_MAP // STABLE_READY
   items:
-    - category: Connectivity
-      label: NAS devices
+    - category: SOHO
+      label: NAS devices & Samba servers
     - category: Protocol Support
-      label: Samba servers
+      label: SMB2 & SMB3
     - category: Enterprise
       label: Windows file servers
     - category: Client Access
-      label: Desktop and mobile browsers
+      label: Desktop & mobile browsers
     - category: Installation
       label: Self-hosted deployments
     - category: Governance
