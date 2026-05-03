@@ -2,20 +2,27 @@
 {{ $page := . }}
 {{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
 {{ $docsContext := partial "docs/context.html" $page }}
-{{ $effectivePageData := partial "docs/effective-page.html" $page }}
+{{ $sourcePage := partial "docs/source-page.html" $page }}
+{{ $effectivePageData := partial "docs/effective-page.html" $sourcePage }}
 {{ $effectivePage := $effectivePageData.page }}
+{{ $redirectTarget := partial "docs/redirect-target.html" $page }}
 {{ $isSearchIndexed := true }}
 
 {{ if and $docsContext.isDocs $docsContext.version }}
   {{ $isSearchIndexed = false }}
-  {{ with index (where $docsVersions "slug" $docsContext.version) 0 }}
-    {{ $isSearchIndexed = .searchable | default false }}
+  {{ if $docsContext.isCurrentRoute }}
+    {{ with index (where $docsVersions "slug" $docsContext.version) 0 }}
+      {{ $isSearchIndexed = .searchable | default false }}
+    {{ end }}
   {{ end }}
 {{ end }}
 
 {{ return (dict
   "page" $page
   "docsContext" $docsContext
+  "sourcePage" $sourcePage
   "effectivePage" $effectivePage
+  "effectivePageData" $effectivePageData
+  "redirectTarget" $redirectTarget
   "isSearchIndexed" $isSearchIndexed
 ) }}

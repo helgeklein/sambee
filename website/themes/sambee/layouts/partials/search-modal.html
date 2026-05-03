@@ -135,19 +135,29 @@
       return 'Documentation';
     }
 
-    const docsMatch = url.match(/^\/docs\/([^/]+)(?:\/([^/]+))?(?:\/([^/]+))?(?:\/[^/]+)?\/?$/);
-    if (!docsMatch) {
+    const pathSegments = url.split('/').filter(Boolean);
+    if (pathSegments[0] !== 'docs') {
       return '';
     }
 
-    const [, versionSlug, bookSlug, sectionSlug] = docsMatch;
-    const versionData = docsPathData.versions?.[versionSlug];
+    let versionSlug = pathSegments[1] || '';
+    let bookSlug = pathSegments[2] || '';
+    let sectionSlug = pathSegments[3] || '';
+    let versionData = docsPathData.versions?.[versionSlug];
+
+    if (!versionData) {
+      versionSlug = docsSearchConfig.currentVersion || '';
+      versionData = docsPathData.versions?.[versionSlug];
+      bookSlug = pathSegments[1] || '';
+      sectionSlug = pathSegments[2] || '';
+    }
+
     if (!versionData) {
       return '';
     }
 
     if (!bookSlug) {
-      return `Documentation > Version ${versionData.label}`;
+      return 'Documentation';
     }
 
     const bookData = versionData.books?.[bookSlug];

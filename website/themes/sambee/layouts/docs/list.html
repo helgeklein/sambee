@@ -2,13 +2,21 @@
 {{ define "main" }}
 {{ $renderData := partial "docs/render-data.html" . }}
 {{ $docsContext := $renderData.docsContext }}
-{{ $targetURL := partial "docs/redirect-target.html" . }}
+{{ $targetURL := $renderData.redirectTarget }}
 {{ if $targetURL }}
-  {{ partial "docs/redirect-page.html" (dict
-    "targetURL" $targetURL
-    "heading" "Redirecting To Documentation"
-    "body" "This docs entry point forwards to the first book in the selected version."
-  ) }}
+  {{ if and $docsContext.isExplicitVersion $docsContext.isCurrentVersion }}
+    {{ partial "docs/redirect-page.html" (dict
+      "targetURL" $targetURL
+      "heading" "Redirecting To Current Documentation"
+      "body" "This versioned docs URL now forwards to the stable current documentation URL."
+    ) }}
+  {{ else }}
+    {{ partial "docs/redirect-page.html" (dict
+      "targetURL" $targetURL
+      "heading" "Redirecting To Documentation"
+      "body" "This docs entry point forwards to the most useful current documentation landing page."
+    ) }}
+  {{ end }}
 {{ else if or $docsContext.isBook $docsContext.isSection }}
   {{ partial "docs/article-shell.html" (dict
     "page" .
