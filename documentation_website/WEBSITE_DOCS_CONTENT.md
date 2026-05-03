@@ -10,7 +10,7 @@ The model is built around three rules:
 
 - Docs identity is path-derived.
 - Inheritance walks backward through the canonical version list.
-- Public docs URLs stay tied 1:1 to the requested content path.
+- The current docs version publishes at stable unversioned URLs, while explicit versioned URLs remain compatibility routes.
 
 ## Who This Is For
 
@@ -30,18 +30,25 @@ No docs page should define `doc_id`, `product_version`, or any other duplicate i
 
 Docs content must not use `aliases`.
 
-The canonical URL contract is:
+The public URL contract is:
 
-- Version landing page: `/docs/<version>/`
-- Book landing page: `/docs/<version>/<book>/`
-- Section landing page: `/docs/<version>/<book>/<section>/`
-- Article page: `/docs/<version>/<book>/<section>/<page>/`
+- Stable current book landing page: `/docs/<book>/`
+- Stable current section landing page: `/docs/<book>/<section>/`
+- Stable current article page: `/docs/<book>/<section>/<page>/`
+- Archived version landing page: `/docs/<version>/`
+- Archived book landing page: `/docs/<version>/<book>/`
+- Archived section landing page: `/docs/<version>/<book>/<section>/`
+- Archived article page: `/docs/<version>/<book>/<section>/<page>/`
+
+Explicit current-version URLs under `/docs/<current>/...` are not canonical public URLs. They exist as compatibility aliases and must redirect to the matching stable current route.
 
 Runtime entry behavior is:
 
-- `/docs/` redirects to the current docs version's first book as ordered in `website/data/docs-nav/<current>.toml`.
-- `/docs/<version>/` redirects to that version's first book as ordered in `website/data/docs-nav/<version>.toml`.
-- Book, section, and article URLs render full docs pages.
+- `/docs/` redirects to the current docs version's first stable book route as ordered in `website/data/docs-nav/<current>.toml`.
+- `/docs/<current>/` redirects to that same stable current book route.
+- `/docs/<current>/<book>/...` redirects to `/docs/<book>/...`.
+- `/docs/<archived-version>/` redirects to that archived version's first book as ordered in `website/data/docs-nav/<version>.toml`.
+- Archived version book, section, and article URLs render full docs pages.
 
 ## Version Order
 
@@ -211,12 +218,16 @@ Unlisted sections or pages may still exist on disk and be reachable by direct UR
 
 ### Key Runtime Behavior
 
-- The requested docs URL stays in the browser even when the content is inherited from an older version.
+- Stable current routes stay in the browser even when the content is inherited from an older version.
 - Breadcrumbs and version-switcher state reflect the requested version, not the resolved source version.
 - Inherited pages do not display a visual inheritance badge.
 - Effective page metadata must be used consistently for titles, descriptions, TOCs, sidebar labels, and article content.
-- `/docs/` is a redirect-only entry page that forwards to the current version's first book.
-- `/docs/<version>/` is a redirect-only entry page that forwards to that version's first book.
+- Generated stable current routes resolve their source content from the explicit current-version docs tree.
+- `/docs/` is a redirect-only entry page that forwards to the current version's first stable book route.
+- Explicit current-version URLs under `/docs/<current>/...` are redirect-only compatibility URLs.
+- Archived explicit version URLs stay reachable but must emit `noindex,follow` so search engines index only the stable current route set.
+- Internal docs links, canonical tags, Open Graph URLs, and sitemap entries must point at stable current routes for the current version.
+- Pagefind indexes only stable current routes when the current version is marked searchable.
 - Book, section, and article pages all render through the same article-style docs shell.
 
 ### Context And Resolver Contracts
@@ -229,7 +240,17 @@ Unlisted sections or pages may still exist on disk and be reachable by direct UR
 - `section`
 - `page`
 - `kind`: one of `docs-root`, `version`, `book`, `section`, or `page`
+- `currentVersion`
+- `isExplicitVersion`
+- `isCurrentRoute`
+- `isCurrentVersion`
 - convenience booleans: `isDocsRoot`, `isVersion`, `isBook`, `isSection`, and `isPage`
+
+Interpretation rules:
+
+- Stable current routes like `/docs/user-guide/...` set `isCurrentRoute = true` and `version = <current>` even though the version slug is omitted from the URL.
+- Explicit versioned routes like `/docs/0.7/user-guide/...` set `isExplicitVersion = true`.
+- The current-version alias route `/docs/<current>/...` is explicit and current at the same time, so templates can redirect it to the stable current route.
 
 `website/themes/sambee/layouts/partials/docs/effective-page.html` accepts the requested Hugo page object and returns:
 
@@ -244,22 +265,27 @@ Implementation notes:
 - templates should render article body, title, description, and TOC from `page`, not directly from `requestedPage`
 - navigation, breadcrumbs, and version-switcher state should stay tied to the requested path context even when `resolvedVersion` differs
 - the resolver treats raw marker files and generated placeholders marked with `inherit = true` as non-authored routing nodes, not as effective content sources
+- generated placeholders marked with `current_route = true` must first resolve back to their explicit versioned source page before inheritance is evaluated
 
 ### Key Implementation Files
 
 - `website/themes/sambee/layouts/partials/docs/context.html`: derives version, book, section, page, and node kind from the requested path.
+- `website/themes/sambee/layouts/partials/docs/page-path.html`: builds docs content paths with optional stable-current routing preference.
+- `website/themes/sambee/layouts/partials/docs/page-url.html`: resolves the navigable docs URL, preferring stable current routes unless explicitly told not to.
+- `website/themes/sambee/layouts/partials/docs/source-page.html`: resolves the explicit versioned source page behind generated stable current routes.
 - `website/themes/sambee/layouts/partials/docs/effective-page.html`: resolves the effective source page by walking backward through the canonical version list.
-- `website/themes/sambee/layouts/partials/docs/render-data.html`: resolves the shared render inputs used by docs page templates.
+- `website/themes/sambee/layouts/partials/docs/render-data.html`: resolves the shared render inputs used by docs page templates, including redirect and indexing state.
 - `website/themes/sambee/layouts/partials/docs/article-shell.html`: renders the shared article-style docs shell for book, section, and article pages.
-- `website/themes/sambee/layouts/partials/docs/redirect-target.html`: resolves redirect targets for `/docs/` and `/docs/<version>/` entry pages.
+- `website/themes/sambee/layouts/partials/docs/redirect-target.html`: resolves redirect targets for `/docs/`, explicit current-version aliases, and archived version entry pages.
 - `website/themes/sambee/layouts/partials/docs/redirect-page.html`: renders the redirect body used by docs entry pages.
 - `website/themes/sambee/layouts/docs/single.html`: delegates article pages to the shared article-style docs shell.
 - `website/themes/sambee/layouts/docs/list.html`: redirects docs root/version entry pages and delegates book and section pages to the shared article-style docs shell.
 - `website/themes/sambee/layouts/partials/docs/nav-tree.html`: resolves nav targets and displayed page titles by path and effective page metadata.
 - `website/themes/sambee/layouts/partials/docs/version-target-url.html`: resolves cross-version switch targets using the requested path and fallback chain.
-- `website/themes/sambee/layouts/partials/essentials/head.html`: uses effective docs metadata for the HTML title and description.
+- `website/themes/sambee/layouts/partials/essentials/head.html`: uses effective docs metadata for title and description, and emits canonical, redirect, Open Graph, and robots metadata for the stable-current policy.
 - `website/themes/sambee/layouts/partials/search-modal.html`: scopes search to the active docs version on docs pages and to the current docs version elsewhere.
 - `website/themes/sambee/layouts/_default/baseof.html`: emits Pagefind filter metadata for docs and site content.
+- `website/themes/sambee/layouts/sitemap.xml`: includes only stable current docs URLs and excludes docs redirects from the sitemap.
 
 ### Version Switcher Fallback Order
 
@@ -304,6 +330,8 @@ This script runs automatically as part of `npm run build`.
 
 This script exists because Hugo does not have a built-in concept of an inheritance marker.
 
+It also generates the stable current-docs route anchors that let the declared current version publish at `/docs/<book>/...` without moving the authored Markdown out of `website/content/docs/<current>/...`.
+
 From Hugo's perspective, `inherit.md` and `_inherit.md` are just ordinary content files. If the site consumed them directly, Hugo would try to publish them as their own pages, which would create the wrong public URLs.
 
 Example:
@@ -326,15 +354,17 @@ This script fills that gap by creating transient Hugo anchors at the canonical f
 - deleting any stale generated docs anchors under `website/.generated/content/docs/`
 - scanning `website/content/docs/` for `inherit.md` and `_inherit.md`
 - generating transient `index.md` or `_index.md` anchors at the matching folder paths under `website/.generated/content/docs/`
+- generating transient `index.md` or `_index.md` anchors for the declared current version at stable routes under `website/.generated/content/docs/<book>/...`
 - marking those anchors with `inherit = true` so templates can recognize them as routing placeholders instead of real authored content
+- marking stable current-route anchors with `current_route = true` and `source_docs_path = "/docs/<current>/..."` so templates can resolve the explicit versioned source page
 
 In practice, the build relies on three pieces working together:
 
 - `website/hugo.toml` ignores raw `inherit.md` and `_inherit.md` files so Hugo does not publish `/inherit/` or `/_inherit/` URLs
-- `website/scripts/materialize-inherited-docs.py` generates synthetic `index.md` and `_index.md` anchors at the corresponding folder paths
+- `website/scripts/materialize-inherited-docs.py` generates synthetic inherited-route anchors and stable current-route anchors at the corresponding folder paths
 - `website/config/_default/module.toml` mounts `.generated/content` into Hugo's content tree so those synthetic anchors become the routable page nodes Hugo renders
 
-The generated front matter is intentionally minimal. It only exists to make Hugo create the requested page node and to mark it with `inherit = true` so the templates know they are rendering a routing placeholder, not real authored content.
+The generated front matter is intentionally minimal. It only exists to make Hugo create the requested page node and to mark it with either `inherit = true` or `current_route = true` so the templates know they are rendering a routing placeholder, not real authored content.
 
 Without this script, the project would be stuck with two bad options:
 
@@ -359,17 +389,17 @@ This script also runs automatically as part of `npm run build`.
 ### Build Commands
 
 - `npm run docs:validate`: run docs validation only.
-- `npm run docs:materialize-inherited`: regenerate transient inherited route anchors only.
-- `npm run build`: generate theme assets, validate docs, materialize inherited routes, and build the site.
+- `npm run docs:materialize-inherited`: regenerate transient inherited-route and stable current-route anchors.
+- `npm run build`: generate theme assets, validate docs, materialize generated docs route anchors, and build the site.
 - `npm run build:search`: run the full site build and then generate the Pagefind search index.
 
 ## Search Behavior
 
 Pagefind behavior for docs is intentionally version-aware.
 
-- Search indexes the requested docs URL, not the resolved source version URL.
-- Search does not de-duplicate inherited content across versions.
-- On docs pages, the UI defaults search filters to the currently requested docs version.
+- Search indexes only stable current docs URLs, not explicit versioned docs URLs.
+- Search result URLs for current docs therefore stay version-independent.
+- Explicit versioned docs pages are excluded from Pagefind indexing.
 - On non-docs pages, the UI defaults search filters to the `current` docs version from `website/data/docs-versions.toml`.
 - Versions with `searchable = false` are excluded from docs search indexing.
 
