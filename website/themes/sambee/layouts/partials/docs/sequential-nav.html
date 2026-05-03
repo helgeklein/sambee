@@ -33,15 +33,21 @@
       <a class="docs-sequence-link docs-sequence-link--previous" href="{{ .url }}" aria-label="Previous: {{ .title }}">
         {{ if $isTop }}
         <span class="docs-sequence-top-row docs-sequence-top-row--previous">
-          <span class="material-symbols-outlined docs-sequence-icon" aria-hidden="true">chevron_left</span>
+          {{ partial "icons/chevron.html" (dict "direction" "left" "class" "docs-sequence-icon") }}
+          <span class="docs-sequence-mobile-label type-docs-nav">Previous</span>
           <span class="docs-sequence-title docs-sequence-title--top type-docs-nav">{{ .title }}</span>
         </span>
         {{ else }}
-        <span class="docs-sequence-label type-label-eyebrow">Previous</span>
-        <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
-        {{ if .context }}
-        <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
-        {{ end }}
+        <span class="docs-sequence-bottom-row docs-sequence-bottom-row--previous">
+          {{ partial "icons/chevron.html" (dict "direction" "left" "class" "docs-sequence-icon docs-sequence-icon--bottom") }}
+          <span class="docs-sequence-copy">
+            <span class="docs-sequence-label type-label-eyebrow">Previous</span>
+            <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
+            {{ if .context }}
+            <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
+            {{ end }}
+          </span>
+        </span>
         {{ end }}
       </a>
     </div>
@@ -51,15 +57,21 @@
       <a class="docs-sequence-link docs-sequence-link--next" href="{{ .url }}" aria-label="Next: {{ .title }}">
         {{ if $isTop }}
         <span class="docs-sequence-top-row docs-sequence-top-row--next">
+          <span class="docs-sequence-mobile-label type-docs-nav">Next</span>
           <span class="docs-sequence-title docs-sequence-title--top type-docs-nav">{{ .title }}</span>
-          <span class="material-symbols-outlined docs-sequence-icon" aria-hidden="true">chevron_right</span>
+          {{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-sequence-icon") }}
         </span>
         {{ else }}
-        <span class="docs-sequence-label type-label-eyebrow">Next</span>
-        <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
-        {{ if .context }}
-        <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
-        {{ end }}
+        <span class="docs-sequence-bottom-row docs-sequence-bottom-row--next">
+          <span class="docs-sequence-copy">
+            <span class="docs-sequence-label type-label-eyebrow">Next</span>
+            <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
+            {{ if .context }}
+            <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
+            {{ end }}
+          </span>
+          {{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-sequence-icon docs-sequence-icon--bottom") }}
+        </span>
         {{ end }}
       </a>
     </div>

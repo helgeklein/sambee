@@ -336,9 +336,11 @@ Documentation Navigation
 }
 
 .docs-breadcrumb-symbol {
-  font-size: 0.8rem;
-  line-height: 1;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+  display: block;
+  width: 0.8rem;
+  height: 0.8rem;
+  flex: none;
+  fill: currentColor;
 }
 
 .docs-sequence {
@@ -349,7 +351,31 @@ Documentation Navigation
 }
 
 .docs-sequence--bottom {
-  @apply mt-10 border-t border-clr-rule-soft pt-8 dark:border-clr-darkmode-rule-soft md:mt-12 md:pt-10;
+  position: relative;
+  --docs-sequence-bottom-copy-gap: 0.5rem;
+  --docs-sequence-bottom-icon-size: 1.5rem;
+  --docs-sequence-bottom-icon-offset-y: -0.2rem;
+  --docs-sequence-bottom-row-gap: 0.625rem;
+  @apply mt-10 pt-8 md:mt-12 md:pt-10;
+}
+
+.docs-sequence--bottom::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -1.25rem;
+  right: -1.25rem;
+  height: 1px;
+  background-color: var(--color-clr-rule-soft);
+
+  @media (min-width: theme(--breakpoint-md)) {
+    left: -2rem;
+    right: -2rem;
+  }
+}
+
+.dark .docs-sequence--bottom::before {
+  background-color: var(--color-clr-darkmode-rule-soft);
 }
 
 .docs-sequence-links {
@@ -363,8 +389,36 @@ Documentation Navigation
 }
 
 .docs-sequence-links--top {
-  @apply py-2;
+  @apply pt-2;
   gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+}
+
+.docs-sequence-links--bottom {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.docs-sequence-links--bottom .docs-sequence-item {
+  width: 100%;
+  max-width: 100%;
+}
+
+.docs-sequence-links--bottom.docs-sequence-links--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.docs-sequence-links--bottom.docs-sequence-links--single-next {
+  justify-items: end;
+}
+
+.docs-sequence-links--top.docs-sequence-links--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.docs-sequence-links--top.docs-sequence-links--single-next {
+  justify-items: end;
 }
 
 .docs-sequence-links--single {
@@ -393,19 +447,48 @@ Documentation Navigation
 }
 
 .docs-sequence-top-row {
-  display: inline-flex;
-  max-width: 100%;
-  min-width: 0;
+  display: flex;
+  width: 100%;
   align-items: center;
   gap: 0.125rem;
+  white-space: nowrap;
+}
+
+.docs-sequence-top-row--next {
+  justify-content: flex-end;
 }
 
 .docs-sequence--bottom .docs-sequence-link {
-  @apply rounded-2xl border border-clr-rule-soft bg-clr-surface-base px-5 py-4 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base md:px-6 md:py-5;
+  gap: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
-.docs-sequence--bottom .docs-sequence-link:hover {
-  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+.docs-sequence-bottom-row {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--docs-sequence-bottom-row-gap);
+}
+
+.docs-sequence-bottom-row--next {
+  justify-content: flex-end;
+}
+
+.docs-sequence-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--docs-sequence-bottom-copy-gap);
+}
+
+.docs-sequence--bottom .docs-sequence-link--next .docs-sequence-copy {
+  align-items: flex-end;
+  text-align: right;
 }
 
 .docs-sequence-link--next,
@@ -419,6 +502,7 @@ Documentation Navigation
 
 .docs-sequence-label {
   color: var(--color-clr-primary);
+  white-space: nowrap;
 }
 
 .dark .docs-sequence-label {
@@ -427,14 +511,36 @@ Documentation Navigation
 
 .docs-sequence-icon {
   flex: none;
-  font-size: 1rem;
-  line-height: 1;
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.docs-sequence--top .docs-sequence-icon {
+  position: relative;
+  top: 1px;
+}
+
+.docs-sequence--bottom .docs-sequence-icon {
+  position: relative;
+  top: var(--docs-sequence-bottom-icon-offset-y);
+  width: var(--docs-sequence-bottom-icon-size);
+  height: var(--docs-sequence-bottom-icon-size);
+  color: var(--color-clr-text-light);
+}
+
+.dark .docs-sequence--bottom .docs-sequence-icon {
+  color: var(--color-clr-darkmode-text-light);
 }
 
 .docs-sequence-title {
   color: var(--color-clr-text);
   text-wrap: balance;
+}
+
+.docs-sequence--bottom .docs-sequence-title {
+  overflow-wrap: anywhere;
 }
 
 .dark .docs-sequence-title {
@@ -452,8 +558,21 @@ Documentation Navigation
 }
 
 .docs-sequence--top .docs-sequence-title {
+  display: none;
   font-weight: 400;
   text-wrap: pretty;
+
+  @media (min-width: theme(--breakpoint-md)) {
+    display: inline;
+  }
+}
+
+.docs-sequence-mobile-label {
+  display: inline;
+
+  @media (min-width: theme(--breakpoint-md)) {
+    display: none;
+  }
 }
 
 .docs-sequence-context {
@@ -469,6 +588,14 @@ Documentation Navigation
 }
 
 .dark .docs-sequence--bottom .docs-sequence-link:hover .docs-sequence-title {
+  color: var(--color-clr-darkmode-primary);
+}
+
+.docs-sequence--bottom .docs-sequence-link:hover .docs-sequence-icon {
+  color: var(--color-clr-primary);
+}
+
+.dark .docs-sequence--bottom .docs-sequence-link:hover .docs-sequence-icon {
   color: var(--color-clr-darkmode-primary);
 }
 
@@ -628,6 +755,10 @@ a.docs-sidebar-version-option:focus-visible {
   cursor: pointer;
 }
 
+.docs-sidebar-title-row .docs-sidebar-toggle {
+  @apply w-10 md:w-10;
+}
+
 .docs-sidebar-toggle:focus {
   outline: none;
 }
@@ -647,7 +778,11 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-title-row .docs-sidebar-toggle-chevron {
-  transform: translateY(6px);
+  transform: translateY(.35rem);
+}
+
+.docs-nav-group-row .docs-sidebar-toggle-chevron {
+  transform: translateY(.125rem);
 }
 
 .docs-sidebar-toggle[aria-expanded="true"] .docs-sidebar-toggle-chevron {
@@ -655,7 +790,11 @@ a.docs-sidebar-version-option:focus-visible {
 }
 
 .docs-sidebar-title-row .docs-sidebar-toggle[aria-expanded="true"] .docs-sidebar-toggle-chevron {
-  transform: translateY(6px) rotate(90deg);
+  transform: translateY(.35rem) rotate(90deg);
+}
+
+.docs-nav-group-row .docs-sidebar-toggle[aria-expanded="true"] .docs-sidebar-toggle-chevron {
+  transform: translateY(.125rem) rotate(90deg);
 }
 
 .docs-sidebar-toggle--nested {

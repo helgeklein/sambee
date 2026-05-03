@@ -58,7 +58,7 @@
       </li>
       {{ if $section }}
       <li class="docs-breadcrumb-item">
-        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
         {{ if and (eq $docsContext.kind "section") $sectionSourcePage }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
         {{ else if and $sectionSourcePage (eq $docsContext.kind "page") }}
@@ -70,7 +70,7 @@
       {{ end }}
       {{ if eq $docsContext.kind "page" }}
       <li class="docs-breadcrumb-item">
-        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $effectivePage.Title }}</span>
       </li>
       {{ end }}
@@ -80,7 +80,7 @@
       </li>
       {{ with $versionPage }}
       <li class="docs-breadcrumb-item">
-        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
         {{ if eq $page.RelPermalink $versionURL }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">Version {{ $versionLabel }}</span>
         {{ else }}
