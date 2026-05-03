@@ -1,0 +1,55 @@
+{{/* Purpose: Renders the website's minimal 404 page within the shared site shell. */}}
+{{ define "main" }}
+<section class="standalone-shell shell-section" data-pagefind-ignore>
+  <div class="standalone-main">
+    <header class="standalone-page-header">
+      <div class="standalone-page-title-band site-gutter">
+        <span class="standalone-page-kicker type-label-eyebrow ui-color-primary">
+          <span class="standalone-page-kicker-rule ui-bg-primary" aria-hidden="true"></span>
+          404
+        </span>
+        <h1 class="standalone-page-title type-hero type-color-ink">We could not find that page.</h1>
+      </div>
+    </header>
+    <div class="article-toc-container standalone-article-region site-gutter">
+      <div class="article-wrapper">
+        <article class="standalone-page-content">
+          <div class="content article-content" data-pagefind-ignore>
+            <p class="type-copy">The address may be outdated, misspelled, or no longer available. Use the navigation above to continue browsing this site.</p>
+            <div
+              id="requested-path-panel"
+              class="mt-8 border border-clr-rule-soft bg-clr-surface-base px-5 py-4 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base"
+              hidden
+            >
+              <p class="mb-3 type-label-sm type-color-muted">Requested path</p>
+              <p class="mb-0 break-all font-mono text-sm type-color-ink" data-requested-path></p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+<script>
+  (function() {
+    const requestedPathPanel = document.getElementById('requested-path-panel');
+    const requestedPathValue = document.querySelector('[data-requested-path]');
+
+    if (!requestedPathPanel || !requestedPathValue) {
+      return;
+    }
+
+    const pathname = window.location.pathname || '';
+    const search = window.location.search || '';
+    const hash = window.location.hash || '';
+    const requestedPath = `${pathname}${search}${hash}`;
+
+    if (!requestedPath || pathname === '/404.html') {
+      return;
+    }
+
+    requestedPathValue.textContent = requestedPath;
+    requestedPathPanel.hidden = false;
+  })();
+</script>
+{{ end }}

@@ -7,8 +7,15 @@
 {{ $openGraphURL := .Permalink }}
 {{ $robotsDirectives := "" }}
 {{ $docsContext := partial "docs/context.html" . }}
+{{ $isNotFoundPage := eq .Kind "404" }}
 
-{{ if $docsContext.isDocs }}
+{{ if $isNotFoundPage }}
+  {{ $pageTitle = printf "Page Not Found | %s" site.Title }}
+  {{ $pageDescription = "The requested page could not be found." }}
+  {{ $canonicalURL = "" }}
+  {{ $openGraphURL = "" }}
+  {{ $robotsDirectives = "noindex,follow" }}
+{{ else if $docsContext.isDocs }}
   {{ $renderData := partial "docs/render-data.html" . }}
   {{ $resolvedPage = $renderData.effectivePage }}
   {{ $redirectTarget = $renderData.redirectTarget }}
@@ -26,13 +33,15 @@
 {{ end }}
 
 {{/* Prefer a page-specific title when it differs from the site-wide title. */}}
-{{ if and $resolvedPage.Title (ne $resolvedPage.Title site.Title) }}
+{{ if and (not $isNotFoundPage) $resolvedPage.Title (ne $resolvedPage.Title site.Title) }}
   {{ $pageTitle = printf "%s | %s" $resolvedPage.Title site.Title }}
 {{ end }}
 
 {{/* Page front matter can override the default site description. */}}
+{{ if not $isNotFoundPage }}
 {{ with $resolvedPage.Description }}
   {{ $pageDescription = . }}
+{{ end }}
 {{ end }}
 
 <meta charset="utf-8" />

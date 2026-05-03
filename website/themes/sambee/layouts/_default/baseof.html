@@ -14,6 +14,9 @@
   {{- $docsRedirectTarget = partial "docs/redirect-target.html" . -}}
   {{- $pagefindIgnore = or $docsContext.isExplicitVersion $docsRedirectTarget -}}
 {{- end -}}
+{{- if eq .Kind "404" -}}
+  {{- $pagefindIgnore = true -}}
+{{- end -}}
 {{- $isVersionedDocsPage := and $docsContext.isDocs $docsContext.version -}}
 {{- $pagefindKind := "site" -}}
 {{- if $isVersionedDocsPage -}}
