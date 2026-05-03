@@ -74,6 +74,7 @@
 @import "module-overrides.css";
 @import "shared.css";
 @import "docs.css";
+@import "standalone.css";
 @import "homepage.css";
 
 @import "code.css";

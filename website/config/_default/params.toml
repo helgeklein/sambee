@@ -10,8 +10,8 @@ images_base_url = ""
 github_url = "https://github.com/helgeklein/sambee"
 
 [footer]
-imprint_url = "#"
-privacy_url = "#"
+imprint_url = "/imprint/"
+privacy_url = "/privacy-policy/"
 
 [search]
 enable = true

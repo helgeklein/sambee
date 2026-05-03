@@ -36,6 +36,10 @@
     @apply border-t border-clr-rule-soft pt-8 dark:border-clr-darkmode-rule-soft;
   }
 
+  > h2:first-child {
+    @apply mt-0 border-t-0 pt-0;
+  }
+
   h3,
   h4 {
     @apply italic tracking-tight;
