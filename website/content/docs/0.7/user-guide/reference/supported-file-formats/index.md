@@ -3,14 +3,14 @@ title = "Supported File Formats"
 description = "User-facing summary of which file types Sambee can preview directly in the browser and what to expect when a preview is unavailable."
 +++
 
-This page summarizes the file types Sambee can preview directly in the browser in version `0.7`.
+This page lists the complete set of file types Sambee can preview directly in the browser.
 
 ## Browser Preview Categories
 
-| Category | Common examples | What users should expect |
+| Category | Extensions | What users should expect |
 |---|---|---|
-| Images | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.avif` | Open in the image viewer with zoom, pan, and related viewer controls. |
-| Additional image formats through conversion | formats such as TIFF, HEIC, BMP, ICO, PSD, EPS, AI, and other specialist image types | Sambee may convert the source into a browser-friendly preview instead of showing the original format natively. |
+| Browser-native images | `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.svg`, `.avif` | Open in the image viewer with zoom, pan, and related viewer controls. |
+| Converted images | `.tif`, `.tiff`, `.heic`, `.heif`, `.bmp`, `.dib`, `.ico`, `.cur`, `.pcx`, `.tga`, `.ppm`, `.pgm`, `.pbm`, `.pnm`, `.xbm`, `.xpm`, `.psd`, `.psb`, `.eps`, `.ai`, `.jp2`, `.j2k`, `.jpt`, `.j2c`, `.jpc`, `.jxl`, `.exr`, `.hdr`, `.fits`, `.fit`, `.fts`, `.svs`, `.ndpi`, `.scn`, `.mrxs`, `.vms`, `.vmu`, `.bif`, `.img`, `.mat` | Sambee converts the source into a browser-friendly preview before opening it in the image viewer. |
 | PDF | `.pdf` | Open in the PDF viewer with page navigation, search, zoom, and download support. |
 | Markdown | `.md`, `.markdown` | Open in a rendered Markdown view with an edit path available in the browser. |
 

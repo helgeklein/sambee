@@ -54,7 +54,7 @@ For a companion-backed workflow:
 The public site and versioned docs live in the same repository because they are part of the shipping product surface.
 
 - Homepage messaging has to match real capabilities.
-- Docs versions have to track product versions.
+- Published docs sets have to stay aligned with releases.
 - Contributor docs need direct access to the same code, content, navigation, and build scripts they describe.
 
 ## What This Means For Contributors

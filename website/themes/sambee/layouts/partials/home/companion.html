@@ -3,6 +3,7 @@
 {{ if $section.enabled }}
 {{ $cta := $section.cta }}
 {{ $ctaClass := partial "components/button-kind-class.html" (dict "kind" $cta.kind) }}
+{{ $ctaHref := partial "home/link-href.html" (dict "link" $cta) }}
 {{ $previewImage := $section.preview_image | default (dict) }}
 {{ $previewSrc := index $previewImage "src" | default "" }}
 {{ $previewAlt := index $previewImage "alt" | default "Sambee Companion screenshot" }}
@@ -26,9 +27,11 @@
         </ul>
         {{ end }}
       </div>
+      {{ if $ctaHref }}
       <div class="ledger-actions home-companion-actions">
-        <a class="btn home-companion-cta {{ $ctaClass }}" href="{{ $cta.href }}">{{ $cta.label }}</a>
+        <a class="btn home-companion-cta {{ $ctaClass }}" href="{{ $ctaHref }}"{{ with $cta.id }} data-homepage-link="{{ . }}"{{ end }}>{{ $cta.label }}</a>
       </div>
+      {{ end }}
     </div>
   </div>
   {{ if $previewSrc }}

@@ -13,9 +13,12 @@
       {{ with $hero.ctas }}
       {{/* CTA styling stays data-driven so the section can mix button treatments without duplicating markup. */}}
       <div class="home-hero-actions">
-        {{ range . }}
-        {{ $ctaClass := partial "components/button-kind-class.html" (dict "kind" .kind) }}
-        <a class="btn home-hero-cta {{ $ctaClass }}{{ if eq $ctaClass "btn-link-secondary" }} home-hero-cta--link{{ end }}" href="{{ .href }}">{{ .label }}</a>
+        {{ range $cta := . }}
+        {{ $ctaClass := partial "components/button-kind-class.html" (dict "kind" $cta.kind) }}
+        {{ $ctaHref := partial "home/link-href.html" (dict "link" $cta) }}
+        {{ if $ctaHref }}
+        <a class="btn home-hero-cta {{ $ctaClass }}{{ if eq $ctaClass "btn-link-secondary" }} home-hero-cta--link{{ end }}" href="{{ $ctaHref }}"{{ with $cta.id }} data-homepage-link="{{ . }}"{{ end }}>{{ $cta.label }}</a>
+        {{ end }}
         {{ end }}
       </div>
       {{ end }}
