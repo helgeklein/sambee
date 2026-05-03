@@ -165,13 +165,13 @@
       return '';
     }
 
-    const pathSegments = [bookData.title];
+    const breadcrumbSegments = [bookData.title];
     const sectionTitle = sectionSlug ? bookData.sections?.[sectionSlug] : '';
     if (sectionTitle) {
-      pathSegments.push(sectionTitle);
+      breadcrumbSegments.push(sectionTitle);
     }
 
-    return pathSegments.join(' > ');
+    return breadcrumbSegments.join(' > ');
   }
 
   // Toggle the magnifier/reset icons to match whether the input currently has a query.
