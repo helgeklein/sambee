@@ -10,8 +10,8 @@ Sambee's docs system is version-aware, path-derived, and intentionally strict ab
 | File or area | Role |
 |---|---|
 | `website/data/docs-versions.toml` | declares the available docs versions and their order |
-| `website/data/docs-nav/0.7.toml` | declares the book, section, and page order for docs version `0.7` |
-| `website/content/docs/0.7/...` | holds the actual content for version `0.7` |
+| `website/data/docs-nav/<version>.toml` | declares the book, section, and page order for one docs set |
+| `website/content/docs/<version>/...` | holds the actual content for that docs set |
 
 ## Content Shape
 

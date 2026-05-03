@@ -4,35 +4,48 @@
 {{ $context := partial "docs/context.html" $page }}
 {{ $fallbackURL := "/docs/" }}
 
-{{ with site.GetPage "/docs" }}
-  {{ $fallbackURL = .RelPermalink }}
+{{ if $targetVersion }}
+  {{ $fallbackURL = partial "docs/page-url.html" (dict "version" $targetVersion) }}
 {{ end }}
 
 {{ if and $context.isDocs $targetVersion }}
-  {{ $candidatePaths := slice }}
+  {{ $candidateLocations := slice }}
 
   {{ if eq $context.kind "page" }}
-    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s/%s/%s/%s" $targetVersion $context.book $context.section $context.page) }}
+    {{ $candidateLocations = $candidateLocations | append (dict "book" $context.book "section" $context.section "page" $context.page) }}
   {{ end }}
 
   {{ if or (eq $context.kind "page") (eq $context.kind "section") }}
-    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s/%s/%s" $targetVersion $context.book $context.section) }}
+    {{ $candidateLocations = $candidateLocations | append (dict "book" $context.book "section" $context.section) }}
   {{ end }}
 
   {{ if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") }}
-    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s/%s" $targetVersion $context.book) }}
+    {{ $candidateLocations = $candidateLocations | append (dict "book" $context.book) }}
   {{ end }}
 
   {{ if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") (eq $context.kind "version") }}
-    {{ $candidatePaths = $candidatePaths | append (printf "/docs/%s" $targetVersion) }}
+    {{ $candidateLocations = $candidateLocations | append (dict) }}
   {{ end }}
 
   {{ $resolved := false }}
 
-  {{ range $candidatePaths }}
+  {{ range $candidateLocations }}
     {{ if not $resolved }}
-      {{ with site.GetPage . }}
-        {{ $fallbackURL = .RelPermalink }}
+      {{ $candidate := . }}
+      {{ $lookupPath := partial "docs/page-path.html" (dict
+        "version" $targetVersion
+        "book" ($candidate.book | default "")
+        "section" ($candidate.section | default "")
+        "page" ($candidate.page | default "")
+        "preferStable" false
+      ) }}
+      {{ with site.GetPage $lookupPath }}
+        {{ $fallbackURL = partial "docs/page-url.html" (dict
+          "version" $targetVersion
+          "book" ($candidate.book | default "")
+          "section" ($candidate.section | default "")
+          "page" ($candidate.page | default "")
+        ) }}
         {{ $resolved = true }}
       {{ end }}
     {{ end }}

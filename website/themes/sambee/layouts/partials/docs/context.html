@@ -13,34 +13,62 @@
 {{ $section := "" }}
 {{ $page := "" }}
 {{ $kind := "" }}
-
-{{ if and $isDocs (ge (len $segments) 2) }}
-  {{ $version = index $segments 1 }}
-{{ end }}
-
-{{ if and $isDocs (ge (len $segments) 3) }}
-  {{ $book = index $segments 2 }}
-{{ end }}
-
-{{ if and $isDocs (ge (len $segments) 4) }}
-  {{ $section = index $segments 3 }}
-{{ end }}
-
-{{ if and $isDocs (ge (len $segments) 5) }}
-  {{ $page = index $segments 4 }}
-{{ end }}
+{{ $currentVersion := (index hugo.Data "docs-versions").current | default "" }}
+{{ $knownVersions := (index hugo.Data "docs-versions").versions | default slice }}
+{{ $isExplicitVersion := false }}
+{{ $isCurrentRoute := false }}
 
 {{ if $isDocs }}
   {{ if eq (len $segments) 1 }}
     {{ $kind = "docs-root" }}
-  {{ else if eq (len $segments) 2 }}
-    {{ $kind = "version" }}
-  {{ else if eq (len $segments) 3 }}
-    {{ $kind = "book" }}
-  {{ else if eq (len $segments) 4 }}
-    {{ $kind = "section" }}
-  {{ else if ge (len $segments) 5 }}
-    {{ $kind = "page" }}
+  {{ else }}
+    {{ $secondSegment := index $segments 1 }}
+    {{ range $knownVersions }}
+      {{ if eq .slug $secondSegment }}
+        {{ $isExplicitVersion = true }}
+      {{ end }}
+    {{ end }}
+
+    {{ if $isExplicitVersion }}
+      {{ $version = $secondSegment }}
+      {{ if ge (len $segments) 3 }}
+        {{ $book = index $segments 2 }}
+      {{ end }}
+      {{ if ge (len $segments) 4 }}
+        {{ $section = index $segments 3 }}
+      {{ end }}
+      {{ if ge (len $segments) 5 }}
+        {{ $page = index $segments 4 }}
+      {{ end }}
+
+      {{ if eq (len $segments) 2 }}
+        {{ $kind = "version" }}
+      {{ else if eq (len $segments) 3 }}
+        {{ $kind = "book" }}
+      {{ else if eq (len $segments) 4 }}
+        {{ $kind = "section" }}
+      {{ else if ge (len $segments) 5 }}
+        {{ $kind = "page" }}
+      {{ end }}
+    {{ else }}
+      {{ $isCurrentRoute = true }}
+      {{ $version = $currentVersion }}
+      {{ $book = $secondSegment }}
+      {{ if ge (len $segments) 3 }}
+        {{ $section = index $segments 2 }}
+      {{ end }}
+      {{ if ge (len $segments) 4 }}
+        {{ $page = index $segments 3 }}
+      {{ end }}
+
+      {{ if eq (len $segments) 2 }}
+        {{ $kind = "book" }}
+      {{ else if eq (len $segments) 3 }}
+        {{ $kind = "section" }}
+      {{ else if ge (len $segments) 4 }}
+        {{ $kind = "page" }}
+      {{ end }}
+    {{ end }}
   {{ end }}
 {{ end }}
 
@@ -51,6 +79,10 @@
   "section" $section
   "page" $page
   "kind" $kind
+  "currentVersion" $currentVersion
+  "isExplicitVersion" $isExplicitVersion
+  "isCurrentRoute" $isCurrentRoute
+  "isCurrentVersion" (and $version (eq $version $currentVersion))
   "isDocsRoot" (eq $kind "docs-root")
   "isVersion" (eq $kind "version")
   "isBook" (eq $kind "book")

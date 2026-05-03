@@ -1,6 +1,7 @@
 {{/* Purpose: Render the docs page header band with version controls and context chips. */}}
 {{ $docsContext := partial "docs/context.html" . }}
-{{ $effectivePageData := partial "docs/effective-page.html" . }}
+{{ $sourcePage := partial "docs/source-page.html" . }}
+{{ $effectivePageData := partial "docs/effective-page.html" $sourcePage }}
 {{ $effectivePage := $effectivePageData.page }}
 {{ $version := $docsContext.version }}
 {{ $book := $docsContext.book }}

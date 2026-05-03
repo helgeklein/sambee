@@ -7,7 +7,7 @@
 {{ $navData := index (index hugo.Data "docs-nav") $version }}
 
 {{ with and $navData $book (index $navData.sections $book) }}
-  {{ range .item | default slice }}
+  {{ range .items | default slice }}
     {{ if eq .slug $section }}
       {{ $title = .title | default $fallback }}
     {{ end }}

@@ -1,10 +1,18 @@
 {{/* Purpose: Renders a documentation article with sidebar navigation and version controls. */}}
 {{ define "main" }}
 {{ $renderData := partial "docs/render-data.html" . }}
-{{ partial "docs/article-shell.html" (dict
-  "page" .
-  "effectivePage" $renderData.effectivePage
-  "isSearchIndexed" $renderData.isSearchIndexed
-  "articleRegionClass" "docs-article-region site-gutter"
-) }}
+{{ if $renderData.redirectTarget }}
+  {{ partial "docs/redirect-page.html" (dict
+    "targetURL" $renderData.redirectTarget
+    "heading" "Redirecting To Current Documentation"
+    "body" "This versioned docs URL now forwards to the stable current documentation URL."
+  ) }}
+{{ else }}
+  {{ partial "docs/article-shell.html" (dict
+    "page" .
+    "effectivePage" $renderData.effectivePage
+    "isSearchIndexed" $renderData.isSearchIndexed
+    "articleRegionClass" "docs-article-region site-gutter"
+  ) }}
+{{ end }}
 {{ end }}

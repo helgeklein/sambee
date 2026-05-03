@@ -24,7 +24,7 @@ These files shape contributor workflows even though they are not feature code.
 
 | Path | Why it matters |
 |---|---|
-| `VERSION` | single source of truth for the product version |
+| `VERSION` | single source of truth for the current release identifier |
 | `config.example.toml` | starting point for local configuration |
 | `config.toml` | active local configuration in development or deployment |
 | `README.md` | high-level product framing |

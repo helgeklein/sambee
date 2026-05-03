@@ -1,0 +1,105 @@
+{{/* Purpose: Resolve previous and next docs targets from the canonical docs navigation order. */}}
+{{ $page := . }}
+{{ $docsContext := partial "docs/context.html" $page }}
+{{ $version := $docsContext.version }}
+{{ $currentBook := $docsContext.book }}
+{{ $currentSection := $docsContext.section }}
+{{ $currentPageSlug := $docsContext.page }}
+{{ $navData := index (index hugo.Data "docs-nav") $version }}
+{{ $docsVersions := (index hugo.Data "docs-versions").versions | default slice }}
+{{ $versionLabel := $version }}
+{{ $items := slice }}
+
+{{ with index (where $docsVersions "slug" $version) 0 }}
+  {{ $versionLabel = .label | default $version }}
+{{ end }}
+
+{{ if and $docsContext.isDocs $version $navData (or $docsContext.isBook $docsContext.isSection $docsContext.isPage) }}
+  {{ range $bookSlug := $navData.books }}
+    {{ $bookSourcePage := site.GetPage (partial "docs/page-path.html" (dict "version" $version "book" $bookSlug "preferStable" false)) }}
+    {{ $bookTitle := humanize $bookSlug }}
+    {{ with $bookSourcePage }}
+      {{ $bookEffectiveData := partial "docs/effective-page.html" . }}
+      {{ $bookTitle = $bookEffectiveData.page.Title }}
+      {{ $items = $items | append (dict
+        "key" (printf "%s|book|%s||" $version $bookSlug)
+        "kind" "book"
+        "title" $bookTitle
+        "context" (printf "Sambee %s" $versionLabel)
+        "url" (partial "docs/page-url.html" (dict "version" $version "book" $bookSlug))
+      ) }}
+    {{ end }}
+
+    {{ $bookSections := slice }}
+    {{ with index $navData.sections $bookSlug }}
+      {{ $bookSections = .items | default slice }}
+    {{ end }}
+
+    {{ range $sectionEntry := $bookSections }}
+      {{ $sectionSlug := $sectionEntry.slug }}
+      {{ $sectionTitle := $sectionEntry.title | default (humanize $sectionSlug) }}
+      {{ $sectionSourcePage := site.GetPage (partial "docs/page-path.html" (dict "version" $version "book" $bookSlug "section" $sectionSlug "preferStable" false)) }}
+      {{ with $sectionSourcePage }}
+        {{ $items = $items | append (dict
+          "key" (printf "%s|section|%s|%s|" $version $bookSlug $sectionSlug)
+          "kind" "section"
+          "title" $sectionTitle
+          "context" $bookTitle
+          "url" (partial "docs/page-url.html" (dict "version" $version "book" $bookSlug "section" $sectionSlug))
+        ) }}
+      {{ end }}
+
+      {{ $pageSlugs := slice }}
+      {{ with index $navData.pages $bookSlug }}
+        {{ with index . $sectionSlug }}
+          {{ $pageSlugs = .items | default slice }}
+        {{ end }}
+      {{ end }}
+
+      {{ range $pageSlug := $pageSlugs }}
+        {{ with site.GetPage (partial "docs/page-path.html" (dict "version" $version "book" $bookSlug "section" $sectionSlug "page" $pageSlug "preferStable" false)) }}
+          {{ $pageEffectiveData := partial "docs/effective-page.html" . }}
+          {{ $items = $items | append (dict
+            "key" (printf "%s|page|%s|%s|%s" $version $bookSlug $sectionSlug $pageSlug)
+            "kind" "page"
+            "title" $pageEffectiveData.page.Title
+            "context" $sectionTitle
+            "url" (partial "docs/page-url.html" (dict "pageObject" .))
+          ) }}
+        {{ end }}
+      {{ end }}
+    {{ end }}
+  {{ end }}
+{{ end }}
+
+{{ $currentKey := printf "%s|%s|%s|%s|%s" $version $docsContext.kind $currentBook $currentSection $currentPageSlug }}
+{{ $currentIndex := -1 }}
+
+{{ range $index, $item := $items }}
+  {{ if eq $item.key $currentKey }}
+    {{ $currentIndex = $index }}
+  {{ end }}
+{{ end }}
+
+{{ $current := false }}
+{{ $previous := false }}
+{{ $next := false }}
+
+{{ if ge $currentIndex 0 }}
+  {{ $current = index $items $currentIndex }}
+  {{ if gt $currentIndex 0 }}
+    {{ $previous = index $items (sub $currentIndex 1) }}
+  {{ end }}
+  {{ if lt $currentIndex (sub (len $items) 1) }}
+    {{ $next = index $items (add $currentIndex 1) }}
+  {{ end }}
+{{ end }}
+
+{{ return (dict
+  "items" $items
+  "current" $current
+  "previous" $previous
+  "next" $next
+  "hasPrevious" (ne $previous false)
+  "hasNext" (ne $next false)
+) }}

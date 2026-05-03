@@ -9,12 +9,14 @@ hero:
   title: Browser-based file access for SMB shares and local drives
   subtitle: Explore, preview, and manage files directly in the browser.
   ctas:
-    - label: See Features
-      href: "#features"
+    - id: hero-primary
+      label: Deploy with Docker
       kind: primary
-    - label: Admin Docs
-      href: /docs/1.0/admin/
-      kind: secondary
+      target:
+        type: docs
+        book: admin-guide
+        section: installation-and-deployment
+        page: deploy-sambee-with-docker
 
 problem_value:
   enabled: true
@@ -178,8 +180,13 @@ preview_support:
     Sambee supports in-browser previewing for a broad range of file types,
     including images, PDFs, and Markdown.
   supporting_link:
+    id: preview-support
     label: See full viewer support →
-    href: /docs/1.0/end-user/
+    target:
+      type: docs
+      book: user-guide
+      section: reference
+      page: supported-file-formats
   groups:
     - title: Classic image formats
       icon: image
@@ -243,9 +250,14 @@ companion:
   note_title: COM-04 // Deployment Note
   note_body: Companion is optional for browser-based use, but required for local-drive access and native desktop-app editing.
   cta:
+    id: companion-primary
     label: Install Companion
-    href: /docs/1.0/end-user/install/
     kind: primary
+    target:
+      type: docs
+      book: user-guide
+      section: companion-app
+      page: install-and-start-the-companion-app
 
 deployment:
   enabled: true
@@ -258,9 +270,14 @@ deployment:
     The goal is to make the storage you already trust easier to access from
     the browser.
   cta:
-    label: Admin Docs
-    href: /docs/1.0/admin/
+    id: deployment-primary
+    label: Single-Container Architecture
     kind: secondary
+    target:
+      type: docs
+      book: admin-guide
+      section: overview-and-planning
+      page: deployment-architecture-overview
 
 proof:
   enabled: true

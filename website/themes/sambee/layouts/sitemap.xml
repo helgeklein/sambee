@@ -1,0 +1,26 @@
+{{ printf "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>" | safeHTML }}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  {{ range sort site.Pages "Permalink" }}
+    {{ if not .Sitemap.Disable }}
+      {{ $docsContext := partial "docs/context.html" . }}
+      {{ $redirectTarget := partial "docs/redirect-target.html" . }}
+      {{ $include := true }}
+
+      {{ if $docsContext.isDocs }}
+        {{ $include = and $docsContext.isCurrentRoute (not $redirectTarget) }}
+      {{ else if $redirectTarget }}
+        {{ $include = false }}
+      {{ end }}
+
+      {{ if $include }}
+  <url>
+    <loc>{{ .Permalink }}</loc>
+    {{ with .Lastmod }}<lastmod>{{ .Format "2006-01-02T15:04:05-07:00" }}</lastmod>{{ end }}
+    {{ with .Sitemap.ChangeFreq }}<changefreq>{{ . }}</changefreq>{{ end }}
+    {{ if ge .Sitemap.Priority 0.0 }}<priority>{{ .Sitemap.Priority }}</priority>{{ end }}
+  </url>
+      {{ end }}
+    {{ end }}
+  {{ end }}
+</urlset>

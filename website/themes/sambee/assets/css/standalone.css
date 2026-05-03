@@ -1,0 +1,92 @@
+/* Purpose: Provides a reusable standalone content-page shell outside the docs tree. */
+
+.site-main:has(.standalone-shell) {
+  @apply pb-0;
+  display: flex;
+}
+
+.standalone-shell {
+  flex: 1 1 auto;
+  min-height: 100%;
+}
+
+.standalone-main {
+  --standalone-page-title-size-sm: 2.5rem;
+  --standalone-page-title-size-md: 3rem;
+  --standalone-page-title-size-lg: 3.4rem;
+  --standalone-content-h1-size-sm: 2rem;
+  --standalone-content-h1-size-md: 2.4rem;
+  --standalone-content-h2-size: 1.75rem;
+  --standalone-content-h3-size: 1.5rem;
+  --standalone-content-h4-size: 1.25rem;
+  --standalone-content-h5-size: 0.8125rem;
+  --standalone-content-h6-size: 0.75rem;
+  @apply min-w-0 border-t border-clr-rule-soft bg-clr-surface-page dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-page;
+}
+
+.standalone-page-header {
+  @apply border-b border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.standalone-page-title-band {
+  @apply bg-clr-surface-page py-6 dark:bg-clr-darkmode-surface-page md:py-8;
+}
+
+.standalone-page-kicker {
+  @apply inline-flex items-center gap-3;
+}
+
+.standalone-page-kicker-rule {
+  @apply block h-[2px] w-12;
+}
+
+.standalone-page-title {
+  @apply mt-4 mb-0;
+  font-size: var(--standalone-page-title-size-sm);
+
+  @media (min-width: theme(--breakpoint-md)) {
+    font-size: var(--standalone-page-title-size-md);
+  }
+
+  @media (min-width: theme(--breakpoint-lg)) {
+    font-size: var(--standalone-page-title-size-lg);
+  }
+}
+
+.standalone-article-region {
+  @apply py-8 md:py-10;
+}
+
+.standalone-page-content {
+  @apply border-0;
+  width: 100%;
+  background-color: transparent;
+}
+
+.standalone-page-content .article-content h1 {
+  font-size: var(--standalone-content-h1-size-sm);
+
+  @media (min-width: theme(--breakpoint-md)) {
+    font-size: var(--standalone-content-h1-size-md);
+  }
+}
+
+.standalone-page-content .article-content h2 {
+  font-size: var(--standalone-content-h2-size);
+}
+
+.standalone-page-content .article-content h3 {
+  font-size: var(--standalone-content-h3-size);
+}
+
+.standalone-page-content .article-content h4 {
+  font-size: var(--standalone-content-h4-size);
+}
+
+.standalone-page-content .article-content h5 {
+  font-size: var(--standalone-content-h5-size);
+}
+
+.standalone-page-content .article-content h6 {
+  font-size: var(--standalone-content-h6-size);
+}

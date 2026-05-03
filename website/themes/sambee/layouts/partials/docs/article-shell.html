@@ -3,18 +3,20 @@
 {{ $effectivePage := .effectivePage }}
 {{ $isSearchIndexed := .isSearchIndexed | default false }}
 {{ $articleRegionClass := .articleRegionClass | default "docs-article-region site-gutter" }}
+{{ $sequentialNav := partial "docs/sequential-nav-data.html" $page }}
 <section class="docs-shell docs-shell--page">
   <aside class="docs-sidebar">
     {{ partial "docs/sidebar.html" $page }}
   </aside>
   <div class="docs-main-column">
-    {{ partial "docs/breadcrumbs.html" $page }}
+    {{ partial "docs/breadcrumbs.html" (dict "page" $page "sequentialNav" $sequentialNav) }}
     {{ partial "docs/page-header.html" $page }}
     <div class="article-toc-container {{ $articleRegionClass }}">
       <div class="article-wrapper docs-article-column">
         <article class="docs-content docs-content--article">
           <div class="content article-content"{{ if $isSearchIndexed }} data-pagefind-body{{ end }}>{{ $effectivePage.Content }}</div>
         </article>
+        {{ partial "docs/sequential-nav.html" (dict "mode" "bottom" "nav" $sequentialNav) }}
       </div>
     </div>
   </div>

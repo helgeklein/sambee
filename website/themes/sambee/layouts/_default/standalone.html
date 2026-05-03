@@ -1,0 +1,26 @@
+{{/* Purpose: Renders standalone content pages with docs-inspired presentation and no docs chrome. */}}
+{{ define "main" }}
+{{ $eyebrow := .Params.eyebrow | default .Params.kicker }}
+<section class="standalone-shell shell-section">
+  <div class="standalone-main">
+    <header class="standalone-page-header">
+      <div class="standalone-page-title-band site-gutter">
+        {{ with $eyebrow }}
+        <span class="standalone-page-kicker type-label-eyebrow ui-color-primary">
+          <span class="standalone-page-kicker-rule ui-bg-primary" aria-hidden="true"></span>
+          {{ . }}
+        </span>
+        {{ end }}
+        <h1 class="standalone-page-title type-hero type-color-ink">{{ .Title }}</h1>
+      </div>
+    </header>
+    <div class="article-toc-container standalone-article-region site-gutter">
+      <div class="article-wrapper">
+        <article class="standalone-page-content">
+          <div class="content article-content" data-pagefind-body>{{ .Content }}</div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+{{ end }}

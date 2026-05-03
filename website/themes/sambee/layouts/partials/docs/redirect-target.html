@@ -2,24 +2,43 @@
 {{ $page := . }}
 {{ $docsContext := partial "docs/context.html" $page }}
 {{ $targetURL := "" }}
+{{ $currentVersion := (index hugo.Data "docs-versions").current | default "" }}
 
-{{ if and $docsContext.isDocs (or $docsContext.isDocsRoot $docsContext.isVersion) }}
-  {{ $docsVersions := index hugo.Data "docs-versions" }}
+{{ if $docsContext.isDocs }}
   {{ $docsNav := index hugo.Data "docs-nav" }}
-  {{ $targetVersion := $docsContext.version }}
 
   {{ if $docsContext.isDocsRoot }}
-    {{ $targetVersion = $docsVersions.current | default "" }}
-  {{ end }}
-
-  {{ with and $targetVersion (index $docsNav $targetVersion) }}
+    {{ with and $currentVersion (index $docsNav $currentVersion) }}
+      {{ $books := .books | default slice }}
+      {{ if gt (len $books) 0 }}
+        {{ $targetURL = partial "docs/page-url.html" (dict "version" $currentVersion "book" (index $books 0)) }}
+      {{ end }}
+    {{ end }}
+  {{ else if and $docsContext.isExplicitVersion $docsContext.isCurrentVersion }}
+    {{ if $docsContext.isVersion }}
+      {{ with and $currentVersion (index $docsNav $currentVersion) }}
+        {{ $books := .books | default slice }}
+        {{ if gt (len $books) 0 }}
+          {{ $targetURL = partial "docs/page-url.html" (dict "version" $currentVersion "book" (index $books 0)) }}
+        {{ end }}
+      {{ end }}
+    {{ else }}
+      {{ $targetURL = partial "docs/page-url.html" (dict
+        "version" $currentVersion
+        "book" $docsContext.book
+        "section" $docsContext.section
+        "page" $docsContext.page
+      ) }}
+    {{ end }}
+  {{ else if $docsContext.isVersion }}
+    {{ with and $docsContext.version (index $docsNav $docsContext.version) }}
     {{ $books := .books | default slice }}
     {{ if gt (len $books) 0 }}
-      {{ $targetBook := index $books 0 }}
-      {{ with site.GetPage (printf "/docs/%s/%s" $targetVersion $targetBook) }}
-        {{ $targetURL = .RelPermalink }}
-      {{ else }}
-        {{ $targetURL = printf "/docs/%s/%s/" $targetVersion $targetBook }}
+        {{ $targetURL = partial "docs/page-url.html" (dict
+          "version" $docsContext.version
+          "book" (index $books 0)
+          "preferStable" false
+        ) }}
       {{ end }}
     {{ end }}
   {{ end }}

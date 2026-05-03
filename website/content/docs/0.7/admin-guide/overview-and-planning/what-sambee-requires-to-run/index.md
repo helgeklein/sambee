@@ -3,9 +3,11 @@ title = "What Sambee Requires To Run"
 description = "Understand the deployment model, runtime prerequisites, trust boundaries, and when to use the other Sambee docs books."
 +++
 
-Sambee is a self-hosted service for browser-based SMB access, optional local-drive access through Sambee Companion, and browser or desktop-assisted file workflows.
+Sambee does not require many moving parts, but it does depend on a few environment-level prerequisites and clear responsibility boundaries.
 
-This page is the orientation point for administrators before deployment starts.
+Use this page to confirm those requirements before deployment starts.
+
+If you need the high-level service shape first, start with [Deployment Architecture Overview](../deployment-architecture-overview/).
 
 ## Core Runtime Requirements
 
@@ -15,15 +17,6 @@ At a minimum, a working Sambee deployment needs:
 - persistent local storage for Sambee data
 - network reachability between Sambee and the SMB infrastructure it must access
 - a deployment model for HTTPS and external access if users will not stay on a local-only network path
-
-## What Sambee Actually Consists Of
-
-In operational terms, Sambee is:
-
-- one deployed application service exposing the frontend and backend together
-- a local data directory that includes the SQLite database
-- connectivity out to SMB shares and related infrastructure
-- optional companion-app workflows on user desktops when local drives or desktop-app editing are needed
 
 ## Trust And Responsibility Boundaries
 
@@ -49,5 +42,6 @@ Use the right guide for the job:
 
 ## Related Pages
 
+- [Deployment Architecture Overview](../deployment-architecture-overview/): use this first if you need the simple deployment shape before checking prerequisites
 - [Configuration And Data Paths](../../reference/configuration-and-data-paths/): use this when the next question is where the deployment files and persistent data actually live
 - [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the service is already deployed but no longer behaving normally

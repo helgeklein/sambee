@@ -40,6 +40,28 @@
   </div>
 </div>
 
+{{ $docsPathVersions := dict }}
+{{ with (index hugo.Data "docs-versions").versions }}
+  {{ range . }}
+    {{ $versionSlug := .slug }}
+    {{ $versionBooks := dict }}
+    {{ with index (index hugo.Data "docs-nav") $versionSlug }}
+      {{ $navData := . }}
+      {{ range $bookSlug := $navData.books | default slice }}
+        {{ $bookTitle := title (replace $bookSlug "-" " ") }}
+        {{ $sectionTitles := dict }}
+        {{ with index $navData.sections $bookSlug }}
+          {{ range .items | default slice }}
+            {{ $sectionTitles = merge $sectionTitles (dict .slug (.title | default (humanize .slug))) }}
+          {{ end }}
+        {{ end }}
+        {{ $versionBooks = merge $versionBooks (dict $bookSlug (dict "title" $bookTitle "sections" $sectionTitles)) }}
+      {{ end }}
+    {{ end }}
+    {{ $docsPathVersions = merge $docsPathVersions (dict $versionSlug (dict "label" (.label | default $versionSlug) "books" $versionBooks)) }}
+  {{ end }}
+{{ end }}
+
 <script>
 (function() {
   // Cache the DOM nodes once because the modal can be opened many times per session.
@@ -64,6 +86,7 @@
   const RESULTS_PER_PAGE = 20;
   const DEFAULT_EMPTY_STATE_HTML = '<p>Start typing to search...</p>';
   const showImages = {{ .show_image | default true }};
+  const docsPathData = {{ dict "versions" $docsPathVersions | jsonify | safeJS }};
   const docsSearchConfig = {
     currentVersion: {{ printf "%q" ((index hugo.Data "docs-versions").current | default "") | safeJS }},
     searchableVersions: {
@@ -101,6 +124,54 @@
     return {
       page_kind: 'site',
     };
+  }
+
+  function getSearchResultPath(url) {
+    if (url === '/') {
+      return 'Home';
+    }
+
+    if (url === '/docs/') {
+      return 'Documentation';
+    }
+
+    const pathSegments = url.split('/').filter(Boolean);
+    if (pathSegments[0] !== 'docs') {
+      return '';
+    }
+
+    let versionSlug = pathSegments[1] || '';
+    let bookSlug = pathSegments[2] || '';
+    let sectionSlug = pathSegments[3] || '';
+    let versionData = docsPathData.versions?.[versionSlug];
+
+    if (!versionData) {
+      versionSlug = docsSearchConfig.currentVersion || '';
+      versionData = docsPathData.versions?.[versionSlug];
+      bookSlug = pathSegments[1] || '';
+      sectionSlug = pathSegments[2] || '';
+    }
+
+    if (!versionData) {
+      return '';
+    }
+
+    if (!bookSlug) {
+      return 'Documentation';
+    }
+
+    const bookData = versionData.books?.[bookSlug];
+    if (!bookData) {
+      return '';
+    }
+
+    const breadcrumbSegments = [bookData.title];
+    const sectionTitle = sectionSlug ? bookData.sections?.[sectionSlug] : '';
+    if (sectionTitle) {
+      breadcrumbSegments.push(sectionTitle);
+    }
+
+    return breadcrumbSegments.join(' > ');
   }
 
   // Toggle the magnifier/reset icons to match whether the input currently has a query.
@@ -205,6 +276,7 @@
     const html = newResults.map((result, i) => {
       const actualIndex = startIdx + i;
       const hasImage = showImages && result.meta?.image && result.meta.image.trim() !== '';
+      const resultPath = getSearchResultPath(result.url);
       // Result markup is built here so pagefind's payload can be rendered with the theme's own structure.
       return `
         <a href="${result.url}" class="search-result-item${actualIndex === 0 ? ' selected' : ''}">
@@ -215,6 +287,7 @@
           ` : ''}
           <div class="search-result-body">
             <div class="search-result-title">${result.meta?.title || result.url}</div>
+            ${resultPath ? `<div class="search-result-path">${escapeHtml(resultPath)}</div>` : ''}
             <div class="search-result-excerpt">${result.excerpt}</div>
           </div>
         </a>

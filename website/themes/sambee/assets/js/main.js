@@ -11,6 +11,7 @@
    const DOCS_ARTICLE_REGION_SELECTOR = '.article-toc-container';
    const DOCS_TOC_SIDEBAR_SELECTOR = '.docs-toc-sidebar';
    const DOCS_TOC_SELECTOR = '.docs-toc';
+   const DOCS_TOC_INNER_SELECTOR = '.docs-toc-inner';
    const COPY_FEEDBACK_TIMEOUT_MS = 1600;
 
    function getCopyIconMarkup(iconName, label) {
@@ -142,8 +143,8 @@
             return;
          }
 
-         const tocSidebarRect = tocSidebar.getBoundingClientRect();
-         const contentTop = Math.max(0, tocSidebarRect.top + window.scrollY);
+         const tocContent = tocSidebar.querySelector(DOCS_TOC_INNER_SELECTOR) || tocSidebar.querySelector(DOCS_TOC_SELECTOR) || tocSidebar;
+         const contentTop = Math.max(0, tocContent.getBoundingClientRect().top);
 
          pageShell.style.setProperty('--docs-toc-content-top', `${contentTop}px`);
       });

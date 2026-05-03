@@ -3,23 +3,45 @@
 {{ $pageDescription := site.Params.description }}
 {{ $resolvedPage := . }}
 {{ $redirectTarget := "" }}
+{{ $canonicalURL := .Permalink }}
+{{ $openGraphURL := .Permalink }}
+{{ $robotsDirectives := "" }}
+{{ $docsContext := partial "docs/context.html" . }}
+{{ $isNotFoundPage := eq .Kind "404" }}
 
-{{ with partial "docs/context.html" . }}
-  {{ if .isDocs }}
-    {{ $effectivePageData := partial "docs/effective-page.html" $ }}
-    {{ $resolvedPage = $effectivePageData.page }}
-    {{ $redirectTarget = partial "docs/redirect-target.html" $ }}
+{{ if $isNotFoundPage }}
+  {{ $pageTitle = printf "Page Not Found | %s" site.Title }}
+  {{ $pageDescription = "The requested page could not be found." }}
+  {{ $canonicalURL = "" }}
+  {{ $openGraphURL = "" }}
+  {{ $robotsDirectives = "noindex,follow" }}
+{{ else if $docsContext.isDocs }}
+  {{ $renderData := partial "docs/render-data.html" . }}
+  {{ $resolvedPage = $renderData.effectivePage }}
+  {{ $redirectTarget = $renderData.redirectTarget }}
+
+  {{ if $redirectTarget }}
+    {{ $canonicalURL = absURL $redirectTarget }}
+    {{ $openGraphURL = $canonicalURL }}
+    {{ $robotsDirectives = "noindex,follow" }}
+  {{ else if $docsContext.isExplicitVersion }}
+    {{ $robotsDirectives = "noindex,follow" }}
+  {{ else if $docsContext.isCurrentRoute }}
+    {{ $canonicalURL = absURL (partial "docs/page-url.html" (dict "pageObject" .)) }}
+    {{ $openGraphURL = $canonicalURL }}
   {{ end }}
 {{ end }}
 
 {{/* Prefer a page-specific title when it differs from the site-wide title. */}}
-{{ if and $resolvedPage.Title (ne $resolvedPage.Title site.Title) }}
+{{ if and (not $isNotFoundPage) $resolvedPage.Title (ne $resolvedPage.Title site.Title) }}
   {{ $pageTitle = printf "%s | %s" $resolvedPage.Title site.Title }}
 {{ end }}
 
 {{/* Page front matter can override the default site description. */}}
+{{ if not $isNotFoundPage }}
 {{ with $resolvedPage.Description }}
   {{ $pageDescription = . }}
+{{ end }}
 {{ end }}
 
 <meta charset="utf-8" />
@@ -29,18 +51,20 @@
 <meta name="description" content="{{ $pageDescription }}" />
 {{ if $redirectTarget }}
 <meta http-equiv="refresh" content="0; url={{ $redirectTarget }}" />
-<meta name="robots" content="noindex" />
+{{ end }}
+{{ if $robotsDirectives }}
+<meta name="robots" content="{{ $robotsDirectives }}" />
 {{ end }}
 <link rel="apple-touch-icon" href="/icons/icon-180.png" />
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
 <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
-{{ with or (and $redirectTarget (absURL $redirectTarget)) .Permalink }}
+{{ with $canonicalURL }}
 <link rel="canonical" href="{{ . }}" />
 {{ end }}
 {{/* Open Graph values mirror the resolved title and description above. */}}
 <meta property="og:title" content="{{ $pageTitle }}" />
 <meta property="og:description" content="{{ $pageDescription }}" />
 <meta property="og:type" content="website" />
-{{ with or (and $redirectTarget (absURL $redirectTarget)) .Permalink }}
+{{ with $openGraphURL }}
 <meta property="og:url" content="{{ . }}" />
 {{ end }}

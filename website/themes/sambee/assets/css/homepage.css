@@ -422,11 +422,15 @@ Deployment
 }
 
 .home-deployment-copy {
-  @apply mx-auto mb-8 max-w-2xl;
+  @apply mx-auto max-w-2xl;
+}
+
+.home-deployment-copy + .home-deployment-copy {
+  @apply mt-4;
 }
 
 .home-deployment-actions {
-  @apply justify-center;
+  @apply mt-8 justify-center;
 }
 
 .home-deployment-cta {

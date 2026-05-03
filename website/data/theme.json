@@ -86,7 +86,7 @@
   "fonts": {
     "font_family": {
       "primary": "Work Sans:wght@400;500;600;700",
-      "secondary": "Newsreader:ital,opsz,wght@0,6..72,400..800;1,6..72,400..800",
+      "secondary": "Newsreader:ital,opsz,wght@0,6..72,700;0,6..72,800;1,6..72,700",
       "tertiary": "Space Grotesk:wght@400;500;700"
     },
     "font_family_type": {

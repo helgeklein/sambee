@@ -1,18 +1,24 @@
 {{/* Purpose: Render docs breadcrumbs from the current version and book context. */}}
-{{ $docsContext := partial "docs/context.html" . }}
-{{ $effectivePageData := partial "docs/effective-page.html" . }}
+{{ $page := .page }}
+{{ $sequentialNav := .sequentialNav }}
+{{ $docsContext := partial "docs/context.html" $page }}
+{{ $sourcePage := partial "docs/source-page.html" $page }}
+{{ $effectivePageData := partial "docs/effective-page.html" $sourcePage }}
 {{ $effectivePage := $effectivePageData.page }}
 {{ $version := $docsContext.version }}
 {{ $book := $docsContext.book }}
 {{ $section := $docsContext.section }}
 {{ $versionPage := false }}
-{{ $bookPage := false }}
-{{ $sectionPage := false }}
+{{ $bookSourcePage := false }}
+{{ $sectionSourcePage := false }}
 {{ $versionLabel := $version }}
 {{ $sectionTitle := "" }}
+{{ $bookURL := partial "docs/page-url.html" (dict "version" $version "book" $book) }}
+{{ $sectionURL := partial "docs/page-url.html" (dict "version" $version "book" $book "section" $section) }}
+{{ $versionURL := partial "docs/page-url.html" (dict "version" $version) }}
 
 {{ with $version }}
-  {{ with site.GetPage (printf "/docs/%s" .) }}
+  {{ with site.GetPage (partial "docs/page-path.html" (dict "version" . "preferStable" false)) }}
     {{ $versionPage = . }}
   {{ end }}
   {{ with (index hugo.Data "docs-versions").versions }}
@@ -22,41 +28,41 @@
   {{ end }}
 {{ end }}
 
-{{ with and $version $book (site.GetPage (printf "/docs/%s/%s" $version $book)) }}
-  {{ $bookPage = . }}
+{{ with and $version $book (site.GetPage (partial "docs/page-path.html" (dict "version" $version "book" $book "preferStable" false))) }}
+  {{ $bookSourcePage = . }}
 {{ end }}
 
 {{ $bookTitle := "" }}
-{{ with $bookPage }}
+{{ with $bookSourcePage }}
   {{ $bookEffectiveData := partial "docs/effective-page.html" . }}
   {{ $bookTitle = $bookEffectiveData.page.Title }}
 {{ end }}
 
 {{ if and $version $book $section }}
   {{ $sectionTitle = partial "docs/section-title.html" (dict "version" $version "book" $book "section" $section) }}
-  {{ with site.GetPage (printf "/docs/%s/%s/%s" $version $book $section) }}
-    {{ $sectionPage = . }}
+  {{ with site.GetPage (partial "docs/page-path.html" (dict "version" $version "book" $book "section" $section "preferStable" false)) }}
+    {{ $sectionSourcePage = . }}
   {{ end }}
 {{ end }}
 
 <div class="docs-breadcrumb-row">
   <nav class="docs-breadcrumbs site-gutter" aria-label="Breadcrumb">
     <ol class="docs-breadcrumb-list">
-      {{ if $bookPage }}
+      {{ if $bookSourcePage }}
       <li class="docs-breadcrumb-item">
-        {{ if eq .RelPermalink $bookPage.RelPermalink }}
+        {{ if eq $page.RelPermalink $bookURL }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $bookTitle }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookPage.RelPermalink }}">{{ $bookTitle }}</a>
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookURL }}">{{ $bookTitle }}</a>
         {{ end }}
       </li>
       {{ if $section }}
       <li class="docs-breadcrumb-item">
-        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
-        {{ if and (eq $docsContext.kind "section") $sectionPage }}
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
+        {{ if and (eq $docsContext.kind "section") $sectionSourcePage }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
-        {{ else if and $sectionPage (eq $docsContext.kind "page") }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $sectionPage.RelPermalink }}">{{ $sectionTitle }}</a>
+        {{ else if and $sectionSourcePage (eq $docsContext.kind "page") }}
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $sectionURL }}">{{ $sectionTitle }}</a>
         {{ else }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
         {{ end }}
@@ -64,7 +70,7 @@
       {{ end }}
       {{ if eq $docsContext.kind "page" }}
       <li class="docs-breadcrumb-item">
-        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $effectivePage.Title }}</span>
       </li>
       {{ end }}
@@ -74,15 +80,16 @@
       </li>
       {{ with $versionPage }}
       <li class="docs-breadcrumb-item">
-        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
-        {{ if eq $.RelPermalink .RelPermalink }}
+        <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
+        {{ if eq $page.RelPermalink $versionURL }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">Version {{ $versionLabel }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ .RelPermalink }}">Version {{ $versionLabel }}</a>
+        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $versionURL }}">Version {{ $versionLabel }}</a>
         {{ end }}
       </li>
       {{ end }}
       {{ end }}
     </ol>
   </nav>
+  {{ partial "docs/sequential-nav.html" (dict "mode" "top" "nav" $sequentialNav) }}
 </div>

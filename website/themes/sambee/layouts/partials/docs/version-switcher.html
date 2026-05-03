@@ -23,7 +23,10 @@
   </summary>
   <div class="docs-sidebar-version-menu" aria-label="Documentation versions">
     {{ range $docsVersions }}
-      {{ $isVisible := .visible | default true }}
+      {{ $isVisible := true }}
+      {{ if isset . "visible" }}
+        {{ $isVisible = .visible }}
+      {{ end }}
       {{ if or $isVisible (eq .slug $version) }}
       {{ $targetURL := partial "docs/version-target-url.html" (dict "page" $page "targetVersion" .slug) }}
       {{ $label := .label | default .slug }}

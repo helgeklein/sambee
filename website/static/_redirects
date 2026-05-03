@@ -1,6 +1,11 @@
-/docs/end-user /docs/1.0/end-user/ 301
-/docs/end-user/ /docs/1.0/end-user/ 301
-/docs/admin /docs/1.0/admin/ 301
-/docs/admin/ /docs/1.0/admin/ 301
-/docs/developer /docs/1.0/developer/ 301
-/docs/developer/ /docs/1.0/developer/ 301
+/docs/0.7 /docs/ 301
+/docs/0.7/ /docs/ 301
+/docs/0.7/user-guide /docs/user-guide/ 301
+/docs/0.7/user-guide/ /docs/user-guide/ 301
+/docs/0.7/user-guide/* /docs/user-guide/:splat 301
+/docs/0.7/admin-guide /docs/admin-guide/ 301
+/docs/0.7/admin-guide/ /docs/admin-guide/ 301
+/docs/0.7/admin-guide/* /docs/admin-guide/:splat 301
+/docs/0.7/developer-guide /docs/developer-guide/ 301
+/docs/0.7/developer-guide/ /docs/developer-guide/ 301
+/docs/0.7/developer-guide/* /docs/developer-guide/:splat 301

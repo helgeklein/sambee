@@ -3,14 +3,20 @@
 {{ if $section.enabled }}
 {{ $cta := $section.cta }}
 {{ $ctaClass := partial "components/button-kind-class.html" (dict "kind" $cta.kind) }}
+{{ $ctaHref := partial "home/link-href.html" (dict "link" $cta) }}
 <section class="shell-section ledger-shell home-section home-deployment">
   <div class="site-gutter home-deployment-body">
     {{/* This section is intentionally simple: one statement, one explanation, one action. */}}
     <h2 class="home-section-title home-deployment-title type-section-title type-color-ink">{{ $section.title }}</h2>
     <p class="home-deployment-copy type-copy type-color-muted">{{ $section.body }}</p>
+    {{ with $section.secondary_body }}
+    <p class="home-deployment-copy type-copy type-color-muted">{{ . }}</p>
+    {{ end }}
+    {{ if $ctaHref }}
     <div class="ledger-actions home-deployment-actions">
-      <a class="btn home-deployment-cta {{ $ctaClass }}" href="{{ $cta.href }}">{{ $cta.label }}</a>
+      <a class="btn home-deployment-cta {{ $ctaClass }}" href="{{ $ctaHref }}"{{ with $cta.id }} data-homepage-link="{{ . }}"{{ end }}>{{ $cta.label }}</a>
     </div>
+    {{ end }}
   </div>
 </section>
 {{ end }}

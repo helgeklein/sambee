@@ -1,0 +1,34 @@
+{{- /* Purpose: Build a docs content path, optionally preferring the stable current-docs route. */ -}}
+{{- $version := .version | default "" -}}
+{{- $book := .book | default "" -}}
+{{- $section := .section | default "" -}}
+{{- $page := .page | default "" -}}
+{{- $preferStable := true -}}
+{{- if isset . "preferStable" -}}
+  {{- $preferStable = .preferStable -}}
+{{- end -}}
+{{- $currentVersion := (index hugo.Data "docs-versions").current | default "" -}}
+{{- $useStableCurrentRoute := and $preferStable $version (eq $version $currentVersion) -}}
+{{- $segments := slice "docs" -}}
+
+{{- if $useStableCurrentRoute -}}
+  {{- with $book -}}
+    {{- $segments = $segments | append . -}}
+  {{- end -}}
+{{- else -}}
+  {{- with $version -}}
+    {{- $segments = $segments | append . -}}
+  {{- end -}}
+  {{- with $book -}}
+    {{- $segments = $segments | append . -}}
+  {{- end -}}
+{{- end -}}
+
+{{- with $section -}}
+  {{- $segments = $segments | append . -}}
+{{- end -}}
+{{- with $page -}}
+  {{- $segments = $segments | append . -}}
+{{- end -}}
+
+{{- printf "/%s" (delimit $segments "/") -}}

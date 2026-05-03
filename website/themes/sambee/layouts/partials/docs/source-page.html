@@ -1,0 +1,22 @@
+{{/* Purpose: Resolve the explicit versioned source page behind a stable current-docs route. */}}
+{{ $page := . }}
+{{ $docsContext := partial "docs/context.html" $page }}
+{{ $sourcePage := $page }}
+
+{{ if and $docsContext.isDocs $docsContext.isCurrentRoute $docsContext.version }}
+  {{ $sourcePath := $page.Params.source_docs_path | default "" }}
+  {{ if not $sourcePath }}
+    {{ $sourcePath = partial "docs/page-path.html" (dict
+      "version" $docsContext.version
+      "book" $docsContext.book
+      "section" $docsContext.section
+      "page" $docsContext.page
+      "preferStable" false
+    ) }}
+  {{ end }}
+  {{ with and $sourcePath (site.GetPage $sourcePath) }}
+    {{ $sourcePage = . }}
+  {{ end }}
+{{ end }}
+
+{{ return $sourcePage }}

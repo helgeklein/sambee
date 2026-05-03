@@ -5,7 +5,7 @@
 }
 
 .site-footer-inner {
-	@apply grid items-center gap-5 border-x border-clr-rule-soft px-5 py-6 dark:border-clr-darkmode-rule-soft md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:px-8 md:py-7;
+	@apply grid items-center gap-5 px-5 py-6 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:px-8 md:py-7;
 }
 
 .site-footer-copy {

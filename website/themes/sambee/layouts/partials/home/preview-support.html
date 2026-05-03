@@ -36,9 +36,12 @@
     </div>
    {{ with $section.supporting_link }}
    {{/* Optional supporting link points to broader format coverage without changing the core grid. */}}
+  {{ $supportingLinkHref := partial "home/link-href.html" (dict "link" .) }}
+  {{ if $supportingLinkHref }}
    <div class="home-preview-actions">
-      <a class="type-label-strong type-color-accent" href="{{ .href }}">{{ .label }}</a>
+    <a class="type-label-strong type-color-accent" href="{{ $supportingLinkHref }}"{{ with .id }} data-homepage-link="{{ . }}"{{ end }}>{{ .label }}</a>
    </div>
+  {{ end }}
    {{ end }}
   </div>
 </section>

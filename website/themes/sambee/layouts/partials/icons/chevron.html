@@ -1,0 +1,21 @@
+{{/* Purpose: Renders the shared chevron icon with configurable direction or rotation. */}}
+{{- $baseClass := "size-[1em] inline-block align-[-0.125em]" -}}
+{{- $class := .class | default $baseClass -}}
+{{- $direction := (.direction | default "right") | lower -}}
+{{- $rotationByDirection := dict "right" 0 "down" 90 "left" 180 "up" -90 -}}
+{{- $rotation := index $rotationByDirection $direction | default 0 -}}
+{{- with .rotate -}}
+  {{- $rotation = . -}}
+{{- end -}}
+{{- $transform := "" -}}
+{{- if ne $rotation 0 -}}
+  {{- $transform = printf "rotate(%v 10 10)" $rotation -}}
+{{- end -}}
+<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="{{ $class }}">
+  <g{{ if $transform }} transform="{{ $transform }}"{{ end }}>
+    <path
+      fill-rule="evenodd"
+      d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
+      clip-rule="evenodd" />
+  </g>
+</svg>

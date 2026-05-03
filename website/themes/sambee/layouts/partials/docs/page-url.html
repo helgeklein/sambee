@@ -1,0 +1,39 @@
+{{- /* Purpose: Return the navigable URL for a docs location, preferring stable current-docs routes. */ -}}
+{{- $preferStable := true -}}
+{{- if isset . "preferStable" -}}
+  {{- $preferStable = .preferStable -}}
+{{- end -}}
+{{- $path := "" -}}
+
+{{- with .pageObject -}}
+  {{- $pageContext := partial "docs/context.html" . -}}
+  {{- if not $pageContext.isDocs -}}
+    {{- .RelPermalink -}}
+  {{- else -}}
+    {{- $path = partial "docs/page-path.html" (dict
+      "version" $pageContext.version
+      "book" $pageContext.book
+      "section" $pageContext.section
+      "page" $pageContext.page
+      "preferStable" $preferStable
+    ) -}}
+    {{- with site.GetPage $path -}}
+      {{- .RelPermalink -}}
+    {{- else -}}
+      {{- printf "%s/" $path -}}
+    {{- end -}}
+  {{- end -}}
+{{- else -}}
+  {{- $path = partial "docs/page-path.html" (dict
+    "version" (.version | default "")
+    "book" (.book | default "")
+    "section" (.section | default "")
+    "page" (.page | default "")
+    "preferStable" $preferStable
+  ) -}}
+  {{- with site.GetPage $path -}}
+    {{- .RelPermalink -}}
+  {{- else -}}
+    {{- printf "%s/" $path -}}
+  {{- end -}}
+{{- end -}}

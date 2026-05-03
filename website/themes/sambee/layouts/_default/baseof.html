@@ -8,6 +8,15 @@
   {{- $initialTheme = site.Params.theme_default -}}
 {{- end -}}
 {{- $docsContext := partial "docs/context.html" . -}}
+{{- $docsRedirectTarget := "" -}}
+{{- $pagefindIgnore := false -}}
+{{- if $docsContext.isDocs -}}
+  {{- $docsRedirectTarget = partial "docs/redirect-target.html" . -}}
+  {{- $pagefindIgnore = or $docsContext.isExplicitVersion $docsRedirectTarget -}}
+{{- end -}}
+{{- if eq .Kind "404" -}}
+  {{- $pagefindIgnore = true -}}
+{{- end -}}
 {{- $isVersionedDocsPage := and $docsContext.isDocs $docsContext.version -}}
 {{- $pagefindKind := "site" -}}
 {{- if $isVersionedDocsPage -}}
@@ -33,7 +42,7 @@
   {{ partial "essentials/style.html" . }}
   {{ end }}
 </head>
-<body>
+<body{{ if $pagefindIgnore }} data-pagefind-ignore{{ end }}>
   {{ if not hugo.IsProduction }}
   {{/* Development-only Tailwind breakpoint helper. */}}
   {{ partial "components/tw-size-indicator.html" . }}

@@ -127,6 +127,7 @@ title = "Reference"
 
 [pages.admin-guide.overview-and-planning]
 items = [
+  "deployment-architecture-overview",
   "what-sambee-requires-to-run",
 ]
 
