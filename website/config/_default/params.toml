@@ -1,4 +1,4 @@
-description = "Browser-based SMB and local-drive access with versioned product documentation."
+description = "Browser-based file viewer and manager for SMB shares and local drives, with fast previews and Markdown editing on desktop and mobile."
 theme_default = "system"
 theme_switcher = true
 
@@ -6,8 +6,10 @@ theme_switcher = true
 files_base_url = ""
 images_base_url = ""
 
-[footer]
+[links]
 github_url = "https://github.com/helgeklein/sambee"
+
+[footer]
 imprint_url = "#"
 privacy_url = "#"
 
