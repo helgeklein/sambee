@@ -61,8 +61,19 @@
   }
 
   a {
-    @apply font-medium text-clr-action-text decoration-transparent underline-offset-4 transition-colors duration-150 hover:decoration-current dark:text-clr-darkmode-action-text;
+    @apply font-medium text-clr-action-text dark:text-clr-darkmode-action-text;
     text-decoration-line: underline;
+    text-decoration-color: currentColor;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+    transition:
+      color var(--default-transition-duration) var(--default-transition-timing-function),
+      text-decoration-thickness var(--default-transition-duration) var(--default-transition-timing-function);
+  }
+
+  a:hover,
+  a:focus-visible {
+    text-decoration-thickness: 2px;
   }
 
   /*
