@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+
 import tomllib
 
 WEBSITE_DIR = Path(__file__).resolve().parent.parent
@@ -102,7 +103,9 @@ def materialize_current_routes(current_version: str) -> int:
 
     generated_count = 0
 
-    for directory in sorted(path for path in current_version_dir.rglob("*") if path.is_dir()):
+    for directory in sorted(
+        path for path in current_version_dir.rglob("*") if path.is_dir()
+    ):
         if (directory / BRANCH_SOURCE).exists() or (directory / BRANCH_MARKER).exists():
             write_current_route_anchor(directory, BRANCH_ANCHOR, current_version)
             generated_count += 1
@@ -118,7 +121,9 @@ def materialize_current_routes(current_version: str) -> int:
 def main() -> int:
     """Generate inherited docs anchors for the Hugo build."""
     if not DOCS_CONTENT_DIR.exists():
-        print(f"Docs content directory not found at {DOCS_CONTENT_DIR}; no anchors generated.")
+        print(
+            f"Docs content directory not found at {DOCS_CONTENT_DIR}; no anchors generated."
+        )
         return 0
 
     current_version = load_current_version()
