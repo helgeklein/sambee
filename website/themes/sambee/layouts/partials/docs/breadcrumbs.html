@@ -1,6 +1,8 @@
 {{/* Purpose: Render docs breadcrumbs from the current version and book context. */}}
-{{ $docsContext := partial "docs/context.html" . }}
-{{ $sourcePage := partial "docs/source-page.html" . }}
+{{ $page := .page }}
+{{ $sequentialNav := .sequentialNav }}
+{{ $docsContext := partial "docs/context.html" $page }}
+{{ $sourcePage := partial "docs/source-page.html" $page }}
 {{ $effectivePageData := partial "docs/effective-page.html" $sourcePage }}
 {{ $effectivePage := $effectivePageData.page }}
 {{ $version := $docsContext.version }}
@@ -48,7 +50,7 @@
     <ol class="docs-breadcrumb-list">
       {{ if $bookSourcePage }}
       <li class="docs-breadcrumb-item">
-        {{ if eq .RelPermalink $bookURL }}
+        {{ if eq $page.RelPermalink $bookURL }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $bookTitle }}</span>
         {{ else }}
         <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookURL }}">{{ $bookTitle }}</a>
@@ -79,7 +81,7 @@
       {{ with $versionPage }}
       <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true"><span class="material-symbols-outlined docs-breadcrumb-symbol">chevron_right</span></span>
-        {{ if eq $.RelPermalink $versionURL }}
+        {{ if eq $page.RelPermalink $versionURL }}
         <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">Version {{ $versionLabel }}</span>
         {{ else }}
         <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $versionURL }}">Version {{ $versionLabel }}</a>
@@ -89,4 +91,5 @@
       {{ end }}
     </ol>
   </nav>
+  {{ partial "docs/sequential-nav.html" (dict "mode" "top" "nav" $sequentialNav) }}
 </div>

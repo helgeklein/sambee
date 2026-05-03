@@ -1,0 +1,55 @@
+{{/* Purpose: Render compact or full previous and next docs navigation. */}}
+{{ $mode := .mode | default "bottom" }}
+{{ $nav := .nav }}
+{{ $previous := false }}
+{{ $next := false }}
+{{ $navLabel := "Sequential page navigation after article" }}
+{{ $linksClass := printf "docs-sequence-links docs-sequence-links--%s" $mode }}
+{{ $innerClass := "" }}
+
+{{ with $nav.previous }}
+  {{ $previous = . }}
+{{ end }}
+{{ with $nav.next }}
+  {{ $next = . }}
+{{ end }}
+{{ if eq $mode "top" }}
+  {{ $navLabel = "Sequential page navigation" }}
+  {{ $innerClass = "site-gutter" }}
+{{ end }}
+{{ if and $previous (not $next) }}
+  {{ $linksClass = printf "%s docs-sequence-links--single docs-sequence-links--single-previous" $linksClass }}
+{{ else if and (not $previous) $next }}
+  {{ $linksClass = printf "%s docs-sequence-links--single docs-sequence-links--single-next" $linksClass }}
+{{ end }}
+
+{{ if or $previous $next }}
+<nav class="docs-sequence docs-sequence--{{ $mode }}" aria-label="{{ $navLabel }}">
+  <div{{ if $innerClass }} class="{{ $innerClass }}"{{ end }}>
+  <div class="{{ $linksClass }}">
+    {{ with $previous }}
+    <div class="docs-sequence-item docs-sequence-item--previous">
+      <a class="docs-sequence-link docs-sequence-link--previous" href="{{ .url }}" aria-label="Previous: {{ .title }}">
+        <span class="docs-sequence-label type-label-eyebrow">Previous</span>
+        <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
+        {{ if and (ne $mode "top") .context }}
+        <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
+        {{ end }}
+      </a>
+    </div>
+    {{ end }}
+    {{ with $next }}
+    <div class="docs-sequence-item docs-sequence-item--next">
+      <a class="docs-sequence-link docs-sequence-link--next" href="{{ .url }}" aria-label="Next: {{ .title }}">
+        <span class="docs-sequence-label type-label-eyebrow">Next</span>
+        <span class="docs-sequence-title type-title-sm-tight">{{ .title }}</span>
+        {{ if and (ne $mode "top") .context }}
+        <span class="docs-sequence-context type-label-xs">{{ .context }}</span>
+        {{ end }}
+      </a>
+    </div>
+    {{ end }}
+  </div>
+  </div>
+</nav>
+{{ end }}

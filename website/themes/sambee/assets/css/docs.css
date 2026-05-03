@@ -341,6 +341,107 @@ Documentation Navigation
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
 }
 
+.docs-sequence {
+  width: 100%;
+}
+
+.docs-sequence--top {
+  @apply border-t border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
+}
+
+.docs-sequence--bottom {
+  @apply mt-10 border-t border-clr-rule-soft pt-8 dark:border-clr-darkmode-rule-soft md:mt-12 md:pt-10;
+}
+
+.docs-sequence-links {
+  display: grid;
+  gap: 0.875rem;
+  width: 100%;
+
+  @media (min-width: theme(--breakpoint-md)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.docs-sequence-links--top {
+  @apply py-3;
+  gap: 0.75rem;
+}
+
+.docs-sequence-links--single {
+  @media (min-width: theme(--breakpoint-md)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.docs-sequence-links--single-next {
+  @media (min-width: theme(--breakpoint-md)) {
+    justify-items: end;
+  }
+}
+
+.docs-sequence-item {
+  min-width: 0;
+}
+
+.docs-sequence-link {
+  @apply flex min-w-0 flex-col gap-2 no-underline transition-colors duration-150;
+}
+
+.docs-sequence--top .docs-sequence-link {
+  @apply py-0;
+}
+
+.docs-sequence--bottom .docs-sequence-link {
+  @apply rounded-2xl border border-clr-rule-soft bg-clr-surface-base px-5 py-4 dark:border-clr-darkmode-rule-soft dark:bg-clr-darkmode-surface-base md:px-6 md:py-5;
+}
+
+.docs-sequence--bottom .docs-sequence-link:hover {
+  @apply bg-clr-surface-low dark:bg-clr-darkmode-surface-low;
+}
+
+.docs-sequence-link--next,
+.docs-sequence-item--next {
+  text-align: right;
+}
+
+.docs-sequence-link--next {
+  align-items: flex-end;
+}
+
+.docs-sequence-label {
+  color: var(--color-clr-primary);
+}
+
+.dark .docs-sequence-label {
+  color: var(--color-clr-darkmode-primary);
+}
+
+.docs-sequence-title {
+  color: var(--color-clr-text);
+  text-wrap: balance;
+}
+
+.dark .docs-sequence-title {
+  color: var(--color-clr-darkmode-text);
+}
+
+.docs-sequence-context {
+  color: var(--color-clr-text-light);
+}
+
+.dark .docs-sequence-context {
+  color: var(--color-clr-darkmode-text-light);
+}
+
+.docs-sequence-link:hover .docs-sequence-title {
+  color: var(--color-clr-primary);
+}
+
+.dark .docs-sequence-link:hover .docs-sequence-title {
+  color: var(--color-clr-darkmode-primary);
+}
+
 .docs-page-header {
   @apply border-b border-clr-rule-soft dark:border-clr-darkmode-rule-soft;
 }
