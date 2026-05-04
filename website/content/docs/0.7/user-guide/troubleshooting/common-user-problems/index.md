@@ -1,100 +1,64 @@
 +++
 title = "Common User Problems"
-description = "Solve the most common user-facing problems involving SMB access, local drives, previews, Companion, and save-back workflows."
+description = "Solve the most common user problems involving SMB access, local-drive browser access, previews, Open in App, and desktop editing."
 +++
 
-Use this page when something that normally works in Sambee stops working in the browser or in a Companion-backed desktop flow.
+Use this page when something stopped working and you are not sure which full task page to open next.
+
+Start with the symptom that matches yours:
+
+- I cannot see the SMB share I expected
+- Local drives are not available
+- A file will not preview
+- **Open in App** does nothing
+- Changes do not upload back after editing
+- The wrong app opens, or my editor is missing
 
 ## I Cannot See The SMB Share I Expected
 
-Check these first:
+Check whether the right shared connection is visible to you, or whether you need to add your own private SMB connection.
 
-- you are signed in to the correct Sambee account
-- the share was actually made available to you
-- you selected the right connection or storage source
+If your account cannot create private connections and the shared one you need is missing, ask an administrator.
 
-If no suitable SMB connection exists at all, the next step belongs to an administrator. For the normal browser-side SMB path, go back to [Connect To An SMB Share](../../accessing-files/connect-to-an-smb-share/).
+Full access path: [Connect To An SMB Share](../../accessing-files/connect-to-an-smb-share/).
 
 ## Local Drives Are Not Available
 
-Local drives require all of the following:
+Local drives in the browser require a desktop browser, Sambee Companion, and a working browser pairing.
 
-- a desktop browser on Windows, macOS, or Linux
-- Sambee Companion installed
-- Companion running
-- this browser paired with Companion on this computer
-
-If Sambee says the current pairing needs repair, pair this browser again.
-
-Use [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/) for the full pairing, repair, and unpair flow.
-
-If you are on iOS or Android, switch to a desktop browser for this workflow.
+Full local-drive path: [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/).
 
 ## A File Will Not Preview
 
-Not every file type has an in-browser preview.
-
-If Sambee cannot preview a file:
-
-- use the download path if you only need a local copy
-- use **Open in App** if a desktop-app workflow is available and appropriate
-- check [Supported File Formats](../../reference/supported-file-formats/) if you are unsure whether the format is expected to preview in the browser
-
-If you need help deciding whether this is a format limit or a temporary viewer problem, use [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/).
+Start with [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/) to decide whether preview is unsupported, temporarily unavailable, or simply not enough for your task.
 
 ## Open In App Does Nothing
 
-This is usually one of these problems:
+This usually means Sambee Companion is not running yet, or the browser blocked the handoff to the helper app.
 
-- Sambee Companion is not running
-- the browser blocked or forgot the `sambee://` permission
-- the current computer is not the one that should handle the desktop workflow
+Start with [Install And Start The Companion App](../../companion-app/install-and-start-the-companion-app/) if Companion may not be installed or running yet.
 
-Start Companion, retry the action, and watch for a browser prompt asking whether to open the link externally.
-
-If the problem is really app choice rather than launch behavior, use [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
+Normal desktop-editing workflow: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 
 ## Changes Do Not Upload Back After Editing
 
-Check these first:
+Interrupted session: [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
 
-- the **Done Editing** window is still open
-- you used **Upload & Close** rather than closing the desktop app and assuming upload would happen automatically
-- the Sambee service is still reachable
+Version choice prompt: [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
 
-If a conflict occurred because the source file changed while you were editing, follow the conflict resolution prompt instead of retrying blindly.
-
-If the session was interrupted or the **Done Editing** window is gone, use [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
-
-If the problem is really about choosing between two versions, use [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
+Normal workflow again: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 
 ## The Wrong App Opens, Or My Editor Is Missing
 
-On first use for a file type, Companion may ask which desktop app to use.
-
-If the expected app does not appear:
-
-- choose a different app if it is listed
-- use the manual browse or chooser flow if Companion offers it
-- retry after installing the editor if it is missing from the system entirely
-
-Use [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/) for the app picker and the routine Companion settings that affect this flow.
+App choice and Companion preferences: [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
 
 ## When To Escalate
 
 You have probably reached an admin issue rather than a user issue when:
 
-- no SMB connection exists for the share you need
+- no shared SMB connection exists for the share you need and your account cannot create private ones
 - every browser action fails for the same storage source
 - the service itself appears down
-- Companion download metadata or distribution is missing from your environment
+- Companion is not available for your environment
 
 At that point, move the issue to the Admin Guide or involve the administrator responsible for the Sambee deployment.
-
-## Related Pages
-
-- [Connect To An SMB Share](../../accessing-files/connect-to-an-smb-share/): use this for the normal SMB-access path before the problem escalates
-- [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/): use this for the full local-drive pairing and repair path
-- [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/): use this when the preview problem needs a more specific fallback decision
-- [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/): use this when the real issue is app choice or routine Companion settings
-- [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/): use this when a desktop-editing session was interrupted

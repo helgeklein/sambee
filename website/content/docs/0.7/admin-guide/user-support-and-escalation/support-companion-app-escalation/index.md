@@ -1,15 +1,17 @@
 +++
 title = "Support Companion-App Escalation"
-description = "Handle the companion-app problems that have moved beyond normal end-user setup and into admin-level support or environment checks."
+description = "Handle the companion-app problems that have moved beyond normal end-user setup and into admin-level support or desktop-environment diagnostics."
 +++
 
-Most normal Companion usage belongs in the User Guide. This page is for the cases where a user-facing problem has become an admin support task.
+Most normal Companion usage belongs in the User Guide. This page is for the cases where a user-facing problem has become an admin task.
+
+Sambee Companion is the optional desktop app used for local-drive access and for opening files in installed desktop applications.
 
 ## When An Issue Belongs Here
 
 Move from the User Guide into this admin path when the next step involves:
 
-- environment checks rather than normal user steps
+- desktop-environment checks rather than normal user steps
 - repeated failures across more than one user or machine
 - deployment policy questions such as downloads, trusted environments, or certificate handling
 - support diagnostics such as log locations or platform-specific crash investigation
@@ -31,6 +33,7 @@ Start with the fastest separation between user issue and environment issue.
 - confirm the problem is on a supported desktop platform for Companion workflows
 - confirm the Sambee service is reachable from the user environment
 - confirm there is no broader service outage or connectivity problem affecting multiple users
+- confirm whether the problem affects one user, one machine, or many users
 
 ## Environment And Trust Considerations
 
@@ -41,6 +44,8 @@ That matters especially when:
 - a proxy is required in the environment
 - internal or company-managed certificates are involved
 - the user machine has drifted away from the expected desktop trust configuration
+
+In practice, that usually means checking the user's proxy settings, certificate trust store, and whether security software is blocking the local workflow.
 
 ## When This Stops Being A Companion-Only Issue
 

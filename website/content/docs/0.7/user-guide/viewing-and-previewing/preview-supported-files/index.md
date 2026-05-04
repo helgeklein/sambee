@@ -3,18 +3,18 @@ title = "Preview Supported Files"
 description = "Preview images, PDFs, and Markdown in the browser and understand what Sambee does when a file cannot be previewed."
 +++
 
-Sambee can preview supported files directly in the browser so you can inspect content before downloading it or opening it elsewhere.
+Sambee can preview some files directly in the browser so you can inspect them before downloading or editing.
 
 ## Images
 
-Supported images open in an image viewer with browser-friendly controls such as:
+Supported images open in an image viewer with controls such as:
 
 - zooming
 - panning
 - rotation
 - gallery-style movement when you are working through a set of images
 
-Many common web formats preview directly, and many additional image formats can still preview through server-side conversion.
+Many common image formats preview directly. Some other image formats can still preview after Sambee converts them into a browser-ready version.
 
 ## PDFs
 
@@ -34,20 +34,14 @@ From there you can:
 
 The editing workflow is covered separately in [Edit Markdown In The Browser](../../editing-files/edit-markdown-in-the-browser/).
 
-## What Happens When A Preview Is Not Available
+## When A Preview Is Not Available
 
-If Sambee cannot show a browser preview, it falls back to safer user paths instead of pretending the format is supported.
+If Sambee cannot show a preview, it gives you the next safest option instead of pretending the file is supported.
 
-Use [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/) when you need to decide whether the file type is unsupported, the viewer is temporarily unavailable, or the better next step is download or **Open in App**.
+For unsupported or failed preview paths, use [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/).
 
-If you already know you need desktop editing, continue to [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/) when that workflow is available to you.
+Need desktop editing instead? Continue to [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/). That workflow uses **Open in App** with Sambee Companion.
 
-## Use The Reference Page For Format Coverage
+## Full Preview Format List
 
-For the user-facing summary of which file types preview in the browser, see [Supported File Formats](../../reference/supported-file-formats/).
-
-## Related Pages
-
-- [Supported File Formats](../../reference/supported-file-formats/): use this for the stable summary of user-facing preview coverage
-- [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/): use this when the preview path is blocked and you need the next best step
-- [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/): use this when preview is not enough and you need a desktop editor
+Full preview format list: [Supported File Formats](../../reference/supported-file-formats/).

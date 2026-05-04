@@ -21,6 +21,12 @@ docker compose logs -f sambee
 
 Use the service-specific view first when the issue is clearly about the application itself.
 
+If you only need recent startup output, use:
+
+```bash
+docker compose logs sambee --tail 100
+```
+
 ## Stop The Deployment
 
 To stop the services:
@@ -38,6 +44,12 @@ Routine restarts are not a substitute for troubleshooting, but they are a legiti
 - you just changed deployment files
 - you rebuilt the image
 - you completed a controlled maintenance step
+
+To restart only the Sambee service:
+
+```bash
+docker compose restart sambee
+```
 
 If you restart repeatedly without understanding the failure, move to [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
 

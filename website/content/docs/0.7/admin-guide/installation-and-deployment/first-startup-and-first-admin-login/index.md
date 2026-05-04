@@ -3,21 +3,17 @@ title = "First Startup And First Admin Login"
 description = "Confirm that Sambee started successfully, retrieve the initial admin password, and complete the first admin sign-in."
 +++
 
-Once the containers are up, the next job is to confirm that Sambee started cleanly and that you can sign in as the initial administrator.
-
-## Confirm Startup
-
-After `docker compose up -d`, check that the Sambee service is running and emitting normal startup logs.
-
-If the service does not come up cleanly, jump to [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
+Once the container is up, the next job is to retrieve the initial credentials and confirm that you can sign in as the first administrator.
 
 ## Retrieve The Initial Admin Password
 
 Get the first-time admin password from the logs:
 
 ```bash
-docker compose logs sambee | grep -A 5 "FIRST-TIME SETUP"
+docker compose logs sambee --tail 100 | grep -A 5 "FIRST-TIME SETUP"
 ```
+
+You are looking for a log block labeled `FIRST-TIME SETUP - SAVE THESE CREDENTIALS` with lines for the username and password.
 
 You will need:
 

@@ -14,11 +14,7 @@ A reverse proxy gives you a cleaner operational model for:
 - integrating Sambee into an existing service edge
 - keeping the application service behind a stable frontend entry point
 
-## Keep The Product Docs Scope Tight
-
-This guide does not try to become a generic handbook for every reverse proxy.
-
-For the Sambee docs, the main goal is to show how Sambee fits behind a proxy and to provide one concise example that is easy to adapt.
+If your proxy already serves other applications, Sambee should fit into that existing pattern rather than inventing a special one.
 
 ## Concise Caddy-Oriented Compose Example
 
@@ -34,7 +30,7 @@ services:
     networks:
       - caddy_caddynet
     expose:
-      - 8000:8000
+      - "8000"
     volumes:
       - ./data:/app/data
       # Optional:
@@ -45,7 +41,9 @@ networks:
     external: true
 ```
 
-The important operational point is that Sambee exposes its application port to the reverse-proxy network rather than acting as the HTTPS edge itself.
+Here, `expose` makes Sambee's port `8000` available to other containers on the same Docker network without publishing it directly to the host.
+
+The important point is that Sambee serves plain HTTP to the reverse proxy and does not act as the HTTPS edge itself.
 
 ## Hostnames And HTTPS
 
@@ -65,6 +63,8 @@ Before declaring the proxy setup done, confirm all of the following:
 - the certificate and hostname match the deployment users are expected to open
 - the Sambee frontend loads through the proxy path, not only through the direct application port
 
+If you can reach Sambee on `http://host:8000` but not on the intended hostname, the problem is usually in the proxy, DNS, or certificate layer rather than in Sambee itself.
+
 If the direct application port works but the proxy hostname still fails, stay in the proxy layer instead of rebuilding the application immediately.
 
 ## Common Failure Modes
@@ -83,7 +83,7 @@ Reverse-proxy issues often show up as:
 - users reaching the wrong host or port
 - HTTPS working for other services but not for Sambee
 
-If the container is healthy but users still cannot reach the service correctly, check the reverse-proxy layer before assuming the application itself is broken.
+If the container is healthy but users still cannot reach the service correctly, check the reverse-proxy layer before rebuilding or reconfiguring Sambee.
 
 ## Related Pages
 

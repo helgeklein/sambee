@@ -2,51 +2,27 @@
 title = "User Guide"
 +++
 
-Use this guide to work with SMB shares, local drives, previews, editing flows, and common file tasks in Sambee.
+Sambee is a browser-based viewer and manager for files on SMB network shares and on local drives. SMB shares are accessed via Sambee's server component, whereas local drive access is provided by Companion, a helper app that can be installed on your computer.
 
-Start here if you want to:
+This guide explains how to:
 
-- understand which workflows work entirely in the browser
-- see when the companion app is required
-- preview, edit, upload, download, move, rename, or delete files
-- recover from preview, save-back, or local-drive problems before escalating to an administrator
+- find and explore files on network shares
+- explore files on your computer via Sambee Companion
+- preview files in the browser
+- edit Markdown in the browser
+- open files in desktop apps and upload the finished changes back
+- fix common user problems before asking an administrator for help
 
-If your issue is about deployment, reverse proxies, server configuration, or service health, use the Admin Guide instead. If the question is about how Sambee is implemented, use the Developer Guide instead.
+## If You Are New To Sambee
 
-## In This Guide
+Start with these two pages:
 
-- [Getting Started](./getting-started/): choose the right workflow and understand what Sambee can access
-- [Accessing Files](./accessing-files/): connect to SMB shares or pair local drives through Companion
-- [Browsing And Navigation](./browsing-and-navigation/): move through folders efficiently on desktop and mobile
-- [Viewing And Previewing Files](./viewing-and-previewing/): preview supported files and choose the right fallback when a preview is unavailable
-- [Editing Files](./editing-files/): edit Markdown in the browser, continue in desktop apps, and understand save conflicts
-- [Managing Files](./managing-files/): handle common file operations
-- [Companion App](./companion-app/): install Companion, choose desktop-app behavior, and recover interrupted desktop-editing sessions
-- [Troubleshooting](./troubleshooting/): recover from common user problems and route into deeper workflow-specific help
-- [Reference](./reference/): look up supported preview formats and other stable reference material
+- [What Sambee Can Access](./getting-started/what-sambee-can-access/): decide whether your file comes from an SMB share through Sambee's server or from local drives exposed in the browser through Sambee Companion
+- [First Sign-In And Interface Tour](./getting-started/first-sign-in-and-interface-tour/): confirm that you can see an SMB source or local drives, open a folder, and preview a supported file
 
-## Common Deep Dives
+## Use The Right Guide
 
-- [What Happens When A File Cannot Be Previewed](./viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/): decide whether the next step is download, desktop editing, retrying, or admin escalation
-- [Recover After Interrupted Editing](./companion-app/recover-after-interrupted-editing/): handle save-back sessions that were interrupted by a crash, a closed window, or a failed upload
-- [Understand Locking And Conflicts](./editing-files/understand-locking-and-conflicts/): understand why Sambee blocks risky saves and what to do when more than one version exists
-
-## Before You Begin
-
-Sambee separates browser-only and companion-backed workflows.
-
-- SMB share access works directly in the browser.
-- Local-drive access requires Sambee Companion.
-- Opening files in installed desktop apps and uploading those edits back also requires Sambee Companion.
-- Mobile browsing is supported, but local drives and desktop-app workflows are desktop-first features.
-
-For the full breakdown, start with [What Sambee Can Access](./getting-started/what-sambee-can-access/).
-
-## Use The Right Docs Book
-
-Sambee keeps user, admin, and contributor docs separate on purpose.
-
-- Use this User Guide when the next step belongs to the person using Sambee day to day.
+- Use this User Guide for everyday tasks in Sambee.
 - Use the [Admin Guide](../admin-guide/) when the problem is really about provisioning, deployment, service health, or environment policy.
 - Use the [Developer Guide](../developer-guide/) when the question becomes implementation-facing.
 

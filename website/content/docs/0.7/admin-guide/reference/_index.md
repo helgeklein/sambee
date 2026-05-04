@@ -3,12 +3,11 @@ title = "Reference"
 description = "Stable operational lookup material for the Admin Guide, including service ports, deployment paths, configuration/data paths, and companion-support details."
 +++
 
-Reference pages collect stable facts that support the task pages elsewhere in the Admin Guide.
+Reference pages collect the stable facts that support the task pages elsewhere in the Admin Guide.
 
-Start with:
+Start with [Port And Path Reference](./port-and-path-reference/) for almost all deployment lookup questions.
 
-- [Port And Path Reference](./port-and-path-reference/)
-- [Configuration And Data Paths](./configuration-and-data-paths/)
-- [Companion Support Reference](./companion-support-reference/)
+Use the supporting pages only when you need a narrower lookup:
 
-Use this section when the question is mainly lookup rather than step-by-step task flow.
+- [Container Paths And Mount Mapping](./configuration-and-data-paths/): host-to-container path translation and mount troubleshooting
+- [Companion Support Reference](./companion-support-reference/): companion log locations, preferences, and crash diagnostics

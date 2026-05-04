@@ -5,13 +5,15 @@ description = "Understand the difference between unsupported and temporarily una
 
 Use this page when Sambee does not show the in-browser preview you expected.
 
-## Start With The Simplest Question
+## Start With The Message Sambee Shows
 
-First decide which situation you are in:
+Look at the preview message and use the matching path.
 
-- the file type is not meant to preview in the browser
-- the viewer exists, but it is temporarily unavailable right now
-- the file opened, but the browser viewer is not the right tool for the work you need to do
+| What you see | What it means | What to do next |
+|---|---|---|
+| Sambee says the format is not supported | This file type does not preview in the browser | Download the file or use **Open in App** |
+| Sambee says the preview could not load | The file type may still be supported, but the viewer failed right now | Retry once, then use another path if needed |
+| The preview opens, but it is not enough | The browser viewer is fine for inspection, but not for your actual task | Switch to editing or downloading |
 
 ## When The Format Is Not Supported
 
@@ -20,10 +22,10 @@ If Sambee reports that the viewer is unsupported, treat that as a format limitat
 Your next step is usually one of these:
 
 - download the file if you only need a local copy
-- use **Open in App** if you need to continue in an installed desktop app and Companion is available
+- use **Open in App** if you need to continue in an installed desktop app and Sambee Companion is installed and running on your computer
 - check [Supported File Formats](../../reference/supported-file-formats/) if you are not sure whether the format is expected to preview in Sambee
 
-## When The Viewer Is Temporarily Unavailable
+## When The Preview Should Work But Fails Right Now
 
 If Sambee reports that the viewer is unavailable, the file browser is still usable even though that viewer could not load right now.
 
@@ -37,7 +39,7 @@ Try these steps in order:
 
 If the same problem keeps happening across multiple files that should normally preview, it may be an administrator issue rather than something you can fix from the browser alone.
 
-## When A Preview Exists But Is Still Not Enough
+## When You Can Preview The File But Still Need More
 
 Some files open in a browser viewer, but you may still need a different path.
 
@@ -57,9 +59,4 @@ Involve an administrator when:
 - the same viewer fails across many supported files
 - the wider Sambee service appears unavailable, not just the preview itself
 
-## Related Pages
-
-- [Preview Supported Files](../../viewing-and-previewing/preview-supported-files/): use this for the normal browser-preview path
-- [Supported File Formats](../../reference/supported-file-formats/): use this for the stable summary of user-facing preview coverage
-- [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/): use this when preview is not enough and you need a desktop editor
-- [Common User Problems](../../troubleshooting/common-user-problems/): use this when the preview issue is part of a broader user-facing failure
+For broader preview trouble, use [Common User Problems](../../troubleshooting/common-user-problems/).

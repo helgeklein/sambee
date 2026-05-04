@@ -5,7 +5,7 @@ description = "Use a compact operational checklist for regular health review, pl
 
 This page is a compact checklist for routine service ownership.
 
-It is not a replacement for the full task pages. It exists so administrators can review the normal maintenance steps without reopening every detailed page each time.
+It exists so administrators can review the normal maintenance steps without reopening every detailed page each time.
 
 ## Regular Health Review
 
@@ -14,7 +14,7 @@ Review these on a normal cadence that fits your environment:
 - confirm the `sambee` service is running as expected
 - review recent logs for repeated startup, storage, or connectivity errors
 - confirm the frontend still loads and administrator sign-in still works
-- confirm the key SMB workflows your users depend on still behave normally
+- confirm the key SMB workflows your users depend on still behave normally, such as opening a share, browsing folders, and transferring a test file
 
 ## Before Planned Changes
 

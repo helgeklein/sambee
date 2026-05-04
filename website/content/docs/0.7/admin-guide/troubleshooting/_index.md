@@ -11,4 +11,4 @@ Start with:
 - [Reset The Admin Password](./reset-the-admin-password/)
 - [Reverse Proxy Misconfiguration](./reverse-proxy-misconfiguration/)
 
-Use the broad troubleshooting page when the deployment boundary is still unclear. Use the focused pages when the problem is already known to be admin-password recovery or proxy-side reachability.
+Use the broad troubleshooting page when you still need to find the failing boundary. Use the focused pages when you already know the problem is admin-password recovery or proxy-side reachability.

@@ -5,6 +5,8 @@ description = "Look up companion logs, preferences, crash-diagnostic entry point
 
 This page is stable lookup material for administrators supporting escalated Sambee Companion issues.
 
+Sambee Companion is the optional desktop app used for local-drive access and for opening files in installed desktop applications.
+
 Use it when you already know the issue has moved past normal end-user setup and you need support-oriented locations or runtime details.
 
 ## Preference Files
@@ -64,6 +66,8 @@ On any platform, you can also launch the companion with:
 ```bash
 SAMBEE_LOG_VERBOSE=1 ./sambee-companion
 ```
+
+Use verbose logging when the normal log file does not explain why startup, local-drive access, or file-return workflows are failing.
 
 ## Windows WebView2 Runtime Data
 
