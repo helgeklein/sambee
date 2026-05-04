@@ -21,7 +21,7 @@ tauri-plugin-store = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-http = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-dialog = "=2.7.0"
+tauri-plugin-dialog = "=2.7.1"
 tauri-plugin-updater = "2"
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "json", "http2", "system-proxy", "rustls-tls-native-roots"] }
 serde = { version = "1", features = ["derive"] }

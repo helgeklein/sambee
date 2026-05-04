@@ -30,7 +30,7 @@
     "@react-spring/web": "^10.0.3",
     "@tanstack/react-virtual": "^3.13.24",
     "@use-gesture/react": "^10.3.1",
-    "axios": "1.15.2",
+    "axios": "1.16.0",
     "i18next": "^25.10.10",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -41,11 +41,11 @@
     "react-router-dom": "^6.30.3",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
-    "swiper": "^12.1.3",
-    "yet-another-react-lightbox": "^3.31.0"
+    "swiper": "^12.1.4",
+    "yet-another-react-lightbox": "^3.32.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.13",
+    "@biomejs/biome": "2.4.14",
     "@playwright/test": "^1.59.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -57,7 +57,7 @@
     "@vitest/coverage-v8": "^4.1.5",
     "@vitest/ui": "^4.1.0",
     "jsdom": "^27.4.0",
-    "msw": "^2.13.6",
+    "msw": "^2.14.2",
     "playwright": "^1.59.1",
     "typescript": "^5.9.3",
     "vite": "6.4.2",
