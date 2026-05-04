@@ -5,7 +5,12 @@ description = "Understand why Sambee blocks risky edits, what edit locks do, and
 
 Use this page when Sambee blocks edit mode, warns that another version exists, or asks how you want to resolve a changed file.
 
-## What Sambee Is Protecting You From
+Sambee uses two protections that are easy to confuse:
+
+- **Edit locks** stop browser editing before you start.
+- **Conflicts** happen later when Sambee Companion tries to upload a desktop-edited file back to the server after that file changed remotely.
+
+## Why These Warnings Exist
 
 Locking and conflict prompts exist to reduce the risk of:
 
@@ -13,14 +18,9 @@ Locking and conflict prompts exist to reduce the risk of:
 - uploading an older local copy over a newer server version
 - losing track of which copy is the one you actually want to keep
 
-These are not the same kind of warning.
+## Edit Locks In Browser Markdown Editing
 
-- A lock problem can block browser edit mode before you start changing the file.
-- A conflict can appear later when Companion tries to upload your desktop-app changes back to the server.
-
-## Browser Markdown Editing Uses Edit Locks
-
-When you enter edit mode on a Markdown file on a server-backed connection, Sambee can try to acquire an edit lock first.
+When you enter edit mode on a Markdown file stored on a share or server, Sambee can try to acquire an edit lock first.
 
 If it cannot, you may be blocked from entering edit mode until the conflict is understood.
 
@@ -31,9 +31,9 @@ When that happens:
 - retry once after returning to the read-only preview
 - stop retrying if the same lock problem keeps happening and decide who should own the next edit
 
-## Desktop Editing Can Hit Upload Conflicts
+## Conflicts After Desktop Editing
 
-If the file on the server changed while you were editing in a desktop app, Companion can show a conflict dialog before uploading your local copy.
+If the file on the server changed while you were editing in a desktop app, Companion can show a conflict dialog before uploading your edited local copy back to the server.
 
 The choices are:
 
@@ -49,9 +49,11 @@ Use these rules of thumb:
 - save as copy when you need time to compare both versions or preserve everyone’s work
 - cancel when you still need to inspect the current server copy or ask someone else what should win
 
-## Preferences Can Change The Default Conflict Behavior
+## Default Conflict Behavior
 
 Companion preferences can keep conflict handling on **Ask me every time**, or switch it to always overwrite or always save as a new copy.
+
+To change that setting, use [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
 
 If more than one person may touch the same files, **Ask me every time** is usually the safest default.
 
@@ -61,14 +63,11 @@ Do not keep retrying save or upload actions without understanding which version 
 
 Involve an administrator or the other person working on the file when:
 
-- you do not know whether the server copy or the local copy is authoritative
+- you do not know whether the server copy or the local copy should win
 - the same conflict keeps returning after you thought it was resolved
 - the wider Sambee service appears unstable, not just the current file
 
-## Related Pages
+After that, return to the workflow you were using:
 
-- [Edit Markdown In The Browser](../../editing-files/edit-markdown-in-the-browser/): use this when the locked file is a Markdown file being edited in-browser
-- [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/): use this when the conflict happened after desktop editing
-- [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/): use this to control the default conflict behavior in Companion
-- [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/): use this when the editing session was interrupted before you finished resolving it
-- [Common User Problems](../../troubleshooting/common-user-problems/): use this when you need the broader symptom-based troubleshooting path
+- [Edit Markdown In The Browser](../../editing-files/edit-markdown-in-the-browser/) for browser editing
+- [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/) for desktop editing

@@ -17,10 +17,14 @@ Those answers tell you whether you are in a general deployment fault, a proxy-on
 
 ## Container Will Not Start Cleanly
 
-Start with the Sambee logs:
+Start with the service state and the Sambee logs:
 
 ```bash
-docker compose logs sambee
+docker compose ps
+```
+
+```bash
+docker compose logs sambee --tail 100
 ```
 
 Look for explicit startup errors before changing configuration or rebuilding the image blindly.
@@ -46,7 +50,7 @@ If the direct application path works but the hostname or HTTPS path does not, go
 
 ## Cannot Connect To SMB Shares
 
-If Sambee itself is up but SMB access fails, check the service's network reachability to the target SMB host:
+If Sambee itself is up but SMB access fails, check basic network reachability to the target SMB host:
 
 ```bash
 docker compose exec sambee ping your-smb-host
@@ -58,9 +62,13 @@ Then verify:
 - the expected SMB ports are reachable
 - logs show a storage or connectivity issue rather than a general application failure
 
+Ping is only a quick reachability check. Even if ping works, Sambee still needs SMB access on the right ports for your environment.
+
 ## First Login Or Admin Password Problems
 
 If the first login fails, confirm that you retrieved the password from the expected startup logs.
+
+You should see a `FIRST-TIME SETUP - SAVE THESE CREDENTIALS` block with the generated username and password.
 
 If the admin password is lost later, use [Reset The Admin Password](../reset-the-admin-password/) instead of keeping the recovery steps buried inside this broad troubleshooting page.
 
@@ -75,6 +83,8 @@ Examples:
 - the local environment blocks the trust or connectivity assumptions Companion depends on
 
 Use [Support Companion-App Escalation](../../user-support-and-escalation/support-companion-app-escalation/) when the problem is specifically moving into support diagnostics.
+
+If you need more detail from the desktop app, collect the Companion logs and enable verbose logging as described in [Companion Support Reference](../../reference/companion-support-reference/).
 
 ## Related Pages
 

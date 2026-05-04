@@ -1,22 +1,22 @@
 +++
-title = "Browse, Search, And Use Dual Pane"
+title = "Explore, Search, And Use Dual Pane"
 description = "Move through folders efficiently, use quick navigation, and work side by side in dual-pane mode on desktop."
 +++
 
-Sambee is designed for fast file browsing, not just one-file-at-a-time viewing.
+Sambee is designed for fast file exploration, not just one-file-at-a-time viewing.
 
-## Browse Folders Efficiently
+## Explore Folders Efficiently
 
 Use the normal file-browser controls to:
 
 - open folders from the current list
 - move back toward the root with breadcrumbs or parent-directory navigation
-- switch between list and details views when you need a different density of information
+- switch between list and details views when you need more or less detail on screen
 - sort by the field that best fits the task, such as name, size, modified time, or type
 
 ## Search And Quick Navigation
 
-Sambee includes a quick-navigation surface for moving faster through the current browser context.
+Sambee includes a quick navigation tool for moving faster through the current folder or pane.
 
 Use it when you want to:
 
@@ -24,7 +24,7 @@ Use it when you want to:
 - filter or narrow what you see in the current pane
 - reach browser commands without hunting through the full interface
 
-If you are not sure which keyboard shortcut opens that surface, open the in-app keyboard shortcuts help instead of relying on memory or outdated notes.
+If you are not sure which keyboard shortcut opens it, use the in-app keyboard shortcuts help.
 
 ## Use Dual Pane On Desktop
 
@@ -53,12 +53,12 @@ Some copy or move combinations may still be unavailable depending on the source 
 
 ## Keyboard-Driven Use
 
-Sambee supports keyboard-driven browsing, selection, pane switching, and other actions.
+Sambee supports keyboard-driven navigation, selection, pane switching, and other actions.
 
-This guide intentionally does not duplicate the shortcut list. Use the built-in keyboard shortcuts help for the current, authoritative bindings.
+This guide intentionally does not duplicate the shortcut list. Use the built-in keyboard shortcuts help for the current shortcut list.
 
 ## Desktop Versus Mobile
 
-Dual pane is a desktop feature. On compact or mobile layouts, Sambee uses a simpler single-pane browsing model.
+Dual pane is a desktop feature. On compact or mobile layouts, Sambee uses a simpler single-pane navigation model.
 
 If you need desktop-style pane workflows, switch to a desktop browser.

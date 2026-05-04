@@ -42,12 +42,6 @@ Check these items before rebuilding Sambee or changing application configuration
 - the certificate and trust model match the actual deployment environment
 - the Sambee logs do not already show a general application startup failure
 
-## What This Page Deliberately Does Not Cover
-
-This page is for Sambee-specific proxy diagnosis, not for teaching every reverse proxy product from scratch.
-
-If you need to establish the proxy model itself, go back to the main reverse-proxy setup page.
-
 ## Related Pages
 
 - [Put Sambee Behind A Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): return here for the normal setup model and the concise Caddy-oriented example

@@ -3,11 +3,7 @@ title = "Overview And Planning"
 description = "Learn how Sambee fits into an environment, what it needs in order to run, and where the next admin steps belong."
 +++
 
-This section helps administrators understand what they are operating before they start deployment work.
+If you are new to Sambee administration, read these pages in order before your first deployment:
 
-Start with:
-
-- [Deployment Architecture Overview](./deployment-architecture-overview/): the core deployment shape, what is required, what is optional, and where extra complexity usually comes from
-- [What Sambee Requires To Run](./what-sambee-requires-to-run/): prerequisites, runtime boundaries, and which docs book to use next
-
-Use this section first if you need to understand how Sambee fits into your environment before following the setup steps.
+1. [Deployment Architecture Overview](./deployment-architecture-overview/): understand the basic deployment shape, what is required, and what is optional
+2. [What Sambee Requires To Run](./what-sambee-requires-to-run/): turn that deployment model into a short prerequisite checklist

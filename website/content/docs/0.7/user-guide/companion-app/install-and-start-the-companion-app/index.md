@@ -1,9 +1,11 @@
 +++
 title = "Install And Start The Companion App"
-description = "Install Sambee Companion on Windows, macOS, or Linux so you can use local drives and desktop-app workflows."
+description = "Install Sambee Companion on Windows, macOS, or Linux so the Sambee browser app can connect to local drives and hand files to desktop apps."
 +++
 
-Sambee Companion is the desktop helper that unlocks local-drive access and desktop-app editing workflows.
+Sambee Companion is the desktop helper app that runs alongside the Sambee browser app.
+
+Once it is installed and running, Sambee can show local drives on your computer in the browser and can hand files off to desktop apps through **Open in App**.
 
 You do not need it for normal browser-based SMB access.
 
@@ -50,17 +52,16 @@ When a browser action hands control to Companion for the first time:
 
 Once Companion is installed and running, you can:
 
-- pair this browser for local-drive access
-- open supported files in installed desktop apps
+- pair this browser so local drives on your computer appear in Sambee
+- use **Open in App** to open supported files in installed desktop apps
 - upload those desktop edits back to their source location
 
-The next setup step for local files is [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/).
+## Choose Your Next Companion Task
 
-If Companion is already installed and you mainly want to change startup or conflict behavior, use [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
+After Companion is installed and running, the next step depends on what you want to do:
 
-## Related Pages
+- Files on your computer: [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/).
+- Desktop app editing: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
+- App choice, startup behavior, or conflict settings: [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
 
-- [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/): use this to unlock local-drive browsing in the current browser
-- [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/): use this for the normal desktop-editing workflow after installation
-- [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/): use this for app-choice and routine Companion settings
-- [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/): use this when a later save-back session is interrupted
+Interrupted later? Use [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).

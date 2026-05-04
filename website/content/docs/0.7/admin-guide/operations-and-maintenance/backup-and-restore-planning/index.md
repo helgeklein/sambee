@@ -3,7 +3,7 @@ title = "Backup And Restore Planning"
 description = "Plan backups around the Sambee data that actually matters and make sure you can restore the deployment state you depend on."
 +++
 
-Backup planning for Sambee is mainly about preserving the deployment state that the service cannot regenerate safely on its own.
+Backup planning for Sambee is mainly about preserving the deployment state that the service cannot recreate on its own.
 
 ## What Must Be Protected
 
@@ -21,9 +21,31 @@ The database is the most important part because it contains users, connections, 
 
 If it is lost, you lose the service-side configuration and security state that makes the deployment usable.
 
+If you back up only the image or the repository checkout and not the database, you do not have a usable backup.
+
+## Simple Backup Pattern
+
+The simplest safe backup is a cold backup:
+
+1. Stop the Sambee service.
+2. Copy `data/`, `docker-compose.yml`, and `config.toml` if you use it.
+3. Store the backup on different storage from the Sambee host.
+
+Example:
+
+```bash
+docker compose stop sambee
+cp -a data docker-compose.yml /path/to/backup/
+# If you use config.toml, back it up too.
+# cp -a config.toml /path/to/backup/
+docker compose up -d sambee
+```
+
+If you do not use `config.toml`, skip that copy step.
+
 ## Minimum Restore Readiness
 
-Even if you do not yet have a polished restore runbook, you should be able to answer these questions clearly:
+Even if you do not yet have a full restore runbook, you should be able to answer these questions clearly:
 
 - where is the authoritative copy of the Sambee data directory
 - how would you restore it onto a replacement host
@@ -32,7 +54,7 @@ Even if you do not yet have a polished restore runbook, you should be able to an
 
 ## How To Verify Restore Readiness
 
-The backup plan is not really ready until you know how you would prove the restore worked.
+The backup plan is not ready until you know how you would prove the restore worked.
 
 At minimum, define how you would verify:
 
@@ -41,6 +63,16 @@ At minimum, define how you would verify:
 - Sambee starts without an obvious database or startup fault
 - administrator sign-in works after restore
 - the key SMB workflows users depend on still work
+
+## Basic Restore Flow
+
+At minimum, a restore should look like this:
+
+1. Recreate the deployment directory on the replacement host.
+2. Restore `data/`, `docker-compose.yml`, and `config.toml` if you use it.
+3. Restore ownership on `data/` if needed so the container can write to it.
+4. Start Sambee with `docker compose up -d`.
+5. Confirm sign-in, logs, and a basic SMB workflow.
 
 ## Operational Recommendation
 
@@ -52,5 +84,4 @@ For the key path summary, see [Port And Path Reference](../../reference/port-and
 
 - [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this when restore posture is part of a broader recurring operations review
 - [Port And Path Reference](../../reference/port-and-path-reference/): review the core deployment files and persistent paths that must be preserved
-- [Configuration And Data Paths](../../reference/configuration-and-data-paths/): use this for the fuller host-side and container-side path map
 - [Update Sambee Safely](../update-sambee-safely/): use this when backup posture is part of an upgrade decision

@@ -1,17 +1,17 @@
 +++
 title = "Update Sambee Safely"
-description = "Update Sambee with a reviewed version, rebuild the deployment, and avoid risky upgrade habits."
+description = "Update Sambee with a released version, rebuild the deployment, and avoid risky upgrade habits."
 +++
 
-Updates should be deliberate. Do not upgrade production from an unreviewed branch tip.
+Updates should be deliberate. Do not upgrade production from the current branch tip.
 
 ## Recommended Update Flow
 
-Fetch the available tags and move to the trusted version you intend to deploy:
+Fetch the available tags and move to the release you intend to deploy:
 
 ```bash
 git fetch --tags
-git checkout <trusted-tag-or-commit>
+git checkout <release-tag>
 docker compose down
 docker compose build --pull --no-cache
 docker compose up -d
@@ -19,7 +19,7 @@ docker compose up -d
 
 ## Why This Flow Matters
 
-This sequence makes the deployed version explicit and avoids drifting forward to whatever happened to change upstream most recently.
+This sequence makes the deployed version explicit and avoids drifting forward to whatever changed upstream most recently.
 
 It also gives you a clean rebuild point instead of assuming the currently cached image still matches your operational intent.
 
@@ -46,7 +46,7 @@ Treat upgrade verification as part of the upgrade, not as optional follow-up.
 
 At minimum, confirm:
 
-- you are on the intended reviewed tag or commit
+- you are on the intended release tag or commit
 - `docker compose ps` shows the service healthy
 - the frontend and sign-in path still work
 - key SMB workflows still behave as expected

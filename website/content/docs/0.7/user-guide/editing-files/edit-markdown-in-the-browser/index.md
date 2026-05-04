@@ -23,11 +23,10 @@ From there you can:
 
 ## Search Behavior
 
-Search behavior changes slightly depending on the current mode.
+Search works a little differently depending on whether you are reading or editing.
 
-- In rendered view, the shared viewer search helps you find visible Markdown content.
-- In rich-text edit mode, search continues through the editor content.
-- In source-oriented or diff-oriented views, search behavior comes from the editor surface instead of the shared rendered-view search.
+- In rendered view, search looks through the visible Markdown content.
+- In edit mode, search runs inside the editor.
 
 ## Saving Changes
 
@@ -37,7 +36,7 @@ If you cancel instead, Sambee keeps the original file unchanged.
 
 ## Locking And Concurrent Changes
 
-For server-backed connections, Sambee can use edit locking to reduce the risk of multiple people changing the same file at the same time.
+For files stored on a share or server, Sambee can use edit locking to reduce the risk of multiple people changing the same file at the same time.
 
 If you run into a save problem, stale content, or a conflict warning:
 
@@ -47,8 +46,4 @@ If you run into a save problem, stale content, or a conflict warning:
 
 If Sambee says it cannot acquire the edit lock, stop retrying blindly and switch to [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
 
-## Related Pages
-
-- [Preview Supported Files](../../viewing-and-previewing/preview-supported-files/): use this if you are still deciding whether you need to edit or only inspect the Markdown file
-- [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/): use this when edit mode is blocked or you need help choosing between versions
-- [Common User Problems](../../troubleshooting/common-user-problems/): use this for the broader symptom-based troubleshooting path
+For broader editing trouble, use [Common User Problems](../../troubleshooting/common-user-problems/).

@@ -278,10 +278,10 @@ Type Styles
 
 @utility type-section-title {
   font-family: var(--font-secondary);
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: normal;
   font-size: var(--text-4xl);
+  font-weight: 700;
+  font-style: italic;
+  letter-spacing: normal;
   line-height: var(--line-height-heading-tight);
 
   @media (min-width: theme(--breakpoint-md)) {
@@ -358,10 +358,10 @@ Type Styles
 
 @utility type-list-item-title {
   font-family: var(--font-tertiary);
-  text-transform: uppercase;
   font-size: var(--text-list-item-title);
   font-weight: 700;
-  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-list-item-title);
   line-height: var(--line-height-heading-tight);
 }
 

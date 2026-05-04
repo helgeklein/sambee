@@ -3,13 +3,13 @@ title = "Mobile Navigation"
 description = "Understand what works well on mobile, what changes from desktop, and when to switch to a desktop browser instead."
 +++
 
-Sambee works on mobile devices, but the mobile experience is intentionally simpler than the desktop browser experience.
+Sambee works on phones and tablets, but the mobile experience is simpler than the desktop experience.
 
 ## What Mobile Is Good For
 
 Mobile is a good fit when you want to:
 
-- browse SMB-backed folders
+- explore network folders made available in Sambee
 - inspect supported previews
 - download files
 - complete lighter review or lookup tasks away from a desk
@@ -18,16 +18,18 @@ Mobile is a good fit when you want to:
 
 Compared with desktop, mobile navigation is more compact.
 
-- the interface focuses on a single-pane browsing flow
+- the interface focuses on a single-pane navigation flow
 - toolbar space is tighter
 - some desktop-oriented browser controls are simplified or moved behind menus
 - dual-pane workflows are not part of the mobile experience
 
-## Companion-Dependent Limits
+## When You Need Desktop
 
-Local-drive access and other Companion-dependent flows are desktop-first features.
+Some features only work on a desktop computer.
 
-On iOS and Android, Sambee shows that local drives require a desktop browser. If you need files from the local computer or want to continue in an installed desktop app, switch to a desktop browser on Windows, macOS, or Linux.
+On iOS and Android, local drives require a desktop browser.
+
+If you need files from the local computer or want to continue in an installed desktop app, switch to a desktop browser on Windows, macOS, or Linux.
 
 ## A Practical Rule
 

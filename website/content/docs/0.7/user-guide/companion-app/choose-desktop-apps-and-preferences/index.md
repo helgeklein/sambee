@@ -1,23 +1,26 @@
 +++
 title = "Choose Desktop Apps And Preferences"
-description = "Choose which desktop app Companion should use for a file type, and adjust the routine preferences that affect local-drive and save-back workflows."
+description = "Choose which desktop app Sambee Companion should launch when Sambee uses Open in App, and adjust the routine preferences that affect local-drive access and desktop editing."
 +++
 
-Use this page when Companion asks which desktop app to use, keeps opening the wrong kind of app, or you want to tune the routine behavior of desktop-editing sessions.
+Use this page when **Open in App** asks which app to use, keeps opening the wrong app, or you want to change routine Companion settings.
 
-## Choose An App The First Time
+## Choose An App
 
-When you use **Open in App** for a file type for the first time, Companion can ask which desktop app should handle it.
+When you use **Open in App** for a file type for the first time, the browser hands the request to Companion, and Companion can ask which desktop app should handle it.
 
-At that point you can:
+You can:
 
 - choose one of the apps Companion already found
 - use **Browse for another app…** if the editor you want is not listed
 - turn on **Always use this app** for that file type if you want Companion to remember the choice
 
-## Decide Whether To Remember The Choice
+## Should You Turn On Always Use This App?
 
-Remembering the app is useful when one editor is the normal answer for that file type.
+Turn it on when:
+
+- one app is the normal choice for that file type
+- you do not want to pick an app every time
 
 Leave the choice unpinned when:
 
@@ -31,17 +34,17 @@ Open the system tray or menu bar icon and choose **Preferences…** when you wan
 
 Use that panel for settings that affect many sessions, not just one file.
 
-## High-Value Preferences
+## Settings Most People Care About
 
-The preferences that matter most in normal use are:
+The settings that matter most in normal use are:
 
-- **Paired Browsers**: review which browsers can access local drives through this companion
+- **Paired Browsers**: review which browsers can access local drives through this helper app
 - **Upload conflict resolution**: choose whether Companion asks every time, always overwrites, or always saves a new copy when the server version changed while you were editing
 - **Start Sambee Companion when I sign in**: recommended if you use local drives regularly
 - **Desktop notifications**: decide whether edit events should create system notifications
 - **Temp file cleanup**: control how long recycled temporary copies are kept after editing finishes
 
-## Practical Defaults
+## Safe Starting Settings
 
 If you want a safe starting point:
 
@@ -53,15 +56,12 @@ If you want a safe starting point:
 
 If Companion still opens the wrong app:
 
+- stop and avoid editing in the wrong tool
 - choose the correct app or use **Browse for another app…** the next time the app picker appears
-- avoid blind save-back attempts if the file opened in an unsuitable editor
-- if Companion no longer shows the chooser and immediately opens the wrong app, stop using that workflow blindly and move to the broader troubleshooting path instead of editing in the wrong tool
-- use the broader troubleshooting path if the problem is really that **Open in App** no longer behaves normally at all
+- if Companion no longer shows the chooser and immediately opens the wrong app, use the broader troubleshooting path before continuing
 
-## Related Pages
+Normal desktop-editing workflow: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 
-- [Install And Start The Companion App](../../companion-app/install-and-start-the-companion-app/): use this if Companion is not installed or not running yet
-- [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/): use this for the normal desktop-editing workflow
-- [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/): use this when the save-back session was interrupted
-- [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/): use this when the issue is really version conflict handling rather than app choice
-- [Common User Problems](../../troubleshooting/common-user-problems/): use this when Companion behavior is failing more broadly
+Interrupted later: [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
+
+Broader Companion trouble: [Common User Problems](../../troubleshooting/common-user-problems/).

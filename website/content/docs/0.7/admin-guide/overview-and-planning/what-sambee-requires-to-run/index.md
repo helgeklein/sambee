@@ -1,39 +1,33 @@
 +++
 title = "What Sambee Requires To Run"
-description = "Understand the deployment model, runtime prerequisites, trust boundaries, and when to use the other Sambee docs books."
+description = "Turn Sambee's deployment model into a short runtime and prerequisite checklist."
 +++
 
-Sambee does not require many moving parts, but it does depend on a few environment-level prerequisites and clear responsibility boundaries.
-
-Use this page to confirm those requirements before deployment starts.
-
-If you need the high-level service shape first, start with [Deployment Architecture Overview](../deployment-architecture-overview/).
+This page follows Deployment Architecture Overview and turns that model into a short prerequisite checklist.
 
 ## Core Runtime Requirements
 
 At a minimum, a working Sambee deployment needs:
 
-- Docker and Docker Compose on the host where you plan to run Sambee
-- persistent local storage for Sambee data
-- network reachability between Sambee and the SMB infrastructure it must access
-- a deployment model for HTTPS and external access if users will not stay on a local-only network path
+- Docker and `docker compose` on the host where you plan to run Sambee
+- persistent local storage for the `data/` directory
+- network access from Sambee to the SMB server or NAS it must reach
+- if users will connect through a hostname or over HTTPS, a reverse-proxy or ingress plan for that traffic
+
+In practical terms, make sure the host can:
+
+- resolve the SMB server name or IP address
+- reach the SMB service on the ports your environment uses, usually `445` and sometimes `139`
+- keep the `data/` directory across restarts, rebuilds, and host reboots
 
 ## Trust And Responsibility Boundaries
 
-These boundaries matter when you are deciding who should troubleshoot what.
+These boundaries help you decide who should troubleshoot a problem.
 
 - The Sambee service is your responsibility as an administrator.
-- SMB access depends on the storage environment Sambee is connecting to.
-- Companion-dependent features depend partly on the user's local desktop environment.
-- Browser-only usage issues belong in the User Guide until they clearly become deployment, network, or policy problems.
-
-## Which Docs Book To Use Next
-
-Use the right guide for the job:
-
-- stay in the Admin Guide for deployment, configuration, service health, logging, updates, backups, and support diagnostics
-- send normal browsing, previewing, editing, and local-drive usage questions to the [User Guide](../../../user-guide/)
-- use the [Developer Guide](../../../developer-guide/) when the question becomes implementation-facing
+- SMB access also depends on the storage system Sambee is connecting to, including share permissions, name resolution, and network policy.
+- Companion-based features also depend on the user's local desktop environment, such as installed apps, certificate trust, and proxy settings.
+- Browser-only usage questions belong in the User Guide until they clearly become deployment, network, or policy problems.
 
 ## Next Steps
 
@@ -42,6 +36,5 @@ Use the right guide for the job:
 
 ## Related Pages
 
-- [Deployment Architecture Overview](../deployment-architecture-overview/): use this first if you need the simple deployment shape before checking prerequisites
-- [Configuration And Data Paths](../../reference/configuration-and-data-paths/): use this when the next question is where the deployment files and persistent data actually live
+- [Port And Path Reference](../../reference/port-and-path-reference/): use this when the next question is where the deployment files and persistent data actually live
 - [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the service is already deployed but no longer behaving normally

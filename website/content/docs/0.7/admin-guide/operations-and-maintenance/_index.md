@@ -3,7 +3,7 @@ title = "Operations And Maintenance"
 description = "Handle the normal service-owner tasks: logs, restarts, upgrades, and backups."
 +++
 
-This section is for the routine tasks that keep a Sambee deployment healthy after the first rollout.
+This section is for routine work on a healthy Sambee deployment.
 
 Start with:
 
@@ -12,4 +12,4 @@ Start with:
 - [Update Sambee Safely](./update-sambee-safely/)
 - [Backup And Restore Planning](./backup-and-restore-planning/)
 
-Use this section for planned service-owner work when the deployment is fundamentally healthy. If the service is unavailable or behaving unexpectedly, continue to [Troubleshooting](../troubleshooting/).
+Use this section for planned service-owner work such as log review, backups, and upgrades. If the service is unavailable or behaving unexpectedly, continue to [Troubleshooting](../troubleshooting/).

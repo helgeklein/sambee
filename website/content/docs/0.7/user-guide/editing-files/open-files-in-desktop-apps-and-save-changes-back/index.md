@@ -1,6 +1,6 @@
 +++
 title = "Open Files In Desktop Apps And Save Changes Back"
-description = "Use Sambee Companion to open a file in an installed desktop app, finish editing, and return the updated file to its source location."
+description = "Use Open in App with Sambee Companion installed and running so the browser can open a file in a desktop app and return the updated version to its source location."
 +++
 
 Use this workflow when the browser is not the right editor for the file you need to change.
@@ -9,55 +9,59 @@ Use this workflow when the browser is not the right editor for the file you need
 
 You need:
 
-- Sambee Companion installed on this computer
-- Companion running
+- Sambee Companion installed on your computer
+- Sambee Companion running
 - a compatible installed desktop app for the file type you want to open
 
-If Companion is not ready yet, start with [Install And Start The Companion App](../../companion-app/install-and-start-the-companion-app/).
+Need Companion first? Start with [Install And Start The Companion App](../../companion-app/install-and-start-the-companion-app/).
 
-## Open The File In A Desktop App
+Sambee starts this workflow from the browser. Sambee Companion handles the temporary local copy, the desktop-app handoff, and the upload back to the source location.
 
-1. In Sambee, select the file you want to edit.
-2. Use the **Open in App** action.
-3. On first use for a file type, choose the desktop app you want Sambee Companion to use.
-4. Let the file open locally in that app.
+## Good To Know Before You Edit
 
-Companion downloads the file to a temporary local location and opens it for you.
+- The first time you use **Open in App** for a file type, Companion may ask which desktop app should open it.
+- Conflict handling can depend on your Companion settings.
+- App choice or conflict settings: [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
+- Conflict prompt background: [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
+
+## What This Workflow Does
+
+1. In Sambee, select the file and choose **Open in App**.
+2. The browser hands the request to Sambee Companion.
+3. On first use for a file type, choose which desktop app should open it.
+4. Companion downloads a temporary local copy.
+5. Companion opens that copy in your desktop app.
+6. You edit the file locally while the **Done Editing** window stays open.
+
+This lets you keep working in the desktop app you already know.
 
 ## Finish The Editing Session
 
-While you work, Companion keeps a small **Done Editing** window visible as a reminder that this file is part of a save-back workflow.
+When you finish in the desktop app, return to the **Done Editing** window.
 
-When you are finished:
+- Use **Upload & Close** to send the updated file back to its source location.
+- Use **Discard** if you do not want to keep the local changes.
 
-- use **Upload & Close** to send the updated file back to its source location
-- use **Discard** if you do not want to upload the local changes
+Closing the desktop app by itself does not upload the file.
 
-## Large Files And Conflicts
+## Large Files And Version Conflicts
 
 Some files trigger extra confirmation or conflict handling.
 
 - Very large files may ask for confirmation before the local download starts.
 - If the file on the server changed while you were editing, Sambee Companion may ask how to resolve the conflict.
-- Depending on Companion settings, the result may be an overwrite prompt, a save-as-copy flow, or another user-facing resolution choice.
+- Depending on Companion settings, you may be asked what to do, or Companion may follow the default conflict action you already chose.
 
-If you want to change the default conflict behavior ahead of time, use [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
+To change the default conflict behavior ahead of time, use [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
 
 ## If Something Goes Wrong
 
 The most common user-facing problems are:
 
-- **Open in App** does nothing because Companion is not running or the browser blocked the deep link
+- **Open in App** does nothing because Sambee Companion is not running or the browser blocked the handoff
 - the expected desktop app is not selected yet
 - the upload does not complete after editing
 
-If the session was interrupted and the **Done Editing** window is gone, use [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
+Session interrupted and the **Done Editing** window is gone? Use [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
 
-For the broader symptom path, use [Common User Problems](../../troubleshooting/common-user-problems/).
-
-## Related Pages
-
-- [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/): use this for app choice, startup behavior, and conflict settings
-- [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/): use this when the session was interrupted before upload finished
-- [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/): use this when the problem is really about version conflicts rather than launching the editor
-- [Common User Problems](../../troubleshooting/common-user-problems/): use this when the desktop-editing issue is part of a broader Companion problem
+For broader **Open in App** or Companion trouble, use [Common User Problems](../../troubleshooting/common-user-problems/).

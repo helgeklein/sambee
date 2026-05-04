@@ -3,7 +3,7 @@ title = "Common File Management Tasks"
 description = "Handle upload, download, folder creation, rename, copy, move, and delete workflows in Sambee."
 +++
 
-Sambee supports the file tasks users reach for most often in the browser.
+Sambee supports the file tasks users reach for most often in the browser, whether the files come from SMB shares or from local drives already exposed there.
 
 ## Upload And Download
 
@@ -11,7 +11,9 @@ Use upload when you want to place a local file into the current Sambee folder.
 
 Use download when you want a local copy of a file from Sambee.
 
-These are good browser-first tasks and normally do not require Companion.
+These are good browser-first tasks.
+
+For SMB shares, no Companion setup is needed. For files on your computer, Sambee Companion still has to be installed, running, and paired before those local drives appear in the browser.
 
 ## Create Folders
 
@@ -58,9 +60,8 @@ If an upload, rename, move, or delete action fails:
 
 If the same write action fails repeatedly on the same source, treat it as an access or environment issue rather than a one-off mistake.
 
-## Related Pages
+For two-pane copy and move work, use [Explore, Search, And Use Dual Pane](../../browsing-and-navigation/browse-search-and-use-dual-pane/).
 
-- [Browse, Search, And Use Dual Pane](../../browsing-and-navigation/browse-search-and-use-dual-pane/): use this when copy and move work is easier with two panes visible at once
-- [Connect To An SMB Share](../../accessing-files/connect-to-an-smb-share/): use this when the real problem is that the browser-side storage path is not available yet
-- [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/): use this when the files you need are on the current computer rather than an SMB share
-- [Common User Problems](../../troubleshooting/common-user-problems/): use this when file-management failures are only one symptom of a broader issue
+Need file access first? Start with [What Sambee Can Access](../../getting-started/what-sambee-can-access/).
+
+Repeated failures? Use [Common User Problems](../../troubleshooting/common-user-problems/).

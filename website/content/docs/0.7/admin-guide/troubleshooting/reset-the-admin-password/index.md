@@ -46,7 +46,7 @@ docker compose up -d sambee
 Read the newly generated password from the startup logs:
 
 ```bash
-docker compose logs sambee | grep -A 5 "FIRST-TIME SETUP"
+docker compose logs sambee --tail 100 | grep -A 5 "FIRST-TIME SETUP"
 ```
 
 Then sign in again with:
@@ -58,7 +58,7 @@ Then sign in again with:
 
 Confirm all of the following before closing the incident:
 
-- the logs show a fresh first-time setup block with a new password
+- the logs show a fresh `FIRST-TIME SETUP - SAVE THESE CREDENTIALS` block with a new password
 - the admin sign-in now works
 - the rest of the deployment state is still present after login
 
