@@ -1,11 +1,11 @@
 +++
-title = "What Happens When A File Cannot Be Previewed"
+title = "What Happens When a File Cannot Be Previewed"
 description = "Understand the difference between unsupported and temporarily unavailable previews, and choose the right next step when Sambee cannot show a file in the browser."
 +++
 
 Use this page when Sambee does not show the in-browser preview you expected.
 
-## Start With The Message Sambee Shows
+## Start with the Message Sambee Shows
 
 Look at the preview message and use the matching path.
 
@@ -15,7 +15,7 @@ Look at the preview message and use the matching path.
 | Sambee says the preview could not load | The file type may still be supported, but the viewer failed right now | Retry once, then use another path if needed |
 | The preview opens, but it is not enough | The browser viewer is fine for inspection, but not for your actual task | Switch to editing or downloading |
 
-## When The Format Is Not Supported
+## When the Format Is Not Supported
 
 If Sambee reports that the viewer is unsupported, treat that as a format limitation rather than a broken browser session.
 
@@ -25,7 +25,7 @@ Your next step is usually one of these:
 - use **Open in App** if you need to continue in an installed desktop app and Sambee Companion is installed and running on your computer
 - check [Supported File Formats](../../reference/supported-file-formats/) if you are not sure whether the format is expected to preview in Sambee
 
-## When The Preview Should Work But Fails Right Now
+## When the Preview Should Work but Fails Right Now
 
 If Sambee reports that the viewer is unavailable, the file browser is still usable even though that viewer could not load right now.
 
@@ -39,7 +39,7 @@ Try these steps in order:
 
 If the same problem keeps happening across multiple files that should normally preview, it may be an administrator issue rather than something you can fix from the browser alone.
 
-## When You Can Preview The File But Still Need More
+## When You Can Preview the File but Still Need More
 
 Some files open in a browser viewer, but you may still need a different path.
 
@@ -51,7 +51,7 @@ Common examples include:
 
 In those cases, use the preview as a quick inspection step and then switch to the workflow that matches your goal.
 
-## When To Stop Troubleshooting As A User
+## When to Stop Troubleshooting as a User
 
 Involve an administrator when:
 

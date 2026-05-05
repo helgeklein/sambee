@@ -1,5 +1,5 @@
 +++
-title = "Browser-To-Companion Trust Model"
+title = "Browser-to-Companion Trust Model"
 description = "Understand the security model behind deep links, pairing, localhost access, and the browser-to-companion boundary."
 +++
 
@@ -48,7 +48,7 @@ The pairing flow is deliberately shaped like numeric-comparison pairing.
 
 That dual confirmation step is what turns “something can reach localhost” into “the user intentionally paired this browser origin with this desktop app.”
 
-## Request Authentication After Pairing
+## Request Authentication after Pairing
 
 After pairing, companion-bound requests use HMAC-based authentication rather than the server's bearer-token flow.
 
@@ -72,7 +72,7 @@ After pairing, companion-bound requests use HMAC-based authentication rather tha
 - anything that weakens HMAC validation, timestamp checking, or origin scoping
 - anything that blurs the distinction between local-drive workflows and SMB-backed edit workflows
 
-## Where The Main Logic Lives
+## Where the Main Logic Lives
 
 | Path | Responsibility |
 |---|---|

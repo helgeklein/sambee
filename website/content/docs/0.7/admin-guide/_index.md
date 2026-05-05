@@ -2,11 +2,9 @@
 title = "Admin Guide"
 +++
 
-Sambee is a self-hosted web app for browsing and managing files on SMB (Server Message Block) shares from a browser.
+Use this guide to plan and deploy a Sambee service, configure storage, networking, and persistence, maintain, troubleshoot, and recover the deployment, and handle escalated Companion-related support issues.
 
-Use this guide to plan, deploy, configure, maintain, and troubleshoot a Sambee service. Sambee Companion is the optional desktop app for local-drive access and desktop-app editing.
-
-Start here if you want to:
+## Start Here if You Want To
 
 - understand what Sambee needs in order to run
 - deploy Sambee with Docker and persistent storage
@@ -15,22 +13,20 @@ Start here if you want to:
 - handle routine operations such as logs, restarts, upgrades, and backups
 - support escalated Sambee Companion problems
 
-If you are trying to use Sambee as an end user, use the [User Guide](../user-guide/) instead. If the question becomes implementation-facing, use the [Developer Guide](../developer-guide/).
-
 ## In This Guide
 
-- [Overview And Planning](./overview-and-planning/): what Sambee is, how it fits into your environment, and what it needs to run
-- [Installation And Deployment](./installation-and-deployment/): the shortest path to a working deployment and first admin sign-in
-- [Network And Reverse Proxy](./network-and-reverse-proxy/): HTTPS, hostnames, and reverse-proxy setup
-- [Configuration](./configuration/): local settings, ports, persistence, and the config keys admins most often change
-- [Operations And Maintenance](./operations-and-maintenance/): logs, restarts, routine checks, upgrades, and backups
-- [User Support And Escalation](./user-support-and-escalation/): when a user problem becomes an admin task
-- [Troubleshooting](./troubleshooting/): startup, connectivity, admin-password recovery, and proxy-side failures
-- [Reference](./reference/): ports, paths, and companion-support lookup material
+- [Overview and Planning](./overview-and-planning/deployment-architecture-overview/): what Sambee is, how it fits into your environment, and what it needs to run
+- [Installation and Deployment](./installation-and-deployment/deploy-sambee-with-docker/): the shortest path to a working deployment and first admin sign-in
+- [Network and Reverse Proxy](./network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): HTTPS, hostnames, and reverse-proxy setup
+- [Configuration](./configuration/configure-local-settings-and-persistent-storage/): local settings, ports, persistence, and the config keys admins most often change
+- [Operations and Maintenance](./operations-and-maintenance/view-logs-and-restart-services/): logs, restarts, routine checks, upgrades, and backups
+- [User Support and Escalation](./user-support-and-escalation/support-companion-app-escalation/): when a user problem becomes an admin task
+- [Troubleshooting](./troubleshooting/troubleshoot-startup-and-connectivity-issues/): startup, connectivity, admin-password recovery, and proxy-side failures
+- [Reference](./reference/port-and-path-reference/): ports, paths, and companion-support lookup material
 
-## Common Deep Dives
+## Use the Right Guide
 
-- [Reset The Admin Password](./troubleshooting/reset-the-admin-password/): recover administrator access without resetting the whole deployment
-- [Reverse Proxy Misconfiguration](./troubleshooting/reverse-proxy-misconfiguration/): diagnose proxy-side hostname, HTTPS, and reachability failures
-- [Companion Support Reference](./reference/companion-support-reference/): find companion logs, preferences, crash-diagnostic entry points, and Windows WebView2 notes
+- Use this Admin Guide for deployment, configuration, operations, and service troubleshooting.
+- Use the [User Guide](../user-guide/) when the next step belongs to the person using Sambee day to day.
+- Use the [Developer Guide](../developer-guide/) when the question becomes implementation-facing.
 

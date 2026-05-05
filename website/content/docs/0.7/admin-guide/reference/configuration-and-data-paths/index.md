@@ -1,9 +1,9 @@
 +++
-title = "Container Paths And Mount Mapping"
+title = "Container Paths and Mount Mapping"
 description = "Look up the container-side paths and host-to-container mappings used by Sambee deployments."
 +++
 
-Use [Port And Path Reference](../port-and-path-reference/) first for the main list of ports, deployment files, and persistent paths.
+Use [Port and Path Reference](../port-and-path-reference/) first for the main list of ports, deployment files, and persistent paths.
 
 Use this page only when you need to translate a host-side path into the container path Sambee sees, or when a mount assumption looks wrong.
 
@@ -16,7 +16,7 @@ Use this page only when you need to translate a host-side path into the containe
 | `/app/config.toml` | Container-side path for the optional mounted config file |
 | `/app/data/directory_cache/` | Default container-side location for the saved directory index when the relative cache setting is used |
 
-## Default Host-To-Container Mapping
+## Default Host-to-Container Mapping
 
 These mappings are the ones administrators usually need when comparing a deployment file on the host with what Sambee sees inside the container:
 
@@ -35,6 +35,6 @@ Use this page when the question is primarily:
 
 ## Related Pages
 
-- [Port And Path Reference](../port-and-path-reference/): start here for the main lookup page for ports, deployment files, and persistent paths
-- [Configure Local Settings And Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): use this when the question is how to set these paths up safely
+- [Port and Path Reference](../port-and-path-reference/): start here for the main lookup page for ports, deployment files, and persistent paths
+- [Configure Local Settings and Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): use this when the question is how to set these paths up safely
 - [Configuration Key Reference](../../configuration/configuration-key-reference/): use this when the question is which config key changes behavior rather than where the files live

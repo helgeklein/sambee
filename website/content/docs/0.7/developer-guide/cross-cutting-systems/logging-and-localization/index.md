@@ -1,5 +1,5 @@
 +++
-title = "Logging And Localization"
+title = "Logging and Localization"
 description = "Understand the shared logging and localization rules that span the browser app, backend, and companion."
 +++
 
@@ -23,7 +23,7 @@ The browser app supports both:
 
 That means a logging change can affect both developer ergonomics and support visibility.
 
-### Companion And Service-Side Logging
+### Companion and Service-Side Logging
 
 The companion has its own desktop-side logging path, and operational logs are still important on the backend and in local development scripts.
 
@@ -37,7 +37,7 @@ For local environment diagnosis, the repo also provides supported log and servic
 
 Localization is a typed system, not just a string file.
 
-### Sources Of Truth
+### Sources of Truth
 
 | Area | Source |
 |---|---|
@@ -68,6 +68,8 @@ English is the source locale, and the pseudo-locale is generated automatically f
 - browser-localization behavior and companion-localization sync should keep using effective locale values rather than raw unresolved preferences
 - app-owned UI text should stay translatable
 
+For the concrete contributor workflow, continue to [Localization and Locale Behavior](../localization-and-locale-behavior/).
+
 ## Common Failure Modes
 
 - adding UI text without a translation key
@@ -93,5 +95,6 @@ Use [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overv
 
 ## Related Pages
 
-- [Frontend Logging And Tracing](../frontend-logging-and-tracing/): follow the browser app's dual console-plus-tracing pipeline in more detail
-- [How To Plan And Review A Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope cross-boundary changes before the implementation sprawls
+- [Localization and Locale Behavior](../localization-and-locale-behavior/): typed translation workflow, locale-preference rules, and browser-to-companion sync behavior
+- [Frontend Logging and Tracing](../frontend-logging-and-tracing/): follow the browser app's dual console-plus-tracing pipeline in more detail
+- [How to Plan and Review a Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope cross-boundary changes before the implementation sprawls

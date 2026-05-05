@@ -14,7 +14,7 @@ Mobile is a good fit when you want to:
 - download files
 - complete lighter review or lookup tasks away from a desk
 
-## What Changes On Mobile
+## What Changes on Mobile
 
 Compared with desktop, mobile navigation is more compact.
 

@@ -22,7 +22,20 @@ Preview support does not mean every file opens in exactly the same way every tim
 - Multi-page or specialist image formats may preview as a simplified view rather than showing every original editing feature.
 - Preview support is separate from desktop-app editing support.
 
-## When A File Type Is Not Supported
+## Format-Specific Preview Notes
+
+Some converted-image formats have specific preview behavior that is useful to know ahead of time.
+
+- multi-page TIFF files preview with the first page rather than every page in the source file
+- PSD and PSB previews show the flattened composite view, not interactive layer editing
+- EPS and AI files are rendered into a high-quality raster preview for browser viewing
+- HDR formats such as EXR and Radiance HDR are tone-mapped for ordinary browser display
+- whole-slide formats such as SVS, NDPI, SCN, MRXS, VMS, VMU, and BIF preview as an overview or first practical level rather than as a full microscopy workstation experience
+- FITS and similar scientific-image previews use visibility scaling so the content is inspectable in the browser
+
+If you need the original editing model rather than the browser preview, switch to download or **Open in App**.
+
+## When a File Type Is Not Supported
 
 If a file type does not have a browser preview, Sambee does not fake one.
 

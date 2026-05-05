@@ -1,5 +1,5 @@
 +++
-title = "Backup And Restore Planning"
+title = "Backup and Restore Planning"
 description = "Plan backups around the Sambee data that actually matters and make sure you can restore the deployment state you depend on."
 +++
 
@@ -15,7 +15,7 @@ At minimum, protect:
 
 The database is the most important part because it contains users, connections, security keys, and encrypted passwords.
 
-## Why The Database Matters So Much
+## Why the Database Matters so Much
 
 `data/sambee.db` is not just a convenience file. It is the operational state of the deployment.
 
@@ -36,8 +36,8 @@ Example:
 ```bash
 docker compose stop sambee
 cp -a data docker-compose.yml /path/to/backup/
-# If you use config.toml, back it up too.
-# cp -a config.toml /path/to/backup/
+# If You Use Config.toml, Back It up Too.
+# Cp -a Config.toml /Path/to/backup/
 docker compose up -d sambee
 ```
 
@@ -52,7 +52,7 @@ Even if you do not yet have a full restore runbook, you should be able to answer
 - how would you restore the compose and optional config files used by the deployment
 - how would you verify that the restored service actually came back cleanly
 
-## How To Verify Restore Readiness
+## How to Verify Restore Readiness
 
 The backup plan is not ready until you know how you would prove the restore worked.
 
@@ -78,10 +78,10 @@ At minimum, a restore should look like this:
 
 Treat backup planning as part of deployment completion, not as an optional follow-up after users are already relying on the service.
 
-For the key path summary, see [Port And Path Reference](../../reference/port-and-path-reference/).
+For the key path summary, see [Port and Path Reference](../../reference/port-and-path-reference/).
 
 ## Related Pages
 
 - [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this when restore posture is part of a broader recurring operations review
-- [Port And Path Reference](../../reference/port-and-path-reference/): review the core deployment files and persistent paths that must be preserved
+- [Port and Path Reference](../../reference/port-and-path-reference/): review the core deployment files and persistent paths that must be preserved
 - [Update Sambee Safely](../update-sambee-safely/): use this when backup posture is part of an upgrade decision

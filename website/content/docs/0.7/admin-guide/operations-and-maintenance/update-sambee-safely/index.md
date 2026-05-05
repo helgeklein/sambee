@@ -40,7 +40,7 @@ After the new version is up:
 - confirm key SMB workflows still work
 - check logs for obvious startup regressions
 
-## Verify The Upgraded Deployment
+## Verify the Upgraded Deployment
 
 Treat upgrade verification as part of the upgrade, not as optional follow-up.
 
@@ -52,10 +52,10 @@ At minimum, confirm:
 - key SMB workflows still behave as expected
 - the recent logs do not show an obvious startup or migration regression
 
-If the service does not return cleanly after the update, use [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
+If the service does not return cleanly after the update, use [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
 
 ## Related Pages
 
 - [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this for the compact before-and-after change checklist
-- [Backup And Restore Planning](../backup-and-restore-planning/): confirm your recovery posture before risky upgrades
-- [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the upgraded service does not come back cleanly
+- [Backup and Restore Planning](../backup-and-restore-planning/): confirm your recovery posture before risky upgrades
+- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the upgraded service does not come back cleanly

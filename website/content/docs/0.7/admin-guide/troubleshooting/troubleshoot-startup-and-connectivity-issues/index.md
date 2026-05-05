@@ -1,11 +1,11 @@
 +++
-title = "Troubleshoot Startup And Connectivity Issues"
+title = "Troubleshoot Startup and Connectivity Issues"
 description = "Troubleshoot the most common service-side failures in Sambee: startup problems, frontend loading issues, SMB connectivity failures, and related login problems."
 +++
 
 Use this page when the deployment itself looks unhealthy or unreachable.
 
-## Verify The Failure Boundary First
+## Verify the Failure Boundary First
 
 Before changing anything, identify which boundary is actually failing.
 
@@ -48,7 +48,7 @@ If the container is healthy but users still cannot reach the UI correctly, inspe
 
 If the direct application path works but the hostname or HTTPS path does not, go to [Reverse Proxy Misconfiguration](../reverse-proxy-misconfiguration/).
 
-## Cannot Connect To SMB Shares
+## Cannot Connect to SMB Shares
 
 If Sambee itself is up but SMB access fails, check basic network reachability to the target SMB host:
 
@@ -64,13 +64,13 @@ Then verify:
 
 Ping is only a quick reachability check. Even if ping works, Sambee still needs SMB access on the right ports for your environment.
 
-## First Login Or Admin Password Problems
+## First Login or Admin Password Problems
 
 If the first login fails, confirm that you retrieved the password from the expected startup logs.
 
 You should see a `FIRST-TIME SETUP - SAVE THESE CREDENTIALS` block with the generated username and password.
 
-If the admin password is lost later, use [Reset The Admin Password](../reset-the-admin-password/) instead of keeping the recovery steps buried inside this broad troubleshooting page.
+If the admin password is lost later, use [Reset the Admin Password](../reset-the-admin-password/) instead of keeping the recovery steps buried inside this broad troubleshooting page.
 
 ## Companion-Related Symptoms That Reach This Page
 
@@ -88,6 +88,6 @@ If you need more detail from the desktop app, collect the Companion logs and ena
 
 ## Related Pages
 
-- [Reset The Admin Password](../reset-the-admin-password/): use this when the deployment is healthy but administrator access needs recovery
+- [Reset the Admin Password](../reset-the-admin-password/): use this when the deployment is healthy but administrator access needs recovery
 - [Reverse Proxy Misconfiguration](../reverse-proxy-misconfiguration/): use this when the service is up but the hostname or HTTPS path is wrong
 - [Support Companion-App Escalation](../../user-support-and-escalation/support-companion-app-escalation/): use this when the failure is moving into environment or desktop-support diagnostics

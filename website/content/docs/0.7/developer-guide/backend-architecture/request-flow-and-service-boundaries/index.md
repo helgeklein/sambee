@@ -1,5 +1,5 @@
 +++
-title = "Request Flow And Service Boundaries"
+title = "Request Flow and Service Boundaries"
 description = "Understand how requests move through Sambee's backend layers and which responsibilities belong to API handlers, models, storage code, and long-running services."
 +++
 
@@ -30,7 +30,7 @@ For a typical browse or file-management request:
 
 The handler should remain the HTTP-facing boundary, not the place where SMB implementation details accumulate.
 
-### Viewer And Preview Flow
+### Viewer and Preview Flow
 
 Preview-related requests are not just file streaming.
 
@@ -42,17 +42,22 @@ They can involve:
 
 This is one reason preview behavior spans both `api/`, `utils/`, and `services/` code.
 
+If the change affects server-side conversion or preprocessing, continue to [Image Preprocessing and Conversion Pipeline](../image-preprocessing-and-conversion-pipeline/).
+
 ### Directory-Change Flow
 
 Directory freshness is coordinated through a service boundary.
 
 1. the WebSocket layer manages subscriptions
-2. the directory monitor owns SMB-side watcher lifecycle
-3. change notifications are pushed back to subscribed clients
+2. the directory monitor owns SMB-side watcher lifecycle for browser subscriptions
+3. the directory cache uses its own watcher path to keep connection-level directory-search data fresh
+4. change notifications are pushed back to subscribed clients when browser-visible refresh is needed
 
 That split matters because connection recovery and handle cleanup are not ordinary request work.
 
-## Why The Layering Matters
+If the change affects watcher lifecycle, subscriber bookkeeping, or directory freshness behavior, continue to [SMB Change Notification and Directory Freshness](../smb-change-notification-and-directory-freshness/).
+
+## Why the Layering Matters
 
 ### API Contracts
 
@@ -66,15 +71,17 @@ The storage layer is where SMB-specific behavior belongs. It should not be reimp
 
 Background coordination such as directory monitoring belongs in services because it outlives one request and needs explicit lifecycle management.
 
-## Signs The Boundary Is Slipping
+## Signs the Boundary Is Slipping
 
 - request handlers know too much about SMB implementation details
 - the same response-shaping logic is duplicated across endpoints
 - storage helpers start taking HTTP-specific parameters
 - service-level coordination is recreated inside one endpoint instead of reused
 
-## Where To Continue
+## Where to Continue
 
-- Use [File Operations And Edit Locking](../file-operations-and-edit-locking/) when the change affects create, rename, copy, move, upload, or companion-assisted editing.
+- Use [Image Preprocessing and Conversion Pipeline](../image-preprocessing-and-conversion-pipeline/) when the change affects the backend preview pipeline, conversion policy, or preprocessor behavior.
+- Use [SMB Change Notification and Directory Freshness](../smb-change-notification-and-directory-freshness/) when the change affects watcher lifecycle, WebSocket refresh behavior, or directory-cache freshness.
+- Use [File Operations and Edit Locking](../file-operations-and-edit-locking/) when the change affects create, rename, copy, move, upload, or companion-assisted editing.
 - Use [Frontend Overview](../../frontend-architecture/frontend-overview/) when the backend change alters browser-visible workflow behavior.
 - Use [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/) when the changed boundary requires broader validation.

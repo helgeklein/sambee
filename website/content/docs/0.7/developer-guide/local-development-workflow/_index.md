@@ -7,7 +7,7 @@ This section is the contributor entry point for getting Sambee running locally a
 
 Start with:
 
-- [Set Up The Development Environment](./set-up-the-development-environment/)
+- [Set up the Development Environment](./set-up-the-development-environment/)
 - [Common Task Commands](./common-task-commands/)
 
 If you already have the repo running locally and want subsystem context, continue to [Backend Architecture](../backend-architecture/), [Frontend Architecture](../frontend-architecture/), or [Companion Architecture](../companion-architecture/).

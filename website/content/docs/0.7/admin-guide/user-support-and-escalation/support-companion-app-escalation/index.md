@@ -7,7 +7,7 @@ Most normal Companion usage belongs in the User Guide. This page is for the case
 
 Sambee Companion is the optional desktop app used for local-drive access and for opening files in installed desktop applications.
 
-## When An Issue Belongs Here
+## When an Issue Belongs Here
 
 Move from the User Guide into this admin path when the next step involves:
 
@@ -25,7 +25,7 @@ Examples include:
 - Companion launches but repeatedly fails to upload files back
 - Companion itself will not start on a supported desktop system
 
-## What To Check Before Going Deeper
+## What to Check before Going Deeper
 
 Start with the fastest separation between user issue and environment issue.
 
@@ -35,9 +35,14 @@ Start with the fastest separation between user issue and environment issue.
 - confirm there is no broader service outage or connectivity problem affecting multiple users
 - confirm whether the problem affects one user, one machine, or many users
 
-## Environment And Trust Considerations
+## Environment and Trust Considerations
 
 For HTTPS-based environments, Companion depends on the local operating system's network and trust settings.
+
+In normal operation, that means Companion uses:
+
+- the operating system's proxy configuration
+- the operating system's native certificate trust store
 
 That matters especially when:
 
@@ -47,7 +52,7 @@ That matters especially when:
 
 In practice, that usually means checking the user's proxy settings, certificate trust store, and whether security software is blocking the local workflow.
 
-## When This Stops Being A Companion-Only Issue
+## When This Stops Being a Companion-Only Issue
 
 Move out of the companion-specific support path when:
 
@@ -55,7 +60,7 @@ Move out of the companion-specific support path when:
 - the failure affects multiple users in the same way
 - the real problem is hostname, HTTPS, or reverse-proxy reachability rather than a local desktop workflow
 
-## Where The Support Details Live
+## Where the Support Details Live
 
 Keep the workflow decisions on this page, but use the dedicated companion reference page for the stable support details such as:
 
@@ -67,5 +72,5 @@ Keep the workflow decisions on this page, but use the dedicated companion refere
 ## Related Pages
 
 - [Companion Support Reference](../../reference/companion-support-reference/): use this for log paths, preference locations, verbose logging, and crash-diagnostic entry points
-- [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the problem is broader than companion support alone
+- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the problem is broader than companion support alone
 - [Reverse Proxy Misconfiguration](../../troubleshooting/reverse-proxy-misconfiguration/): use this when the real failure is HTTPS or proxy-side reachability

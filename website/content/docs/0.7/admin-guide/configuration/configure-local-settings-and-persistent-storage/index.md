@@ -1,5 +1,5 @@
 +++
-title = "Configure Local Settings And Persistent Storage"
+title = "Configure Local Settings and Persistent Storage"
 description = "Configure local settings, port exposure, and persistent storage so Sambee behaves safely in your environment."
 +++
 
@@ -68,12 +68,12 @@ Treat it as required operational data, not as disposable cache.
 - review mounts and published ports before first startup rather than after something fails
 - make sure the `data/` directory is included in your backup plan
 
-For the stable lookup summary of important paths and ports, see [Port And Path Reference](../../reference/port-and-path-reference/).
+For the stable lookup summary of important paths and ports, see [Port and Path Reference](../../reference/port-and-path-reference/).
 
 ## Related Pages
 
-- [Deploy Sambee With Docker](../../installation-and-deployment/deploy-sambee-with-docker/): return here for the main deployment path
+- [Deploy Sambee with Docker](../../installation-and-deployment/deploy-sambee-with-docker/): return here for the main deployment path
 - [Configuration Key Reference](../configuration-key-reference/): use this when the question becomes which config keys change behavior
-- [Port And Path Reference](../../reference/port-and-path-reference/): use this for the main lookup view of service ports, deployment files, and persistent paths
-- [Container Paths And Mount Mapping](../../reference/configuration-and-data-paths/): use this when the question becomes how a host-side path maps into the container
-- [Put Sambee Behind A Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): continue here when the configuration question becomes external access or HTTPS
+- [Port and Path Reference](../../reference/port-and-path-reference/): use this for the main lookup view of service ports, deployment files, and persistent paths
+- [Container Paths and Mount Mapping](../../reference/configuration-and-data-paths/): use this when the question becomes how a host-side path maps into the container
+- [Put Sambee behind a Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): continue here when the configuration question becomes external access or HTTPS

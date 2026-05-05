@@ -64,7 +64,7 @@
         {{ else if and $sectionSourcePage (eq $docsContext.kind "page") }}
         <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $sectionURL }}">{{ $sectionTitle }}</a>
         {{ else }}
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
+        <span class="type-label-eyebrow type-color-accent">{{ $sectionTitle }}</span>
         {{ end }}
       </li>
       {{ end }}

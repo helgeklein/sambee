@@ -20,7 +20,7 @@ At the center of a normal Sambee deployment is:
 
 If you use the standard Docker path, the architecture is exactly that simple: one Sambee container plus a persistent data mount.
 
-## What Is Required And What Is Optional
+## What Is Required and What Is Optional
 
 | Component or concern | Required for the core deployment | Notes |
 |---|---|---|
@@ -54,7 +54,7 @@ A small deployment often looks like this:
 5. Users connect from their browsers directly to Sambee or through a reverse proxy if needed.
 6. Only the users who need local-drive or native-app workflows install Sambee Companion.
 
-## When This Model Is A Good Fit
+## When This Model Is a Good Fit
 
 This deployment model fits well when you want:
 
@@ -65,9 +65,9 @@ This deployment model fits well when you want:
 
 ## Next Steps
 
-- Continue to [What Sambee Requires To Run](../what-sambee-requires-to-run/) to confirm prerequisites and responsibility boundaries.
+- Continue to [What Sambee Requires to Run](../what-sambee-requires-to-run/) to confirm prerequisites and responsibility boundaries.
 
 ## Related Pages
 
-- [Port And Path Reference](../../reference/port-and-path-reference/): use this when you need the stable lookup page for ports, deployment files, and persistent data
-- [Put Sambee Behind A Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): use this when the simple direct deployment needs HTTPS, hostname routing, or proxy integration
+- [Port and Path Reference](../../reference/port-and-path-reference/): use this when you need the stable lookup page for ports, deployment files, and persistent data
+- [Put Sambee behind a Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): use this when the simple direct deployment needs HTTPS, hostname routing, or proxy integration

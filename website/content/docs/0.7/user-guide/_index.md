@@ -2,25 +2,27 @@
 title = "User Guide"
 +++
 
-Sambee is a browser-based viewer and manager for files on SMB network shares and on local drives. SMB shares are accessed via Sambee's server component, whereas local drive access is provided by Companion, a helper app that can be installed on your computer.
+Use this guide to find and explore files on network shares, explore files on your computer via Sambee Companion, preview files in the browser, edit Markdown in the browser, open files in desktop apps and upload the finished changes back, and fix common user problems before asking an administrator for help.
 
-This guide explains how to:
+## Start Here if You Want To
 
-- find and explore files on network shares
-- explore files on your computer via Sambee Companion
-- preview files in the browser
-- edit Markdown in the browser
-- open files in desktop apps and upload the finished changes back
-- fix common user problems before asking an administrator for help
+- understand what Sambee helps you do
+- get comfortable with the main areas of the interface
+- move from getting started into SMB access, local-drive access, preview, editing, file-management, or troubleshooting tasks
 
-## If You Are New To Sambee
+## In This Guide
 
-Start with these two pages:
+- [Getting Started](./getting-started/what-you-can-do-with-sambee/): understand what Sambee helps you do and learn the interface
+- [Accessing Files](./accessing-files/connect-to-an-smb-share/): open SMB shares and access local drives from your computer
+- [Browsing and Navigation](./browsing-and-navigation/dual-pane-mode/): move through folders efficiently on desktop or mobile
+- [Viewing and Previewing Files](./viewing-and-previewing/preview-supported-files/): preview supported files and handle files that cannot be previewed
+- [Editing Files](./editing-files/edit-markdown-in-the-browser/): edit Markdown in the browser or continue in desktop apps
+- [Managing Files](./managing-files/common-file-management-tasks/): download, upload, rename, move, copy, and delete files
+- [Companion App](./companion-app/install-and-start-the-companion-app/): install Companion and manage desktop-app behavior
+- [Troubleshooting](./troubleshooting/common-user-problems/): solve common user problems before escalating
+- [Reference](./reference/supported-file-formats/): check supported file formats
 
-- [What Sambee Can Access](./getting-started/what-sambee-can-access/): decide whether your file comes from an SMB share through Sambee's server or from local drives exposed in the browser through Sambee Companion
-- [First Sign-In And Interface Tour](./getting-started/first-sign-in-and-interface-tour/): confirm that you can see an SMB source or local drives, open a folder, and preview a supported file
-
-## Use The Right Guide
+## Use the Right Guide
 
 - Use this User Guide for everyday tasks in Sambee.
 - Use the [Admin Guide](../admin-guide/) when the problem is really about provisioning, deployment, service health, or environment policy.

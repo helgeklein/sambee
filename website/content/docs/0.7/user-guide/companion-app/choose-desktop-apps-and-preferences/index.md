@@ -1,11 +1,11 @@
 +++
-title = "Choose Desktop Apps And Preferences"
+title = "Choose Desktop Apps and Preferences"
 description = "Choose which desktop app Sambee Companion should launch when Sambee uses Open in App, and adjust the routine preferences that affect local-drive access and desktop editing."
 +++
 
 Use this page when **Open in App** asks which app to use, keeps opening the wrong app, or you want to change routine Companion settings.
 
-## Choose An App
+## Choose an App
 
 When you use **Open in App** for a file type for the first time, the browser hands the request to Companion, and Companion can ask which desktop app should handle it.
 
@@ -15,7 +15,7 @@ You can:
 - use **Browse for another app…** if the editor you want is not listed
 - turn on **Always use this app** for that file type if you want Companion to remember the choice
 
-## Should You Turn On Always Use This App?
+## Should You Turn on Always Use This App?
 
 Turn it on when:
 
@@ -28,7 +28,7 @@ Leave the choice unpinned when:
 - you are still testing which editor behaves best with this workflow
 - the file type is uncommon enough that you want to choose deliberately each time
 
-## Open The Companion Preferences Panel
+## Open the Companion Preferences Panel
 
 Open the system tray or menu bar icon and choose **Preferences…** when you want to adjust the routine behavior of Companion itself rather than only one file-opening choice.
 
@@ -52,7 +52,7 @@ If you want a safe starting point:
 - keep upload conflict resolution on **Ask me every time** if more than one person may touch the same files
 - enable **Start Sambee Companion when I sign in** if local drives are part of your normal workflow
 
-## If The Wrong App Still Opens
+## If the Wrong App Still Opens
 
 If Companion still opens the wrong app:
 
@@ -60,8 +60,8 @@ If Companion still opens the wrong app:
 - choose the correct app or use **Browse for another app…** the next time the app picker appears
 - if Companion no longer shows the chooser and immediately opens the wrong app, use the broader troubleshooting path before continuing
 
-Normal desktop-editing workflow: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
+Normal desktop-editing workflow: [Open Files in Desktop Apps and Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 
-Interrupted later: [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
+Interrupted later: [Recover after Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
 
 Broader Companion trouble: [Common User Problems](../../troubleshooting/common-user-problems/).

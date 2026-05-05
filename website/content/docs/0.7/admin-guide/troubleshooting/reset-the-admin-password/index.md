@@ -1,5 +1,5 @@
 +++
-title = "Reset The Admin Password"
+title = "Reset the Admin Password"
 description = "Recover administrator access by regenerating the admin password without wiping the rest of the Sambee deployment state."
 +++
 
@@ -72,5 +72,5 @@ If the deployment itself is unhealthy, return to the broader troubleshooting pat
 
 ## Related Pages
 
-- [First Startup And First Admin Login](../../installation-and-deployment/first-startup-and-first-admin-login/): compare the regenerated login flow to the first-run flow
-- [Troubleshoot Startup And Connectivity Issues](../troubleshoot-startup-and-connectivity-issues/): return here when the problem is broader than administrator access recovery
+- [First Startup and First Admin Login](../../installation-and-deployment/first-startup-and-first-admin-login/): compare the regenerated login flow to the first-run flow
+- [Troubleshoot Startup and Connectivity Issues](../troubleshoot-startup-and-connectivity-issues/): return here when the problem is broader than administrator access recovery

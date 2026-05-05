@@ -1,5 +1,5 @@
 +++
-title = "File Operations And Edit Locking"
+title = "File Operations and Edit Locking"
 description = "Understand how ordinary file operations differ from companion-assisted SMB editing, and why lock and conflict handling belong to the backend."
 +++
 
@@ -83,7 +83,7 @@ Local-drive workflows do not use this backend edit-lock lifecycle.
 
 Do not blur those two paths when changing edit behavior.
 
-## Adjacent Concern: Freshness After Operations
+## Adjacent Concern: Freshness after Operations
 
 After file operations complete, the browser still needs fresh directory state. That is where change notification and WebSocket refresh behavior become relevant.
 

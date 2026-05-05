@@ -1,5 +1,5 @@
 +++
-title = "View Logs And Restart Services"
+title = "View Logs and Restart Services"
 description = "Use Docker Compose logs for Sambee diagnostics and perform routine stop or restart actions safely."
 +++
 
@@ -27,7 +27,7 @@ If you only need recent startup output, use:
 docker compose logs sambee --tail 100
 ```
 
-## Stop The Deployment
+## Stop the Deployment
 
 To stop the services:
 
@@ -37,7 +37,7 @@ docker compose down
 
 Use a full stop when you need to perform controlled maintenance, rebuild the image, or restore deployment files.
 
-## Restart As Part Of Operations
+## Restart as Part of Operations
 
 Routine restarts are not a substitute for troubleshooting, but they are a legitimate step when:
 
@@ -51,7 +51,7 @@ To restart only the Sambee service:
 docker compose restart sambee
 ```
 
-If you restart repeatedly without understanding the failure, move to [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
+If you restart repeatedly without understanding the failure, move to [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
 
 ## What Good Log Usage Looks Like
 
@@ -67,4 +67,4 @@ Logs are often the fastest way to separate a user-facing symptom from a real dep
 ## Related Pages
 
 - [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this for the compact recurring review flow
-- [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when logs show a real deployment fault rather than a routine maintenance step
+- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when logs show a real deployment fault rather than a routine maintenance step

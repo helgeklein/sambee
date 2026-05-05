@@ -7,12 +7,38 @@
    const DOCS_VERSION_DROPDOWN_SELECTOR = '.docs-sidebar-version-control';
    const DOCS_VERSION_DROPDOWN_CLOSE_SELECTOR = '[data-close-version-dropdown]';
    const DOCS_SIDEBAR_TOGGLE_SELECTOR = '.docs-sidebar-toggle';
+   const DOCS_SECTION_TRIGGER_SELECTOR = '[data-docs-section-trigger="true"]';
    const DOCS_PAGE_SELECTOR = '.docs-shell--page';
    const DOCS_ARTICLE_REGION_SELECTOR = '.article-toc-container';
    const DOCS_TOC_SIDEBAR_SELECTOR = '.docs-toc-sidebar';
    const DOCS_TOC_SELECTOR = '.docs-toc';
    const DOCS_TOC_INNER_SELECTOR = '.docs-toc-inner';
+     const KBD_SELECTOR = 'kbd';
    const COPY_FEEDBACK_TIMEOUT_MS = 1600;
+     const KBD_ARIA_LABELS = {
+        '↑': 'Up Arrow',
+        '↓': 'Down Arrow',
+        '←': 'Left Arrow',
+        '→': 'Right Arrow',
+        '↵': 'Enter',
+        '⏎': 'Enter',
+        '⌘': 'Command',
+        '⌥': 'Option',
+        '⌫': 'Backspace',
+        '⌦': 'Delete',
+        '⇧': 'Shift',
+        '⇥': 'Tab',
+        '⇪': 'Caps Lock',
+        esc: 'Escape',
+        ctrl: 'Control',
+        del: 'Delete',
+        ins: 'Insert',
+        pgup: 'Page Up',
+        pgdn: 'Page Down',
+        cmd: 'Command',
+        alt: 'Alt',
+        opt: 'Option'
+     };
 
    function getCopyIconMarkup(iconName, label) {
       return '<span class="material-symbols-outlined" aria-hidden="true">' + iconName + '</span><span class="visually-hidden">' + label + '</span>';
@@ -74,6 +100,44 @@
       });
    }
 
+     function getKbdAriaLabel(text) {
+        const normalizedText = (text || '').trim();
+
+        if (!normalizedText) {
+           return '';
+        }
+
+        const mapped = KBD_ARIA_LABELS[normalizedText] || KBD_ARIA_LABELS[normalizedText.toLowerCase()];
+
+        if (mapped) {
+           return mapped;
+        }
+
+        if (/^f\d{1,2}$/i.test(normalizedText)) {
+           return normalizedText.toUpperCase();
+        }
+
+        if (normalizedText.length === 1 && /[a-z]/i.test(normalizedText)) {
+           return normalizedText.toUpperCase();
+        }
+
+        return normalizedText;
+     }
+
+     function initKeyboardAriaLabels() {
+        document.querySelectorAll(KBD_SELECTOR).forEach((element) => {
+           if (element.hasAttribute('aria-label')) {
+              return;
+           }
+
+           const label = getKbdAriaLabel(element.textContent);
+
+           if (label) {
+              element.setAttribute('aria-label', label);
+           }
+        });
+     }
+
     function initDocsVersionDropdowns() {
       const dropdowns = document.querySelectorAll(DOCS_VERSION_DROPDOWN_SELECTOR);
 
@@ -113,24 +177,62 @@
    }
 
    function initDocsSidebarToggles() {
+      function syncDocsSidebarControls(control, targetId, isExpanded) {
+         const row = control.closest('.docs-nav-group-row, .docs-sidebar-title-row');
+
+         if (!row) {
+            control.setAttribute('aria-expanded', String(isExpanded));
+            return;
+         }
+
+         row.querySelectorAll('[aria-controls="' + targetId + '"]').forEach((element) => {
+            element.setAttribute('aria-expanded', String(isExpanded));
+         });
+      }
+
+      function toggleDocsSidebarContainer(control) {
+         const targetId = control.getAttribute('aria-controls');
+
+         if (!targetId) {
+            return;
+         }
+
+         const container = document.getElementById(targetId);
+
+         if (!container) {
+            return;
+         }
+
+         const nextExpandedState = control.getAttribute('aria-expanded') !== 'true';
+         syncDocsSidebarControls(control, targetId, nextExpandedState);
+         container.hidden = !nextExpandedState;
+      }
+
       document.querySelectorAll(DOCS_SIDEBAR_TOGGLE_SELECTOR).forEach((button) => {
          button.addEventListener('click', () => {
-            const targetId = button.getAttribute('aria-controls');
-
-            if (!targetId) {
-               return;
-            }
-
-            const container = document.getElementById(targetId);
-
-            if (!container) {
-               return;
-            }
-
-            const isExpanded = button.getAttribute('aria-expanded') === 'true';
-            button.setAttribute('aria-expanded', String(!isExpanded));
-            container.hidden = isExpanded;
+            toggleDocsSidebarContainer(button);
          });
+      });
+
+      document.querySelectorAll(DOCS_SECTION_TRIGGER_SELECTOR).forEach((trigger) => {
+         trigger.addEventListener('click', (event) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+               return;
+            }
+
+            toggleDocsSidebarContainer(trigger);
+         });
+
+         if (trigger.getAttribute('role') === 'button') {
+            trigger.addEventListener('keydown', (event) => {
+               if (event.key !== 'Enter' && event.key !== ' ') {
+                  return;
+               }
+
+               event.preventDefault();
+               toggleDocsSidebarContainer(trigger);
+            });
+         }
       });
    }
 
@@ -280,7 +382,9 @@
 
    if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', initKeyboardAriaLabels);
    } else {
       init();
+        initKeyboardAriaLabels();
    }
 })();

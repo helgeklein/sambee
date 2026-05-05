@@ -1,5 +1,5 @@
 +++
-title = "Connect To An SMB Share"
+title = "Connect to an SMB Share"
 description = "Open and explore an SMB share directly in the browser, whether the connection was shared with you or created for your own account."
 +++
 
@@ -23,9 +23,9 @@ If no SMB connection exists yet, the next step depends on your account:
 - if you can manage private SMB connections, add one in **SMB Connections**
 - if you cannot create connections for yourself, ask an administrator to create or share one
 
-Already see the connection in Sambee? Jump to [Explore A Share](#explore-a-share).
+Already see the connection in Sambee? Jump to [Explore a Share](#explore-a-share).
 
-## Shared And Private Connections
+## Shared and Private Connections
 
 Sambee can show two kinds of SMB connections:
 
@@ -36,7 +36,7 @@ When your role allows private connections, open **SMB Connections** and use **Ad
 
 If your account does not let you create connections, you may only see shared connections. In that case, ask an administrator to create or share the connection you need.
 
-## Explore A Share
+## Explore a Share
 
 1. Open Sambee and choose the SMB connection you want to use.
 2. Wait for the first directory listing to load.
@@ -46,7 +46,7 @@ If your account does not let you create connections, you may only see shared con
 
 Missing connection? Add it first in **SMB Connections** if your role allows private connections.
 
-## What You Can Do In The Browser Alone
+## What You Can Do in the Browser Alone
 
 Once the share is open in the browser, you can stay entirely in the web UI for common tasks such as:
 
@@ -57,19 +57,19 @@ Once the share is open in the browser, you can stay entirely in the web UI for c
 - renaming, deleting, creating folders, and similar file-management tasks
 - editing Markdown files in the browser
 
-## Next Steps After Access Works
+## Next Steps after Access Works
 
 Now that the share is open, choose the next task:
 
-- [Explore, Search, And Use Dual Pane](../../browsing-and-navigation/browse-search-and-use-dual-pane/): move through folders faster
+- [Dual-Pane Mode](../../browsing-and-navigation/dual-pane-mode/): move through folders faster
 - [Preview Supported Files](../../viewing-and-previewing/preview-supported-files/): inspect files in the browser
 - [Common File Management Tasks](../../managing-files/common-file-management-tasks/): upload, download, rename, copy, move, and delete files
-- [Edit Markdown In The Browser](../../editing-files/edit-markdown-in-the-browser/): edit Markdown without leaving Sambee
-- [Install And Start The Companion App](../../companion-app/install-and-start-the-companion-app/): enable local drives in the browser or use **Open in App** when you need to leave the browser-only workflow
+- [Edit Markdown in the Browser](../../editing-files/edit-markdown-in-the-browser/): edit Markdown without leaving Sambee
+- [Install and Start the Companion App](../../companion-app/install-and-start-the-companion-app/): enable local drives in the browser or use **Open in App** when you need to leave the browser-only workflow
 
 ## Common Problems
 
-### No SMB connection appears
+### No SMB Connection Appears
 
 Start with these questions:
 
@@ -80,15 +80,15 @@ If you can create private connections, open **SMB Connections** and add the shar
 
 If you cannot create connections, or the share should already be shared with you, contact an administrator.
 
-### The share appears, but folders do not load
+### The Share Appears, but Folders Do Not Load
 
 Try refreshing the file list. If the problem continues, the likely cause is on the service or storage side rather than in your browser session.
 
-### I expected local drives, not SMB shares
+### I Expected Local Drives, Not SMB Shares
 
-For local drives instead, use [Access Local Drives And Pair Your Browser](../access-local-drives-and-pair-your-browser/).
+For local drives instead, use [Access Local Drives and Pair Your Browser](../access-local-drives-and-pair-your-browser/).
 
-## When To Involve An Administrator
+## When to Involve an Administrator
 
 Involve an administrator when:
 

@@ -35,7 +35,7 @@ After the change is live, verify:
 - sign-in still works
 - the key SMB workflows still behave as expected
 
-## When To Stop Treating It As Routine
+## When to Stop Treating It as Routine
 
 Move out of checklist mode and into troubleshooting when:
 
@@ -46,6 +46,6 @@ Move out of checklist mode and into troubleshooting when:
 
 ## Related Pages
 
-- [View Logs And Restart Services](../view-logs-and-restart-services/): use this when the checklist turns into hands-on service work
+- [View Logs and Restart Services](../view-logs-and-restart-services/): use this when the checklist turns into hands-on service work
 - [Update Sambee Safely](../update-sambee-safely/): use this when the planned change is an actual version upgrade
-- [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the deployment is already unhealthy
+- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the deployment is already unhealthy

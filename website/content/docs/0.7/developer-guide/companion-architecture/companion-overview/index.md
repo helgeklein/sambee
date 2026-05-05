@@ -30,9 +30,11 @@ For local-drive access and related desktop-side capabilities:
 3. The browser uses the authenticated localhost API to enumerate drives and perform local file operations.
 4. WebSocket notifications keep the browser updated when local directories change.
 
-For the full desktop-side data path, continue to [Local-Drive And Save-Back Pipeline](../local-drive-and-save-back-pipeline/).
+For the full desktop-side data path, continue to [Local-Drive and Save-Back Pipeline](../local-drive-and-save-back-pipeline/).
 
-## Why This Is A Separate App
+For the deep-link runtime, native-app edit lifecycle, and operation recovery model, continue to [Companion Runtime and Native-App Editing](../companion-runtime-and-native-app-editing/).
+
+## Why This Is a Separate App
 
 The companion handles behavior the browser cannot safely or reliably do by itself.
 
@@ -50,7 +52,7 @@ The companion handles behavior the browser cannot safely or reliably do by itsel
 | `companion/src-tauri/src/server/` | localhost pairing, auth, drive enumeration, handlers, and watcher behavior |
 | `companion/src-tauri/src/commands/` | command handlers for file opening, upload, pairing, update, and related actions |
 
-## Trust And Safety Boundaries
+## Trust and Safety Boundaries
 
 The companion adds power, so it also adds security-sensitive behavior.
 
@@ -69,8 +71,9 @@ The companion adds power, so it also adds security-sensitive behavior.
 
 ## Go Deeper
 
-- [Browser-To-Companion Trust Model](../browser-to-companion-trust-model/): deep links, pairing, localhost auth, and trust boundaries
-- [Local-Drive And Save-Back Pipeline](../local-drive-and-save-back-pipeline/): how local-drive operations and SMB-backed native-app editing differ in practice
+- [Companion Runtime and Native-App Editing](../companion-runtime-and-native-app-editing/): deep-link ingress, app picker flow, operation persistence, recovery, and tray/window runtime behavior
+- [Browser-to-Companion Trust Model](../browser-to-companion-trust-model/): deep links, pairing, localhost auth, and trust boundaries
+- [Local-Drive and Save-Back Pipeline](../local-drive-and-save-back-pipeline/): how local-drive operations and SMB-backed native-app editing differ in practice
 
 ## Validation Expectations
 

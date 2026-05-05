@@ -1,11 +1,11 @@
 +++
-title = "Port And Path Reference"
+title = "Port and Path Reference"
 description = "Reference summary of important Sambee service ports, URLs, and deployment paths."
 +++
 
 This is the main lookup page for Sambee service ports, deployment files, persistent paths, and container-side paths.
 
-## Service Ports And URLs
+## Service Ports and URLs
 
 | Item | Default value | Notes |
 |---|---|---|
@@ -14,7 +14,7 @@ This is the main lookup page for Sambee service ports, deployment files, persist
 | Backend API | `http://localhost:8000/api` | Default API path |
 | API docs | `http://localhost:8000/docs` | Default API documentation path |
 
-## Deployment Files And Paths
+## Deployment Files and Paths
 
 | Path | Purpose |
 |---|---|
@@ -33,22 +33,22 @@ This is the main lookup page for Sambee service ports, deployment files, persist
 | `/app/config.toml` | Container-side path for the optional mounted config file |
 | `/app/data/directory_cache/` | Default container-side location for the saved directory index |
 
-## Host-To-Container Mapping
+## Host-to-Container Mapping
 
 - host-side `./data` becomes `/app/data` in the container
 - host-side `./config.toml` can be mounted read-only as `/app/config.toml`
 - deleting or replacing files under `data/` changes persistent deployment state, not just temporary cache files
 
-## How To Use This Page
+## How to Use This Page
 
 Use this page first when the question is about a port, URL, deployment file, persistent path, or container-side path.
 
 If you need companion log paths, preference locations, or platform-specific companion runtime details, use [Companion Support Reference](../companion-support-reference/).
 
-If you need to debug a mount assumption or translate a host-side path into the exact container path Sambee sees, use [Container Paths And Mount Mapping](../configuration-and-data-paths/).
+If you need to debug a mount assumption or translate a host-side path into the exact container path Sambee sees, use [Container Paths and Mount Mapping](../configuration-and-data-paths/).
 
 ## Related Pages
 
-- [Configure Local Settings And Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): use this when the question is about how these paths are used operationally
-- [Container Paths And Mount Mapping](../configuration-and-data-paths/): use this when the mount relationship itself is the question
+- [Configure Local Settings and Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): use this when the question is about how these paths are used operationally
+- [Container Paths and Mount Mapping](../configuration-and-data-paths/): use this when the mount relationship itself is the question
 - [Companion Support Reference](../companion-support-reference/): use this for companion-specific support lookup material

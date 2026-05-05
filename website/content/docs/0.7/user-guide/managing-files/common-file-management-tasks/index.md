@@ -5,7 +5,7 @@ description = "Handle upload, download, folder creation, rename, copy, move, and
 
 Sambee supports the file tasks users reach for most often in the browser, whether the files come from SMB shares or from local drives already exposed there.
 
-## Upload And Download
+## Upload and Download
 
 Use upload when you want to place a local file into the current Sambee folder.
 
@@ -21,13 +21,13 @@ Create a new directory in the current location when you need to organize content
 
 If the name is empty or invalid, Sambee rejects it instead of creating a broken folder entry.
 
-## Rename Files And Folders
+## Rename Files and Folders
 
 Rename works on the currently focused item.
 
 Use it when you want to clean up names without moving the item elsewhere. If the new name matches the old one or contains invalid characters, Sambee blocks the change.
 
-## Copy And Move
+## Copy and Move
 
 Sambee supports copy and move workflows, and dual pane is often the clearest way to prepare those operations.
 
@@ -41,7 +41,7 @@ If the destination already contains an item with the same name, Sambee can warn 
 
 Some source and destination combinations may not be available. If Sambee cannot complete the operation safely, it reports the problem instead of guessing.
 
-## Delete Files And Folders
+## Delete Files and Folders
 
 Delete is a destructive action, so Sambee asks for confirmation before removing a file or directory.
 
@@ -60,8 +60,8 @@ If an upload, rename, move, or delete action fails:
 
 If the same write action fails repeatedly on the same source, treat it as an access or environment issue rather than a one-off mistake.
 
-For two-pane copy and move work, use [Explore, Search, And Use Dual Pane](../../browsing-and-navigation/browse-search-and-use-dual-pane/).
+For two-pane copy and move work, use [Dual-Pane Mode](../../browsing-and-navigation/dual-pane-mode/).
 
-Need file access first? Start with [What Sambee Can Access](../../getting-started/what-sambee-can-access/).
+Need file access first? Start with [What You Can Do with Sambee](../../getting-started/what-you-can-do-with-sambee/).
 
 Repeated failures? Use [Common User Problems](../../troubleshooting/common-user-problems/).

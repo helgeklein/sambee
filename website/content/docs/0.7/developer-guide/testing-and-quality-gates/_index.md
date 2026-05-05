@@ -1,5 +1,5 @@
 +++
-title = "Testing And Quality Gates"
+title = "Testing and Quality Gates"
 description = "Choose the right validation commands for the change you are making and understand which contracts deserve broader coverage."
 +++
 
@@ -11,7 +11,7 @@ Start with:
 
 Related supporting pages:
 
-- [Logging And Localization](../cross-cutting-systems/logging-and-localization/)
-- [Dependency And Release Workflow](../release-and-versioning/dependency-and-release-workflow/)
+- [Logging and Localization](../cross-cutting-systems/logging-and-localization/)
+- [Dependency and Release Workflow](../release-and-versioning/dependency-and-release-workflow/)
 
-Use this section before you finish a change that affects API behavior, UI behavior, companion workflows, or website content.
+Use this section before you finish a change that affects API behavior, UI behavior, or companion workflows.
