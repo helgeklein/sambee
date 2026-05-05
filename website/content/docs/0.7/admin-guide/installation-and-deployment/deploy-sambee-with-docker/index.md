@@ -1,5 +1,5 @@
 +++
-title = "Deploy Sambee With Docker"
+title = "Deploy Sambee with Docker"
 description = "Deploy Sambee with Docker, prepare the persistent data directory, and bring the application up for the first time."
 +++
 
@@ -15,7 +15,7 @@ You need:
 
 For production, deploy a release tag rather than the current branch tip. In practice, that means checking out a published version before you build the image.
 
-## 1. Obtain The Source
+## 1. Obtain the Source
 
 Clone the repository and move into it:
 
@@ -41,7 +41,7 @@ chown -Rfv 1000:1000 ./data
 
 This directory contains the Sambee database and other state that must survive restarts, rebuilds, and host reboots.
 
-## 3. Create The Compose File
+## 3. Create the Compose File
 
 Start from the provided example:
 
@@ -56,7 +56,7 @@ Before first start, review:
 - optional config mounts
 - how the service will fit into your network or reverse-proxy setup
 
-## 4. Optional: Create A Local Configuration File
+## 4. Optional: Create a Local Configuration File
 
 If you need custom settings, create `config.toml` from the example:
 
@@ -68,7 +68,7 @@ You do not need `config.toml` for a basic deployment. Create it only if you need
 
 Keep this file local. In production, mount it read-only.
 
-## 5. Optional: Set Up Build Metadata Tracking
+## 5. Optional: Set up Build Metadata Tracking
 
 If you keep a long-lived source checkout and want build metadata to stay current automatically, set up the repository Git hooks:
 
@@ -76,7 +76,7 @@ If you keep a long-lived source checkout and want build metadata to stay current
 ./scripts/setup-git-hooks
 ```
 
-## 6. Build And Start Sambee
+## 6. Build and Start Sambee
 
 Build the image:
 
@@ -96,7 +96,7 @@ By default, the service is available at:
 - backend API: `http://localhost:8000/api`
 - API docs: `http://localhost:8000/docs`
 
-## Verify The First Deployment
+## Verify the First Deployment
 
 Before moving on, confirm that the deployment really came up cleanly.
 
@@ -114,10 +114,10 @@ If the service does not stay up, go to the troubleshooting path before continuin
 
 ## Next Steps
 
-- Continue to [First Startup And First Admin Login](../first-startup-and-first-admin-login/) to retrieve the initial credentials and confirm the first admin sign-in.
-- If this deployment will be used beyond a simple local test, continue to [Put Sambee Behind A Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/).
+- Continue to [First Startup and First Admin Login](../first-startup-and-first-admin-login/) to retrieve the initial credentials and confirm the first admin sign-in.
+- If this deployment will be used beyond a simple local test, continue to [Put Sambee behind a Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/).
 
 ## Related Pages
 
-- [Configure Local Settings And Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): adjust local files, ports, and persistence safely
-- [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this if the first deployment does not stay healthy
+- [Configure Local Settings and Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): adjust local files, ports, and persistence safely
+- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this if the first deployment does not stay healthy

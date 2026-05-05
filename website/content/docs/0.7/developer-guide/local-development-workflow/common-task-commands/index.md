@@ -1,6 +1,6 @@
 +++
 title = "Common Task Commands"
-description = "Use the supported commands and tasks for running services, testing changes, building the website, and syncing version metadata."
+description = "Use the supported commands and tasks for running services, testing changes, and syncing version metadata."
 +++
 
 Prefer the committed scripts and workspace tasks over improvised one-off commands.
@@ -11,7 +11,9 @@ Prefer the committed scripts and workspace tasks over improvised one-off command
 |---|---|
 | Start backend dev server | VS Code task `Backend: Start Dev Server` or `./scripts/start-backend` |
 | Start frontend dev server | VS Code task `Frontend: Start Dev Server` or `./scripts/start-frontend` |
-| Start website dev server | VS Code task `Website: Start Dev Server` or `./scripts/start-website` |
+| Start both local dev servers together | `./scripts/dev-start` |
+| Stop local dev servers together | `./scripts/dev-stop` |
+| Inspect local dev logs | `./scripts/logs` |
 | Run fast repo tests | `./scripts/test` |
 | Run repo tests with coverage | `COVERAGE=1 ./scripts/test` |
 
@@ -59,23 +61,103 @@ Useful related task:
 - VS Code task `Companion: Run Rust Tests`
 - VS Code task `Companion: Type Check + Lint`
 
-## Website And Docs Commands
+## Local Dev Logs and Service Control
 
-Use these when you are changing the public site, docs content, theme behavior, or docs navigation.
+Use the committed helper scripts first when you are diagnosing the supported local development workflow.
+
+### Combined Dev Server Control
+
+These scripts manage the local backend and frontend together:
 
 ```bash
-cd website && npm run build
-cd website && npm run dev
-cd website && npm run images:generate
-cd website && npm run images:validate
+./scripts/dev-start
+./scripts/dev-stop
+./scripts/dev-stop && ./scripts/dev-start
 ```
 
-The website build runs these major steps:
+Use those entry points when you want the repo's own startup logging and local log-file layout instead of ad hoc process control.
 
-- theme generation
-- docs-content validation
-- docs inheritance materialization
-- Hugo site build
+### Log Inspection
+
+The supported local log viewer is:
+
+```bash
+./scripts/logs
+./scripts/logs -f
+./scripts/logs -n 200
+```
+
+That script summarizes service status and tails the main local development log files.
+
+The current local log files are:
+
+- `/tmp/backend.log`
+- `/tmp/frontend.log`
+- `/tmp/dev-start.log`
+- `/tmp/post-start.log`
+
+You can inspect individual files directly when needed:
+
+```bash
+tail -f /tmp/backend.log
+tail -f /tmp/frontend.log
+tail -f /tmp/dev-start.log
+tail -f /tmp/post-start.log
+```
+
+### Search and Status Checks
+
+When the helper scripts are not enough, targeted shell checks are still useful.
+
+```bash
+pgrep -f "uvicorn.*app.main:app"
+pgrep -f "vite"
+lsof -i :3000,8000
+grep -i error /tmp/*.log
+grep -i warning /tmp/*.log
+grep -i smb /tmp/backend.log
+grep -E "\([0-9]{4,}\.[0-9]+ms\)" /tmp/backend.log
+```
+
+Treat these as diagnostics for the local development environment, not as the primary supported control surface.
+
+Be especially careful with broad `pkill -f vite`-style commands in a workspace that can also run website or companion dev servers.
+
+### Rotating and Clearing Local Logs
+
+When local logs become noisy, use the committed rotation script first:
+
+```bash
+./scripts/rotate-logs
+```
+
+That script archives current `/tmp/*.log` files into `/tmp/logs-archive/` and truncates the live files in place so active writers keep working.
+
+To inspect archived logs:
+
+```bash
+ls -lh /tmp/logs-archive/
+```
+
+Manual truncation is still possible for local development, but it is a deliberately destructive cleanup step:
+
+```bash
+> /tmp/backend.log
+> /tmp/frontend.log
+> /tmp/dev-start.log
+> /tmp/post-start.log
+```
+
+Use that only when you intentionally want to discard the current local log history.
+
+### Practical Local Triage Order
+
+For the supported dev workflow, a reasonable first pass is:
+
+1. run `./scripts/logs`
+2. verify the expected dev processes or ports if the summary looks wrong
+3. search `/tmp/*.log` for the concrete failure signal
+4. restart with `./scripts/dev-stop && ./scripts/dev-start` if the issue is clearly local-process state rather than a code defect
 
 ## Version Sync
 
@@ -87,11 +169,10 @@ When you change `VERSION`, run the sync script and review all resulting metadata
 
 That workflow updates the frontend and companion package metadata and related version-bearing files.
 
-## Command Selection Rule Of Thumb
+## Command Selection Rule of Thumb
 
 - smallest relevant change: run the checks for the area you changed
 - cross-boundary change: run checks for every touched subsystem
-- docs-only change under `website/`: run `cd website && npm run build`
 - dependency or versioning change: run the affected subsystem checks plus the sync workflow if `VERSION` changed
 
 For the broader validation strategy and how to choose depth, continue to [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/).

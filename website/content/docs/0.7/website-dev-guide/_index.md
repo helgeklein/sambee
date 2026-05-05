@@ -1,0 +1,26 @@
++++
+title = "Website Dev Guide"
++++
+
+Use this guide to edit and publish website and docs content, understand how the Hugo site and versioned docs system work, use the docs editor safely, and change shared website systems such as media and typography.
+
+## Start Here if You Want To
+
+- add or revise published website or docs content
+- understand the website build pipeline and versioned docs model
+- update docs navigation, versions, or inheritance behavior safely
+- use the docs editor for structural docs changes
+- change shared website theme systems such as media handling or typography
+
+## In This Guide
+
+- [Docs Platform](./docs-platform/website-and-docs-architecture-overview/): understand what lives in `website/`, how docs routing works, and how versioned docs content is resolved
+- [Authoring and Tooling](./authoring-and-tooling/docs-authoring-workflow/): write published content, update navigation, and use the docs editor safely
+- [Site Systems](./site-systems/media-publishing-workflow/): preserve the media and typography contracts used by the public site
+
+## Use the Right Guide
+
+- Use this Website Dev Guide for website editing, docs authoring, Hugo theme work, docs tooling, and shared website system changes.
+- Use the [Developer Guide](../developer-guide/) when the work is primarily on the backend, frontend app, companion, or cross-application runtime behavior.
+- Use the [Admin Guide](../admin-guide/) when the next step is deployment, configuration, operations, or troubleshooting a running service.
+- Use the [User Guide](../user-guide/) when the next step belongs to someone using Sambee in normal product workflows.

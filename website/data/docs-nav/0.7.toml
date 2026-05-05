@@ -2,6 +2,7 @@ books = [
   "user-guide",
   "admin-guide",
   "developer-guide",
+  "website-dev-guide",
 ]
 
 [[sections.user-guide.items]]
@@ -14,11 +15,11 @@ title = "Accessing Files"
 
 [[sections.user-guide.items]]
 slug = "browsing-and-navigation"
-title = "Browsing And Navigation"
+title = "Browsing and Navigation"
 
 [[sections.user-guide.items]]
 slug = "viewing-and-previewing"
-title = "Viewing And Previewing Files"
+title = "Viewing and Previewing Files"
 
 [[sections.user-guide.items]]
 slug = "editing-files"
@@ -42,8 +43,9 @@ title = "Reference"
 
 [pages.user-guide.getting-started]
 items = [
-  "what-sambee-can-access",
-  "first-sign-in-and-interface-tour",
+  "what-is-sambee",
+  "what-you-can-do-with-sambee",
+  "tour-the-interface",
 ]
 
 [pages.user-guide.accessing-files]
@@ -54,7 +56,9 @@ items = [
 
 [pages.user-guide.browsing-and-navigation]
 items = [
-  "browse-search-and-use-dual-pane",
+  "smart-navigation-and-the-quick-bar",
+  "dual-pane-mode",
+  "keyboard-navigation-and-shortcuts",
   "mobile-navigation",
 ]
 
@@ -95,15 +99,15 @@ items = [
 
 [[sections.admin-guide.items]]
 slug = "overview-and-planning"
-title = "Overview And Planning"
+title = "Overview and Planning"
 
 [[sections.admin-guide.items]]
 slug = "installation-and-deployment"
-title = "Installation And Deployment"
+title = "Installation and Deployment"
 
 [[sections.admin-guide.items]]
 slug = "network-and-reverse-proxy"
-title = "Network And Reverse Proxy"
+title = "Network and Reverse Proxy"
 
 [[sections.admin-guide.items]]
 slug = "configuration"
@@ -111,11 +115,11 @@ title = "Configuration"
 
 [[sections.admin-guide.items]]
 slug = "operations-and-maintenance"
-title = "Operations And Maintenance"
+title = "Operations and Maintenance"
 
 [[sections.admin-guide.items]]
 slug = "user-support-and-escalation"
-title = "User Support And Escalation"
+title = "User Support and Escalation"
 
 [[sections.admin-guide.items]]
 slug = "troubleshooting"
@@ -196,16 +200,12 @@ slug = "companion-architecture"
 title = "Companion Architecture"
 
 [[sections.developer-guide.items]]
-slug = "website-and-docs-system"
-title = "Website And Docs System"
-
-[[sections.developer-guide.items]]
 slug = "cross-cutting-systems"
 title = "Cross-Cutting Systems"
 
 [[sections.developer-guide.items]]
 slug = "testing-and-quality-gates"
-title = "Testing And Quality Gates"
+title = "Testing and Quality Gates"
 
 [[sections.developer-guide.items]]
 slug = "contribution-workflows"
@@ -213,7 +213,7 @@ title = "Contribution Workflows"
 
 [[sections.developer-guide.items]]
 slug = "release-and-versioning"
-title = "Release And Versioning"
+title = "Release and Versioning"
 
 [pages.developer-guide.project-orientation]
 items = [
@@ -231,40 +231,39 @@ items = [
 items = [
   "backend-overview",
   "request-flow-and-service-boundaries",
+  "image-preprocessing-and-conversion-pipeline",
+  "smb-change-notification-and-directory-freshness",
   "file-operations-and-edit-locking",
 ]
 
 [pages.developer-guide.frontend-architecture]
 items = [
   "frontend-overview",
+  "theming-system-and-theme-selection",
   "file-browser-and-navigation-model",
+  "keyboard-shortcuts-and-command-model",
   "viewer-architecture-and-preview-contracts",
 ]
 
 [pages.developer-guide.companion-architecture]
 items = [
   "companion-overview",
+  "companion-runtime-and-native-app-editing",
   "browser-to-companion-trust-model",
   "local-drive-and-save-back-pipeline",
-]
-
-[pages.developer-guide.website-and-docs-system]
-items = [
-  "website-and-docs-architecture-overview",
-  "docs-versioning-and-navigation-model",
-  "docs-authoring-workflow",
-  "docs-inheritance-and-materialization",
 ]
 
 [pages.developer-guide.cross-cutting-systems]
 items = [
   "logging-and-localization",
+  "localization-and-locale-behavior",
   "frontend-logging-and-tracing",
 ]
 
 [pages.developer-guide.testing-and-quality-gates]
 items = [
   "test-strategy-overview",
+  "image-conversion-test-assets",
 ]
 
 [pages.developer-guide.contribution-workflows]
@@ -276,4 +275,37 @@ items = [
 items = [
   "dependency-and-release-workflow",
   "companion-distribution-and-update-workflow",
+]
+
+[[sections.website-dev-guide.items]]
+slug = "docs-platform"
+title = "Docs Platform"
+
+[[sections.website-dev-guide.items]]
+slug = "authoring-and-tooling"
+title = "Authoring and Tooling"
+
+[[sections.website-dev-guide.items]]
+slug = "site-systems"
+title = "Site Systems"
+
+[pages.website-dev-guide.docs-platform]
+items = [
+  "website-and-docs-architecture-overview",
+  "docs-content-model-navigation-and-inheritance",
+  "docs-runtime-and-route-resolution",
+]
+
+[pages.website-dev-guide.authoring-and-tooling]
+items = [
+  "docs-authoring-workflow",
+  "docs-editor-tool",
+  "docs-editor-operation-reference",
+]
+
+[pages.website-dev-guide.site-systems]
+items = [
+  "media-publishing-workflow",
+  "typography-system",
+  "typography-usage-and-boundaries",
 ]

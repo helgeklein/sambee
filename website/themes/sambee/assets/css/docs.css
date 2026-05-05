@@ -70,7 +70,7 @@ Layout Shells
   --docs-content-h1-size-sm: 2rem;
   --docs-content-h1-size-md: 2.4rem;
   --docs-content-h2-size: 1.75rem;
-  --docs-content-h3-size: 1.5rem;
+  --docs-content-h3-size: 1.375rem;
   --docs-content-h4-size: 1.25rem;
   --docs-content-h5-size: 0.8125rem;
   --docs-content-h6-size: 0.75rem;
@@ -819,6 +819,23 @@ a.docs-sidebar-version-option:focus-visible {
 
 .docs-nav-group-link {
   @apply flex min-w-0 flex-1 items-center gap-3 bg-transparent px-5 pt-3 pb-2 no-underline md:px-6;
+}
+
+.docs-nav-group-link[data-docs-section-trigger="true"] {
+  cursor: pointer;
+}
+
+.docs-nav-group-link[data-docs-section-trigger="true"][role="button"]:focus {
+  outline: none;
+}
+
+.docs-nav-group-link[data-docs-section-trigger="true"][role="button"]:focus-visible {
+  outline: 1px solid var(--color-clr-rule-strong);
+  outline-offset: -1px;
+}
+
+.dark .docs-nav-group-link[data-docs-section-trigger="true"][role="button"]:focus-visible {
+  outline-color: var(--color-clr-darkmode-rule-strong);
 }
 
 .docs-nav-group-label {

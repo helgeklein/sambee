@@ -14,45 +14,51 @@ Start with the symptom that matches yours:
 - Changes do not upload back after editing
 - The wrong app opens, or my editor is missing
 
-## I Cannot See The SMB Share I Expected
+## I Cannot See the SMB Share I Expected
 
 Check whether the right shared connection is visible to you, or whether you need to add your own private SMB connection.
 
 If your account cannot create private connections and the shared one you need is missing, ask an administrator.
 
-Full access path: [Connect To An SMB Share](../../accessing-files/connect-to-an-smb-share/).
+Full access path: [Connect to an SMB Share](../../accessing-files/connect-to-an-smb-share/).
 
 ## Local Drives Are Not Available
 
 Local drives in the browser require a desktop browser, Sambee Companion, and a working browser pairing.
 
-Full local-drive path: [Access Local Drives And Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/).
+Full local-drive path: [Access Local Drives and Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/).
 
 ## A File Will Not Preview
 
-Start with [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/) to decide whether preview is unsupported, temporarily unavailable, or simply not enough for your task.
+Start with [What Happens When a File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/) to decide whether preview is unsupported, temporarily unavailable, or simply not enough for your task.
 
-## Open In App Does Nothing
+## Open in App Does Nothing
 
 This usually means Sambee Companion is not running yet, or the browser blocked the handoff to the helper app.
 
-Start with [Install And Start The Companion App](../../companion-app/install-and-start-the-companion-app/) if Companion may not be installed or running yet.
+Check these first:
 
-Normal desktop-editing workflow: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
+- confirm Sambee Companion is running on this computer
+- allow the browser to open the `sambee://` link if the browser asked for permission
+- on Linux, confirm the deep-link handler is registered with `xdg-mime query default x-scheme-handler/sambee`
 
-## Changes Do Not Upload Back After Editing
+Start with [Install and Start the Companion App](../../companion-app/install-and-start-the-companion-app/) if Companion may not be installed or running yet.
 
-Interrupted session: [Recover After Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
+Normal desktop-editing workflow: [Open Files in Desktop Apps and Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 
-Version choice prompt: [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
+## Changes Do Not Upload Back after Editing
 
-Normal workflow again: [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
+Interrupted session: [Recover after Interrupted Editing](../../companion-app/recover-after-interrupted-editing/).
 
-## The Wrong App Opens, Or My Editor Is Missing
+Version choice prompt: [Understand Locking and Conflicts](../../editing-files/understand-locking-and-conflicts/).
 
-App choice and Companion preferences: [Choose Desktop Apps And Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
+Normal workflow again: [Open Files in Desktop Apps and Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 
-## When To Escalate
+## The Wrong App Opens, or My Editor Is Missing
+
+App choice and Companion preferences: [Choose Desktop Apps and Preferences](../../companion-app/choose-desktop-apps-and-preferences/).
+
+## When to Escalate
 
 You have probably reached an admin issue rather than a user issue when:
 

@@ -17,7 +17,6 @@
 ## Correctness
 
 - Always run lint and relevant tests after making changes and fix any warnings or errors.
-- Run individual test with plain commands only.
 
 ## Coding style
 
@@ -30,6 +29,9 @@
 
 ## Documentation
 
-- End-user docs reside in the directory `documentation`
-- Developer docs reside in the directory `documentation_developers`
-- For dependency update and lockfile workflow details, consult `documentation_developers/DEVELOPMENT.md` before changing pinned or hashed dependencies.
+- All end-user, admin, developer, and website docs live in `website/content/docs/`.
+- Whenever changing code, verify if the related documentation needs to be updated, too.
+
+## Dependencies
+
+- Before changing pinned or hashed dependencies or lockfiles, consult `website/content/docs/<VERSION>/developer-guide/release-and-versioning/dependency-and-release-workflow/index.md`.

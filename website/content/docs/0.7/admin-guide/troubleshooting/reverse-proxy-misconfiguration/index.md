@@ -13,7 +13,7 @@ This is usually the right page when:
 - direct access to the application port behaves differently from the proxied hostname
 - users report TLS, certificate, or wrong-host behavior rather than a clear backend crash
 
-## Separate Proxy Problems From Application Problems
+## Separate Proxy Problems from Application Problems
 
 Start by confirming which boundary is actually failing.
 
@@ -33,7 +33,7 @@ If the direct service path is already broken, go back to the broader troubleshoo
 
 In the sample Caddy-oriented model, a very common mistake is forgetting that Sambee must be reachable on the shared proxy network rather than acting as the HTTPS edge itself.
 
-## What To Verify Before Changing The App
+## What to Verify before Changing the App
 
 Check these items before rebuilding Sambee or changing application configuration blindly:
 
@@ -44,5 +44,5 @@ Check these items before rebuilding Sambee or changing application configuration
 
 ## Related Pages
 
-- [Put Sambee Behind A Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): return here for the normal setup model and the concise Caddy-oriented example
-- [Troubleshoot Startup And Connectivity Issues](../troubleshoot-startup-and-connectivity-issues/): use this when the deployment boundary is still unclear or the app path is also broken
+- [Put Sambee behind a Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/): return here for the normal setup model and the concise Caddy-oriented example
+- [Troubleshoot Startup and Connectivity Issues](../troubleshoot-startup-and-connectivity-issues/): use this when the deployment boundary is still unclear or the app path is also broken

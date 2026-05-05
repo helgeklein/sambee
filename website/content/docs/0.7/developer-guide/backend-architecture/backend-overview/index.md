@@ -5,7 +5,7 @@ description = "Understand the FastAPI service boundaries, the SMB-facing respons
 
 The backend is the policy and integration layer between the browser-facing product and the storage systems Sambee works with.
 
-## What The Backend Owns
+## What the Backend Owns
 
 The backend is responsible for:
 
@@ -29,7 +29,7 @@ The exact module layout evolves, but the backend is organized around a few stabl
 | `backend/app/db/` | database setup and models for persisted application state |
 | `backend/tests/` | pytest coverage for server behavior and contracts |
 
-## Request And Storage Flow
+## Request and Storage Flow
 
 For the common SMB flow:
 
@@ -40,7 +40,7 @@ For the common SMB flow:
 
 This is why the backend, not the browser, is the source of truth for SMB semantics and conflict-sensitive operations.
 
-If you need the detailed layer breakdown, continue to [Request Flow And Service Boundaries](../request-flow-and-service-boundaries/).
+If you need the detailed layer breakdown, continue to [Request Flow and Service Boundaries](../request-flow-and-service-boundaries/).
 
 ## Important Backend Contracts
 
@@ -48,19 +48,21 @@ If you need the detailed layer breakdown, continue to [Request Flow And Service 
 
 The frontend relies on typed request and response shapes. That is why contract testing guidance exists and why contributors should treat API shape changes as user-visible changes, not internal refactors.
 
-### File-Type And Preview Behavior
+### File-Type and Preview Behavior
 
 The backend contributes to preview behavior through MIME detection, file-type classification, and conversion decisions for formats that are not natively browser-friendly. Those rules have to stay aligned with frontend expectations.
 
-### Edit Locking And Companion Flows
+### Edit Locking and Companion Flows
 
 For companion-assisted editing of SMB-backed files, the backend owns the server-side lock, heartbeat, upload, and conflict rules. A desktop-side improvement that ignores those rules can easily create data-loss regressions.
 
-For the full lifecycle, continue to [File Operations And Edit Locking](../file-operations-and-edit-locking/).
+For the full lifecycle, continue to [File Operations and Edit Locking](../file-operations-and-edit-locking/).
 
 ### Change Notification
 
 The backend also owns SMB-side change monitoring and the notifications that tell browser clients when directory state should refresh.
+
+For the watcher architecture, subscriber model, and cache-freshness split, continue to [SMB Change Notification and Directory Freshness](../smb-change-notification-and-directory-freshness/).
 
 ## What Usually Breaks When This Layer Changes
 
@@ -71,8 +73,9 @@ The backend also owns SMB-side change monitoring and the notifications that tell
 
 ## Go Deeper
 
-- [Request Flow And Service Boundaries](../request-flow-and-service-boundaries/): how API, models, storage, services, and WebSocket coordination fit together
-- [File Operations And Edit Locking](../file-operations-and-edit-locking/): how ordinary file operations differ from companion-assisted SMB editing and lock handling
+- [Request Flow and Service Boundaries](../request-flow-and-service-boundaries/): how API, models, storage, services, and WebSocket coordination fit together
+- [SMB Change Notification and Directory Freshness](../smb-change-notification-and-directory-freshness/): how backend watchers, WebSocket notifications, and cache freshness fit together
+- [File Operations and Edit Locking](../file-operations-and-edit-locking/): how ordinary file operations differ from companion-assisted SMB editing and lock handling
 
 ## Validation Expectations
 

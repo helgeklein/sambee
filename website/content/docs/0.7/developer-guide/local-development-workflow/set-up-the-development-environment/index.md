@@ -1,5 +1,5 @@
 +++
-title = "Set Up The Development Environment"
+title = "Set up the Development Environment"
 description = "Use the supported development environment, understand what it configures automatically, and know which baseline rules matter before you change dependencies or tooling."
 +++
 
@@ -12,7 +12,7 @@ The project is designed to be opened in VS Code with Dev Containers.
 Baseline assumptions from the maintained setup:
 
 - Python is pinned to the reviewed `3.13.12` baseline.
-- Node and npm are available for frontend, companion, and website work.
+- Node and npm are available for frontend and companion work.
 - Rust tooling is available for companion development.
 - post-create setup installs reviewed dependencies, initializes local state, and prepares default config where needed.
 
@@ -27,8 +27,16 @@ The standard setup performs these tasks automatically:
 - configures Git hooks used by the repository workflow
 - installs backend dependencies from the hashed lockfiles
 - installs Node dependencies from the committed lockfiles
+- installs `pip-audit` and `cargo-audit` at the pinned versions used in CI
 - initializes the local database
 - creates a default `config.toml` if one is missing
+
+The Git-hook setup matters more than it first appears.
+
+- the repo uses hooks from `.githooks/`
+- those hooks keep `GIT_COMMIT` aligned after commits and checkouts
+- they preserve the repository's Git LFS hook integration
+- they block pushes of `wip/*` branches
 
 If you work outside the dev container, run:
 
@@ -42,10 +50,8 @@ In the standard development setup, the main services are:
 
 - frontend: `http://localhost:3000`
 - backend: `http://localhost:8000`
-- backend API docs: `http://localhost:8000/docs`
-- website: `http://localhost:1313`
 
-The backend and frontend dev servers are usually started automatically by the workspace tasks. The website has its own task and repo-level wrapper.
+The backend and frontend dev servers are usually started automatically by the workspace tasks.
 
 ## Dependency Trust Rules
 
@@ -67,12 +73,22 @@ Local development depends on configuration, but the repo is designed to create a
 
 Do not assume production deployment rules and local development rules are identical. The Admin Guide covers deployment-specific setup.
 
-## When To Leave The Happy Path
+## When to Leave the Happy Path
 
 Use the default container-based workflow unless you have a specific reason not to.
 
 - If your issue is environment-specific, fix the supported workflow first.
 - If you change tooling or dependencies, expect to update the corresponding reviewed inputs and rerun the relevant validation commands.
 - If you change version metadata, treat `VERSION` and the sync workflow as part of the change.
+
+## Common Setup Failures
+
+If startup fails immediately after opening the dev container, start with the supported workflow rather than ad hoc fixes.
+
+Common cases:
+
+- missing `config.toml`: the backend startup workflow should create a default config automatically
+- frontend `vite: not found` or `node_modules` permission failures: remove the broken install and rerun `npm ci` in `frontend/`
+- service startup confusion: backend and frontend dev servers are usually started by workspace tasks, so check task state before assuming the app itself is broken
 
 Once the environment is ready, continue to [Common Task Commands](../common-task-commands/).

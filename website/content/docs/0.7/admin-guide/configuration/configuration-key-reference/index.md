@@ -7,14 +7,14 @@ This page is a compact map of the optional `config.toml` file.
 
 Use `config.example.toml` as the source of truth for supported keys. This page explains the sections that matter most in day-to-day administration.
 
-## How To Use This Reference
+## How to Use This Reference
 
 - copy only the keys you actually need into the local `config.toml`
 - keep the file local to the deployment and mount it read-only in production
 - treat commented defaults in `config.example.toml` as the baseline behavior unless you override them intentionally
 - expect most basic deployments to use only a small subset of these keys
 
-## High-Value Sections And Keys
+## High-Value Sections and Keys
 
 | Section | Key | Operational effect |
 |---|---|---|
@@ -43,5 +43,5 @@ These areas have the highest operational impact:
 
 ## Related Pages
 
-- [Configure Local Settings And Persistent Storage](../configure-local-settings-and-persistent-storage/): use this for the normal config-file and persistence workflow
-- [Container Paths And Mount Mapping](../../reference/configuration-and-data-paths/): look up the container-side paths and mount relationships that the config file interacts with
+- [Configure Local Settings and Persistent Storage](../configure-local-settings-and-persistent-storage/): use this for the normal config-file and persistence workflow
+- [Container Paths and Mount Mapping](../../reference/configuration-and-data-paths/): look up the container-side paths and mount relationships that the config file interacts with

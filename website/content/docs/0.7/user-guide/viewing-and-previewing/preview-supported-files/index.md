@@ -16,7 +16,7 @@ Supported images open in an image viewer with controls such as:
 
 Many common image formats preview directly. Some other image formats can still preview after Sambee converts them into a browser-ready version.
 
-## PDFs
+## Pdfs
 
 PDF files open in a browser viewer with page navigation, zoom, search, and download support.
 
@@ -32,15 +32,15 @@ From there you can:
 - search within the visible content
 - enter edit mode when you need to change the file
 
-The editing workflow is covered separately in [Edit Markdown In The Browser](../../editing-files/edit-markdown-in-the-browser/).
+The editing workflow is covered separately in [Edit Markdown in the Browser](../../editing-files/edit-markdown-in-the-browser/).
 
-## When A Preview Is Not Available
+## When a Preview Is Not Available
 
 If Sambee cannot show a preview, it gives you the next safest option instead of pretending the file is supported.
 
-For unsupported or failed preview paths, use [What Happens When A File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/).
+For unsupported or failed preview paths, use [What Happens When a File Cannot Be Previewed](../../viewing-and-previewing/what-happens-when-a-file-cannot-be-previewed/).
 
-Need desktop editing instead? Continue to [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/). That workflow uses **Open in App** with Sambee Companion.
+Need desktop editing instead? Continue to [Open Files in Desktop Apps and Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/). That workflow uses **Open in App** with Sambee Companion.
 
 ## Full Preview Format List
 

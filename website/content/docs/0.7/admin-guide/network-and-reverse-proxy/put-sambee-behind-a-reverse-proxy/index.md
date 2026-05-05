@@ -1,11 +1,11 @@
 +++
-title = "Put Sambee Behind A Reverse Proxy"
+title = "Put Sambee behind a Reverse Proxy"
 description = "Place Sambee behind a reverse proxy, handle HTTPS, and use a concise Caddy example as the baseline product-docs pattern."
 +++
 
 For production-style deployments, place a reverse proxy in front of Sambee so HTTPS, hostnames, and external access are handled outside the application container itself.
 
-## Why Use A Reverse Proxy
+## Why Use a Reverse Proxy
 
 A reverse proxy gives you a cleaner operational model for:
 
@@ -45,7 +45,7 @@ Here, `expose` makes Sambee's port `8000` available to other containers on the s
 
 The important point is that Sambee serves plain HTTP to the reverse proxy and does not act as the HTTPS edge itself.
 
-## Hostnames And HTTPS
+## Hostnames and HTTPS
 
 Before exposing Sambee externally, decide:
 
@@ -55,7 +55,7 @@ Before exposing Sambee externally, decide:
 
 Keep those decisions consistent with the rest of your environment rather than treating Sambee as a special case.
 
-## Verify The Proxy Path
+## Verify the Proxy Path
 
 Before declaring the proxy setup done, confirm all of the following:
 
@@ -88,4 +88,4 @@ If the container is healthy but users still cannot reach the service correctly, 
 ## Related Pages
 
 - [Reverse Proxy Misconfiguration](../../troubleshooting/reverse-proxy-misconfiguration/): use this when the app is up but hostname or HTTPS routing is still wrong
-- [Troubleshoot Startup And Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the application path is also failing
+- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the application path is also failing

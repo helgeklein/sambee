@@ -1,5 +1,5 @@
 +++
-title = "Recover After Interrupted Editing"
+title = "Recover after Interrupted Editing"
 description = "Recover desktop-editing sessions that were interrupted by a crash, a closed window, or a failed upload step."
 +++
 
@@ -20,9 +20,9 @@ Start with the information already in that window.
 - If you intentionally do not want to keep the local edits, use **Discard**.
 - If the window shows an error, stop retrying blindly and decide whether the problem is connectivity, app behavior, or a version conflict.
 
-Conflict dialog open now? Switch to [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
+Conflict dialog open now? Switch to [Understand Locking and Conflicts](../../editing-files/understand-locking-and-conflicts/).
 
-## The Window Is Gone, But Companion Is Still Running
+## The Window Is Gone, but Companion Is Still Running
 
 Check Companion from the system tray or menu bar.
 
@@ -34,7 +34,7 @@ Start with these checks:
 - if the file still appears active, return to that session instead of opening a second edit of the same file
 - if nothing looks active, restart Companion and watch for the recovery dialog on launch
 
-## Companion Or The Computer Closed Unexpectedly
+## Companion or the Computer Closed Unexpectedly
 
 When Companion starts again, it can show a recovery dialog for files that were still in progress.
 
@@ -46,7 +46,7 @@ For each file you can choose:
 
 Use **Later** when you need time to compare versions or ask someone else which copy should win.
 
-## If Recovery Ends In A Conflict
+## If Recovery Ends in a Conflict
 
 If the server version changed while you were editing, recovery can still end in a conflict decision.
 
@@ -56,9 +56,9 @@ Do not keep retrying the upload until you understand whether you should:
 - save your changes as a copy
 - pause and compare both versions first
 
-Need help choosing? Use [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
+Need help choosing? Use [Understand Locking and Conflicts](../../editing-files/understand-locking-and-conflicts/).
 
-## When To Involve An Administrator
+## When to Involve an Administrator
 
 Involve an administrator when:
 
@@ -66,4 +66,4 @@ Involve an administrator when:
 - uploads fail across multiple files or repeated sessions
 - the same desktop editing workflow fails for more than one user in the same environment
 
-When recovery is complete, return to [Open Files In Desktop Apps And Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
+When recovery is complete, return to [Open Files in Desktop Apps and Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).

@@ -8,7 +8,9 @@ The backend is where Sambee's server-side behavior becomes real: authentication,
 Start with:
 
 - [Backend Overview](./backend-overview/)
-- [Request Flow And Service Boundaries](./request-flow-and-service-boundaries/)
-- [File Operations And Edit Locking](./file-operations-and-edit-locking/)
+- [Request Flow and Service Boundaries](./request-flow-and-service-boundaries/)
+- [Image Preprocessing and Conversion Pipeline](./image-preprocessing-and-conversion-pipeline/)
+- [SMB Change Notification and Directory Freshness](./smb-change-notification-and-directory-freshness/)
+- [File Operations and Edit Locking](./file-operations-and-edit-locking/)
 
 Use this section before you change browser-visible behavior that depends on the API, SMB semantics, or server-side validation.

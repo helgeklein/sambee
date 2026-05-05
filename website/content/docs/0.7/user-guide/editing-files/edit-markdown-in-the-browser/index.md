@@ -1,11 +1,11 @@
 +++
-title = "Edit Markdown In The Browser"
+title = "Edit Markdown in the Browser"
 description = "Open a Markdown file in Sambee, switch into edit mode, and save your changes without leaving the browser."
 +++
 
 Markdown is the main file type that Sambee can edit directly in the browser.
 
-## Start From The Markdown Viewer
+## Start from the Markdown Viewer
 
 When you open a Markdown file, Sambee shows a rendered Markdown view first.
 
@@ -34,7 +34,7 @@ Save the file when you are finished editing.
 
 If you cancel instead, Sambee keeps the original file unchanged.
 
-## Locking And Concurrent Changes
+## Locking and Concurrent Changes
 
 For files stored on a share or server, Sambee can use edit locking to reduce the risk of multiple people changing the same file at the same time.
 
@@ -44,6 +44,6 @@ If you run into a save problem, stale content, or a conflict warning:
 - confirm nobody else is actively editing the same file
 - retry only after you understand which version should win
 
-If Sambee says it cannot acquire the edit lock, stop retrying blindly and switch to [Understand Locking And Conflicts](../../editing-files/understand-locking-and-conflicts/).
+If Sambee says it cannot acquire the edit lock, stop retrying blindly and switch to [Understand Locking and Conflicts](../../editing-files/understand-locking-and-conflicts/).
 
 For broader editing trouble, use [Common User Problems](../../troubleshooting/common-user-problems/).

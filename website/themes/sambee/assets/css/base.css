@@ -99,6 +99,7 @@ h2,
 }
 h3,
 .h3 {
+  @apply font-primary;
   @apply text-size-h3/[1.2];
 }
 h4,

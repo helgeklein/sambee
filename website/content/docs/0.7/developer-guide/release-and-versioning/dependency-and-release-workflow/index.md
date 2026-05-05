@@ -1,11 +1,11 @@
 +++
-title = "Dependency And Release Workflow"
-description = "Treat version metadata, dependency lockfiles, and docs-version declarations as reviewed source instead of incidental setup artifacts."
+title = "Dependency and Release Workflow"
+description = "Treat version metadata and dependency lockfiles as reviewed source instead of incidental setup artifacts."
 +++
 
-Versioning in Sambee is deliberate. Several files across backend, frontend, companion, and website have to stay aligned, and the repository already has workflows to enforce that alignment.
+Versioning in Sambee is deliberate. Several files across backend, frontend, and companion have to stay aligned, and the repository already has workflows to enforce that alignment.
 
-## Product Version Source Of Truth
+## Product Version Source of Truth
 
 The application version lives in one place:
 
@@ -19,7 +19,7 @@ When the product version changes:
 
 The sync step updates version-bearing frontend and companion files so they do not drift away from the root version.
 
-## Files That Move With Product Version Changes
+## Files That Move with Product Version Changes
 
 The sync workflow updates files such as:
 
@@ -37,7 +37,7 @@ Treat those edits as release metadata, not as noise to separate later.
 
 Routine install behavior and actual dependency changes are different workflows.
 
-- use `npm ci` for routine installs in `frontend/`, `companion/`, and `website/`
+- use `npm ci` for routine installs in `frontend/` and `companion/`
 - use the hashed backend lockfiles for routine Python installs
 - do not hand-edit generated lockfile details when the repository already provides a regeneration workflow
 
@@ -47,9 +47,25 @@ For backend dependency changes:
 
 - update the reviewed top-level requirement files first
 - regenerate backend lockfiles with the supported refresh script
+- use `scripts/refresh-backend-lockfiles --check` for a read-only freshness check when needed
 - validate with backend tests and type checking
 
 That keeps direct requirements, transitive dependencies, and hashes aligned.
+
+More specifically:
+
+- change `requirements.txt` and `requirements-dev.txt`, not only the generated lockfiles
+- regenerate `requirements.lock.txt` and `requirements-dev.lock.txt` through `scripts/refresh-backend-lockfiles`
+- treat resolver conflicts as real compatibility constraints instead of forcing transitive pins by hand
+- avoid hand-editing lockfile hashes except as a last resort
+
+For an already-open backend dependency-update PR:
+
+- review the direct requirement changes first
+- run `scripts/refresh-backend-lockfiles --check` if you want a quick stale-lockfile check before editing
+- regenerate the lockfiles from the reviewed sources
+- validate with at least `pytest -v` and `mypy app`
+- commit regenerated lockfiles back to the update branch instead of patching transitive entries manually
 
 ### High-Risk Dependency Areas
 
@@ -60,15 +76,26 @@ Some ecosystems are intentionally treated as coordinated manual changes rather t
 - companion Tauri package and crate alignment
 - backend packages with higher behavioral risk such as `smbprotocol` and `pyvips`
 
-## Docs Version Metadata
+Additional contributor rules in those areas:
 
-The public docs version system has its own source of truth.
+- keep companion Tauri JavaScript packages and Rust crates on matching major.minor versions
+- validate companion Tauri alignment with `scripts/check_tauri_version_alignment.py` when those dependencies move
+- treat Python runtime upgrades as coordinated manual changes across production Docker, the devcontainer, and CI
+- prefer committed scripts and lockfiles over one-off installers or floating `npx` downloads
 
-- `website/data/docs-versions.toml` declares the available docs versions and their canonical order
-- `website/data/docs-nav/<version>.toml` declares sidebar order within a version
-- `website/content/docs/<version>/...` contains the actual versioned content
+## Dependency Security Audits
 
-If you change docs-version metadata, you are changing public docs behavior, not just internal bookkeeping.
+Dependency audits run in a dedicated workflow instead of on every normal push or pull request.
+
+That workflow covers:
+
+- backend: `pip-audit -r backend/requirements-dev.lock.txt`
+- frontend and companion: `npm audit --package-lock-only --omit=dev --audit-level=high`
+- companion Rust dependencies: `cargo audit`
+
+Run the relevant audit locally before merging reviewed dependency updates, especially when lockfiles or pinned versions changed.
+
+Inside the dev container, `pip-audit` and `cargo-audit` are installed automatically during post-create setup using the same pinned versions used in CI.
 
 ## Release-Sensitive Change Checklist
 
@@ -77,7 +104,6 @@ Use extra care when a change touches any of these:
 - `VERSION`
 - dependency lockfiles or requirement inputs
 - package metadata in frontend or companion projects
-- docs version declarations and version navigation files
 - build scripts that generate version-bearing or release-facing outputs
 
 ## Validation Expectations
@@ -92,13 +118,12 @@ cd backend && pytest -v
 cd backend && mypy app
 cd frontend && npx tsc --noEmit && npm run lint
 cd companion && npx tsc --noEmit && npm run lint
-cd website && npm run build
 ```
 
 Choose the relevant subset based on what changed, but do not skip version-sync validation when `VERSION` moves.
 
 ## Related Pages
 
-- [How To Plan And Review A Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope the change and review the release-sensitive diff intentionally
+- [How to Plan and Review a Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope the change and review the release-sensitive diff intentionally
 - [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/): choose the right checks for the specific subsystem and risk surface
-- [Companion Distribution And Update Workflow](../companion-distribution-and-update-workflow/): follow the dedicated Companion release-publishing and promotion flow
+- [Companion Distribution and Update Workflow](../companion-distribution-and-update-workflow/): follow the dedicated Companion release-publishing and promotion flow
