@@ -1,6 +1,5 @@
 +++
 title = "Logging and Localization"
-description = "Understand the shared logging and localization rules that span the browser app, backend, and companion."
 +++
 
 Logging and localization are both cross-boundary product systems in Sambee.

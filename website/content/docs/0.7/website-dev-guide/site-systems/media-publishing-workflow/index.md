@@ -1,6 +1,5 @@
 +++
 title = "Media Publishing Workflow"
-description = "Preserve the repository-based website media workflow, including source images, generated WebP derivatives, and deployment expectations."
 +++
 
 The website media workflow is repository-driven. The source files and the generated derivatives both belong in the repo.

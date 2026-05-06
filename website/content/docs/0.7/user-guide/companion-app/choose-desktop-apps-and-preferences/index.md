@@ -1,6 +1,5 @@
 +++
 title = "Choose Desktop Apps and Preferences"
-description = "Choose which desktop app Sambee Companion should launch when Sambee uses Open in App, and adjust the routine preferences that affect local-drive access and desktop editing."
 +++
 
 Use this page when **Open in App** asks which app to use, keeps opening the wrong app, or you want to change routine Companion settings.

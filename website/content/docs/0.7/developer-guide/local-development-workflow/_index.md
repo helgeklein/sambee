@@ -1,6 +1,5 @@
 +++
 title = "Local Development Workflow"
-description = "Set up the development environment, start the local services, and find the commands contributors use most often."
 +++
 
 This section is the contributor entry point for getting Sambee running locally and validating your changes.

@@ -1,6 +1,5 @@
 +++
 title = "Reverse Proxy Misconfiguration"
-description = "Diagnose the cases where Sambee itself is up but the hostname, HTTPS path, or proxy-side routing is still wrong."
 +++
 
 Use this page when Sambee appears to run, but users still cannot reach it correctly through the intended hostname or HTTPS entry point.

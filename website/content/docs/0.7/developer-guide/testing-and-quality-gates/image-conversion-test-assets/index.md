@@ -1,6 +1,5 @@
 +++
 title = "Image Conversion Test Assets"
-description = "Understand how Sambee generates and uses small purpose-built image fixtures to test colorspace conversion and preprocessing behavior."
 +++
 
 Sambee uses generated image fixtures to test the image-conversion and preprocessing pipeline without bloating the repository with large checked-in binaries.

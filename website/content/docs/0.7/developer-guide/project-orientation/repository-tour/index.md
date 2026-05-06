@@ -1,6 +1,5 @@
 +++
 title = "Repository Tour"
-description = "Learn where the main product code, shared repo workflows, and supporting source material live."
 +++
 
 This repository is organized around product boundaries, not just programming languages.

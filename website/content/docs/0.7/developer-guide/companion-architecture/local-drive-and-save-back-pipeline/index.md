@@ -1,6 +1,5 @@
 +++
 title = "Local-Drive and Save-Back Pipeline"
-description = "Understand how the companion handles local-drive access, how SMB-backed native-app editing flows back to the server, and why those two paths are related but not interchangeable."
 +++
 
 The companion supports two different desktop-side data paths.

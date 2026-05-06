@@ -1,6 +1,5 @@
 +++
 title = "Backup and Restore Planning"
-description = "Plan backups around the Sambee data that actually matters and make sure you can restore the deployment state you depend on."
 +++
 
 Backup planning for Sambee is mainly about preserving the deployment state that the service cannot recreate on its own.

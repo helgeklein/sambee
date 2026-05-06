@@ -1,6 +1,5 @@
 +++
 title = "Supported File Formats"
-description = "Summary of which file types Sambee can preview directly in the browser and what to expect when a preview is unavailable."
 +++
 
 This page lists the file types Sambee can preview directly in the browser.

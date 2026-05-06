@@ -1,6 +1,5 @@
 +++
 title = "Preview Supported Files"
-description = "Preview images, PDFs, and Markdown in the browser and understand what Sambee does when a file cannot be previewed."
 +++
 
 Sambee can preview some files directly in the browser so you can inspect them before downloading or editing.

@@ -1,6 +1,5 @@
 +++
 title = "Docs Editor Operation Reference"
-description = "Reference the docs editor CLI options, output formats, safety rules, and per-entity create, delete, and rename behavior."
 +++
 
 Use this page when you already know you need the docs editor and want the detailed reference behavior.

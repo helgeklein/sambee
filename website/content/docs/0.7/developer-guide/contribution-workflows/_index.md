@@ -1,6 +1,5 @@
 +++
 title = "Contribution Workflows"
-description = "Plan and review changes with the right scope and validation depth."
 +++
 
 This section is about how to approach a Sambee change before it becomes a pile of disconnected file edits.

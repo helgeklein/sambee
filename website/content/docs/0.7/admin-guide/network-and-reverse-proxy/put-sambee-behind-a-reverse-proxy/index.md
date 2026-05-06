@@ -1,6 +1,5 @@
 +++
 title = "Put Sambee behind a Reverse Proxy"
-description = "Place Sambee behind a reverse proxy, handle HTTPS, and use a concise Caddy example as the baseline product-docs pattern."
 +++
 
 For production-style deployments, place a reverse proxy in front of Sambee so HTTPS, hostnames, and external access are handled outside the application container itself.

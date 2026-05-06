@@ -1,6 +1,5 @@
 +++
 title = "Docs Runtime and Route Resolution"
-description = "Understand the runtime file map, route-resolution flow, materialization behavior, and version-aware docs search used by the website."
 +++
 
 This page covers the implementation-facing side of docs routing.

@@ -1,6 +1,5 @@
 +++
 title = "Dual-Pane Mode"
-description = "Move through folders efficiently and work side by side in dual-pane mode on desktop."
 +++
 
 Sambee is designed for fast file exploration, not just one-file-at-a-time viewing.

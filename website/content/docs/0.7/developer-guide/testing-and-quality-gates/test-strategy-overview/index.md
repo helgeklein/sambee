@@ -1,6 +1,5 @@
 +++
 title = "Test Strategy Overview"
-description = "Choose the right checks for backend, frontend, and companion changes and understand when cross-boundary validation is required."
 +++
 
 Sambee has multiple subsystems, so the right validation strategy depends on which contract you changed.

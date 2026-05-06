@@ -1,6 +1,5 @@
 +++
 title = "Recover after Interrupted Editing"
-description = "Recover desktop-editing sessions that were interrupted by a crash, a closed window, or a failed upload step."
 +++
 
 Use this page when a desktop-editing session stopped before the file uploaded back to Sambee.

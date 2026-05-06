@@ -9,50 +9,24 @@ books = [
 slug = "getting-started"
 title = "Getting Started"
 
+[pages.user-guide.getting-started]
+items = [
+  "what-is-sambee",
+]
+
 [[sections.user-guide.items]]
 slug = "accessing-files"
 title = "Accessing Files"
 
-[[sections.user-guide.items]]
-slug = "browsing-and-navigation"
-title = "Browsing and Navigation"
-
-[[sections.user-guide.items]]
-slug = "viewing-and-previewing"
-title = "Viewing and Previewing Files"
-
-[[sections.user-guide.items]]
-slug = "editing-files"
-title = "Editing Files"
-
-[[sections.user-guide.items]]
-slug = "managing-files"
-title = "Managing Files"
-
-[[sections.user-guide.items]]
-slug = "companion-app"
-title = "Companion App"
-
-[[sections.user-guide.items]]
-slug = "troubleshooting"
-title = "Troubleshooting"
-
-[[sections.user-guide.items]]
-slug = "reference"
-title = "Reference"
-
-[pages.user-guide.getting-started]
-items = [
-  "what-is-sambee",
-  "what-you-can-do-with-sambee",
-  "tour-the-interface",
-]
-
 [pages.user-guide.accessing-files]
 items = [
   "connect-to-an-smb-share",
-  "access-local-drives-and-pair-your-browser",
+  "access-local-drives",
 ]
+
+[[sections.user-guide.items]]
+slug = "browsing-and-navigation"
+title = "Browsing and Navigation"
 
 [pages.user-guide.browsing-and-navigation]
 items = [
@@ -62,11 +36,19 @@ items = [
   "mobile-navigation",
 ]
 
+[[sections.user-guide.items]]
+slug = "viewing-and-previewing"
+title = "Viewing and Previewing Files"
+
 [pages.user-guide.viewing-and-previewing]
 items = [
   "preview-supported-files",
   "what-happens-when-a-file-cannot-be-previewed",
 ]
+
+[[sections.user-guide.items]]
+slug = "editing-files"
+title = "Editing Files"
 
 [pages.user-guide.editing-files]
 items = [
@@ -75,22 +57,38 @@ items = [
   "understand-locking-and-conflicts",
 ]
 
+[[sections.user-guide.items]]
+slug = "managing-files"
+title = "Managing Files"
+
 [pages.user-guide.managing-files]
 items = [
   "common-file-management-tasks",
 ]
 
+[[sections.user-guide.items]]
+slug = "companion-app"
+title = "Companion App"
+
 [pages.user-guide.companion-app]
 items = [
-  "install-and-start-the-companion-app",
+  "install-and-pair-the-companion-app",
   "choose-desktop-apps-and-preferences",
   "recover-after-interrupted-editing",
 ]
+
+[[sections.user-guide.items]]
+slug = "troubleshooting"
+title = "Troubleshooting"
 
 [pages.user-guide.troubleshooting]
 items = [
   "common-user-problems",
 ]
+
+[[sections.user-guide.items]]
+slug = "reference"
+title = "Reference"
 
 [pages.user-guide.reference]
 items = [
@@ -101,39 +99,15 @@ items = [
 slug = "overview-and-planning"
 title = "Overview and Planning"
 
-[[sections.admin-guide.items]]
-slug = "installation-and-deployment"
-title = "Installation and Deployment"
-
-[[sections.admin-guide.items]]
-slug = "network-and-reverse-proxy"
-title = "Network and Reverse Proxy"
-
-[[sections.admin-guide.items]]
-slug = "configuration"
-title = "Configuration"
-
-[[sections.admin-guide.items]]
-slug = "operations-and-maintenance"
-title = "Operations and Maintenance"
-
-[[sections.admin-guide.items]]
-slug = "user-support-and-escalation"
-title = "User Support and Escalation"
-
-[[sections.admin-guide.items]]
-slug = "troubleshooting"
-title = "Troubleshooting"
-
-[[sections.admin-guide.items]]
-slug = "reference"
-title = "Reference"
-
 [pages.admin-guide.overview-and-planning]
 items = [
   "deployment-architecture-overview",
   "what-sambee-requires-to-run",
 ]
+
+[[sections.admin-guide.items]]
+slug = "installation-and-deployment"
+title = "Installation and Deployment"
 
 [pages.admin-guide.installation-and-deployment]
 items = [
@@ -141,16 +115,28 @@ items = [
   "first-startup-and-first-admin-login",
 ]
 
+[[sections.admin-guide.items]]
+slug = "network-and-reverse-proxy"
+title = "Network and Reverse Proxy"
+
 [pages.admin-guide.network-and-reverse-proxy]
 items = [
   "put-sambee-behind-a-reverse-proxy",
 ]
+
+[[sections.admin-guide.items]]
+slug = "configuration"
+title = "Configuration"
 
 [pages.admin-guide.configuration]
 items = [
   "configure-local-settings-and-persistent-storage",
   "configuration-key-reference",
 ]
+
+[[sections.admin-guide.items]]
+slug = "operations-and-maintenance"
+title = "Operations and Maintenance"
 
 [pages.admin-guide.operations-and-maintenance]
 items = [
@@ -160,10 +146,18 @@ items = [
   "backup-and-restore-planning",
 ]
 
+[[sections.admin-guide.items]]
+slug = "user-support-and-escalation"
+title = "User Support and Escalation"
+
 [pages.admin-guide.user-support-and-escalation]
 items = [
   "support-companion-app-escalation",
 ]
+
+[[sections.admin-guide.items]]
+slug = "troubleshooting"
+title = "Troubleshooting"
 
 [pages.admin-guide.troubleshooting]
 items = [
@@ -171,6 +165,10 @@ items = [
   "reset-the-admin-password",
   "reverse-proxy-misconfiguration",
 ]
+
+[[sections.admin-guide.items]]
+slug = "reference"
+title = "Reference"
 
 [pages.admin-guide.reference]
 items = [
@@ -183,49 +181,25 @@ items = [
 slug = "project-orientation"
 title = "Project Orientation"
 
-[[sections.developer-guide.items]]
-slug = "local-development-workflow"
-title = "Local Development Workflow"
-
-[[sections.developer-guide.items]]
-slug = "backend-architecture"
-title = "Backend Architecture"
-
-[[sections.developer-guide.items]]
-slug = "frontend-architecture"
-title = "Frontend Architecture"
-
-[[sections.developer-guide.items]]
-slug = "companion-architecture"
-title = "Companion Architecture"
-
-[[sections.developer-guide.items]]
-slug = "cross-cutting-systems"
-title = "Cross-Cutting Systems"
-
-[[sections.developer-guide.items]]
-slug = "testing-and-quality-gates"
-title = "Testing and Quality Gates"
-
-[[sections.developer-guide.items]]
-slug = "contribution-workflows"
-title = "Contribution Workflows"
-
-[[sections.developer-guide.items]]
-slug = "release-and-versioning"
-title = "Release and Versioning"
-
 [pages.developer-guide.project-orientation]
 items = [
   "what-sambee-consists-of",
   "repository-tour",
 ]
 
+[[sections.developer-guide.items]]
+slug = "local-development-workflow"
+title = "Local Development Workflow"
+
 [pages.developer-guide.local-development-workflow]
 items = [
   "set-up-the-development-environment",
   "common-task-commands",
 ]
+
+[[sections.developer-guide.items]]
+slug = "backend-architecture"
+title = "Backend Architecture"
 
 [pages.developer-guide.backend-architecture]
 items = [
@@ -236,6 +210,10 @@ items = [
   "file-operations-and-edit-locking",
 ]
 
+[[sections.developer-guide.items]]
+slug = "frontend-architecture"
+title = "Frontend Architecture"
+
 [pages.developer-guide.frontend-architecture]
 items = [
   "frontend-overview",
@@ -245,6 +223,10 @@ items = [
   "viewer-architecture-and-preview-contracts",
 ]
 
+[[sections.developer-guide.items]]
+slug = "companion-architecture"
+title = "Companion Architecture"
+
 [pages.developer-guide.companion-architecture]
 items = [
   "companion-overview",
@@ -253,6 +235,10 @@ items = [
   "local-drive-and-save-back-pipeline",
 ]
 
+[[sections.developer-guide.items]]
+slug = "cross-cutting-systems"
+title = "Cross-Cutting Systems"
+
 [pages.developer-guide.cross-cutting-systems]
 items = [
   "logging-and-localization",
@@ -260,16 +246,28 @@ items = [
   "frontend-logging-and-tracing",
 ]
 
+[[sections.developer-guide.items]]
+slug = "testing-and-quality-gates"
+title = "Testing and Quality Gates"
+
 [pages.developer-guide.testing-and-quality-gates]
 items = [
   "test-strategy-overview",
   "image-conversion-test-assets",
 ]
 
+[[sections.developer-guide.items]]
+slug = "contribution-workflows"
+title = "Contribution Workflows"
+
 [pages.developer-guide.contribution-workflows]
 items = [
   "how-to-plan-and-review-a-change",
 ]
+
+[[sections.developer-guide.items]]
+slug = "release-and-versioning"
+title = "Release and Versioning"
 
 [pages.developer-guide.release-and-versioning]
 items = [
@@ -281,14 +279,6 @@ items = [
 slug = "docs-platform"
 title = "Docs Platform"
 
-[[sections.website-dev-guide.items]]
-slug = "authoring-and-tooling"
-title = "Authoring and Tooling"
-
-[[sections.website-dev-guide.items]]
-slug = "site-systems"
-title = "Site Systems"
-
 [pages.website-dev-guide.docs-platform]
 items = [
   "website-and-docs-architecture-overview",
@@ -296,12 +286,21 @@ items = [
   "docs-runtime-and-route-resolution",
 ]
 
+[[sections.website-dev-guide.items]]
+slug = "authoring-and-tooling"
+title = "Authoring and Tooling"
+
 [pages.website-dev-guide.authoring-and-tooling]
 items = [
   "docs-authoring-workflow",
+  "docs-shortcodes",
   "docs-editor-tool",
   "docs-editor-operation-reference",
 ]
+
+[[sections.website-dev-guide.items]]
+slug = "site-systems"
+title = "Site Systems"
 
 [pages.website-dev-guide.site-systems]
 items = [

@@ -1,6 +1,5 @@
 +++
 title = "SMB Change Notification and Directory Freshness"
-description = "Understand how Sambee uses SMB change notifications for browser refreshes, directory-cache freshness, and recovery from connection issues."
 +++
 
 Sambee uses SMB2/SMB3 `CHANGE_NOTIFY` support to keep directory state fresh without falling back to naive polling.

@@ -1,6 +1,5 @@
 +++
 title = "Docs Authoring Workflow"
-description = "Write and update published website docs without drifting into source-material folders or breaking the versioned docs contract."
 +++
 
 The live docs are authored in the website, not in the source-material folders.

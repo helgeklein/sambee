@@ -257,7 +257,7 @@ companion:
       type: docs
       book: user-guide
       section: companion-app
-      page: install-and-start-the-companion-app
+      page: install-and-pair-the-companion-app
 
 deployment:
   enabled: true

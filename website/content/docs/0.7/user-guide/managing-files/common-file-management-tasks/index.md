@@ -1,6 +1,5 @@
 +++
 title = "Common File Management Tasks"
-description = "Handle upload, download, folder creation, rename, copy, move, and delete workflows in Sambee."
 +++
 
 Sambee supports the file tasks users reach for most often in the browser, whether the files come from SMB shares or from local drives already exposed there.
@@ -62,6 +61,6 @@ If the same write action fails repeatedly on the same source, treat it as an acc
 
 For two-pane copy and move work, use [Dual-Pane Mode](../../browsing-and-navigation/dual-pane-mode/).
 
-Need file access first? Start with [What You Can Do with Sambee](../../getting-started/what-you-can-do-with-sambee/).
+Need file access first? Start with [Connect to an SMB Share](../../accessing-files/connect-to-an-smb-share/) or [Access Local Drives](../../accessing-files/access-local-drives/).
 
 Repeated failures? Use [Common User Problems](../../troubleshooting/common-user-problems/).

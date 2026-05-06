@@ -12,13 +12,13 @@ Use this guide to find and explore files on network shares, explore files on you
 
 ## In This Guide
 
-- [Getting Started](./getting-started/what-you-can-do-with-sambee/): understand what Sambee helps you do and learn the interface
+- [Getting Started](./getting-started/what-is-sambee/): understand what Sambee is and choose the right next task
 - [Accessing Files](./accessing-files/connect-to-an-smb-share/): open SMB shares and access local drives from your computer
 - [Browsing and Navigation](./browsing-and-navigation/dual-pane-mode/): move through folders efficiently on desktop or mobile
 - [Viewing and Previewing Files](./viewing-and-previewing/preview-supported-files/): preview supported files and handle files that cannot be previewed
 - [Editing Files](./editing-files/edit-markdown-in-the-browser/): edit Markdown in the browser or continue in desktop apps
 - [Managing Files](./managing-files/common-file-management-tasks/): download, upload, rename, move, copy, and delete files
-- [Companion App](./companion-app/install-and-start-the-companion-app/): install Companion and manage desktop-app behavior
+- [Companion App](./companion-app/install-and-pair-the-companion-app/): install Companion and manage desktop-app behavior
 - [Troubleshooting](./troubleshooting/common-user-problems/): solve common user problems before escalating
 - [Reference](./reference/supported-file-formats/): check supported file formats
 

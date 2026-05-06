@@ -1,6 +1,5 @@
 +++
 title = "Port and Path Reference"
-description = "Reference summary of important Sambee service ports, URLs, and deployment paths."
 +++
 
 This is the main lookup page for Sambee service ports, deployment files, persistent paths, and container-side paths.

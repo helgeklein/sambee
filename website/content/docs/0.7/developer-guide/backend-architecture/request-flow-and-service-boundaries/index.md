@@ -1,6 +1,5 @@
 +++
 title = "Request Flow and Service Boundaries"
-description = "Understand how requests move through Sambee's backend layers and which responsibilities belong to API handlers, models, storage code, and long-running services."
 +++
 
 The backend is easiest to change safely when you treat it as layered coordination instead of one large request handler.

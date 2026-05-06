@@ -1,6 +1,5 @@
 +++
 title = "Typography Usage and Boundaries"
-description = "See representative typography utilities, template usage patterns, and the boundary between shared typography and component-local CSS."
 +++
 
 This page covers the applied side of the website typography system.

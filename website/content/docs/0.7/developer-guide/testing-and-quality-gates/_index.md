@@ -1,6 +1,5 @@
 +++
 title = "Testing and Quality Gates"
-description = "Choose the right validation commands for the change you are making and understand which contracts deserve broader coverage."
 +++
 
 This section helps contributors choose the right validation depth instead of running either too little or everything all the time.

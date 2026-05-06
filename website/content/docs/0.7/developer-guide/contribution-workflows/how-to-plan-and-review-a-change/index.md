@@ -1,6 +1,5 @@
 +++
 title = "How to Plan and Review a Change"
-description = "Scope a Sambee change around product contracts and review the resulting diff for real regressions instead of superficial churn."
 +++
 
 The safest Sambee changes start from the contract that is changing, not from the first file you happened to open.

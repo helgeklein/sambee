@@ -1,6 +1,5 @@
 +++
 title = "Viewer Architecture and Preview Contracts"
-description = "Understand how Sambee chooses viewers, how file-type registries stay aligned, and what contributors must preserve when preview behavior changes."
 +++
 
 Preview behavior in Sambee is a cross-boundary contract, not just a frontend component choice.

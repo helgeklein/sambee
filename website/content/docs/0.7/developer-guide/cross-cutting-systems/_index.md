@@ -1,6 +1,5 @@
 +++
 title = "Cross-Cutting Systems"
-description = "Understand the project rules that span more than one app, starting with logging and localization."
 +++
 
 Some Sambee behaviors are shared systems rather than one-team implementation details.

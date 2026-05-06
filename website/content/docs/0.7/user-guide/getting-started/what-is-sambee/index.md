@@ -1,6 +1,5 @@
 +++
 title = "What Is Sambee?"
-description = "Understand what Sambee is, how SMB and local-drive access differ, and what kinds of work Sambee brings into the browser."
 +++
 
 ## Browser-Based File Manager
@@ -20,8 +19,3 @@ But Sambee is much more than that. It's file management tool built for speed, a 
 ## Markdown Editor
 
 But it doesn't stop there. Sambee bridges the gap between the browser and the natively installed apps on your computer: Sambee lets you open any file in its traditional desktop app directly from the browser. In other words, it lets you open Word, Excel, or Photoshop files in their respective native apps. When you're done editing, your changes are uploaded back into the original storage location (e.g., a file share). All that happens smoothly in a friendly UI.
-
-## Next Steps
-
-- Want the task-oriented overview next? Continue to [What You Can Do with Sambee](../what-you-can-do-with-sambee/).
-- Want a quick UI walkthrough? Continue to [Tour the Interface](../tour-the-interface/).

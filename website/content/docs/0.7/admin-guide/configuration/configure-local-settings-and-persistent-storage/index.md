@@ -1,6 +1,5 @@
 +++
 title = "Configure Local Settings and Persistent Storage"
-description = "Configure local settings, port exposure, and persistent storage so Sambee behaves safely in your environment."
 +++
 
 The first configuration decisions for Sambee are simple and operational.

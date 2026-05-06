@@ -1,6 +1,5 @@
 +++
 title = "Companion Support Reference"
-description = "Look up companion logs, preferences, crash-diagnostic entry points, verbose logging controls, and Windows WebView2 runtime-data paths."
 +++
 
 This page is stable lookup material for administrators supporting escalated Sambee Companion issues.

@@ -1,6 +1,5 @@
 +++
 title = "Frontend Logging and Tracing"
-description = "Understand how one browser-app log call can drive both local console output and optional backend trace collection."
 +++
 
 The browser app has one shared logging API, but it can feed two different diagnostic surfaces.

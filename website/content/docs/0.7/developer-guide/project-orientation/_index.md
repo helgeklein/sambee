@@ -1,6 +1,5 @@
 +++
 title = "Project Orientation"
-description = "Understand what Sambee consists of, what each major subsystem owns, and where to start in the repository."
 +++
 
 Start here when you need the high-level mental model before changing anything.

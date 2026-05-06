@@ -1,6 +1,5 @@
 +++
 title = "Understand Locking and Conflicts"
-description = "Understand why Sambee blocks risky edits, what edit locks do, and how to choose between overwrite, save-as-copy, or waiting when more than one version exists."
 +++
 
 Use this page when Sambee blocks edit mode, warns that another version exists, or asks how you want to resolve a changed file.

@@ -1,6 +1,5 @@
 +++
 title = "Configuration Key Reference"
-description = "Use the example config as the source of truth and map the high-value keys to the operational behavior they change."
 +++
 
 This page is a compact map of the optional `config.toml` file.

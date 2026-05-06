@@ -1,6 +1,5 @@
 +++
 title = "Release and Versioning"
-description = "Handle version metadata, dependency updates, and version-sensitive release files without drifting out of sync."
 +++
 
 This section covers the workflows where a small metadata mistake can create cross-boundary drift.

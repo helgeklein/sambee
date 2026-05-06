@@ -1,6 +1,5 @@
 +++
 title = "Frontend Architecture"
-description = "Understand the browser app, how it is organized, and which UI contracts it maintains for file browsing, previewing, and editing workflows."
 +++
 
 The frontend is the primary user-facing product surface. It is where Sambee's browsing, preview, editing, and navigation workflows become visible.

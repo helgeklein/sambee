@@ -1,6 +1,5 @@
 +++
 title = "Common Task Commands"
-description = "Use the supported commands and tasks for running services, testing changes, and syncing version metadata."
 +++
 
 Prefer the committed scripts and workspace tasks over improvised one-off commands.

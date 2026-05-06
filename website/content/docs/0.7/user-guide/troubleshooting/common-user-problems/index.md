@@ -1,6 +1,5 @@
 +++
 title = "Common User Problems"
-description = "Solve the most common user problems involving SMB access, local-drive browser access, previews, Open in App, and desktop editing."
 +++
 
 Use this page when something stopped working and you are not sure which full task page to open next.
@@ -26,7 +25,7 @@ Full access path: [Connect to an SMB Share](../../accessing-files/connect-to-an-
 
 Local drives in the browser require a desktop browser, Sambee Companion, and a working browser pairing.
 
-Full local-drive path: [Access Local Drives and Pair Your Browser](../../accessing-files/access-local-drives-and-pair-your-browser/).
+Full local-drive path: [Access Local Drives](../../accessing-files/access-local-drives/).
 
 ## A File Will Not Preview
 
@@ -42,7 +41,7 @@ Check these first:
 - allow the browser to open the `sambee://` link if the browser asked for permission
 - on Linux, confirm the deep-link handler is registered with `xdg-mime query default x-scheme-handler/sambee`
 
-Start with [Install and Start the Companion App](../../companion-app/install-and-start-the-companion-app/) if Companion may not be installed or running yet.
+Start with [Install and Pair the Companion App](../../companion-app/install-and-pair-the-companion-app/) if Companion may not be installed or running yet.
 
 Normal desktop-editing workflow: [Open Files in Desktop Apps and Save Changes Back](../../editing-files/open-files-in-desktop-apps-and-save-changes-back/).
 

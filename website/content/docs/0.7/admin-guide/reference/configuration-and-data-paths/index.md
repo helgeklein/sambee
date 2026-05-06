@@ -1,6 +1,5 @@
 +++
 title = "Container Paths and Mount Mapping"
-description = "Look up the container-side paths and host-to-container mappings used by Sambee deployments."
 +++
 
 Use [Port and Path Reference](../port-and-path-reference/) first for the main list of ports, deployment files, and persistent paths.

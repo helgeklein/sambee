@@ -1,6 +1,5 @@
 +++
 title = "Support Companion-App Escalation"
-description = "Handle the companion-app problems that have moved beyond normal end-user setup and into admin-level support or desktop-environment diagnostics."
 +++
 
 Most normal Companion usage belongs in the User Guide. This page is for the cases where a user-facing problem has become an admin task.

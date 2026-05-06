@@ -1,6 +1,5 @@
 +++
 title = "Typography System"
-description = "Understand the shared typography tokens, semantic utilities, and component boundaries used by the website theme."
 +++
 
 This page documents the current typography architecture for the Hugo website theme under `website/themes/sambee`.

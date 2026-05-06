@@ -1,6 +1,5 @@
 +++
 title = "Companion Distribution and Update Workflow"
-description = "Understand how Companion builds become draft releases, how feeds are promoted, and why Sambee and Companion read different public metadata."
 +++
 
 Companion distribution is intentionally split between build control in the main repository and public distribution in a dedicated release repository.

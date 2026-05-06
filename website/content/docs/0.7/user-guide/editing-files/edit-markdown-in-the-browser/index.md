@@ -1,6 +1,5 @@
 +++
 title = "Edit Markdown in the Browser"
-description = "Open a Markdown file in Sambee, switch into edit mode, and save your changes without leaving the browser."
 +++
 
 Markdown is the main file type that Sambee can edit directly in the browser.

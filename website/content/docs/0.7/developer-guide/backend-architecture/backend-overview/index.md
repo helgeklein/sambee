@@ -1,6 +1,5 @@
 +++
 title = "Backend Overview"
-description = "Understand the FastAPI service boundaries, the SMB-facing responsibilities of the backend, and the contracts the frontend and companion rely on."
 +++
 
 The backend is the policy and integration layer between the browser-facing product and the storage systems Sambee works with.

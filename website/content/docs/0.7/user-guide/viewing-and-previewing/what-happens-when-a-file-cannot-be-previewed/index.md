@@ -1,6 +1,5 @@
 +++
 title = "What Happens When a File Cannot Be Previewed"
-description = "Understand the difference between unsupported and temporarily unavailable previews, and choose the right next step when Sambee cannot show a file in the browser."
 +++
 
 Use this page when Sambee does not show the in-browser preview you expected.

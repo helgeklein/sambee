@@ -1,6 +1,5 @@
 +++
 title = "Localization and Locale Behavior"
-description = "Use the typed translation system correctly, preserve locale behavior, and understand how browser and companion localization stay in sync."
 +++
 
 Localization in Sambee is a typed cross-app system. It affects UI copy, browser formatting, and browser-to-companion behavior.

@@ -1,6 +1,5 @@
 +++
 title = "Update Sambee Safely"
-description = "Update Sambee with a released version, rebuild the deployment, and avoid risky upgrade habits."
 +++
 
 Updates should be deliberate. Do not upgrade production from the current branch tip.

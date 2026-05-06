@@ -1,6 +1,5 @@
 +++
 title = "Website and Docs Architecture Overview"
-description = "Understand how the public website is organized, how versioned docs fit into it, and which build steps turn repository content into the published site."
 +++
 
 This page is the entry point for both website editors and web developers.

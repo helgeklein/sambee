@@ -1,6 +1,5 @@
 +++
 title = "Docs Content Model, Navigation, and Inheritance"
-description = "Understand the path-derived docs model, the navigation data contract, and how inherited content becomes routable and renderable in the website."
 +++
 
 Sambee's docs system is intentionally strict. That is a feature, not incidental complexity.

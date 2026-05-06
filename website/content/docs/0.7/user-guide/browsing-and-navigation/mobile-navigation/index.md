@@ -1,6 +1,5 @@
 +++
 title = "Mobile Navigation"
-description = "Understand what works well on mobile, what changes from desktop, and when to switch to a desktop browser instead."
 +++
 
 Sambee works on phones and tablets, but the mobile experience is simpler than the desktop experience.

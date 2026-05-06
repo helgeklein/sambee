@@ -1,6 +1,5 @@
 +++
 title = "Frontend Overview"
-description = "Understand how the React browser app is structured and how it coordinates browsing, preview, editing, pairing, and UI-system concerns."
 +++
 
 The frontend is a React and TypeScript application built with Vite. It is responsible for presenting Sambee's workflows clearly while respecting the backend and companion contracts behind them.

@@ -1,6 +1,5 @@
 +++
 title = "File Operations and Edit Locking"
-description = "Understand how ordinary file operations differ from companion-assisted SMB editing, and why lock and conflict handling belong to the backend."
 +++
 
 Not every file operation in Sambee follows the same lifecycle.

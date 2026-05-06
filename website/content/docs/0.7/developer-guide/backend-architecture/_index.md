@@ -1,6 +1,5 @@
 +++
 title = "Backend Architecture"
-description = "Understand the FastAPI backend, what it owns, and which server-side contracts the rest of the product depends on."
 +++
 
 The backend is where Sambee's server-side behavior becomes real: authentication, API shape, SMB access, file operations, edit locks, and change notifications all converge here.

@@ -1,6 +1,5 @@
 +++
 title = "Routine Maintenance Checklist"
-description = "Use a compact operational checklist for regular health review, planned changes, and post-change verification."
 +++
 
 This page is a compact checklist for routine service ownership.

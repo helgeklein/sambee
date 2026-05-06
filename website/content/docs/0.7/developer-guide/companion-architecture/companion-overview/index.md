@@ -1,6 +1,5 @@
 +++
 title = "Companion Overview"
-description = "Understand the Sambee Companion desktop app, its two main responsibilities, and the trust boundaries it introduces."
 +++
 
 Sambee Companion is a lightweight desktop application built with Tauri v2, a Preact UI, and a Rust backend.

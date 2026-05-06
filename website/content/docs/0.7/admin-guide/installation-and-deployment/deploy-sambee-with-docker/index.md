@@ -1,6 +1,5 @@
 +++
 title = "Deploy Sambee with Docker"
-description = "Deploy Sambee with Docker, prepare the persistent data directory, and bring the application up for the first time."
 +++
 
 This is the first page in the deployment sequence.

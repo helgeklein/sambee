@@ -1,6 +1,5 @@
 +++
 title = "Browser-to-Companion Trust Model"
-description = "Understand the security model behind deep links, pairing, localhost access, and the browser-to-companion boundary."
 +++
 
 The browser-to-companion boundary is powerful because it crosses from the browser app into desktop-local capability. That makes it one of the most security-sensitive parts of Sambee.

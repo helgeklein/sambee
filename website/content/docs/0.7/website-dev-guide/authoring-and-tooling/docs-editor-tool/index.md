@@ -1,6 +1,5 @@
 +++
 title = "Docs Editor Tool"
-description = "Use the docs editor CLI to create, delete, and rename docs versions, books, sections, and pages without desynchronizing the content tree and nav data."
 +++
 
 The docs editor CLI manages structural website docs changes safely and consistently.

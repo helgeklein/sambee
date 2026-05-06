@@ -1,6 +1,5 @@
 +++
 title = "View Logs and Restart Services"
-description = "Use Docker Compose logs for Sambee diagnostics and perform routine stop or restart actions safely."
 +++
 
 Once Sambee is in service, logs and controlled restarts are the core day-to-day admin tools.

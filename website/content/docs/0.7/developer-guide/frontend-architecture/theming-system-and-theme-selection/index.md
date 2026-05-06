@@ -1,6 +1,5 @@
 +++
 title = "Theming System and Theme Selection"
-description = "Understand how Sambee defines themes, switches between them, persists theme choice, and keeps theme-aware UI behavior consistent."
 +++
 
 Sambee's theming system is centralized. Theme configuration, runtime state, persistence, and selection UI are all treated as one frontend subsystem.

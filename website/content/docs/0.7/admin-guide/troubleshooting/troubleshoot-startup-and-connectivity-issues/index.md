@@ -1,6 +1,5 @@
 +++
 title = "Troubleshoot Startup and Connectivity Issues"
-description = "Troubleshoot the most common service-side failures in Sambee: startup problems, frontend loading issues, SMB connectivity failures, and related login problems."
 +++
 
 Use this page when the deployment itself looks unhealthy or unreachable.

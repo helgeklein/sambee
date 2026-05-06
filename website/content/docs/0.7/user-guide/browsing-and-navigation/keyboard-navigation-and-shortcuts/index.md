@@ -1,6 +1,5 @@
 +++
 title = "Keyboard Navigation and Shortcuts"
-description = "Understand Sambee's keyboard-first design and use the main file list, viewers, dual-pane layout, and Markdown editor efficiently from the keyboard."
 +++
 
 Keyboard navigation is a first-class part of Sambee's product design, not a secondary convenience layer.

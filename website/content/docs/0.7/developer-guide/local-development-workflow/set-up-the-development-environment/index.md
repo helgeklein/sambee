@@ -1,6 +1,5 @@
 +++
 title = "Set up the Development Environment"
-description = "Use the supported development environment, understand what it configures automatically, and know which baseline rules matter before you change dependencies or tooling."
 +++
 
 The supported contributor path is the repository dev container.

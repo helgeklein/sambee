@@ -1,6 +1,5 @@
 +++
 title = "Keyboard Shortcuts and Command Model"
-description = "Understand the centralized shortcut registry, command model, quick-bar behavior, and context-aware keyboard handling used across the frontend."
 +++
 
 Keyboard behavior in Sambee is a shared frontend system, not a pile of local `keydown` handlers.

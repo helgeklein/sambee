@@ -1,6 +1,5 @@
 +++
 title = "Companion Runtime and Native-App Editing"
-description = "Understand how the companion receives deep links, coordinates native-app editing, persists operation state, and exposes the UI surfaces around app selection, recovery, and preferences."
 +++
 
 This page covers the companion runtime that sits between the browser's deep-link request and the desktop user's native editing session.

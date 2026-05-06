@@ -1,6 +1,5 @@
 +++
 title = "File Browser and Navigation Model"
-description = "Understand how the file browser manages pane state, URL synchronization, keyboard workflows, copy and move behavior, and directory refresh."
 +++
 
 The file browser is the densest browser-side product surface in Sambee. It combines navigation, selection, editing entry points, viewer launch, keyboard behavior, and real-time directory refresh.

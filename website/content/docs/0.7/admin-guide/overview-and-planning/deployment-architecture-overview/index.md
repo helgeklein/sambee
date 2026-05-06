@@ -1,6 +1,5 @@
 +++
 title = "Deployment Architecture Overview"
-description = "Understand Sambee's default single-container deployment model: one application container, one local data directory, SMB connectivity, and optional surrounding components."
 +++
 
 Most Sambee deployments are simple: one application container, one local data directory, and network access to existing SMB storage.

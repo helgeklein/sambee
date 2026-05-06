@@ -1,6 +1,5 @@
 +++
 title = "Smart Navigation and the Quick Bar"
-description = "Jump to directories quickly with Ctrl+K, use the shared quick bar for commands and settings, and filter the current pane without leaving the keyboard."
 +++
 
 The quick bar is one of Sambee's core navigation features.

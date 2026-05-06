@@ -1,6 +1,5 @@
 +++
 title = "Dependency and Release Workflow"
-description = "Treat version metadata and dependency lockfiles as reviewed source instead of incidental setup artifacts."
 +++
 
 Versioning in Sambee is deliberate. Several files across backend, frontend, and companion have to stay aligned, and the repository already has workflows to enforce that alignment.

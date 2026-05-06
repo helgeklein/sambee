@@ -1,6 +1,5 @@
 +++
 title = "What Sambee Requires to Run"
-description = "Turn Sambee's deployment model into a short runtime and prerequisite checklist."
 +++
 
 This page follows Deployment Architecture Overview and turns that model into a short prerequisite checklist.

@@ -1,6 +1,5 @@
 +++
 title = "Reset the Admin Password"
-description = "Recover administrator access by regenerating the admin password without wiping the rest of the Sambee deployment state."
 +++
 
 Use this page when the Sambee deployment is otherwise healthy but the administrator can no longer sign in because the current admin password is unavailable or known to be wrong.

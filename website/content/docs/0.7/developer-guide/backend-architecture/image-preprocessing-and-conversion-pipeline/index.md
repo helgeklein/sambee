@@ -1,6 +1,5 @@
 +++
 title = "Image Preprocessing and Conversion Pipeline"
-description = "Understand how Sambee preprocesses exotic image formats, how the backend conversion path is structured, and which security and configuration constraints contributors must preserve."
 +++
 
 Sambee's image preview path is not one converter with one code path.

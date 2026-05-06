@@ -1,6 +1,5 @@
 +++
 title = "First Startup and First Admin Login"
-description = "Confirm that Sambee started successfully, retrieve the initial admin password, and complete the first admin sign-in."
 +++
 
 Once the container is up, the next job is to retrieve the initial credentials and confirm that you can sign in as the first administrator.

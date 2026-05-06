@@ -1,6 +1,5 @@
 +++
 title = "What Sambee Consists Of"
-description = "Understand the major Sambee subsystems and the user-facing capability boundaries contributors need to preserve."
 +++
 
 Sambee is not a single app with one execution model. It is a coordinated system with separate responsibilities in the browser, on the server, and on the desktop.

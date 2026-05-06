@@ -1,6 +1,5 @@
 +++
 title = "Open Files in Desktop Apps and Save Changes Back"
-description = "Use Open in App with Sambee Companion installed and running so the browser can open a file in a desktop app and return the updated version to its source location."
 +++
 
 Use this workflow when the browser is not the right editor for the file you need to change.
@@ -13,9 +12,15 @@ You need:
 - Sambee Companion running
 - a compatible installed desktop app for the file type you want to open
 
-Need Companion first? Start with [Install and Start the Companion App](../../companion-app/install-and-start-the-companion-app/).
+Need Companion first? Start with [Install and Pair the Companion App](../../companion-app/install-and-pair-the-companion-app/).
 
 Sambee starts this workflow from the browser. Sambee Companion handles the temporary local copy, the desktop-app handoff, and the upload back to the source location.
+
+## What Happens the First Time You Use It
+
+When a browser action hands control to Companion for the first time:
+
+- The browser may ask for permission to open the `sambee://` link
 
 ## Good to Know before You Edit
 
