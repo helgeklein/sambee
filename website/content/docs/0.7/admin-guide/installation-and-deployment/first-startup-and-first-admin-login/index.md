@@ -16,8 +16,8 @@ You are looking for a log block labeled `FIRST-TIME SETUP - SAVE THESE CREDENTIA
 
 You will need:
 
-- username: `admin`, unless you changed it through configuration
-- password: the generated password from the logs
+- Username: `admin`, unless you changed it through configuration.
+- Password: The generated password from the logs.
 
 ## Sign In
 
@@ -25,17 +25,17 @@ Open Sambee in the browser at the frontend URL for your deployment and sign in w
 
 This first sign-in confirms that:
 
-- the service is reachable
-- the frontend is loading
-- the backend startup completed far enough to expose the first-time setup information
+- The service is reachable.
+- The frontend is loading.
+- The backend startup completed far enough to expose the first-time setup information.
 
 ## If the Login Fails
 
 Common reasons include:
 
-- the service did not start cleanly
-- the password was copied incorrectly from the logs
-- the frontend is not actually loading from the expected container
+- The service did not start cleanly.
+- The password was copied incorrectly from the logs.
+- The frontend is not actually loading from the expected container.
 
 If you cannot retrieve the password or the login still fails, use [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
 

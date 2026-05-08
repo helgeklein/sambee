@@ -2,41 +2,22 @@
 title = "Mobile Navigation"
 +++
 
-Sambee works on phones and tablets, but the mobile experience is simpler than the desktop experience.
+Sambee is designed and optimized for phones and tablets as well as for desktops. Because each platform has different strengths, the mobile experience differs from the desktop experience in some cases.
 
-## What Mobile Is Good For
+## Where Mobile Excels
 
 Mobile is a good fit when you want to:
 
-- explore network folders made available in Sambee
-- inspect supported previews
-- download files
-- complete lighter review or lookup tasks away from a desk
+- Explore network shares made available through Sambee.
+- View images, read PDFs, and edit Markdown files.
+- Share content from file servers on mobile platforms.
 
 ## What Changes on Mobile
 
-Compared with desktop, mobile navigation is more compact.
+Compared with desktop, mobile navigation is more compact:
 
-- the interface focuses on a single-pane navigation flow
-- toolbar space is tighter
-- some desktop-oriented browser controls are simplified or moved behind menus
-- dual-pane workflows are not part of the mobile experience
-
-## When You Need Desktop
-
-Some features only work on a desktop computer.
-
-On iOS and Android, local drives require a desktop browser.
-
-If you need files from the local computer or want to continue in an installed desktop app, switch to a desktop browser on Windows, macOS, or Linux.
-
-## A Practical Rule
-
-Use mobile when you want fast access, previewing, and lighter file handling.
-
-Use desktop when you need:
-
-- dual pane
-- local drives
-- desktop-app editing
-- a denser, more keyboard-driven browser workflow
+- The interface focuses on single-pane navigation.
+- Toolbar space is tighter.
+- Some desktop-oriented browser controls are simplified or moved behind menus.
+- Opening files in natively installed apps is not available.
+- Local drive access is not available.

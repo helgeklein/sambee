@@ -87,9 +87,9 @@ Use verbose logging when the normal log file does not explain why startup, local
 
 The companion rotates logs automatically to avoid unbounded disk growth.
 
-- maximum file size: 5 MB per log file
-- maximum files: 3 total, including the active file
-- worst-case disk usage: about 15 MB
+- Maximum file size: 5 MB per log file.
+- Maximum files: 3 total, including the active file.
+- Worst-case disk usage: About 15 MB.
 
 Rotation uses the usual numbered-copy scheme: the active `.log` becomes `.log.1`, the previous `.log.1` becomes `.log.2`, and the oldest rotated file is removed.
 
@@ -125,8 +125,8 @@ If file logging initialization fails, the app falls back to stderr logging so st
 
 The frontend logger in `companion/src/lib/logger.ts` writes to both:
 
-- the browser console for local developer-tools visibility
-- the Rust backend through the `log_from_frontend` Tauri command so the same message lands in the file log
+- The browser console for local developer-tools visibility.
+- The Rust backend through the `log_from_frontend` Tauri command so the same message lands in the file log.
 
 That means support logs can contain both frontend and backend events in one timeline.
 

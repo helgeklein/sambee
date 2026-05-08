@@ -37,33 +37,15 @@ items = [
 ]
 
 [[sections.user-guide.items]]
-slug = "viewing-and-previewing"
-title = "Viewing and Previewing Files"
+slug = "viewing-and-editing-files"
+title = "Viewing & Editing Files"
 
-[pages.user-guide.viewing-and-previewing]
+[pages.user-guide.viewing-and-editing-files]
 items = [
-  "preview-supported-files",
-  "what-happens-when-a-file-cannot-be-previewed",
-]
-
-[[sections.user-guide.items]]
-slug = "editing-files"
-title = "Editing Files"
-
-[pages.user-guide.editing-files]
-items = [
-  "edit-markdown-in-the-browser",
-  "open-files-in-desktop-apps-and-save-changes-back",
-  "understand-locking-and-conflicts",
-]
-
-[[sections.user-guide.items]]
-slug = "managing-files"
-title = "Managing Files"
-
-[pages.user-guide.managing-files]
-items = [
-  "common-file-management-tasks",
+  "view-images-and-read-documents",
+  "edit-markdown",
+  "edit-files-in-desktop-apps",
+  "file-locking-and-conflict-resolution",
 ]
 
 [[sections.user-guide.items]]
@@ -73,8 +55,7 @@ title = "Companion App"
 [pages.user-guide.companion-app]
 items = [
   "install-and-pair-the-companion-app",
-  "choose-desktop-apps-and-preferences",
-  "recover-after-interrupted-editing",
+  "desktop-app-picker",
 ]
 
 [[sections.user-guide.items]]
@@ -293,6 +274,7 @@ title = "Authoring and Tooling"
 [pages.website-dev-guide.authoring-and-tooling]
 items = [
   "docs-authoring-workflow",
+  "docs-style-guide",
   "docs-shortcodes",
   "docs-editor-tool",
   "docs-editor-operation-reference",

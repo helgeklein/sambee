@@ -13,6 +13,7 @@
 ## AI behavior
 
 - When asked to analyze or research, present your findings. Then ask if/how to implement them.
+- Whenever changing code, verify if the related documentation needs to be updated, too.
 
 ## Correctness
 
@@ -30,7 +31,8 @@
 ## Documentation
 
 - All end-user, admin, developer, and website docs live in `website/content/docs/`.
-- Whenever changing code, verify if the related documentation needs to be updated, too.
+- For all docs changes, follow the style guide `website/content/docs/website-dev-guide/authoring-and-tooling/docs-style-guide/index.md`.
+- Use the docs editor tool for all docs page/section/book changes: `website/content/docs/website-dev-guide/authoring-and-tooling/docs-editor-tool/`
 
 ## Dependencies
 

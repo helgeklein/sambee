@@ -4,6 +4,7 @@ import { translate } from "../i18n";
 /**
  * Centralized keyboard shortcut definitions for all viewers
  * Includes both the key bindings and tooltip labels in one place
+ * Changes here must be synchronized with the documentation in docs/user-guide/browsing-and-navigation/keyboard-navigation-and-shortcuts/
  */
 
 /**

@@ -6,9 +6,9 @@ The first configuration decisions for Sambee are simple and operational.
 
 You need to know:
 
-- which settings should stay local
-- which files must persist across restarts
-- which port users or the reverse proxy will reach
+- Which settings should stay local.
+- Which files must persist across restarts.
+- Which port users or the reverse proxy will reach.
 
 ## Local Configuration File
 
@@ -52,20 +52,20 @@ This path must survive container recreation and host restarts.
 
 The database contains critical state such as:
 
-- connections
-- users
-- security keys
-- encrypted passwords
+- Connections
+- Users
+- Security keys
+- Encrypted passwords
 
 Treat it as required operational data, not as disposable cache.
 
 ## Practical Guidance
 
-- keep `docker-compose.yml` local to the deployment
-- keep `config.toml` local when you use it
-- persist the `data/` directory
-- review mounts and published ports before first startup rather than after something fails
-- make sure the `data/` directory is included in your backup plan
+- Keep `docker-compose.yml` local to the deployment.
+- Keep `config.toml` local when you use it.
+- Persist the `data/` directory.
+- Review mounts and published ports before first startup rather than after something fails.
+- Make sure the `data/` directory is included in your backup plan.
 
 For the stable lookup summary of important paths and ports, see [Port and Path Reference](../../reference/port-and-path-reference/).
 

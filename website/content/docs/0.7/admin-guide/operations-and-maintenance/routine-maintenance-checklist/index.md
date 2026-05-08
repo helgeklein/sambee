@@ -10,38 +10,38 @@ It exists so administrators can review the normal maintenance steps without reop
 
 Review these on a normal cadence that fits your environment:
 
-- confirm the `sambee` service is running as expected
-- review recent logs for repeated startup, storage, or connectivity errors
-- confirm the frontend still loads and administrator sign-in still works
-- confirm the key SMB workflows your users depend on still behave normally, such as opening a share, browsing folders, and transferring a test file
+- Confirm that the `sambee` service is running as expected.
+- Review recent logs for repeated startup, storage, or connectivity errors.
+- Confirm that the frontend still loads and administrator sign-in still works.
+- Confirm that the key SMB workflows your users depend on still behave normally, such as opening a share, browsing folders, and transferring a test file.
 
 ## Before Planned Changes
 
 Before an update, config change, or controlled restart, confirm:
 
-- you know exactly what change you are making
-- your backup posture is acceptable for the risk of that change
-- the local deployment files are in the state you expect
-- you know whether the change also affects proxy behavior, companion support, or user-facing workflows
+- You know exactly what change you are making.
+- Your backup posture is acceptable for the risk of that change.
+- The local deployment files are in the state you expect.
+- You know whether the change also affects proxy behavior, companion support, or user-facing workflows.
 
 ## After Planned Changes
 
 After the change is live, verify:
 
-- `docker compose ps` shows the expected service state
-- recent logs do not show an obvious new fault
-- the frontend loads on the expected URL or hostname
-- sign-in still works
-- the key SMB workflows still behave as expected
+- The `docker compose ps` output shows the expected service state.
+- Recent logs do not show an obvious new fault.
+- The frontend loads on the expected URL or hostname.
+- Sign-in still works.
+- The key SMB workflows still behave as expected.
 
 ## When to Stop Treating It as Routine
 
 Move out of checklist mode and into troubleshooting when:
 
-- the service will not stay up
-- direct application access and proxied access behave differently in unexpected ways
-- login recovery is now the real task
-- the issue is affecting multiple users or looks like a broader deployment fault
+- The service will not stay up.
+- Direct application access and proxied access behave differently in unexpected ways.
+- Login recovery is now the real task.
+- The issue is affecting multiple users or looks like a broader deployment fault.
 
 ## Related Pages
 

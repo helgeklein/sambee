@@ -6,24 +6,24 @@ Use this guide to understand how Sambee is built across the backend, frontend, a
 
 ## Start Here if You Want To
 
-- understand how the browser app, backend, and companion fit together
-- find the right place in the repository before changing code
-- set up the development environment and use the common contributor workflows
-- understand the high-level architecture of the backend, frontend, and companion
-- understand deeper contributor rules for preview pipelines, companion trust, or version-sensitive changes
-- choose the right validation commands before you open a pull request
+- Understand how the browser app, backend, and companion fit together.
+- Find the right place in the repository before changing code.
+- Set up the development environment and use the common contributor workflows.
+- Understand the high-level architecture of the backend, frontend, and companion.
+- Understand deeper contributor rules for preview pipelines, companion trust, or version-sensitive changes.
+- Choose the right validation commands before you open a pull request.
 
 ## In This Guide
 
-- [Project Orientation](./project-orientation/): understand the product boundaries and the repository layout
-- [Local Development Workflow](./local-development-workflow/): set up the environment and find the commands you will actually use
-- [Backend Architecture](./backend-architecture/): understand the FastAPI service, SMB-facing behavior, and server-side contracts
-- [Frontend Architecture](./frontend-architecture/): understand the browser app, page structure, and UI behavior contracts
-- [Companion Architecture](./companion-architecture/): understand the desktop app, pairing model, local-drive access, and native-app editing workflow
-- [Cross-Cutting Systems](./cross-cutting-systems/): understand shared logging, localization, and other rules that span more than one app
-- [Testing and Quality Gates](./testing-and-quality-gates/): choose the right checks for the change you are making
-- [Contribution Workflows](./contribution-workflows/): plan and review changes with the right scope and validation depth
-- [Release and Versioning](./release-and-versioning/): handle dependency updates and version metadata safely
+- [Project Orientation](./project-orientation/): Understand the product boundaries and the repository layout.
+- [Local Development Workflow](./local-development-workflow/): Set up the environment and find the commands you will actually use.
+- [Backend Architecture](./backend-architecture/): Understand the FastAPI service, SMB-facing behavior, and server-side contracts.
+- [Frontend Architecture](./frontend-architecture/): Understand the browser app, page structure, and UI behavior contracts.
+- [Companion Architecture](./companion-architecture/): Understand the desktop app, pairing model, local-drive access, and native-app editing workflow.
+- [Cross-Cutting Systems](./cross-cutting-systems/): Understand shared logging, localization, and other rules that span more than one app.
+- [Testing and Quality Gates](./testing-and-quality-gates/): Choose the right checks for the change you are making.
+- [Contribution Workflows](./contribution-workflows/): Plan and review changes with the right scope and validation depth.
+- [Release and Versioning](./release-and-versioning/): Handle dependency updates and version metadata safely.
 
 ## Use the Right Guide
 

@@ -6,17 +6,17 @@ Use this guide to edit and publish website and docs content, understand how the 
 
 ## Start Here if You Want To
 
-- add or revise published website or docs content
-- understand the website build pipeline and versioned docs model
-- update docs navigation, versions, or inheritance behavior safely
-- use the docs editor for structural docs changes
-- change shared website theme systems such as media handling or typography
+- Add or revise published website or docs content.
+- Understand the website build pipeline and versioned docs model.
+- Update docs navigation, versions, or inheritance behavior safely.
+- Use the docs editor for structural docs changes.
+- Change shared website theme systems such as media handling or typography.
 
 ## In This Guide
 
-- [Docs Platform](./docs-platform/website-and-docs-architecture-overview/): understand what lives in `website/`, how docs routing works, and how versioned docs content is resolved
-- [Authoring and Tooling](./authoring-and-tooling/docs-authoring-workflow/): write published content, update navigation, and use the docs editor safely
-- [Site Systems](./site-systems/media-publishing-workflow/): preserve the media and typography contracts used by the public site
+- [Docs Platform](./docs-platform/website-and-docs-architecture-overview/): Understand what lives in `website/`, how docs routing works, and how versioned docs content is resolved.
+- [Authoring and Tooling](./authoring-and-tooling/docs-authoring-workflow/): Write published content, update navigation, and use the docs editor safely.
+- [Site Systems](./site-systems/media-publishing-workflow/): Preserve the media and typography contracts used by the public site.
 
 ## Use the Right Guide
 

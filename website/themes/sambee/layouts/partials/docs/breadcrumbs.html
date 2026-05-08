@@ -51,40 +51,40 @@
       {{ if $bookSourcePage }}
       <li class="docs-breadcrumb-item">
         {{ if eq $page.RelPermalink $bookURL }}
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $bookTitle }}</span>
+        <span class="docs-breadcrumb-current type-label-strong type-color-ink">{{ $bookTitle }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $bookURL }}">{{ $bookTitle }}</a>
+        <a class="docs-breadcrumb-link type-label-sm type-color-accent ui-hover-weight-strong" href="{{ $bookURL }}">{{ $bookTitle }}</a>
         {{ end }}
       </li>
       {{ if $section }}
       <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
         {{ if and (eq $docsContext.kind "section") $sectionSourcePage }}
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $sectionTitle }}</span>
+        <span class="docs-breadcrumb-current type-label-strong type-color-ink">{{ $sectionTitle }}</span>
         {{ else if and $sectionSourcePage (eq $docsContext.kind "page") }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $sectionURL }}">{{ $sectionTitle }}</a>
+        <a class="docs-breadcrumb-link type-label-sm type-color-accent ui-hover-weight-strong" href="{{ $sectionURL }}">{{ $sectionTitle }}</a>
         {{ else }}
-        <span class="type-label-eyebrow type-color-accent">{{ $sectionTitle }}</span>
+        <span class="type-label-sm type-color-accent">{{ $sectionTitle }}</span>
         {{ end }}
       </li>
       {{ end }}
       {{ if eq $docsContext.kind "page" }}
       <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">{{ $effectivePage.Title }}</span>
+        <span class="docs-breadcrumb-current type-label-strong type-color-ink">{{ $effectivePage.Title }}</span>
       </li>
       {{ end }}
       {{ else }}
       <li class="docs-breadcrumb-item">
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="/docs/">Documentation</a>
+        <a class="docs-breadcrumb-link type-label-sm type-color-accent ui-hover-weight-strong" href="/docs/">Documentation</a>
       </li>
       {{ with $versionPage }}
       <li class="docs-breadcrumb-item">
         <span class="docs-breadcrumb-separator ui-color-rule" aria-hidden="true">{{ partial "icons/chevron.html" (dict "direction" "right" "class" "docs-breadcrumb-symbol") }}</span>
         {{ if eq $page.RelPermalink $versionURL }}
-        <span class="docs-breadcrumb-current type-label-eyebrow-strong type-color-ink">Version {{ $versionLabel }}</span>
+        <span class="docs-breadcrumb-current type-label-strong type-color-ink">Version {{ $versionLabel }}</span>
         {{ else }}
-        <a class="docs-breadcrumb-link type-label-eyebrow type-color-accent ui-hover-weight-strong" href="{{ $versionURL }}">Version {{ $versionLabel }}</a>
+        <a class="docs-breadcrumb-link type-label-sm type-color-accent ui-hover-weight-strong" href="{{ $versionURL }}">Version {{ $versionLabel }}</a>
         {{ end }}
       </li>
       {{ end }}

@@ -19,18 +19,18 @@ Use this page only when you need to translate a host-side path into the containe
 
 These mappings are the ones administrators usually need when comparing a deployment file on the host with what Sambee sees inside the container:
 
-- host-side `./data` becomes `/app/data` in the container
-- host-side `./config.toml` can be mounted read-only as `/app/config.toml`
-- host-side `./data/sambee.db` appears in the container as `/app/data/sambee.db`
-- host-side `./data/directory_cache/` appears in the container as `/app/data/directory_cache/` when the default relative cache location is used
+- Host-side `./data` becomes `/app/data` in the container.
+- Host-side `./config.toml` can be mounted read-only as `/app/config.toml`.
+- Host-side `./data/sambee.db` appears in the container as `/app/data/sambee.db`.
+- Host-side `./data/directory_cache/` appears in the container as `/app/data/directory_cache/` when the default relative cache location is used.
 
 ## Use This Page When
 
 Use this page when the question is primarily:
 
-- which container-side path to use in a `docker compose exec` or `docker compose run` command
-- how a host-side path maps into the container
-- whether a mount or path assumption is wrong in the current deployment
+- Which container-side path to use in a `docker compose exec` or `docker compose run` command.
+- How a host-side path maps into the container.
+- Whether a mount or path assumption is wrong in the current deployment.
 
 ## Related Pages
 
