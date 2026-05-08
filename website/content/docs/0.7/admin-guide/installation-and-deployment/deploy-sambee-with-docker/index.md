@@ -8,9 +8,9 @@ This is the first page in the deployment sequence.
 
 You need:
 
-- Docker and `docker compose` installed
-- a host that can reach the SMB server, Samba server, or NAS Sambee will use
-- a deployment directory where you can keep local files such as `docker-compose.yml`, optional `config.toml`, and the persistent `data/` directory
+- Docker and `docker compose` installed.
+- A host that can reach the SMB server, Samba server, or NAS Sambee will use.
+- A deployment directory where you can keep local files such as `docker-compose.yml`, optional `config.toml`, and the persistent `data/` directory.
 
 For production, deploy a release tag rather than the current branch tip. In practice, that means checking out a published version before you build the image.
 
@@ -50,10 +50,10 @@ cp docker-compose.example.yml docker-compose.yml
 
 Before first start, review:
 
-- mounted paths
-- published ports
-- optional config mounts
-- how the service will fit into your network or reverse-proxy setup
+- Mounted paths.
+- Published ports.
+- Optional config mounts.
+- How the service will fit into your network or reverse-proxy setup.
 
 ## 4. Optional: Create a Local Configuration File
 
@@ -91,17 +91,17 @@ docker compose up -d
 
 By default, the service is available at:
 
-- frontend: `http://localhost:8000`
-- backend API: `http://localhost:8000/api`
+- Frontend: `http://localhost:8000`
+- Backend API: `http://localhost:8000/api`
 - API docs: `http://localhost:8000/docs`
 
 ## Verify the First Deployment
 
 Before moving on, confirm that the deployment really came up cleanly.
 
-- `docker compose ps` shows the `sambee` service running
-- the frontend URL responds on the expected host port
-- the startup logs do not show an obvious failure loop
+- The `docker compose ps` output shows the `sambee` service running.
+- The frontend URL responds on the expected host port.
+- The startup logs do not show an obvious failure loop.
 
 For a quick log review:
 

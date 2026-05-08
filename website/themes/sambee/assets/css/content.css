@@ -40,15 +40,6 @@
     @apply mt-0 border-t-0 pt-0;
   }
 
-  h4 {
-    @apply italic tracking-tight;
-  }
-
-  h5,
-  h6 {
-    @apply text-clr-text-dark dark:text-clr-darkmode-text-dark;
-  }
-
   /*
   ==============================
   Paragraphs
@@ -277,7 +268,6 @@
     padding: 0.2em 0.45em;
     background-color: var(--color-clr-surface-high);
     border: 1px solid var(--color-clr-rule-strong);
-    border-bottom-width: 2px;
     border-radius: 0.375rem;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
     vertical-align: middle;
@@ -386,11 +376,11 @@
 
   .admonition--note {
     border-left-color: var(--color-clr-status-note);
-    background-color: var(--color-clr-surface-low);
+    background-color: var(--color-clr-surface-mid);
 
     .dark & {
       border-left-color: var(--color-clr-darkmode-status-note);
-      background-color: var(--color-clr-darkmode-surface-low);
+      background-color: var(--color-clr-darkmode-surface-high);
     }
   }
 

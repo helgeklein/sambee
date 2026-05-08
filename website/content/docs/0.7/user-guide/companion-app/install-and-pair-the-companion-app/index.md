@@ -8,13 +8,10 @@ You do not need Companion for accessing SMB shares from the browser.
 
 ## Install Companion
 
-Open **Settings** > **Local Drives** and select **Download for this computer** to download the Companion installer.
-
-Run the installer and follow the prompts. Make sure to enable auto-starting Companion.
-
-Once the installer is completed, Companion should be running.
-
-You can find the Companion icon in the system tray (Linux, Windows) or the menu bar (macOS).
+1. Open **Settings** > **Local Drives** and select **Download for this computer** to download the Companion installer.
+1. Run the installer and follow the prompts. Make sure to enable auto-starting Companion.
+1. Once the installer is completed, Companion should be running.
+1. You can find the Companion icon in the system tray (Linux, Windows) or the menu bar (macOS).
 
 ## Pair Sambee With Companion
 

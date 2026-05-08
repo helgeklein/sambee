@@ -4,6 +4,8 @@ title = "Docs Authoring Workflow"
 
 The live docs are authored in the website, not in the source-material folders.
 
+For wording, list punctuation, and capitalization conventions, use the [Docs Style Guide](../docs-style-guide/).
+
 ## Know the Destination
 
 Use these locations for different jobs:
@@ -145,6 +147,7 @@ That is the minimum meaningful verification because it runs theme generation, do
 
 ## Related Pages
 
+- [Docs Style Guide](../docs-style-guide/): canonical writing and list-style rules for published docs copy
 - [Docs Content Model, Navigation, and Inheritance](../../docs-platform/docs-content-model-navigation-and-inheritance/): path and marker rules behind the workflow
 - [Docs Editor Tool](../docs-editor-tool/): structural changes that should go through the CLI
 - [Website and Docs Architecture Overview](../../docs-platform/website-and-docs-architecture-overview/): broader context for the website build and docs runtime

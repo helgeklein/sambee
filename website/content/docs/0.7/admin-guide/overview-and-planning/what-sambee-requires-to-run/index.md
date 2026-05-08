@@ -8,16 +8,16 @@ This page follows Deployment Architecture Overview and turns that model into a s
 
 At a minimum, a working Sambee deployment needs:
 
-- Docker and `docker compose` on the host where you plan to run Sambee
-- persistent local storage for the `data/` directory
-- network access from Sambee to the SMB server or NAS it must reach
-- if users will connect through a hostname or over HTTPS, a reverse-proxy or ingress plan for that traffic
+- Docker and `docker compose` on the host where you plan to run Sambee.
+- Persistent local storage for the `data/` directory.
+- Network access from Sambee to the SMB server or NAS it must reach.
+- If users will connect through a hostname or over HTTPS, a reverse-proxy or ingress plan for that traffic.
 
 In practical terms, make sure the host can:
 
-- resolve the SMB server name or IP address
-- reach the SMB service on the ports your environment uses, usually `445` and sometimes `139`
-- keep the `data/` directory across restarts, rebuilds, and host reboots
+- Resolve the SMB server name or IP address.
+- Reach the SMB service on the ports your environment uses, usually `445` and sometimes `139`.
+- Keep the `data/` directory across restarts, rebuilds, and host reboots.
 
 ## Trust and Responsibility Boundaries
 

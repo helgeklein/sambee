@@ -12,10 +12,10 @@ This page is the first step in the planning path. The next page turns this deplo
 
 At the center of a normal Sambee deployment is:
 
-- one Sambee container serving both the frontend and backend
-- one local data directory holding the SQLite database and other persistent application state
-- one network path from Sambee to the SMB shares or file servers it needs to access
-- browsers connecting to Sambee either directly or through a reverse proxy
+- One Sambee container serving both the frontend and backend.
+- One local data directory holding the SQLite database and other persistent application state.
+- One network path from Sambee to the SMB shares or file servers it needs to access.
+- Browsers connecting to Sambee either directly or through a reverse proxy.
 
 If you use the standard Docker path, the architecture is exactly that simple: one Sambee container plus a persistent data mount.
 
@@ -34,11 +34,11 @@ If you use the standard Docker path, the architecture is exactly that simple: on
 
 The core Sambee deployment is small. Extra complexity usually comes from the surrounding environment or optional workflows such as:
 
-- reverse-proxy and HTTPS policy
-- enterprise network rules between Sambee and SMB infrastructure
-- identity, permissions, and access design in the storage environment
-- desktop-local Companion workflows for users who need local drives or native-app editing
-- operational policies for backups, upgrades, and monitoring
+- Reverse-proxy and HTTPS policy
+- Enterprise network rules between Sambee and SMB infrastructure
+- Identity, permissions, and access design in the storage environment
+- Desktop-local Companion workflows for users who need local drives or native-app editing
+- Operational policies for backups, upgrades, and monitoring
 
 Those are real admin concerns, but they do not change the basic Sambee deployment model.
 
@@ -57,10 +57,10 @@ A small deployment often looks like this:
 
 This deployment model fits well when you want:
 
-- browser-based access to existing SMB storage
-- a self-hosted service without splitting the product into many separately managed components
-- a simple starting point that can later be placed behind a reverse proxy or integrated into stricter environments
-- optional desktop integration instead of mandatory desktop software on every machine
+- Browser-based access to existing SMB storage.
+- A self-hosted service without splitting the product into many separately managed components.
+- A simple starting point that can later be placed behind a reverse proxy or integrated into stricter environments.
+- Optional desktop integration instead of mandatory desktop software on every machine.
 
 ## Next Steps
 

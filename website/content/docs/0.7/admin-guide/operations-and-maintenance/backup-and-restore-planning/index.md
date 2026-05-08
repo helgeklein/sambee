@@ -46,10 +46,10 @@ If you do not use `config.toml`, skip that copy step.
 
 Even if you do not yet have a full restore runbook, you should be able to answer these questions clearly:
 
-- where is the authoritative copy of the Sambee data directory
-- how would you restore it onto a replacement host
-- how would you restore the compose and optional config files used by the deployment
-- how would you verify that the restored service actually came back cleanly
+- Where is the authoritative copy of the Sambee data directory?
+- How would you restore it onto a replacement host?
+- How would you restore the compose and optional config files used by the deployment?
+- How would you verify that the restored service actually came back cleanly?
 
 ## How to Verify Restore Readiness
 
@@ -57,11 +57,11 @@ The backup plan is not ready until you know how you would prove the restore work
 
 At minimum, define how you would verify:
 
-- the restored `data/` directory is the correct one
-- the deployment files on the replacement host match what the service expects
-- Sambee starts without an obvious database or startup fault
-- administrator sign-in works after restore
-- the key SMB workflows users depend on still work
+- The restored `data/` directory is the correct one.
+- The deployment files on the replacement host match what the service expects.
+- Sambee starts without an obvious database or startup fault.
+- Administrator sign-in works after restore.
+- The key SMB workflows users depend on still work.
 
 ## Basic Restore Flow
 

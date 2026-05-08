@@ -34,9 +34,9 @@ This is the main lookup page for Sambee service ports, deployment files, persist
 
 ## Host-to-Container Mapping
 
-- host-side `./data` becomes `/app/data` in the container
-- host-side `./config.toml` can be mounted read-only as `/app/config.toml`
-- deleting or replacing files under `data/` changes persistent deployment state, not just temporary cache files
+- Host-side `./data` becomes `/app/data` in the container.
+- Host-side `./config.toml` can be mounted read-only as `/app/config.toml`.
+- Deleting or replacing files under `data/` changes persistent deployment state, not just temporary cache files.
 
 ## How to Use This Page
 

@@ -40,9 +40,9 @@ Use a full stop when you need to perform controlled maintenance, rebuild the ima
 
 Routine restarts are not a substitute for troubleshooting, but they are a legitimate step when:
 
-- you just changed deployment files
-- you rebuilt the image
-- you completed a controlled maintenance step
+- You just changed deployment files.
+- You rebuilt the image.
+- You completed a controlled maintenance step.
 
 To restart only the Sambee service:
 
@@ -56,10 +56,10 @@ If you restart repeatedly without understanding the failure, move to [Troublesho
 
 Look for patterns such as:
 
-- startup errors
-- repeated reconnect or connection failures
-- missing static assets or frontend-serving problems
-- storage or SMB access failures
+- Startup errors.
+- Repeated reconnect or connection failures.
+- Missing static assets or frontend-serving problems.
+- Storage or SMB access failures.
 
 Logs are often the fastest way to separate a user-facing symptom from a real deployment fault.
 

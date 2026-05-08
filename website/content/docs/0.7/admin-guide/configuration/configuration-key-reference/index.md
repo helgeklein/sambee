@@ -8,10 +8,10 @@ Use `config.example.toml` as the source of truth for supported keys. This page e
 
 ## How to Use This Reference
 
-- copy only the keys you actually need into the local `config.toml`
-- keep the file local to the deployment and mount it read-only in production
-- treat commented defaults in `config.example.toml` as the baseline behavior unless you override them intentionally
-- expect most basic deployments to use only a small subset of these keys
+- Copy only the keys you actually need into the local `config.toml`.
+- Keep the file local to the deployment and mount it read-only in production.
+- Treat commented defaults in `config.example.toml` as the baseline behavior unless you override them intentionally.
+- Expect most basic deployments to use only a small subset of these keys.
 
 ## High-Value Sections and Keys
 
@@ -35,10 +35,10 @@ Use `config.example.toml` as the source of truth for supported keys. This page e
 
 These areas have the highest operational impact:
 
-- `auth_method`: can change who is responsible for authentication at the deployment boundary
-- frontend logging and tracing keys: can change both local debugging visibility and backend trace collection volume
-- `directory_cache.location`: changes where the saved SMB directory index lives on disk
-- companion download keys: change what download links Sambee presents to users
+- `auth_method`: Can change who is responsible for authentication at the deployment boundary.
+- Frontend logging and tracing keys: Can change both local debugging visibility and backend trace collection volume.
+- `directory_cache.location`: Changes where the saved SMB directory index lives on disk.
+- Companion download keys: Change what download links Sambee presents to users.
 
 ## Related Pages
 

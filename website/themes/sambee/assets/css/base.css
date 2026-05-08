@@ -87,7 +87,7 @@ h6 {
   line-height: var(--line-height-heading-normal);
 }
 
-/* Heading font sizes and line heights */
+/* Heading font styles and line heights */
 /* Rem calculations use the site root font size, fixed to 16px. */
 h1,
 .h1 {
@@ -100,11 +100,14 @@ h2,
 h3,
 .h3 {
   @apply font-primary;
-  @apply text-size-h3/[1.2];
+  @apply text-size-h3/[1.2] tracking-tight;
+  @apply font-medium;
 }
 h4,
 .h4 {
-  @apply text-size-h4/[1.2];
+  @apply font-primary;
+  @apply text-size-h4/[1.2] tracking-tight;
+  @apply font-semibold;
 }
 h5,
 .h5 {

@@ -8,9 +8,9 @@ Use this page when the deployment itself looks unhealthy or unreachable.
 
 Before changing anything, identify which boundary is actually failing.
 
-- does the `sambee` service stay up at all
-- does the direct application path respond on the expected host port
-- does only the proxied hostname fail
+- Does the `sambee` service stay up at all?
+- Does the direct application path respond on the expected host port?
+- Does only the proxied hostname fail?
 
 Those answers tell you whether you are in a general deployment fault, a proxy-only fault, or a narrower login or support incident.
 
@@ -57,9 +57,9 @@ docker compose exec sambee ping your-smb-host
 
 Then verify:
 
-- credentials are correct
-- the expected SMB ports are reachable
-- logs show a storage or connectivity issue rather than a general application failure
+- Credentials are correct.
+- The expected SMB ports are reachable.
+- Logs show a storage or connectivity issue rather than a general application failure.
 
 Ping is only a quick reachability check. Even if ping works, Sambee still needs SMB access on the right ports for your environment.
 
@@ -77,9 +77,9 @@ Companion issues belong here when they no longer look like normal end-user workf
 
 Examples:
 
-- desktop-app edits never upload back even though the user followed the normal flow
-- Companion will not start at all on the affected machine
-- the local environment blocks the trust or connectivity assumptions Companion depends on
+- Desktop-app edits never upload back even though the user followed the normal flow.
+- Companion will not start at all on the affected machine.
+- The local environment blocks the trust or connectivity assumptions Companion depends on.
 
 Use [Support Companion-App Escalation](../../user-support-and-escalation/support-companion-app-escalation/) when the problem is specifically moving into support diagnostics.
 

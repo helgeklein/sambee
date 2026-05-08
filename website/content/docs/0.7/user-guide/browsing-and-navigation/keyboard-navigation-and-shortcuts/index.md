@@ -2,20 +2,18 @@
 title = "Keyboard Navigation and Shortcuts"
 +++
 
-Keyboard navigation is a first-class part of Sambee's product design, not a secondary convenience layer.
-
-The main file browser, dual-pane workflows, viewers, and Markdown editing all support keyboard-driven use so you can keep moving without constantly switching back to the pointer.
+Keyboard navigation is a first-class part of Sambee.
 
 ## Keyboard-First Principles
 
-- focus matters: shortcuts act on the file list, pane, dialog, or viewer that currently has focus
-- the active pane matters: in dual-pane mode, many browser commands target the currently active pane
-- important actions stay discoverable: the same actions are also available through visible controls and the in-app shortcuts help
-- safety still wins: shortcuts that would be unsafe in text fields, dialogs, or incompatible states are intentionally blocked
+- Focus matters: Shortcuts act on the item that currently has focus.
+- The active pane matters: In dual-pane mode, many file browser commands target the currently active pane.
+- Important actions stay discoverable: The same actions are also available through visible controls and the in-app shortcuts help.
+- Safety still wins: Shortcuts that would be unsafe in text fields, dialogs, or incompatible states are intentionally blocked.
 
 If you want the live in-app list, press <kbd>?</kbd> while using Sambee.
 
-## File List and Main Browser UI
+## File List and Main UI
 
 Use these shortcuts when the main file list or browser shell has focus.
 
@@ -50,7 +48,7 @@ These shortcuts matter most when you are working keyboard-first across one or tw
 | <kbd>Ctrl</kbd> + <kbd>A</kbd> | Select all items in the current list |
 | <kbd>Ctrl</kbd> + <kbd>B</kbd> | Toggle dual-pane mode |
 | <kbd>Ctrl</kbd> + <kbd>1</kbd> / <kbd>Ctrl</kbd> + <kbd>2</kbd> | Focus the left or right pane |
-| <kbd>Tab</kbd> | Switch the active pane |
+| <kbd>Tab</kbd> | Move focus to the other pane |
 | <kbd>F5</kbd> / <kbd>F6</kbd> | Copy or move selected items to the other pane |
 
 ## Viewers
@@ -93,6 +91,6 @@ Markdown files build on the shared viewer shortcuts and add editor-specific form
 
 ## When to Use the Built-In Shortcut Help
 
-This page gives you the current high-value keyboard model by UI area.
+This page summarizes the most useful keyboard shortcuts by UI area.
 
 Use the built-in shortcuts help when you want the live in-app list for your current screen, or when you want a quick reminder without leaving the file browser.

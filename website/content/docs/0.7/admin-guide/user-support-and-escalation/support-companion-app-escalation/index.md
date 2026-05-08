@@ -10,29 +10,29 @@ Sambee Companion is the optional desktop app used for local-drive access and for
 
 Move from the User Guide into this admin path when the next step involves:
 
-- desktop-environment checks rather than normal user steps
-- repeated failures across more than one user or machine
-- deployment policy questions such as downloads, trusted environments, or certificate handling
-- support diagnostics such as log locations or platform-specific crash investigation
+- Desktop-environment checks rather than normal user steps.
+- Repeated failures across more than one user or machine.
+- Deployment policy questions such as downloads, trusted environments, or certificate handling.
+- Support diagnostics such as log locations or platform-specific crash investigation.
 
 ## Typical Escalation Cases
 
 Examples include:
 
-- users can no longer open files in desktop apps even though their normal steps are correct
-- local-drive access fails in a way that suggests a machine, browser, trust, or policy issue
-- Companion launches but repeatedly fails to upload files back
-- Companion itself will not start on a supported desktop system
+- Users can no longer open files in desktop apps even though their normal steps are correct.
+- Local-drive access fails in a way that suggests a machine, browser, trust, or policy issue.
+- Companion launches but repeatedly fails to upload files back.
+- Companion itself will not start on a supported desktop system.
 
 ## What to Check before Going Deeper
 
 Start with the fastest separation between user issue and environment issue.
 
-- confirm the user is following the normal User Guide workflow
-- confirm the problem is on a supported desktop platform for Companion workflows
-- confirm the Sambee service is reachable from the user environment
-- confirm there is no broader service outage or connectivity problem affecting multiple users
-- confirm whether the problem affects one user, one machine, or many users
+- Confirm that the user is following the normal User Guide workflow.
+- Confirm that the problem is on a supported desktop platform for Companion workflows.
+- Confirm that the Sambee service is reachable from the user environment.
+- Confirm that there is no broader service outage or connectivity problem affecting multiple users.
+- Confirm whether the problem affects one user, one machine, or many users.
 
 ## Environment and Trust Considerations
 
@@ -40,14 +40,14 @@ For HTTPS-based environments, Companion depends on the local operating system's 
 
 In normal operation, that means Companion uses:
 
-- the operating system's proxy configuration
-- the operating system's native certificate trust store
+- The operating system's proxy configuration.
+- The operating system's native certificate trust store.
 
 That matters especially when:
 
-- a proxy is required in the environment
-- internal or company-managed certificates are involved
-- the user machine has drifted away from the expected desktop trust configuration
+- A proxy is required in the environment.
+- Internal or company-managed certificates are involved.
+- The user machine has drifted away from the expected desktop trust configuration.
 
 In practice, that usually means checking the user's proxy settings, certificate trust store, and whether security software is blocking the local workflow.
 
@@ -55,18 +55,18 @@ In practice, that usually means checking the user's proxy settings, certificate 
 
 Move out of the companion-specific support path when:
 
-- the Sambee deployment itself is unavailable
-- the failure affects multiple users in the same way
-- the real problem is hostname, HTTPS, or reverse-proxy reachability rather than a local desktop workflow
+- The Sambee deployment itself is unavailable.
+- The failure affects multiple users in the same way.
+- The real problem is hostname, HTTPS, or reverse-proxy reachability rather than a local desktop workflow.
 
 ## Where the Support Details Live
 
 Keep the workflow decisions on this page, but use the dedicated companion reference page for the stable support details such as:
 
-- log file locations
-- preference file locations
-- platform-specific crash-diagnostic entry points
-- Windows WebView2 runtime-data notes
+- Log file locations.
+- Preference file locations.
+- Platform-specific crash-diagnostic entry points.
+- Windows WebView2 runtime-data notes.
 
 ## Related Pages
 
