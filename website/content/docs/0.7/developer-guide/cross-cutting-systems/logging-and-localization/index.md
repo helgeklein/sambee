@@ -91,9 +91,3 @@ cd companion && npm run lint
 For higher-confidence changes, add the relevant frontend or companion tests, especially when localization sync or logging configuration behavior changes.
 
 Use [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/) to decide when those cross-boundary checks need to extend further.
-
-## Related Pages
-
-- [Localization and Locale Behavior](../localization-and-locale-behavior/): typed translation workflow, locale-preference rules, and browser-to-companion sync behavior
-- [Frontend Logging and Tracing](../frontend-logging-and-tracing/): follow the browser app's dual console-plus-tracing pipeline in more detail
-- [How to Plan and Review a Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope cross-boundary changes before the implementation sprawls

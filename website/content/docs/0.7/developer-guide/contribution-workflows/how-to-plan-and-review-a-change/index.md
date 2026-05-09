@@ -47,9 +47,3 @@ The highest-value review questions are usually:
 - cross-boundary contracts were updated together
 - validation covers the actual risk surface
 - release-sensitive files were reviewed intentionally when touched
-
-## Related Pages
-
-- [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/): choose the right validation depth
-- [Dependency and Release Workflow](../../release-and-versioning/dependency-and-release-workflow/): handle version and dependency-sensitive changes safely
-- [Logging and Localization](../../cross-cutting-systems/logging-and-localization/): shared rules that commonly need coordinated review

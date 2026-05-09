@@ -51,10 +51,4 @@ At minimum, confirm:
 - Key SMB workflows still behave as expected.
 - The recent logs do not show an obvious startup or migration regression.
 
-If the service does not return cleanly after the update, use [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
-
-## Related Pages
-
-- [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this for the compact before-and-after change checklist
-- [Backup and Restore Planning](../backup-and-restore-planning/): confirm your recovery posture before risky upgrades
-- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the upgraded service does not come back cleanly
+If the service does not return cleanly after the update, stop changing versions and inspect the deployment state, recent logs, proxy path, and persistent data assumptions before proceeding.

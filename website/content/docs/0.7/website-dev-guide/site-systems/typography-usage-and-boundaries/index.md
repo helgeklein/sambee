@@ -106,8 +106,3 @@ Footer layout classes remain local in `website/themes/sambee/assets/css/footer.c
 ### Content-Specific Typography
 
 Article-content semantics such as table headers, `figcaption`, `dt`, and admonition titles remain local to `content.css`. They belong to the content domain, not to shared site-wide text roles.
-
-## Related Pages
-
-- [Typography System](../typography-system/): shared typography architecture, token layer, recipe layer, and guardrails
-- [Website and Docs Architecture Overview](../../docs-platform/website-and-docs-architecture-overview/): broader theme and build context

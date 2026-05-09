@@ -2,22 +2,18 @@
 title = "Put Sambee behind a Reverse Proxy"
 +++
 
-For production-style deployments, place a reverse proxy in front of Sambee so HTTPS, hostnames, and external access are handled outside the application container itself.
+For production-style deployments, place a reverse proxy in front of Sambee to handle HTTPS.
 
 ## Why Use a Reverse Proxy
 
 A reverse proxy gives you a cleaner operational model for:
 
-- HTTPS termination
-- Hostname-based access
-- Integrating Sambee into an existing service edge
-- Keeping the application service behind a stable frontend entry point
+- HTTPS and certificate management
+- A stable hostname and routing layer in front of the container
 
-If your proxy already serves other applications, Sambee should fit into that existing pattern rather than inventing a special one.
+## Caddy Example
 
-## Concise Caddy-Oriented Compose Example
-
-If you already run a Dockerized Caddy environment, the Sambee service can be connected to that network with a compose layout like this:
+If you already run a dockerized Caddy environment, the Sambee service can be connected to that network with a compose layout like this:
 
 ```yaml
 services:
@@ -43,48 +39,3 @@ networks:
 Here, `expose` makes Sambee's port `8000` available to other containers on the same Docker network without publishing it directly to the host.
 
 The important point is that Sambee serves plain HTTP to the reverse proxy and does not act as the HTTPS edge itself.
-
-## Hostnames and HTTPS
-
-Before exposing Sambee externally, decide:
-
-- Which hostname users should use.
-- Which system manages certificates.
-- Whether the proxy is already part of a larger internal or external ingress design.
-
-Keep those decisions consistent with the rest of your environment rather than treating Sambee as a special case.
-
-## Verify the Proxy Path
-
-Before declaring the proxy setup done, confirm all of the following:
-
-- The intended hostname reaches Sambee rather than some other service or fallback page.
-- The certificate and hostname match the deployment users are expected to open.
-- The Sambee frontend loads through the proxy path, not only through the direct application port.
-
-If you can reach Sambee on `http://host:8000` but not on the intended hostname, the problem is usually in the proxy, DNS, or certificate layer rather than in Sambee itself.
-
-If the direct application port works but the proxy hostname still fails, stay in the proxy layer instead of rebuilding the application immediately.
-
-## Common Failure Modes
-
-- The proxy points at the wrong host or port
-- Sambee is not attached to the expected proxy network
-- The hostname users open does not match the hostname the proxy is configured for
-- The certificate or trust model is wrong for the environment
-- A proxy rule routes Sambee traffic to the wrong upstream target
-
-## When Reverse Proxy Problems Look Like Application Problems
-
-Reverse-proxy issues often show up as:
-
-- The frontend never loading.
-- Users reaching the wrong host or port.
-- HTTPS working for other services but not for Sambee.
-
-If the container is healthy but users still cannot reach the service correctly, check the reverse-proxy layer before rebuilding or reconfiguring Sambee.
-
-## Related Pages
-
-- [Reverse Proxy Misconfiguration](../../troubleshooting/reverse-proxy-misconfiguration/): use this when the app is up but hostname or HTTPS routing is still wrong
-- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the application path is also failing

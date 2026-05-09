@@ -2,7 +2,7 @@
 title = "First Startup and First Admin Login"
 +++
 
-Once the container is up, the next job is to retrieve the initial credentials and confirm that you can sign in as the first administrator.
+Once the container is up, retrieve the initial credentials and confirm that you can sign in as the first administrator.
 
 ## Retrieve the Initial Admin Password
 
@@ -28,23 +28,3 @@ This first sign-in confirms that:
 - The service is reachable.
 - The frontend is loading.
 - The backend startup completed far enough to expose the first-time setup information.
-
-## If the Login Fails
-
-Common reasons include:
-
-- The service did not start cleanly.
-- The password was copied incorrectly from the logs.
-- The frontend is not actually loading from the expected container.
-
-If you cannot retrieve the password or the login still fails, use [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
-
-## Next Steps
-
-- If you still need HTTPS or hostname routing, continue to [Put Sambee behind a Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/).
-- If you need to customize local settings or persistence behavior, continue to [Configure Local Settings and Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/).
-
-## Related Pages
-
-- [Reset the Admin Password](../../troubleshooting/reset-the-admin-password/): use this later if administrator access needs recovery without resetting the rest of the deployment
-- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the login issue is really a broader startup or reachability problem

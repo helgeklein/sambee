@@ -277,7 +277,7 @@ deployment:
       type: docs
       book: admin-guide
       section: overview-and-planning
-      page: deployment-architecture-overview
+      page: architecture-overview
 
 proof:
   enabled: true

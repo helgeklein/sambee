@@ -120,9 +120,3 @@ cd companion && npx tsc --noEmit && npm run lint
 ```
 
 Choose the relevant subset based on what changed, but do not skip version-sync validation when `VERSION` moves.
-
-## Related Pages
-
-- [How to Plan and Review a Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope the change and review the release-sensitive diff intentionally
-- [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/): choose the right checks for the specific subsystem and risk surface
-- [Companion Distribution and Update Workflow](../companion-distribution-and-update-workflow/): follow the dedicated Companion release-publishing and promotion flow

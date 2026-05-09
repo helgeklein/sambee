@@ -315,8 +315,3 @@ Additional operator rules that matter in practice:
 ## When to Use This Page
 
 Use this page when you are changing Companion release automation, feed generation, update-channel behavior, or the assumptions Sambee makes about Companion downloads.
-
-## Related Pages
-
-- [Dependency and Release Workflow](../dependency-and-release-workflow/): keep Companion release work aligned with the broader version-sensitive workflow
-- [Companion Overview](../../companion-architecture/companion-overview/): place the release pipeline in the wider Companion architecture

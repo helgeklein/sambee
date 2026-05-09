@@ -245,8 +245,3 @@ python3 scripts/docs-editor.py page rename --version 1.1 --book end-user --secti
 - the tool does not edit `website/.generated/` directly
 - the tool does not run `materialize-inherited-docs.py` for you
 - the tool does not edit page body content or offer free-form front matter editing
-
-## Related Pages
-
-- [Docs Editor Tool](../docs-editor-tool/): overview, examples, and when to use the CLI
-- [Docs Content Model, Navigation, and Inheritance](../../docs-platform/docs-content-model-navigation-and-inheritance/): the invariants the tool is designed to preserve

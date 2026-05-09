@@ -2,12 +2,6 @@
 title = "Companion Support Reference"
 +++
 
-This page is stable lookup material for administrators supporting escalated Sambee Companion issues.
-
-Sambee Companion is the optional desktop app used for local-drive access and for opening files in installed desktop applications.
-
-Use it when you already know the issue has moved past normal end-user setup and you need support-oriented locations or runtime details.
-
 ## Preference Files
 
 | Platform | Location |
@@ -38,14 +32,6 @@ The companion writes both Rust-backend messages and TypeScript-frontend messages
 | `debug` | Verbose mode only | detailed diagnostic context |
 
 Errors and warnings are always written, even when verbose logging is off. That keeps production incidents diagnosable without requiring the user to reproduce them in a special logging mode.
-
-## Crash and Launch Diagnostics
-
-When the companion fails before normal workflow logging is enough, start with the platform-native diagnostics:
-
-- Windows: Event Viewer
-- macOS: Console.app crash reports
-- Linux: launch `sambee-companion` from a terminal to watch log output directly
 
 ## Verbose Logging Controls
 
@@ -139,9 +125,3 @@ On Windows, the embedded WebView2 runtime stores its data at:
 - `%LOCALAPPDATA%\app.sambee.companion\EBWebView\`
 
 This directory is runtime-managed and is recreated automatically if removed.
-
-## Related Pages
-
-- [Support Companion-App Escalation](../../user-support-and-escalation/support-companion-app-escalation/): use this when deciding whether the issue belongs in admin support at all
-- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when the problem is actually broader than a companion-only support incident
-- [Frontend Logging and Tracing](../../../developer-guide/cross-cutting-systems/frontend-logging-and-tracing/): compare the browser-app logging pipeline with the companion's local file logging model

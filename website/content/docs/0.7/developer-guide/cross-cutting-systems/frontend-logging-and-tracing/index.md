@@ -214,9 +214,3 @@ The current targeted suites already cover the most important contracts:
 - `frontend/src/services/__tests__/mobileLoggingApi.test.ts` for the mobile-log API payload and response contract
 
 If the change touches backend receipt, storage, or filename behavior, pair the frontend checks with the relevant backend tests around `backend/app/api/logs.py` and `backend/tests/test_logging_config.py`.
-
-## Related Pages
-
-- [Logging and Localization](../logging-and-localization/): keep the broader cross-boundary logging rules in view
-- [Frontend Overview](../../frontend-architecture/frontend-overview/): place the logging pipeline in the wider browser-app architecture
-- [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/): choose validation depth based on real regression risk

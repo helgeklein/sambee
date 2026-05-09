@@ -39,8 +39,3 @@ These areas have the highest operational impact:
 - Frontend logging and tracing keys: Can change both local debugging visibility and backend trace collection volume.
 - `directory_cache.location`: Changes where the saved SMB directory index lives on disk.
 - Companion download keys: Change what download links Sambee presents to users.
-
-## Related Pages
-
-- [Configure Local Settings and Persistent Storage](../configure-local-settings-and-persistent-storage/): use this for the normal config-file and persistence workflow
-- [Container Paths and Mount Mapping](../../reference/configuration-and-data-paths/): look up the container-side paths and mount relationships that the config file interacts with

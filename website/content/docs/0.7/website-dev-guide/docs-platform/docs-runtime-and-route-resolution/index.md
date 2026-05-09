@@ -187,8 +187,3 @@ The most relevant commands when you are changing docs runtime behavior are:
 - `npm run docs:materialize-inherited`: regenerate transient inherited-route and stable current-route anchors
 - `npm run build`: generate theme assets, validate docs, materialize docs route anchors, and build the site
 - `npm run build:search`: run the full build and then generate the Pagefind search index
-
-## Related Pages
-
-- [Website and Docs Architecture Overview](../website-and-docs-architecture-overview/): broader site layout and build pipeline
-- [Docs Content Model, Navigation, and Inheritance](../docs-content-model-navigation-and-inheritance/): path-derived identity, filesystem rules, and inheritance model

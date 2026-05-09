@@ -124,8 +124,3 @@ Those values are configuration placeholders. The current templates still emit st
 - every raster source image has at least one matching generated WebP
 - no `generated/` directories are ignored accidentally
 - source images and derivatives are committed together
-
-## Related Pages
-
-- [Website and Docs Architecture Overview](../../docs-platform/website-and-docs-architecture-overview/): broader website build context
-- [Typography System](../typography-system/): another shared website system that should stay consistent across the site

@@ -82,8 +82,7 @@ title = "Overview and Planning"
 
 [pages.admin-guide.overview-and-planning]
 items = [
-  "deployment-architecture-overview",
-  "what-sambee-requires-to-run",
+  "architecture-overview",
 ]
 
 [[sections.admin-guide.items]]
@@ -111,7 +110,6 @@ title = "Configuration"
 
 [pages.admin-guide.configuration]
 items = [
-  "configure-local-settings-and-persistent-storage",
   "configuration-key-reference",
 ]
 
@@ -122,29 +120,8 @@ title = "Operations and Maintenance"
 [pages.admin-guide.operations-and-maintenance]
 items = [
   "view-logs-and-restart-services",
-  "routine-maintenance-checklist",
   "update-sambee-safely",
   "backup-and-restore-planning",
-]
-
-[[sections.admin-guide.items]]
-slug = "user-support-and-escalation"
-title = "User Support and Escalation"
-
-[pages.admin-guide.user-support-and-escalation]
-items = [
-  "support-companion-app-escalation",
-]
-
-[[sections.admin-guide.items]]
-slug = "troubleshooting"
-title = "Troubleshooting"
-
-[pages.admin-guide.troubleshooting]
-items = [
-  "troubleshoot-startup-and-connectivity-issues",
-  "reset-the-admin-password",
-  "reverse-proxy-misconfiguration",
 ]
 
 [[sections.admin-guide.items]]
@@ -154,7 +131,6 @@ title = "Reference"
 [pages.admin-guide.reference]
 items = [
   "port-and-path-reference",
-  "configuration-and-data-paths",
   "companion-support-reference",
 ]
 

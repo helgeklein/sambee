@@ -122,9 +122,3 @@ Use these rules for future typography work:
 3. keep each shared utility complete on its own
 4. keep layout, spacing, color, and interaction state outside the semantic typography utility unless the role truly requires them
 5. when a component-local class needs a shared scale value, consume the shared tokens instead of copying magic numbers
-
-## Related Pages
-
-- [Website and Docs Architecture Overview](../../docs-platform/website-and-docs-architecture-overview/): the broader website theme and build context
-- [Media Publishing Workflow](../media-publishing-workflow/): another shared website system with repository-level workflow rules
-- [Typography Usage and Boundaries](../typography-usage-and-boundaries/): examples, local boundaries, and disallowed patterns

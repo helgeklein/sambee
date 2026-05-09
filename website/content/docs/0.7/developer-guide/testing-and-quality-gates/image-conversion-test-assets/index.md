@@ -210,9 +210,3 @@ If color assertions change unexpectedly:
 - compare the actual average color output from the failing test before changing tolerances or expected values
 
 Do not update expected colors casually. CMYK expectations in particular exist to catch exactly that sort of silent behavior drift.
-
-## Related Pages
-
-- [Test Strategy Overview](../test-strategy-overview/): use this to decide when image-conversion changes need deeper backend validation
-- [Image Preprocessing and Conversion Pipeline](../../backend-architecture/image-preprocessing-and-conversion-pipeline/): backend architecture behind preprocessors and final viewer conversion
-- [Viewer Architecture and Preview Contracts](../../frontend-architecture/viewer-architecture-and-preview-contracts/): understand why backend conversion behavior is part of the preview contract, not just a test detail

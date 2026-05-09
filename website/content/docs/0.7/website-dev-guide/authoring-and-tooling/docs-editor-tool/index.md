@@ -177,9 +177,3 @@ Examples:
 - deleting a page that may exist through inheritance in later versions
 
 Manual file edits are still fine for revising the body text of an existing page.
-
-## Related Pages
-
-- [Docs Authoring Workflow](../docs-authoring-workflow/): normal content work before or after the structural change
-- [Docs Editor Operation Reference](../docs-editor-operation-reference/): option details, output formats, and per-operation behavior
-- [Docs Content Model, Navigation, and Inheritance](../../docs-platform/docs-content-model-navigation-and-inheritance/): the invariants the tool is designed to preserve

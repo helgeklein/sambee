@@ -25,7 +25,7 @@ If readers should see it on the website, the content belongs under `website/cont
 Before you write anything, decide which public docs book owns the topic.
 
 - `user-guide`: user tasks and product usage
-- `admin-guide`: deployment, configuration, operations, troubleshooting, and escalation
+- `admin-guide`: deployment, configuration, operations, and recovery topics
 - `developer-guide`: backend, frontend, companion, and product implementation topics
 - `website-dev-guide`: website editing, docs authoring, docs tooling, routing, media, typography, and website theme internals
 
@@ -144,10 +144,3 @@ npm run build
 ```
 
 That is the minimum meaningful verification because it runs theme generation, docs validation, inherited-doc materialization, Hugo rendering, and homepage CTA validation.
-
-## Related Pages
-
-- [Docs Style Guide](../docs-style-guide/): canonical writing and list-style rules for published docs copy
-- [Docs Content Model, Navigation, and Inheritance](../../docs-platform/docs-content-model-navigation-and-inheritance/): path and marker rules behind the workflow
-- [Docs Editor Tool](../docs-editor-tool/): structural changes that should go through the CLI
-- [Website and Docs Architecture Overview](../../docs-platform/website-and-docs-architecture-overview/): broader context for the website build and docs runtime

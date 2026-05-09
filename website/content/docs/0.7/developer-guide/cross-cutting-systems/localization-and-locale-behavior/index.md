@@ -151,9 +151,3 @@ For browser-to-companion localization sync changes, also validate:
 cd frontend && npm test -- src/services/__tests__/companionService.test.ts
 cd companion && npm test -- src/i18n/__tests__/index.test.ts src/components/__tests__/Preferences.test.tsx
 ```
-
-## Related Pages
-
-- [Logging and Localization](../logging-and-localization/): cross-cutting overview for both systems
-- [Frontend Logging and Tracing](../frontend-logging-and-tracing/): the browser-side logging system that often changes alongside other shared UI infrastructure
-- [How to Plan and Review a Change](../../contribution-workflows/how-to-plan-and-review-a-change/): scope cross-boundary behavior before implementation spreads across browser and companion

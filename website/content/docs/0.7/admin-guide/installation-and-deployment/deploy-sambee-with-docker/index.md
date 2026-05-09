@@ -2,17 +2,13 @@
 title = "Deploy Sambee with Docker"
 +++
 
-This is the first page in the deployment sequence.
-
 ## Before You Start
 
 You need:
 
 - Docker and `docker compose` installed.
-- A host that can reach the SMB server, Samba server, or NAS Sambee will use.
+- A host that can reach the SMB file servers Sambee will use.
 - A deployment directory where you can keep local files such as `docker-compose.yml`, optional `config.toml`, and the persistent `data/` directory.
-
-For production, deploy a release tag rather than the current branch tip. In practice, that means checking out a published version before you build the image.
 
 ## 1. Obtain the Source
 
@@ -67,15 +63,7 @@ You do not need `config.toml` for a basic deployment. Create it only if you need
 
 Keep this file local. In production, mount it read-only.
 
-## 5. Optional: Set up Build Metadata Tracking
-
-If you keep a long-lived source checkout and want build metadata to stay current automatically, set up the repository Git hooks:
-
-```bash
-./scripts/setup-git-hooks
-```
-
-## 6. Build and Start Sambee
+## 5. Build and Start Sambee
 
 Build the image:
 
@@ -95,7 +83,7 @@ By default, the service is available at:
 - Backend API: `http://localhost:8000/api`
 - API docs: `http://localhost:8000/docs`
 
-## Verify the First Deployment
+## Verify the Deployment
 
 Before moving on, confirm that the deployment really came up cleanly.
 
@@ -108,15 +96,3 @@ For a quick log review:
 ```bash
 docker compose logs sambee --tail 100
 ```
-
-If the service does not stay up, go to the troubleshooting path before continuing with more setup.
-
-## Next Steps
-
-- Continue to [First Startup and First Admin Login](../first-startup-and-first-admin-login/) to retrieve the initial credentials and confirm the first admin sign-in.
-- If this deployment will be used beyond a simple local test, continue to [Put Sambee behind a Reverse Proxy](../../network-and-reverse-proxy/put-sambee-behind-a-reverse-proxy/).
-
-## Related Pages
-
-- [Configure Local Settings and Persistent Storage](../../configuration/configure-local-settings-and-persistent-storage/): adjust local files, ports, and persistence safely
-- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this if the first deployment does not stay healthy

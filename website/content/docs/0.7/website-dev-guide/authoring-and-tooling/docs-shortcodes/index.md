@@ -110,9 +110,3 @@ Deleting or renaming docs structure manually can desynchronize navigation and in
 The shortcode implementation lives in `themes/sambee/layouts/shortcodes/admonition.html`.
 
 The styling for the rendered admonition variants lives in `themes/sambee/assets/css/content.css`.
-
-## Related Pages
-
-- [Docs Authoring Workflow](../docs-authoring-workflow/): where shortcode usage fits into normal docs work
-- [Docs Editor Tool](../docs-editor-tool/): structural changes that should not be handled with shortcode tricks
-

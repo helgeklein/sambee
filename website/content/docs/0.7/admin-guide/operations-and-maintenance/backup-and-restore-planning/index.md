@@ -14,14 +14,6 @@ At minimum, protect:
 
 The database is the most important part because it contains users, connections, security keys, and encrypted passwords.
 
-## Why the Database Matters so Much
-
-`data/sambee.db` is not just a convenience file. It is the operational state of the deployment.
-
-If it is lost, you lose the service-side configuration and security state that makes the deployment usable.
-
-If you back up only the image or the repository checkout and not the database, you do not have a usable backup.
-
 ## Simple Backup Pattern
 
 The simplest safe backup is a cold backup:
@@ -42,27 +34,6 @@ docker compose up -d sambee
 
 If you do not use `config.toml`, skip that copy step.
 
-## Minimum Restore Readiness
-
-Even if you do not yet have a full restore runbook, you should be able to answer these questions clearly:
-
-- Where is the authoritative copy of the Sambee data directory?
-- How would you restore it onto a replacement host?
-- How would you restore the compose and optional config files used by the deployment?
-- How would you verify that the restored service actually came back cleanly?
-
-## How to Verify Restore Readiness
-
-The backup plan is not ready until you know how you would prove the restore worked.
-
-At minimum, define how you would verify:
-
-- The restored `data/` directory is the correct one.
-- The deployment files on the replacement host match what the service expects.
-- Sambee starts without an obvious database or startup fault.
-- Administrator sign-in works after restore.
-- The key SMB workflows users depend on still work.
-
 ## Basic Restore Flow
 
 At minimum, a restore should look like this:
@@ -72,15 +43,3 @@ At minimum, a restore should look like this:
 3. Restore ownership on `data/` if needed so the container can write to it.
 4. Start Sambee with `docker compose up -d`.
 5. Confirm sign-in, logs, and a basic SMB workflow.
-
-## Operational Recommendation
-
-Treat backup planning as part of deployment completion, not as an optional follow-up after users are already relying on the service.
-
-For the key path summary, see [Port and Path Reference](../../reference/port-and-path-reference/).
-
-## Related Pages
-
-- [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this when restore posture is part of a broader recurring operations review
-- [Port and Path Reference](../../reference/port-and-path-reference/): review the core deployment files and persistent paths that must be preserved
-- [Update Sambee Safely](../update-sambee-safely/): use this when backup posture is part of an upgrade decision

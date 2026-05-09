@@ -203,18 +203,6 @@ cd website
 npm run docs:materialize-inherited
 ```
 
-## Related Pages
-
-- [Website and Docs Architecture Overview](../website-and-docs-architecture-overview/): use this first if you need the broader site layout and build pipeline
-- [Docs Runtime and Route Resolution](../docs-runtime-and-route-resolution/): use this for template resolution, stable current routes, materialization, and docs search behavior
-- [Docs Authoring Workflow](../../authoring-and-tooling/docs-authoring-workflow/): use this for normal content updates
-- [Docs Editor Tool](../../authoring-and-tooling/docs-editor-tool/): use this for structural docs changes
-
-1. the same page path
-2. the same section landing path
-3. the same book landing path
-4. the target version landing path
-
 ## Search Behavior
 
 Docs search is intentionally version-aware.
@@ -233,8 +221,3 @@ The most relevant commands when you are changing docs runtime behavior are:
 - `npm run docs:materialize-inherited`: regenerate transient inherited-route and stable current-route anchors
 - `npm run build`: generate theme assets, validate docs, materialize docs route anchors, and build the site
 - `npm run build:search`: run the full build and then generate the Pagefind search index
-
-## Related Pages
-
-- [Website and Docs Architecture Overview](../website-and-docs-architecture-overview/): broader site layout and build pipeline
-- [Docs Content Model, Navigation, and Inheritance](../docs-content-model-navigation-and-inheritance/): path-derived identity, filesystem rules, and inheritance model

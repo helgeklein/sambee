@@ -50,20 +50,4 @@ To restart only the Sambee service:
 docker compose restart sambee
 ```
 
-If you restart repeatedly without understanding the failure, move to [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/).
-
-## What Good Log Usage Looks Like
-
-Look for patterns such as:
-
-- Startup errors.
-- Repeated reconnect or connection failures.
-- Missing static assets or frontend-serving problems.
-- Storage or SMB access failures.
-
-Logs are often the fastest way to separate a user-facing symptom from a real deployment fault.
-
-## Related Pages
-
-- [Routine Maintenance Checklist](../routine-maintenance-checklist/): use this for the compact recurring review flow
-- [Troubleshoot Startup and Connectivity Issues](../../troubleshooting/troubleshoot-startup-and-connectivity-issues/): use this when logs show a real deployment fault rather than a routine maintenance step
+If you restart repeatedly without understanding the failure, stop restarting and inspect the logs, deployment files, proxy path, and persistent data assumptions directly.
