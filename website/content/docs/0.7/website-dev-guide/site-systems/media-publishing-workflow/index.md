@@ -67,14 +67,15 @@ Do not rely on CI to create missing derivatives. Missing generated WebPs are a d
 
 ## Build and Publish Expectations
 
-The website build and deployment flow expects this behavior:
+The website build and deployment flow is set up around this behavior:
 
 - local development pulls Git LFS objects before serving the site
 - the local dev workflow runs the WebP watcher during `npm run dev`
 - CI restores and pulls Git LFS objects before building the site
 - CI validates that raster source images have generated WebP derivatives
-- deployment syncs built media from `website/public/images/` and `website/public/files/`
-- HTML deployment happens separately from the media sync
+- CI uploads `website/public` as a short-lived artifact after the build
+- the deploy job syncs built media from `website/public/images/` and `website/public/files/`
+- the deploy job deploys the built HTML separately to Cloudflare Pages
 
 The project scripts that matter most here are:
 
@@ -82,45 +83,13 @@ The project scripts that matter most here are:
 - `npm run images:validate`
 - `npm run build`
 
-The deployment workflow lives in `.github/workflows/website-deploy.yml`. The important steps are:
+The workflow lives in `.github/workflows/website-deploy.yml`. The important steps include:
 
 - restore `.git/lfs` cache and run `git lfs pull`
 - restore `website/resources/_gen` cache for faster rebuilds
 - validate generated WebP coverage
 - build the Hugo site and Pagefind index inside `website/`
 - upload `website/public` as a short-lived artifact
-- sync `website/public/images/` and `website/public/files/` to object storage during deploy
 - deploy the built site from `website/public`
 
-## Deployment Secrets
-
-The website deployment workflow expects these GitHub Actions secrets:
-
-- `R2_ACCESS_KEY_ID`
-- `R2_SECRET_ACCESS_KEY`
-- `R2_ENDPOINT`
-- `R2_BUCKET_NAME`
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_PAGES_PROJECT`
-
-## CDN and Output Paths
-
-The site configuration includes CDN-related placeholders in `website/config/_default/params.toml`, but the current templates still emit stable `/images/...` and `/files/...` paths.
-
-That means day-to-day media work should focus on preserving the repository asset tree and the generated derivative coverage, not on inventing alternate output paths.
-
-`website/config/_default/params.toml` includes a `[cdn]` section with:
-
-- `images_base_url`
-- `files_base_url`
-
-Those values are configuration placeholders. The current templates still emit stable site-relative paths, so switching template output to explicit CDN hostnames is a separate concern from the normal media publishing workflow.
-
-## Review Checklist
-
-- new or changed source images are tracked by Git LFS
-- matching generated WebPs exist and are tracked by Git LFS
-- every raster source image has at least one matching generated WebP
-- no `generated/` directories are ignored accidentally
-- source images and derivatives are committed together
+For the Cloudflare-side setup, GitHub Actions secrets, and deployment branch rules, see [Set Up Cloudflare Pages Publishing](../../setup-and-operations/set-up-cloudflare-pages-publishing/).

@@ -266,3 +266,12 @@ items = [
   "typography-system",
   "typography-usage-and-boundaries",
 ]
+
+[[sections.website-dev-guide.items]]
+slug = "setup-and-operations"
+title = "Setup and Operations"
+
+[pages.website-dev-guide.setup-and-operations]
+items = [
+  "set-up-cloudflare-pages-publishing",
+]

@@ -2,10 +2,6 @@ description = "Browser-based file viewer and manager for SMB shares and local dr
 theme_default = "system"
 theme_switcher = true
 
-[cdn]
-files_base_url = ""
-images_base_url = ""
-
 [links]
 github_url = "https://github.com/helgeklein/sambee"
 
