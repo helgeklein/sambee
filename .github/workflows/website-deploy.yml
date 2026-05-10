@@ -90,6 +90,7 @@ jobs:
         cd website
         npm run build:theme
 
+        # Production builds use the canonical public base URL.
         if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
           base_url="https://sambee.net/"
         else
@@ -110,6 +111,7 @@ jobs:
 
     - name: Upload website build artifact
       if: github.event_name != 'pull_request'
+      # The deploy job runs separately, so pass website/public across as a short-lived artifact.
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: website-build
@@ -120,6 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: build
+    # Pull requests build for validation only; only main is allowed to publish.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     steps:
     - name: Checkout website package files
@@ -168,40 +171,75 @@ jobs:
           });
           core.info(`Deleted artifact: ${target.name}`);
 
-    - name: Sync images to Cloudflare R2 (/website/public/images/)
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      run: |
-        if [[ ! -d website/public/images ]]; then
-          echo 'No website/public/images directory present; skipping image sync.'
-          exit 0
-        fi
-
-        aws s3 sync website/public/images/ s3://${{ secrets.R2_BUCKET_NAME }}/images/ \
-          --endpoint-url ${{ secrets.R2_ENDPOINT }} \
-          --delete \
-          --size-only \
-          --cache-control "public,max-age=31536000,immutable"
-
-    - name: Sync downloads to Cloudflare R2 (/website/public/files/)
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      run: |
-        if [[ ! -d website/public/files ]]; then
-          echo 'No website/public/files directory present; skipping file sync.'
-          exit 0
-        fi
-
-        aws s3 sync website/public/files/ s3://${{ secrets.R2_BUCKET_NAME }}/files/ \
-          --endpoint-url ${{ secrets.R2_ENDPOINT }} \
-          --delete \
-          --cache-control "public,max-age=31536000,immutable"
-
     - name: Deploy to Cloudflare Pages
+      # Deploy the exact built artifact that passed the build job.
       uses: cloudflare/wrangler-action@v3
       with:
         apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         command: pages deploy website/public --project-name=${{ secrets.CLOUDFLARE_PAGES_PROJECT }} --branch=${{ github.ref_name }}
+
+  verify-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: deploy
+    # Run a lightweight smoke test only after production deployments from main.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      SITE_URL: https://sambee.net
+      VERIFY_PAGE: https://sambee.net/docs/website-dev-guide/site-systems/media-publishing-workflow/
+    steps:
+      - name: Verify deployed pages and assets
+        run: |
+          set -euo pipefail
+
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /tmp/home.html "$SITE_URL/"
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /tmp/verify-page.html "$VERIFY_PAGE"
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /tmp/docs-home.html "$SITE_URL/docs/"
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /dev/null "$SITE_URL/pagefind/pagefind.js"
+
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          site_url = os.environ["SITE_URL"]
+          verify_page = os.environ["VERIFY_PAGE"]
+          home_html = Path("/tmp/home.html").read_text(encoding="utf-8")
+
+          def find_first_path(html: str, patterns: list[str]) -> str | None:
+              for pattern in patterns:
+                  match = re.search(pattern, html)
+                  if match:
+                      return match.group("path")
+              return None
+
+          image_path = find_first_path(
+              home_html,
+              [
+                  r'content=(?:"|\')?(?P<path>/images/[^\s"\'<>]+\.webp)',
+                  r'src=(?:"|\')?(?P<path>/images/[^\s"\'<>]+\.webp)',
+                  r'srcset=(?:"|\')?(?P<path>/images/[^\s"\'<>]+\.webp)',
+                  r'(?P<path>/images/[^\s"\'<>]+\.webp)',
+              ],
+          )
+
+          if not image_path:
+              print("Could not find a deployed image URL on the homepage.", file=sys.stderr)
+              sys.exit(1)
+
+          image_url = f"{site_url}{image_path}"
+
+            # Export the discovered asset URL so the shell can verify it with curl next.
+          Path("/tmp/verify-production-urls.env").write_text(
+              f"IMAGE_URL={image_url}\nVERIFY_PAGE_URL={verify_page}\n",
+              encoding="utf-8",
+          )
+          PY
+
+          . /tmp/verify-production-urls.env
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /dev/null "$SITE_URL/"
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /dev/null "$SITE_URL/docs/"
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /dev/null "$VERIFY_PAGE_URL"
+          curl --retry 10 --retry-delay 10 --retry-all-errors --fail --location --output /dev/null "$IMAGE_URL"

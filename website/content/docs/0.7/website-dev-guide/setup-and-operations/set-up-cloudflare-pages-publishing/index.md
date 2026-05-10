@@ -38,10 +38,9 @@ After Cloudflare is ready, open the GitHub repository settings, go to **Secrets 
 - `CLOUDFLARE_ACCOUNT_ID` for the Cloudflare account that owns the Pages project.
 - `CLOUDFLARE_PAGES_PROJECT` for the Cloudflare Pages project name passed to `wrangler pages deploy`.
 
-The workflow syncs built output into these bucket prefixes:
+## CI Deploy
 
-- `images/`
-- `files/`
+The deploy job publishes `website/public` to Cloudflare Pages from the `main` branch.
 
 ## Repository Preconditions
 
@@ -61,3 +60,9 @@ git lfs pull
 npm ci
 npm run build
 ```
+
+## Current Asset Behavior
+
+The generated site still uses site-relative asset paths such as `/images/...` and `/files/...`.
+
+That means this workflow deploys the website to Cloudflare Pages, but it does not rewrite asset URLs to a separate CDN hostname.

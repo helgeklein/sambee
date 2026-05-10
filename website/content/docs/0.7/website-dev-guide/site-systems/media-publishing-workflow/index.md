@@ -74,8 +74,7 @@ The website build and deployment flow is set up around this behavior:
 - CI restores and pulls Git LFS objects before building the site
 - CI validates that raster source images have generated WebP derivatives
 - CI uploads `website/public` as a short-lived artifact after the build
-- the deploy job syncs built media from `website/public/images/` and `website/public/files/`
-- the deploy job deploys the built HTML separately to Cloudflare Pages
+- the deploy job publishes `website/public` to Cloudflare Pages
 
 The project scripts that matter most here are:
 

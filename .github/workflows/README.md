@@ -65,13 +65,12 @@ Treat these cache keys as reviewed dependency inputs, not disposable generated f
 
 ## Website Deployment Workflow
 
-The `website-deploy.yml` workflow builds the Hugo website in `website/`. Its deploy stage is currently disabled until Cloudflare R2 and Pages are configured.
+The `website-deploy.yml` workflow builds the Hugo website in `website/` and deploys the built `website/public` directory to Cloudflare Pages from `main`.
 
 - Pulls website media from Git LFS before the build.
 - Caches `website/resources/_gen` for faster Hugo image work.
 - Uploads the built `website/public` directory as a short-lived artifact.
-- The deploy stage will later sync `website/public/images/` and `website/public/files/` to Cloudflare R2.
-- The deploy stage will later deploy `website/public` to Cloudflare Pages.
+- Deploys `website/public` to Cloudflare Pages from the deploy stage.
 
 The workflow uses the committed website lockfile and the `website/` copy of `wrangler` rather than ad hoc installs.
 
