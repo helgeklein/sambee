@@ -89,6 +89,8 @@ jobs:
       run: |
         cd website
         npm run build:theme
+        npm run docs:validate
+        npm run docs:materialize-inherited
 
         # Production builds use the canonical public base URL.
         if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then

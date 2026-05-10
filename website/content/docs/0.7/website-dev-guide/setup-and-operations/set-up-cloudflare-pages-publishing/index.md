@@ -28,7 +28,7 @@ Complete these Cloudflare steps first, then add the collected values to GitHub i
    - Name: `GitHub Actions - deploy Pages - sambee.net`
    - Permissions: Account, Cloudflare Pages, edit
 1. Save that Pages API token for `CLOUDFLARE_API_TOKEN`
-1. Record the Cloudflare account ID for the account that owns the Pages project. You will later store that account ID in `CLOUDFLARE_ACCOUNT_ID`.
+1. Extract the Cloudflare account ID for the account that owns the Pages project from the URL: `https://dash.cloudflare.com/ACCOUNT_ID/home/overview`
 
 ## Add GitHub Secrets
 
