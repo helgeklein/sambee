@@ -1,7 +1,6 @@
 meta:
   slug: home
   title: Sambee
-  description: Browser-based SMB and local-drive access without forcing a cloud-first storage model.
 
 hero:
   enabled: true
@@ -46,6 +45,12 @@ problem_value:
         Use Sambee when you want cloud-like convenience for browsing and
         previewing files, but need deployment, access, and storage to stay
         under your control.
+
+ui_screenshot:
+  enabled: true
+  preview_image:
+    src: images/home/sambee-screenshot.png
+    alt: Screenshot of the Sambee main web interface
 
 benefits:
   enabled: true

@@ -1,4 +1,4 @@
-/* Purpose: Watches raster website images, generates missing WebPs, and nudges Hugo to rebuild. */
+/* Purpose: Watches raster website images, regenerates derived assets, and nudges Hugo to rebuild. */
 
 const fs = require("fs/promises");
 const path = require("path");
@@ -9,6 +9,8 @@ const chokidar = require("chokidar");
 const siteRoot = path.resolve(__dirname, "..");
 const assetsRoot = path.join(siteRoot, "assets", "images");
 const triggerFile = path.join(siteRoot, "data", "webp-watch-trigger.json");
+const socialCardSource = path.join(assetsRoot, "home", "sambee-screenshot.png");
+const socialCardOutput = path.join(assetsRoot, "home", "generated", "sambee-screenshot_1200w.png");
 const debounceMs = 350;
 const validExtensions = new Set([".jpg", ".jpeg", ".png"]);
 
@@ -38,6 +40,25 @@ async function touchTrigger(generatedFiles) {
    await fs.writeFile(triggerFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+function runPythonScript(args) {
+   return new Promise((resolve, reject) => {
+      const child = spawn("python3", args, {
+         cwd: siteRoot,
+         stdio: ["ignore", "inherit", "inherit"],
+      });
+
+      child.on("error", reject);
+      child.on("exit", (code) => {
+         if (code === 0) {
+            resolve();
+            return;
+         }
+
+         reject(new Error(`Command exited with code ${code}: python3 ${args.join(" ")}`));
+      });
+   });
+}
+
 function runGenerator() {
    if (isGenerating || pendingFiles.size === 0) {
       return;
@@ -50,24 +71,24 @@ function runGenerator() {
    const relativePaths = filesToGenerate.map((filePath) => path.relative(siteRoot, filePath));
    console.log(`[webp] Generating WebP derivatives for ${relativePaths.join(", ")}`);
 
-   const child = spawn("python3", ["scripts/generate-webp.py", ...relativePaths], {
-      cwd: siteRoot,
-      stdio: ["ignore", "inherit", "inherit"],
-   });
+   const shouldGenerateSocialCard = filesToGenerate.includes(socialCardSource);
 
-   child.on("exit", async (code) => {
-      isGenerating = false;
+   (async () => {
+      await runPythonScript(["scripts/generate-webp.py", ...relativePaths]);
 
-      if (code === 0) {
-         try {
-            await touchTrigger(filesToGenerate);
-            console.log("[webp] Generated WebP derivatives and triggered Hugo rebuild");
-         } catch (error) {
-            console.error(`[webp] Failed to update rebuild trigger: ${error.message}`);
-         }
-      } else {
-         console.error(`[webp] WebP generation failed with exit code ${code}`);
+      const generatedFiles = [...filesToGenerate];
+      if (shouldGenerateSocialCard) {
+         console.log("[webp] Generating social card PNG for home/sambee-screenshot.png");
+         await runPythonScript(["scripts/generate-social-assets.py"]);
+         generatedFiles.push(socialCardOutput);
       }
+
+      await touchTrigger(generatedFiles);
+      console.log("[webp] Generated derived assets and triggered Hugo rebuild");
+   })().catch((error) => {
+      console.error(`[webp] Asset generation failed: ${error.message}`);
+   }).finally(() => {
+      isGenerating = false;
 
       if (pendingFiles.size > 0) {
          runGenerator();
@@ -97,7 +118,7 @@ watcher
    .on("add", scheduleGeneration)
    .on("change", scheduleGeneration)
    .on("ready", () => {
-      console.log("[webp] Watching raster assets for WebP regeneration");
+      console.log("[webp] Watching raster assets for WebP and social-card regeneration");
    })
    .on("error", (error) => {
       console.error(`[webp] Watcher error: ${error.message}`);

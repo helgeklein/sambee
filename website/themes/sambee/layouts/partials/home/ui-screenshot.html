@@ -1,0 +1,20 @@
+{{/* Purpose: Shows a full-width screenshot of the main Sambee interface between homepage content sections. */}}
+{{ $section := .section }}
+{{ if $section.enabled }}
+{{ $previewImage := $section.preview_image | default (dict) }}
+{{ $previewSrc := index $previewImage "src" | default "" }}
+{{ $previewAlt := index $previewImage "alt" | default "Screenshot of the Sambee main web interface" }}
+{{ if $previewSrc }}
+<section class="shell-section ledger-shell home-section home-ui-screenshot" aria-label="Sambee interface preview">
+  <div class="home-ui-screenshot-frame">
+    {{ partial "components/responsive-image.html" (dict
+      "Src" $previewSrc
+      "Alt" $previewAlt
+      "Class" "home-device-preview-image home-ui-screenshot-image"
+      "Loading" "lazy"
+      "Sizes" "100vw"
+    ) }}
+  </div>
+</section>
+{{ end }}
+{{ end }}

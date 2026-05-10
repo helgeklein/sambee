@@ -134,6 +134,35 @@ Problem / Value
 
 /*
 ==============================
+UI Screenshot
+==============================
+*/
+
+.home-ui-screenshot {
+  @apply bg-clr-surface-page dark:bg-clr-darkmode-surface-page;
+}
+
+.home-ui-screenshot-frame {
+  @apply bg-clr-surface-low p-5 dark:bg-clr-darkmode-surface-low md:px-16 md:py-8;
+}
+
+.home-device-preview-image {
+  --home-device-preview-shadow-primary: rgb(0 0 0 / 0.14);
+  --home-device-preview-shadow-secondary: rgb(0 0 0 / 0.08);
+  filter: drop-shadow(0 8px 12px var(--home-device-preview-shadow-primary)) drop-shadow(0 3px 4px var(--home-device-preview-shadow-secondary));
+}
+
+.dark .home-device-preview-image {
+  --home-device-preview-shadow-primary: rgb(0 0 0 / 0.28);
+  --home-device-preview-shadow-secondary: rgb(0 0 0 / 0.18);
+}
+
+.home-ui-screenshot-image {
+  @apply block w-full max-w-full;
+}
+
+/*
+==============================
 Benefits
 ==============================
 */
@@ -393,14 +422,6 @@ Companion
 
 .home-companion-preview-image {
   @apply block h-[23rem] w-full max-w-full object-contain md:h-[31rem];
-  --home-companion-preview-shadow-primary: rgb(0 0 0 / 0.14);
-  --home-companion-preview-shadow-secondary: rgb(0 0 0 / 0.08);
-  filter: drop-shadow(0 8px 12px var(--home-companion-preview-shadow-primary)) drop-shadow(0 3px 4px var(--home-companion-preview-shadow-secondary));
-}
-
-.dark .home-companion-preview-image {
-  --home-companion-preview-shadow-primary: rgb(0 0 0 / 0.28);
-  --home-companion-preview-shadow-secondary: rgb(0 0 0 / 0.18);
 }
 
 /*

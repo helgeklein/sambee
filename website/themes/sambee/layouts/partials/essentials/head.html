@@ -6,8 +6,20 @@
 {{ $canonicalURL := .Permalink }}
 {{ $openGraphURL := .Permalink }}
 {{ $robotsDirectives := "" }}
+{{ $openGraphLocale := "en_US" }}
+{{ $socialCardAssetPath := "images/home/generated/sambee-screenshot_1200w.png" }}
+{{ $socialCardAlt := "Sambee interface preview showing browser-based access to SMB shares and local drives" }}
 {{ $docsContext := partial "docs/context.html" . }}
 {{ $isNotFoundPage := eq .Kind "404" }}
+{{ $socialCard := resources.Get $socialCardAssetPath }}
+
+{{ if not $socialCard }}
+  {{ errorf "Missing social card asset %q. Run website/scripts/generate-social-assets.py before building." $socialCardAssetPath }}
+{{ end }}
+{{ if or (ne $socialCard.Width 1200) (ne $socialCard.Height 630) }}
+  {{ errorf "Social card asset %q must be 1200x630, got %dx%d" $socialCardAssetPath $socialCard.Width $socialCard.Height }}
+{{ end }}
+{{ $socialCard = $socialCard | fingerprint }}
 
 {{ if $isNotFoundPage }}
   {{ $pageTitle = printf "Page Not Found | %s" site.Title }}
@@ -64,7 +76,21 @@
 {{/* Open Graph values mirror the resolved title and description above. */}}
 <meta property="og:title" content="{{ $pageTitle }}" />
 <meta property="og:description" content="{{ $pageDescription }}" />
+<meta property="og:site_name" content="{{ site.Title }}" />
 <meta property="og:type" content="website" />
+<meta property="og:locale" content="{{ $openGraphLocale }}" />
 {{ with $openGraphURL }}
 <meta property="og:url" content="{{ . }}" />
+{{ end }}
+{{ with $socialCard }}
+<meta property="og:image" content="{{ .Permalink }}" />
+<meta property="og:image:type" content="{{ .MediaType.Type }}" />
+<meta property="og:image:width" content="{{ .Width }}" />
+<meta property="og:image:height" content="{{ .Height }}" />
+<meta property="og:image:alt" content="{{ $socialCardAlt }}" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="{{ $pageTitle }}" />
+<meta name="twitter:description" content="{{ $pageDescription }}" />
+<meta name="twitter:image" content="{{ .Permalink }}" />
+<meta name="twitter:image:alt" content="{{ $socialCardAlt }}" />
 {{ end }}

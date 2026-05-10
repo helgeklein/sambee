@@ -20,6 +20,7 @@
 ## File list
 
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
+- When I select multiple files and then press DEL, only one is deleted instead of all of them.
 
 ## Authentication system
 

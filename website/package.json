@@ -8,6 +8,8 @@
     "docs:validate": "python3 scripts/validate-docs-content.py",
     "build:site": "hugo --source . --cleanDestinationDir",
     "validate:homepage-ctas": "python3 scripts/validate-homepage-ctas.py",
+    "social:generate": "python3 scripts/generate-social-assets.py",
+    "social:generate:force": "python3 scripts/generate-social-assets.py --force",
     "images:generate": "python3 scripts/generate-webp.py",
     "images:generate:force": "python3 scripts/generate-webp.py --force",
     "images:validate": "python3 scripts/validate-webp-assets.py",
