@@ -9,23 +9,32 @@ Layout Shells
 .docs-overview,
 .docs-shell {
   @apply mx-auto w-full;
+}
 
-  @media (min-width: theme(--breakpoint-sm)) {
+@media (min-width: theme(--breakpoint-sm)) {
+  .docs-overview,
+  .docs-shell {
     max-width: 540px;
   }
+}
 
-  @media (min-width: theme(--breakpoint-md)) {
+@media (min-width: theme(--breakpoint-md)) {
+  .docs-overview,
+  .docs-shell {
     max-width: 900px;
   }
+}
 
-  @media (min-width: theme(--breakpoint-lg)) {
+@media (min-width: theme(--breakpoint-lg)) {
+  .docs-overview,
+  .docs-shell {
     max-width: 1131px;
   }
 }
 
-.docs-shell--page {
-  @media (min-width: theme(--breakpoint-xl)) {
-    max-width: calc(var(--article-container-width) + var(--docs-page-rail-width));
+@media (min-width: theme(--breakpoint-xl)) {
+  .docs-shell--page {
+    max-width: var(--docs-page-max-width);
   }
 }
 

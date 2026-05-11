@@ -1,13 +1,13 @@
 fastapi==0.136.1
 uvicorn[standard]==0.46.0
-python-multipart==0.0.27
+python-multipart==0.0.28
 sqlmodel==0.0.38
-cryptography==47.0.0
+cryptography==48.0.0
 PyJWT==2.12.1
 argon2-cffi==25.1.0
 smbprotocol==1.16.1
-pydantic==2.13.3
-pydantic-settings==2.14.0
+pydantic==2.13.4
+pydantic-settings==2.14.1
 python-magic==0.4.27
 aiofiles==25.1.0
 pyvips==3.1.1
