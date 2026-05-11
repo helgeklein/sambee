@@ -20,6 +20,8 @@ Variables
   --docs-page-rail-width: 13.75rem;
   /* Maximum width of the docs article region excluding the left navigation rail. */
   --article-container-width: 1100px;
+  /* Maximum width of a full docs article page including one outer rail on wide screens. */
+  --docs-page-max-width: 1320px;
   /* Shared font size for inline code and code blocks. */
   --code-font-size: 0.875em;
   /* Shared bottom margin for block content such as lists, tables, and pre blocks. */
