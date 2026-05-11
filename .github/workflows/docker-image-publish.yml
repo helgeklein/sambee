@@ -12,6 +12,10 @@ on:
         description: Existing immutable Git tag to publish, for example v0.7.0
         required: true
         type: string
+      publish_version_override:
+        description: Optional test-only version override to publish instead of the checked-out VERSION value
+        required: false
+        type: string
       push_latest:
         description: Also publish the latest tag
         required: true
@@ -31,6 +35,7 @@ jobs:
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       push_latest: ${{ steps.release.outputs.push_latest }}
+      version_override: ${{ steps.release.outputs.version_override }}
       version: ${{ steps.version.outputs.version }}
       major_minor: ${{ steps.version.outputs.major_minor }}
       image_name: ${{ steps.version.outputs.image_name }}
@@ -43,6 +48,7 @@ jobs:
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
           release_tag="${{ inputs.release_tag }}"
           push_latest="${{ inputs.push_latest }}"
+          version_override="$(printf '%s' "${{ inputs.publish_version_override }}" | tr -d '[:space:]')"
         else
           release_tag="${{ github.event.release.tag_name }}"
           if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
@@ -50,10 +56,17 @@ jobs:
           else
             push_latest=true
           fi
+          version_override=""
+        fi
+
+        if [[ -n "$version_override" && "$push_latest" == "true" ]]; then
+          echo "publish_version_override cannot be combined with push_latest=true" >&2
+          exit 1
         fi
 
         echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
         echo "push_latest=$push_latest" >> "$GITHUB_OUTPUT"
+        echo "version_override=$version_override" >> "$GITHUB_OUTPUT"
 
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -64,11 +77,20 @@ jobs:
       id: version
       shell: bash
       run: |
-        version="$(tr -d '[:space:]' < VERSION)"
-        expected_tag="v$version"
-        if [[ "${{ steps.release.outputs.release_tag }}" != "$expected_tag" ]]; then
-          echo "Release tag ${expected_tag} expected, got ${{ steps.release.outputs.release_tag }}" >&2
-          exit 1
+        source_version="$(tr -d '[:space:]' < VERSION)"
+        version_override="${{ steps.release.outputs.version_override }}"
+
+        if [[ -n "$version_override" ]]; then
+          version="$version_override"
+          printf '%s\n' "$version" > VERSION
+          ./scripts/sync-version
+        else
+          version="$source_version"
+          expected_tag="v$version"
+          if [[ "${{ steps.release.outputs.release_tag }}" != "$expected_tag" ]]; then
+            echo "Release tag ${expected_tag} expected, got ${{ steps.release.outputs.release_tag }}" >&2
+            exit 1
+          fi
         fi
 
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
@@ -92,7 +114,15 @@ jobs:
         ref: ${{ needs.prepare.outputs.release_tag }}
 
     - name: Sync and verify version metadata
+      if: ${{ needs.prepare.outputs.version_override == '' }}
       uses: ./.github/actions/sync-version-check
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
 
     - name: Set up Python
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -210,6 +240,13 @@ jobs:
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         ref: ${{ needs.prepare.outputs.release_tag }}
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
 
     - name: Write build metadata files
       shell: bash

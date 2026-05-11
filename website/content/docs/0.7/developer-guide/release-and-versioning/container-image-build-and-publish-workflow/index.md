@@ -81,6 +81,16 @@ Before publication, it verifies that:
 
 Only after those checks pass does the workflow push the image.
 
+### Testing the Publishing Workflow
+
+On normal release events, the published version must match `VERSION` exactly.
+
+Manual dispatch also supports an explicit test-only override that rewrites `VERSION` and runs `./scripts/sync-version` inside CI before validation and build steps run.
+
+That override exists only for non-release test publishing.
+
+It must not be used with `latest`.
+
 ## Tagging Contract
 
 Release tags are expected to use this format:
@@ -153,9 +163,17 @@ Use that only when you need to publish from an already existing immutable tag, f
 Manual dispatch accepts:
 
 - `release_tag`: the existing immutable tag to publish
+- `publish_version_override`: an optional test-only version string to publish instead of the checked-out `VERSION` value
 - `push_latest`: whether that manual run should also move the `latest` tag
 
 Do not use manual dispatch from a branch head as a substitute for the tag-based release path.
+
+If `publish_version_override` is set:
+
+- CI rewrites `VERSION` to the override value for that run only
+- CI reruns `./scripts/sync-version` so embedded frontend and companion metadata stay aligned with the published image tags
+- the override cannot be combined with `push_latest=true`
+- the run is best treated as a test publication rather than a normal release artifact
 
 ## Why the Workflow Generates `GIT_COMMIT`
 
