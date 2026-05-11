@@ -136,7 +136,7 @@
     "/(\\.\\/)?scripts\\/dev-stop/": true,
     "npm": true,
     "npx": true,
-    "/^git\\s+(status|diff|log|show|branch)\\b/": true,
+    "/^git\\s+(status|diff|log|ls-remote|show|branch)\\b/": true,
     "/^grep (-A|-E|-i)\\b/": true,
     "/^(/usr/local/bin/)?python(3)? -m (mypy|py_compile|pytest|ruff|unittest)\\b/": true,
     "/^time\\b/": true,

@@ -7,6 +7,7 @@ This section covers the workflows where a small metadata mistake can create cros
 Start with:
 
 - [Dependency and Release Workflow](./dependency-and-release-workflow/)
+- [Container Image Build and Publish Workflow](./container-image-build-and-publish-workflow/)
 - [Companion Distribution and Update Workflow](./companion-distribution-and-update-workflow/)
 
 Use this section when you are changing version numbers, updating reviewed dependencies, or touching release-sensitive files.

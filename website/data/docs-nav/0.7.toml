@@ -229,6 +229,7 @@ title = "Release and Versioning"
 [pages.developer-guide.release-and-versioning]
 items = [
   "dependency-and-release-workflow",
+  "container-image-build-and-publish-workflow",
   "companion-distribution-and-update-workflow",
 ]
 
