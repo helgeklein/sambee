@@ -107,8 +107,6 @@ warn_required_dynamic_aliases = true
 [[tool.mypy.overrides]]
 module = [
     "smbclient.*",
-    "passlib.*",
-    "magic.*",
     "pyvips.*",
 ]
 ignore_missing_imports = true
