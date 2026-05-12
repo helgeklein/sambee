@@ -2,6 +2,8 @@ name: "Security: Docker Image Scan"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TRIVY_VERSION: v0.68.2
+  TRIVY_IMAGE: aquasec/trivy:0.68.2
 
 on:
   schedule:
@@ -45,20 +47,18 @@ jobs:
         cache-from: type=gha,scope=docker-image-security-scan
         cache-to: type=gha,mode=max,scope=docker-image-security-scan
 
-    - name: Install Trivy
-      uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
-      with:
-        version: v0.68.2
-        cache: true
-
     - name: Show Trivy version
       shell: bash
-      run: trivy --version
+      run: docker run --rm "${TRIVY_IMAGE}" --version
 
     - name: Scan main image for high and critical vulnerabilities
       shell: bash
       run: |
-        trivy image \
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$PWD:/work" \
+          -w /work \
+          "${TRIVY_IMAGE}" image \
           --ignorefile ./.trivyignore.yaml \
           --show-suppressed \
           --severity HIGH,CRITICAL \
