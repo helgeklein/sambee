@@ -23,9 +23,8 @@ mkdir -p "$IMAGES_DIR"/{cmyk,rgb,special}
 mkdir -p "$EXPECTED_DIR"/{cmyk,rgb,special}
 mkdir -p "$METADATA_DIR"
 
-# Check if ImageMagick is available
-# Note: install-system-deps provides ImageMagick 7 either through an extracted
-# AppImage wrapper or through the distro package on non-amd64 architectures.
+# Check if ImageMagick is available.
+# install-system-deps now installs ImageMagick 7 from distro packages.
 MAGICK_CMD=""
 
 # First try command in PATH
