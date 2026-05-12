@@ -139,6 +139,9 @@ jobs:
     # ImageMagick 7, which Ubuntu's default runner image does not provide.
     container:
       image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Checkout code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
