@@ -136,6 +136,8 @@ jobs:
   validate-tests:
     needs: prepare
     runs-on: ubuntu-latest
+    container:
+      image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
     permissions:
       contents: read
     steps:
@@ -155,15 +157,8 @@ jobs:
         printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
         ./scripts/sync-version
 
-    - name: Set up Python
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-      with:
-        python-version: '3.13.12'
-        cache: 'pip'
-        cache-dependency-path: 'backend/requirements*.txt'
-
     - name: Install backend system dependencies
-      run: sudo bash scripts/install-system-deps
+      run: bash scripts/install-system-deps
 
     - name: Install backend test dependencies
       run: python -m pip install --require-hashes -r backend/requirements-dev.lock.txt
