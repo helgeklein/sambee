@@ -2,6 +2,7 @@ name: "Security: Docker Image Scan"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TRIVY_VERSION: v0.68.2
 
 on:
   schedule:
@@ -46,10 +47,19 @@ jobs:
         cache-to: type=gha,mode=max,scope=docker-image-security-scan
 
     - name: Install Trivy
-      uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
-      with:
-        version: v0.68.2
-        cache: true
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        installer_path="$(mktemp)"
+        trap 'rm -f "$installer_path"' EXIT
+
+        curl --fail --silent --show-error --location --retry 5 \
+          --output "$installer_path" \
+          "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_VERSION}/contrib/install.sh"
+
+        chmod +x "$installer_path"
+        "$installer_path" -b /usr/local/bin "${TRIVY_VERSION}"
 
     - name: Show Trivy version
       shell: bash
