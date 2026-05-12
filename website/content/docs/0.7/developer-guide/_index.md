@@ -23,6 +23,7 @@ Use this guide to understand how Sambee is built across the backend, frontend, a
 - [Cross-Cutting Systems](./cross-cutting-systems/): Understand shared logging, localization, and other rules that span more than one app.
 - [Testing and Quality Gates](./testing-and-quality-gates/): Choose the right checks for the change you are making.
 - [Contribution Workflows](./contribution-workflows/): Plan and review changes with the right scope and validation depth.
+- [Security](./security/): Understand dependency automation, vulnerability scanning, and release-artifact integrity.
 - [Release and Versioning](./release-and-versioning/): Handle dependency updates and version metadata safely.
 
 ## Use the Right Guide

@@ -330,6 +330,43 @@ class MonitoredDirectory:
 
         logger.info(f"Successfully reconnected monitor for {self.connection_id}:{self.path}")
 
+    def _handle_change_result(self, result: object) -> None:
+        """Handle a completed watcher result from smbprotocol."""
+
+        if result is None:
+            return
+
+        if not isinstance(result, list):
+            raise TypeError(f"Unexpected watcher result type: {type(result).__name__}")
+
+        self._consecutive_failures = 0
+
+        for action_info in result:
+            action = action_info["action"].get_value()
+            filename = action_info["file_name"].get_value()
+            action_name = self._get_action_name(action)
+            logger.info(
+                "Change detected in %s:%s - %s: %s",
+                self.connection_id,
+                self.path,
+                action_name,
+                filename,
+            )
+
+        if self.on_change_callback:
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self.on_change_callback(self.connection_id, self.path))
+            except Exception as cb_error:
+                logger.error("Error in change callback: %s", cb_error, exc_info=True)
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
+
+        # Restart watcher for next change using a fresh watcher instance.
+        self._watcher = FileSystemWatcher(self._open)
+
     #
     # _monitor_loop
     #
@@ -369,34 +406,7 @@ class MonitoredDirectory:
                     if self._stop_event.is_set():
                         break
 
-                    if result is not None:
-                        # Success - reset failure counter
-                        self._consecutive_failures = 0
-
-                        # Log the changes
-                        for action_info in result:
-                            action = action_info["action"].get_value()
-                            filename = action_info["file_name"].get_value()
-                            action_name = self._get_action_name(action)
-                            logger.info(f"Change detected in {self.connection_id}:{self.path} - {action_name}: {filename}")
-
-                        # Notify callback
-                        if self.on_change_callback:
-                            try:
-                                # Create a new event loop for this thread
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                loop.run_until_complete(self.on_change_callback(self.connection_id, self.path))
-                                loop.close()
-                            except Exception as cb_error:
-                                logger.error(
-                                    f"Error in change callback: {cb_error}",
-                                    exc_info=True,
-                                )
-
-                        # Restart watcher for next change
-                        # Need to create a new watcher instance
-                        self._watcher = FileSystemWatcher(self._open)
+                    self._handle_change_result(result)
 
                 except Exception as e:
                     if not self._stop_event.is_set():
@@ -408,11 +418,19 @@ class MonitoredDirectory:
                         # normal — stop monitoring instead of retrying.
                         is_delete_pending = "0xc0000056" in error_msg or "deletepending" in error_type.lower()
                         if is_delete_pending:
-                            logger.info(f"Watched directory deleted, stopping monitor: {self.connection_id}:{self.path}")
+                            logger.info(
+                                "Watched directory deleted, stopping monitor: %s:%s",
+                                self.connection_id,
+                                self.path,
+                            )
                             break
 
                         logger.error(
-                            f"Error waiting for changes in {self.connection_id}:{self.path}: {error_type}: {e}",
+                            "Error waiting for changes in %s:%s: %s: %s",
+                            self.connection_id,
+                            self.path,
+                            error_type,
+                            e,
                             exc_info=True,
                         )
 
@@ -428,8 +446,10 @@ class MonitoredDirectory:
 
                         if is_connection_error:
                             logger.warning(
-                                f"Connection/timeout issue detected for {self.connection_id}:{self.path}, "
-                                f"attempting recovery (consecutive failures: {self._consecutive_failures})"
+                                "Connection/timeout issue detected for %s:%s, attempting recovery (consecutive failures: %s)",
+                                self.connection_id,
+                                self.path,
+                                self._consecutive_failures,
                             )
                             # Clean up old resources
                             self._cleanup()
@@ -438,10 +458,13 @@ class MonitoredDirectory:
                                 self._reconnect()
                                 # Success - reset failure counter
                                 self._consecutive_failures = 0
-                                logger.info(f"Successfully reconnected {self.connection_id}:{self.path}")
+                                logger.info("Successfully reconnected %s:%s", self.connection_id, self.path)
                             except Exception as reconnect_error:
                                 logger.error(
-                                    f"Failed to reconnect (attempt {self._consecutive_failures}/{MAX_RETRY_ATTEMPTS}): {reconnect_error}",
+                                    "Failed to reconnect (attempt %s/%s): %s",
+                                    self._consecutive_failures,
+                                    MAX_RETRY_ATTEMPTS,
+                                    reconnect_error,
                                     exc_info=True,
                                 )
                                 # _reconnect handles retry logic and stop event
@@ -456,11 +479,14 @@ class MonitoredDirectory:
 
         except Exception as e:
             logger.error(
-                f"Monitor loop error for {self.connection_id}:{self.path}: {e}",
+                "Monitor loop error for %s:%s: %s",
+                self.connection_id,
+                self.path,
+                e,
                 exc_info=True,
             )
         finally:
-            logger.info(f"Monitor loop stopped for {self.connection_id}:{self.path}")
+            logger.info("Monitor loop stopped for %s:%s", self.connection_id, self.path)
 
     #
     # _get_action_name

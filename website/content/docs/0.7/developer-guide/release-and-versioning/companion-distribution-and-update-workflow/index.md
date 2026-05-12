@@ -72,7 +72,9 @@ That split is deliberate.
 
 The build workflow creates the release artifacts but does not decide which update channels see them.
 
-1. an operator runs the `Build Companion` workflow
+GitHub Actions displays the build workflow as `Release: Build Companion Artifact`.
+
+1. an operator runs the `Release: Build Companion Artifact` workflow
 2. CI syncs and verifies version metadata before building
 3. the workflow builds the selected platform matrix
 4. Tauri packaging uploads assets to a draft release in `helgeklein/sambee-companion`
@@ -131,7 +133,9 @@ docs/feeds/
 
 Channel promotion is a separate manual workflow.
 
-1. an operator runs `Promote Companion Release`
+GitHub Actions displays the promotion workflow as `Release: Promote Companion Release`.
+
+1. an operator runs `Release: Promote Companion Release`
 2. the workflow accepts a `release_ref` plus booleans for `test`, `beta`, `stable`, and Sambee metadata targets
 3. the workflow checks out both the main repository and the dedicated release repository
 4. `promote_companion_release.py` resolves the release by tag, release URL, or numeric release ID

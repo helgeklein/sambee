@@ -84,17 +84,20 @@ Additional contributor rules in those areas:
 
 ## Dependency Security Audits
 
-Dependency audits run in a dedicated workflow instead of on every normal push or pull request.
+The audit workflow and Dependabot configuration now live in the Developer Guide security section.
 
-That workflow covers:
+Use [Dependency Security and Dependabot](../../security/dependency-security-and-dependabot/) for:
 
-- backend: `pip-audit -r backend/requirements-dev.lock.txt`
-- frontend and companion: `npm audit --package-lock-only --omit=dev --audit-level=high`
-- companion Rust dependencies: `cargo audit`
+- Dependabot grouping and ignore rules
+- scheduled dependency audit coverage
 
-Run the relevant audit locally before merging reviewed dependency updates, especially when lockfiles or pinned versions changed.
+Use [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/) for:
 
-Inside the dev container, `pip-audit` and `cargo-audit` are installed automatically during post-create setup using the same pinned versions used in CI.
+- container-image vulnerability scanning
+- Trivy suppression policy
+- image signing, SBOM, and provenance controls
+
+Keep this page focused on version alignment and release-sensitive dependency changes.
 
 ## Release-Sensitive Change Checklist
 

@@ -10,6 +10,7 @@ Start with:
 
 Related supporting pages:
 
+- [CI Workflows and Repository Automation](./ci-workflows-and-repository-automation/)
 - [Logging and Localization](../cross-cutting-systems/logging-and-localization/)
 - [Dependency and Release Workflow](../release-and-versioning/dependency-and-release-workflow/)
 

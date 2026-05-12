@@ -1,0 +1,7 @@
+# Add only time-bounded, reviewed exceptions here.
+# Each entry should include a statement and an expired_at date so suppressed
+# findings must be revisited explicitly.
+vulnerabilities: []
+misconfigurations: []
+secrets: []
+licenses: []

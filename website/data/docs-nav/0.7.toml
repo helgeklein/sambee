@@ -211,6 +211,7 @@ title = "Testing and Quality Gates"
 items = [
   "test-strategy-overview",
   "image-conversion-test-assets",
+  "ci-workflows-and-repository-automation",
 ]
 
 [[sections.developer-guide.items]]
@@ -220,6 +221,16 @@ title = "Contribution Workflows"
 [pages.developer-guide.contribution-workflows]
 items = [
   "how-to-plan-and-review-a-change",
+]
+
+[[sections.developer-guide.items]]
+slug = "security"
+title = "Security"
+
+[pages.developer-guide.security]
+items = [
+  "dependency-security-and-dependabot",
+  "container-image-security-and-artifact-integrity",
 ]
 
 [[sections.developer-guide.items]]

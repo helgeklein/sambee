@@ -359,6 +359,21 @@ class TestMonitoredDirectoryLifecycle:
 class TestChangeNotifications:
     """Test change notification handling."""
 
+    def test_handle_change_result_rejects_non_list_result(self):
+        """Watcher results must be parsed change-notify lists, not arbitrary mocks."""
+        monitored = MonitoredDirectory(
+            connection_id="conn-123",
+            path="/documents",
+            host="server.local",
+            share_name="share",
+            username="user",
+            password="pass",
+            port=445,
+        )
+
+        with pytest.raises(TypeError, match="Unexpected watcher result type: MagicMock"):
+            monitored._handle_change_result(MagicMock())
+
     @patch("app.services.directory_monitor.Connection")
     @patch("app.services.directory_monitor.Session")
     @patch("app.services.directory_monitor.TreeConnect")

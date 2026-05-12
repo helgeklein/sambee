@@ -45,6 +45,9 @@ coverage.xml
 coverage.json
 .coverage
 
+# Runtime data must not be baked into production images
+backend/data/
+
 # IDE
 *.swp
 *.swo

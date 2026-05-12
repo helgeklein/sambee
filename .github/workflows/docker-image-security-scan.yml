@@ -1,0 +1,69 @@
+name: Security: Docker Image Scan
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+on:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: docker-image-security-scan-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout main
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: refs/heads/main
+
+    - name: Sync and verify version metadata
+      uses: ./.github/actions/sync-version-check
+
+    - name: Write build metadata files
+      shell: bash
+      run: git rev-parse --short HEAD > GIT_COMMIT
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Build image for security scan
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      with:
+        context: .
+        file: ./Dockerfile
+        load: true
+        platforms: linux/amd64
+        tags: sambee:security-scan
+        cache-from: type=gha,scope=docker-image-security-scan
+        cache-to: type=gha,mode=max,scope=docker-image-security-scan
+
+    - name: Install Trivy
+      uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+      with:
+        version: v0.68.2
+        cache: true
+
+    - name: Show Trivy version
+      shell: bash
+      run: trivy --version
+
+    - name: Scan main image for high and critical vulnerabilities
+      shell: bash
+      run: |
+        trivy image \
+          --ignorefile ./.trivyignore.yaml \
+          --show-suppressed \
+          --severity HIGH,CRITICAL \
+          --ignore-unfixed \
+          --vuln-type os,library \
+          --format table \
+          --exit-code 1 \
+          sambee:security-scan

@@ -46,6 +46,13 @@ RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME
 COPY backend/ ./
 COPY --from=frontend-builder /app/dist ./static
 
+# Recreate the writable runtime data directory after copying the backend.
+# This prevents checked-in dev data from shadowing the production data path
+# and ensures SQLite can create /app/data/sambee.db as the non-root user.
+RUN rm -rf /app/data && \
+    mkdir -p /app/data && \
+    chown sambee:sambee /app/data
+
 # Switch to non-root user
 USER sambee
 

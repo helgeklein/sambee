@@ -46,6 +46,8 @@ That keeps the initial publish path simple and avoids claiming multi-architectur
 
 The validation workflow runs on pull requests, on pushes to `main`, and on manual dispatch.
 
+GitHub Actions displays it as `CI: Validate Docker Image`.
+
 Current behavior:
 
 1. check out the repository
@@ -66,6 +68,8 @@ This catches production-image breakage that unit and integration tests alone can
 
 The publish workflow runs from a released Git tag or from manual dispatch against an existing immutable tag.
 
+GitHub Actions displays it as `Release: Publish Docker Image`.
+
 Its contract is intentionally strict.
 
 Before publication, it verifies that:
@@ -77,9 +81,13 @@ Before publication, it verifies that:
 - frontend type checks pass
 - frontend tests pass
 - the container image builds and starts successfully
-- the local image passes a Trivy scan for high and critical vulnerabilities
+- the local image passes a Trivy scan for high and critical vulnerabilities in both OS packages and application libraries
 
 Only after those checks pass does the workflow push the image.
+
+The broader Trivy policy, weekly image scan, `.trivyignore.yaml` suppression rules, and image-integrity controls now live in [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/).
+
+This page keeps only the release-specific part of that behavior: the publish workflow must pass the release-candidate image scan before a real release or tag-based publish can continue.
 
 ### Testing the Publishing Workflow
 
@@ -87,9 +95,9 @@ On normal release events, the published version must match `VERSION` exactly.
 
 Manual dispatch also supports an explicit test-only override that rewrites `VERSION` and runs `./scripts/sync-version` inside CI before validation and build steps run.
 
-That override exists only for non-release test publishing.
+That override exists only for non-release test publishing. It must not be used with `latest`.
 
-It must not be used with `latest`.
+When that override is active, the manual run does not require an existing git tag. If no tag is provided, the workflow uses the dispatched commit SHA as the immutable source ref for checkout and image source metadata.
 
 ## Tagging Contract
 
@@ -148,7 +156,7 @@ The intended release flow is:
 3. review and merge the version-sync metadata changes emitted by `./scripts/sync-version`
 4. create the immutable release tag `vX.Y.Z`
 5. publish the GitHub Release
-6. let `Publish Docker Image` validate, push, and sign the image
+6. let `Release: Publish Docker Image` validate, push, and sign the image
 7. deploy by digest rather than by mutable tag where possible
 
 ## Manual Backfill or Re-Publish
@@ -162,8 +170,8 @@ Use that only when you need to publish from an already existing immutable tag, f
 
 Manual dispatch accepts:
 
-- `release_tag`: the existing immutable tag to publish
-- `publish_version_override`: an optional test-only version string to publish instead of the checked-out `VERSION` value
+- `release_tag`: the existing immutable tag to publish. Optional when `publish_version_override` is set.
+- `publish_version_override`: an optional test-only version string to publish instead of the checked-out `VERSION` value. It must use `major.minor.patch` with an optional prerelease or build suffix, for example `0.1.0-test1`.
 - `push_latest`: whether that manual run should also move the `latest` tag
 
 Do not use manual dispatch from a branch head as a substitute for the tag-based release path.
@@ -172,7 +180,10 @@ If `publish_version_override` is set:
 
 - CI rewrites `VERSION` to the override value for that run only
 - CI reruns `./scripts/sync-version` so embedded frontend and companion metadata stay aligned with the published image tags
+- if `release_tag` is omitted, CI uses the dispatched commit SHA as the immutable source ref for that run
+- invalid values such as `0.1-test1` are rejected before the build starts
 - the override cannot be combined with `push_latest=true`
+- Trivy findings remain visible, but they are advisory for that override-based test publish instead of blocking publication
 - the run is best treated as a test publication rather than a normal release artifact
 
 ## Why the Workflow Generates `GIT_COMMIT`
@@ -194,7 +205,9 @@ This workflow intentionally follows these release rules:
 - keep `VERSION` as the single version source of truth
 - publish a stable semantic version tag and a signed digest
 - treat `latest` as a convenience alias, not the canonical artifact
-- block publication on container smoke-test failures and vulnerability findings
+- block release and tag-based publication on container smoke-test failures and vulnerability findings
+- keep override-based test publishes informative by surfacing Trivy findings without turning them into a release gate
+- use the weekly image scan on `main` to catch newly disclosed image vulnerabilities between releases
 
 Future extensions such as `linux/arm64` should be added only after the same validation and smoke-test bar exists for that target.
 

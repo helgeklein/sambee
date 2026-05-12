@@ -1,7 +1,9 @@
-name: Publish Docker Image
+name: Release: Publish Docker Image
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TRIVY_VERSION: v0.68.2
+  TRIVY_IGNORE_FILE: ./.trivyignore.yaml
 
 on:
   release:
@@ -9,8 +11,8 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing immutable Git tag to publish, for example v0.7.0
-        required: true
+        description: Existing immutable Git tag to publish, for example v0.7.0. Optional when publish_version_override is set.
+        required: false
         type: string
       publish_version_override:
         description: Optional test-only version override to publish instead of the checked-out VERSION value
@@ -23,7 +25,7 @@ on:
         default: false
 
 concurrency:
-  group: publish-docker-image-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.event.release.tag_name }}
+  group: publish-docker-image-${{ github.event_name == 'workflow_dispatch' && (inputs.release_tag || github.sha) || github.event.release.tag_name }}
   cancel-in-progress: false
 
 permissions:
@@ -34,6 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
+      checkout_ref: ${{ steps.release.outputs.checkout_ref }}
+      source_ref_name: ${{ steps.release.outputs.source_ref_name }}
       push_latest: ${{ steps.release.outputs.push_latest }}
       version_override: ${{ steps.release.outputs.version_override }}
       version: ${{ steps.version.outputs.version }}
@@ -46,9 +50,31 @@ jobs:
       shell: bash
       run: |
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-          release_tag="${{ inputs.release_tag }}"
+          release_tag="$(printf '%s' "${{ inputs.release_tag }}" | tr -d '[:space:]')"
           push_latest="${{ inputs.push_latest }}"
           version_override="$(printf '%s' "${{ inputs.publish_version_override }}" | tr -d '[:space:]')"
+
+          if [[ -n "$version_override" ]] && ! [[ "$version_override" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "publish_version_override must use major.minor.patch with optional prerelease or build metadata, for example 0.1.0-test1" >&2
+            exit 1
+          fi
+
+          if [[ -n "$version_override" ]]; then
+            if [[ -n "$release_tag" ]]; then
+              checkout_ref="$release_tag"
+              source_ref_name="$release_tag"
+            else
+              checkout_ref="${GITHUB_SHA}"
+              source_ref_name="${GITHUB_REF_NAME}@${GITHUB_SHA:0:7}"
+            fi
+          else
+            if [[ -z "$release_tag" ]]; then
+              echo "release_tag is required unless publish_version_override is set" >&2
+              exit 1
+            fi
+            checkout_ref="$release_tag"
+            source_ref_name="$release_tag"
+          fi
         else
           release_tag="${{ github.event.release.tag_name }}"
           if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
@@ -57,6 +83,8 @@ jobs:
             push_latest=true
           fi
           version_override=""
+          checkout_ref="$release_tag"
+          source_ref_name="$release_tag"
         fi
 
         if [[ -n "$version_override" && "$push_latest" == "true" ]]; then
@@ -65,13 +93,15 @@ jobs:
         fi
 
         echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+        echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+        echo "source_ref_name=$source_ref_name" >> "$GITHUB_OUTPUT"
         echo "push_latest=$push_latest" >> "$GITHUB_OUTPUT"
         echo "version_override=$version_override" >> "$GITHUB_OUTPUT"
 
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
-        ref: ${{ steps.release.outputs.release_tag }}
+        ref: ${{ steps.release.outputs.checkout_ref }}
 
     - name: Validate version contract
       id: version
@@ -111,7 +141,7 @@ jobs:
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
-        ref: ${{ needs.prepare.outputs.release_tag }}
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Sync and verify version metadata
       if: ${{ needs.prepare.outputs.version_override == '' }}
@@ -187,7 +217,6 @@ jobs:
       shell: bash
       run: |
         docker run -d \
-          --rm \
           --name sambee-release-smoke \
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
@@ -198,6 +227,17 @@ jobs:
       shell: bash
       run: |
         for attempt in $(seq 1 60); do
+          if ! docker container inspect sambee-release-smoke >/dev/null 2>&1; then
+            echo "Validation container disappeared before health check completed" >&2
+            exit 1
+          fi
+
+          if [[ "$(docker inspect -f '{{.State.Running}}' sambee-release-smoke)" != "true" ]]; then
+            echo "Validation container exited before /api/health became ready" >&2
+            docker logs sambee-release-smoke || true
+            exit 1
+          fi
+
           if curl --fail --silent http://127.0.0.1:8000/api/health >/dev/null; then
             exit 0
           fi
@@ -205,23 +245,58 @@ jobs:
         done
 
         echo "Timed out waiting for /api/health" >&2
+        docker logs sambee-release-smoke || true
         exit 1
 
-    - name: Scan release image before publish
-      uses: aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8 # v0.33.1
+    - name: Install Trivy
+      uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
       with:
-        image-ref: sambee:release-validation
-        scan-type: image
-        format: table
-        ignore-unfixed: true
-        vuln-type: os,library
-        severity: HIGH,CRITICAL
-        exit-code: '1'
+        version: ${{ env.TRIVY_VERSION }}
+        cache: true
+
+    - name: Show Trivy version
+      shell: bash
+      run: trivy --version
+
+    - name: Scan release image before publish
+      shell: bash
+      run: |
+        set +e
+
+        trivy image \
+          --ignorefile "${TRIVY_IGNORE_FILE}" \
+          --show-suppressed \
+          --severity HIGH,CRITICAL \
+          --ignore-unfixed \
+          --vuln-type os,library \
+          --format table \
+          --exit-code 1 \
+          sambee:release-validation
+
+        scan_status=$?
+        set -e
+
+        if [[ "$scan_status" -eq 0 ]]; then
+          exit 0
+        fi
+
+        if [[ '${{ needs.prepare.outputs.version_override }}' != '' ]]; then
+          echo "::warning::Trivy found HIGH or CRITICAL vulnerabilities in this override-based test publish. The findings are advisory for test publishes and publication will continue."
+          exit 0
+        fi
+
+        echo "Trivy found HIGH or CRITICAL vulnerabilities in a release or tag-based publish candidate." >&2
+        exit "$scan_status"
 
     - name: Print validation container logs on failure
       if: failure()
       shell: bash
-      run: docker logs sambee-release-smoke
+      run: |
+        if docker container inspect sambee-release-smoke >/dev/null 2>&1; then
+          docker logs sambee-release-smoke
+        else
+          echo "Validation container is no longer available for log collection"
+        fi
 
     - name: Clean up release validation container
       if: always()
@@ -239,7 +314,7 @@ jobs:
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
-        ref: ${{ needs.prepare.outputs.release_tag }}
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Apply manual version override
       if: ${{ needs.prepare.outputs.version_override != '' }}
@@ -278,7 +353,7 @@ jobs:
           echo "org.opencontainers.image.created=$created"
           echo "org.opencontainers.image.description=Browser-based SMB and local drive access with a built frontend and Python backend"
           echo "org.opencontainers.image.licenses=MIT"
-          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.release_tag }}"
+          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
           echo "org.opencontainers.image.revision=${GITHUB_SHA}"
           echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
           echo "org.opencontainers.image.title=Sambee"

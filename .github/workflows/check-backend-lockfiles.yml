@@ -1,4 +1,4 @@
-name: Check Backend Lockfiles
+name: CI: Check Backend Lockfiles
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
