@@ -136,6 +136,8 @@ jobs:
   validate-tests:
     needs: prepare
     runs-on: ubuntu-latest
+    # Keep runtime-sensitive release checks on the same Debian family as the
+    # production image so distro package resolution stays aligned.
     container:
       image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
     permissions:
