@@ -1,4 +1,4 @@
-name: Release: Publish Docker Image
+name: "Release: Publish Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

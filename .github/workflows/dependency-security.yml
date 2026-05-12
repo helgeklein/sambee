@@ -1,4 +1,4 @@
-name: Security: Dependency Audit
+name: "Security: Dependency Audit"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

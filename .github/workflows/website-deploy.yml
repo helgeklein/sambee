@@ -1,4 +1,4 @@
-name: Deploy: Website
+name: "Deploy: Website"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

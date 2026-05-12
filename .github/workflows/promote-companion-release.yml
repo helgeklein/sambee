@@ -1,4 +1,4 @@
-name: Release: Promote Companion Release
+name: "Release: Promote Companion Release"
 
 on:
   workflow_dispatch:

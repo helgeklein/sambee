@@ -1,4 +1,4 @@
-name: CI: Test
+name: "CI: Test"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

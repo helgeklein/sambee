@@ -1,4 +1,4 @@
-name: Security: Docker Image Scan
+name: "Security: Docker Image Scan"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
