@@ -11,7 +11,6 @@ This module tests:
 """
 
 import threading
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -246,12 +245,21 @@ class TestMonitoredDirectoryLifecycle:
         assert monitored._watcher is None
         assert monitored._monitor_thread is None
 
+    @patch("app.services.directory_monitor.threading.Thread")
     @patch("app.services.directory_monitor.Connection")
     @patch("app.services.directory_monitor.Session")
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_start_monitoring_establishes_connection(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
+    def test_start_monitoring_establishes_connection(
+        self,
+        mock_watcher,
+        mock_open,
+        mock_tree,
+        mock_session,
+        mock_connection,
+        mock_thread,
+    ):
         """Test that starting monitoring establishes SMB connection."""
         # Setup mocks
         mock_conn_instance = MagicMock()
@@ -268,6 +276,9 @@ class TestMonitoredDirectoryLifecycle:
 
         mock_watcher_instance = MagicMock()
         mock_watcher.return_value = mock_watcher_instance
+
+        mock_thread_instance = MagicMock()
+        mock_thread.return_value = mock_thread_instance
 
         monitored = MonitoredDirectory(
             connection_id="conn-123",
@@ -289,6 +300,7 @@ class TestMonitoredDirectoryLifecycle:
 
         # Tree connect should be called
         mock_tree.assert_called_once()
+        mock_thread_instance.start.assert_called_once()
 
     @patch("app.services.directory_monitor.Connection")
     @patch("app.services.directory_monitor.Session")
@@ -311,12 +323,21 @@ class TestMonitoredDirectoryLifecycle:
         with pytest.raises(Exception, match="Connection failed"):
             monitored.start()
 
+    @patch("app.services.directory_monitor.threading.Thread")
     @patch("app.services.directory_monitor.Connection")
     @patch("app.services.directory_monitor.Session")
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_stop_monitoring_cleanup(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
+    def test_stop_monitoring_cleanup(
+        self,
+        mock_watcher,
+        mock_open,
+        mock_tree,
+        mock_session,
+        mock_connection,
+        mock_thread,
+    ):
         """Test that stopping monitoring cleans up all resources."""
         # Setup mocks
         mock_conn_instance = MagicMock()
@@ -334,6 +355,10 @@ class TestMonitoredDirectoryLifecycle:
         mock_watcher_instance = MagicMock()
         mock_watcher.return_value = mock_watcher_instance
 
+        mock_thread_instance = MagicMock()
+        mock_thread_instance.is_alive.side_effect = [True, False]
+        mock_thread.return_value = mock_thread_instance
+
         monitored = MonitoredDirectory(
             connection_id="conn-123",
             path="/documents",
@@ -346,14 +371,13 @@ class TestMonitoredDirectoryLifecycle:
 
         monitored.start()
 
-        # Give thread a moment to start
-        time.sleep(0.1)
-
         # Stop
         monitored.stop()
 
         # Verify cleanup
         assert monitored._stop_event.is_set()
+        mock_thread_instance.start.assert_called_once()
+        mock_thread_instance.join.assert_called_once_with(timeout=5.0)
 
 
 class TestChangeNotifications:
@@ -569,12 +593,21 @@ class TestThreadSafety:
 class TestResourceManagement:
     """Test proper resource management and cleanup."""
 
+    @patch("app.services.directory_monitor.threading.Thread")
     @patch("app.services.directory_monitor.Connection")
     @patch("app.services.directory_monitor.Session")
     @patch("app.services.directory_monitor.TreeConnect")
     @patch("app.services.directory_monitor.Open")
     @patch("app.services.directory_monitor.FileSystemWatcher")
-    def test_resources_properly_ordered(self, mock_watcher, mock_open, mock_tree, mock_session, mock_connection):
+    def test_resources_properly_ordered(
+        self,
+        mock_watcher,
+        mock_open,
+        mock_tree,
+        mock_session,
+        mock_connection,
+        mock_thread,
+    ):
         """Test that SMB resources are created in correct order."""
         # Setup mocks
         mock_conn_instance = MagicMock()
@@ -588,6 +621,9 @@ class TestResourceManagement:
 
         mock_open_instance = MagicMock()
         mock_open.return_value = mock_open_instance
+
+        mock_thread_instance = MagicMock()
+        mock_thread.return_value = mock_thread_instance
 
         monitored = MonitoredDirectory(
             connection_id="conn-123",
@@ -605,6 +641,7 @@ class TestResourceManagement:
         assert monitored._connection is not None
         assert monitored._session is not None
         assert monitored._tree is not None
+        mock_thread_instance.start.assert_called_once()
 
 
 class TestMonitorKeyGeneration:
