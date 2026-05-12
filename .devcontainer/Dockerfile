@@ -6,7 +6,7 @@ ARG HUGO_VERSION=0.160.0
 
 # Install Sambee system dependencies from centralized script
 COPY scripts/install-system-deps /tmp/
-RUN bash /tmp/install-system-deps && rm /tmp/install-system-deps
+RUN UPGRADE_EXISTING_PACKAGES=1 bash /tmp/install-system-deps && rm /tmp/install-system-deps
 
 # Copy ImageMagick policy configuration
 COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml

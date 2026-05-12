@@ -226,6 +226,10 @@ install_packages() {
     if [ "${SKIP_APT_UPDATE:-0}" != "1" ]; then
         apt-get update
     fi
+    if [ "${UPGRADE_EXISTING_PACKAGES:-0}" = "1" ]; then
+        echo "Refreshing already-installed apt packages before dependency install..."
+        apt-get upgrade -y
+    fi
     apt-get install -y "${SAMBEE_SYSTEM_PACKAGES[@]}"
 
     # Install ImageMagick 7

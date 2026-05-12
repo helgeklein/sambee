@@ -20,7 +20,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies and create user
 COPY scripts/install-system-deps /tmp/
-RUN bash /tmp/install-system-deps && \
+RUN UPGRADE_EXISTING_PACKAGES=1 bash /tmp/install-system-deps && \
     rm /tmp/install-system-deps && \
     useradd -m -u 1000 sambee && \
     mkdir -p /app/data && \
