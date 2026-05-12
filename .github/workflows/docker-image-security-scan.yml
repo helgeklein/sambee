@@ -20,11 +20,22 @@ permissions:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+          - docker_platform: linux/arm64
+            platform_id: arm64
     steps:
     - name: Checkout main
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         ref: refs/heads/main
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
@@ -42,10 +53,10 @@ jobs:
         context: .
         file: ./Dockerfile
         load: true
-        platforms: linux/amd64
-        tags: sambee:security-scan
-        cache-from: type=gha,scope=docker-image-security-scan
-        cache-to: type=gha,mode=max,scope=docker-image-security-scan
+        platforms: ${{ matrix.docker_platform }}
+        tags: sambee:security-scan-${{ matrix.platform_id }}
+        cache-from: type=gha,scope=docker-image-security-scan-${{ matrix.platform_id }}
+        cache-to: type=gha,mode=max,scope=docker-image-security-scan-${{ matrix.platform_id }}
 
     - name: Show Trivy version
       shell: bash
@@ -66,4 +77,4 @@ jobs:
           --vuln-type os,library \
           --format table \
           --exit-code 1 \
-          sambee:security-scan
+          sambee:security-scan-${{ matrix.platform_id }}

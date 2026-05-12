@@ -34,13 +34,13 @@ That matches the actual production packaging in the current Dockerfile.
 
 The published image is currently:
 
-- platform: `linux/amd64`
+- platforms: `linux/amd64` and `linux/arm64`
 - registry: GitHub Container Registry
 - repository name: `ghcr.io/<owner>/sambee`
 
-The workflow starts with `linux/amd64` only on purpose.
+The published artifact is a multi-platform image index.
 
-That keeps the initial publish path simple and avoids claiming multi-architecture support before the full dependency chain is validated on additional targets.
+Each platform variant is built from the same Dockerfile and published under the same tags, so operators can pull the same image tag on either supported Linux architecture.
 
 ## Validation Workflow
 
@@ -53,9 +53,9 @@ Current behavior:
 1. check out the repository
 2. run the existing version-sync verification
 3. generate `GIT_COMMIT` directly in CI because local git hooks are not present on GitHub runners
-4. build the Docker image locally with Buildx
-5. start the container with test-only secrets
-6. wait for `/api/health` to respond successfully
+4. build each supported platform variant locally with Buildx
+5. start each built container variant with test-only secrets
+6. wait for `/api/health` to respond successfully for each platform variant
 
 This catches production-image breakage that unit and integration tests alone can miss, especially around:
 
@@ -63,6 +63,7 @@ This catches production-image breakage that unit and integration tests alone can
 - broken frontend build integration
 - missing runtime system dependencies
 - startup regressions that only appear in the containerized environment
+- platform-specific regressions that only appear in one published architecture
 
 ## Publish Workflow
 
@@ -80,8 +81,8 @@ Before publication, it verifies that:
 - backend tests pass
 - frontend type checks pass
 - frontend tests pass
-- the container image builds and starts successfully
-- the local image passes a Trivy scan for high and critical vulnerabilities in both OS packages and application libraries
+- each supported platform image builds and starts successfully
+- each local platform image passes a Trivy scan for high and critical vulnerabilities in both OS packages and application libraries
 
 Only after those checks pass does the workflow push the image.
 
@@ -142,6 +143,8 @@ The push step also enables:
 
 - SBOM emission
 - build provenance attestation
+
+Those attestations are emitted for the published multi-platform image output.
 
 After the image is pushed, the workflow signs the digest with Cosign using GitHub Actions OIDC identity.
 
@@ -208,6 +211,4 @@ This workflow intentionally follows these release rules:
 - block release and tag-based publication on container smoke-test failures and vulnerability findings
 - keep override-based test publishes informative by surfacing Trivy findings without turning them into a release gate
 - use the weekly image scan on `main` to catch newly disclosed image vulnerabilities between releases
-
-Future extensions such as `linux/arm64` should be added only after the same validation and smoke-test bar exists for that target.
 

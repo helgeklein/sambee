@@ -60,10 +60,8 @@ The test workflow uses layered caching to reduce repeated setup work while keepi
 
 Current cache layers include:
 
-- `actions/setup-python` pip download caching keyed by backend requirement files.
 - `backend/.venv` caching keyed by the resolved backend requirement files and Python version.
 - `backend/.mypy_cache` caching keyed by backend Python source changes.
-- ImageMagick installation caching for the backend image-processing test path.
 - `actions/setup-node` npm download caching for frontend and companion jobs.
 - `frontend/node_modules` caching keyed by `frontend/package-lock.json`.
 - Rust build caching for `companion/src-tauri`.
@@ -89,6 +87,31 @@ Current coverage includes:
 - companion Clippy, Rustfmt, and Biome validation.
 
 The workflow also ends with one gate job so branch protection can depend on a stable result.
+
+## Runner Distro Policy
+
+Sambee does not require every GitHub Actions job to run on the same base distro.
+
+Instead, the rule is:
+
+- jobs that validate production-like runtime behavior or install native runtime dependencies should follow the same Debian family used by the production image and the dev container
+- jobs that only run language-level checks, dependency audits, repository automation, or other host-agnostic validation can stay on `ubuntu-latest`
+
+Current Debian-family jobs include:
+
+- the backend job in `CI: Test`
+- the `validate-tests` job in `Release: Publish Docker Image`
+
+Those jobs run inside the pinned `python:3.13.12-slim` container because `scripts/install-system-deps` now requires distro-provided ImageMagick 7, while the default Ubuntu GitHub-hosted runner image still resolves `imagemagick` to ImageMagick 6.
+
+Current jobs that intentionally remain on `ubuntu-latest` include:
+
+- change-detection, label-sync, and website deployment workflows
+- pure Python lint, lockfile freshness, and dependency-audit workflows
+- frontend-only and companion-only validation workflows
+- Docker build, smoke-test, and vulnerability-scan workflows, where the distro-sensitive logic runs inside the built image rather than on the host runner
+
+When adding or changing a workflow, treat runner distro as part of the test contract whenever a job installs OS packages or validates native behavior.
 
 ## CI: Check Backend Lockfiles
 

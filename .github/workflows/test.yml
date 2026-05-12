@@ -134,26 +134,26 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Keep the backend test job on the same Debian family as production and the
+    # devcontainer because install-system-deps requires distro-provided
+    # ImageMagick 7, which Ubuntu's default runner image does not provide.
+    container:
+      image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
+    defaults:
+      run:
+        shell: bash
     steps:
     - name: Checkout code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-    - name: Set up Python
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-      id: setup-python
-      with:
-        python-version: '3.13.12'
-        cache: 'pip'
-        cache-dependency-path: 'backend/requirements*.txt'
 
     - name: Cache Python virtual environment
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
       id: python-cache
       with:
         path: backend/.venv
-        key: ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-${{ hashFiles('backend/requirements*.txt') }}
+        key: ${{ runner.os }}-python-3.13.12-slim-venv-${{ hashFiles('backend/requirements*.txt') }}
         restore-keys: |
-          ${{ runner.os }}-python-${{ steps.setup-python.outputs.python-version }}-venv-
+          ${{ runner.os }}-python-3.13.12-slim-venv-
 
     - name: Cache mypy
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -163,17 +163,8 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-mypy-
 
-    - name: Cache ImageMagick installation
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-      id: imagemagick-cache
-      with:
-        path: |
-          /tmp/imagemagick-appimage
-          /opt/imagemagick
-        key: ${{ runner.os }}-imagemagick-7.1.2-7
-
     - name: Install system dependencies (image processing)
-      run: sudo bash scripts/install-system-deps
+      run: bash scripts/install-system-deps
 
     - name: Install Python dependencies
       if: steps.python-cache.outputs.cache-hit != 'true'
