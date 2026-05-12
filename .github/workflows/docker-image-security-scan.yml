@@ -3,6 +3,7 @@ name: "Security: Docker Image Scan"
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TRIVY_VERSION: v0.68.2
+  TRIVY_IMAGE: aquasec/trivy:0.68.2
 
 on:
   schedule:
@@ -46,29 +47,18 @@ jobs:
         cache-from: type=gha,scope=docker-image-security-scan
         cache-to: type=gha,mode=max,scope=docker-image-security-scan
 
-    - name: Install Trivy
-      shell: bash
-      run: |
-        set -euo pipefail
-
-        installer_path="$(mktemp)"
-        trap 'rm -f "$installer_path"' EXIT
-
-        curl --fail --silent --show-error --location --retry 5 \
-          --output "$installer_path" \
-          "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_VERSION}/contrib/install.sh"
-
-        chmod +x "$installer_path"
-        "$installer_path" -b /usr/local/bin "${TRIVY_VERSION}"
-
     - name: Show Trivy version
       shell: bash
-      run: trivy --version
+      run: docker run --rm "${TRIVY_IMAGE}" --version
 
     - name: Scan main image for high and critical vulnerabilities
       shell: bash
       run: |
-        trivy image \
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$PWD:/work" \
+          -w /work \
+          "${TRIVY_IMAGE}" image \
           --ignorefile ./.trivyignore.yaml \
           --show-suppressed \
           --severity HIGH,CRITICAL \

@@ -3,6 +3,7 @@ name: "Release: Publish Docker Image"
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   TRIVY_VERSION: v0.68.2
+  TRIVY_IMAGE: aquasec/trivy:0.68.2
   TRIVY_IGNORE_FILE: ./.trivyignore.yaml
 
 on:
@@ -248,31 +249,20 @@ jobs:
         docker logs sambee-release-smoke || true
         exit 1
 
-    - name: Install Trivy
-      shell: bash
-      run: |
-        set -euo pipefail
-
-        installer_path="$(mktemp)"
-        trap 'rm -f "$installer_path"' EXIT
-
-        curl --fail --silent --show-error --location --retry 5 \
-          --output "$installer_path" \
-          "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_VERSION}/contrib/install.sh"
-
-        chmod +x "$installer_path"
-        "$installer_path" -b /usr/local/bin "${TRIVY_VERSION}"
-
     - name: Show Trivy version
       shell: bash
-      run: trivy --version
+      run: docker run --rm "${TRIVY_IMAGE}" --version
 
     - name: Scan release image before publish
       shell: bash
       run: |
         set +e
 
-        trivy image \
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$PWD:/work" \
+          -w /work \
+          "${TRIVY_IMAGE}" image \
           --ignorefile "${TRIVY_IGNORE_FILE}" \
           --show-suppressed \
           --severity HIGH,CRITICAL \
