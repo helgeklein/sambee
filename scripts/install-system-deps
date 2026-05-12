@@ -38,6 +38,9 @@ SAMBEE_SYSTEM_PACKAGES=(
 MAGICK_APPIMAGE_URL="https://imagemagick.org/archive/binaries/magick"
 MAGICK_INSTALL_DIR="/opt/imagemagick"
 MAGICK_CACHE_DIR="/tmp/imagemagick-appimage"
+MAGICK_SYSTEM_PACKAGE="imagemagick"
+MAGICK_VERSIONED_SYSTEM_PACKAGE="imagemagick-7.q16"
+MAGICK_APPIMAGE_SUPPORTED_ARCHITECTURES=(amd64)
 # Minimum plausible AppImage size in bytes (protects against empty/error responses)
 MAGICK_MIN_APPIMAGE_SIZE=10000000
 
@@ -50,6 +53,52 @@ cleanup_imagemagick_links() {
     for cmd in "${MAGICK_LEGACY_COMMANDS[@]}"; do
         rm -f "/usr/local/bin/$cmd"
     done
+}
+
+is_magick_appimage_supported_architecture() {
+    local architecture="$1"
+
+    for supported_architecture in "${MAGICK_APPIMAGE_SUPPORTED_ARCHITECTURES[@]}"; do
+        if [ "$architecture" = "$supported_architecture" ]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+install_imagemagick_from_package_manager() {
+    local package_to_install="$MAGICK_SYSTEM_PACKAGE"
+
+    if apt-cache show "$MAGICK_VERSIONED_SYSTEM_PACKAGE" >/dev/null 2>&1; then
+        package_to_install="$MAGICK_VERSIONED_SYSTEM_PACKAGE"
+    fi
+
+    echo "Installing ImageMagick from the distro package manager (${package_to_install})..."
+    apt-get install -y "$package_to_install"
+    verify_imagemagick7_command >/dev/null
+}
+
+verify_imagemagick7_command() {
+    local version_output=""
+
+    if command -v magick >/dev/null 2>&1; then
+        version_output="$(magick --version 2>/dev/null | head -1)"
+    elif command -v convert >/dev/null 2>&1; then
+        version_output="$(convert --version 2>/dev/null | head -1)"
+    fi
+
+    if [[ -z "$version_output" ]]; then
+        echo "ImageMagick verification failed: no runnable magick or convert command found after installation." >&2
+        return 1
+    fi
+
+    if [[ "$version_output" != *"ImageMagick 7."* ]]; then
+        echo "ImageMagick verification failed: expected major version 7.x, got: $version_output" >&2
+        return 1
+    fi
+
+    echo "$version_output"
 }
 
 # Download the ImageMagick AppImage with retry logic
@@ -126,6 +175,15 @@ WRAPPER_EOF
 
 # Install ImageMagick 7 from official AppImage
 install_imagemagick7() {
+    local system_architecture
+    system_architecture="$(dpkg --print-architecture)"
+
+    if ! is_magick_appimage_supported_architecture "$system_architecture"; then
+        echo "ImageMagick AppImage install is not supported on ${system_architecture}; using distro package instead."
+        install_imagemagick_from_package_manager
+        return
+    fi
+
     # Check if ImageMagick 7 is already installed and functional (from cache)
     if [ -x "$MAGICK_INSTALL_DIR/usr/bin/magick" ] && [ -x /usr/local/bin/magick ]; then
         if /usr/local/bin/magick --version >/dev/null 2>&1; then
@@ -159,8 +217,8 @@ install_imagemagick7() {
     # Download if we don't have a valid AppImage yet
     if [ ! -f "$appimage_path" ]; then
         if ! download_imagemagick_appimage "$appimage_path"; then
-            echo "❌ Could not obtain ImageMagick AppImage, falling back to package manager (v6)"
-            apt-get install -y imagemagick
+            echo "❌ Could not obtain ImageMagick AppImage, falling back to the distro package"
+            install_imagemagick_from_package_manager
             return
         fi
 
@@ -177,8 +235,8 @@ install_imagemagick7() {
         echo "Error: AppImage extraction failed"
         rm -f "$appimage_path"
         rm -f "$MAGICK_CACHE_DIR/magick.appimage"
-        echo "❌ Could not extract ImageMagick AppImage, falling back to package manager (v6)"
-        apt-get install -y imagemagick
+        echo "❌ Could not extract ImageMagick AppImage, falling back to the distro package"
+        install_imagemagick_from_package_manager
         return
     fi
     rm -f "$appimage_path"
@@ -188,8 +246,8 @@ install_imagemagick7() {
         echo "Error: Extracted AppImage is missing usr/bin/magick binary"
         rm -rf squashfs-root
         rm -f "$MAGICK_CACHE_DIR/magick.appimage"
-        echo "❌ Invalid ImageMagick AppImage contents, falling back to package manager (v6)"
-        apt-get install -y imagemagick
+        echo "❌ Invalid ImageMagick AppImage contents, falling back to the distro package"
+        install_imagemagick_from_package_manager
         return
     fi
 
@@ -199,10 +257,10 @@ install_imagemagick7() {
 
     # Create wrapper with dynamically detected version paths
     if ! create_imagemagick_wrapper "$MAGICK_INSTALL_DIR"; then
-        echo "❌ Failed to create ImageMagick wrapper, falling back to package manager (v6)"
+        echo "❌ Failed to create ImageMagick wrapper, falling back to the distro package"
         rm -rf "$MAGICK_INSTALL_DIR"
         cleanup_imagemagick_links
-        apt-get install -y imagemagick
+        install_imagemagick_from_package_manager
         return
     fi
 
@@ -210,11 +268,11 @@ install_imagemagick7() {
     if /usr/local/bin/magick --version 2>/dev/null | head -1; then
         echo "✓ ImageMagick 7 installed successfully from AppImage"
     else
-        echo "❌ ImageMagick 7 installation verification failed, falling back to package manager (v6)"
+        echo "❌ ImageMagick 7 installation verification failed, falling back to the distro package"
         rm -rf "$MAGICK_INSTALL_DIR"
         cleanup_imagemagick_links
         rm -f "$MAGICK_CACHE_DIR/magick.appimage"
-        apt-get install -y imagemagick
+        install_imagemagick_from_package_manager
     fi
 }
 

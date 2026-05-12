@@ -37,6 +37,7 @@ Sambee currently uses Trivy in two places.
 
 The scan currently:
 
+- builds and scans the supported `linux/amd64` and `linux/arm64` image variants separately
 - uses `.trivyignore.yaml` as the reviewed suppression file
 - shows suppressed findings in the output
 - checks OS packages and application libraries
@@ -48,7 +49,7 @@ This is the workflow that tells you a shipped runtime stack has picked up a newl
 
 ### Release Publish Gate
 
-`.github/workflows/docker-image-publish.yml` runs the same Trivy threshold against the release-validation image before publication.
+`.github/workflows/docker-image-publish.yml` runs the same Trivy threshold against each release-validation image variant before publication.
 
 Current publish behavior is intentionally split:
 

@@ -38,9 +38,20 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+          - docker_platform: linux/arm64
+            platform_id: arm64
     steps:
     - name: Checkout code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
@@ -58,31 +69,34 @@ jobs:
         context: .
         file: ./Dockerfile
         load: true
-        platforms: linux/amd64
-        tags: sambee:validation
+        platforms: ${{ matrix.docker_platform }}
+        tags: sambee:validation-${{ matrix.platform_id }}
+        cache-from: type=gha,scope=docker-image-validate-${{ matrix.platform_id }}
+        cache-to: type=gha,mode=max,scope=docker-image-validate-${{ matrix.platform_id }}
 
     - name: Start validation container
       shell: bash
       run: |
         docker run -d \
-          --name sambee-smoke \
+          --platform ${{ matrix.docker_platform }} \
+          --name sambee-smoke-${{ matrix.platform_id }} \
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
           -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
-          sambee:validation
+          sambee:validation-${{ matrix.platform_id }}
 
     - name: Wait for health endpoint
       shell: bash
       run: |
         for attempt in $(seq 1 60); do
-          if ! docker container inspect sambee-smoke >/dev/null 2>&1; then
+          if ! docker container inspect sambee-smoke-${{ matrix.platform_id }} >/dev/null 2>&1; then
             echo "Validation container disappeared before health check completed" >&2
             exit 1
           fi
 
-          if [[ "$(docker inspect -f '{{.State.Running}}' sambee-smoke)" != "true" ]]; then
+          if [[ "$(docker inspect -f '{{.State.Running}}' sambee-smoke-${{ matrix.platform_id }})" != "true" ]]; then
             echo "Validation container exited before /api/health became ready" >&2
-            docker logs sambee-smoke || true
+            docker logs sambee-smoke-${{ matrix.platform_id }} || true
             exit 1
           fi
 
@@ -93,15 +107,15 @@ jobs:
         done
 
         echo "Timed out waiting for /api/health" >&2
-        docker logs sambee-smoke || true
+        docker logs sambee-smoke-${{ matrix.platform_id }} || true
         exit 1
 
     - name: Print container logs on failure
       if: failure()
       shell: bash
       run: |
-        if docker container inspect sambee-smoke >/dev/null 2>&1; then
-          docker logs sambee-smoke
+        if docker container inspect sambee-smoke-${{ matrix.platform_id }} >/dev/null 2>&1; then
+          docker logs sambee-smoke-${{ matrix.platform_id }}
         else
           echo "Validation container is no longer available for log collection"
         fi
@@ -109,4 +123,4 @@ jobs:
     - name: Clean up validation container
       if: always()
       shell: bash
-      run: docker rm -f sambee-smoke || true
+      run: docker rm -f sambee-smoke-${{ matrix.platform_id }} || true

@@ -133,7 +133,7 @@ jobs:
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
         echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
 
-  validate:
+  validate-tests:
     needs: prepare
     runs-on: ubuntu-latest
     permissions:
@@ -196,6 +196,39 @@ jobs:
     - name: Run frontend tests
       run: cd frontend && npm test -- --run
 
+  validate-image:
+    needs: [prepare, validate-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+          - docker_platform: linux/arm64
+            platform_id: arm64
+    steps:
+    - name: Checkout tagged code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+    - name: Sync and verify version metadata
+      if: ${{ needs.prepare.outputs.version_override == '' }}
+      uses: ./.github/actions/sync-version-check
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
+
     - name: Write build metadata files
       shell: bash
       run: git rev-parse --short HEAD > GIT_COMMIT
@@ -209,33 +242,34 @@ jobs:
         context: .
         file: ./Dockerfile
         load: true
-        platforms: linux/amd64
-        tags: sambee:release-validation
-        cache-from: type=gha,scope=publish-docker-image
-        cache-to: type=gha,mode=max,scope=publish-docker-image
+        platforms: ${{ matrix.docker_platform }}
+        tags: sambee:release-validation-${{ matrix.platform_id }}
+        cache-from: type=gha,scope=publish-docker-image-${{ matrix.platform_id }}
+        cache-to: type=gha,mode=max,scope=publish-docker-image-${{ matrix.platform_id }}
 
     - name: Start release validation container
       shell: bash
       run: |
         docker run -d \
-          --name sambee-release-smoke \
+          --platform ${{ matrix.docker_platform }} \
+          --name sambee-release-smoke-${{ matrix.platform_id }} \
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
           -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
-          sambee:release-validation
+          sambee:release-validation-${{ matrix.platform_id }}
 
     - name: Wait for release health endpoint
       shell: bash
       run: |
         for attempt in $(seq 1 60); do
-          if ! docker container inspect sambee-release-smoke >/dev/null 2>&1; then
+          if ! docker container inspect sambee-release-smoke-${{ matrix.platform_id }} >/dev/null 2>&1; then
             echo "Validation container disappeared before health check completed" >&2
             exit 1
           fi
 
-          if [[ "$(docker inspect -f '{{.State.Running}}' sambee-release-smoke)" != "true" ]]; then
+          if [[ "$(docker inspect -f '{{.State.Running}}' sambee-release-smoke-${{ matrix.platform_id }})" != "true" ]]; then
             echo "Validation container exited before /api/health became ready" >&2
-            docker logs sambee-release-smoke || true
+            docker logs sambee-release-smoke-${{ matrix.platform_id }} || true
             exit 1
           fi
 
@@ -246,7 +280,7 @@ jobs:
         done
 
         echo "Timed out waiting for /api/health" >&2
-        docker logs sambee-release-smoke || true
+          docker logs sambee-release-smoke-${{ matrix.platform_id }} || true
         exit 1
 
     - name: Show Trivy version
@@ -270,7 +304,7 @@ jobs:
           --vuln-type os,library \
           --format table \
           --exit-code 1 \
-          sambee:release-validation
+          sambee:release-validation-${{ matrix.platform_id }}
 
         scan_status=$?
         set -e
@@ -291,8 +325,8 @@ jobs:
       if: failure()
       shell: bash
       run: |
-        if docker container inspect sambee-release-smoke >/dev/null 2>&1; then
-          docker logs sambee-release-smoke
+        if docker container inspect sambee-release-smoke-${{ matrix.platform_id }} >/dev/null 2>&1; then
+          docker logs sambee-release-smoke-${{ matrix.platform_id }}
         else
           echo "Validation container is no longer available for log collection"
         fi
@@ -300,10 +334,10 @@ jobs:
     - name: Clean up release validation container
       if: always()
       shell: bash
-      run: docker rm -f sambee-release-smoke || true
+      run: docker rm -f sambee-release-smoke-${{ matrix.platform_id }} || true
 
   publish:
-    needs: [prepare, validate]
+    needs: [prepare, validate-tests, validate-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -368,6 +402,9 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -377,7 +414,7 @@ jobs:
       with:
         context: .
         file: ./Dockerfile
-        platforms: linux/amd64
+        platforms: linux/amd64,linux/arm64
         push: true
         tags: ${{ steps.image.outputs.tags }}
         labels: ${{ steps.image.outputs.labels }}

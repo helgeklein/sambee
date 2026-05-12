@@ -24,8 +24,8 @@ mkdir -p "$EXPECTED_DIR"/{cmyk,rgb,special}
 mkdir -p "$METADATA_DIR"
 
 # Check if ImageMagick is available
-# Note: install-system-deps installs ImageMagick 7 from extracted AppImage
-# with a wrapper script at /usr/local/bin/magick that sets up the environment.
+# Note: install-system-deps provides ImageMagick 7 either through an extracted
+# AppImage wrapper or through the distro package on non-amd64 architectures.
 MAGICK_CMD=""
 
 # First try command in PATH
@@ -57,11 +57,11 @@ create_test_image() {
     local colorspace="$2"
     local color="$3"
     local format="$4"
-    
+
     if [ "$QUIET" = "0" ]; then
         echo "Creating $filename..."
     fi
-    
+
     case "$colorspace" in
         "CMYK")
             $MAGICK_CMD -size 100x100 xc:"$color" -colorspace CMYK "$format:$filename" 2>/dev/null
@@ -76,7 +76,7 @@ create_test_image() {
             $MAGICK_CMD -size 100x100 xc:"$color" -colorspace Lab "$format:$filename" 2>/dev/null
             ;;
     esac
-    
+
     if [ -f "$filename" ]; then
         if [ "$QUIET" = "0" ]; then
             echo "  ✓ Created $(du -h "$filename" | cut -f1) file"
@@ -95,11 +95,11 @@ create_vector_cmyk() {
     local y="$4"  # Yellow 0-1
     local k="$5"  # Black 0-1
     local format="$6"  # "eps" or "ai"
-    
+
     if [ "$QUIET" = "0" ]; then
         echo "Creating $filename with CMYK($c,$m,$y,$k)..."
     fi
-    
+
     # Determine if this is AI or EPS format
     if [[ "$filename" == *.ai ]]; then
         # Adobe Illustrator format (simplified - using standard PostScript)
@@ -189,7 +189,7 @@ showpage
 %%EOF
 EPSEOF
     fi
-    
+
     if [ -f "$filename" ]; then
         if [ "$QUIET" = "0" ]; then
             echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded CMYK"
@@ -206,11 +206,11 @@ create_vector_rgb() {
     local r="$2"  # Red 0-1
     local g="$3"  # Green 0-1
     local b="$4"  # Blue 0-1
-    
+
     if [ "$QUIET" = "0" ]; then
         echo "Creating $filename with RGB($r,$g,$b)..."
     fi
-    
+
     # Determine if this is AI or EPS format
     if [[ "$filename" == *.ai ]]; then
         # Adobe Illustrator format (simplified - using standard PostScript)
@@ -298,7 +298,7 @@ showpage
 %%EOF
 EPSEOF
     fi
-    
+
     if [ -f "$filename" ]; then
         if [ "$QUIET" = "0" ]; then
             echo "  ✓ Created $(du -h "$filename" | cut -f1) vector file with embedded RGB"
@@ -486,7 +486,7 @@ EOF
 
 if [ "$QUIET" = "0" ]; then
     echo "✓ Created .gitignore"
-    
+
     # Summary
     echo ""
     echo "=========================================="
