@@ -306,15 +306,19 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
-        tags: sambee:release-validation-${{ matrix.platform_id }}
         labels: ${{ steps.validation-image.outputs.labels }}
-        outputs: |
-          type=docker
-          type=image,name=${{ steps.validation-image.outputs.image_ref }},push-by-digest=true,name-canonical=true,push=true
+        outputs: type=image,name=${{ steps.validation-image.outputs.image_ref }},push-by-digest=true,name-canonical=true,push=true
         cache-from: type=gha,scope=publish-docker-image-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=publish-docker-image-${{ matrix.platform_id }}
         provenance: true
         sbom: true
+
+    - name: Load validation image from registry
+      shell: bash
+      run: |
+        image_ref="${{ steps.validation-image.outputs.image_ref }}@${{ steps.build-validation-image.outputs.digest }}"
+        docker pull --platform ${{ matrix.docker_platform }} "$image_ref"
+        docker tag "$image_ref" sambee:release-validation-${{ matrix.platform_id }}
 
     - name: Start release validation container
       shell: bash
