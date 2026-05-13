@@ -12,22 +12,44 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-if command -v jq >/dev/null 2>&1; then
-    HAS_JQ=true
-else
-    HAS_JQ=false
-fi
+update_json_version() {
+    local file="$1"
+    local mode="$2"
+
+    python3 - "$file" "$VERSION" "$mode" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+file_path = Path(sys.argv[1])
+version = sys.argv[2]
+mode = sys.argv[3]
+
+with file_path.open("r", encoding="utf-8") as handle:
+    data = json.load(handle)
+
+if mode == "package":
+    data["version"] = version
+elif mode == "package-lock":
+    data["version"] = version
+    packages = data.get("packages")
+    if isinstance(packages, dict) and "" in packages and isinstance(packages[""], dict):
+        packages[""]["version"] = version
+else:
+    raise SystemExit(f"Unsupported JSON sync mode: {mode}")
+
+with file_path.open("w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PY
+
+    echo "  ✅ Updated $file"
+}
 
 update_package_json() {
     local file="$1"
 
-    if [ "$HAS_JQ" = true ]; then
-        jq --arg ver "$VERSION" '.version = $ver' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-        echo "  ✅ Updated $file"
-    else
-        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$file"
-        echo "  ✅ Updated $file (using sed)"
-    fi
+    update_json_version "$file" "package"
 }
 
 update_package_lock_json() {
@@ -37,13 +59,7 @@ update_package_lock_json() {
         return
     fi
 
-    if [ "$HAS_JQ" = true ]; then
-        jq --arg ver "$VERSION" '.version = $ver | .packages."".version = $ver' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-        echo "  ✅ Updated $file"
-    else
-        sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$file"
-        echo "  ✅ Updated $file (using sed)"
-    fi
+    update_json_version "$file" "package-lock"
 }
 
 update_cargo_toml() {
