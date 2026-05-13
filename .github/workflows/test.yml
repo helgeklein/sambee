@@ -191,7 +191,7 @@ jobs:
       run: |
         cd backend
         source .venv/bin/activate
-        pytest -n auto --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml
+        pytest -n auto --cov=app --cov-report=term-missing --cov-report=xml
 
     - name: Upload coverage reports
       if: always()
@@ -234,17 +234,7 @@ jobs:
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
-    - name: Cache Node modules
-      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
-      id: node-cache
-      with:
-        path: frontend/node_modules
-        key: ${{ runner.os }}-node-20-frontend-${{ hashFiles('frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-20-frontend-
-
     - name: Install dependencies
-      if: steps.node-cache.outputs.cache-hit != 'true'
       run: cd frontend && npm ci --prefer-offline
 
     - name: TypeScript type check
