@@ -39,7 +39,7 @@ else:
     raise SystemExit(f"Unsupported JSON sync mode: {mode}")
 
 with file_path.open("w", encoding="utf-8") as handle:
-    json.dump(data, handle, indent=2)
+    json.dump(data, handle, indent=2, ensure_ascii=False)
     handle.write("\n")
 PY
 
