@@ -34,8 +34,9 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
+      created: ${{ steps.version.outputs.created }}
       release_tag: ${{ steps.release.outputs.release_tag }}
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
       source_ref_name: ${{ steps.release.outputs.source_ref_name }}
@@ -127,7 +128,9 @@ jobs:
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
         short_sha="$(git rev-parse --short HEAD)"
+        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+        echo "created=$created" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
@@ -135,7 +138,7 @@ jobs:
 
   validate-tests:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Keep runtime-sensitive release checks on the same Debian family as the
     # production image so distro package resolution stays aligned.
     container:
@@ -165,20 +168,49 @@ jobs:
     - name: Install backend system dependencies
       run: bash scripts/install-system-deps
 
+    - name: Cache backend Python virtual environment
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      id: backend-python-cache
+      with:
+        path: backend/.venv
+        key: ${{ runner.os }}-release-python-3.13.12-slim-venv-${{ hashFiles('backend/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-release-python-3.13.12-slim-venv-
+
+    - name: Cache backend mypy
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+      with:
+        path: backend/.mypy_cache
+        key: ${{ runner.os }}-release-mypy-${{ hashFiles('backend/app/**/*.py') }}
+        restore-keys: |
+          ${{ runner.os }}-release-mypy-
+
     - name: Install backend test dependencies
-      run: python -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+      if: steps.backend-python-cache.outputs.cache-hit != 'true'
+      run: |
+        cd backend
+        python -m venv .venv
+        source .venv/bin/activate
+        pip install --upgrade pip
+        pip install --require-hashes -r requirements-dev.lock.txt
 
     - name: Generate backend test images
       run: QUIET=1 scripts/setup-test-images
 
     - name: Run backend type checks
-      run: cd backend && mypy app
+      run: |
+        cd backend
+        source .venv/bin/activate
+        mypy app
 
     - name: Run backend tests
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
-      run: cd backend && pytest -n auto -v
+      run: |
+        cd backend
+        source .venv/bin/activate
+        pytest -n auto -v
 
     - name: Set up Node.js
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -198,17 +230,20 @@ jobs:
 
   validate-image:
     needs: [prepare, validate-tests]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - docker_platform: linux/amd64
             platform_id: amd64
+            runner_label: ubuntu-24.04
           - docker_platform: linux/arm64
             platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -216,6 +251,7 @@ jobs:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Set up QEMU
+      if: ${{ matrix.platform_id == 'amd64' }}
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
     - name: Sync and verify version metadata
@@ -233,19 +269,61 @@ jobs:
       shell: bash
       run: git rev-parse --short HEAD > GIT_COMMIT
 
+    - name: Prepare validation image metadata
+      id: validation-image
+      shell: bash
+      run: |
+        image_ref="${{ needs.prepare.outputs.image_name }}"
+        created="${{ needs.prepare.outputs.created }}"
+
+        {
+          echo 'labels<<EOF'
+          echo "org.opencontainers.image.created=$created"
+          echo "org.opencontainers.image.description=Browser-based SMB and local drive access with a built frontend and Python backend"
+          echo "org.opencontainers.image.licenses=MIT"
+          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
+          echo "org.opencontainers.image.revision=${GITHUB_SHA}"
+          echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
+          echo "org.opencontainers.image.title=Sambee"
+          echo "org.opencontainers.image.url=https://github.com/${GITHUB_REPOSITORY}"
+          echo "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+        echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
     - name: Build release validation image
+      id: build-validation-image
       uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
       with:
         context: .
         file: ./Dockerfile
-        load: true
         platforms: ${{ matrix.docker_platform }}
-        tags: sambee:release-validation-${{ matrix.platform_id }}
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
+        labels: ${{ steps.validation-image.outputs.labels }}
+        outputs: type=image,name=${{ steps.validation-image.outputs.image_ref }},push-by-digest=true,name-canonical=true,push=true
         cache-from: type=gha,scope=publish-docker-image-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=publish-docker-image-${{ matrix.platform_id }}
+        provenance: true
+        sbom: true
+
+    - name: Load validation image from registry
+      shell: bash
+      run: |
+        image_ref="${{ steps.validation-image.outputs.image_ref }}@${{ steps.build-validation-image.outputs.digest }}"
+        docker pull --platform ${{ matrix.docker_platform }} "$image_ref"
+        docker tag "$image_ref" sambee:release-validation-${{ matrix.platform_id }}
 
     - name: Start release validation container
       shell: bash
@@ -336,35 +414,34 @@ jobs:
       shell: bash
       run: docker rm -f sambee-release-smoke-${{ matrix.platform_id }} || true
 
+    - name: Record validated image digest
+      if: success()
+      shell: bash
+      run: |
+        mkdir -p /tmp/release-image-digests
+        printf '%s\n' '${{ steps.build-validation-image.outputs.digest }}' > /tmp/release-image-digests/${{ matrix.platform_id }}.txt
+
+    - name: Upload validated image digest
+      if: success()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: release-image-digest-${{ matrix.platform_id }}
+        path: /tmp/release-image-digests/${{ matrix.platform_id }}.txt
+        retention-days: 1
+        compression-level: 0
+
   publish:
     needs: [prepare, validate-tests, validate-image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
       id-token: write
     steps:
-    - name: Checkout tagged code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      with:
-        ref: ${{ needs.prepare.outputs.checkout_ref }}
-
-    - name: Apply manual version override
-      if: ${{ needs.prepare.outputs.version_override != '' }}
-      shell: bash
-      run: |
-        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
-        ./scripts/sync-version
-
-    - name: Write build metadata files
-      shell: bash
-      run: git rev-parse --short HEAD > GIT_COMMIT
-
-    - name: Prepare image tags and labels
+    - name: Prepare image tags
       id: image
       shell: bash
       run: |
-        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         tags=(
           "${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.version }}"
           "${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.major_minor }}"
@@ -381,20 +458,6 @@ jobs:
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
 
-        {
-          echo 'labels<<EOF'
-          echo "org.opencontainers.image.created=$created"
-          echo "org.opencontainers.image.description=Browser-based SMB and local drive access with a built frontend and Python backend"
-          echo "org.opencontainers.image.licenses=MIT"
-          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
-          echo "org.opencontainers.image.revision=${GITHUB_SHA}"
-          echo "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
-          echo "org.opencontainers.image.title=Sambee"
-          echo "org.opencontainers.image.url=https://github.com/${GITHUB_REPOSITORY}"
-          echo "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
-
     - name: Log in to GHCR
       uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
       with:
@@ -402,30 +465,54 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-    - name: Build and push image
-      id: build
-      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+    - name: Download validated image digests
+      uses: actions/download-artifact@v8
       with:
-        context: .
-        file: ./Dockerfile
-        platforms: linux/amd64,linux/arm64
-        push: true
-        tags: ${{ steps.image.outputs.tags }}
-        labels: ${{ steps.image.outputs.labels }}
-        cache-from: type=gha,scope=publish-docker-image
-        cache-to: type=gha,mode=max,scope=publish-docker-image
-        provenance: true
-        sbom: true
+        pattern: release-image-digest-*
+        path: /tmp/release-image-digests
+        merge-multiple: true
+
+    - name: Publish multi-arch manifest
+      id: publish-manifest
+      shell: bash
+      run: |
+        mapfile -t digest_files < <(find /tmp/release-image-digests -type f -name '*.txt' | sort)
+        if [[ "${#digest_files[@]}" -eq 0 ]]; then
+          echo 'No validated image digests were downloaded' >&2
+          exit 1
+        fi
+
+        refs=()
+        for digest_file in "${digest_files[@]}"; do
+          digest="$(tr -d '[:space:]' < "$digest_file")"
+          if [[ -z "$digest" ]]; then
+            echo "Digest file is empty: $digest_file" >&2
+            exit 1
+          fi
+          refs+=("${{ needs.prepare.outputs.image_name }}@${digest}")
+        done
+
+        tag_args=()
+        while IFS= read -r tag; do
+          [[ -n "$tag" ]] && tag_args+=(--tag "$tag")
+        done <<< '${{ steps.image.outputs.tags }}'
+
+        docker buildx imagetools create "${tag_args[@]}" "${refs[@]}"
+
+        digest="$(docker buildx imagetools inspect "${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.version }}" | awk '/^Digest:/ {print $2; exit}')"
+        if [[ -z "$digest" ]]; then
+          echo 'Unable to resolve published manifest digest' >&2
+          exit 1
+        fi
+
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
     - name: Sign published image
       shell: bash
-      run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
+      run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ steps.publish-manifest.outputs.digest }}"

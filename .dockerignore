@@ -3,6 +3,14 @@
 .gitignore
 .gitattributes
 
+# Unused top-level content
+.github
+companion/
+data/
+images/
+website/
+website-temp/
+
 # Development
 .devcontainer
 .vscode
@@ -38,15 +46,24 @@ config.example.toml
 **/__tests__/
 *.test.ts
 *.test.tsx
+backend/tests/
+frontend/e2e/
+frontend/test-results/
 
 # Coverage
 htmlcov/
 coverage.xml
 coverage.json
 .coverage
+backend/htmlcov/
+backend/coverage.xml
+frontend/coverage/
 
 # Runtime data must not be baked into production images
 backend/data/
+
+# Frontend build output is regenerated in-image
+frontend/dist/
 
 # IDE
 *.swp
