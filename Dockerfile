@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 # Multi-stage build for production
 # Stage 1: Build frontend on the native builder because the emitted assets are architecture-independent.
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
@@ -11,7 +13,15 @@ COPY VERSION /VERSION
 COPY GIT_COMMIT /GIT_COMMIT
 RUN npm run build
 
-# Stage 2: Python backend with built frontend
+# Stage 2: Build the pyvips wheel natively because upstream only publishes an sdist.
+FROM --platform=$BUILDPLATFORM python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8 AS pyvips-wheel-builder
+WORKDIR /tmp/pyvips-wheel-builder
+COPY backend/requirements.lock.txt ./
+RUN pyvips_version="$(sed -n 's/^pyvips==\([^[:space:]\\]*\).*/\1/p' requirements.lock.txt)" && \
+    test -n "$pyvips_version" && \
+    pip wheel --wheel-dir /tmp/wheels --no-deps "pyvips==$pyvips_version"
+
+# Stage 3: Python backend with built frontend
 FROM python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
 WORKDIR /app
 
@@ -31,16 +41,22 @@ COPY imagemagick-policy.xml /etc/ImageMagick-7/policy.xml
 
 # Copy backend dependency lockfile first for better caching (changes rarely)
 COPY backend/requirements.lock.txt ./
+COPY --from=pyvips-wheel-builder /tmp/wheels /tmp/wheels
 
 # Install Python dependencies before copying full backend (changes rarely - better layer caching)
-RUN pip install --root-user-action=ignore --disable-pip-version-check --no-cache-dir --require-hashes -r requirements.lock.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --root-user-action=ignore --disable-pip-version-check --require-hashes --find-links=/tmp/wheels -r requirements.lock.txt && \
+    rm -rf /tmp/wheels
 
 # Copy version metadata (changes often)
 COPY VERSION /VERSION
 COPY GIT_COMMIT /GIT_COMMIT
 
-# Generate build timestamp (runs after GIT_COMMIT copy, so cache busts on every commit)
-RUN date -u +"%Y-%m-%dT%H:%M:%SZ" > /BUILD_TIME
+ARG BUILD_CREATED_AT=unknown
+
+# Keep runtime build metadata consistent across architectures by sourcing it
+# from a single workflow-provided timestamp instead of per-platform build time.
+RUN printf '%s\n' "$BUILD_CREATED_AT" > /BUILD_TIME
 
 # Copy backend code and built frontend (change often)
 COPY backend/ ./

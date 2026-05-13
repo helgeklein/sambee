@@ -34,7 +34,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       created: ${{ steps.version.outputs.created }}
       release_tag: ${{ steps.release.outputs.release_tag }}
@@ -138,7 +138,7 @@ jobs:
 
   validate-tests:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Keep runtime-sensitive release checks on the same Debian family as the
     # production image so distro package resolution stays aligned.
     container:
@@ -230,7 +230,7 @@ jobs:
 
   validate-image:
     needs: [prepare, validate-tests]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
       packages: write
@@ -240,8 +240,10 @@ jobs:
         include:
           - docker_platform: linux/amd64
             platform_id: amd64
+            runner_label: ubuntu-24.04
           - docker_platform: linux/arm64
             platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -249,6 +251,7 @@ jobs:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Set up QEMU
+      if: ${{ matrix.platform_id == 'amd64' }}
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
     - name: Sync and verify version metadata
@@ -306,6 +309,8 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
         labels: ${{ steps.validation-image.outputs.labels }}
         outputs: type=image,name=${{ steps.validation-image.outputs.image_ref }},push-by-digest=true,name-canonical=true,push=true
         cache-from: type=gha,scope=publish-docker-image-${{ matrix.platform_id }}
@@ -427,7 +432,7 @@ jobs:
 
   publish:
     needs: [prepare, validate-tests, validate-image]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
