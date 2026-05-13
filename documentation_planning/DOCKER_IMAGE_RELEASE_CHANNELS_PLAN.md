@@ -587,12 +587,23 @@ Exit criteria:
 These should be resolved before implementation begins.
 
 1. Should `latest` remain, or should `stable` become the only moving production-oriented alias?
+   A: latest should not remain
 2. Should beta accept only `-beta.N`, or any semver prerelease suffix such as `-rc.N`?
+   A: accept any semver prerelease suffix
 3. Should `test` publish on every `main` push, nightly only, or only by manual dispatch?
+   A: only on manual dispatch
 4. Should `test` vulnerabilities be advisory only, or should there still be a blocking severity threshold?
+   A: advisory only
 5. Do we want timestamped `test-*` tags for traceability, or is `sha-<commit>` sufficient?
+   A: no, sha-commit is sufficient
 6. Is phase 1 allowed to rebuild from immutable refs, or does the team want true digest-promotion mechanics from the start?
+   A: don't care
 7. Do we want compose examples in the repo to default to pulling the published image instead of building locally?
+   A: yes
+
+Additional questions:
+
+8. How can we implement deleting older test builds?
 
 ## Recommendation
 
