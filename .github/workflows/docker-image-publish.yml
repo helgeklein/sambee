@@ -418,7 +418,10 @@ jobs:
         push: true
         tags: ${{ steps.image.outputs.tags }}
         labels: ${{ steps.image.outputs.labels }}
-        cache-from: type=gha,scope=publish-docker-image
+        cache-from: |
+          type=gha,scope=publish-docker-image-amd64
+          type=gha,scope=publish-docker-image-arm64
+          type=gha,scope=publish-docker-image
         cache-to: type=gha,mode=max,scope=publish-docker-image
         provenance: true
         sbom: true

@@ -37,15 +37,20 @@ SAMBEE_SYSTEM_PACKAGES=(
 MAGICK_SYSTEM_PACKAGE="imagemagick"
 MAGICK_VERSIONED_SYSTEM_PACKAGE="imagemagick-7.q16"
 
-install_imagemagick_from_package_manager() {
+get_imagemagick_package_name() {
     local package_to_install="$MAGICK_SYSTEM_PACKAGE"
 
     if apt-cache show "$MAGICK_VERSIONED_SYSTEM_PACKAGE" >/dev/null 2>&1; then
         package_to_install="$MAGICK_VERSIONED_SYSTEM_PACKAGE"
     fi
 
+    printf '%s\n' "$package_to_install"
+}
+
+install_imagemagick_from_package_manager() {
+    local package_to_install="$1"
+
     echo "Installing ImageMagick from the distro package manager (${package_to_install})..."
-    apt-get install -y "$package_to_install"
     verify_imagemagick7_command >/dev/null
 }
 
@@ -73,11 +78,14 @@ verify_imagemagick7_command() {
 
 # Install ImageMagick 7 from distro packages
 install_imagemagick7() {
-    install_imagemagick_from_package_manager
+    local package_to_install="$1"
+    install_imagemagick_from_package_manager "$package_to_install"
 }
 
 # Function to install packages
 install_packages() {
+    local imagemagick_package
+
     echo "Installing Sambee system dependencies..."
     echo "Using ${LIBJPEG_PKG} for libjpeg-turbo"
     # Skip apt-get update if caller already ran it (e.g. CI combining steps)
@@ -88,10 +96,11 @@ install_packages() {
         echo "Refreshing already-installed apt packages before dependency install..."
         apt-get upgrade -y
     fi
-    apt-get install -y "${SAMBEE_SYSTEM_PACKAGES[@]}"
+    imagemagick_package="$(get_imagemagick_package_name)"
+    apt-get install -y --no-install-recommends "${SAMBEE_SYSTEM_PACKAGES[@]}" "$imagemagick_package"
 
     # Install ImageMagick 7
-    install_imagemagick7
+    install_imagemagick7 "$imagemagick_package"
 
     rm -rf /var/lib/apt/lists/*
     echo "✓ All system dependencies installed successfully"
