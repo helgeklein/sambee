@@ -20,7 +20,7 @@ The recommended model is:
 - keep immutable version tags and digest-based deployment as the source of truth
 - add moving channel tags as promoted aliases: `stable`, `beta`, and `test`
 - promote channels by re-tagging or pushing the same already-validated digest, not by rebuilding different channel-specific images
-- reserve `stable` for full releases, `beta` for prereleases, and `test` for main-branch or manually triggered preview builds
+- reserve `stable` for full releases, `beta` for prereleases, and `test` for manually triggered preview builds
 
 This preserves reproducibility, avoids operational drift, and matches the Companion concept of channels as promoted feeds rather than as separate build products.
 
@@ -50,7 +50,6 @@ The repository already has a strong container release foundation:
 - multi-arch output for `linux/amd64` and `linux/arm64`
 - immutable semantic version tags
 - moving `major.minor` tags
-- moving `latest` only for full releases
 - a `sha-<commit>` tag for traceability
 - smoke-tested validation before publish
 - vulnerability scanning before real release publication
@@ -114,7 +113,6 @@ Recommended tags on publication:
 - `X.Y.Z`
 - `X.Y`
 - `stable`
-- optionally `latest`
 - `sha-<commit>`
 
 ### Beta
@@ -124,7 +122,7 @@ Recommended tags on publication:
 Recommended inputs:
 
 - GitHub prerelease published from tag `vX.Y.Z-beta.N`
-- possibly other semver prerelease suffixes if the project wants to allow them consistently
+- any valid semver prerelease suffix, used consistently
 
 Recommended tags on publication:
 
@@ -133,7 +131,7 @@ Recommended tags on publication:
 - `beta`
 - `sha-<commit>`
 
-`beta` must not move `stable` or `latest`.
+`beta` must not move `stable`.
 
 ### Test
 
@@ -141,8 +139,6 @@ Recommended tags on publication:
 
 Recommended inputs:
 
-- push to `main`
-- scheduled nightly build from `main`
 - manual dispatch for preview validation
 - explicit override-based test publish
 
@@ -150,7 +146,6 @@ Recommended tags on publication:
 
 - `test`
 - `sha-<commit>`
-- optional timestamped tag such as `test-20260513-abc1234`
 - optional branch-scoped preview tag if needed in the future
 
 `test` should be treated as volatile and unsupported for production.
@@ -166,7 +161,6 @@ Recommended immutable tags:
 - `X.Y.Z`
 - `X.Y.Z-beta.N`
 - `sha-<commit>`
-- optional timestamped preview tags for `test`
 
 ### Moving tags
 
@@ -177,13 +171,12 @@ Recommended moving tags:
 - `test`
 - `X.Y`
 - optional `X.Y-beta`
-- optional `latest`, if retained as an alias of `stable`
 
 ### Tag meanings
 
-`latest` should not have a meaning separate from `stable`.
+`stable` should be the only moving production-oriented alias.
 
-If both exist, they should move together on the same full-release publish event. If the team wants to simplify operator messaging later, `latest` can be deprecated in favor of `stable`.
+The plan should explicitly remove `latest` rather than keep two moving tags with overlapping meaning.
 
 ## Best Practices
 
@@ -234,22 +227,20 @@ The docs should clearly state:
 
 ### Consider retention for preview tags
 
-If timestamped `test-*` tags are published, define whether they are retained indefinitely or cleaned up on a schedule.
+Even without timestamped `test-*` tags, preview artifacts can still accumulate if each manual test publish creates a new package version behind the mutable `test` tag.
 
-Without an explicit retention policy, preview artifacts can create registry noise and operator confusion.
+The retention policy therefore needs to be defined at the package-version level, not only at the tag-name level.
 
-## Proposed Workflow Architecture
+## Chosen Workflow Architecture
 
-## Option A: Extend the existing publish workflow and add one test workflow
-
-This is the recommended option.
+The chosen workflow architecture is Option A: extend the existing release publish workflow and add one separate test workflow.
 
 Shape:
 
 - keep `Release: Publish Docker Image` for release-driven publication
 - extend it to push `beta` for GitHub prereleases and `stable` for full releases
-- keep `latest` tied only to `stable` releases
-- add a separate workflow for `test` publication from `main`, schedule, and manual dispatch
+- remove `latest`
+- add a separate workflow for `test` publication by manual dispatch only
 
 Advantages:
 
@@ -262,24 +253,7 @@ Disadvantages:
 
 - requires maintaining two workflows instead of one
 
-## Option B: One unified workflow with channel-aware inputs and branching logic
-
-Shape:
-
-- one workflow handles stable, beta, and test publication modes
-- event type or input determines channel and allowed tags
-
-Advantages:
-
-- less duplicated YAML
-
-Disadvantages:
-
-- more branching complexity in one workflow
-- greater risk of mistakes in permission and tagging logic
-- harder to review and audit over time
-
-Recommendation: prefer Option A unless duplication becomes materially painful.
+This choice keeps release publication and preview publication intentionally separate. That reduces the risk of accidental channel crossover and keeps the stable and beta release path easier to audit.
 
 ## Proposed Publish Rules
 
@@ -289,24 +263,22 @@ Recommendation: prefer Option A unless duplication becomes materially painful.
 - require exact match between `VERSION` and tag `vX.Y.Z`
 - publish immutable tags and moving tags for stable
 - publish `stable`
-- publish `latest` only if the project keeps it
 - block publication on smoke-test or Trivy failure
 
 ### Beta publication rules
 
 - trigger from published GitHub Releases marked prerelease
-- require exact match between `VERSION` and prerelease tag, for example `v0.8.0-beta.1`
+- require exact match between `VERSION` and any valid semver prerelease tag, for example `v0.8.0-beta.1` or `v0.8.0-rc.1`
 - publish immutable prerelease tag and `beta`
 - optionally publish a series tag like `0.8-beta`
-- do not publish `stable` or `latest`
+- do not publish `stable`
 - keep the same validation gates as stable unless there is a strong reason not to
 
 ### Test publication rules
 
-- trigger from `main`, schedule, or manual dispatch
+- trigger by manual dispatch only
 - use either the checked-in version plus preview metadata or the existing manual override mechanism
 - publish `test` and `sha-<commit>`
-- optionally publish a timestamped preview tag for traceability
 - allow some gates to be advisory rather than blocking if the intent is preview validation rather than release
 
 ## Versioning Strategy for Test Builds
@@ -315,7 +287,7 @@ The main design decision for `test` is whether the image metadata should adverti
 
 ### Recommended approach
 
-Keep the current override mechanism for explicit manual preview publications, but avoid rewriting version semantics for routine `main`-branch test channel builds.
+Keep the current override mechanism for explicit manual preview publications, but avoid rewriting version semantics for routine test channel builds.
 
 For normal `test` channel publication, prefer:
 
@@ -330,30 +302,9 @@ For manual special-case preview publication, allow:
 
 This keeps normal preview automation simple while preserving a path for deliberate test-only publication experiments.
 
-## Promotion Model
+## Chosen Promotion Model
 
-There are two viable promotion models.
-
-### Model 1: Publish per lane
-
-Each lane builds and publishes independently.
-
-Examples:
-
-- stable release event builds and publishes stable
-- prerelease event builds and publishes beta
-- main push builds and publishes test
-
-Pros:
-
-- simple mental model
-- easy to automate from GitHub events
-
-Cons:
-
-- promotion from beta to stable involves rebuilding on the stable release event unless the workflow is deliberately structured around existing digests
-
-### Model 2: Promote existing immutable artifact
+The chosen promotion model is Model 2: promote an existing immutable artifact.
 
 One published immutable artifact can later be promoted by applying additional tags.
 
@@ -372,9 +323,13 @@ Cons:
 - slightly more complex workflow implementation
 - requires careful handling of manifest lists and tagging in GHCR
 
-Recommendation: move toward Model 2 where practical, but do not block the first channel implementation on perfect digest-promotion mechanics if that meaningfully delays delivery.
+This is the right long-term shape because it preserves the integrity of validation, signing, and provenance. Stable and beta should identify promotion state of a known artifact, not trigger separate artifact creation.
 
-The first implementation can still be acceptable if each event rebuilds from the immutable tagged source, because the source ref remains fixed and validation remains strong. Long term, true digest promotion is better.
+Implementation note:
+
+- the first shipped implementation should use artifact-promotion mechanics from the start
+- the target architecture remains artifact promotion, not rebuild-based promotion
+- the workflows should not ship with a temporary rebuild-based compromise
 
 ## Documentation Changes Needed
 
@@ -396,7 +351,7 @@ Update the release workflow docs to explain:
 
 - channel semantics
 - which events move which tags
-- the relationship between `stable`, `beta`, `test`, and `latest`
+- the relationship between `stable`, `beta`, and `test`
 - why digests remain the preferred deployment target
 
 ### Support and warning language
@@ -456,7 +411,7 @@ Recommended gate posture:
 
 - `stable`: blocking
 - `beta`: blocking
-- `test`: configurable, ideally advisory when used for experimental preview publication
+- `test`: advisory only
 
 This keeps preview throughput reasonable without lowering the bar for anything positioned as releasable.
 
@@ -464,11 +419,10 @@ This keeps preview throughput reasonable without lowering the bar for anything p
 
 ### Risk: channel confusion
 
-Operators may not understand the difference between `stable`, `latest`, `beta`, and `test`.
+Operators may not understand the difference between `stable`, `beta`, and `test`.
 
 Mitigation:
 
-- keep `latest` equal to `stable` if retained
 - document clear channel meanings
 - use examples that explicitly select a channel
 
@@ -484,12 +438,13 @@ Mitigation:
 
 ### Risk: preview artifact sprawl
 
-Publishing many preview tags can clutter the registry.
+Publishing many preview artifacts can clutter the registry.
 
 Mitigation:
 
-- define retention behavior for timestamped `test` tags
-- keep the moving `test` tag but limit additional preview aliases
+- keep the moving `test` tag and `sha-<commit>` tags only
+- delete older test-only package versions automatically on a schedule or after each test publish
+- document a concrete retention window
 
 ### Risk: workflow complexity leaks into release management
 
@@ -509,82 +464,343 @@ Mitigation:
 - treat digest promotion as the long-term target
 - document clearly if phase 1 still rebuilds from immutable refs
 
-## Phased Rollout Plan
+## Test Build Retention Strategy
 
-## Phase 0: Agreement and naming
+The remaining operational question is how to delete older `test` builds automatically.
 
-Decide and document:
+The cleanest approach is to treat cleanup as a separate registry-maintenance workflow rather than overloading the publish workflow.
 
-- exact tag names: `stable`, `beta`, `test`
-- whether `latest` remains
-- whether prerelease series tags like `0.8-beta` are wanted
-- whether timestamped `test-*` tags are wanted
+### Recommended policy
 
-Exit criteria:
+- keep the current `test` tag pointing at the newest test publish
+- keep `sha-<commit>` on the currently published test image for traceability
+- automatically delete older test package versions after a short retention window
+- do not delete stable or beta package versions through the same cleanup rule
 
-- channel naming and semantics approved
+Recommended default retention:
 
-## Phase 1: Stable and beta release publication
+- keep the newest 10 test package versions
 
-Change the release publication workflow so:
+This is simpler and more predictable than age-based cleanup.
 
-- full releases publish `stable`
-- prereleases publish `beta`
-- `latest` remains tied only to stable if retained
+### Important constraint
 
-Exit criteria:
+With GHCR, cleanup operates on package versions, not on individual tags in isolation.
 
-- stable release event moves `stable`
-- prerelease event moves `beta`
-- docs describe both correctly
+That means the workflow needs to identify package versions whose tags are exclusively test-related before deletion. It must never delete a package version that is also referenced by a stable or beta tag.
 
-## Phase 2: Test channel publication
+### Safe implementation pattern
 
-Add a preview publication workflow for:
+Use a dedicated GitHub Actions workflow that:
 
-- `main`
-- manual dispatch
-- optional scheduled nightly publication
+1. lists package versions for `ghcr.io/<owner>/sambee`
+2. inspects the tags attached to each version
+3. keeps versions that have any protected tag, such as semantic release tags, prerelease tags, moving tags `stable` or `beta`, or moving minor tags like `0.7`
+4. marks versions as deletable only if their tags are test-only, for example `test` and `sha-<commit>`
+5. sorts the deletable versions by creation time
+6. deletes everything except the newest 10 deletable versions
 
-Exit criteria:
+### Recommended workflow shape
 
-- `test` updates automatically from preview publication inputs
-- docs describe intended use and support posture
+- trigger on successful manual test publication
+- optionally also run on a schedule as a safety cleanup pass
+- use the GitHub Packages API via `gh api` or the REST API directly
+- require package delete permission and log every deleted version ID for auditability
 
-## Phase 3: Digest promotion refinement
+### Why this should be separate from publish
 
-Improve implementation so promotion uses already-built immutable artifacts where feasible.
+Keeping cleanup separate is safer because:
 
-Exit criteria:
+- the publish workflow stays focused on build, validation, and release
+- cleanup logic is easier to test and reason about independently
+- an error in cleanup logic is less likely to break publication
 
-- promotion avoids unnecessary rebuilds
-- audit trail is clear and documented
+### Fallback option
 
-## Phase 4: Operator guidance hardening
+If GHCR package-version filtering turns out to be awkward in practice, the fallback is:
 
-Update compose examples, upgrade docs, and support docs to normalize channel-aware usage.
+- keep only the moving `test` tag for routine preview use
+- stop treating old `sha-<commit>` test versions as long-lived retained artifacts
+- run a simple package-version cleanup that preserves only known stable and beta references
 
-Exit criteria:
+This is less flexible but still acceptable if the registry UX becomes too cumbersome.
 
-- primary deployment docs use published images
-- production guidance still recommends digests
+## Full Implementation Plan
 
-## Suggested Implementation Checklist
+This section converts the rollout direction into an execution-ready plan.
 
-- update release workflow tagging logic for stable and beta
-- decide whether `latest` remains and document it explicitly
-- create a separate workflow for `test` publication
-- define allowed triggers for `test`
-- decide whether timestamped preview tags are needed
-- update operator docs to show `image:` examples instead of only `build:` examples
-- update release workflow docs
-- document support expectations for each channel
-- verify signing, provenance, and SBOM behavior across all channel publishes
-- verify registry UI and discoverability are acceptable
+The implementation should be delivered as four workstreams with clear dependencies:
 
-## Open Questions
+1. release workflow changes for `stable` and `beta`
+2. manual preview workflow for `test`
+3. GHCR cleanup workflow for old test-only package versions
+4. operator and developer documentation updates
 
-These should be resolved before implementation begins.
+The work should be sequenced so that release-path correctness comes first, preview publication comes second, retention automation comes third, and operator-facing docs land after the behavior is real.
+
+### Step 1: Finalize implementation constants
+
+Before editing workflows, lock the constants that workflow code and documentation will depend on.
+
+Constants to encode:
+
+- moving tags: `stable`, `beta`, `test`
+- immutable traceability tag: `sha-<commit>`
+- no `latest` tag
+- prereleases may use any valid semver prerelease suffix
+- `test` publication is manual-dispatch only
+- `test` vulnerability findings are advisory only
+- test retention policy keeps the newest 10 test-only package versions
+
+Expected output:
+
+- the planning doc remains the decision source
+- workflow authors can implement without re-litigating naming or behavior
+
+Acceptance criteria:
+
+- there is no remaining workflow or docs language that assumes `latest`
+- there is no remaining ambiguity about when `stable`, `beta`, and `test` should move
+
+### Step 2: Update the release publish workflow for stable and beta
+
+Modify `.github/workflows/docker-image-publish.yml` so the existing release workflow becomes the production path for both `stable` and `beta` publication.
+
+Required changes:
+
+- keep publication triggered from GitHub Releases
+- if the release is not marked prerelease, publish `stable`
+- if the release is marked prerelease, publish `beta`
+- remove all logic that publishes or references `latest`
+- continue publishing immutable version tags and `sha-<commit>`
+- continue publishing `X.Y` for stable releases
+- allow valid semver prerelease versions such as `-beta.N` and `-rc.N`
+
+Implementation notes:
+
+- tag selection should happen in one dedicated tag-construction step
+- stable and beta behavior should differ only in tag emission and release classification, not in validation quality
+- the workflow should keep current smoke-test, Trivy, signing, SBOM, and provenance behavior unless a change is explicitly required
+
+Files likely affected:
+
+- `.github/workflows/docker-image-publish.yml`
+- possibly any shared release helper scripts if tag derivation is factored out
+
+Acceptance criteria:
+
+- a full release publishes `stable`, `X.Y.Z`, `X.Y`, and `sha-<commit>`
+- a prerelease publishes `beta`, `X.Y.Z-<suffix>`, optional prerelease series tags if kept, and `sha-<commit>`
+- neither path publishes `latest`
+- the workflow still signs the published digest and emits provenance and SBOM data
+
+### Step 3: Make the release workflow safe for promotion-model staging
+
+The chosen end state is artifact promotion rather than rebuild-based promotion.
+
+The first implementation should use artifact-promotion mechanics from the start rather than treating them as a later refinement.
+
+Required changes:
+
+- keep artifact identity visible in workflow outputs
+- make image-tag construction independent from build logic
+- avoid baking channel-specific assumptions deep into validation steps
+- keep stable and beta channel movement conceptually separate from image construction
+
+Implementation notes:
+
+- do not fall back to rebuilding as a first-release shortcut
+- structure the workflow so immutable artifact creation and later channel promotion are explicitly separated
+
+Acceptance criteria:
+
+- the workflow structure clearly separates build, validation, publication, and promotion concerns
+- stable and beta movement reuse an existing validated artifact rather than creating a second artifact
+- the release process is auditable without requiring a later promotion refactor
+
+### Step 4: Add a dedicated manual test publish workflow
+
+Create a separate GitHub Actions workflow for `test` publication.
+
+The workflow should exist specifically to publish preview images on demand without mixing preview behavior into the stable and beta release path.
+
+Required behavior:
+
+- trigger by `workflow_dispatch` only
+- allow publication from an immutable source ref or explicit override flow
+- publish `test` and `sha-<commit>`
+- not publish `stable` or `beta`
+- treat Trivy findings as advisory only for the preview publication lane
+- continue producing a signed published digest if technically practical within the existing model
+
+Recommended inputs:
+
+- source ref or release tag to publish from
+- optional `publish_version_override`
+- optional confirmation-style input that makes preview intent explicit
+
+Files likely affected:
+
+- new workflow under `.github/workflows/`, for example a `docker-image-publish-test.yml`
+- possibly release helper scripts if version override handling is shared
+
+Acceptance criteria:
+
+- maintainers can publish a preview image manually without touching the stable or beta channel
+- the `test` tag moves only when this workflow succeeds
+- the workflow emits enough logs and outputs to identify the published digest and source ref
+
+### Step 5: Add a GHCR cleanup workflow for test-only package versions
+
+Create a separate workflow that deletes older test-only package versions from GHCR.
+
+This should not be merged into the publish workflow. Cleanup is safer and easier to reason about when isolated.
+
+Required behavior:
+
+- inspect package versions for `ghcr.io/<owner>/sambee`
+- determine the tags attached to each package version
+- preserve any package version that has stable, beta, semantic version, prerelease version, or minor-series tags
+- treat versions as deletable only when they are test-only, such as `test` plus `sha-<commit>`
+- retain the newest 10 deletable test-only package versions
+- delete older deletable versions
+
+Recommended triggers:
+
+- after successful manual test publication
+- optional scheduled safety run
+
+Implementation notes:
+
+- use the GitHub Packages API via `gh api` or REST calls
+- require package delete permission
+- log deleted version IDs and associated tags for auditability
+- fail safely: if the workflow cannot confidently classify a package version, it should keep it rather than delete it
+
+Files likely affected:
+
+- new workflow under `.github/workflows/`, for example a `docker-image-cleanup-test-packages.yml`
+
+Acceptance criteria:
+
+- stable and beta package versions are never selected for deletion
+- old test-only package versions are pruned automatically according to policy
+- cleanup logs are sufficient to reconstruct what was deleted and why
+
+### Step 6: Update operator-facing deployment docs
+
+Once workflow behavior is implemented, update the Docker deployment docs so the recommended operator path uses published images rather than only local builds.
+
+Required doc changes:
+
+- show `image: ghcr.io/<owner>/sambee:stable` as the primary example
+- add explicit examples for `beta` and `test`
+- explain that production should prefer a digest pin where practical
+- remove wording that implies `latest` exists
+- explain the support posture of each channel clearly
+
+Files likely affected:
+
+- `docker-compose.example.yml`
+- Docker deployment docs under `website/content/docs/`
+- update/maintenance docs under `website/content/docs/`
+
+Acceptance criteria:
+
+- the primary operator example uses a published image
+- the docs explain the difference between `stable`, `beta`, and `test`
+- the docs still recommend digest pinning for production-sensitive deployments
+
+### Step 7: Update developer-facing release documentation
+
+After the workflows exist, update the release and CI documentation to match actual behavior.
+
+Required doc changes:
+
+- explain that the release workflow now handles both `stable` and `beta`
+- explain that `test` is published from a separate manual workflow
+- explain that `latest` has been removed
+- explain the chosen promotion model as artifact reuse from the first implementation
+- explain the GHCR cleanup workflow and the retention policy for test-only package versions
+
+Files likely affected:
+
+- release workflow docs under `website/content/docs/0.7/developer-guide/release-and-versioning/`
+- CI workflow docs under `website/content/docs/0.7/developer-guide/testing-and-quality-gates/`
+- any security or integrity docs that mention current tag behavior
+
+Acceptance criteria:
+
+- docs match the actual workflows and tags produced in CI
+- there is no stale mention of `latest`
+- there is no stale statement that test publication happens from `main` or nightly automation
+
+### Step 8: Verify end-to-end behavior in a dry-run sequence
+
+Before considering the implementation complete, run an end-to-end verification sequence.
+
+Minimum scenarios:
+
+1. full release publish path
+2. prerelease publish path
+3. manual test publish path
+4. cleanup workflow path for test-only package versions
+
+Verification targets:
+
+- emitted tags are correct
+- stable and beta channels never cross
+- test publication does not move stable or beta
+- no workflow emits `latest`
+- signing and provenance outputs still exist where expected
+- cleanup never selects a protected package version
+
+Acceptance criteria:
+
+- each scenario completes successfully or fails in an expected, explainable way
+- observed registry state matches the plan exactly
+
+### Step 9: Promote the plan into repository truth
+
+After implementation and verification, this planning doc should stop being the only authoritative source.
+
+Required follow-through:
+
+- ensure workflow YAML is the primary behavior definition
+- ensure website docs describe the final user-facing and maintainer-facing behavior
+- keep this planning document as historical design context unless the team prefers to remove it later
+
+Acceptance criteria:
+
+- the behavior is understandable from the workflows and docs without reading the plan first
+
+## Implementation Sequence
+
+The recommended execution order is:
+
+1. finalize constants and acceptance criteria
+2. update the existing release publish workflow for `stable` and `beta`
+3. implement release workflow outputs and promotion steps around artifact reuse from day one
+4. add the manual `test` publish workflow
+5. add the GHCR cleanup workflow for old test-only package versions
+6. update operator-facing deployment docs and examples
+7. update developer-facing release and CI docs
+8. run end-to-end verification across full release, prerelease, test publish, and cleanup paths
+
+## Definition of Done
+
+This effort is complete when all of the following are true:
+
+- full releases move `stable`
+- prereleases move `beta`
+- manual preview publishes move `test`
+- no workflow publishes `latest`
+- old test-only package versions are cleaned up automatically according to policy
+- operator docs default to published-image examples
+- developer docs describe the real workflow behavior accurately
+- promotion reuses existing validated artifacts from the first shipped implementation
+
+## Resolved Decisions
 
 1. Should `latest` remain, or should `stable` become the only moving production-oriented alias?
    A: latest should not remain
@@ -601,9 +817,17 @@ These should be resolved before implementation begins.
 7. Do we want compose examples in the repo to default to pulling the published image instead of building locally?
    A: yes
 
-Additional questions:
+## Remaining Question
 
-8. How can we implement deleting older test builds?
+8. How can we implement that older test builds are deleted automatically?
+
+Recommended answer:
+
+- create a dedicated cleanup workflow for GHCR package versions
+- keep only test-only package versions in scope for deletion
+- protect any version that has stable, beta, or semantic version tags attached
+- retain the newest 10 test package versions by default
+- run cleanup after each successful manual test publish and optionally on a scheduled safety pass
 
 ## Recommendation
 
@@ -612,10 +836,12 @@ Adopt release channels for the Docker image using moving tags that point at the 
 Recommended first implementation:
 
 - `stable` for full releases
-- `beta` for GitHub prereleases
-- `test` from a separate preview workflow
+- `beta` for GitHub prereleases using any valid semver prerelease suffix
+- `test` from a separate preview workflow by manual dispatch only
 - keep immutable version tags and `sha-<commit>` tags
 - keep digest deployment as the recommended production practice
-- keep `latest` only if it remains exactly equivalent to `stable`
+- remove `latest`
+- default compose examples to pulling the published image
+- add a dedicated cleanup workflow for old test-only package versions
 
 This gives Sambee a channel model that matches the Companion concept at the operational level without introducing multiple packaging systems or confusing artifact drift.
