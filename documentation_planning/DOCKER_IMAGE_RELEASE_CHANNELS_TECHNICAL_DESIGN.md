@@ -98,8 +98,7 @@ Result:
 6. release workflow resolves the existing candidate digest through `sha-<full-commit-sha>`
 7. release workflow verifies that the candidate artifact matches the prerelease commit and version contract
 8. release workflow promotes that digest to `X.Y.Z-<suffix>` and `beta`
-9. release workflow optionally promotes that digest to a prerelease series tag such as `X.Y-beta` if retained
-10. release workflow promotes that digest to a prerelease series tag such as `X.Y-beta`
+9. release workflow promotes that digest to a prerelease series tag such as `X.Y-beta`
 11. release workflow verifies that the promoted tags resolve to the same digest
 12. release workflow signs and attests the promoted digest
 
@@ -115,7 +114,7 @@ Result:
 4. workflow builds and pushes one immutable preview artifact
 5. workflow captures the pushed manifest-list digest
 6. workflow promotes that digest to `test`
-7. workflow optionally signs the digest if consistent with the release trust model
+7. workflow signs and attests the digest
 8. cleanup workflow later prunes old test-only package versions
 
 Result:
@@ -281,6 +280,30 @@ This workflow removes old test-only package versions from GHCR.
 - classify protected versus deletable versions
 - delete old test-only versions beyond retention threshold
 - emit an audit log of deletion actions
+
+### Workflow 4: Maintenance: Backfill Docker Release Tags
+
+This workflow exists only for recovery or catch-up publication of already approved artifacts.
+
+#### Triggers
+
+- `workflow_dispatch`
+
+#### Responsibilities
+
+- accept an explicit release tag or commit input
+- resolve an existing candidate artifact via `sha-<full-commit-sha>`
+- verify that the candidate artifact matches the requested release metadata
+- attach any missing immutable release tags and moving channel tags to the existing digest
+- verify the final promoted tags resolve to the expected digest
+- sign and attest the promoted digest if required by the release lane
+
+#### Safety rules
+
+- it must not build a new image
+- it must not publish from a branch head without an explicit immutable source ref
+- it must fail if no existing candidate artifact is found
+- it must reuse the same promotion and verification logic as the main release workflow
 
 ## Promotion Mechanics
 
@@ -527,25 +550,43 @@ The cleanup workflow must not require broader permissions than necessary.
 
 ### Release workflow failures
 
-#### Failure before immutable publish
+#### Failure during candidate resolution
 
 Outcome:
 
-- nothing is published
+- no release or channel tags are attached
 - workflow fails normally
-
-#### Failure after immutable publish but before channel promotion
-
-Outcome:
-
-- immutable tags may exist
-- channel tag may not exist
-- workflow must fail loudly and report published digest and partial state
 
 Required handling:
 
-- log the immutable digest
-- log which immutable tags were already published
+- log the expected `sha-<full-commit-sha>` lookup tag
+- log that no promotable candidate artifact was found or resolved
+
+#### Failure during candidate verification
+
+Outcome:
+
+- no release or channel tags are attached
+- workflow fails loudly because the candidate artifact does not match release metadata expectations
+
+Required handling:
+
+- log the resolved candidate digest
+- log which verification check failed, for example revision, version, or source-repository mismatch
+- do not continue to promotion
+
+#### Failure after release-tag attachment but before channel promotion
+
+Outcome:
+
+- immutable release tags may exist
+- moving channel tag may not exist
+- workflow must fail loudly and report promoted partial state
+
+Required handling:
+
+- log the candidate digest
+- log which immutable release tags were already attached
 - do not silently retry with a rebuild
 
 #### Failure after promotion but before signing
@@ -571,7 +612,7 @@ Outcome:
 Required handling:
 
 - do not update `test` early
-- fail without mutating the moving preview tag when validation or immutable publish fails
+- fail without mutating the moving preview tag when validation, immutable publish, or signing fails
 
 ### Cleanup workflow failures
 
