@@ -38,8 +38,11 @@ mkdir -p "$INSTALL_DIR"
 )
 
 resolved_version="$("$INSTALL_DIR/crane" version)"
-if [[ "$resolved_version" != "${CRANE_VERSION#v}" ]]; then
-	echo "Installed crane version mismatch: expected ${CRANE_VERSION#v}, got $resolved_version" >&2
+normalized_expected_version="${CRANE_VERSION#v}"
+normalized_resolved_version="${resolved_version#v}"
+
+if [[ "$normalized_resolved_version" != "$normalized_expected_version" ]]; then
+	echo "Installed crane version mismatch: expected $normalized_expected_version, got $resolved_version" >&2
 	exit 1
 fi
 
