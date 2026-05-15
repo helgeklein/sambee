@@ -4,6 +4,30 @@ description: Run version sync and fail if synced metadata files are out of date.
 runs:
   using: composite
   steps:
+    - name: Snapshot synced files
+      shell: bash
+      run: |
+        tracked_files=(
+          frontend/package.json
+          frontend/package-lock.json
+          companion/package.json
+          companion/package-lock.json
+          companion/src-tauri/Cargo.toml
+          companion/src-tauri/tauri.conf.json
+          companion/src-tauri/Cargo.lock
+        )
+
+        : > "$RUNNER_TEMP/sync-version-check.before"
+        for tracked_file in "${tracked_files[@]}"; do
+          if [[ ! -f "$tracked_file" ]]; then
+            echo "Expected synced file is missing: $tracked_file" >&2
+            exit 1
+          fi
+
+          read -r tracked_file_checksum _ < <(sha256sum "$tracked_file")
+          printf '%s  %s\n' "$tracked_file_checksum" "$tracked_file" >> "$RUNNER_TEMP/sync-version-check.before"
+        done
+
     - name: Sync version metadata
       shell: bash
       run: ./scripts/sync-version
@@ -11,11 +35,35 @@ runs:
     - name: Verify synced files are committed
       shell: bash
       run: |
-        git diff --exit-code -- \
-          frontend/package.json \
-          frontend/package-lock.json \
-          companion/package.json \
-          companion/package-lock.json \
-          companion/src-tauri/Cargo.toml \
-          companion/src-tauri/tauri.conf.json \
+        tracked_files=(
+          frontend/package.json
+          frontend/package-lock.json
+          companion/package.json
+          companion/package-lock.json
+          companion/src-tauri/Cargo.toml
+          companion/src-tauri/tauri.conf.json
           companion/src-tauri/Cargo.lock
+        )
+
+        : > "$RUNNER_TEMP/sync-version-check.after"
+        for tracked_file in "${tracked_files[@]}"; do
+          if [[ ! -f "$tracked_file" ]]; then
+            echo "Expected synced file is missing after sync: $tracked_file" >&2
+            exit 1
+          fi
+
+          read -r tracked_file_checksum _ < <(sha256sum "$tracked_file")
+          printf '%s  %s\n' "$tracked_file_checksum" "$tracked_file" >> "$RUNNER_TEMP/sync-version-check.after"
+        done
+
+        before_snapshot="$(cat "$RUNNER_TEMP/sync-version-check.before")"
+        after_snapshot="$(cat "$RUNNER_TEMP/sync-version-check.after")"
+
+        if [[ "$before_snapshot" != "$after_snapshot" ]]; then
+          echo "Version-synced metadata is out of date. Run ./scripts/sync-version and commit the resulting changes." >&2
+          echo "Before sync:" >&2
+          printf '%s\n' "$before_snapshot" >&2
+          echo "After sync:" >&2
+          printf '%s\n' "$after_snapshot" >&2
+          exit 1
+        fi
