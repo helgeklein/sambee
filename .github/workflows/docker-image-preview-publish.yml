@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       source_ref:
-        description: Immutable commit SHA or tag to publish. Optional; defaults to the dispatch ref.
+        description: Optional commit SHA or tag to build & publish. Leave empty to use the latest commit.
         required: false
         type: string
       publish_version_override:
-        description: Optional preview-only version override to publish instead of the checked-out VERSION value.
+        description: Optional version override to use. Leave empty to use the checked-in VERSION value.
         required: false
         type: string
 

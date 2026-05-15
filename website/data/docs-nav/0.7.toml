@@ -241,6 +241,9 @@ title = "Release and Versioning"
 items = [
   "dependency-and-release-workflow",
   "container-image-build-and-publish-workflow",
+  "publish-a-preview-docker-image",
+  "promote-a-preview-candidate-to-stable-or-beta",
+  "maintain-docker-release-tags-and-preview-retention",
   "companion-distribution-and-update-workflow",
 ]
 
