@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "cleanup_test_container_versions.py"
+
+
+def load_cleanup_module():
+    spec = importlib.util.spec_from_file_location("cleanup_test_container_versions", SCRIPT_PATH)
+    assert spec is not None
+    assert spec.loader is not None
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class FakeResponse:
+    def __init__(self, status: int, payload: bytes = b"") -> None:
+        self.status = status
+        self._payload = payload
+
+    def __enter__(self) -> FakeResponse:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+@pytest.mark.unit
+def test_api_request_returns_none_for_delete_no_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_cleanup_module()
+
+    monkeypatch.setattr(
+        module.urllib.request,
+        "urlopen",
+        lambda request: FakeResponse(204),
+    )
+
+    assert module.api_request("https://example.invalid", "token", method="DELETE") is None
+
+
+@pytest.mark.unit
+def test_api_request_parses_json_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_cleanup_module()
+
+    monkeypatch.setattr(
+        module.urllib.request,
+        "urlopen",
+        lambda request: FakeResponse(200, json.dumps({"type": "Organization"}).encode("utf-8")),
+    )
+
+    assert module.api_request("https://example.invalid", "token") == {"type": "Organization"}

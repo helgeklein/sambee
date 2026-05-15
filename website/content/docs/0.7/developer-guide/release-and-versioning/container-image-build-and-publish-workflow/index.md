@@ -6,19 +6,18 @@ Sambee ships as one production container image built from the repository-root Do
 
 That image compiles the frontend, installs the backend and system dependencies, and serves the built frontend from the Python backend at runtime.
 
-This workflow keeps image publication aligned with the repository's existing version discipline instead of creating a second release path just for containers.
+The workflow now separates image creation from release promotion so GitHub Releases promote an already validated artifact instead of rebuilding from scratch.
 
 ## Purpose and Current Model
 
-The container release workflow exists to make three things true at the same time:
+The container release workflow exists to make four things true at the same time:
 
 - pull requests prove the production image still builds and starts correctly
-- published images derive their version from `VERSION`, not from ad hoc workflow inputs
-- operators get immutable release tags plus a signed digest they can deploy safely
+- preview publishing produces a real deployable candidate from an immutable source ref
+- release publication promotes an already published candidate digest instead of creating a second artifact
+- operators get stable channel tags, immutable release tags, and a signed digest they can deploy safely
 
-The current model intentionally publishes a single runtime image, not separate frontend and backend images.
-
-That matches the actual production packaging in the current Dockerfile.
+The production packaging remains one runtime image, not separate frontend and backend images.
 
 ## Main Control Points
 
@@ -26,13 +25,36 @@ That matches the actual production packaging in the current Dockerfile.
 |---|---|
 | `Dockerfile` | builds the production image |
 | `.github/workflows/docker-image-validate.yml` | builds the image on `main`, pull requests, and manual dispatch, then smoke-tests it |
-| `.github/workflows/docker-image-publish.yml` | validates a tagged release, publishes to GHCR, and signs the pushed digest |
+| `.github/workflows/docker-image-preview-publish.yml` | validates, builds, publishes, and signs preview candidates for the `test` channel |
+| `.github/workflows/docker-image-publish.yml` | promotes an existing preview candidate onto release tags and the `stable` or `beta` channel |
+| `.github/workflows/docker-image-backfill.yml` | reattaches release tags and channel aliases for an existing GitHub Release without rebuilding |
+| `.github/workflows/docker-image-cleanup-test.yml` | deletes older test-only GHCR package versions |
 | `VERSION` | source of truth for the product version |
 | `GIT_COMMIT` | build metadata file copied into the image during CI |
 
+## Release Channels
+
+Sambee publishes three moving channel tags:
+
+- `stable` for the current non-prerelease release line
+- `beta` for the current prerelease release line
+- `test` for the newest manually published preview candidate
+
+These tags are convenience aliases.
+
+The canonical artifact identity is always the registry digest.
+
+Every preview publish also writes an immutable candidate lookup tag in this format:
+
+- `sha-<full-commit-sha>`
+
+Release promotion resolves that immutable candidate tag first, verifies its metadata, and then attaches the release tags and channel tag to the same digest.
+
+`latest` is intentionally not published.
+
 ## Artifact Shape
 
-The published image is currently:
+The published image is:
 
 - platforms: `linux/amd64` and `linux/arm64`
 - registry: GitHub Container Registry
@@ -40,15 +62,15 @@ The published image is currently:
 
 The published artifact is a multi-platform image index.
 
-Each platform variant is built from the same Dockerfile and published under the same tags, so operators can pull the same image tag on either supported Linux architecture.
+Each platform variant is built from the same Dockerfile and published under the same digest, so operators can pull the same image tag on either supported Linux architecture.
 
 ## Validation Workflow
 
-The validation workflow runs on pull requests, on pushes to `main`, and on manual dispatch.
+The validation workflow runs on pull requests, pushes to `main`, and manual dispatch.
 
 GitHub Actions displays it as `CI: Validate Docker Image`.
 
-Current behavior:
+Its contract remains:
 
 1. check out the repository
 2. run the existing version-sync verification
@@ -57,48 +79,71 @@ Current behavior:
 5. start each built container variant with test-only secrets
 6. wait for `/api/health` to respond successfully for each platform variant
 
-This catches production-image breakage that unit and integration tests alone can miss, especially around:
+This stays separate from publishing and exists to catch Docker packaging regressions early.
 
-- missing files in the Docker build context
-- broken frontend build integration
-- missing runtime system dependencies
-- startup regressions that only appear in the containerized environment
-- platform-specific regressions that only appear in one published architecture
+## Preview Publish Workflow
 
-## Publish Workflow
+The preview publish workflow runs only by manual dispatch.
 
-The publish workflow runs from a released Git tag or from manual dispatch against an existing immutable tag.
+GitHub Actions displays it as `Preview: Publish Test Docker Image`.
 
-GitHub Actions displays it as `Release: Publish Docker Image`.
+It is the only workflow that builds and pushes a new Sambee image to GHCR.
 
-Its contract is intentionally strict.
+Its contract is intentionally strict before publication:
 
-Before publication, it verifies that:
-
-- the selected tag matches `v$(cat VERSION)` exactly
-- version-synced frontend and companion metadata are already committed
 - backend type checks pass
 - backend tests pass
 - frontend type checks pass
 - frontend tests pass
 - each supported platform image builds and starts successfully
-- each local platform image passes a Trivy scan for high and critical vulnerabilities in both OS packages and application libraries
 
-Only after those checks pass does the workflow push the image.
+After validation, it:
 
-The broader Trivy policy, weekly image scan, `.trivyignore.yaml` suppression rules, and image-integrity controls now live in [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/).
+1. builds the multi-platform image
+2. publishes it under `sha-<full-commit-sha>`
+3. moves the `test` tag onto that same digest
+4. emits SBOM and provenance attestations
+5. signs the digest with Cosign using GitHub Actions OIDC
 
-This page keeps only the release-specific part of that behavior: the publish workflow must pass the release-candidate image scan before a real release or tag-based publish can continue.
+The preview workflow also runs Trivy before publish.
 
-### Testing the Publishing Workflow
+For the `test` channel, Trivy findings remain visible but are advisory rather than blocking.
 
-On normal release events, the published version must match `VERSION` exactly.
+That lets developers publish the newest preview candidate while still surfacing security risk clearly.
 
-Manual dispatch also supports an explicit test-only override that rewrites `VERSION` and runs `./scripts/sync-version` inside CI before validation and build steps run.
+### Preview Inputs
 
-That override exists only for non-release test publishing. It must not be used with `latest`.
+Manual preview publishing accepts:
 
-When that override is active, the manual run does not require an existing git tag. If no tag is provided, the workflow uses the dispatched commit SHA as the immutable source ref for checkout and image source metadata.
+- `source_ref`: the immutable commit SHA or tag to build from. If omitted, the dispatched commit SHA is used.
+- `publish_version_override`: an optional test-only version string to publish instead of the checked-out `VERSION` value
+
+If `publish_version_override` is set:
+
+- CI rewrites `VERSION` for that run only
+- CI reruns `./scripts/sync-version` so frontend and companion metadata stay aligned
+- invalid values such as `0.1-test1` are rejected before the build starts
+- the run is treated as a preview publish, not as a normal release artifact
+
+## Release Promotion Workflow
+
+The release workflow runs only from `release.published`.
+
+GitHub Actions displays it as `Release: Publish Docker Image`.
+
+It does not build a new image.
+
+Instead it:
+
+1. checks out the published release tag
+2. verifies that the release tag matches `v$(cat VERSION)` exactly
+3. resolves the existing candidate image tag `sha-<full-commit-sha>` in GHCR
+4. verifies the candidate image labels for revision, version, and source repository
+5. verifies that the preview-built provenance and SBOM attestations are still attached to the candidate image index for each runnable platform manifest
+6. attaches the correct release tags and channel tag to that same digest
+7. signs the promoted digest with Cosign using GitHub Actions OIDC
+
+If candidate resolution fails or the metadata does not match, release promotion stops immediately instead of silently rebuilding or publishing a mismatched artifact.
 
 ## Tagging Contract
 
@@ -113,40 +158,50 @@ For example:
 - `VERSION` contains `0.7.0`
 - the release tag must be `v0.7.0`
 
-If those values drift apart, publication fails instead of silently pushing a misleading image.
+If those values drift apart, promotion fails instead of silently publishing a misleading image.
 
 ## Published Image Tags
 
-The publish workflow currently writes these tags:
+Stable releases publish:
 
 - full version tag such as `0.7.0`
 - moving minor-series tag such as `0.7`
-- immutable commit tag such as `sha-abc1234`
-- `latest` only for published GitHub Releases that are not marked as prereleases, or when explicitly requested in a manual publish run
+- moving channel tag `stable`
 
-Operationally, the digest is the canonical deployment target.
+Prereleases publish:
 
-The human-friendly tags exist for discoverability and promotion, not as a replacement for digest-based deployments.
+- full prerelease version tag such as `0.8.0-beta.1`
+- moving prerelease-series tag such as `0.8-beta`
+- moving channel tag `beta`
+
+Preview publishes write:
+
+- immutable candidate tag such as `sha-<full-commit-sha>`
+- moving channel tag `test`
+
+Operationally, the digest remains the canonical deployment target.
 
 ## Metadata, SBOM, Provenance, and Signing
 
 The published image includes OCI metadata labels for:
 
 - source repository
-- release tag
+- source ref name
 - git revision
 - version
 - creation time
 - license
 
-The push step also enables:
+Preview publication emits:
 
-- SBOM emission
-- build provenance attestation
+- SBOM attestations
+- build provenance attestations
 
-Those attestations are emitted for the published multi-platform image output.
+Because release workflows promote the same digest instead of rebuilding it, those attestations stay attached to the exact artifact that later becomes `stable` or `beta`.
 
-After the image is pushed, the workflow signs the digest with Cosign using GitHub Actions OIDC identity.
+Release promotion and manual backfill now verify that those BuildKit attestation manifests are present and still linked to the candidate image index before any release or channel tags are attached.
+
+After preview publish or release promotion, the workflows sign the digest with Cosign using GitHub Actions OIDC identity.
 
 That avoids repository-managed signing keys while still producing a verifiable signature trail.
 
@@ -157,37 +212,31 @@ The intended release flow is:
 1. update `VERSION`
 2. run `./scripts/sync-version`
 3. review and merge the version-sync metadata changes emitted by `./scripts/sync-version`
-4. create the immutable release tag `vX.Y.Z`
-5. publish the GitHub Release
-6. let `Release: Publish Docker Image` validate, push, and sign the image
-7. deploy by digest rather than by mutable tag where possible
+4. manually run `Preview: Publish Test Docker Image` for the immutable commit you want to ship
+5. validate that preview candidate in an environment appropriate for the target channel
+6. create the immutable release tag `vX.Y.Z`
+7. publish the GitHub Release
+8. let `Release: Publish Docker Image` resolve, verify, promote, and sign the existing candidate digest
+9. deploy by digest rather than by mutable tag where possible
 
-## Manual Backfill or Re-Publish
+## Manual Backfill and Cleanup
 
-The publish workflow also supports manual dispatch.
+Backfill is a separate maintenance workflow.
 
-Use that only when you need to publish from an already existing immutable tag, for example:
+Use `.github/workflows/docker-image-backfill.yml` only when you need to reattach release tags and channel aliases for an already approved GitHub Release, for example:
 
 - backfilling the container release process for an older tagged version
-- re-running publication after a transient registry or runner failure
+- repairing tags after a transient registry or runner failure
 
-Manual dispatch accepts:
+Cleanup is also separate.
 
-- `release_tag`: the existing immutable tag to publish. Optional when `publish_version_override` is set.
-- `publish_version_override`: an optional test-only version string to publish instead of the checked-out `VERSION` value. It must use `major.minor.patch` with an optional prerelease or build suffix, for example `0.1.0-test1`.
-- `push_latest`: whether that manual run should also move the `latest` tag
+`.github/workflows/docker-image-cleanup-test.yml` periodically deletes older test-only GHCR package versions while keeping:
 
-Do not use manual dispatch from a branch head as a substitute for the tag-based release path.
+- release-tagged versions
+- `stable`, `beta`, and series-tagged versions
+- the newest retained set of test-only candidates
 
-If `publish_version_override` is set:
-
-- CI rewrites `VERSION` to the override value for that run only
-- CI reruns `./scripts/sync-version` so embedded frontend and companion metadata stay aligned with the published image tags
-- if `release_tag` is omitted, CI uses the dispatched commit SHA as the immutable source ref for that run
-- invalid values such as `0.1-test1` are rejected before the build starts
-- the override cannot be combined with `push_latest=true`
-- Trivy findings remain visible, but they are advisory for that override-based test publish instead of blocking publication
-- the run is best treated as a test publication rather than a normal release artifact
+That keeps the `test` channel usable without letting preview history grow without bound.
 
 ## Why the Workflow Generates `GIT_COMMIT`
 
@@ -204,11 +253,12 @@ That keeps backend version reporting and frontend build metadata aligned inside 
 This workflow intentionally follows these release rules:
 
 - validate on pull requests without pushing images
-- publish only from immutable tags or released versions
+- build new images only in the preview workflow
+- promote released images only from immutable preview candidates
 - keep `VERSION` as the single version source of truth
-- publish a stable semantic version tag and a signed digest
-- treat `latest` as a convenience alias, not the canonical artifact
-- block release and tag-based publication on container smoke-test failures and vulnerability findings
-- keep override-based test publishes informative by surfacing Trivy findings without turning them into a release gate
+- publish stable semantic version tags, prerelease series tags, and signed digests without a `latest` alias
+- treat channel tags as convenience aliases, not as the canonical artifact
+- verify candidate metadata before attaching release or channel tags
+- block release promotion when candidate resolution or metadata verification fails
+- keep preview publishes informative by surfacing Trivy findings without turning them into a release gate
 - use the weekly image scan on `main` to catch newly disclosed image vulnerabilities between releases
-

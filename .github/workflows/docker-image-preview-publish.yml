@@ -1,0 +1,412 @@
+name: "Preview: Publish Test Docker Image"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TRIVY_IGNORE_FILE: ./.trivyignore.yaml
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Immutable commit SHA or tag to publish. Optional; defaults to the dispatch ref.
+        required: false
+        type: string
+      publish_version_override:
+        description: Optional preview-only version override to publish instead of the checked-out VERSION value.
+        required: false
+        type: string
+
+concurrency:
+  group: preview-docker-image-${{ inputs.source_ref || github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      checkout_ref: ${{ steps.inputs.outputs.checkout_ref }}
+      source_ref_name: ${{ steps.inputs.outputs.source_ref_name }}
+      version_override: ${{ steps.inputs.outputs.version_override }}
+      version: ${{ steps.metadata.outputs.version }}
+      image_name: ${{ steps.metadata.outputs.image_name }}
+      full_sha: ${{ steps.metadata.outputs.full_sha }}
+      source_url: ${{ steps.metadata.outputs.source_url }}
+    steps:
+    - name: Resolve preview inputs
+      id: inputs
+      shell: bash
+      run: |
+        source_ref="$(printf '%s' "${{ inputs.source_ref }}" | tr -d '[:space:]')"
+        version_override="$(printf '%s' "${{ inputs.publish_version_override }}" | tr -d '[:space:]')"
+
+        if [[ -n "$version_override" ]] && ! [[ "$version_override" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+          echo "publish_version_override must use major.minor.patch with optional prerelease or build metadata, for example 0.1.0-test1" >&2
+          exit 1
+        fi
+
+        if [[ -n "$source_ref" ]]; then
+          checkout_ref="$source_ref"
+          source_ref_name="$source_ref"
+        else
+          checkout_ref="${GITHUB_SHA}"
+          source_ref_name="${GITHUB_REF_NAME}@${GITHUB_SHA:0:7}"
+        fi
+
+        echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
+        echo "source_ref_name=$source_ref_name" >> "$GITHUB_OUTPUT"
+        echo "version_override=$version_override" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ steps.inputs.outputs.checkout_ref }}
+
+    - name: Resolve preview metadata
+      id: metadata
+      shell: bash
+      run: |
+        source_version="$(tr -d '[:space:]' < VERSION)"
+        version_override="${{ steps.inputs.outputs.version_override }}"
+        if [[ -n "$version_override" ]]; then
+          version="$version_override"
+        else
+          version="$source_version"
+        fi
+
+        owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+        full_sha="$(git rev-parse HEAD)"
+
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
+        echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
+        echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
+
+  validate-tests:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13.12-slim@sha256:f1927c75e81efd1e091dbd64b6c0ecaa5630b38635a3d1c04034ac636e1f94c8
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Sync and verify version metadata
+      if: ${{ needs.prepare.outputs.version_override == '' }}
+      uses: ./.github/actions/sync-version-check
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
+
+    - name: Install backend system dependencies
+      run: bash scripts/install-system-deps
+
+    - name: Install backend test dependencies
+      run: python -m pip install --require-hashes -r backend/requirements-dev.lock.txt
+
+    - name: Generate backend test images
+      run: QUIET=1 scripts/setup-test-images
+
+    - name: Run backend type checks
+      run: cd backend && mypy app
+
+    - name: Run backend tests
+      env:
+        SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
+        ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
+      run: cd backend && pytest -n auto -v
+
+    - name: Set up Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci --prefer-offline
+
+    - name: Run frontend type checks
+      run: cd frontend && npx tsc --noEmit
+
+    - name: Run frontend tests
+      run: cd frontend && npm test -- --run
+
+  validate-image:
+    needs: [prepare, validate-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+          - docker_platform: linux/arm64
+            platform_id: arm64
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+    - name: Sync and verify version metadata
+      if: ${{ needs.prepare.outputs.version_override == '' }}
+      uses: ./.github/actions/sync-version-check
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
+
+    - name: Write build metadata files
+      shell: bash
+      run: git rev-parse HEAD > GIT_COMMIT
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Build preview validation image
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      with:
+        context: .
+        file: ./Dockerfile
+        load: true
+        platforms: ${{ matrix.docker_platform }}
+        tags: sambee:preview-validation-${{ matrix.platform_id }}
+        cache-from: type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+        cache-to: type=gha,mode=max,scope=preview-docker-image-${{ matrix.platform_id }}
+
+    - name: Start preview validation container
+      shell: bash
+      run: |
+        docker run -d \
+          --platform ${{ matrix.docker_platform }} \
+          --name sambee-preview-smoke-${{ matrix.platform_id }} \
+          -p 8000:8000 \
+          -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
+          -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
+          sambee:preview-validation-${{ matrix.platform_id }}
+
+    - name: Wait for preview health endpoint
+      shell: bash
+      run: |
+        for attempt in $(seq 1 60); do
+          if ! docker container inspect sambee-preview-smoke-${{ matrix.platform_id }} >/dev/null 2>&1; then
+            echo "Validation container disappeared before health check completed" >&2
+            exit 1
+          fi
+
+          if [[ "$(docker inspect -f '{{.State.Running}}' sambee-preview-smoke-${{ matrix.platform_id }})" != "true" ]]; then
+            echo "Validation container exited before /api/health became ready" >&2
+            docker logs sambee-preview-smoke-${{ matrix.platform_id }} || true
+            exit 1
+          fi
+
+          if curl --fail --silent http://127.0.0.1:8000/api/health >/dev/null; then
+            exit 0
+          fi
+          sleep 2
+        done
+
+        echo "Timed out waiting for /api/health" >&2
+        docker logs sambee-preview-smoke-${{ matrix.platform_id }} || true
+        exit 1
+
+    - name: Resolve Trivy container image
+      id: trivy-image
+      shell: bash
+      run: |
+        trivy_image="$(bash .github/scripts/resolve_trivy_image.sh)"
+        echo "image=$trivy_image" >> "$GITHUB_OUTPUT"
+
+    - name: Show Trivy version
+      shell: bash
+      env:
+        TRIVY_IMAGE: ${{ steps.trivy-image.outputs.image }}
+      run: docker run --rm "${TRIVY_IMAGE}" --version
+
+    - name: Scan preview image before publish
+      shell: bash
+      env:
+        TRIVY_IMAGE: ${{ steps.trivy-image.outputs.image }}
+      run: |
+        set +e
+
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$PWD:/work" \
+          -w /work \
+          "${TRIVY_IMAGE}" image \
+          --ignorefile "${TRIVY_IGNORE_FILE}" \
+          --show-suppressed \
+          --severity HIGH,CRITICAL \
+          --ignore-unfixed \
+          --vuln-type os,library \
+          --format table \
+          --exit-code 1 \
+          sambee:preview-validation-${{ matrix.platform_id }}
+
+        scan_status=$?
+        set -e
+
+        if [[ "$scan_status" -ne 0 ]]; then
+          echo "::warning::Trivy found HIGH or CRITICAL vulnerabilities in this preview publish. Findings are advisory for the test channel and publication will continue."
+        fi
+
+    - name: Print preview validation logs on failure
+      if: failure()
+      shell: bash
+      run: |
+        if docker container inspect sambee-preview-smoke-${{ matrix.platform_id }} >/dev/null 2>&1; then
+          docker logs sambee-preview-smoke-${{ matrix.platform_id }}
+        else
+          echo "Validation container is no longer available for log collection"
+        fi
+
+    - name: Clean up preview validation container
+      if: always()
+      shell: bash
+      run: docker rm -f sambee-preview-smoke-${{ matrix.platform_id }} || true
+
+  build-and-publish-immutable:
+    needs: [prepare, validate-tests, validate-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
+
+    - name: Write build metadata files
+      shell: bash
+      run: git rev-parse HEAD > GIT_COMMIT
+
+    - name: Prepare preview image metadata
+      id: image
+      shell: bash
+      run: |
+        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        sha_tag="sha-${{ needs.prepare.outputs.full_sha }}"
+
+        {
+          echo 'tags<<EOF'
+          echo "${{ needs.prepare.outputs.image_name }}:${sha_tag}"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo 'labels<<EOF'
+          echo "org.opencontainers.image.created=$created"
+          echo "org.opencontainers.image.description=Browser-based SMB and local drive access with a built frontend and Python backend"
+          echo "org.opencontainers.image.licenses=MIT"
+          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
+          echo "org.opencontainers.image.revision=${{ needs.prepare.outputs.full_sha }}"
+          echo "org.opencontainers.image.source=${{ needs.prepare.outputs.source_url }}"
+          echo "org.opencontainers.image.title=Sambee"
+          echo "org.opencontainers.image.url=${{ needs.prepare.outputs.source_url }}"
+          echo "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Build and push immutable preview image
+      id: build
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.image.outputs.tags }}
+        labels: ${{ steps.image.outputs.labels }}
+        cache-from: type=gha,scope=preview-docker-image
+        cache-to: type=gha,mode=max,scope=preview-docker-image
+        provenance: true
+        sbom: true
+
+  promote-test-tag:
+    needs: [prepare, build-and-publish-immutable]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Promote preview digest to test
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --tag test
+
+  sign-preview:
+    needs: [prepare, build-and-publish-immutable, promote-test-tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    - name: Sign preview digest
+      shell: bash
+      run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}"

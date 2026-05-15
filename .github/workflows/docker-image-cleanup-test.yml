@@ -1,0 +1,27 @@
+name: "Maintenance: Clean Up Test Docker Images"
+
+on:
+  workflow_run:
+    workflows: ["Preview: Publish Test Docker Image"]
+    types: [completed]
+  schedule:
+    - cron: '17 3 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Delete old test-only package versions
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: python3 .github/scripts/cleanup_test_container_versions.py --owner "${{ github.repository_owner }}" --package-name sambee --keep-count 10

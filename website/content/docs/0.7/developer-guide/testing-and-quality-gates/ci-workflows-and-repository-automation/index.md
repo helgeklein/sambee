@@ -28,7 +28,10 @@ Keep new names short, stable, and grouped by what the workflow does rather than 
 | `CI: Lint` | `.github/workflows/lint.yml` | Runs repository lint and formatting checks across backend, frontend, and companion. |
 | `CI: Check Backend Lockfiles` | `.github/workflows/check-backend-lockfiles.yml` | Verifies that committed backend lockfiles still match the reviewed requirement sources. |
 | `CI: Validate Docker Image` | `.github/workflows/docker-image-validate.yml` | Builds and smoke-tests the production container image on pull requests, pushes, and manual runs. |
-| `Release: Publish Docker Image` | `.github/workflows/docker-image-publish.yml` | Publishes and signs the production container image from a release tag or manual backfill run. |
+| `Release: Publish Docker Image` | `.github/workflows/docker-image-publish.yml` | Promotes an existing preview candidate onto release tags and the `stable` or `beta` channel, then signs the digest. |
+| `Preview: Publish Test Docker Image` | `.github/workflows/docker-image-preview-publish.yml` | Builds, validates, publishes, and signs a new preview image, then moves the `test` channel tag. |
+| `Maintenance: Backfill Docker Release Tags` | `.github/workflows/docker-image-backfill.yml` | Reattaches release tags and release-channel aliases to an already published candidate digest for an existing release. |
+| `Maintenance: Clean Up Test Docker Images` | `.github/workflows/docker-image-cleanup-test.yml` | Removes older test-only GHCR package versions while preserving release-tagged and channel-protected versions. |
 | `Release: Build Companion Artifact` | `.github/workflows/build-companion.yml` | Builds companion release artifacts for the public distribution repository. |
 | `Release: Promote Companion Release` | `.github/workflows/promote-companion-release.yml` | Moves an existing companion release onto one or more update channels. |
 | `Deploy: Website` | `.github/workflows/website-deploy.yml` | Builds the website and deploys `website/public/` to Cloudflare Pages. |
@@ -100,7 +103,7 @@ Instead, the rule is:
 Current Debian-family jobs include:
 
 - the backend job in `CI: Test`
-- the `validate-tests` job in `Release: Publish Docker Image`
+- the `validate-tests` job in `Preview: Publish Test Docker Image`
 
 Those jobs run inside the pinned `python:3.13.12-slim` container because `scripts/install-system-deps` now requires distro-provided ImageMagick 7, while the default Ubuntu GitHub-hosted runner image still resolves `imagemagick` to ImageMagick 6.
 

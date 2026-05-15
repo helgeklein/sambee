@@ -1,15 +1,15 @@
-name: "Release: Publish Docker Image"
+name: "Maintenance: Backfill Docker Release Tags"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
-  release:
-    types: [ published ]
-
-concurrency:
-  group: publish-docker-image-${{ github.event.release.tag_name }}
-  cancel-in-progress: false
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable Git tag to backfill, for example v0.7.0.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -30,20 +30,24 @@ jobs:
     - name: Checkout tagged code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
-        ref: ${{ github.event.release.tag_name }}
+        ref: ${{ inputs.release_tag }}
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
 
-    - name: Resolve release metadata
+    - name: Resolve backfill metadata
       id: metadata
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
       run: |
+        release_payload="$(gh api repos/${GITHUB_REPOSITORY}/releases/tags/${{ inputs.release_tag }})"
+        prerelease="$(jq -r '.prerelease' <<<"$release_payload")"
+
         version="$(tr -d '[:space:]' < VERSION)"
         expected_tag="v$version"
-
-        if [[ "${{ github.event.release.tag_name }}" != "$expected_tag" ]]; then
-          echo "Release tag $expected_tag expected, got ${{ github.event.release.tag_name }}" >&2
+        if [[ "${{ inputs.release_tag }}" != "$expected_tag" ]]; then
+          echo "Release tag $expected_tag expected, got ${{ inputs.release_tag }}" >&2
           exit 1
         fi
 
@@ -51,7 +55,7 @@ jobs:
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
 
-        if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
+        if [[ "$prerelease" == "true" ]]; then
           release_type="beta"
           prerelease_series="${major_minor}-beta"
         else
@@ -59,7 +63,7 @@ jobs:
           prerelease_series=""
         fi
 
-        echo "checkout_ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+        echo "checkout_ref=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
@@ -76,7 +80,6 @@ jobs:
       packages: write
     outputs:
       candidate_digest: ${{ steps.resolve.outputs.candidate_digest }}
-      candidate_source_tag: ${{ steps.resolve.outputs.candidate_source_tag }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -94,11 +97,8 @@ jobs:
       id: resolve
       shell: bash
       run: |
-        candidate_source_tag="sha-${{ needs.prepare.outputs.full_sha }}"
-        candidate_digest="$(crane digest "${{ needs.prepare.outputs.image_name }}:${candidate_source_tag}")"
-
+        candidate_digest="$(crane digest "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}")"
         echo "candidate_digest=$candidate_digest" >> "$GITHUB_OUTPUT"
-        echo "candidate_source_tag=$candidate_source_tag" >> "$GITHUB_OUTPUT"
 
   verify-candidate-artifact:
     needs: [prepare, resolve-candidate-artifact]

@@ -2,8 +2,6 @@ name: "Security: Docker Image Scan"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  TRIVY_VERSION: v0.68.2
-  TRIVY_IMAGE: aquasec/trivy:0.68.2
 
 on:
   schedule:
@@ -58,12 +56,23 @@ jobs:
         cache-from: type=gha,scope=docker-image-security-scan-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=docker-image-security-scan-${{ matrix.platform_id }}
 
+    - name: Resolve Trivy container image
+      id: trivy-image
+      shell: bash
+      run: |
+        trivy_image="$(bash .github/scripts/resolve_trivy_image.sh)"
+        echo "image=$trivy_image" >> "$GITHUB_OUTPUT"
+
     - name: Show Trivy version
       shell: bash
+      env:
+        TRIVY_IMAGE: ${{ steps.trivy-image.outputs.image }}
       run: docker run --rm "${TRIVY_IMAGE}" --version
 
     - name: Scan main image for high and critical vulnerabilities
       shell: bash
+      env:
+        TRIVY_IMAGE: ${{ steps.trivy-image.outputs.image }}
       run: |
         docker run --rm \
           -v /var/run/docker.sock:/var/run/docker.sock \
