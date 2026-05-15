@@ -20,7 +20,7 @@ fi
 
 CRANE_VERSION="$(
 	cd "$TOOL_MANIFEST_DIR"
-	GOWORK=off go mod download github.com/google/go-containerregistry >/dev/null
+	GOWORK=off go mod download all >/dev/null
 	GOWORK=off go list -f '{{with .Module}}{{.Version}}{{end}}' "$CRANE_PACKAGE" | grep -E '^[^[:space:]]+$' | tail -n 1
 )"
 
@@ -33,6 +33,7 @@ mkdir -p "$INSTALL_DIR"
 
 (
 	cd "$TOOL_MANIFEST_DIR"
+	GOWORK=off go mod download all >/dev/null
 	GOWORK=off GOBIN="$INSTALL_DIR" go install tool
 )
 
