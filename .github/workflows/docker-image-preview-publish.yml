@@ -32,6 +32,7 @@ jobs:
       version_override: ${{ steps.inputs.outputs.version_override }}
       version: ${{ steps.metadata.outputs.version }}
       image_name: ${{ steps.metadata.outputs.image_name }}
+      signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
     steps:
@@ -81,6 +82,7 @@ jobs:
 
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
+        echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
 
@@ -416,4 +418,6 @@ jobs:
 
     - name: Sign preview digest
       shell: bash
+      env:
+        COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
       run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}"

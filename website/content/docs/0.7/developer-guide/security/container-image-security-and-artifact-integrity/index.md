@@ -87,6 +87,15 @@ The preview publish and release promotion workflows enable:
 
 Release promotion also verifies that the preview-built attestation manifests are still attached to the candidate digest before channel tags are moved.
 
+Cosign signatures are stored in a dedicated GHCR repository instead of the main image repository.
+
+Current split:
+
+- deployable images, multi-arch manifests, and Buildx SBOM and provenance artifacts stay under `ghcr.io/<owner>/sambee`
+- Cosign signature artifacts are written under the dedicated signature repository configured through `COSIGN_REPOSITORY`
+
+That keeps the main package page focused on deployable image versions instead of letting later signature artifacts become the package overview's apparent latest version.
+
 Those controls do not replace vulnerability scanning.
 
 They answer a different question: whether a published artifact can be traced and verified after it is built.

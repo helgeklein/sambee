@@ -64,6 +64,8 @@ The repository name is `ghcr.io/<owner>/sambee`.
 
 Each platform variant comes from the same Dockerfile and is published under the same digest.
 
+Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
+
 ## Security Model
 
 Preview publication is the only workflow that builds and pushes a new image.

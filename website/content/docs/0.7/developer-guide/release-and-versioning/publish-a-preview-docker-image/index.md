@@ -55,6 +55,8 @@ After validation, the workflow:
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
 
+Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
+
 ## Scan Behavior
 
 The preview workflow runs Trivy before publish.

@@ -24,6 +24,7 @@ jobs:
       major_minor: ${{ steps.metadata.outputs.major_minor }}
       prerelease_series: ${{ steps.metadata.outputs.prerelease_series }}
       image_name: ${{ steps.metadata.outputs.image_name }}
+      signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
     steps:
@@ -69,6 +70,7 @@ jobs:
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
         echo "prerelease_series=$prerelease_series" >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
+        echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
 
@@ -220,4 +222,6 @@ jobs:
 
     - name: Sign promoted digest
       shell: bash
+      env:
+        COSIGN_REPOSITORY: ${{ needs.prepare.outputs.signature_repository }}
       run: cosign sign --yes "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"
