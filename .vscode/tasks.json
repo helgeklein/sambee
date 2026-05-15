@@ -167,7 +167,7 @@
     {
       "label": "Companion: Type Check + Lint",
       "type": "shell",
-      "command": "npx tsc --noEmit 2>&1 && echo '✓ TypeScript type check passed' && cd src-tauri && cargo clippy --lib --tests -- -D warnings 2>&1 && echo '✓ Clippy passed' && RUSTFLAGS='-A dead_code' cargo check --target x86_64-pc-windows-gnu 2>&1 && echo '✓ Windows cross-check passed' && cargo fmt --check 2>&1 && echo '✓ Rust formatting OK' && cd .. && npm run lint 2>&1 && echo '✓ Biome lint passed' && echo '' && echo '══════════════════════════════════' && echo '  All companion checks passed ✓' && echo '══════════════════════════════════'",
+      "command": "npx tsc --noEmit 2>&1 && echo '✓ TypeScript type check passed' && cd src-tauri && cargo clippy --lib --tests -- -D warnings 2>&1 && echo '✓ Clippy passed' && cargo fmt --check 2>&1 && echo '✓ Rust formatting OK' && cd .. && npm run check:rust:windows 2>&1 && echo '✓ Windows cross-check passed' && npm run lint 2>&1 && echo '✓ Biome lint passed' && echo '' && echo '══════════════════════════════════' && echo '  All companion checks passed ✓' && echo '══════════════════════════════════'",
       "options": {
         "cwd": "${workspaceFolder}/companion"
       },
@@ -176,6 +176,19 @@
         "reveal": "always",
         "panel": "new"
       }
+    },
+    {
+      "label": "Companion: Clean Build Artifacts",
+      "type": "shell",
+      "command": "npm run clean",
+      "options": {
+        "cwd": "${workspaceFolder}/companion"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
     },
     {
       "label": "Database: Reset",

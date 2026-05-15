@@ -16,16 +16,29 @@ permissions:
   contents: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      created: ${{ steps.metadata.outputs.created }}
+    steps:
+    - name: Capture shared build timestamp
+      id: metadata
+      shell: bash
+      run: printf 'created=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
   scan:
-    runs-on: ubuntu-latest
+    needs: prepare
+    runs-on: ${{ matrix.runner_label }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - docker_platform: linux/amd64
             platform_id: amd64
+            runner_label: ubuntu-24.04
           - docker_platform: linux/arm64
             platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout main
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -33,6 +46,7 @@ jobs:
         ref: refs/heads/main
 
     - name: Set up QEMU
+      if: ${{ matrix.platform_id == 'amd64' }}
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
     - name: Sync and verify version metadata
@@ -52,6 +66,8 @@ jobs:
         file: ./Dockerfile
         load: true
         platforms: ${{ matrix.docker_platform }}
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
         tags: sambee:security-scan-${{ matrix.platform_id }}
         cache-from: type=gha,scope=docker-image-security-scan-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=docker-image-security-scan-${{ matrix.platform_id }}

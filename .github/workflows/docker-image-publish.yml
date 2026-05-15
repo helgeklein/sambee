@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
