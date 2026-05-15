@@ -32,6 +32,7 @@ mkdir -p "$INSTALL_DIR"
 
 (
 	cd "$TOOL_MANIFEST_DIR"
+	GOWORK=off go mod download
 	GOWORK=off GOBIN="$INSTALL_DIR" go install tool
 )
 
