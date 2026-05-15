@@ -219,7 +219,7 @@ jobs:
         components: clippy, rustfmt
 
     - name: Cache Rust build artifacts
-      uses: Swatinem/rust-cache@919333daf4640a6fca9dd8b87468dc776e46b44b
+      uses: Swatinem/rust-cache@65012b490220f477f20ab979e35ae732e6de4e68
       with:
         workspaces: companion/src-tauri -> target
 
