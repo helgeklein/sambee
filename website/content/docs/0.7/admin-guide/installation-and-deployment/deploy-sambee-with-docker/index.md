@@ -10,20 +10,16 @@ You need:
 - A host that can reach the SMB file servers Sambee will use.
 - A deployment directory where you can keep local files such as `docker-compose.yml`, optional `config.toml`, and the persistent `data/` directory.
 
-## 1. Obtain the Source
+## 1. Obtain the Example Files
 
-Clone the repository and move into it:
+Clone the repository and move into it so you can copy the provided Docker deployment examples:
 
 ```bash
 git clone https://github.com/helgeklein/sambee.git
 cd sambee
 ```
 
-If you are deploying a release, check out that tag before continuing:
-
-```bash
-git checkout <release-tag>
-```
+You do not need to build Sambee locally for a normal Docker deployment. The default example pulls the published `stable` image from GitHub Container Registry.
 
 ## 2. Prepare Persistent Storage
 
@@ -63,12 +59,12 @@ You do not need `config.toml` for a basic deployment. Create it only if you need
 
 Keep this file local. In production, mount it read-only.
 
-## 5. Build and Start Sambee
+## 5. Pull and Start Sambee
 
-Build the image:
+Pull the configured image:
 
 ```bash
-docker build -t sambee:latest .
+docker compose pull
 ```
 
 Then start the application:
@@ -82,6 +78,12 @@ By default, the service is available at:
 - Frontend: `http://localhost:8000`
 - Backend API: `http://localhost:8000/api`
 - API docs: `http://localhost:8000/docs`
+
+If you want a different release channel, change the image tag in `docker-compose.yml` before pulling:
+
+- `stable` for the current production channel
+- `beta` for prerelease builds promoted from a published GitHub prerelease
+- `test` for the newest manually published preview build
 
 ## Verify the Deployment
 

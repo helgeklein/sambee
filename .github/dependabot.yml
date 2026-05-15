@@ -29,6 +29,23 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: gomod
+    directory: "/.github/tools/crane"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:05"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+      - go
+    groups:
+      ci-go-tools:
+        patterns:
+          - "*"
+
   - package-ecosystem: pip
     directory: "/backend"
     schedule:
@@ -211,6 +228,23 @@ updates:
       - dependency-name: "python"
     groups:
       root-docker:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directory: "/.github/tools/trivy"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:55"
+      timezone: UTC
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+      - docker
+    groups:
+      ci-docker-tools:
         patterns:
           - "*"
 

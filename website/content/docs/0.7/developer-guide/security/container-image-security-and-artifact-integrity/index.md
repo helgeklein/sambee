@@ -11,7 +11,10 @@ Sambee uses Trivy and release-artifact integrity controls to validate the final 
 | File or system | Role |
 |---|---|
 | `.github/workflows/docker-image-security-scan.yml` | builds the current `main` image and runs the weekly Trivy scan |
-| `.github/workflows/docker-image-publish.yml` | runs the release-candidate Trivy gate before publication and signs the pushed image |
+| `.github/workflows/docker-image-preview-publish.yml` | runs the preview-candidate Trivy scan before publishing to the `test` channel |
+| `.github/workflows/docker-image-publish.yml` | promotes a verified candidate digest onto release tags after checking metadata and attached build attestations |
+| `.github/scripts/verify_candidate_attestations.sh` | verifies that preview-built provenance and SBOM attestation manifests are still attached to the promoted candidate image |
+| `.github/tools/trivy/Dockerfile` | pins the Trivy container image version that both scan workflows use |
 | `.trivyignore.yaml` | holds reviewed Trivy suppressions for the image scans |
 | `Dockerfile` | defines the runtime artifact that is actually scanned and published |
 
@@ -31,6 +34,8 @@ That matters for Sambee because the final image includes native tooling and runt
 
 Sambee currently uses Trivy in two places.
 
+Both workflows resolve the Trivy runtime image from `.github/tools/trivy/Dockerfile`, so the pin is reviewed once and Dependabot can update it through the `docker` ecosystem.
+
 ### Weekly Image Scan on `main`
 
 `.github/workflows/docker-image-security-scan.yml` builds the current production image from `main` and scans it once per week.
@@ -47,20 +52,20 @@ The scan currently:
 
 This is the workflow that tells you a shipped runtime stack has picked up a newly disclosed issue even when no new Sambee release is in progress.
 
-### Release Publish Gate
+### Preview Publish Scan
 
-`.github/workflows/docker-image-publish.yml` runs the same Trivy threshold against each release-validation image variant before publication.
+`.github/workflows/docker-image-preview-publish.yml` runs Trivy against each preview-validation image variant before the preview candidate is published.
 
-Current publish behavior is intentionally split:
+Current preview behavior is intentionally advisory:
 
-- real releases and tag-based publishes fail on matching `HIGH` or `CRITICAL` findings
-- override-based test publishes still show the findings, but treat them as advisory warnings instead of blocking publication
+- preview publishes still show matching `HIGH` or `CRITICAL` findings
+- the findings do not block publication to the `test` channel
 
-That keeps real releases strict while still allowing test publication runs to exercise the workflow.
+That keeps the newest preview candidate available for validation while still surfacing image risk clearly in CI.
 
 ## Trivy Ignore Policy
 
-The repository-root `.trivyignore.yaml` file is the shared suppression file for both image-scan workflows.
+The repository-root `.trivyignore.yaml` file is the shared suppression file for both Trivy workflows.
 
 Keep entries narrow and reviewable.
 
@@ -74,11 +79,13 @@ That keeps long-lived silent exceptions from accumulating in the image-security 
 
 ## Artifact Integrity
 
-The container publish workflow enables:
+The preview publish and release promotion workflows enable:
 
 - SBOM emission
 - build provenance attestation
 - Cosign signing of the pushed image digest through GitHub Actions OIDC
+
+Release promotion also verifies that the preview-built attestation manifests are still attached to the candidate digest before channel tags are moved.
 
 Those controls do not replace vulnerability scanning.
 
