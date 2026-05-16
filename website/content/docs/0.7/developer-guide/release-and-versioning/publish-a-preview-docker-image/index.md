@@ -43,6 +43,10 @@ Before it publishes anything, the workflow requires:
 
 The published `test` image is therefore already a validated candidate.
 
+The workflow also forces a fresh rebuild of the Dockerfile layer that installs Debian packages for that run.
+
+That keeps preview candidates aligned with the latest package fixes available from the Debian repositories at build time while still letting the rest of the image reuse BuildKit cache.
+
 ## Published Output
 
 After validation, the workflow:
@@ -62,6 +66,8 @@ Cosign writes the signature artifact into a dedicated signature repository so th
 The preview workflow runs Trivy before publish.
 
 For preview publishing, Trivy findings are advisory rather than blocking. That keeps the newest candidate available for testing while still surfacing risk clearly in the workflow output.
+
+The preview-validation build and the published multi-platform image both use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
 
 ## Run It
 

@@ -74,6 +74,8 @@ Release and backfill workflows also upload the exact bundle files to the GitHub 
 
 Preview publication is the only workflow that builds and pushes a new image.
 
+That preview build also forces a fresh rebuild of the Dockerfile layer that installs Debian packages for the workflow run, so release candidates pick up the latest Debian package fixes available at build time instead of relying only on a previously cached OS-package layer.
+
 It also:
 
 - publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.

@@ -38,6 +38,7 @@ jobs:
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
       created: ${{ steps.metadata.outputs.created }}
+      os_packages_refresh_key: ${{ steps.metadata.outputs.os_packages_refresh_key }}
     steps:
     - name: Resolve preview inputs
       id: inputs
@@ -96,6 +97,7 @@ jobs:
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
         echo "created=$created" >> "$GITHUB_OUTPUT"
+        echo "os_packages_refresh_key=$created" >> "$GITHUB_OUTPUT"
 
   validate-tests:
     needs: prepare
@@ -205,6 +207,8 @@ jobs:
         file: ./Dockerfile
         load: true
         platforms: ${{ matrix.docker_platform }}
+        build-args: |
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
         tags: sambee:preview-validation-${{ matrix.platform_id }}
         cache-from: type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=preview-docker-image-${{ matrix.platform_id }}
@@ -366,6 +370,8 @@ jobs:
         push: true
         tags: ${{ steps.image.outputs.tags }}
         labels: ${{ steps.image.outputs.labels }}
+        build-args: |
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
         cache-from: type=gha,scope=preview-docker-image
         cache-to: type=gha,mode=max,scope=preview-docker-image
         provenance: false
@@ -440,6 +446,8 @@ jobs:
         platforms: linux/amd64,linux/arm64
         outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false,oci-mediatypes=false
         labels: ${{ steps.image.outputs.labels }}
+        build-args: |
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
         cache-from: type=gha,scope=preview-docker-image
         provenance: true
         sbom: true

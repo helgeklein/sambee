@@ -36,6 +36,10 @@ Sambee currently uses Trivy in two places.
 
 Both workflows resolve the Trivy runtime image from `.github/tools/trivy/Dockerfile`, so the pin is reviewed once and Dependabot can update it through the `docker` ecosystem.
 
+Both workflows also force a fresh rebuild of the Dockerfile layer that installs Debian packages.
+
+They do that with a workflow-provided refresh key passed into the image build, so `apt-get update`, `apt-get upgrade`, and package installation rerun against the latest repository state available at build time while the rest of the image can still benefit from BuildKit caching.
+
 ### Weekly Image Scan on `main`
 
 `.github/workflows/docker-image-security-scan.yml` builds the current production image from `main` and scans it once per week.
@@ -43,6 +47,7 @@ Both workflows resolve the Trivy runtime image from `.github/tools/trivy/Dockerf
 The scan currently:
 
 - builds and scans the supported `linux/amd64` and `linux/arm64` image variants separately
+- forces a fresh rebuild of the Debian package-install layer for each workflow run
 - uses `.trivyignore.yaml` as the reviewed suppression file
 - shows suppressed findings in the output
 - checks OS packages and application libraries
@@ -58,6 +63,7 @@ This is the workflow that tells you a shipped runtime stack has picked up a newl
 
 Current preview behavior is intentionally advisory:
 
+- the preview build forces a fresh rebuild of the Debian package-install layer before Trivy runs and before the candidate is published
 - preview publishes still show matching `HIGH` or `CRITICAL` findings
 - the findings do not block publication to the `test` channel
 
