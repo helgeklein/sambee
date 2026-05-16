@@ -122,7 +122,11 @@ def _fake_crane_outputs(
     return manifests
 
 
-def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> None:
+def _build_oci_layout(
+    oci_layout: Path,
+    platform_digests: dict[str, str],
+    attestation_subject_digests: dict[str, str] | None = None,
+) -> None:
     attestation_manifest_digests = {
         "linux/amd64": "sha256:" + "c" * 64,
         "linux/arm64": "sha256:" + "d" * 64,
@@ -158,7 +162,7 @@ def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> Non
         _write_blob(oci_layout, manifest_digest, _platform_manifest(platform, config_digest=local_config_digest))
         _write_blob(oci_layout, local_config_digest, _platform_config(platform))
 
-        subject_digest = manifest_digest.removeprefix("sha256:")
+        subject_digest = (attestation_subject_digests or {}).get(platform, manifest_digest).removeprefix("sha256:")
         _write_blob(
             oci_layout,
             attestation_manifest_digests[platform],
@@ -315,6 +319,67 @@ def test_extractor_accepts_local_manifest_digest_drift(tmp_path: Path) -> None:
     metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
     assert {entry["manifest_digest"] for entry in metadata["platforms"]} == set(remote_platform_digests.values())
 
+    provenance_subjects = [
+        "sha256:" + json.loads(line)["subject"][0]["digest"]["sha256"]
+        for line in (output_dir / "provenance" / "intoto.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert set(provenance_subjects) == set(remote_platform_digests.values())
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell extractor tests")
+def test_extractor_normalizes_provenance_subjects_from_platform_attestations(tmp_path: Path) -> None:
+    image_repository = "ghcr.io/example/sambee"
+    image_digest = "sha256:" + "9" * 64
+    image_ref = f"{image_repository}@{image_digest}"
+    metadata_repository = "ghcr.io/example/sambee-signatures"
+    remote_platform_digests = {
+        "linux/amd64": "sha256:" + "a" * 64,
+        "linux/arm64": "sha256:" + "b" * 64,
+    }
+    local_platform_digests = {
+        "linux/amd64": "sha256:" + "7" * 64,
+        "linux/arm64": "sha256:" + "8" * 64,
+    }
+    attestation_subject_digests = {
+        "linux/amd64": "sha256:" + "c" * 64,
+        "linux/arm64": "sha256:" + "d" * 64,
+    }
+    oci_layout = tmp_path / "attested-image"
+    output_dir = tmp_path / "bundle"
+    _build_oci_layout(oci_layout, local_platform_digests, attestation_subject_digests)
+    path_dir = _write_fake_crane(tmp_path)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{path_dir}:{env['PATH']}"
+    manifests = _fake_crane_outputs(image_ref, image_repository, remote_platform_digests)
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps(manifests)
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "--oci-layout",
+            str(oci_layout),
+            "--image-ref",
+            image_ref,
+            "--metadata-repository",
+            metadata_repository,
+            "--version",
+            "0.7.0",
+            "--revision",
+            "abcdef1234567890abcdef1234567890abcdef12",
+            "--source-url",
+            "https://github.com/example/sambee",
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
     provenance_subjects = [
         "sha256:" + json.loads(line)["subject"][0]["digest"]["sha256"]
         for line in (output_dir / "provenance" / "intoto.jsonl").read_text(encoding="utf-8").splitlines()

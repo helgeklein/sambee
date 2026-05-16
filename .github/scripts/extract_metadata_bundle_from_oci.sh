@@ -261,10 +261,6 @@ for platform in "${sorted_platforms[@]}"; do
         continue
       fi
 
-      jq -e --arg manifest_digest "${local_manifest_digest#sha256:}" '
-        any(.subject[]?; (.digest.sha256 // "") == $manifest_digest)
-      ' <<<"$attestation_blob_json" >/dev/null
-
       case "$predicate_type" in
         "$SBOM_PREDICATE_TYPE")
           sbom_count=$((sbom_count + 1))
@@ -277,17 +273,13 @@ for platform in "${sorted_platforms[@]}"; do
         ${PROVENANCE_PREDICATE_PREFIX}*)
           provenance_count=$((provenance_count + 1))
           platform_has_provenance["$platform"]=true
+          jq -e '(.subject // []) | length > 0 and all(.[]; (.digest.sha256 // "") != "")' <<<"$attestation_blob_json" >/dev/null || fail "Provenance attestation for platform $platform does not contain digest subjects"
           jq -c \
-            --arg local_manifest_digest "${local_manifest_digest#sha256:}" \
             --arg remote_manifest_digest "${manifest_digest#sha256:}" \
             '
               .subject = [
                 .subject[]?
-                | if (.digest.sha256 // "") == $local_manifest_digest then
-                    .digest.sha256 = $remote_manifest_digest
-                  else
-                    .
-                  end
+                | .digest.sha256 = $remote_manifest_digest
               ]
             ' <<<"$attestation_blob_json" >> "$provenance_path"
           ;;
