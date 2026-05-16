@@ -2,7 +2,6 @@ name: "Release: Publish Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  IMAGE_DESCRIPTION: Browser-based SMB and local drive access with a built frontend and Python backend
   IMAGE_TITLE: Sambee
 
 on:
@@ -23,6 +22,7 @@ jobs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
       version: ${{ steps.metadata.outputs.version }}
+      image_description: ${{ steps.metadata.outputs.image_description }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
       prerelease_series: ${{ steps.metadata.outputs.prerelease_series }}
       image_name: ${{ steps.metadata.outputs.image_name }}
@@ -53,6 +53,7 @@ jobs:
         full_sha="$(git rev-parse HEAD)"
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+        image_description="$(bash .github/scripts/read_website_description.sh)"
 
         if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
           release_type="beta"
@@ -65,6 +66,11 @@ jobs:
         echo "checkout_ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        {
+          echo 'image_description<<EOF'
+          echo "$image_description"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
         echo "prerelease_series=$prerelease_series" >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
@@ -128,7 +134,7 @@ jobs:
       run: |
         bash .github/scripts/verify_candidate_image.sh \
           --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
-          --expected-description "${{ env.IMAGE_DESCRIPTION }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
           --expected-source "${{ needs.prepare.outputs.source_url }}" \

@@ -2,7 +2,6 @@ name: "Preview: Publish Test Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  IMAGE_DESCRIPTION: Browser-based SMB and local drive access with a built frontend and Python backend
   IMAGE_TITLE: Sambee
   TRIVY_IGNORE_FILE: ./.trivyignore.yaml
 
@@ -33,6 +32,7 @@ jobs:
       source_ref_name: ${{ steps.inputs.outputs.source_ref_name }}
       version_override: ${{ steps.inputs.outputs.version_override }}
       version: ${{ steps.metadata.outputs.version }}
+      image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
@@ -81,8 +81,14 @@ jobs:
 
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
         full_sha="$(git rev-parse HEAD)"
+        image_description="$(bash .github/scripts/read_website_description.sh)"
 
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        {
+          echo 'image_description<<EOF'
+          echo "$image_description"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
@@ -326,7 +332,7 @@ jobs:
         sha_tag="sha-${{ needs.prepare.outputs.full_sha }}"
         metadata_entries=(
           "org.opencontainers.image.created=$created"
-          "org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}"
+          "org.opencontainers.image.description=${{ needs.prepare.outputs.image_description }}"
           "org.opencontainers.image.licenses=MIT"
           "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
           "org.opencontainers.image.revision=${{ needs.prepare.outputs.full_sha }}"
