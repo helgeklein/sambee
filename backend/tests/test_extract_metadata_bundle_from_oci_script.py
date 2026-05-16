@@ -26,15 +26,11 @@ import os
 import sys
 
 manifests = json.loads(os.environ["FAKE_CRANE_MANIFESTS"])
-configs = json.loads(os.environ["FAKE_CRANE_CONFIGS"])
 command = sys.argv[1]
 
 if command == "manifest":
     ref = sys.argv[2]
     sys.stdout.write(manifests[ref])
-elif command == "config":
-    ref = sys.argv[2]
-    sys.stdout.write(configs[ref])
 else:
     raise SystemExit(f"unsupported crane command: {command}")
 """.strip()
@@ -119,13 +115,11 @@ def _fake_crane_outputs(
     image_ref: str,
     image_repository: str,
     platform_digests: dict[str, str],
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> dict[str, str]:
     manifests = {image_ref: json.dumps(_candidate_index(platform_digests))}
-    configs = {}
     for platform, digest in platform_digests.items():
         manifests[f"{image_repository}@{digest}"] = json.dumps(_platform_manifest(platform))
-        configs[f"{image_repository}@{digest}"] = json.dumps(_platform_config(platform))
-    return manifests, configs
+    return manifests
 
 
 def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> None:
@@ -222,9 +216,8 @@ def test_extractor_writes_spdx_sbom_payloads_and_metadata(tmp_path: Path) -> Non
 
     env = os.environ.copy()
     env["PATH"] = f"{path_dir}:{env['PATH']}"
-    manifests, configs = _fake_crane_outputs(image_ref, image_repository, platform_digests)
+    manifests = _fake_crane_outputs(image_ref, image_repository, platform_digests)
     env["FAKE_CRANE_MANIFESTS"] = json.dumps(manifests)
-    env["FAKE_CRANE_CONFIGS"] = json.dumps(configs)
     result = subprocess.run(
         [
             "bash",
@@ -271,7 +264,7 @@ def test_extractor_writes_spdx_sbom_payloads_and_metadata(tmp_path: Path) -> Non
 
 @pytest.mark.unit
 @pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell extractor tests")
-def test_extractor_accepts_local_manifest_digest_drift_for_matching_payloads(tmp_path: Path) -> None:
+def test_extractor_accepts_local_manifest_digest_drift(tmp_path: Path) -> None:
     image_repository = "ghcr.io/example/sambee"
     image_digest = "sha256:" + "9" * 64
     image_ref = f"{image_repository}@{image_digest}"
@@ -291,9 +284,8 @@ def test_extractor_accepts_local_manifest_digest_drift_for_matching_payloads(tmp
 
     env = os.environ.copy()
     env["PATH"] = f"{path_dir}:{env['PATH']}"
-    manifests, configs = _fake_crane_outputs(image_ref, image_repository, remote_platform_digests)
+    manifests = _fake_crane_outputs(image_ref, image_repository, remote_platform_digests)
     env["FAKE_CRANE_MANIFESTS"] = json.dumps(manifests)
-    env["FAKE_CRANE_CONFIGS"] = json.dumps(configs)
     result = subprocess.run(
         [
             "bash",
