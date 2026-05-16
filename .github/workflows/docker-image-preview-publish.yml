@@ -37,6 +37,7 @@ jobs:
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
+      created: ${{ steps.metadata.outputs.created }}
     steps:
     - name: Resolve preview inputs
       id: inputs
@@ -82,6 +83,7 @@ jobs:
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
         full_sha="$(git rev-parse HEAD)"
         image_description="$(bash .github/scripts/read_website_description.sh)"
+        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
         echo "version=$version" >> "$GITHUB_OUTPUT"
         {
@@ -93,6 +95,7 @@ jobs:
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
+        echo "created=$created" >> "$GITHUB_OUTPUT"
 
   validate-tests:
     needs: prepare
@@ -328,46 +331,16 @@ jobs:
       id: image
       shell: bash
       run: |
-        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-        sha_tag="sha-${{ needs.prepare.outputs.full_sha }}"
-        metadata_entries=(
-          "org.opencontainers.image.created=$created"
-          "org.opencontainers.image.description=${{ needs.prepare.outputs.image_description }}"
-          "org.opencontainers.image.licenses=MIT"
-          "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
-          "org.opencontainers.image.revision=${{ needs.prepare.outputs.full_sha }}"
-          "org.opencontainers.image.source=${{ needs.prepare.outputs.source_url }}"
-          "org.opencontainers.image.title=${{ env.IMAGE_TITLE }}"
-          "org.opencontainers.image.url=${{ needs.prepare.outputs.source_url }}"
-          "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
-        )
-        annotation_scopes=(
-          "index"
-          "manifest[linux/amd64]"
-          "manifest[linux/arm64]"
-        )
-
-        {
-          echo 'tags<<EOF'
-          echo "${{ needs.prepare.outputs.image_name }}:${sha_tag}"
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
-
-        {
-          echo 'labels<<EOF'
-          printf '%s\n' "${metadata_entries[@]}"
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
-
-        {
-          echo 'annotations<<EOF'
-          for scope in "${annotation_scopes[@]}"; do
-            for entry in "${metadata_entries[@]}"; do
-              printf '%s:%s\n' "$scope" "$entry"
-            done
-          done
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "${{ needs.prepare.outputs.created }}" \
+          --description "${{ needs.prepare.outputs.image_description }}" \
+          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --title "${{ env.IMAGE_TITLE }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --tag "sha-${{ needs.prepare.outputs.full_sha }}"
 
     - name: Log in to GHCR
       uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -445,13 +418,28 @@ jobs:
       shell: bash
       run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
+    - name: Prepare attested export metadata
+      id: image
+      shell: bash
+      run: |
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "${{ needs.prepare.outputs.created }}" \
+          --description "${{ needs.prepare.outputs.image_description }}" \
+          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --title "${{ env.IMAGE_TITLE }}" \
+          --version "${{ needs.prepare.outputs.version }}"
+
     - name: Export attested OCI layout
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
+        annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
         platforms: linux/amd64,linux/arm64
         outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false
+        labels: ${{ steps.image.outputs.labels }}
         cache-from: type=gha,scope=preview-docker-image
         provenance: true
         sbom: true

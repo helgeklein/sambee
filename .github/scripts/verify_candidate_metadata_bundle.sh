@@ -5,6 +5,9 @@ set -euo pipefail
 readonly SBOM_PREDICATE_TYPE="https://spdx.dev/Document"
 readonly PROVENANCE_PREDICATE_PREFIX="https://slsa.dev/provenance/"
 readonly BUNDLE_TYPE="sambee.image-metadata"
+readonly PROVENANCE_BUNDLE_PATH="provenance/intoto.jsonl"
+readonly AMD64_SBOM_BUNDLE_PATH="sbom/linux-amd64.spdx.json"
+readonly ARM64_SBOM_BUNDLE_PATH="sbom/linux-arm64.spdx.json"
 
 usage() {
   cat <<'EOF' >&2
@@ -44,10 +47,10 @@ require_match() {
 platform_to_sbom_path() {
   case "$1" in
     linux/amd64)
-      printf 'sbom/linux-amd64.spdx.json\n'
+      printf '%s\n' "$AMD64_SBOM_BUNDLE_PATH"
       ;;
     linux/arm64)
-      printf 'sbom/linux-arm64.spdx.json\n'
+      printf '%s\n' "$ARM64_SBOM_BUNDLE_PATH"
       ;;
     *)
       fail "Unsupported platform in candidate image index: $1"
@@ -102,9 +105,9 @@ trap 'rm -rf "$bundle_dir"' EXIT
 oras pull "$bundle_ref" --output "$bundle_dir" >/dev/null
 
 metadata_path="$bundle_dir/metadata.json"
-provenance_path="$bundle_dir/provenance/intoto.jsonl"
-amd64_sbom_path="$bundle_dir/sbom/linux-amd64.spdx.json"
-arm64_sbom_path="$bundle_dir/sbom/linux-arm64.spdx.json"
+provenance_path="$bundle_dir/$PROVENANCE_BUNDLE_PATH"
+amd64_sbom_path="$bundle_dir/$AMD64_SBOM_BUNDLE_PATH"
+arm64_sbom_path="$bundle_dir/$ARM64_SBOM_BUNDLE_PATH"
 
 for required_path in "$metadata_path" "$provenance_path" "$amd64_sbom_path" "$arm64_sbom_path"; do
   if [[ ! -f "$required_path" ]]; then
@@ -125,7 +128,7 @@ require_match "$(jq -r '.metadata_tag // empty' <<<"$metadata_json")" "$metadata
 require_match "$(jq -r '.version // empty' <<<"$metadata_json")" "$expected_version" "Version"
 require_match "$(jq -r '.revision // empty' <<<"$metadata_json")" "$expected_revision" "Revision"
 require_match "$(jq -r '.source_url // empty' <<<"$metadata_json")" "$expected_source" "Source URL"
-require_match "$(jq -r '.provenance.path // empty' <<<"$metadata_json")" "provenance/intoto.jsonl" "Provenance path"
+require_match "$(jq -r '.provenance.path // empty' <<<"$metadata_json")" "$PROVENANCE_BUNDLE_PATH" "Provenance path"
 require_match "$(jq -r '.provenance.predicate_type_prefix // empty' <<<"$metadata_json")" "$PROVENANCE_PREDICATE_PREFIX" "Provenance predicate prefix"
 
 declare -A expected_manifest_by_platform=()
@@ -180,9 +183,25 @@ for platform in "${!expected_manifest_by_platform[@]}"; do
   require_match "${metadata_manifest_by_platform[$platform]}" "${expected_manifest_by_platform[$platform]}" "Manifest digest for $platform"
 done
 
+declare -A required_checksum_paths=(
+  ["$PROVENANCE_BUNDLE_PATH"]=true
+  ["$AMD64_SBOM_BUNDLE_PATH"]=true
+  ["$ARM64_SBOM_BUNDLE_PATH"]=true
+)
+declare -A seen_checksum_paths=()
+
 while IFS=$'\t' read -r relative_path expected_checksum; do
   [[ -n "$relative_path" ]] || continue
   absolute_path="$bundle_dir/$relative_path"
+
+  if [[ -z "${required_checksum_paths[$relative_path]:-}" ]]; then
+    fail "Checksum entry references unexpected bundle file: $relative_path"
+  fi
+
+  if [[ -n "${seen_checksum_paths[$relative_path]:-}" ]]; then
+    fail "Duplicate checksum entry for bundle file: $relative_path"
+  fi
+  seen_checksum_paths["$relative_path"]=true
 
   if [[ ! -f "$absolute_path" ]]; then
     fail "Checksum entry references missing bundle file: $relative_path"
@@ -193,6 +212,12 @@ while IFS=$'\t' read -r relative_path expected_checksum; do
 done < <(
   jq -r '.checksums | to_entries[] | [.key, .value] | @tsv' <<<"$metadata_json"
 )
+
+for required_checksum_path in "${!required_checksum_paths[@]}"; do
+  if [[ -z "${seen_checksum_paths[$required_checksum_path]:-}" ]]; then
+    fail "metadata.json checksums is missing required bundle file: $required_checksum_path"
+  fi
+done
 
 for sbom_path in "$amd64_sbom_path" "$arm64_sbom_path"; do
   jq -e '(.spdxVersion // "") | startswith("SPDX-")' "$sbom_path" >/dev/null || fail "SBOM file is not valid SPDX JSON: ${sbom_path#$bundle_dir/}"

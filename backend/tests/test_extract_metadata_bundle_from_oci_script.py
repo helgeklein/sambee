@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import shutil
+import stat
+import subprocess
+from pathlib import Path
+
+import pytest
+
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "extract_metadata_bundle_from_oci.sh"
+
+
+def _write_fake_crane(directory: Path) -> Path:
+    crane_path = directory / "bin" / "crane"
+    crane_path.parent.mkdir(parents=True, exist_ok=True)
+    crane_path.write_text(
+        """
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+manifests = json.loads(os.environ["FAKE_CRANE_MANIFESTS"])
+command = sys.argv[1]
+
+if command == "manifest":
+    ref = sys.argv[2]
+    sys.stdout.write(manifests[ref])
+else:
+    raise SystemExit(f"unsupported crane command: {command}")
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    crane_path.chmod(crane_path.stat().st_mode | stat.S_IEXEC)
+    return crane_path.parent
+
+
+def _write_blob(oci_layout: Path, digest: str, content: dict[str, object]) -> None:
+    blob_path = oci_layout / "blobs" / "sha256" / digest.removeprefix("sha256:")
+    blob_path.parent.mkdir(parents=True, exist_ok=True)
+    blob_path.write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
+
+
+def _sha256_file(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _candidate_index(platform_digests: dict[str, str]) -> dict[str, object]:
+    return {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "manifests": [
+            {
+                "digest": digest,
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "platform": {"os": platform.split("/", 1)[0], "architecture": platform.split("/", 1)[1]},
+            }
+            for platform, digest in platform_digests.items()
+        ],
+    }
+
+
+def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> None:
+    attestation_manifest_digests = {
+        "linux/amd64": "sha256:" + "c" * 64,
+        "linux/arm64": "sha256:" + "d" * 64,
+    }
+    sbom_blob_digests = {
+        "linux/amd64": "sha256:" + "e" * 64,
+        "linux/arm64": "sha256:" + "1" * 64,
+    }
+    provenance_blob_digests = {
+        "linux/amd64": "sha256:" + "f" * 64,
+        "linux/arm64": "sha256:" + "2" * 64,
+    }
+
+    local_index = _candidate_index(platform_digests)
+    local_index["manifests"].extend(
+        {
+            "digest": attestation_manifest_digests[platform],
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "platform": {"os": "unknown", "architecture": "unknown"},
+            "annotations": {
+                "vnd.docker.reference.type": "attestation-manifest",
+                "vnd.docker.reference.digest": manifest_digest,
+            },
+        }
+        for platform, manifest_digest in platform_digests.items()
+    )
+
+    oci_layout.mkdir(parents=True, exist_ok=True)
+    (oci_layout / "index.json").write_text(json.dumps(local_index, indent=2) + "\n", encoding="utf-8")
+
+    for platform, manifest_digest in platform_digests.items():
+        subject_digest = manifest_digest.removeprefix("sha256:")
+        _write_blob(
+            oci_layout,
+            attestation_manifest_digests[platform],
+            {
+                "schemaVersion": 2,
+                "layers": [
+                    {
+                        "mediaType": "application/vnd.in-toto+json",
+                        "digest": sbom_blob_digests[platform],
+                        "annotations": {"in-toto.io/predicate-type": "https://spdx.dev/Document"},
+                    },
+                    {
+                        "mediaType": "application/vnd.in-toto+json",
+                        "digest": provenance_blob_digests[platform],
+                        "annotations": {"in-toto.io/predicate-type": "https://slsa.dev/provenance/v1"},
+                    },
+                ],
+            },
+        )
+        _write_blob(
+            oci_layout,
+            sbom_blob_digests[platform],
+            {
+                "predicateType": "https://spdx.dev/Document",
+                "subject": [{"digest": {"sha256": subject_digest}}],
+                "predicate": {"spdxVersion": "SPDX-2.3", "name": platform},
+            },
+        )
+        _write_blob(
+            oci_layout,
+            provenance_blob_digests[platform],
+            {
+                "predicateType": "https://slsa.dev/provenance/v1",
+                "subject": [{"digest": {"sha256": subject_digest}}],
+                "predicate": {"buildType": "https://example.invalid/build"},
+            },
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell extractor tests")
+def test_extractor_writes_spdx_sbom_payloads_and_metadata(tmp_path: Path) -> None:
+    image_repository = "ghcr.io/example/sambee"
+    image_digest = "sha256:" + "9" * 64
+    image_ref = f"{image_repository}@{image_digest}"
+    metadata_repository = "ghcr.io/example/sambee-signatures"
+    platform_digests = {
+        "linux/amd64": "sha256:" + "a" * 64,
+        "linux/arm64": "sha256:" + "b" * 64,
+    }
+    oci_layout = tmp_path / "attested-image"
+    output_dir = tmp_path / "bundle"
+    _build_oci_layout(oci_layout, platform_digests)
+    path_dir = _write_fake_crane(tmp_path)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{path_dir}:{env['PATH']}"
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps({image_ref: json.dumps(_candidate_index(platform_digests))})
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "--oci-layout",
+            str(oci_layout),
+            "--image-ref",
+            image_ref,
+            "--metadata-repository",
+            metadata_repository,
+            "--version",
+            "0.7.0",
+            "--revision",
+            "abcdef1234567890abcdef1234567890abcdef12",
+            "--source-url",
+            "https://github.com/example/sambee",
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    amd64_sbom = json.loads((output_dir / "sbom" / "linux-amd64.spdx.json").read_text(encoding="utf-8"))
+    assert amd64_sbom == {"spdxVersion": "SPDX-2.3", "name": "linux/amd64"}
+
+    provenance_lines = (output_dir / "provenance" / "intoto.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(provenance_lines) == 2
+    assert {json.loads(line)["predicateType"] for line in provenance_lines} == {"https://slsa.dev/provenance/v1"}
+
+    metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["image_digest"] == image_digest
+    assert metadata["metadata_tag"] == f"sha256-{'9' * 64}.meta"
+    assert {entry["platform"] for entry in metadata["platforms"]} == {"linux/amd64", "linux/arm64"}
+    assert metadata["checksums"] == {
+        "provenance/intoto.jsonl": _sha256_file(output_dir / "provenance" / "intoto.jsonl"),
+        "sbom/linux-amd64.spdx.json": _sha256_file(output_dir / "sbom" / "linux-amd64.spdx.json"),
+        "sbom/linux-arm64.spdx.json": _sha256_file(output_dir / "sbom" / "linux-arm64.spdx.json"),
+    }

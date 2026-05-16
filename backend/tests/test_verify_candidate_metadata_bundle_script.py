@@ -405,3 +405,55 @@ def test_verifier_fails_when_checksum_does_not_match(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert "Checksum for sbom/linux-amd64.spdx.json mismatch" in result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell verifier tests")
+def test_verifier_fails_when_required_checksum_is_missing(tmp_path: Path) -> None:
+    image_repository, image_digest, metadata_repository, version, revision, source_url, manifests, bundles = _base_case()
+    metadata_key = next(key for key in bundles if key.endswith("metadata.json"))
+    metadata = json.loads(bundles[metadata_key])
+    del metadata["checksums"]["sbom/linux-arm64.spdx.json"]
+    bundles[metadata_key] = json.dumps(metadata, indent=2) + "\n"
+
+    path_dir = _write_fake_crane(tmp_path)
+    _write_fake_oras(tmp_path)
+    result = _run_script(
+        path_dir=path_dir,
+        image_ref=f"{image_repository}@{image_digest}",
+        metadata_repository=metadata_repository,
+        expected_version=version,
+        expected_revision=revision,
+        expected_source=source_url,
+        manifests=manifests,
+        bundles=bundles,
+    )
+
+    assert result.returncode != 0
+    assert "checksums is missing required bundle file: sbom/linux-arm64.spdx.json" in result.stderr
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell verifier tests")
+def test_verifier_fails_when_checksum_entry_is_unexpected(tmp_path: Path) -> None:
+    image_repository, image_digest, metadata_repository, version, revision, source_url, manifests, bundles = _base_case()
+    metadata_key = next(key for key in bundles if key.endswith("metadata.json"))
+    metadata = json.loads(bundles[metadata_key])
+    metadata["checksums"]["metadata.json"] = "sha256:" + "0" * 64
+    bundles[metadata_key] = json.dumps(metadata, indent=2) + "\n"
+
+    path_dir = _write_fake_crane(tmp_path)
+    _write_fake_oras(tmp_path)
+    result = _run_script(
+        path_dir=path_dir,
+        image_ref=f"{image_repository}@{image_digest}",
+        metadata_repository=metadata_repository,
+        expected_version=version,
+        expected_revision=revision,
+        expected_source=source_url,
+        manifests=manifests,
+        bundles=bundles,
+    )
+
+    assert result.returncode != 0
+    assert "Checksum entry references unexpected bundle file: metadata.json" in result.stderr

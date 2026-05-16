@@ -2,6 +2,7 @@ name: "Maintenance: Backfill Docker Release Tags"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_TITLE: Sambee
 
 on:
   workflow_dispatch:
@@ -23,6 +24,7 @@ jobs:
       version: ${{ steps.metadata.outputs.version }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
       prerelease_series: ${{ steps.metadata.outputs.prerelease_series }}
+      image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
@@ -55,6 +57,7 @@ jobs:
         full_sha="$(git rev-parse HEAD)"
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+        image_description="$(bash .github/scripts/read_website_description.sh)"
 
         if [[ "$prerelease" == "true" ]]; then
           release_type="beta"
@@ -69,6 +72,11 @@ jobs:
         echo "version=$version" >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
         echo "prerelease_series=$prerelease_series" >> "$GITHUB_OUTPUT"
+        {
+          echo 'image_description<<EOF'
+          echo "$image_description"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
@@ -156,14 +164,52 @@ jobs:
           echo "exists=false" >> "$GITHUB_OUTPUT"
         fi
 
+    - name: Prepare attested export metadata
+      if: ${{ steps.bundle.outputs.exists != 'true' }}
+      id: image
+      shell: bash
+      run: |
+        image_ref="${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"
+        config_json="$(crane config "$image_ref")"
+
+        label() {
+          jq -r --arg key "$1" '.config.Labels[$key] // empty' <<<"$config_json"
+        }
+
+        created="$(label org.opencontainers.image.created)"
+        description="$(label org.opencontainers.image.description)"
+        ref_name="$(label org.opencontainers.image.ref.name)"
+        revision="$(label org.opencontainers.image.revision)"
+        source_url="$(label org.opencontainers.image.source)"
+        title="$(label org.opencontainers.image.title)"
+        version="$(label org.opencontainers.image.version)"
+
+        for value_name in created description ref_name revision source_url title version; do
+          if [[ -z "${!value_name}" ]]; then
+            echo "Candidate image is missing required OCI label for metadata backfill: $value_name" >&2
+            exit 1
+          fi
+        done
+
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "$created" \
+          --description "$description" \
+          --ref-name "$ref_name" \
+          --revision "$revision" \
+          --source-url "$source_url" \
+          --title "$title" \
+          --version "$version"
+
     - name: Export attested OCI layout for bundle backfill
       if: ${{ steps.bundle.outputs.exists != 'true' }}
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
+        annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
         platforms: linux/amd64,linux/arm64
         outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false
+        labels: ${{ steps.image.outputs.labels }}
         provenance: true
         sbom: true
 
@@ -223,9 +269,11 @@ jobs:
       run: |
         bash .github/scripts/verify_candidate_image.sh \
           --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
-          --expected-source "${{ needs.prepare.outputs.source_url }}"
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}"
 
     - name: Verify candidate metadata bundle
       shell: bash

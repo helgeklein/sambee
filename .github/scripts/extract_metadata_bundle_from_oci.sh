@@ -274,7 +274,8 @@ for platform in "${sorted_platforms[@]}"; do
           if [[ "$sbom_count" -gt 1 ]]; then
             fail "Multiple SBOM attestations found for platform $platform in OCI layout $oci_layout"
           fi
-          jq '.' <<<"$attestation_blob_json" > "$sbom_output_path"
+          jq -e '(.predicate.spdxVersion // "") | startswith("SPDX-")' <<<"$attestation_blob_json" >/dev/null || fail "SBOM attestation for platform $platform does not contain an SPDX JSON predicate"
+          jq '.predicate' <<<"$attestation_blob_json" > "$sbom_output_path"
           ;;
         ${PROVENANCE_PREDICATE_PREFIX}*)
           provenance_count=$((provenance_count + 1))
