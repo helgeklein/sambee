@@ -4,6 +4,8 @@ set -euo pipefail
 
 readonly OCI_IMAGE_INDEX_MEDIA_TYPE="application/vnd.oci.image.index.v1+json"
 readonly DOCKER_MANIFEST_LIST_MEDIA_TYPE="application/vnd.docker.distribution.manifest.list.v2+json"
+readonly OCI_IMAGE_MANIFEST_MEDIA_TYPE="application/vnd.oci.image.manifest.v1+json"
+readonly DOCKER_IMAGE_MANIFEST_MEDIA_TYPE="application/vnd.docker.distribution.manifest.v2+json"
 
 usage() {
   cat <<'EOF' >&2
@@ -31,19 +33,67 @@ require_match() {
 }
 
 extract_config_label() {
-  local key="$1"
-  jq -r --arg key "$key" '.config.Labels[$key] // empty' <<<"$config_json"
+  local config_json_input="$1"
+  local key="$2"
+  jq -r --arg key "$key" '.config.Labels[$key] // empty' <<<"$config_json_input"
 }
 
-extract_index_annotation() {
-  local key="$1"
-  jq -r --arg key "$key" '.annotations[$key] // empty' <<<"$index_manifest_json"
-}
-
-extract_manifest_annotation() {
+extract_annotation() {
   local manifest_json="$1"
   local key="$2"
   jq -r --arg key "$key" '.annotations[$key] // empty' <<<"$manifest_json"
+}
+
+require_config_labels() {
+  local config_json_input="$1"
+  local subject="$2"
+
+  local config_description
+  local config_revision
+  local config_source
+  local config_title
+  local config_url
+  local config_version
+
+  config_description="$(extract_config_label "$config_json_input" "org.opencontainers.image.description")"
+  config_revision="$(extract_config_label "$config_json_input" "org.opencontainers.image.revision")"
+  config_source="$(extract_config_label "$config_json_input" "org.opencontainers.image.source")"
+  config_title="$(extract_config_label "$config_json_input" "org.opencontainers.image.title")"
+  config_url="$(extract_config_label "$config_json_input" "org.opencontainers.image.url")"
+  config_version="$(extract_config_label "$config_json_input" "org.opencontainers.image.version")"
+
+  require_match "$config_description" "$expected_description" "$subject description"
+  require_match "$config_revision" "$expected_revision" "$subject revision"
+  require_match "$config_source" "$expected_source" "$subject source"
+  require_match "$config_title" "$expected_title" "$subject title"
+  require_match "$config_url" "$expected_source" "$subject URL"
+  require_match "$config_version" "$expected_version" "$subject version"
+}
+
+require_annotations() {
+  local manifest_json="$1"
+  local subject="$2"
+
+  local annotation_description
+  local annotation_revision
+  local annotation_source
+  local annotation_title
+  local annotation_url
+  local annotation_version
+
+  annotation_description="$(extract_annotation "$manifest_json" "org.opencontainers.image.description")"
+  annotation_revision="$(extract_annotation "$manifest_json" "org.opencontainers.image.revision")"
+  annotation_source="$(extract_annotation "$manifest_json" "org.opencontainers.image.source")"
+  annotation_title="$(extract_annotation "$manifest_json" "org.opencontainers.image.title")"
+  annotation_url="$(extract_annotation "$manifest_json" "org.opencontainers.image.url")"
+  annotation_version="$(extract_annotation "$manifest_json" "org.opencontainers.image.version")"
+
+  require_match "$annotation_description" "$expected_description" "$subject description"
+  require_match "$annotation_revision" "$expected_revision" "$subject revision"
+  require_match "$annotation_source" "$expected_source" "$subject source"
+  require_match "$annotation_title" "$expected_title" "$subject title"
+  require_match "$annotation_url" "$expected_source" "$subject URL"
+  require_match "$annotation_version" "$expected_version" "$subject version"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -98,33 +148,13 @@ else
   image_name="${image_ref%:*}"
 fi
 
-config_description="$(extract_config_label "org.opencontainers.image.description")"
-config_revision="$(extract_config_label "org.opencontainers.image.revision")"
-config_source="$(extract_config_label "org.opencontainers.image.source")"
-config_title="$(extract_config_label "org.opencontainers.image.title")"
-config_url="$(extract_config_label "org.opencontainers.image.url")"
-config_version="$(extract_config_label "org.opencontainers.image.version")"
+require_config_labels "$config_json" "Candidate selected platform config"
 
-index_description="$(extract_index_annotation "org.opencontainers.image.description")"
-index_revision="$(extract_index_annotation "org.opencontainers.image.revision")"
-index_source="$(extract_index_annotation "org.opencontainers.image.source")"
-index_title="$(extract_index_annotation "org.opencontainers.image.title")"
-index_url="$(extract_index_annotation "org.opencontainers.image.url")"
-index_version="$(extract_index_annotation "org.opencontainers.image.version")"
-
-require_match "$config_description" "$expected_description" "Candidate config description"
-require_match "$config_revision" "$expected_revision" "Candidate config revision"
-require_match "$config_source" "$expected_source" "Candidate config source"
-require_match "$config_title" "$expected_title" "Candidate config title"
-require_match "$config_url" "$expected_source" "Candidate config URL"
-require_match "$config_version" "$expected_version" "Candidate config version"
-
-require_match "$index_description" "$expected_description" "Candidate index description"
-require_match "$index_revision" "$expected_revision" "Candidate index revision"
-require_match "$index_source" "$expected_source" "Candidate index source"
-require_match "$index_title" "$expected_title" "Candidate index title"
-require_match "$index_url" "$expected_source" "Candidate index URL"
-require_match "$index_version" "$expected_version" "Candidate index version"
+if [[ "$index_media_type" == "$OCI_IMAGE_INDEX_MEDIA_TYPE" ]]; then
+  require_annotations "$index_manifest_json" "Candidate index"
+else
+  echo "Candidate index is a Docker manifest list; skipping index annotation validation because this media type does not carry OCI annotations." >&2
+fi
 
 mapfile -t runnable_manifest_digests < <(
   jq -r '
@@ -143,20 +173,19 @@ fi
 for manifest_digest in "${runnable_manifest_digests[@]}"; do
   manifest_ref="${image_name}@${manifest_digest}"
   manifest_json="$(crane manifest "$manifest_ref")"
+  manifest_media_type="$(jq -r '.mediaType // empty' <<<"$manifest_json")"
+  manifest_config_json="$(crane config "$manifest_ref")"
 
-  manifest_description="$(extract_manifest_annotation "$manifest_json" "org.opencontainers.image.description")"
-  manifest_revision="$(extract_manifest_annotation "$manifest_json" "org.opencontainers.image.revision")"
-  manifest_source="$(extract_manifest_annotation "$manifest_json" "org.opencontainers.image.source")"
-  manifest_title="$(extract_manifest_annotation "$manifest_json" "org.opencontainers.image.title")"
-  manifest_url="$(extract_manifest_annotation "$manifest_json" "org.opencontainers.image.url")"
-  manifest_version="$(extract_manifest_annotation "$manifest_json" "org.opencontainers.image.version")"
+  require_config_labels "$manifest_config_json" "Candidate manifest $manifest_digest config"
 
-  require_match "$manifest_description" "$expected_description" "Candidate manifest $manifest_digest description"
-  require_match "$manifest_revision" "$expected_revision" "Candidate manifest $manifest_digest revision"
-  require_match "$manifest_source" "$expected_source" "Candidate manifest $manifest_digest source"
-  require_match "$manifest_title" "$expected_title" "Candidate manifest $manifest_digest title"
-  require_match "$manifest_url" "$expected_source" "Candidate manifest $manifest_digest URL"
-  require_match "$manifest_version" "$expected_version" "Candidate manifest $manifest_digest version"
+  if [[ "$manifest_media_type" == "$OCI_IMAGE_MANIFEST_MEDIA_TYPE" ]]; then
+    require_annotations "$manifest_json" "Candidate manifest $manifest_digest"
+  elif [[ "$manifest_media_type" == "$DOCKER_IMAGE_MANIFEST_MEDIA_TYPE" ]]; then
+    echo "Candidate manifest $manifest_digest is a Docker image manifest; skipping manifest annotation validation because this media type does not carry OCI annotations." >&2
+  else
+    echo "Candidate manifest $manifest_digest media type mismatch: expected $OCI_IMAGE_MANIFEST_MEDIA_TYPE or $DOCKER_IMAGE_MANIFEST_MEDIA_TYPE, got $manifest_media_type" >&2
+    exit 1
+  fi
 done
 
 echo "resolved_digest=$resolved_digest" >> "$GITHUB_OUTPUT"
