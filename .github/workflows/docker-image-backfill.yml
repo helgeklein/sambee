@@ -102,8 +102,96 @@ jobs:
         candidate_digest="$(crane digest "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}")"
         echo "candidate_digest=$candidate_digest" >> "$GITHUB_OUTPUT"
 
-  verify-candidate-artifact:
+  ensure-candidate-metadata-bundle:
     needs: [prepare, resolve-candidate-artifact]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout tagged code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Sync and verify version metadata
+      uses: ./.github/actions/sync-version-check
+
+    - name: Write build metadata files
+      shell: bash
+      run: git rev-parse HEAD > GIT_COMMIT
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Check whether metadata bundle already exists
+      id: bundle
+      shell: bash
+      run: |
+        metadata_tag="$(bash .github/scripts/metadata_bundle_tag.sh --image-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}")"
+        if oras pull "${{ needs.prepare.outputs.signature_repository }}:${metadata_tag}" --output "${{ runner.temp }}/existing-metadata-bundle" >/dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Export attested OCI layout for bundle backfill
+      if: ${{ steps.bundle.outputs.exists != 'true' }}
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64
+        outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false
+        provenance: true
+        sbom: true
+
+    - name: Extract metadata bundle for backfill
+      if: ${{ steps.bundle.outputs.exists != 'true' }}
+      shell: bash
+      run: |
+        bundle_dir="${{ runner.temp }}/metadata-bundle"
+        bash .github/scripts/extract_metadata_bundle_from_oci.sh \
+          --oci-layout "${{ runner.temp }}/attested-image" \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --output-dir "$bundle_dir"
+
+    - name: Publish metadata bundle for backfill
+      if: ${{ steps.bundle.outputs.exists != 'true' }}
+      shell: bash
+      run: |
+        bash .github/scripts/publish_metadata_bundle.sh \
+          --bundle-dir "${{ runner.temp }}/metadata-bundle" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --image-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"
+
+  verify-candidate-artifact:
+    needs: [prepare, resolve-candidate-artifact, ensure-candidate-metadata-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,9 +205,18 @@ jobs:
       with:
         install-dir: ${{ runner.temp }}/bin
 
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
     - name: Log in to GHCR with crane
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
     - name: Verify candidate artifact metadata
       shell: bash
@@ -130,11 +227,15 @@ jobs:
           --expected-version "${{ needs.prepare.outputs.version }}" \
           --expected-source "${{ needs.prepare.outputs.source_url }}"
 
-    - name: Verify candidate attestations
+    - name: Verify candidate metadata bundle
       shell: bash
       run: |
-        bash .github/scripts/verify_candidate_attestations.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"
+        bash .github/scripts/verify_candidate_metadata_bundle.sh \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}"
 
   publish-release-tags:
     needs: [prepare, resolve-candidate-artifact, verify-candidate-artifact]
@@ -201,6 +302,42 @@ jobs:
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
           --tag "${{ needs.prepare.outputs.release_type }}"
+
+  upload-metadata-release-assets:
+    needs: [prepare, resolve-candidate-artifact, ensure-candidate-metadata-bundle, publish-release-tags]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Pull metadata bundle
+      shell: bash
+      run: |
+        metadata_tag="$(bash .github/scripts/metadata_bundle_tag.sh --image-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}")"
+        oras pull "${{ needs.prepare.outputs.signature_repository }}:${metadata_tag}" --output "${{ runner.temp }}/metadata-bundle"
+
+    - name: Upload bundle files to GitHub release assets
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: |
+        gh release upload "${{ inputs.release_tag }}" --clobber \
+          "${{ runner.temp }}/metadata-bundle/metadata.json" \
+          "${{ runner.temp }}/metadata-bundle/provenance/intoto.jsonl" \
+          "${{ runner.temp }}/metadata-bundle/sbom/linux-amd64.spdx.json" \
+          "${{ runner.temp }}/metadata-bundle/sbom/linux-arm64.spdx.json"
 
   sign-and-attest:
     needs: [prepare, resolve-candidate-artifact, promote-channel-tags]

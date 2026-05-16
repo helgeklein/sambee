@@ -50,7 +50,7 @@ After validation, the workflow:
 1. Builds the multi-platform image.
 2. Publishes it under `sha-<full-commit-sha>`.
 3. Moves the `test` tag onto that same digest.
-4. Emits SBOM and provenance attestations.
+4. Publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
 5. Signs the digest with Cosign using GitHub Actions OIDC.
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.

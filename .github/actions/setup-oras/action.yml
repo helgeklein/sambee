@@ -1,0 +1,16 @@
+name: Setup ORAS
+description: Install the reviewed ORAS CLI release.
+
+inputs:
+  install-dir:
+    description: Directory where the ORAS binary should be installed.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install ORAS
+      shell: bash
+      run: |
+        bash .github/scripts/install_oras.sh "${{ inputs.install-dir }}"
+        echo "${{ inputs.install-dir }}" >> "$GITHUB_PATH"

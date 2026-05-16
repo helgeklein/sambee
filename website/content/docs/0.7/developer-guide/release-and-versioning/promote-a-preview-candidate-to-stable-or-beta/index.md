@@ -32,7 +32,7 @@ Before promotion, the workflow checks all of the following:
 1. The published release tag matches `v$(cat VERSION)` exactly.
 2. The corresponding immutable preview candidate tag `sha-<full-commit-sha>` exists in GitHub Container Registry.
 3. The candidate image labels match the expected revision, version, and source repository.
-4. The preview-built SBOM and provenance attestation manifests are still attached correctly for each runnable platform manifest.
+4. The preview-built SBOM and provenance metadata bundle exists under the expected digest-derived `.meta` tag and matches the candidate digest.
 
 If any of those checks fail, promotion stops.
 
@@ -56,7 +56,7 @@ The digest stays the canonical deployment target.
 
 This model avoids rebuilding at release time.
 
-The thing tested as a preview candidate is therefore the exact thing that later becomes `stable` or `beta`. The preview-generated SBOM and provenance also stay attached to the validated artifact.
+The thing tested as a preview candidate is therefore the exact thing that later becomes `stable` or `beta`. The preview-generated SBOM and provenance bundle is also verified against that same digest during promotion.
 
 ## Tag Contract
 
@@ -79,5 +79,5 @@ Once the release workflow succeeds:
 
 See [Deploy Sambee with Docker](../../../admin-guide/installation-and-deployment/deploy-sambee-with-docker/) for the operator view.
 
-See [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/) for the signing and attestation details.
+See [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/) for the signing and metadata-bundle details.
 

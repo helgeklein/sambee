@@ -66,17 +66,18 @@ Each platform variant comes from the same Dockerfile and is published under the 
 
 Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
 
+SBOM and provenance data for that digest are also published in the dedicated `ghcr.io/<owner>/sambee-signatures` repository under a digest-derived `.meta` tag.
+
 ## Security Model
 
 Preview publication is the only workflow that builds and pushes a new image.
 
 It also:
 
-- emits SBOM attestations.
-- emits provenance attestations.
+- publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
 - signs the digest with Cosign using GitHub Actions OIDC.
 
-Release promotion does not rebuild the image. It verifies candidate metadata and attached attestation manifests first, then promotes the existing digest.
+Release promotion does not rebuild the image. It verifies candidate image metadata and the published metadata bundle first, then promotes the existing digest.
 
 Use [Publish Test Docker Candidate](../publish-a-preview-docker-image/) for the build-and-publish flow.
 

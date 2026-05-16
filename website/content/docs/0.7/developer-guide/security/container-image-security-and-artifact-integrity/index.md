@@ -12,8 +12,8 @@ Sambee uses Trivy and release-artifact integrity controls to validate the final 
 |---|---|
 | `.github/workflows/docker-image-security-scan.yml` | builds the current `main` image and runs the weekly Trivy scan |
 | `.github/workflows/docker-image-preview-publish.yml` | runs the preview-candidate Trivy scan before publishing to the `test` channel |
-| `.github/workflows/docker-image-publish.yml` | promotes a verified candidate digest onto release tags after checking metadata and attached build attestations |
-| `.github/scripts/verify_candidate_attestations.sh` | verifies that preview-built provenance and SBOM attestation manifests are still attached to the promoted candidate image |
+| `.github/workflows/docker-image-publish.yml` | promotes a verified candidate digest onto release tags after checking image metadata and the published metadata bundle |
+| `.github/scripts/verify_candidate_metadata_bundle.sh` | verifies that the preview-built SBOM and provenance bundle exists under the expected digest-derived metadata tag |
 | `.github/tools/trivy/Dockerfile` | pins the Trivy container image version that both scan workflows use |
 | `.trivyignore.yaml` | holds reviewed Trivy suppressions for the image scans |
 | `Dockerfile` | defines the runtime artifact that is actually scanned and published |
@@ -81,20 +81,19 @@ That keeps long-lived silent exceptions from accumulating in the image-security 
 
 The preview publish and release promotion workflows enable:
 
-- SBOM emission
-- build provenance attestation
+- SBOM and provenance bundle publication in a dedicated metadata repository
 - Cosign signing of the pushed image digest through GitHub Actions OIDC
 
-Release promotion also verifies that the preview-built attestation manifests are still attached to the candidate digest before channel tags are moved.
+Release promotion also verifies that the preview-built metadata bundle matches the candidate digest before channel tags are moved.
 
 Cosign signatures are stored in a dedicated GHCR repository instead of the main image repository.
 
 Current split:
 
-- deployable images, multi-arch manifests, and Buildx SBOM and provenance artifacts stay under `ghcr.io/<owner>/sambee`
-- Cosign signature artifacts are written under the dedicated signature repository configured through `COSIGN_REPOSITORY`
+- deployable images and multi-arch manifests stay under `ghcr.io/<owner>/sambee`
+- SBOM bundles, provenance bundles, and Cosign signature artifacts are written under `ghcr.io/<owner>/sambee-signatures`
 
-That keeps the main package page focused on deployable image versions instead of letting later signature artifacts become the package overview's apparent latest version.
+That keeps the main package page focused on deployable image versions instead of showing non-runnable attestation content there.
 
 Those controls do not replace vulnerability scanning.
 

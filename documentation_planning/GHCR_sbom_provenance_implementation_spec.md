@@ -70,7 +70,6 @@ Non-goals:
     "predicate_type_prefix": "https://slsa.dev/provenance/"
   },
   "checksums": {
-    "metadata.json": "sha256:<hex>",
     "provenance/intoto.jsonl": "sha256:<hex>",
     "sbom/linux-amd64.spdx.json": "sha256:<hex>",
     "sbom/linux-arm64.spdx.json": "sha256:<hex>"
@@ -83,7 +82,7 @@ Required rules:
 - `image_digest` is the multi-arch index digest that release promotion already resolves.
 - `metadata_tag` must match the digest-to-tag transformation exactly.
 - `platforms` must list every runnable manifest present in the promoted image index.
-- `checksums` must cover every file in the bundle, including `metadata.json` itself.
+- `checksums` must cover the extracted payload files referenced by the bundle: `provenance/intoto.jsonl` and each SBOM file.
 - `created` is the bundle creation time, not the git commit time.
 
 ### Provenance content rules
@@ -246,18 +245,17 @@ Keep the existing `test_verify_candidate_attestations_script.py` tests until the
 
 ## Rollout Plan
 
-### Phase 1: Dual publication on preview only
+### Phase 1: Publish metadata bundles from preview builds
 
-- Keep the current inline Buildx attestation publication in preview for one or more validation runs.
-- Add metadata bundle generation and publication in parallel.
-- Run both verifier scripts and compare results.
-- Do not change release or backfill workflows yet.
+- Disable inline Buildx attestation publication in the main image package.
+- Generate the replacement metadata bundle from a local attested OCI export build.
+- Publish the bundle into `ghcr.io/<owner>/sambee-signatures` under the digest-derived `.meta` tag.
 
-### Phase 2: Switch release verification to bundles
+### Phase 2: Verify bundles in release and backfill workflows
 
-- Disable inline attestation publication in preview.
-- Replace release and backfill verification with bundle verification.
+- Replace release and backfill attestation verification with metadata bundle verification.
 - Keep Cosign signing behavior unchanged.
+- Upload the bundle files to the GitHub release as convenience assets.
 
 ### Phase 3: Remove legacy verifier and update docs
 

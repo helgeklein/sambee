@@ -395,11 +395,90 @@ jobs:
         labels: ${{ steps.image.outputs.labels }}
         cache-from: type=gha,scope=preview-docker-image
         cache-to: type=gha,mode=max,scope=preview-docker-image
+        provenance: false
+        sbom: false
+
+  build-metadata-bundle:
+    needs: [prepare, build-and-publish-immutable]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Apply manual version override
+      if: ${{ needs.prepare.outputs.version_override != '' }}
+      shell: bash
+      run: |
+        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
+        ./scripts/sync-version
+
+    - name: Write build metadata files
+      shell: bash
+      run: git rev-parse HEAD > GIT_COMMIT
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Export attested OCI layout
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64,linux/arm64
+        outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false
+        cache-from: type=gha,scope=preview-docker-image
         provenance: true
         sbom: true
 
+    - name: Extract metadata bundle
+      shell: bash
+      run: |
+        bundle_dir="${{ runner.temp }}/metadata-bundle"
+        bash .github/scripts/extract_metadata_bundle_from_oci.sh \
+          --oci-layout "${{ runner.temp }}/attested-image" \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --output-dir "$bundle_dir"
+
+    - name: Publish metadata bundle
+      shell: bash
+      run: |
+        bash .github/scripts/publish_metadata_bundle.sh \
+          --bundle-dir "${{ runner.temp }}/metadata-bundle" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --image-digest "${{ needs.build-and-publish-immutable.outputs.digest }}"
+
   promote-test-tag:
-    needs: [prepare, build-and-publish-immutable]
+    needs: [prepare, build-and-publish-immutable, build-metadata-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: read

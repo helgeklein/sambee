@@ -21,7 +21,7 @@ The backfill workflow follows the same core safety rules as normal promotion:
 
 - It resolves an existing candidate digest.
 - It verifies image metadata.
-- It verifies the preview-built attestation manifests.
+- It verifies the preview-built metadata bundle, generating and publishing it first if an older release does not have one yet.
 - It reapplies the expected release and channel tags to that same digest.
 
 Use backfill only for already approved releases. It is not an alternate way to publish a new image.
