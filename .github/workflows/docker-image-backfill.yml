@@ -208,7 +208,7 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: linux/amd64,linux/arm64
-        outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false
+        outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false,oci-mediatypes=false
         labels: ${{ steps.image.outputs.labels }}
         provenance: true
         sbom: true
