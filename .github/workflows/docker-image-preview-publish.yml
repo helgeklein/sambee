@@ -418,8 +418,8 @@ jobs:
         index_media_type="$(jq -r '.mediaType // empty' <<<"$index_json")"
         runnable_manifest_count="$(jq '[.manifests[]? | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown")] | length' <<<"$index_json")"
 
-        if [[ "$index_media_type" != "application/vnd.oci.image.index.v1+json" ]]; then
-          echo "Assembled preview candidate is not an OCI image index: $index_media_type" >&2
+        if [[ "$index_media_type" != "application/vnd.oci.image.index.v1+json" && "$index_media_type" != "application/vnd.docker.distribution.manifest.list.v2+json" ]]; then
+          echo "Assembled preview candidate is not a supported multi-platform image index: $index_media_type" >&2
           exit 1
         fi
 

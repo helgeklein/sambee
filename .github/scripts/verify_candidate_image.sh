@@ -3,6 +3,7 @@
 set -euo pipefail
 
 readonly OCI_IMAGE_INDEX_MEDIA_TYPE="application/vnd.oci.image.index.v1+json"
+readonly DOCKER_MANIFEST_LIST_MEDIA_TYPE="application/vnd.docker.distribution.manifest.list.v2+json"
 
 usage() {
   cat <<'EOF' >&2
@@ -86,7 +87,10 @@ index_manifest_json="$(crane manifest "$image_ref")"
 resolved_digest="$(crane digest "$image_ref")"
 
 index_media_type="$(jq -r '.mediaType // empty' <<<"$index_manifest_json")"
-require_match "$index_media_type" "$OCI_IMAGE_INDEX_MEDIA_TYPE" "Candidate index media type"
+if [[ "$index_media_type" != "$OCI_IMAGE_INDEX_MEDIA_TYPE" && "$index_media_type" != "$DOCKER_MANIFEST_LIST_MEDIA_TYPE" ]]; then
+  echo "Candidate index media type mismatch: expected $OCI_IMAGE_INDEX_MEDIA_TYPE or $DOCKER_MANIFEST_LIST_MEDIA_TYPE, got $index_media_type" >&2
+  exit 1
+fi
 
 if [[ "$image_ref" == *@* ]]; then
   image_name="${image_ref%@*}"
