@@ -52,6 +52,8 @@ Prereleases publish:
 
 The digest stays the canonical deployment target.
 
+After the release tags are attached, the workflow uploads `metadata.json`, `provenance/intoto.jsonl`, and the platform SPDX SBOM files to the GitHub Release as convenience assets. The digest-derived `.meta` artifact in `ghcr.io/<owner>/sambee-signatures` remains the canonical metadata bundle.
+
 ## Why No Rebuild
 
 This model avoids rebuilding at release time.

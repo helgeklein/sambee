@@ -86,12 +86,14 @@ The preview publish and release promotion workflows enable:
 
 Release promotion also verifies that the preview-built metadata bundle matches the candidate digest before channel tags are moved.
 
+Release and backfill workflows mirror the exact metadata bundle files to the GitHub Release as convenience assets. The digest-derived `.meta` artifact in GHCR remains the canonical store.
+
 Cosign signatures are stored in a dedicated GHCR repository instead of the main image repository.
 
 Current split:
 
 - deployable images and multi-arch manifests stay under `ghcr.io/<owner>/sambee`
-- SBOM bundles, provenance bundles, and Cosign signature artifacts are written under `ghcr.io/<owner>/sambee-signatures`
+- SBOM and provenance metadata bundles and Cosign signature artifacts are written under `ghcr.io/<owner>/sambee-signatures`
 
 That keeps the main package page focused on deployable image versions instead of showing non-runnable attestation content there.
 

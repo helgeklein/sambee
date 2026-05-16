@@ -34,9 +34,9 @@ Read the detailed pages in this order:
 | Workflow | When to use it | Result |
 |---|---|---|
 | `CI: Validate Docker Image` | Any pull request, push to `main`, or manual smoke-test run. | Proves the production image still builds and starts, but does not publish anything. |
-| `Preview: Publish Test Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes, signs, and marks that digest as the current `test` image. |
+| `Preview: Publish Test Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes the metadata bundle, marks that digest as the current `test` image, and signs the digest. |
 | `Release: Publish Docker Image` | A GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags and the `stable` or `beta` channel tag. |
-| `Backfill Docker Image Release` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without rebuilding. |
+| `Maintenance: Backfill Docker Release Tags` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without publishing a new runtime image. |
 | `Cleanup Test Docker Images` | Preview history needs retention control. | Deletes older test-only GHCR versions while preserving release-tagged artifacts and protected aliases. |
 
 ## Channels And Tags
@@ -67,6 +67,8 @@ Each platform variant comes from the same Dockerfile and is published under the 
 Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
 
 SBOM and provenance data for that digest are also published in the dedicated `ghcr.io/<owner>/sambee-signatures` repository under a digest-derived `.meta` tag.
+
+Release and backfill workflows also upload the exact bundle files to the GitHub Release as convenience assets. The GHCR `.meta` artifact remains the canonical metadata bundle.
 
 ## Security Model
 
