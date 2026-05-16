@@ -19,30 +19,48 @@ Purpose: improve the GHCR package UX without weakening artifact integrity, and l
 
 ## Phase 2: Classify Artifacts By Mobility
 
-- [ ] Keep Cosign signatures in the dedicated signature repository
-- [ ] Inventory all artifacts currently emitted into `ghcr.io/<owner>/sambee`
-- [ ] Mark each artifact as one of:
-  - [ ] required deployable image content
-  - [ ] movable with low complexity
-  - [ ] structurally tied to the multi-arch image layout
-- [ ] Explicitly record that multi-arch child manifests are required and should not be treated as cleanup candidates
+- [x] Keep Cosign signatures in the dedicated signature repository
+- [x] Inventory all artifacts currently emitted into `ghcr.io/<owner>/sambee`
+- [x] Mark each artifact as one of:
+  - [x] required deployable image content
+  - [x] movable with low complexity
+  - [x] structurally tied to the multi-arch image layout
+- [x] Explicitly record that multi-arch child manifests are required and should not be treated as cleanup candidates
+
+Current inventory and classification:
+
+- [x] Multi-arch image index for the tagged image: required deployable image content
+- [x] Runnable platform manifest for `linux/amd64`: required deployable image content
+- [x] Runnable platform manifest for `linux/arm64`: required deployable image content
+- [x] Buildx attestation manifest(s) attached to the image index: structurally tied to the current inline SBOM and provenance publication model
+- [x] GHCR `os/arch = unknown` row on the per-version page: expected rendering of the attached Buildx attestation manifest, not a broken runnable image entry
+- [x] Cosign signatures in `ghcr.io/<owner>/sambee-signatures`: movable with low complexity and already moved out of the main package
+
+Decision baseline for the next phase:
+
+- [x] Do not try to remove or clean up the `linux/amd64` and `linux/arm64` manifests; they are required for the multi-arch image to function
+- [x] Do not treat the `unknown` GHCR row as a metadata bug; it is a visibility side effect of inline Buildx attestations
+- [x] Treat Cosign signature storage as the already-successful pattern for artifacts that can live outside the main package
+- [x] Use Phase 3 to decide whether SBOM and provenance should stay inline or move out of band
 
 ## Phase 3: Decide SBOM And Provenance Strategy
 
-- [ ] Compare current Buildx inline SBOM/provenance publication against an out-of-band publication model
-- [ ] Evaluate each option for:
-  - [ ] GHCR UX improvement
-  - [ ] verification strength
-  - [ ] operational complexity
-  - [ ] compatibility with existing promotion flow
-- [ ] Choose one path:
+- [x] Capture the decision inputs in `documentation_planning/GHCR_sbom_provenance_decision_matrix.md`
+- [x] Compare current Buildx inline SBOM/provenance publication against an out-of-band publication model
+- [x] Evaluate each option for:
+  - [x] GHCR UX improvement
+  - [x] verification strength
+  - [x] operational complexity
+  - [x] compatibility with existing promotion flow
+- [x] Choose one path:
   - [ ] keep inline SBOM/provenance and accept residual GHCR clutter
-  - [ ] move SBOM/provenance out of band and disable inline attachment
-- [ ] Record the decision before changing release verification
+  - [x] move SBOM/provenance out of band and disable inline attachment
+- [x] Record the decision before changing release verification
+- [x] Write a concrete implementation spec in `documentation_planning/GHCR_sbom_provenance_implementation_spec.md`
 
 ## Phase 4: Update Verification
 
-- [ ] Extend `.github/scripts/verify_candidate_image.sh` so it validates the metadata users are expected to see in GHCR, not only current config labels
+- [x] Extend `.github/scripts/verify_candidate_image.sh` so it validates the metadata users are expected to see in GHCR, not only current config labels
 - [ ] If SBOM/provenance move out of band, update the release verification flow to verify the new location and format
 - [ ] Re-check `.github/workflows/docker-image-publish.yml` to ensure promotion still verifies the intended trust chain
 
