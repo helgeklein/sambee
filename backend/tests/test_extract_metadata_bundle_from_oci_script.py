@@ -66,6 +66,32 @@ def _candidate_index(platform_digests: dict[str, str]) -> dict[str, object]:
     }
 
 
+def _platform_manifest(platform: str) -> dict[str, object]:
+    platform_id = platform.replace("/", "-")
+    digest_seed = "3" if platform == "linux/amd64" else "4"
+    return {
+        "schemaVersion": 2,
+        "mediaType": "application/vnd.oci.image.manifest.v1+json",
+        "config": {
+            "mediaType": "application/vnd.oci.image.config.v1+json",
+            "digest": "sha256:" + digest_seed * 64,
+        },
+        "layers": [
+            {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:" + ("5" if platform_id == "linux-amd64" else "6") * 64,
+            }
+        ],
+    }
+
+
+def _fake_crane_manifests(image_ref: str, image_repository: str, platform_digests: dict[str, str]) -> dict[str, str]:
+    manifests = {image_ref: json.dumps(_candidate_index(platform_digests))}
+    for platform, digest in platform_digests.items():
+        manifests[f"{image_repository}@{digest}"] = json.dumps(_platform_manifest(platform))
+    return manifests
+
+
 def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> None:
     attestation_manifest_digests = {
         "linux/amd64": "sha256:" + "c" * 64,
@@ -98,6 +124,8 @@ def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> Non
     (oci_layout / "index.json").write_text(json.dumps(local_index, indent=2) + "\n", encoding="utf-8")
 
     for platform, manifest_digest in platform_digests.items():
+        _write_blob(oci_layout, manifest_digest, _platform_manifest(platform))
+
         subject_digest = manifest_digest.removeprefix("sha256:")
         _write_blob(
             oci_layout,
@@ -156,7 +184,7 @@ def test_extractor_writes_spdx_sbom_payloads_and_metadata(tmp_path: Path) -> Non
 
     env = os.environ.copy()
     env["PATH"] = f"{path_dir}:{env['PATH']}"
-    env["FAKE_CRANE_MANIFESTS"] = json.dumps({image_ref: json.dumps(_candidate_index(platform_digests))})
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps(_fake_crane_manifests(image_ref, image_repository, platform_digests))
     result = subprocess.run(
         [
             "bash",
@@ -199,3 +227,62 @@ def test_extractor_writes_spdx_sbom_payloads_and_metadata(tmp_path: Path) -> Non
         "sbom/linux-amd64.spdx.json": _sha256_file(output_dir / "sbom" / "linux-amd64.spdx.json"),
         "sbom/linux-arm64.spdx.json": _sha256_file(output_dir / "sbom" / "linux-arm64.spdx.json"),
     }
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell extractor tests")
+def test_extractor_accepts_local_manifest_digest_drift_for_matching_payloads(tmp_path: Path) -> None:
+    image_repository = "ghcr.io/example/sambee"
+    image_digest = "sha256:" + "9" * 64
+    image_ref = f"{image_repository}@{image_digest}"
+    metadata_repository = "ghcr.io/example/sambee-signatures"
+    remote_platform_digests = {
+        "linux/amd64": "sha256:" + "a" * 64,
+        "linux/arm64": "sha256:" + "b" * 64,
+    }
+    local_platform_digests = {
+        "linux/amd64": "sha256:" + "7" * 64,
+        "linux/arm64": "sha256:" + "8" * 64,
+    }
+    oci_layout = tmp_path / "attested-image"
+    output_dir = tmp_path / "bundle"
+    _build_oci_layout(oci_layout, local_platform_digests)
+    path_dir = _write_fake_crane(tmp_path)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{path_dir}:{env['PATH']}"
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps(_fake_crane_manifests(image_ref, image_repository, remote_platform_digests))
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "--oci-layout",
+            str(oci_layout),
+            "--image-ref",
+            image_ref,
+            "--metadata-repository",
+            metadata_repository,
+            "--version",
+            "0.7.0",
+            "--revision",
+            "abcdef1234567890abcdef1234567890abcdef12",
+            "--source-url",
+            "https://github.com/example/sambee",
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    metadata = json.loads((output_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert {entry["manifest_digest"] for entry in metadata["platforms"]} == set(remote_platform_digests.values())
+
+    provenance_subjects = [
+        "sha256:" + json.loads(line)["subject"][0]["digest"]["sha256"]
+        for line in (output_dir / "provenance" / "intoto.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert set(provenance_subjects) == set(remote_platform_digests.values())

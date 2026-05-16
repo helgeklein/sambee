@@ -90,6 +90,10 @@ platform_to_sbom_path() {
   esac
 }
 
+manifest_payload_fingerprint() {
+  jq -c '{config: .config.digest, layers: [.layers[]?.digest]}'
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --oci-layout)
@@ -190,8 +194,13 @@ for platform in "${!remote_digest_by_platform[@]}"; do
     fail "OCI layout is missing runnable platform $platform for $image_ref"
   fi
 
-  if [[ "${local_digest_by_platform[$platform]}" != "${remote_digest_by_platform[$platform]}" ]]; then
-    fail "Local OCI layout digest for $platform does not match pushed image digest for $image_ref"
+  local_manifest_json="$(read_oci_blob_json "${local_digest_by_platform[$platform]}")"
+  remote_manifest_json="$(crane manifest "$image_name@${remote_digest_by_platform[$platform]}")"
+  local_payload_fingerprint="$(manifest_payload_fingerprint <<<"$local_manifest_json")"
+  remote_payload_fingerprint="$(manifest_payload_fingerprint <<<"$remote_manifest_json")"
+
+  if [[ "$local_payload_fingerprint" != "$remote_payload_fingerprint" ]]; then
+    fail "Local OCI layout payload for $platform does not match pushed image payload for $image_ref"
   fi
 done
 
@@ -202,12 +211,13 @@ mapfile -t sorted_platforms < <(printf '%s\n' "${!remote_digest_by_platform[@]}"
 
 for platform in "${sorted_platforms[@]}"; do
   manifest_digest="${remote_digest_by_platform[$platform]}"
+  local_manifest_digest="${local_digest_by_platform[$platform]}"
   sbom_path="${remote_sbom_path_by_platform[$platform]}"
   sbom_output_path="$output_dir/$sbom_path"
   mkdir -p "$(dirname "$sbom_output_path")"
 
   mapfile -t attestation_manifest_digests < <(
-    jq -r --arg manifest_digest "$manifest_digest" '
+    jq -r --arg manifest_digest "$local_manifest_digest" '
       .manifests[]
       | select((.annotations["vnd.docker.reference.type"] // "") == "attestation-manifest")
       | select((.annotations["vnd.docker.reference.digest"] // "") == $manifest_digest)
@@ -234,7 +244,7 @@ for platform in "${sorted_platforms[@]}"; do
       end
     ' <<<"$attestation_manifest_json")"
 
-    if [[ "$linked_manifest_digest" == "$manifest_digest" ]]; then
+    if [[ "$linked_manifest_digest" == "$local_manifest_digest" ]]; then
       if [[ ! " ${attestation_manifest_digests[*]} " =~ " ${attestation_descriptor_digest} " ]]; then
         attestation_manifest_digests+=("$attestation_descriptor_digest")
       fi
@@ -264,7 +274,7 @@ for platform in "${sorted_platforms[@]}"; do
         continue
       fi
 
-      jq -e --arg manifest_digest "${manifest_digest#sha256:}" '
+      jq -e --arg manifest_digest "${local_manifest_digest#sha256:}" '
         any(.subject[]?; (.digest.sha256 // "") == $manifest_digest)
       ' <<<"$attestation_blob_json" >/dev/null
 
@@ -280,7 +290,19 @@ for platform in "${sorted_platforms[@]}"; do
         ${PROVENANCE_PREDICATE_PREFIX}*)
           provenance_count=$((provenance_count + 1))
           platform_has_provenance["$platform"]=true
-          jq -c '.' <<<"$attestation_blob_json" >> "$provenance_path"
+          jq -c \
+            --arg local_manifest_digest "${local_manifest_digest#sha256:}" \
+            --arg remote_manifest_digest "${manifest_digest#sha256:}" \
+            '
+              .subject = [
+                .subject[]?
+                | if (.digest.sha256 // "") == $local_manifest_digest then
+                    .digest.sha256 = $remote_manifest_digest
+                  else
+                    .
+                  end
+              ]
+            ' <<<"$attestation_blob_json" >> "$provenance_path"
           ;;
       esac
     done < <(
