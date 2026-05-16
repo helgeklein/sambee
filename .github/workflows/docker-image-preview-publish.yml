@@ -2,6 +2,8 @@ name: "Preview: Publish Test Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_DESCRIPTION: Browser-based SMB and local drive access with a built frontend and Python backend
+  IMAGE_TITLE: Sambee
   TRIVY_IGNORE_FILE: ./.trivyignore.yaml
 
 on:
@@ -322,6 +324,22 @@ jobs:
       run: |
         created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
         sha_tag="sha-${{ needs.prepare.outputs.full_sha }}"
+        metadata_entries=(
+          "org.opencontainers.image.created=$created"
+          "org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}"
+          "org.opencontainers.image.licenses=MIT"
+          "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
+          "org.opencontainers.image.revision=${{ needs.prepare.outputs.full_sha }}"
+          "org.opencontainers.image.source=${{ needs.prepare.outputs.source_url }}"
+          "org.opencontainers.image.title=${{ env.IMAGE_TITLE }}"
+          "org.opencontainers.image.url=${{ needs.prepare.outputs.source_url }}"
+          "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
+        )
+        annotation_scopes=(
+          "index"
+          "manifest[linux/amd64]"
+          "manifest[linux/arm64]"
+        )
 
         {
           echo 'tags<<EOF'
@@ -331,15 +349,17 @@ jobs:
 
         {
           echo 'labels<<EOF'
-          echo "org.opencontainers.image.created=$created"
-          echo "org.opencontainers.image.description=Browser-based SMB and local drive access with a built frontend and Python backend"
-          echo "org.opencontainers.image.licenses=MIT"
-          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
-          echo "org.opencontainers.image.revision=${{ needs.prepare.outputs.full_sha }}"
-          echo "org.opencontainers.image.source=${{ needs.prepare.outputs.source_url }}"
-          echo "org.opencontainers.image.title=Sambee"
-          echo "org.opencontainers.image.url=${{ needs.prepare.outputs.source_url }}"
-          echo "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
+          printf '%s\n' "${metadata_entries[@]}"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+        {
+          echo 'annotations<<EOF'
+          for scope in "${annotation_scopes[@]}"; do
+            for entry in "${metadata_entries[@]}"; do
+              printf '%s:%s\n' "$scope" "$entry"
+            done
+          done
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
 
@@ -360,6 +380,7 @@ jobs:
       id: build
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
+        annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
         platforms: linux/amd64,linux/arm64

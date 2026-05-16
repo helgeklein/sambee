@@ -2,6 +2,8 @@ name: "Release: Publish Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_DESCRIPTION: Browser-based SMB and local drive access with a built frontend and Python backend
+  IMAGE_TITLE: Sambee
 
 on:
   release:
@@ -126,9 +128,11 @@ jobs:
       run: |
         bash .github/scripts/verify_candidate_image.sh \
           --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --expected-description "${{ env.IMAGE_DESCRIPTION }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
-          --expected-source "${{ needs.prepare.outputs.source_url }}"
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}"
 
     - name: Verify candidate attestations
       shell: bash

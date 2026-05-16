@@ -12,8 +12,8 @@ Purpose: improve the GHCR package UX without weakening artifact integrity, and l
 
 ## Phase 1: Fix GHCR Presentation
 
-- [ ] Update `.github/workflows/docker-image-preview-publish.yml` to add OCI annotations for the multi-arch image index and image manifests, not just config labels
-- [ ] Ensure the preview image exposes at least title, description, source URL, revision, and version in the form GHCR actually renders
+- [x] Update `.github/workflows/docker-image-preview-publish.yml` to add OCI annotations for the multi-arch image index and image manifests, not just config labels
+- [x] Ensure the preview image exposes at least title, description, source URL, revision, and version in the form GHCR actually renders
 - [ ] Mirror the same metadata behavior in `.github/workflows/docker-image-publish.yml`
 - [ ] Confirm the tagged GHCR package page now shows meaningful metadata for the multi-arch image
 
