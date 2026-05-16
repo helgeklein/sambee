@@ -49,6 +49,9 @@ Sambee publishes three moving channel tags:
 
 Each preview publish also creates an immutable lookup tag in the `sha-<full-commit-sha>` form.
 
+During publication, the workflow may also create temporary platform tags in the `sha-<full-commit-sha>-amd64` and `sha-<full-commit-sha>-arm64` form before it assembles the final multi-platform index.
+Those platform tags are implementation details of the publish workflow.
+
 Release workflows resolve that immutable candidate tag first and then attach the appropriate release tags to the same digest.
 
 `latest` is intentionally not published.
@@ -62,7 +65,7 @@ The published container artifact is a multi-platform image index in GitHub Conta
 
 The repository name is `ghcr.io/<owner>/sambee`.
 
-Each platform variant comes from the same Dockerfile and is published under the same digest.
+Each platform variant comes from the same Dockerfile and is assembled into the same candidate index digest.
 
 Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
 

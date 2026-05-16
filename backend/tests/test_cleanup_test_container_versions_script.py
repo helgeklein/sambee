@@ -60,3 +60,18 @@ def test_api_request_parses_json_payload(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
     assert module.api_request("https://example.invalid", "token") == {"type": "Organization"}
+
+
+@pytest.mark.unit
+def test_arch_specific_preview_tags_are_test_only() -> None:
+    module = load_cleanup_module()
+
+    assert module.is_test_only_tag("sha-0123456789abcdef0123456789abcdef01234567-amd64")
+    assert module.is_test_only_tag("sha-0123456789abcdef0123456789abcdef01234567-arm64")
+
+
+@pytest.mark.unit
+def test_unknown_arch_specific_tags_are_not_test_only() -> None:
+    module = load_cleanup_module()
+
+    assert not module.is_test_only_tag("sha-0123456789abcdef0123456789abcdef01234567-s390x")

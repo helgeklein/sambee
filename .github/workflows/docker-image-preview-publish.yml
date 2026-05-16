@@ -162,7 +162,7 @@ jobs:
 
   validate-image:
     needs: [prepare, validate-tests]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
     strategy:
@@ -171,8 +171,10 @@ jobs:
         include:
           - docker_platform: linux/amd64
             platform_id: amd64
+            runner_label: ubuntu-24.04
           - docker_platform: linux/arm64
             platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout source code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -180,6 +182,7 @@ jobs:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Set up QEMU
+      if: ${{ matrix.platform_id == 'amd64' }}
       uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
     - name: Sync and verify version metadata
@@ -208,6 +211,7 @@ jobs:
         load: true
         platforms: ${{ matrix.docker_platform }}
         build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
           APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
         tags: sambee:preview-validation-${{ matrix.platform_id }}
         cache-from: type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
@@ -278,7 +282,7 @@ jobs:
           --show-suppressed \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
-            --pkg-types os,library \
+          --pkg-types os,library \
           --format table \
           --exit-code 1 \
           sambee:preview-validation-${{ matrix.platform_id }}
@@ -305,15 +309,22 @@ jobs:
       shell: bash
       run: docker rm -f sambee-preview-smoke-${{ matrix.platform_id }} || true
 
-  build-and-publish-immutable:
+  build-and-publish-platforms:
     needs: [prepare, validate-tests, validate-image]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
       packages: write
-      id-token: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+            runner_label: ubuntu-24.04
+          - docker_platform: linux/arm64
+            platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout source code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -331,7 +342,7 @@ jobs:
       shell: bash
       run: git rev-parse HEAD > GIT_COMMIT
 
-    - name: Prepare preview image metadata
+    - name: Prepare preview platform image metadata
       id: image
       shell: bash
       run: |
@@ -343,8 +354,9 @@ jobs:
           --source-url "${{ needs.prepare.outputs.source_url }}" \
           --title "${{ env.IMAGE_TITLE }}" \
           --version "${{ needs.prepare.outputs.version }}" \
+          --annotation-platform "${{ matrix.docker_platform }}" \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --tag "sha-${{ needs.prepare.outputs.full_sha }}"
+          --tag "sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
 
     - name: Log in to GHCR
       uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -354,28 +366,134 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up QEMU
+      if: ${{ matrix.platform_id == 'amd64' }}
       uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-    - name: Build and push immutable preview image
+    - name: Build and push immutable preview platform image
       id: build
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
         annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
-        platforms: linux/amd64,linux/arm64
+        platforms: ${{ matrix.docker_platform }}
         push: true
         tags: ${{ steps.image.outputs.tags }}
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
           APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
-        cache-from: type=gha,scope=preview-docker-image
-        cache-to: type=gha,mode=max,scope=preview-docker-image
+        cache-from: |
+          type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+          type=gha,scope=preview-docker-image
+        cache-to: type=gha,mode=max,scope=preview-docker-image-${{ matrix.platform_id }}
         provenance: false
         sbom: false
+
+  build-and-publish-immutable:
+    needs: [prepare, build-and-publish-platforms]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.assemble.outputs.digest }}
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Assemble immutable preview image index
+      id: assemble
+      shell: bash
+      env:
+        IMAGE_NAME: ${{ needs.prepare.outputs.image_name }}
+        IMAGE_CREATED: ${{ needs.prepare.outputs.created }}
+        IMAGE_DESCRIPTION: ${{ needs.prepare.outputs.image_description }}
+        IMAGE_REF_NAME: ${{ needs.prepare.outputs.source_ref_name }}
+        IMAGE_REVISION: ${{ needs.prepare.outputs.full_sha }}
+        IMAGE_SOURCE_URL: ${{ needs.prepare.outputs.source_url }}
+        IMAGE_TITLE_VALUE: ${{ env.IMAGE_TITLE }}
+        IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      run: |
+        image_name="$IMAGE_NAME"
+        index_ref="$image_name:sha-$IMAGE_REVISION"
+        amd64_ref="$image_name:sha-$IMAGE_REVISION-amd64"
+        arm64_ref="$image_name:sha-$IMAGE_REVISION-arm64"
+
+        metadata_entries=(
+          "org.opencontainers.image.created=$IMAGE_CREATED"
+          "org.opencontainers.image.description=$IMAGE_DESCRIPTION"
+          "org.opencontainers.image.licenses=MIT"
+          "org.opencontainers.image.ref.name=$IMAGE_REF_NAME"
+          "org.opencontainers.image.revision=$IMAGE_REVISION"
+          "org.opencontainers.image.source=$IMAGE_SOURCE_URL"
+          "org.opencontainers.image.title=$IMAGE_TITLE_VALUE"
+          "org.opencontainers.image.url=$IMAGE_SOURCE_URL"
+          "org.opencontainers.image.version=$IMAGE_VERSION"
+        )
+
+        annotation_args=()
+        for entry in "${metadata_entries[@]}"; do
+          annotation_args+=(--annotation "index:$entry")
+        done
+
+        docker buildx imagetools create \
+          --tag "$index_ref" \
+          "${annotation_args[@]}" \
+          "$amd64_ref" \
+          "$arm64_ref"
+
+        index_digest="$(crane digest "$index_ref")"
+        index_json="$(crane manifest "$index_ref")"
+        index_media_type="$(jq -r '.mediaType // empty' <<<"$index_json")"
+        runnable_manifest_count="$(jq '[.manifests[]? | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown")] | length' <<<"$index_json")"
+
+        if [[ "$index_media_type" != "application/vnd.oci.image.index.v1+json" ]]; then
+          echo "Assembled preview candidate is not an OCI image index: $index_media_type" >&2
+          exit 1
+        fi
+
+        if [[ "$runnable_manifest_count" != "2" ]]; then
+          echo "Assembled preview candidate should contain exactly 2 runnable manifests, got $runnable_manifest_count" >&2
+          exit 1
+        fi
+
+        echo "digest=$index_digest" >> "$GITHUB_OUTPUT"
+
+    - name: Verify assembled preview image metadata
+      shell: bash
+      run: |
+        bash .github/scripts/verify_candidate_image.sh \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ steps.assemble.outputs.digest }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}"
 
   build-metadata-bundle:
     needs: [prepare, build-and-publish-immutable]
@@ -447,8 +565,12 @@ jobs:
         outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false,oci-mediatypes=false
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
           APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
-        cache-from: type=gha,scope=preview-docker-image
+        cache-from: |
+          type=gha,scope=preview-docker-image
+          type=gha,scope=preview-docker-image-amd64
+          type=gha,scope=preview-docker-image-arm64
         provenance: true
         sbom: true
 

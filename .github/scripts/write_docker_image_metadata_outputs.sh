@@ -12,6 +12,7 @@ Usage: write_docker_image_metadata_outputs.sh \
   --source-url <url> \
   --title <text> \
   --version <version> \
+  [--annotation-platform <linux/arch>] \
   [--image-name <repo>] \
   [--tag <tag>]
 EOF
@@ -25,6 +26,7 @@ revision=""
 source_url=""
 title=""
 version=""
+annotation_platform=""
 image_name=""
 tag=""
 
@@ -56,6 +58,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --version)
       version="$2"
+      shift 2
+      ;;
+    --annotation-platform)
+      annotation_platform="$2"
       shift 2
       ;;
     --image-name)
@@ -100,9 +106,17 @@ metadata_entries=(
 
 annotation_scopes=(
   "index"
+  "manifest"
   "manifest[linux/amd64]"
   "manifest[linux/arm64]"
 )
+
+if [[ -n "$annotation_platform" ]]; then
+  annotation_scopes=(
+    "manifest"
+    "manifest[$annotation_platform]"
+  )
+fi
 
 {
   if [[ -n "$tag" ]]; then

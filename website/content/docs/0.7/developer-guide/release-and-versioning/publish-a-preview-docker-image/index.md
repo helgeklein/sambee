@@ -51,13 +51,16 @@ That keeps preview candidates aligned with the latest package fixes available fr
 
 After validation, the workflow:
 
-1. Builds the multi-platform image.
-2. Publishes it under `sha-<full-commit-sha>`.
-3. Publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
-4. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
-5. Signs the digest with Cosign using GitHub Actions OIDC.
+1. Builds and pushes native `linux/amd64` and `linux/arm64` platform manifests.
+2. Assembles those manifests into the multi-platform candidate index.
+3. Publishes the candidate index under `sha-<full-commit-sha>`.
+4. Publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
+5. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
+6. Signs the digest with Cosign using GitHub Actions OIDC.
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
+
+The workflow uses temporary architecture-specific tags in the `sha-<full-commit-sha>-amd64` and `sha-<full-commit-sha>-arm64` form while assembling the final candidate index. Treat those as internal publish artifacts, not release candidates.
 
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
 

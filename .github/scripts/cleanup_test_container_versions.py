@@ -16,7 +16,7 @@ from dataclasses import dataclass
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 MINOR_RE = re.compile(r"^\d+\.\d+$")
 PRERELEASE_SERIES_RE = re.compile(r"^\d+\.\d+-beta$")
-SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
+SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}(-(amd64|arm64))?$")
 
 
 @dataclass
