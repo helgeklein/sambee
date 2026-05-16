@@ -99,7 +99,7 @@ jobs:
           --show-suppressed \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
-          --vuln-type os,library \
+            --pkg-types os,library \
           --format table \
           --exit-code 1 \
           sambee:security-scan-${{ matrix.platform_id }}
