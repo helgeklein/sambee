@@ -126,6 +126,7 @@ def _build_oci_layout(
     oci_layout: Path,
     platform_digests: dict[str, str],
     attestation_subject_digests: dict[str, str] | None = None,
+    provenance_subjectless_platforms: set[str] | None = None,
 ) -> None:
     attestation_manifest_digests = {
         "linux/amd64": "sha256:" + "c" * 64,
@@ -191,15 +192,13 @@ def _build_oci_layout(
                 "predicate": {"spdxVersion": "SPDX-2.3", "name": platform},
             },
         )
-        _write_blob(
-            oci_layout,
-            provenance_blob_digests[platform],
-            {
-                "predicateType": "https://slsa.dev/provenance/v1",
-                "subject": [{"digest": {"sha256": subject_digest}}],
-                "predicate": {"buildType": "https://example.invalid/build"},
-            },
-        )
+        provenance_statement: dict[str, object] = {
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "predicate": {"buildType": "https://example.invalid/build"},
+        }
+        if platform not in (provenance_subjectless_platforms or set()):
+            provenance_statement["subject"] = [{"digest": {"sha256": subject_digest}}]
+        _write_blob(oci_layout, provenance_blob_digests[platform], provenance_statement)
 
 
 @pytest.mark.unit
@@ -385,3 +384,63 @@ def test_extractor_normalizes_provenance_subjects_from_platform_attestations(tmp
         for line in (output_dir / "provenance" / "intoto.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert set(provenance_subjects) == set(remote_platform_digests.values())
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is required for shell extractor tests")
+def test_extractor_synthesizes_missing_provenance_subjects(tmp_path: Path) -> None:
+    image_repository = "ghcr.io/example/sambee"
+    image_digest = "sha256:" + "9" * 64
+    image_ref = f"{image_repository}@{image_digest}"
+    metadata_repository = "ghcr.io/example/sambee-signatures"
+    platform_digests = {
+        "linux/amd64": "sha256:" + "a" * 64,
+        "linux/arm64": "sha256:" + "b" * 64,
+    }
+    oci_layout = tmp_path / "attested-image"
+    output_dir = tmp_path / "bundle"
+    _build_oci_layout(oci_layout, platform_digests, provenance_subjectless_platforms={"linux/amd64"})
+    path_dir = _write_fake_crane(tmp_path)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{path_dir}:{env['PATH']}"
+    manifests = _fake_crane_outputs(image_ref, image_repository, platform_digests)
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps(manifests)
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPT_PATH),
+            "--oci-layout",
+            str(oci_layout),
+            "--image-ref",
+            image_ref,
+            "--metadata-repository",
+            metadata_repository,
+            "--version",
+            "0.7.0",
+            "--revision",
+            "abcdef1234567890abcdef1234567890abcdef12",
+            "--source-url",
+            "https://github.com/example/sambee",
+            "--output-dir",
+            str(output_dir),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    provenance_statements = [
+        json.loads(line) for line in (output_dir / "provenance" / "intoto.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert {"sha256:" + statement["subject"][0]["digest"]["sha256"] for statement in provenance_statements} == set(
+        platform_digests.values()
+    )
+    synthesized_subject = next(
+        statement["subject"][0]
+        for statement in provenance_statements
+        if statement["subject"][0]["digest"]["sha256"] == platform_digests["linux/amd64"].removeprefix("sha256:")
+    )
+    assert synthesized_subject["name"] == f"{image_repository}@{platform_digests['linux/amd64']}"

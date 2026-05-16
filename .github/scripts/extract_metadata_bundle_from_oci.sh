@@ -273,14 +273,24 @@ for platform in "${sorted_platforms[@]}"; do
         ${PROVENANCE_PREDICATE_PREFIX}*)
           provenance_count=$((provenance_count + 1))
           platform_has_provenance["$platform"]=true
-          jq -e '(.subject // []) | length > 0 and all(.[]; (.digest.sha256 // "") != "")' <<<"$attestation_blob_json" >/dev/null || fail "Provenance attestation for platform $platform does not contain digest subjects"
           jq -c \
             --arg remote_manifest_digest "${manifest_digest#sha256:}" \
+            --arg subject_name "$image_name@$manifest_digest" \
             '
-              .subject = [
-                .subject[]?
-                | .digest.sha256 = $remote_manifest_digest
-              ]
+              .subject = (
+                if ((.subject // []) | length) > 0 then
+                  [
+                    .subject[]?
+                    | if type == "object" then
+                        .digest.sha256 = $remote_manifest_digest
+                      else
+                        {name: tostring, digest: {sha256: $remote_manifest_digest}}
+                      end
+                  ]
+                else
+                  [{name: $subject_name, digest: {sha256: $remote_manifest_digest}}]
+                end
+              )
             ' <<<"$attestation_blob_json" >> "$provenance_path"
           ;;
       esac
