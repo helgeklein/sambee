@@ -26,11 +26,15 @@ import os
 import sys
 
 manifests = json.loads(os.environ["FAKE_CRANE_MANIFESTS"])
+configs = json.loads(os.environ["FAKE_CRANE_CONFIGS"])
 command = sys.argv[1]
 
 if command == "manifest":
     ref = sys.argv[2]
     sys.stdout.write(manifests[ref])
+elif command == "config":
+    ref = sys.argv[2]
+    sys.stdout.write(configs[ref])
 else:
     raise SystemExit(f"unsupported crane command: {command}")
 """.strip()
@@ -66,7 +70,33 @@ def _candidate_index(platform_digests: dict[str, str]) -> dict[str, object]:
     }
 
 
-def _platform_manifest(platform: str) -> dict[str, object]:
+def _platform_config(platform: str) -> dict[str, object]:
+    architecture = platform.split("/", 1)[1]
+    return {
+        "created": "2026-05-16T00:00:00Z",
+        "architecture": architecture,
+        "os": "linux",
+        "config": {
+            "Env": ["DEBIAN_FRONTEND=noninteractive"],
+            "Entrypoint": None,
+            "Cmd": ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+            "WorkingDir": "/app",
+            "User": "sambee",
+            "ExposedPorts": {"8000/tcp": {}},
+            "Volumes": None,
+            "Labels": {
+                "org.opencontainers.image.created": "2026-05-16T00:00:00Z",
+                "org.opencontainers.image.revision": "abcdef1234567890abcdef1234567890abcdef12",
+                "org.opencontainers.image.source": "https://github.com/example/sambee",
+                "org.opencontainers.image.version": "0.7.0",
+            },
+        },
+        "rootfs": {"type": "layers", "diff_ids": ["sha256:" + ("5" if platform == "linux/amd64" else "6") * 64]},
+        "history": [{"created": "2026-05-16T00:00:00Z", "created_by": "test"}],
+    }
+
+
+def _platform_manifest(platform: str, config_digest: str | None = None) -> dict[str, object]:
     platform_id = platform.replace("/", "-")
     digest_seed = "3" if platform == "linux/amd64" else "4"
     return {
@@ -74,7 +104,7 @@ def _platform_manifest(platform: str) -> dict[str, object]:
         "mediaType": "application/vnd.oci.image.manifest.v1+json",
         "config": {
             "mediaType": "application/vnd.oci.image.config.v1+json",
-            "digest": "sha256:" + digest_seed * 64,
+            "digest": config_digest or "sha256:" + digest_seed * 64,
         },
         "layers": [
             {
@@ -85,11 +115,17 @@ def _platform_manifest(platform: str) -> dict[str, object]:
     }
 
 
-def _fake_crane_manifests(image_ref: str, image_repository: str, platform_digests: dict[str, str]) -> dict[str, str]:
+def _fake_crane_outputs(
+    image_ref: str,
+    image_repository: str,
+    platform_digests: dict[str, str],
+) -> tuple[dict[str, str], dict[str, str]]:
     manifests = {image_ref: json.dumps(_candidate_index(platform_digests))}
+    configs = {}
     for platform, digest in platform_digests.items():
         manifests[f"{image_repository}@{digest}"] = json.dumps(_platform_manifest(platform))
-    return manifests
+        configs[f"{image_repository}@{digest}"] = json.dumps(_platform_config(platform))
+    return manifests, configs
 
 
 def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> None:
@@ -124,7 +160,9 @@ def _build_oci_layout(oci_layout: Path, platform_digests: dict[str, str]) -> Non
     (oci_layout / "index.json").write_text(json.dumps(local_index, indent=2) + "\n", encoding="utf-8")
 
     for platform, manifest_digest in platform_digests.items():
-        _write_blob(oci_layout, manifest_digest, _platform_manifest(platform))
+        local_config_digest = "sha256:" + ("3" if platform == "linux/amd64" else "4") * 64
+        _write_blob(oci_layout, manifest_digest, _platform_manifest(platform, config_digest=local_config_digest))
+        _write_blob(oci_layout, local_config_digest, _platform_config(platform))
 
         subject_digest = manifest_digest.removeprefix("sha256:")
         _write_blob(
@@ -184,7 +222,9 @@ def test_extractor_writes_spdx_sbom_payloads_and_metadata(tmp_path: Path) -> Non
 
     env = os.environ.copy()
     env["PATH"] = f"{path_dir}:{env['PATH']}"
-    env["FAKE_CRANE_MANIFESTS"] = json.dumps(_fake_crane_manifests(image_ref, image_repository, platform_digests))
+    manifests, configs = _fake_crane_outputs(image_ref, image_repository, platform_digests)
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps(manifests)
+    env["FAKE_CRANE_CONFIGS"] = json.dumps(configs)
     result = subprocess.run(
         [
             "bash",
@@ -251,7 +291,9 @@ def test_extractor_accepts_local_manifest_digest_drift_for_matching_payloads(tmp
 
     env = os.environ.copy()
     env["PATH"] = f"{path_dir}:{env['PATH']}"
-    env["FAKE_CRANE_MANIFESTS"] = json.dumps(_fake_crane_manifests(image_ref, image_repository, remote_platform_digests))
+    manifests, configs = _fake_crane_outputs(image_ref, image_repository, remote_platform_digests)
+    env["FAKE_CRANE_MANIFESTS"] = json.dumps(manifests)
+    env["FAKE_CRANE_CONFIGS"] = json.dumps(configs)
     result = subprocess.run(
         [
             "bash",

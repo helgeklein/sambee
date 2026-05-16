@@ -90,8 +90,22 @@ platform_to_sbom_path() {
   esac
 }
 
-manifest_payload_fingerprint() {
-  jq -c '{config: .config.digest, layers: [.layers[]?.digest]}'
+image_config_fingerprint() {
+  jq -c '{
+    architecture,
+    os,
+    config: {
+      Env: .config.Env,
+      Entrypoint: .config.Entrypoint,
+      Cmd: .config.Cmd,
+      WorkingDir: .config.WorkingDir,
+      User: .config.User,
+      ExposedPorts: .config.ExposedPorts,
+      Volumes: .config.Volumes,
+      Labels: .config.Labels
+    },
+    rootfs: .rootfs.diff_ids
+  }'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -195,12 +209,18 @@ for platform in "${!remote_digest_by_platform[@]}"; do
   fi
 
   local_manifest_json="$(read_oci_blob_json "${local_digest_by_platform[$platform]}")"
-  remote_manifest_json="$(crane manifest "$image_name@${remote_digest_by_platform[$platform]}")"
-  local_payload_fingerprint="$(manifest_payload_fingerprint <<<"$local_manifest_json")"
-  remote_payload_fingerprint="$(manifest_payload_fingerprint <<<"$remote_manifest_json")"
+  local_config_digest="$(jq -r '.config.digest // empty' <<<"$local_manifest_json")"
+  if [[ -z "$local_config_digest" ]]; then
+    fail "OCI layout platform manifest for $platform is missing a config digest"
+  fi
+
+  local_config_json="$(read_oci_blob_json "$local_config_digest")"
+  remote_config_json="$(crane config "$image_name@${remote_digest_by_platform[$platform]}")"
+  local_payload_fingerprint="$(image_config_fingerprint <<<"$local_config_json")"
+  remote_payload_fingerprint="$(image_config_fingerprint <<<"$remote_config_json")"
 
   if [[ "$local_payload_fingerprint" != "$remote_payload_fingerprint" ]]; then
-    fail "Local OCI layout payload for $platform does not match pushed image payload for $image_ref"
+    fail "Local OCI layout runtime config for $platform does not match pushed image runtime config for $image_ref"
   fi
 done
 
