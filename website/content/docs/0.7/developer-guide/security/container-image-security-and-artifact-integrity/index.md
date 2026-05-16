@@ -59,11 +59,12 @@ This is the workflow that tells you a shipped runtime stack has picked up a newl
 
 ### Preview Publish Scan
 
-`.github/workflows/docker-image-preview-publish.yml` runs Trivy against each preview-validation image variant before the preview candidate is published.
+`.github/workflows/docker-image-preview-publish.yml` runs Trivy against each pushed preview platform image before those platform manifests are assembled into the preview candidate index.
 
 Current preview behavior is intentionally advisory:
 
 - the preview build forces a fresh rebuild of the Debian package-install layer before Trivy runs and before the candidate is published
+- Trivy scans the same temporary architecture-specific tags that are later assembled into the final preview candidate
 - preview publishes still show matching `HIGH` or `CRITICAL` findings
 - the findings do not block publication to the `test` channel
 

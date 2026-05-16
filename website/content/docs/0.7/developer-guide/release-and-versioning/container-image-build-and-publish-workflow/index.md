@@ -65,11 +65,11 @@ The published container artifact is a multi-platform image index in GitHub Conta
 
 The repository name is `ghcr.io/<owner>/sambee`.
 
-Each platform variant comes from the same Dockerfile and is assembled into the same candidate index digest.
+Each platform variant comes from the same Dockerfile, is built and validated on a native runner, and is assembled into the same candidate index digest.
 
 Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
 
-SBOM and provenance data for that digest are also published in the dedicated `ghcr.io/<owner>/sambee-signatures` repository under a digest-derived `.meta` tag.
+SBOM and provenance data for that digest are extracted per platform on native runners, assembled into one metadata bundle, and published in the dedicated `ghcr.io/<owner>/sambee-signatures` repository under a digest-derived `.meta` tag.
 
 Release and backfill workflows also upload the exact bundle files to the GitHub Release as convenience assets. The GHCR `.meta` artifact remains the canonical metadata bundle.
 

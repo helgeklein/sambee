@@ -160,11 +160,12 @@ jobs:
     - name: Run frontend tests
       run: cd frontend && npm test -- --run
 
-  validate-image:
+  build-and-validate-platforms:
     needs: [prepare, validate-tests]
     runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -181,10 +182,6 @@ jobs:
       with:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
 
-    - name: Set up QEMU
-      if: ${{ matrix.platform_id == 'amd64' }}
-      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
     - name: Sync and verify version metadata
       if: ${{ needs.prepare.outputs.version_override == '' }}
       uses: ./.github/actions/sync-version-check
@@ -200,24 +197,57 @@ jobs:
       shell: bash
       run: git rev-parse HEAD > GIT_COMMIT
 
+    - name: Prepare preview platform image metadata
+      id: image
+      shell: bash
+      run: |
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "${{ needs.prepare.outputs.created }}" \
+          --description "${{ needs.prepare.outputs.image_description }}" \
+          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --title "${{ env.IMAGE_TITLE }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --annotation-platform "${{ matrix.docker_platform }}" \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --tag "sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-    - name: Build preview validation image
+    - name: Build and push preview platform image
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
+        annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
-        load: true
         platforms: ${{ matrix.docker_platform }}
+        push: true
+        tags: ${{ steps.image.outputs.tags }}
+        labels: ${{ steps.image.outputs.labels }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
           APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
-        tags: sambee:preview-validation-${{ matrix.platform_id }}
-        cache-from: type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+        cache-from: |
+          type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+          type=gha,scope=preview-docker-image
         cache-to: type=gha,mode=max,scope=preview-docker-image-${{ matrix.platform_id }}
+        provenance: false
+        sbom: false
 
-    - name: Start preview validation container
+    - name: Pull preview platform image for validation
+      shell: bash
+      run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
+
+    - name: Start preview platform validation container
       shell: bash
       run: |
         docker run -d \
@@ -226,7 +256,7 @@ jobs:
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
           -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
-          sambee:preview-validation-${{ matrix.platform_id }}
+          "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
 
     - name: Wait for preview health endpoint
       shell: bash
@@ -285,7 +315,7 @@ jobs:
           --pkg-types os,library \
           --format table \
           --exit-code 1 \
-          sambee:preview-validation-${{ matrix.platform_id }}
+          "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
 
         scan_status=$?
         set -e
@@ -309,92 +339,8 @@ jobs:
       shell: bash
       run: docker rm -f sambee-preview-smoke-${{ matrix.platform_id }} || true
 
-  build-and-publish-platforms:
-    needs: [prepare, validate-tests, validate-image]
-    runs-on: ${{ matrix.runner_label }}
-    permissions:
-      contents: read
-      packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - docker_platform: linux/amd64
-            platform_id: amd64
-            runner_label: ubuntu-24.04
-          - docker_platform: linux/arm64
-            platform_id: arm64
-            runner_label: ubuntu-24.04-arm
-    steps:
-    - name: Checkout source code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      with:
-        ref: ${{ needs.prepare.outputs.checkout_ref }}
-
-    - name: Apply manual version override
-      if: ${{ needs.prepare.outputs.version_override != '' }}
-      shell: bash
-      run: |
-        printf '%s\n' '${{ needs.prepare.outputs.version_override }}' > VERSION
-        ./scripts/sync-version
-
-    - name: Write build metadata files
-      shell: bash
-      run: git rev-parse HEAD > GIT_COMMIT
-
-    - name: Prepare preview platform image metadata
-      id: image
-      shell: bash
-      run: |
-        bash .github/scripts/write_docker_image_metadata_outputs.sh \
-          --created "${{ needs.prepare.outputs.created }}" \
-          --description "${{ needs.prepare.outputs.image_description }}" \
-          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
-          --revision "${{ needs.prepare.outputs.full_sha }}" \
-          --source-url "${{ needs.prepare.outputs.source_url }}" \
-          --title "${{ env.IMAGE_TITLE }}" \
-          --version "${{ needs.prepare.outputs.version }}" \
-          --annotation-platform "${{ matrix.docker_platform }}" \
-          --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --tag "sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
-
-    - name: Log in to GHCR
-      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set up QEMU
-      if: ${{ matrix.platform_id == 'amd64' }}
-      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
-    - name: Build and push immutable preview platform image
-      id: build
-      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
-      with:
-        annotations: ${{ steps.image.outputs.annotations }}
-        context: .
-        file: ./Dockerfile
-        platforms: ${{ matrix.docker_platform }}
-        push: true
-        tags: ${{ steps.image.outputs.tags }}
-        labels: ${{ steps.image.outputs.labels }}
-        build-args: |
-          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
-          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
-        cache-from: |
-          type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
-          type=gha,scope=preview-docker-image
-        cache-to: type=gha,mode=max,scope=preview-docker-image-${{ matrix.platform_id }}
-        provenance: false
-        sbom: false
-
   build-and-publish-immutable:
-    needs: [prepare, build-and-publish-platforms]
+    needs: [prepare, build-and-validate-platforms]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -495,12 +441,22 @@ jobs:
           --expected-source "${{ needs.prepare.outputs.source_url }}" \
           --expected-title "${{ env.IMAGE_TITLE }}"
 
-  build-metadata-bundle:
+  build-metadata-platforms:
     needs: [prepare, build-and-publish-immutable]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+            runner_label: ubuntu-24.04
+          - docker_platform: linux/arm64
+            platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout source code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -518,11 +474,80 @@ jobs:
       shell: bash
       run: git rev-parse HEAD > GIT_COMMIT
 
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Prepare attested platform export metadata
+      id: image
+      shell: bash
+      run: |
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "${{ needs.prepare.outputs.created }}" \
+          --description "${{ needs.prepare.outputs.image_description }}" \
+          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --title "${{ env.IMAGE_TITLE }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --annotation-platform "${{ matrix.docker_platform }}"
+
+    - name: Export attested platform OCI layout
+      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+      with:
+        annotations: ${{ steps.image.outputs.annotations }}
+        context: .
+        file: ./Dockerfile
+        platforms: ${{ matrix.docker_platform }}
+        outputs: type=oci,dest=${{ runner.temp }}/attested-image-${{ matrix.platform_id }},tar=false,oci-mediatypes=false
+        labels: ${{ steps.image.outputs.labels }}
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
+        cache-from: |
+          type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+          type=gha,scope=preview-docker-image
+        provenance: true
+        sbom: true
+
+    - name: Extract platform metadata payload
+      shell: bash
+      run: |
+        platform_bundle_dir="${{ runner.temp }}/metadata-platform-${{ matrix.platform_id }}"
+        bash .github/scripts/extract_metadata_platform_from_oci.sh \
+          --oci-layout "${{ runner.temp }}/attested-image-${{ matrix.platform_id }}" \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --platform "${{ matrix.docker_platform }}" \
+          --output-dir "$platform_bundle_dir"
+
+    - name: Upload platform metadata payload
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: metadata-platform-${{ matrix.platform_id }}
+        path: ${{ runner.temp }}/metadata-platform-${{ matrix.platform_id }}
+        if-no-files-found: error
+        retention-days: 1
+
+  build-metadata-bundle:
+    needs: [prepare, build-and-publish-immutable, build-metadata-platforms]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
 
     - name: Set up crane
       uses: ./.github/actions/setup-crane
@@ -542,44 +567,22 @@ jobs:
       shell: bash
       run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Prepare attested export metadata
-      id: image
+    - name: Download platform metadata payloads
       shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        bash .github/scripts/write_docker_image_metadata_outputs.sh \
-          --created "${{ needs.prepare.outputs.created }}" \
-          --description "${{ needs.prepare.outputs.image_description }}" \
-          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
-          --revision "${{ needs.prepare.outputs.full_sha }}" \
-          --source-url "${{ needs.prepare.outputs.source_url }}" \
-          --title "${{ env.IMAGE_TITLE }}" \
-          --version "${{ needs.prepare.outputs.version }}"
+        platform_input_dir="${{ runner.temp }}/metadata-platforms"
+        mkdir -p "$platform_input_dir"
+        gh run download "$GITHUB_RUN_ID" --name metadata-platform-amd64 --dir "$platform_input_dir"
+        gh run download "$GITHUB_RUN_ID" --name metadata-platform-arm64 --dir "$platform_input_dir"
 
-    - name: Export attested OCI layout
-      uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
-      with:
-        annotations: ${{ steps.image.outputs.annotations }}
-        context: .
-        file: ./Dockerfile
-        platforms: linux/amd64,linux/arm64
-        outputs: type=oci,dest=${{ runner.temp }}/attested-image,tar=false,oci-mediatypes=false
-        labels: ${{ steps.image.outputs.labels }}
-        build-args: |
-          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
-          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
-        cache-from: |
-          type=gha,scope=preview-docker-image
-          type=gha,scope=preview-docker-image-amd64
-          type=gha,scope=preview-docker-image-arm64
-        provenance: true
-        sbom: true
-
-    - name: Extract metadata bundle
+    - name: Assemble metadata bundle
       shell: bash
       run: |
         bundle_dir="${{ runner.temp }}/metadata-bundle"
-        bash .github/scripts/extract_metadata_bundle_from_oci.sh \
-          --oci-layout "${{ runner.temp }}/attested-image" \
+        bash .github/scripts/assemble_metadata_bundle.sh \
+          --input-dir "${{ runner.temp }}/metadata-platforms" \
           --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
           --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
           --version "${{ needs.prepare.outputs.version }}" \

@@ -39,7 +39,7 @@ Before it publishes anything, the workflow requires:
 - Backend tests must pass.
 - Frontend type checks must pass.
 - Frontend tests must pass.
-- Each supported platform image must build and start successfully.
+- Each supported platform image must build, publish under its temporary architecture tag, and start successfully.
 
 The published `test` image is therefore already a validated candidate.
 
@@ -52,11 +52,12 @@ That keeps preview candidates aligned with the latest package fixes available fr
 After validation, the workflow:
 
 1. Builds and pushes native `linux/amd64` and `linux/arm64` platform manifests.
-2. Assembles those manifests into the multi-platform candidate index.
-3. Publishes the candidate index under `sha-<full-commit-sha>`.
-4. Publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
-5. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
-6. Signs the digest with Cosign using GitHub Actions OIDC.
+2. Starts and scans those same pushed platform manifests.
+3. Assembles those manifests into the multi-platform candidate index.
+4. Publishes the candidate index under `sha-<full-commit-sha>`.
+5. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes the metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
+6. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
+7. Signs the digest with Cosign using GitHub Actions OIDC.
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
 
@@ -70,7 +71,9 @@ The preview workflow runs Trivy before publish.
 
 For preview publishing, Trivy findings are advisory rather than blocking. That keeps the newest candidate available for testing while still surfacing risk clearly in the workflow output.
 
-The preview-validation build and the published multi-platform image both use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
+The preview scan runs against the same temporary platform tags that are later assembled into the published candidate index, so validation and publication use the same platform manifests.
+
+Those manifests use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
 
 ## Run It
 
