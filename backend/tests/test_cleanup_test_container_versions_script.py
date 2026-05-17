@@ -75,3 +75,21 @@ def test_unknown_arch_specific_tags_are_not_test_only() -> None:
     module = load_cleanup_module()
 
     assert not module.is_test_only_tag("sha-0123456789abcdef0123456789abcdef01234567-s390x")
+
+
+@pytest.mark.unit
+def test_test_tag_is_protected() -> None:
+    module = load_cleanup_module()
+
+    assert module.is_protected_tag("test")
+    assert not module.is_test_only_tag("test")
+    assert (
+        module.classify(
+            module.PackageVersion(
+                version_id=1,
+                created_at="2026-05-17T00:00:00Z",
+                tags=["test", "sha-0123456789abcdef0123456789abcdef01234567"],
+            )
+        )
+        == "protected"
+    )

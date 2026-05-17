@@ -21,11 +21,11 @@ def load_cleanup_module():
 
 
 @pytest.mark.unit
-def test_retained_image_digests_keep_releases_and_newest_previews() -> None:
+def test_retained_image_digests_keep_releases_and_protected_test_channel() -> None:
     module = load_cleanup_module()
     release_digest = "sha256:" + "1" * 64
-    newest_preview_digest = "sha256:" + "2" * 64
-    older_preview_digest = "sha256:" + "3" * 64
+    protected_test_digest = "sha256:" + "2" * 64
+    sha_only_preview_digest = "sha256:" + "3" * 64
     untagged_child_digest = "sha256:" + "4" * 64
     versions = [
         module.PackageVersion(
@@ -37,13 +37,13 @@ def test_retained_image_digests_keep_releases_and_newest_previews() -> None:
         module.PackageVersion(
             version_id=2,
             created_at="2026-05-17T00:03:00Z",
-            digest=newest_preview_digest,
+            digest=protected_test_digest,
             tags=["sha-" + "a" * 40, "test"],
         ),
         module.PackageVersion(
             version_id=3,
             created_at="2026-05-17T00:01:00Z",
-            digest=older_preview_digest,
+            digest=sha_only_preview_digest,
             tags=["sha-" + "b" * 40],
         ),
         module.PackageVersion(
@@ -54,9 +54,9 @@ def test_retained_image_digests_keep_releases_and_newest_previews() -> None:
         ),
     ]
 
-    assert module.retained_image_digests(versions, keep_count=1) == {
+    assert module.retained_image_digests(versions) == {
         release_digest,
-        newest_preview_digest,
+        protected_test_digest,
     }
 
 
