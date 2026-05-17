@@ -341,6 +341,11 @@ jobs:
           tags+=("${{ needs.prepare.outputs.major_minor }}")
         fi
 
+        if [[ ${#tags[@]} -eq 0 ]]; then
+          echo "No immutable release tags to attach"
+          exit 0
+        fi
+
         args=()
         for tag in "${tags[@]}"; do
           args+=(--tag "$tag")
