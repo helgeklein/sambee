@@ -189,7 +189,7 @@ def _base_case() -> tuple[str, str, str, str, dict[str, str], dict[str, object],
     image_digest = "sha256:" + "1" * 64
     metadata_repository = "ghcr.io/example/sambee-signatures"
     metadata_tag = f"sha256-{'1' * 64}.meta"
-    version = "0.7.0-beta.1"
+    version = "0.7.0"
     revision = "abcdef1234567890abcdef1234567890abcdef12"
     source_url = "https://github.com/example/sambee"
     platform_digests = {

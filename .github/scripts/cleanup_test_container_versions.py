@@ -15,7 +15,6 @@ from dataclasses import dataclass
 
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 MINOR_RE = re.compile(r"^\d+\.\d+$")
-PRERELEASE_SERIES_RE = re.compile(r"^\d+\.\d+-beta$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
 ARCH_PREVIEW_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}-(?:amd64|arm64)$")
 
@@ -98,9 +97,16 @@ def load_versions(
 
 
 def is_protected_tag(tag: str) -> bool:
-    return tag in {"stable", "beta", "test"} or bool(
-        SEMVER_RE.match(tag) or MINOR_RE.match(tag) or PRERELEASE_SERIES_RE.match(tag)
-    )
+    if tag in {"stable", "beta", "test"}:
+        return True
+
+    if MINOR_RE.match(tag):
+        return True
+
+    if SEMVER_RE.match(tag):
+        return "-" not in tag
+
+    return False
 
 
 def is_test_only_tag(tag: str) -> bool:

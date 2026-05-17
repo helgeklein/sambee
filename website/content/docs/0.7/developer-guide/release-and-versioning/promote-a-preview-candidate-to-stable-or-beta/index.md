@@ -47,9 +47,9 @@ Stable releases publish:
 
 Prereleases publish:
 
-- The full prerelease tag, such as `0.8.0-beta.1`.
-- The moving prerelease-series tag, such as `0.8-beta`.
 - The moving channel tag `beta`.
+
+The prerelease suffix remains only on the Git tag and GitHub Release. It is not added as a Docker image tag.
 
 The digest stays the canonical deployment target.
 
@@ -69,7 +69,7 @@ Examples:
 
 - `VERSION` contains `0.7.0`.
 - A stable Git tag and GitHub Release must be `v0.7.0`.
-- A prerelease Git tag and GitHub Release may be `v0.7.0-beta.1`.
+- A prerelease Git tag and GitHub Release may be `vX.Y.Z-beta.N`.
 
 If those values drift apart, promotion fails.
 

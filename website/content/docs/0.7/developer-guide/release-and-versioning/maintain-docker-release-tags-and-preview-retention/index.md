@@ -17,7 +17,7 @@ Typical cases include:
 - Backfilling the Docker release process for an older tagged version.
 - Repairing tags after a transient registry or runner failure.
 
-The release tag can be either a stable tag such as `v0.7.0` or a prerelease tag such as `v0.7.0-beta.1`, as long as it matches the checked-in base `VERSION` for that release commit.
+The release tag can be either a stable tag such as `v0.7.0` or a prerelease tag such as `vX.Y.Z-beta.N`, as long as it matches the checked-in base `VERSION` for that release commit.
 
 The backfill workflow follows the same core safety rules as normal promotion:
 
@@ -38,7 +38,7 @@ GitHub Actions displays the retention workflow as `Maintenance: Clean Up Docker 
 This workflow periodically deletes unprotected preview and unreferenced GitHub Container Registry versions while preserving:
 
 - release-tagged versions.
-- `stable`, `beta`, `test`, and series-tagged versions.
+- `stable`, `beta`, `test`, and stable minor-series tags.
 
 The moving `test` tag is protected like the other channel aliases.
 Immutable `sha-<full-commit-sha>` preview tags are deleted when they are no longer protected by another retained tag.
@@ -54,8 +54,8 @@ Use this quick reference when deciding what the cleanup workflow will keep versu
 
 | If a package version is... | Cleanup action |
 |---|---|
-| Tagged with a release tag such as `0.7.0` or `0.7.0-beta.1` | Keep |
-| Tagged with a protected channel or series tag such as `stable`, `beta`, `test`, `0.7`, or `0.7-beta` | Keep |
+| Tagged with a release tag, whether stable or prerelease | Keep |
+| Tagged with a protected channel or series tag such as `stable`, `beta`, `test`, or `0.7` | Keep |
 | Tagged only with an immutable preview tag such as `sha-<full-commit-sha>` | Delete |
 | Untagged but still referenced by a retained multi-platform image index | Keep |
 | Untagged and not referenced by any retained index | Delete |

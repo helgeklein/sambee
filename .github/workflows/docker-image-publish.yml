@@ -21,11 +21,9 @@ jobs:
     outputs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
-      release_image_tag: ${{ steps.metadata.outputs.release_image_tag }}
       version: ${{ steps.metadata.outputs.version }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
-      prerelease_series: ${{ steps.metadata.outputs.prerelease_series }}
       image_name: ${{ steps.metadata.outputs.image_name }}
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
@@ -60,7 +58,6 @@ jobs:
 
         if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
           release_type="beta"
-          prerelease_series="${major_minor}-beta"
 
           if [[ "$release_image_tag" != "$version"-* ]]; then
             echo "Prerelease tag must start with v$version-, got $release_tag" >&2
@@ -68,7 +65,6 @@ jobs:
           fi
         else
           release_type="stable"
-          prerelease_series=""
 
           expected_tag="v$version"
           if [[ "$release_tag" != "$expected_tag" ]]; then
@@ -79,7 +75,6 @@ jobs:
 
         echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
-        echo "release_image_tag=$release_image_tag" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
         {
           echo 'image_description<<EOF'
@@ -87,7 +82,6 @@ jobs:
           echo 'EOF'
         } >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
-        echo "prerelease_series=$prerelease_series" >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
@@ -212,11 +206,10 @@ jobs:
     - name: Attach immutable release tags
       shell: bash
       run: |
-        tags=("${{ needs.prepare.outputs.release_image_tag }}")
+        tags=()
         if [[ "${{ needs.prepare.outputs.release_type }}" == "stable" ]]; then
+          tags+=("${{ needs.prepare.outputs.version }}")
           tags+=("${{ needs.prepare.outputs.major_minor }}")
-        else
-          tags+=("${{ needs.prepare.outputs.prerelease_series }}")
         fi
 
         args=()
