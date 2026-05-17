@@ -123,7 +123,25 @@ jobs:
       id: resolve
       shell: bash
       run: |
-        candidate_digest="$(crane digest "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}")"
+        candidate_source_tag="sha-${{ needs.prepare.outputs.full_sha }}"
+        candidate_ref="${{ needs.prepare.outputs.image_name }}:${candidate_source_tag}"
+
+        set +e
+        candidate_digest="$(crane digest "$candidate_ref" 2>&1)"
+        status=$?
+        set -e
+
+        if [[ $status -ne 0 ]]; then
+          echo "Preview candidate image not found for commit ${{ needs.prepare.outputs.full_sha }}." >&2
+          echo "Expected candidate tag: $candidate_ref" >&2
+          echo "Backfill only reattaches tags to an already published preview candidate." >&2
+          echo "Run the 'Preview: Publish Test Docker Image' workflow for this exact commit first, then rerun this backfill workflow." >&2
+          echo >&2
+          echo "crane output:" >&2
+          echo "$candidate_digest" >&2
+          exit 1
+        fi
+
         echo "candidate_digest=$candidate_digest" >> "$GITHUB_OUTPUT"
 
   ensure-candidate-metadata-bundle:
