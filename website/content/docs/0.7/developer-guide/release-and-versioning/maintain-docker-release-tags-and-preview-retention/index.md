@@ -33,7 +33,7 @@ Use backfill only for already approved releases. It is not an alternate way to p
 
 ## Cleanup
 
-GitHub Actions displays the retention workflow as `Cleanup Test Docker Images`.
+GitHub Actions displays the retention workflow as `Maintenance: Clean Up Docker Package Versions`.
 
 This workflow periodically deletes older test-only GitHub Container Registry versions while preserving:
 
@@ -54,7 +54,7 @@ That keeps the `test` channel usable without letting preview history grow withou
 |---|---|
 | Reattach tags for an existing approved release. | `Maintenance: Backfill Docker Release Tags` |
 | Repair a broken release-tag alias after an operational failure. | `Maintenance: Backfill Docker Release Tags` |
-| Remove older preview-only GHCR versions automatically. | `Cleanup Test Docker Images` |
+| Remove older preview-only GHCR versions automatically. | `Maintenance: Clean Up Docker Package Versions` |
 
 ## Boundaries
 

@@ -1,12 +1,20 @@
-name: "Maintenance: Clean Up Test Docker Images"
+name: "Maintenance: Clean Up Docker Package Versions"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   workflow_run:
     workflows: ["Preview: Publish Test Docker Image"]
     types: [completed]
   schedule:
+    - cron: '26 3 * * 0'
     - cron: '17 3 * * 2'
   workflow_dispatch:
+
+concurrency:
+  group: cleanup-docker-package-versions
+  cancel-in-progress: false
 
 permissions:
   contents: read
