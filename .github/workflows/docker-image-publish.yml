@@ -131,7 +131,7 @@ jobs:
           echo "Preview candidate image not found for commit ${{ needs.prepare.outputs.full_sha }}." >&2
           echo "Expected candidate tag: $candidate_ref" >&2
           echo "Release promotion only promotes an already published preview candidate." >&2
-          echo "Run the 'Preview: Publish Test Docker Image' workflow for this exact commit first, then rerun this release workflow." >&2
+          echo "Run the 'Release: Create Docker Image' workflow for this exact commit first, then rerun this release workflow." >&2
           echo >&2
           echo "crane output:" >&2
           echo "$candidate_digest" >&2

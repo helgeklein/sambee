@@ -6,7 +6,7 @@ This is step 1 of the Docker release flow.
 
 Use this workflow to create a real, deployable Docker image candidate for a specific commit.
 
-GitHub Actions displays this workflow as `Preview: Publish Test Docker Image`.
+GitHub Actions displays this workflow as `Release: Create Docker Image`.
 
 It is the only workflow that builds and pushes a new Sambee image to GitHub Container Registry.
 
@@ -81,7 +81,7 @@ Those manifests use the same OS-package refresh policy, so the candidate that ge
 Use this order when you are preparing a release candidate:
 
 1. Merge the commit you may want to ship.
-2. Start `Preview: Publish Test Docker Image` from that exact commit.
+2. Start `Release: Create Docker Image` from that exact commit.
 3. Leave `source_ref` empty unless you deliberately need another immutable ref.
 4. Leave `publish_version_override` empty unless this is a preview-only label.
 5. Wait for the workflow to publish `sha-<full-commit-sha>` and update `test`.

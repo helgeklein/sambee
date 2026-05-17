@@ -1,4 +1,4 @@
-name: "Preview: Publish Test Docker Image"
+name: "Release: Create Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
