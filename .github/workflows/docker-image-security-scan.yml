@@ -20,11 +20,15 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       created: ${{ steps.metadata.outputs.created }}
+      os_packages_refresh_key: ${{ steps.metadata.outputs.os_packages_refresh_key }}
     steps:
     - name: Capture shared build timestamp
       id: metadata
       shell: bash
-      run: printf 'created=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+      run: |
+        created="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        printf 'created=%s\n' "$created" >> "$GITHUB_OUTPUT"
+        printf 'os_packages_refresh_key=%s\n' "$created" >> "$GITHUB_OUTPUT"
 
   scan:
     needs: prepare
@@ -68,6 +72,7 @@ jobs:
         platforms: ${{ matrix.docker_platform }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
         tags: sambee:security-scan-${{ matrix.platform_id }}
         cache-from: type=gha,scope=docker-image-security-scan-${{ matrix.platform_id }}
         cache-to: type=gha,mode=max,scope=docker-image-security-scan-${{ matrix.platform_id }}
@@ -99,7 +104,7 @@ jobs:
           --show-suppressed \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
-          --vuln-type os,library \
+          --pkg-types os,library \
           --format table \
           --exit-code 1 \
           sambee:security-scan-${{ matrix.platform_id }}

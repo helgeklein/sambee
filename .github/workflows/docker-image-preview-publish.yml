@@ -2,6 +2,7 @@ name: "Preview: Publish Test Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_TITLE: Sambee
   TRIVY_IGNORE_FILE: ./.trivyignore.yaml
 
 on:
@@ -31,10 +32,13 @@ jobs:
       source_ref_name: ${{ steps.inputs.outputs.source_ref_name }}
       version_override: ${{ steps.inputs.outputs.version_override }}
       version: ${{ steps.metadata.outputs.version }}
+      image_description: ${{ steps.metadata.outputs.image_description }}
       image_name: ${{ steps.metadata.outputs.image_name }}
       signature_repository: ${{ steps.metadata.outputs.signature_repository }}
       full_sha: ${{ steps.metadata.outputs.full_sha }}
       source_url: ${{ steps.metadata.outputs.source_url }}
+      created: ${{ steps.metadata.outputs.created }}
+      os_packages_refresh_key: ${{ steps.metadata.outputs.os_packages_refresh_key }}
     steps:
     - name: Resolve preview inputs
       id: inputs
@@ -79,12 +83,21 @@ jobs:
 
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
         full_sha="$(git rev-parse HEAD)"
+        image_description="$(bash .github/scripts/read_website_description.sh)"
+        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        {
+          echo 'image_description<<EOF'
+          echo "$image_description"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
         echo "signature_repository=ghcr.io/$owner_lower/sambee-signatures" >> "$GITHUB_OUTPUT"
         echo "full_sha=$full_sha" >> "$GITHUB_OUTPUT"
         echo "source_url=https://github.com/${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
+        echo "created=$created" >> "$GITHUB_OUTPUT"
+        echo "os_packages_refresh_key=$created" >> "$GITHUB_OUTPUT"
 
   validate-tests:
     needs: prepare
@@ -147,27 +160,27 @@ jobs:
     - name: Run frontend tests
       run: cd frontend && npm test -- --run
 
-  validate-image:
+  build-and-validate-platforms:
     needs: [prepare, validate-tests]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - docker_platform: linux/amd64
             platform_id: amd64
+            runner_label: ubuntu-24.04
           - docker_platform: linux/arm64
             platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout source code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         ref: ${{ needs.prepare.outputs.checkout_ref }}
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
     - name: Sync and verify version metadata
       if: ${{ needs.prepare.outputs.version_override == '' }}
@@ -184,21 +197,70 @@ jobs:
       shell: bash
       run: git rev-parse HEAD > GIT_COMMIT
 
+    - name: Prepare preview platform image metadata
+      id: image
+      shell: bash
+      run: |
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "${{ needs.prepare.outputs.created }}" \
+          --description "${{ needs.prepare.outputs.image_description }}" \
+          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --title "${{ env.IMAGE_TITLE }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --annotation-platform "${{ matrix.docker_platform }}"
+
+    - name: Log in to GHCR
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-    - name: Build preview validation image
+    - name: Build and push preview platform image
+      id: build
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
+        annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
-        load: true
         platforms: ${{ matrix.docker_platform }}
-        tags: sambee:preview-validation-${{ matrix.platform_id }}
-        cache-from: type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+        outputs: type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
+        labels: ${{ steps.image.outputs.labels }}
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
+        cache-from: |
+          type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+          type=gha,scope=preview-docker-image
         cache-to: type=gha,mode=max,scope=preview-docker-image-${{ matrix.platform_id }}
+        provenance: false
+        sbom: false
 
-    - name: Start preview validation container
+    - name: Write preview platform digest
+      shell: bash
+      run: |
+        digest_dir="${{ runner.temp }}/platform-digest-${{ matrix.platform_id }}"
+        mkdir -p "$digest_dir"
+        printf '%s\n' '${{ steps.build.outputs.digest }}' > "$digest_dir/digest-${{ matrix.platform_id }}"
+
+    - name: Publish preview platform digest artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: platform-image-${{ matrix.platform_id }}
+        path: ${{ runner.temp }}/platform-digest-${{ matrix.platform_id }}/digest-${{ matrix.platform_id }}
+        if-no-files-found: error
+        retention-days: 1
+
+    - name: Pull preview platform image for validation
+      shell: bash
+      run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
+
+    - name: Start preview platform validation container
       shell: bash
       run: |
         docker run -d \
@@ -207,7 +269,7 @@ jobs:
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
           -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
-          sambee:preview-validation-${{ matrix.platform_id }}
+          "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
 
     - name: Wait for preview health endpoint
       shell: bash
@@ -263,10 +325,10 @@ jobs:
           --show-suppressed \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
-          --vuln-type os,library \
+          --pkg-types os,library \
           --format table \
           --exit-code 1 \
-          sambee:preview-validation-${{ matrix.platform_id }}
+          "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
 
         scan_status=$?
         set -e
@@ -291,14 +353,143 @@ jobs:
       run: docker rm -f sambee-preview-smoke-${{ matrix.platform_id }} || true
 
   build-and-publish-immutable:
-    needs: [prepare, validate-tests, validate-image]
+    needs: [prepare, build-and-validate-platforms]
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.assemble.outputs.digest }}
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR
+      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Download preview platform digests
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        platform_digest_dir="${{ runner.temp }}/platform-digests"
+        mkdir -p "$platform_digest_dir"
+        gh run download "$GITHUB_RUN_ID" --name platform-image-amd64 --dir "$platform_digest_dir"
+        gh run download "$GITHUB_RUN_ID" --name platform-image-arm64 --dir "$platform_digest_dir"
+
+    - name: Assemble immutable preview image index
+      id: assemble
+      shell: bash
+      env:
+        IMAGE_NAME: ${{ needs.prepare.outputs.image_name }}
+        IMAGE_CREATED: ${{ needs.prepare.outputs.created }}
+        IMAGE_DESCRIPTION: ${{ needs.prepare.outputs.image_description }}
+        IMAGE_REF_NAME: ${{ needs.prepare.outputs.source_ref_name }}
+        IMAGE_REVISION: ${{ needs.prepare.outputs.full_sha }}
+        IMAGE_SOURCE_URL: ${{ needs.prepare.outputs.source_url }}
+        IMAGE_TITLE_VALUE: ${{ env.IMAGE_TITLE }}
+        IMAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      run: |
+        image_name="$IMAGE_NAME"
+        index_ref="$image_name:sha-$IMAGE_REVISION"
+        platform_digest_dir="${{ runner.temp }}/platform-digests"
+        amd64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-amd64")"
+        arm64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-arm64")"
+
+        for digest_name in amd64_digest arm64_digest; do
+          digest_value="${!digest_name}"
+          if ! [[ "$digest_value" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Downloaded platform digest $digest_name is invalid: $digest_value" >&2
+            exit 1
+          fi
+        done
+
+        metadata_entries=(
+          "org.opencontainers.image.created=$IMAGE_CREATED"
+          "org.opencontainers.image.description=$IMAGE_DESCRIPTION"
+          "org.opencontainers.image.licenses=MIT"
+          "org.opencontainers.image.ref.name=$IMAGE_REF_NAME"
+          "org.opencontainers.image.revision=$IMAGE_REVISION"
+          "org.opencontainers.image.source=$IMAGE_SOURCE_URL"
+          "org.opencontainers.image.title=$IMAGE_TITLE_VALUE"
+          "org.opencontainers.image.url=$IMAGE_SOURCE_URL"
+          "org.opencontainers.image.version=$IMAGE_VERSION"
+        )
+
+        annotation_args=()
+        for entry in "${metadata_entries[@]}"; do
+          annotation_args+=(--annotation "index:$entry")
+        done
+
+        docker buildx imagetools create \
+          --tag "$index_ref" \
+          "${annotation_args[@]}" \
+          "$image_name@$amd64_digest" \
+          "$image_name@$arm64_digest"
+
+        index_digest="$(crane digest "$index_ref")"
+        index_json="$(crane manifest "$index_ref")"
+        index_media_type="$(jq -r '.mediaType // empty' <<<"$index_json")"
+        runnable_manifest_count="$(jq '[.manifests[]? | select((.platform.os // "") != "unknown") | select((.platform.architecture // "") != "unknown")] | length' <<<"$index_json")"
+
+        if [[ "$index_media_type" != "application/vnd.oci.image.index.v1+json" && "$index_media_type" != "application/vnd.docker.distribution.manifest.list.v2+json" ]]; then
+          echo "Assembled preview candidate is not a supported multi-platform image index: $index_media_type" >&2
+          exit 1
+        fi
+
+        if [[ "$runnable_manifest_count" != "2" ]]; then
+          echo "Assembled preview candidate should contain exactly 2 runnable manifests, got $runnable_manifest_count" >&2
+          exit 1
+        fi
+
+        echo "digest=$index_digest" >> "$GITHUB_OUTPUT"
+
+    - name: Verify assembled preview image metadata
+      shell: bash
+      run: |
+        bash .github/scripts/verify_candidate_image.sh \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ steps.assemble.outputs.digest }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}"
+
+  build-metadata-platforms:
+    needs: [prepare, build-and-publish-immutable]
+    runs-on: ${{ matrix.runner_label }}
     permissions:
       contents: read
       packages: write
-      id-token: write
-    outputs:
-      digest: ${{ steps.build.outputs.digest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - docker_platform: linux/amd64
+            platform_id: amd64
+            runner_label: ubuntu-24.04
+          - docker_platform: linux/arm64
+            platform_id: arm64
+            runner_label: ubuntu-24.04-arm
     steps:
     - name: Checkout source code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -316,63 +507,132 @@ jobs:
       shell: bash
       run: git rev-parse HEAD > GIT_COMMIT
 
-    - name: Prepare preview image metadata
-      id: image
-      shell: bash
-      run: |
-        created="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-        sha_tag="sha-${{ needs.prepare.outputs.full_sha }}"
-
-        {
-          echo 'tags<<EOF'
-          echo "${{ needs.prepare.outputs.image_name }}:${sha_tag}"
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
-
-        {
-          echo 'labels<<EOF'
-          echo "org.opencontainers.image.created=$created"
-          echo "org.opencontainers.image.description=Browser-based SMB and local drive access with a built frontend and Python backend"
-          echo "org.opencontainers.image.licenses=MIT"
-          echo "org.opencontainers.image.ref.name=${{ needs.prepare.outputs.source_ref_name }}"
-          echo "org.opencontainers.image.revision=${{ needs.prepare.outputs.full_sha }}"
-          echo "org.opencontainers.image.source=${{ needs.prepare.outputs.source_url }}"
-          echo "org.opencontainers.image.title=Sambee"
-          echo "org.opencontainers.image.url=${{ needs.prepare.outputs.source_url }}"
-          echo "org.opencontainers.image.version=${{ needs.prepare.outputs.version }}"
-          echo 'EOF'
-        } >> "$GITHUB_OUTPUT"
-
-    - name: Log in to GHCR
-      uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-    - name: Build and push immutable preview image
-      id: build
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Prepare attested platform export metadata
+      id: image
+      shell: bash
+      run: |
+        bash .github/scripts/write_docker_image_metadata_outputs.sh \
+          --created "${{ needs.prepare.outputs.created }}" \
+          --description "${{ needs.prepare.outputs.image_description }}" \
+          --ref-name "${{ needs.prepare.outputs.source_ref_name }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --title "${{ env.IMAGE_TITLE }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --annotation-platform "${{ matrix.docker_platform }}"
+
+    - name: Export attested platform OCI layout
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
+        annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
-        platforms: linux/amd64,linux/arm64
-        push: true
-        tags: ${{ steps.image.outputs.tags }}
+        platforms: ${{ matrix.docker_platform }}
+        outputs: type=oci,dest=${{ runner.temp }}/attested-image-${{ matrix.platform_id }},tar=false,oci-mediatypes=false
         labels: ${{ steps.image.outputs.labels }}
-        cache-from: type=gha,scope=preview-docker-image
-        cache-to: type=gha,mode=max,scope=preview-docker-image
+        build-args: |
+          BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
+          APT_REFRESH_KEY=${{ needs.prepare.outputs.os_packages_refresh_key }}
+        cache-from: |
+          type=gha,scope=preview-docker-image-${{ matrix.platform_id }}
+          type=gha,scope=preview-docker-image
         provenance: true
         sbom: true
 
+    - name: Extract platform metadata payload
+      shell: bash
+      run: |
+        platform_bundle_dir="${{ runner.temp }}/metadata-platform-${{ matrix.platform_id }}"
+        bash .github/scripts/extract_metadata_platform_from_oci.sh \
+          --oci-layout "${{ runner.temp }}/attested-image-${{ matrix.platform_id }}" \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --platform "${{ matrix.docker_platform }}" \
+          --output-dir "$platform_bundle_dir"
+
+    - name: Upload platform metadata payload
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: metadata-platform-${{ matrix.platform_id }}
+        path: ${{ runner.temp }}/metadata-platform-${{ matrix.platform_id }}
+        if-no-files-found: error
+        retention-days: 1
+
+  build-metadata-bundle:
+    needs: [prepare, build-and-publish-immutable, build-metadata-platforms]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    steps:
+    - name: Checkout source code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Download platform metadata payloads
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        platform_input_dir="${{ runner.temp }}/metadata-platforms"
+        mkdir -p "$platform_input_dir"
+        gh run download "$GITHUB_RUN_ID" --name metadata-platform-amd64 --dir "$platform_input_dir"
+        gh run download "$GITHUB_RUN_ID" --name metadata-platform-arm64 --dir "$platform_input_dir"
+
+    - name: Assemble metadata bundle
+      shell: bash
+      run: |
+        bundle_dir="${{ runner.temp }}/metadata-bundle"
+        bash .github/scripts/assemble_metadata_bundle.sh \
+          --input-dir "${{ runner.temp }}/metadata-platforms" \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.build-and-publish-immutable.outputs.digest }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --version "${{ needs.prepare.outputs.version }}" \
+          --revision "${{ needs.prepare.outputs.full_sha }}" \
+          --source-url "${{ needs.prepare.outputs.source_url }}" \
+          --output-dir "$bundle_dir"
+
+    - name: Publish metadata bundle
+      shell: bash
+      run: |
+        bash .github/scripts/publish_metadata_bundle.sh \
+          --bundle-dir "${{ runner.temp }}/metadata-bundle" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --image-digest "${{ needs.build-and-publish-immutable.outputs.digest }}"
+
   promote-test-tag:
-    needs: [prepare, build-and-publish-immutable]
+    needs: [prepare, build-and-publish-immutable, build-metadata-bundle]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -39,29 +39,42 @@ Before it publishes anything, the workflow requires:
 - Backend tests must pass.
 - Frontend type checks must pass.
 - Frontend tests must pass.
-- Each supported platform image must build and start successfully.
+- Each supported platform image must build, publish by digest, and start successfully.
 
 The published `test` image is therefore already a validated candidate.
+
+The workflow also forces a fresh rebuild of the Dockerfile layer that installs Debian packages for that run.
+
+That keeps preview candidates aligned with the latest package fixes available from the Debian repositories at build time while still letting the rest of the image reuse BuildKit cache.
 
 ## Published Output
 
 After validation, the workflow:
 
-1. Builds the multi-platform image.
-2. Publishes it under `sha-<full-commit-sha>`.
-3. Moves the `test` tag onto that same digest.
-4. Emits SBOM and provenance attestations.
-5. Signs the digest with Cosign using GitHub Actions OIDC.
+1. Builds and pushes native `linux/amd64` and `linux/arm64` platform manifests.
+2. Starts and scans those same pushed platform manifests.
+3. Assembles those manifests into the multi-platform candidate index.
+4. Publishes the candidate index under `sha-<full-commit-sha>`.
+5. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes the metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
+6. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
+7. Signs the digest with Cosign using GitHub Actions OIDC.
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
 
+The workflow uses digest-only platform pushes while assembling the final candidate index. Treat those platform manifests as internal publish artifacts, not release candidates.
+
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
+That signature repository can still show both digest-derived signature tags and referenced untagged bundle manifests, which are part of Cosign's current storage model rather than extra preview image variants.
 
 ## Scan Behavior
 
 The preview workflow runs Trivy before publish.
 
 For preview publishing, Trivy findings are advisory rather than blocking. That keeps the newest candidate available for testing while still surfacing risk clearly in the workflow output.
+
+The preview scan runs against the same pushed platform digests that are later assembled into the published candidate index, so validation and publication use the same platform manifests.
+
+Those manifests use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
 
 ## Run It
 

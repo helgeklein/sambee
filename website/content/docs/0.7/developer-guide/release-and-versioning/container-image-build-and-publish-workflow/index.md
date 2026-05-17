@@ -34,9 +34,9 @@ Read the detailed pages in this order:
 | Workflow | When to use it | Result |
 |---|---|---|
 | `CI: Validate Docker Image` | Any pull request, push to `main`, or manual smoke-test run. | Proves the production image still builds and starts, but does not publish anything. |
-| `Preview: Publish Test Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes, signs, and marks that digest as the current `test` image. |
+| `Preview: Publish Test Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes the metadata bundle, marks that digest as the current `test` image, and signs the digest. |
 | `Release: Publish Docker Image` | A GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags and the `stable` or `beta` channel tag. |
-| `Backfill Docker Image Release` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without rebuilding. |
+| `Maintenance: Backfill Docker Release Tags` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without publishing a new runtime image. |
 | `Cleanup Test Docker Images` | Preview history needs retention control. | Deletes older test-only GHCR versions while preserving release-tagged artifacts and protected aliases. |
 
 ## Channels And Tags
@@ -48,6 +48,9 @@ Sambee publishes three moving channel tags:
 - `test` for the newest manually published preview candidate.
 
 Each preview publish also creates an immutable lookup tag in the `sha-<full-commit-sha>` form.
+
+During publication, the workflow pushes native platform manifests by digest before it assembles the final multi-platform index.
+Those digest-only platform pushes are implementation details of the publish workflow and are not user-facing tags.
 
 Release workflows resolve that immutable candidate tag first and then attach the appropriate release tags to the same digest.
 
@@ -62,21 +65,27 @@ The published container artifact is a multi-platform image index in GitHub Conta
 
 The repository name is `ghcr.io/<owner>/sambee`.
 
-Each platform variant comes from the same Dockerfile and is published under the same digest.
+Each platform variant comes from the same Dockerfile, is built and validated on a native runner, and is assembled into the same candidate index digest.
 
 Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
+Cosign manages its own digest-derived signature artifact layout in that repository, so GHCR may show both tagged signature entries and referenced untagged bundle manifests for a retained image digest.
+
+SBOM and provenance data for that digest are extracted per platform on native runners, assembled into one metadata bundle, and published in the dedicated `ghcr.io/<owner>/sambee-signatures` repository under a digest-derived `.meta` tag.
+
+Release and backfill workflows also upload the exact bundle files to the GitHub Release as convenience assets. The GHCR `.meta` artifact remains the canonical metadata bundle.
 
 ## Security Model
 
 Preview publication is the only workflow that builds and pushes a new image.
 
+That preview build also forces a fresh rebuild of the Dockerfile layer that installs Debian packages for the workflow run, so release candidates pick up the latest Debian package fixes available at build time instead of relying only on a previously cached OS-package layer.
+
 It also:
 
-- emits SBOM attestations.
-- emits provenance attestations.
+- publishes an SBOM and provenance metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
 - signs the digest with Cosign using GitHub Actions OIDC.
 
-Release promotion does not rebuild the image. It verifies candidate metadata and attached attestation manifests first, then promotes the existing digest.
+Release promotion does not rebuild the image. It verifies candidate image metadata and the published metadata bundle first, then promotes the existing digest.
 
 Use [Publish Test Docker Candidate](../publish-a-preview-docker-image/) for the build-and-publish flow.
 

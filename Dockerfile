@@ -28,9 +28,15 @@ WORKDIR /app
 # Set non-interactive mode for apt to avoid warnings
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Force periodic OS package refresh without discarding cached .deb downloads.
+ARG APT_REFRESH_KEY=static
+
 # Install system dependencies and create user
 COPY scripts/install-system-deps /tmp/
-RUN UPGRADE_EXISTING_PACKAGES=1 bash /tmp/install-system-deps && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    printf 'APT package refresh key: %s\n' "$APT_REFRESH_KEY" && \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    UPGRADE_EXISTING_PACKAGES=1 bash /tmp/install-system-deps && \
     rm /tmp/install-system-deps && \
     useradd -m -u 1000 sambee && \
     mkdir -p /app/data && \

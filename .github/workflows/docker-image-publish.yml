@@ -2,6 +2,7 @@ name: "Release: Publish Docker Image"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_TITLE: Sambee
 
 on:
   release:
@@ -21,6 +22,7 @@ jobs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
       version: ${{ steps.metadata.outputs.version }}
+      image_description: ${{ steps.metadata.outputs.image_description }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
       prerelease_series: ${{ steps.metadata.outputs.prerelease_series }}
       image_name: ${{ steps.metadata.outputs.image_name }}
@@ -51,6 +53,7 @@ jobs:
         full_sha="$(git rev-parse HEAD)"
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
         owner_lower="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+        image_description="$(bash .github/scripts/read_website_description.sh)"
 
         if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
           release_type="beta"
@@ -63,6 +66,11 @@ jobs:
         echo "checkout_ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
+        {
+          echo 'image_description<<EOF'
+          echo "$image_description"
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
         echo "major_minor=$major_minor" >> "$GITHUB_OUTPUT"
         echo "prerelease_series=$prerelease_series" >> "$GITHUB_OUTPUT"
         echo "image_name=ghcr.io/$owner_lower/sambee" >> "$GITHUB_OUTPUT"
@@ -117,24 +125,39 @@ jobs:
       with:
         install-dir: ${{ runner.temp }}/bin
 
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
     - name: Log in to GHCR with crane
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
     - name: Verify candidate artifact metadata
       shell: bash
       run: |
         bash .github/scripts/verify_candidate_image.sh \
           --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --expected-description "${{ needs.prepare.outputs.image_description }}" \
           --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
           --expected-version "${{ needs.prepare.outputs.version }}" \
-          --expected-source "${{ needs.prepare.outputs.source_url }}"
+          --expected-source "${{ needs.prepare.outputs.source_url }}" \
+          --expected-title "${{ env.IMAGE_TITLE }}"
 
-    - name: Verify candidate attestations
+    - name: Verify candidate metadata bundle
       shell: bash
       run: |
-        bash .github/scripts/verify_candidate_attestations.sh \
-          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}"
+        bash .github/scripts/verify_candidate_metadata_bundle.sh \
+          --image-ref "${{ needs.prepare.outputs.image_name }}@${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --metadata-repository "${{ needs.prepare.outputs.signature_repository }}" \
+          --expected-version "${{ needs.prepare.outputs.version }}" \
+          --expected-revision "${{ needs.prepare.outputs.full_sha }}" \
+          --expected-source "${{ needs.prepare.outputs.source_url }}"
 
   publish-release-tags:
     needs: [prepare, resolve-candidate-artifact, verify-candidate-artifact]
@@ -201,6 +224,42 @@ jobs:
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
           --tag "${{ needs.prepare.outputs.release_type }}"
+
+  upload-metadata-release-assets:
+    needs: [prepare, resolve-candidate-artifact, publish-release-tags]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Set up ORAS
+      uses: ./.github/actions/setup-oras
+      with:
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with ORAS
+      shell: bash
+      run: oras login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Pull metadata bundle
+      shell: bash
+      run: |
+        metadata_tag="$(bash .github/scripts/metadata_bundle_tag.sh --image-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}")"
+        oras pull "${{ needs.prepare.outputs.signature_repository }}:${metadata_tag}" --output "${{ runner.temp }}/metadata-bundle"
+
+    - name: Upload bundle files to GitHub release assets
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: |
+        gh release upload "${{ github.event.release.tag_name }}" --clobber \
+          "${{ runner.temp }}/metadata-bundle/metadata.json" \
+          "${{ runner.temp }}/metadata-bundle/provenance/intoto.jsonl" \
+          "${{ runner.temp }}/metadata-bundle/sbom/linux-amd64.spdx.json" \
+          "${{ runner.temp }}/metadata-bundle/sbom/linux-arm64.spdx.json"
 
   sign-and-attest:
     needs: [prepare, resolve-candidate-artifact, promote-channel-tags]
