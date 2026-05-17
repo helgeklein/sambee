@@ -1,4 +1,4 @@
-name: "Maintenance: Cleanup Untagged Docker Image Versions"
+name: "Maintenance: Cleanup Untagged Docker Package Versions"
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cleanup-docker-image-untagged-versions
+  group: cleanup-docker-untagged-package-versions
   cancel-in-progress: false
 
 permissions:
@@ -32,14 +32,26 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Delete old unreferenced untagged GHCR image versions
+    - name: Delete old unreferenced untagged GHCR versions
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
       run: |
         owner_lower="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+        python3 .github/scripts/cleanup_signature_container_versions.py \
+          --owner "${{ github.repository_owner }}" \
+          --image-package-name sambee \
+          --signature-package-name sambee-signatures \
+          --image-keep-count 10
+
         python3 .github/scripts/cleanup_untagged_container_versions.py \
           --owner "${{ github.repository_owner }}" \
           --package-name sambee \
           --image-name "ghcr.io/$owner_lower/sambee" \
+          --keep-count 10
+
+        python3 .github/scripts/cleanup_untagged_container_versions.py \
+          --owner "${{ github.repository_owner }}" \
+          --package-name sambee-signatures \
+          --image-name "ghcr.io/$owner_lower/sambee-signatures" \
           --keep-count 10

@@ -6,7 +6,6 @@ import argparse
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import urllib.error
@@ -14,10 +13,6 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
-MINOR_RE = re.compile(r"^\d+\.\d+$")
-PRERELEASE_SERIES_RE = re.compile(r"^\d+\.\d+-beta$")
-SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
 RUNNABLE_INDEX_MEDIA_TYPES = {
     "application/vnd.oci.image.index.v1+json",
     "application/vnd.docker.distribution.manifest.list.v2+json",
@@ -109,15 +104,6 @@ def load_versions(
     return versions
 
 
-def is_retained_tag(tag: str) -> bool:
-    return tag in {"stable", "beta", "test"} or bool(
-        SEMVER_RE.match(tag)
-        or MINOR_RE.match(tag)
-        or PRERELEASE_SERIES_RE.match(tag)
-        or SHA_TAG_RE.match(tag)
-    )
-
-
 def crane_manifest(image_ref: str) -> dict[str, object] | None:
     result = subprocess.run(
         ["crane", "manifest", image_ref],
@@ -145,7 +131,7 @@ def referenced_child_digests(
 ) -> set[str]:
     protected_digests: set[str] = set()
     for version in versions:
-        if not any(is_retained_tag(tag) for tag in version.tags):
+        if not version.tags:
             continue
         if not version.digest.startswith("sha256:"):
             continue
@@ -156,14 +142,6 @@ def referenced_child_digests(
             continue
         for descriptor in manifest.get("manifests", []):
             if not isinstance(descriptor, dict):
-                continue
-            platform = descriptor.get("platform", {})
-            if not isinstance(platform, dict):
-                continue
-            if (
-                platform.get("os") == "unknown"
-                or platform.get("architecture") == "unknown"
-            ):
                 continue
             digest = descriptor.get("digest")
             if isinstance(digest, str) and digest.startswith("sha256:"):

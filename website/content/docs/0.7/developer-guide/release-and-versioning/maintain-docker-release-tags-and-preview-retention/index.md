@@ -41,6 +41,8 @@ This workflow periodically deletes older test-only GitHub Container Registry ver
 
 Test-only candidates include the moving `test` tag and immutable `sha-<full-commit-sha>` preview tags.
 Untagged child manifests referenced by retained multi-platform indexes are protected before stale untagged versions are deleted.
+The cleanup also prunes stale `ghcr.io/<owner>/sambee-signatures` metadata and Cosign signature tags after their corresponding `sambee` image digest is no longer retained.
+The same reference-aware untagged cleanup runs for `sambee-signatures`, where it keeps Cosign signature bundle children referenced by retained signature indexes.
 
 That keeps the `test` channel usable without letting preview history grow without bound.
 
