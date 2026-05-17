@@ -64,7 +64,7 @@ This is the workflow that tells you a shipped runtime stack has picked up a newl
 Current preview behavior is intentionally advisory:
 
 - the preview build forces a fresh rebuild of the Debian package-install layer before Trivy runs and before the candidate is published
-- Trivy scans the same temporary architecture-specific tags that are later assembled into the final preview candidate
+- Trivy scans the same pushed platform digests that are later assembled into the final preview candidate
 - preview publishes still show matching `HIGH` or `CRITICAL` findings
 - the findings do not block publication to the `test` channel
 

@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
@@ -17,12 +18,17 @@ SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?
 MINOR_RE = re.compile(r"^\d+\.\d+$")
 PRERELEASE_SERIES_RE = re.compile(r"^\d+\.\d+-beta$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
+RUNNABLE_INDEX_MEDIA_TYPES = {
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.docker.distribution.manifest.list.v2+json",
+}
 
 
 @dataclass
 class PackageVersion:
     version_id: int
     created_at: str
+    digest: str
     tags: list[str]
 
 
@@ -44,6 +50,8 @@ def api_request(url: str, token: str, method: str = "GET") -> object | None:
 
 def get_owner_type(owner: str, token: str) -> str:
     payload = api_request(f"https://api.github.com/users/{owner}", token)
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Unable to resolve owner type for {owner!r}")
     owner_type = payload.get("type", "")
     if owner_type not in {"Organization", "User"}:
         raise RuntimeError(f"Unsupported owner type for {owner!r}: {owner_type!r}")
@@ -81,12 +89,17 @@ def load_versions(
         )
         if not payload:
             break
+        if not isinstance(payload, list):
+            raise RuntimeError("Package versions API returned an unexpected payload")
         for item in payload:
-            tags = item.get("metadata", {}).get("container", {}).get("tags", []) or []
+            container_metadata = item.get("metadata", {}).get("container", {})
+            tags = container_metadata.get("tags", []) or []
+            digest = item.get("name") or container_metadata.get("digest", "")
             versions.append(
                 PackageVersion(
                     version_id=item["id"],
                     created_at=item["created_at"],
+                    digest=digest,
                     tags=tags,
                 )
             )
@@ -96,24 +109,66 @@ def load_versions(
     return versions
 
 
-def is_protected_tag(tag: str) -> bool:
-    return tag in {"stable", "beta"} or bool(
-        SEMVER_RE.match(tag) or MINOR_RE.match(tag) or PRERELEASE_SERIES_RE.match(tag)
+def is_retained_tag(tag: str) -> bool:
+    return tag in {"stable", "beta", "test"} or bool(
+        SEMVER_RE.match(tag)
+        or MINOR_RE.match(tag)
+        or PRERELEASE_SERIES_RE.match(tag)
+        or SHA_TAG_RE.match(tag)
     )
 
 
-def is_test_only_tag(tag: str) -> bool:
-    return tag == "test" or bool(SHA_TAG_RE.match(tag))
+def crane_manifest(image_ref: str) -> dict[str, object] | None:
+    result = subprocess.run(
+        ["crane", "manifest", image_ref],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            json.dumps(
+                {
+                    "image_ref": image_ref,
+                    "classification": "manifest-unavailable",
+                    "stderr": result.stderr.strip(),
+                }
+            ),
+            file=sys.stderr,
+        )
+        return None
+    return json.loads(result.stdout)
 
 
-def classify(version: PackageVersion) -> str:
-    if not version.tags:
-        return "protected"
-    if any(is_protected_tag(tag) for tag in version.tags):
-        return "protected"
-    if all(is_test_only_tag(tag) for tag in version.tags):
-        return "deletable"
-    return "protected"
+def referenced_child_digests(
+    image_name: str, versions: list[PackageVersion]
+) -> set[str]:
+    protected_digests: set[str] = set()
+    for version in versions:
+        if not any(is_retained_tag(tag) for tag in version.tags):
+            continue
+        if not version.digest.startswith("sha256:"):
+            continue
+        manifest = crane_manifest(f"{image_name}@{version.digest}")
+        if not manifest:
+            continue
+        if manifest.get("mediaType") not in RUNNABLE_INDEX_MEDIA_TYPES:
+            continue
+        for descriptor in manifest.get("manifests", []):
+            if not isinstance(descriptor, dict):
+                continue
+            platform = descriptor.get("platform", {})
+            if not isinstance(platform, dict):
+                continue
+            if (
+                platform.get("os") == "unknown"
+                or platform.get("architecture") == "unknown"
+            ):
+                continue
+            digest = descriptor.get("digest")
+            if isinstance(digest, str) and digest.startswith("sha256:"):
+                protected_digests.add(digest)
+    return protected_digests
 
 
 def emit_log(version: PackageVersion, classification: str, action: str) -> None:
@@ -122,6 +177,7 @@ def emit_log(version: PackageVersion, classification: str, action: str) -> None:
             {
                 "version_id": version.version_id,
                 "created_at": version.created_at,
+                "digest": version.digest,
                 "tags": version.tags,
                 "classification": classification,
                 "action": action,
@@ -141,6 +197,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--owner", required=True)
     parser.add_argument("--package-name", required=True)
+    parser.add_argument("--image-name", required=True)
     parser.add_argument("--keep-count", type=int, default=10)
     args = parser.parse_args()
 
@@ -150,22 +207,24 @@ def main() -> int:
 
     owner_type = get_owner_type(args.owner, token)
     versions = load_versions(args.owner, owner_type, args.package_name, token)
+    protected_children = referenced_child_digests(args.image_name, versions)
 
     deletable: list[PackageVersion] = []
     for version in versions:
-        classification = classify(version)
-        if classification == "deletable":
-            deletable.append(version)
-            emit_log(version, classification, "retain-candidate")
+        if version.tags:
+            emit_log(version, "tagged", "protect")
+        elif version.digest in protected_children:
+            emit_log(version, "referenced-child", "protect")
         else:
-            emit_log(version, classification, "protect")
+            deletable.append(version)
+            emit_log(version, "untagged", "retain-candidate")
 
     deletable.sort(key=lambda version: version.created_at, reverse=True)
     for version in deletable[: args.keep_count]:
-        emit_log(version, "deletable", "retain")
+        emit_log(version, "untagged", "retain")
 
     for version in deletable[args.keep_count :]:
-        emit_log(version, "deletable", "delete")
+        emit_log(version, "untagged", "delete")
         try:
             delete_version(
                 args.owner, owner_type, args.package_name, version.version_id, token

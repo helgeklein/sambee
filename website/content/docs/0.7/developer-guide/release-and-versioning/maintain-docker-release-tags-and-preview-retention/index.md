@@ -39,7 +39,8 @@ This workflow periodically deletes older test-only GitHub Container Registry ver
 - `stable`, `beta`, and series-tagged versions.
 - the newest retained set of test-only candidates.
 
-Test-only candidates include the moving `test` tag, immutable `sha-<full-commit-sha>` preview tags, and temporary `sha-<full-commit-sha>-amd64` or `sha-<full-commit-sha>-arm64` platform tags created while assembling a preview candidate.
+Test-only candidates include the moving `test` tag and immutable `sha-<full-commit-sha>` preview tags.
+Untagged child manifests referenced by retained multi-platform indexes are protected before stale untagged versions are deleted.
 
 That keeps the `test` channel usable without letting preview history grow without bound.
 

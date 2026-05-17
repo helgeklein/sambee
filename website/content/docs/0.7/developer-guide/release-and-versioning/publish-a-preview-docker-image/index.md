@@ -39,7 +39,7 @@ Before it publishes anything, the workflow requires:
 - Backend tests must pass.
 - Frontend type checks must pass.
 - Frontend tests must pass.
-- Each supported platform image must build, publish under its temporary architecture tag, and start successfully.
+- Each supported platform image must build, publish by digest, and start successfully.
 
 The published `test` image is therefore already a validated candidate.
 
@@ -61,7 +61,7 @@ After validation, the workflow:
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
 
-The workflow uses temporary architecture-specific tags in the `sha-<full-commit-sha>-amd64` and `sha-<full-commit-sha>-arm64` form while assembling the final candidate index. Treat those as internal publish artifacts, not release candidates.
+The workflow uses digest-only platform pushes while assembling the final candidate index. Treat those platform manifests as internal publish artifacts, not release candidates.
 
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
 
@@ -71,7 +71,7 @@ The preview workflow runs Trivy before publish.
 
 For preview publishing, Trivy findings are advisory rather than blocking. That keeps the newest candidate available for testing while still surfacing risk clearly in the workflow output.
 
-The preview scan runs against the same temporary platform tags that are later assembled into the published candidate index, so validation and publication use the same platform manifests.
+The preview scan runs against the same pushed platform digests that are later assembled into the published candidate index, so validation and publication use the same platform manifests.
 
 Those manifests use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
 

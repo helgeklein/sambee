@@ -20,11 +20,26 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-    - name: Delete old untagged GHCR image versions
-      uses: actions/delete-package-versions@v5
+    - name: Checkout repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+    - name: Set up crane
+      uses: ./.github/actions/setup-crane
       with:
-        owner: ${{ github.repository_owner }}
-        package-name: sambee
-        package-type: container
-        min-versions-to-keep: 10
-        delete-only-untagged-versions: 'true'
+        install-dir: ${{ runner.temp }}/bin
+
+    - name: Log in to GHCR with crane
+      shell: bash
+      run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+
+    - name: Delete old unreferenced untagged GHCR image versions
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: |
+        owner_lower="$(printf '%s' "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+        python3 .github/scripts/cleanup_untagged_container_versions.py \
+          --owner "${{ github.repository_owner }}" \
+          --package-name sambee \
+          --image-name "ghcr.io/$owner_lower/sambee" \
+          --keep-count 10

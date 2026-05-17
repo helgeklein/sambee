@@ -209,9 +209,7 @@ jobs:
           --source-url "${{ needs.prepare.outputs.source_url }}" \
           --title "${{ env.IMAGE_TITLE }}" \
           --version "${{ needs.prepare.outputs.version }}" \
-          --annotation-platform "${{ matrix.docker_platform }}" \
-          --image-name "${{ needs.prepare.outputs.image_name }}" \
-          --tag "sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
+          --annotation-platform "${{ matrix.docker_platform }}"
 
     - name: Log in to GHCR
       uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
@@ -224,14 +222,14 @@ jobs:
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
     - name: Build and push preview platform image
+      id: build
       uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
       with:
         annotations: ${{ steps.image.outputs.annotations }}
         context: .
         file: ./Dockerfile
         platforms: ${{ matrix.docker_platform }}
-        push: true
-        tags: ${{ steps.image.outputs.tags }}
+        outputs: type=image,name=${{ needs.prepare.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
         labels: ${{ steps.image.outputs.labels }}
         build-args: |
           BUILD_CREATED_AT=${{ needs.prepare.outputs.created }}
@@ -243,9 +241,24 @@ jobs:
         provenance: false
         sbom: false
 
+    - name: Write preview platform digest
+      shell: bash
+      run: |
+        digest_dir="${{ runner.temp }}/platform-digest-${{ matrix.platform_id }}"
+        mkdir -p "$digest_dir"
+        printf '%s\n' '${{ steps.build.outputs.digest }}' > "$digest_dir/digest-${{ matrix.platform_id }}"
+
+    - name: Publish preview platform digest artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: platform-image-${{ matrix.platform_id }}
+        path: ${{ runner.temp }}/platform-digest-${{ matrix.platform_id }}/digest-${{ matrix.platform_id }}
+        if-no-files-found: error
+        retention-days: 1
+
     - name: Pull preview platform image for validation
       shell: bash
-      run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
+      run: docker pull --platform ${{ matrix.docker_platform }} "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
 
     - name: Start preview platform validation container
       shell: bash
@@ -256,7 +269,7 @@ jobs:
           -p 8000:8000 \
           -e SECRET_KEY=test-secret-key-for-ci-only-not-for-production-use \
           -e ENCRYPTION_KEY=YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU= \
-          "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
+          "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
 
     - name: Wait for preview health endpoint
       shell: bash
@@ -315,7 +328,7 @@ jobs:
           --pkg-types os,library \
           --format table \
           --exit-code 1 \
-          "${{ needs.prepare.outputs.image_name }}:sha-${{ needs.prepare.outputs.full_sha }}-${{ matrix.platform_id }}"
+          "${{ needs.prepare.outputs.image_name }}@${{ steps.build.outputs.digest }}"
 
         scan_status=$?
         set -e
@@ -343,6 +356,7 @@ jobs:
     needs: [prepare, build-and-validate-platforms]
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       packages: write
     outputs:
@@ -372,6 +386,16 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
+    - name: Download preview platform digests
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        platform_digest_dir="${{ runner.temp }}/platform-digests"
+        mkdir -p "$platform_digest_dir"
+        gh run download "$GITHUB_RUN_ID" --name platform-image-amd64 --dir "$platform_digest_dir"
+        gh run download "$GITHUB_RUN_ID" --name platform-image-arm64 --dir "$platform_digest_dir"
+
     - name: Assemble immutable preview image index
       id: assemble
       shell: bash
@@ -387,8 +411,17 @@ jobs:
       run: |
         image_name="$IMAGE_NAME"
         index_ref="$image_name:sha-$IMAGE_REVISION"
-        amd64_ref="$image_name:sha-$IMAGE_REVISION-amd64"
-        arm64_ref="$image_name:sha-$IMAGE_REVISION-arm64"
+        platform_digest_dir="${{ runner.temp }}/platform-digests"
+        amd64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-amd64")"
+        arm64_digest="$(tr -d '[:space:]' < "$platform_digest_dir/digest-arm64")"
+
+        for digest_name in amd64_digest arm64_digest; do
+          digest_value="${!digest_name}"
+          if ! [[ "$digest_value" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Downloaded platform digest $digest_name is invalid: $digest_value" >&2
+            exit 1
+          fi
+        done
 
         metadata_entries=(
           "org.opencontainers.image.created=$IMAGE_CREATED"
@@ -410,8 +443,8 @@ jobs:
         docker buildx imagetools create \
           --tag "$index_ref" \
           "${annotation_args[@]}" \
-          "$amd64_ref" \
-          "$arm64_ref"
+          "$image_name@$amd64_digest" \
+          "$image_name@$arm64_digest"
 
         index_digest="$(crane digest "$index_ref")"
         index_json="$(crane manifest "$index_ref")"

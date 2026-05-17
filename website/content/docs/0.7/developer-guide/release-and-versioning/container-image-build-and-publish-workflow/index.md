@@ -49,8 +49,8 @@ Sambee publishes three moving channel tags:
 
 Each preview publish also creates an immutable lookup tag in the `sha-<full-commit-sha>` form.
 
-During publication, the workflow may also create temporary platform tags in the `sha-<full-commit-sha>-amd64` and `sha-<full-commit-sha>-arm64` form before it assembles the final multi-platform index.
-Those platform tags are implementation details of the publish workflow.
+During publication, the workflow pushes native platform manifests by digest before it assembles the final multi-platform index.
+Those digest-only platform pushes are implementation details of the publish workflow and are not user-facing tags.
 
 Release workflows resolve that immutable candidate tag first and then attach the appropriate release tags to the same digest.
 
