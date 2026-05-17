@@ -104,6 +104,24 @@ def test_retained_image_digests_keep_releases_and_protected_test_channel() -> No
 
 
 @pytest.mark.unit
+def test_supported_arch_specific_preview_tags_are_not_retained() -> None:
+    module = load_cleanup_module()
+    preview_digest = "sha256:" + "5" * 64
+
+    versions = [
+        module.PackageVersion(
+            version_id=1,
+            created_at="2026-05-17T00:00:00Z",
+            digest=preview_digest,
+            tags=["sha-" + "a" * 40 + "-amd64"],
+        )
+    ]
+
+    assert module.is_test_only_image_tag("sha-" + "a" * 40 + "-amd64")
+    assert module.retained_image_digests(versions) == set()
+
+
+@pytest.mark.unit
 def test_classify_signature_version_protects_retained_digest_artifacts() -> None:
     module = load_cleanup_module()
     retained_digest = "sha256:" + "a" * 64

@@ -17,6 +17,7 @@ SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?
 MINOR_RE = re.compile(r"^\d+\.\d+$")
 PRERELEASE_SERIES_RE = re.compile(r"^\d+\.\d+-beta$")
 SHA_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}$")
+ARCH_PREVIEW_TAG_RE = re.compile(r"^sha-[0-9a-f]{40}-(?:amd64|arm64)$")
 SIGNATURE_ARTIFACT_TAG_RE = re.compile(
     r"^sha256-([0-9a-f]{64})(?:\.(?:att|meta|sig))?"
     r"$"
@@ -115,7 +116,7 @@ def is_protected_image_tag(tag: str) -> bool:
 
 
 def is_test_only_image_tag(tag: str) -> bool:
-    return bool(SHA_TAG_RE.match(tag))
+    return bool(SHA_TAG_RE.match(tag) or ARCH_PREVIEW_TAG_RE.match(tag))
 
 
 def classify_image_version(version: PackageVersion) -> str:
