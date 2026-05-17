@@ -24,14 +24,15 @@ To take a version to `stable`, follow this sequence:
 8. Let `Release: Publish Docker Image` verify and promote the already published candidate digest.
 
 For prereleases, the same flow promotes the candidate to `beta` instead of `stable`.
+The checked-in `VERSION` remains the product version for the candidate build; the prerelease suffix lives only on the Git tag and GitHub Release.
 
 ## Promotion Checks
 
 Before promotion, the workflow checks all of the following:
 
-1. The published release tag matches `v$(cat VERSION)` exactly.
+1. Stable releases must use the tag `v$(cat VERSION)`. Prereleases must start with that same base version and add a prerelease suffix, for example `v0.8.0-beta.1`.
 2. The corresponding immutable preview candidate tag `sha-<full-commit-sha>` exists in GitHub Container Registry.
-3. The candidate image labels match the expected revision, version, and source repository.
+3. The candidate image labels match the expected revision, checked-in product version, and source repository.
 4. The preview-built SBOM and provenance metadata bundle exists under the expected digest-derived `.meta` tag and matches the candidate digest.
 
 If any of those checks fail, promotion stops.
@@ -62,12 +63,13 @@ The thing tested as a preview candidate is therefore the exact thing that later 
 
 ## Tag Contract
 
-Docker image promotion expects Git tags in the `vX.Y.Z` form.
+Docker image promotion expects release tags to use the checked-in base version from `VERSION`.
 
 Examples:
 
 - `VERSION` contains `0.7.0`.
-- The Git tag and GitHub Release must be `v0.7.0`.
+- A stable Git tag and GitHub Release must be `v0.7.0`.
+- A prerelease Git tag and GitHub Release may be `v0.7.0-beta.1`.
 
 If those values drift apart, promotion fails.
 

@@ -22,6 +22,7 @@ If you want to take a new version to the `stable` image channel, follow this ord
 8. Deploy by digest where possible, or use the promoted `stable` tag when you need the moving channel alias.
 
 For prereleases, the flow is the same except the published GitHub Release becomes a `beta` image promotion instead of `stable`.
+Use a prerelease tag that keeps the checked-in base version and appends the prerelease suffix, for example `v0.7.0-beta.1` when `VERSION` is `0.7.0`.
 
 Read the detailed pages in this order:
 

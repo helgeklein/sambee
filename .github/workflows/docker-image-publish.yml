@@ -21,6 +21,7 @@ jobs:
     outputs:
       checkout_ref: ${{ steps.metadata.outputs.checkout_ref }}
       release_type: ${{ steps.metadata.outputs.release_type }}
+      release_image_tag: ${{ steps.metadata.outputs.release_image_tag }}
       version: ${{ steps.metadata.outputs.version }}
       image_description: ${{ steps.metadata.outputs.image_description }}
       major_minor: ${{ steps.metadata.outputs.major_minor }}
@@ -43,12 +44,14 @@ jobs:
       shell: bash
       run: |
         version="$(tr -d '[:space:]' < VERSION)"
-        expected_tag="v$version"
+        release_tag="${{ github.event.release.tag_name }}"
 
-        if [[ "${{ github.event.release.tag_name }}" != "$expected_tag" ]]; then
-          echo "Release tag $expected_tag expected, got ${{ github.event.release.tag_name }}" >&2
+        if [[ "$release_tag" != v* ]]; then
+          echo "Release tag must start with v, got $release_tag" >&2
           exit 1
         fi
+
+        release_image_tag="${release_tag#v}"
 
         full_sha="$(git rev-parse HEAD)"
         major_minor="$(printf '%s' "$version" | cut -d. -f1-2)"
@@ -58,13 +61,25 @@ jobs:
         if [[ "${{ github.event.release.prerelease }}" == "true" ]]; then
           release_type="beta"
           prerelease_series="${major_minor}-beta"
+
+          if [[ "$release_image_tag" != "$version"-* ]]; then
+            echo "Prerelease tag must start with v$version-, got $release_tag" >&2
+            exit 1
+          fi
         else
           release_type="stable"
           prerelease_series=""
+
+          expected_tag="v$version"
+          if [[ "$release_tag" != "$expected_tag" ]]; then
+            echo "Release tag $expected_tag expected, got $release_tag" >&2
+            exit 1
+          fi
         fi
 
-        echo "checkout_ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+        echo "checkout_ref=$release_tag" >> "$GITHUB_OUTPUT"
         echo "release_type=$release_type" >> "$GITHUB_OUTPUT"
+        echo "release_image_tag=$release_image_tag" >> "$GITHUB_OUTPUT"
         echo "version=$version" >> "$GITHUB_OUTPUT"
         {
           echo 'image_description<<EOF'
@@ -181,7 +196,7 @@ jobs:
     - name: Attach immutable release tags
       shell: bash
       run: |
-        tags=("${{ needs.prepare.outputs.version }}")
+        tags=("${{ needs.prepare.outputs.release_image_tag }}")
         if [[ "${{ needs.prepare.outputs.release_type }}" == "stable" ]]; then
           tags+=("${{ needs.prepare.outputs.major_minor }}")
         else

@@ -17,6 +17,8 @@ Typical cases include:
 - Backfilling the Docker release process for an older tagged version.
 - Repairing tags after a transient registry or runner failure.
 
+The release tag can be either a stable tag such as `v0.7.0` or a prerelease tag such as `v0.7.0-beta.1`, as long as it matches the checked-in base `VERSION` for that release commit.
+
 The backfill workflow follows the same core safety rules as normal promotion:
 
 - It resolves an existing candidate digest.
