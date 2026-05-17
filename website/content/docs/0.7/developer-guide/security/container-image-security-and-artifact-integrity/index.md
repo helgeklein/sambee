@@ -102,6 +102,8 @@ Current split:
 - deployable images and multi-arch manifests stay under `ghcr.io/<owner>/sambee`
 - SBOM and provenance metadata bundles and Cosign signature artifacts are written under `ghcr.io/<owner>/sambee-signatures`
 
+For Cosign-managed signatures, GHCR can display a digest-derived tagged signature artifact together with an untagged referenced bundle manifest for the same retained image digest.
+
 That keeps the main package page focused on deployable image versions instead of showing non-runnable attestation content there.
 
 Those controls do not replace vulnerability scanning.

@@ -68,6 +68,7 @@ The repository name is `ghcr.io/<owner>/sambee`.
 Each platform variant comes from the same Dockerfile, is built and validated on a native runner, and is assembled into the same candidate index digest.
 
 Cosign signatures for that image digest are stored in a dedicated GHCR signature repository rather than in the main image repository.
+Cosign manages its own digest-derived signature artifact layout in that repository, so GHCR may show both tagged signature entries and referenced untagged bundle manifests for a retained image digest.
 
 SBOM and provenance data for that digest are extracted per platform on native runners, assembled into one metadata bundle, and published in the dedicated `ghcr.io/<owner>/sambee-signatures` repository under a digest-derived `.meta` tag.
 

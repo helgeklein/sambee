@@ -64,6 +64,7 @@ The digest is the real artifact identity. The `test` tag is only a moving alias.
 The workflow uses digest-only platform pushes while assembling the final candidate index. Treat those platform manifests as internal publish artifacts, not release candidates.
 
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
+That signature repository can still show both digest-derived signature tags and referenced untagged bundle manifests, which are part of Cosign's current storage model rather than extra preview image variants.
 
 ## Scan Behavior
 
