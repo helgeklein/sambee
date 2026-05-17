@@ -37,7 +37,7 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Delete old test-only and unreferenced package versions
+    - name: Delete unprotected and unreferenced package versions
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
@@ -46,23 +46,19 @@ jobs:
 
         python3 .github/scripts/cleanup_test_container_versions.py \
           --owner "${{ github.repository_owner }}" \
-          --package-name sambee \
-          --keep-count 10
+          --package-name sambee
 
         python3 .github/scripts/cleanup_signature_container_versions.py \
           --owner "${{ github.repository_owner }}" \
           --image-package-name sambee \
-          --signature-package-name sambee-signatures \
-          --image-keep-count 10
+          --signature-package-name sambee-signatures
 
         python3 .github/scripts/cleanup_untagged_container_versions.py \
           --owner "${{ github.repository_owner }}" \
           --package-name sambee \
-          --image-name "ghcr.io/$owner_lower/sambee" \
-          --keep-count 10
+          --image-name "ghcr.io/$owner_lower/sambee"
 
         python3 .github/scripts/cleanup_untagged_container_versions.py \
           --owner "${{ github.repository_owner }}" \
           --package-name sambee-signatures \
-          --image-name "ghcr.io/$owner_lower/sambee-signatures" \
-          --keep-count 10
+          --image-name "ghcr.io/$owner_lower/sambee-signatures"

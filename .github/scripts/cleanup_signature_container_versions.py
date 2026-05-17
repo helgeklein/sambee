@@ -108,13 +108,13 @@ def load_versions(
 
 
 def is_protected_image_tag(tag: str) -> bool:
-    return tag in {"stable", "beta"} or bool(
+    return tag in {"stable", "beta", "test"} or bool(
         SEMVER_RE.match(tag) or MINOR_RE.match(tag) or PRERELEASE_SERIES_RE.match(tag)
     )
 
 
 def is_test_only_image_tag(tag: str) -> bool:
-    return tag == "test" or bool(SHA_TAG_RE.match(tag))
+    return bool(SHA_TAG_RE.match(tag))
 
 
 def classify_image_version(version: PackageVersion) -> str:
@@ -127,23 +127,13 @@ def classify_image_version(version: PackageVersion) -> str:
     return "protected"
 
 
-def retained_image_digests(
-    image_versions: list[PackageVersion], keep_count: int
-) -> set[str]:
+def retained_image_digests(image_versions: list[PackageVersion]) -> set[str]:
     retained: set[str] = set()
-    preview_versions: list[PackageVersion] = []
     for version in image_versions:
         classification = classify_image_version(version)
         if classification == "protected":
             if version.digest.startswith("sha256:"):
                 retained.add(version.digest)
-        elif classification == "preview":
-            preview_versions.append(version)
-
-    preview_versions.sort(key=lambda version: version.created_at, reverse=True)
-    for version in preview_versions[:keep_count]:
-        if version.digest.startswith("sha256:"):
-            retained.add(version.digest)
 
     return retained
 
@@ -199,11 +189,7 @@ def main() -> int:
     parser.add_argument("--owner", required=True)
     parser.add_argument("--image-package-name", required=True)
     parser.add_argument("--signature-package-name", required=True)
-    parser.add_argument("--image-keep-count", type=int, default=10)
     args = parser.parse_args()
-
-    if args.image_keep_count < 0:
-        raise RuntimeError("--image-keep-count must be greater than or equal to 0")
 
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -216,7 +202,7 @@ def main() -> int:
     signature_versions = load_versions(
         args.owner, owner_type, args.signature_package_name, token
     )
-    retained_digests = retained_image_digests(image_versions, args.image_keep_count)
+    retained_digests = retained_image_digests(image_versions)
     if not retained_digests:
         raise RuntimeError(
             "No retained image digests found; refusing to delete signatures"

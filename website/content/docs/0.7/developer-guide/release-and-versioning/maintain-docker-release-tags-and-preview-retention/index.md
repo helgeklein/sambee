@@ -35,18 +35,41 @@ Use backfill only for already approved releases. It is not an alternate way to p
 
 GitHub Actions displays the retention workflow as `Maintenance: Clean Up Docker Package Versions`.
 
-This workflow periodically deletes older test-only GitHub Container Registry versions while preserving:
+This workflow periodically deletes unprotected preview and unreferenced GitHub Container Registry versions while preserving:
 
 - release-tagged versions.
-- `stable`, `beta`, and series-tagged versions.
-- the newest retained set of test-only candidates.
+- `stable`, `beta`, `test`, and series-tagged versions.
 
-Test-only candidates include the moving `test` tag and immutable `sha-<full-commit-sha>` preview tags.
+The moving `test` tag is protected like the other channel aliases.
+Immutable `sha-<full-commit-sha>` preview tags are deleted when they are no longer protected by another retained tag.
 Untagged child manifests referenced by retained multi-platform indexes are protected before stale untagged versions are deleted.
 The cleanup also prunes stale `ghcr.io/<owner>/sambee-signatures` metadata and Cosign signature tags after their corresponding `sambee` image digest is no longer retained.
 The same reference-aware untagged cleanup runs for `sambee-signatures`, where it keeps Cosign signature bundle children referenced by retained signature indexes.
 
-That keeps the `test` channel usable without letting preview history grow without bound.
+That keeps the `test` channel usable while aggressively removing disposable preview history.
+
+## Cleanup Rules
+
+Use this quick reference when deciding what the cleanup workflow will keep versus delete.
+
+| If a package version is... | Cleanup action |
+|---|---|
+| Tagged with a release tag such as `0.7.0` or `0.7.0-beta.1` | Keep |
+| Tagged with a protected channel or series tag such as `stable`, `beta`, `test`, `0.7`, or `0.7-beta` | Keep |
+| Tagged only with an immutable preview tag such as `sha-<full-commit-sha>` | Delete |
+| Untagged but still referenced by a retained multi-platform image index | Keep |
+| Untagged and not referenced by any retained index | Delete |
+| A signature or metadata artifact for a retained image digest | Keep |
+| A signature or metadata artifact for a deleted image digest | Delete |
+
+There is no retention count anymore. The workflow deletes every package version that is not protected by tags or by graph references.
+
+## Examples
+
+- `ghcr.io/<owner>/sambee:test` stays because `test` is a protected channel tag.
+- `ghcr.io/<owner>/sambee:sha-<full-commit-sha>` is deleted if that digest is not also kept by another protected tag.
+- An untagged platform manifest stays if a retained multi-platform index still points to it.
+- A stale `ghcr.io/<owner>/sambee-signatures` artifact is deleted after its corresponding image digest is no longer retained.
 
 ## Which Workflow To Use
 
@@ -54,12 +77,12 @@ That keeps the `test` channel usable without letting preview history grow withou
 |---|---|
 | Reattach tags for an existing approved release. | `Maintenance: Backfill Docker Release Tags` |
 | Repair a broken release-tag alias after an operational failure. | `Maintenance: Backfill Docker Release Tags` |
-| Remove older preview-only GHCR versions automatically. | `Maintenance: Clean Up Docker Package Versions` |
+| Remove unprotected preview versions and unreferenced artifacts automatically. | `Maintenance: Clean Up Docker Package Versions` |
 
 ## Boundaries
 
 - Do not publish a replacement runtime image in backfill. Recovery should point tags back at an existing digest.
-- Do not treat the `test` channel as permanent history. The cleanup workflow is expected to prune it.
+- Do not treat immutable `sha-<full-commit-sha>` preview tags as permanent history. The cleanup workflow is expected to prune them.
 - Do not use moving tags such as `stable`, `beta`, or `test` as the only source of deployment truth when a digest is available.
 
 If you are starting from a new candidate commit rather than repairing an existing release path, go back to [Publish Test Docker Candidate](../publish-a-preview-docker-image/) or [Promote Docker Candidate](../promote-a-preview-candidate-to-stable-or-beta/).

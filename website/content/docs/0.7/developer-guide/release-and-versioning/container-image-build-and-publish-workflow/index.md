@@ -38,7 +38,7 @@ Read the detailed pages in this order:
 | `Preview: Publish Test Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes the metadata bundle, marks that digest as the current `test` image, and signs the digest. |
 | `Release: Publish Docker Image` | A GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags and the `stable` or `beta` channel tag. |
 | `Maintenance: Backfill Docker Release Tags` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without publishing a new runtime image. |
-| `Cleanup Test Docker Images` | Preview history needs retention control. | Deletes older test-only GHCR versions while preserving release-tagged artifacts and protected aliases. |
+| `Maintenance: Clean Up Docker Package Versions` | Preview history and unreferenced GHCR artifacts need cleanup. | Deletes unprotected SHA-tagged preview GHCR versions, prunes stale signature artifacts, and removes unreferenced untagged package versions while preserving release-tagged artifacts and protected aliases including `test`. |
 
 ## Channels And Tags
 

@@ -176,7 +176,6 @@ def main() -> int:
     parser.add_argument("--owner", required=True)
     parser.add_argument("--package-name", required=True)
     parser.add_argument("--image-name", required=True)
-    parser.add_argument("--keep-count", type=int, default=10)
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -195,13 +194,10 @@ def main() -> int:
             emit_log(version, "referenced-child", "protect")
         else:
             deletable.append(version)
-            emit_log(version, "untagged", "retain-candidate")
+            emit_log(version, "untagged", "delete-candidate")
 
     deletable.sort(key=lambda version: version.created_at, reverse=True)
-    for version in deletable[: args.keep_count]:
-        emit_log(version, "untagged", "retain")
-
-    for version in deletable[args.keep_count :]:
+    for version in deletable:
         emit_log(version, "untagged", "delete")
         try:
             delete_version(

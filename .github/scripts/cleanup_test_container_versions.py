@@ -97,13 +97,13 @@ def load_versions(
 
 
 def is_protected_tag(tag: str) -> bool:
-    return tag in {"stable", "beta"} or bool(
+    return tag in {"stable", "beta", "test"} or bool(
         SEMVER_RE.match(tag) or MINOR_RE.match(tag) or PRERELEASE_SERIES_RE.match(tag)
     )
 
 
 def is_test_only_tag(tag: str) -> bool:
-    return tag == "test" or bool(SHA_TAG_RE.match(tag))
+    return bool(SHA_TAG_RE.match(tag))
 
 
 def classify(version: PackageVersion) -> str:
@@ -141,7 +141,6 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--owner", required=True)
     parser.add_argument("--package-name", required=True)
-    parser.add_argument("--keep-count", type=int, default=10)
     args = parser.parse_args()
 
     token = os.environ.get("GITHUB_TOKEN")
@@ -156,15 +155,12 @@ def main() -> int:
         classification = classify(version)
         if classification == "deletable":
             deletable.append(version)
-            emit_log(version, classification, "retain-candidate")
+            emit_log(version, classification, "delete-candidate")
         else:
             emit_log(version, classification, "protect")
 
     deletable.sort(key=lambda version: version.created_at, reverse=True)
-    for version in deletable[: args.keep_count]:
-        emit_log(version, "deletable", "retain")
-
-    for version in deletable[args.keep_count :]:
+    for version in deletable:
         emit_log(version, "deletable", "delete")
         try:
             delete_version(
