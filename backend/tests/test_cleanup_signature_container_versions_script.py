@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -18,6 +19,48 @@ def load_cleanup_module():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+class FakeResponse:
+    def __init__(self, status: int, payload: bytes = b"") -> None:
+        self.status = status
+        self._payload = payload
+
+    def __enter__(self) -> FakeResponse:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+@pytest.mark.unit
+def test_load_versions_uses_name_field_as_digest_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = load_cleanup_module()
+    payload = [
+        {
+            "id": 1,
+            "name": "sha256:" + "a" * 64,
+            "created_at": "2026-05-17T00:00:00Z",
+            "metadata": {
+                "container": {
+                    "tags": ["test"],
+                }
+            },
+        }
+    ]
+
+    monkeypatch.setattr(
+        module.urllib.request,
+        "urlopen",
+        lambda request: FakeResponse(200, json.dumps(payload).encode("utf-8")),
+    )
+
+    versions = module.load_versions("helgeklein", "User", "sambee", "token")
+
+    assert [version.digest for version in versions] == ["sha256:" + "a" * 64]
 
 
 @pytest.mark.unit

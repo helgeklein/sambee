@@ -93,11 +93,12 @@ def load_versions(
         for item in payload:
             container = item.get("metadata", {}).get("container", {})
             tags = container.get("tags", []) or []
+            digest = item.get("name") or container.get("digest", "")
             versions.append(
                 PackageVersion(
                     version_id=item["id"],
                     created_at=item["created_at"],
-                    digest=container.get("digest", ""),
+                    digest=digest,
                     tags=tags,
                 )
             )
