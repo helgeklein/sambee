@@ -10,16 +10,18 @@ You need:
 - A host that can reach the SMB file servers Sambee will use.
 - A deployment directory where you can keep local files such as `docker-compose.yml`, optional `config.toml`, and the persistent `data/` directory.
 
-## 1. Obtain the Example Files
+You do not need to clone the repository or build Sambee locally for a normal Docker deployment. Sambee publishes ready-to-run container images to GitHub Container Registry.
 
-Clone the repository and move into it so you can copy the provided Docker deployment examples:
+## 1. Create a Deployment Directory
+
+Create a dedicated directory for your local deployment files and move into it:
 
 ```bash
-git clone https://github.com/helgeklein/sambee.git
+mkdir -p sambee
 cd sambee
 ```
 
-You do not need to build Sambee locally for a normal Docker deployment. The default example pulls the published `stable` image from GitHub Container Registry.
+This directory will hold your Compose file, optional configuration file, and persistent application data.
 
 ## 2. Prepare Persistent Storage
 
@@ -34,28 +36,46 @@ This directory contains the Sambee database and other state that must survive re
 
 ## 3. Create the Compose File
 
-Start from the provided example:
+Create `docker-compose.yml` with this content:
 
-```bash
-cp docker-compose.example.yml docker-compose.yml
+```yaml
+services:
+	sambee:
+		image: ghcr.io/helgeklein/sambee:stable
+		restart: unless-stopped
+		volumes:
+			- ./data:/app/data
+			# Optional: uncomment when you create config.toml locally.
+			# - ./config.toml:/app/config.toml:ro
+		ports:
+			- 8000:8000
 ```
 
-Before first start, review:
+Before first start, review these settings for your environment:
 
 - Mounted paths.
 - Published ports.
-- Optional config mounts.
-- How the service will fit into your network or reverse-proxy setup.
+- Optional config mount.
+- Reverse-proxy or firewall requirements.
 
 ## 4. Optional: Create a Local Configuration File
 
-If you need custom settings, create `config.toml` from the example:
+You do not need `config.toml` for a basic deployment. Create it only if you need to override defaults such as authentication, logging, or Companion download settings.
 
-```bash
-cp config.example.toml config.toml
+Create `config.toml` with only the settings you want to change. For example:
+
+```toml
+[app]
+log_level = "INFO"
+
+[security]
+auth_method = "password"
+
+[admin]
+username = "admin"
 ```
 
-You do not need `config.toml` for a basic deployment. Create it only if you need to change defaults such as authentication, logging, or Companion download settings.
+If you create `config.toml`, uncomment the read-only bind mount in `docker-compose.yml`.
 
 Keep this file local. In production, mount it read-only.
 
@@ -81,9 +101,9 @@ By default, the service is available at:
 
 If you want a different release channel, change the image tag in `docker-compose.yml` before pulling:
 
-- `stable` for the current production channel
-- `beta` for prerelease builds promoted from a published GitHub prerelease
-- `test` for the newest manually published preview build
+- `stable` for the current production channel.
+- `beta` for prerelease builds promoted from a published GitHub prerelease.
+- `test` for the newest manually published preview build.
 
 ## Verify the Deployment
 
@@ -98,3 +118,5 @@ For a quick log review:
 ```bash
 docker compose logs sambee --tail 100
 ```
+
+Once the deployment is healthy, continue with the first login procedure on the next page.
