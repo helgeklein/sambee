@@ -1,32 +1,31 @@
-# Sambee
+# Sambee: Browser-Based File Manager
 
-Sambee provides browser-based access to SMB shares and local drives. It lets you explore, preview, and manage files in the browser, with the optional companion app extending Sambee to the local desktop when native app integration is needed.
+Sambee is a browser-based viewer and manager for files on SMB network shares and on your computer's local drives. It supports single-pane and dual-pane views and can replace Total Commander-style tools in your browser and on your phone.
 
-## What Sambee Does
+### Supports SMB Shares and Local Drives
 
-- Browse SMB shares from the browser
-- Access local drives through Sambee Companion
-- Preview images, PDFs, and Markdown before downloading
-- Manage files with upload, download, copy, move, rename, delete, and folder creation
-- Open files in installed desktop applications when browser-based work is not enough
-- Support desktop and mobile workflows from the same system
+SMB shares are accessed through Sambee's server component, which translates between HTTP(S), which your browser understands, and SMB, which a file server understands. Local drive access is provided by Sambee Companion, a helper app that can be installed on your computer and acts as a small service your browser can talk to.
 
-## How It Fits
+All of this means that Sambee brings your files and folders into the browser and makes them accessible from your phone in much the same way as from your PC or Mac.
 
-Sambee is a self-hosted system for environments that want browser-based file access without moving storage into the cloud. It is designed for teams that already rely on SMB shares, NAS devices, Samba servers, or Windows file servers and want a browser-first way to work with those files.
+## Image and PDF Viewer, Markdown Editor
 
-## Companion
+Sambee is more than a file manager. It is built for speed and includes a fast image browser with broad file type support, a Markdown editor, and a PDF viewer. All of these work directly in the browser and do not require additional software, except Companion for local-drive access.
 
-Sambee Companion is optional for browser-based SMB access. It is required for local-drive access and for opening files in native desktop applications and returning edited files to their source location.
+## Desktop App Integration
 
-## Deployment
+Sambee also bridges the gap between the browser and the apps installed on your computer. It lets you open a file in its traditional desktop app directly from the browser. In other words, you can open Word, Excel, or Photoshop files in their respective native apps. When you are done editing, your changes are uploaded back to the original storage location, such as a file share. All of this happens through a smooth, browser-based workflow.
 
-Sambee is designed to fit into existing infrastructure. You can deploy it with Docker, place it behind your reverse proxy, and connect it to the SMB storage you already use.
+## Documentation
 
-## Project Scope
-
-Sambee focuses on file access and file handling rather than cloud storage replacement. The browser UI covers common browsing, preview, and management workflows, while Companion extends the system to the local desktop when access to local drives or installed applications is needed.
+- [User guide](https://sambee.net/docs/user-guide/)
+- [Admin guide](https://sambee.net/docs/admin-guide/)
+- [Developer guide](https://sambee.net/docs/developer-guide/)
 
 ## License
 
 MIT
+
+## Trademark Notice
+
+Sambee and the Sambee logo are trademarks of Helge Klein and are not licensed under the MIT License.
