@@ -51,12 +51,17 @@ services:
 			- 8000:8000
 ```
 
-Before first start, review these settings for your environment:
+#### Select a Release Channel
 
-- Mounted paths.
-- Published ports.
-- Optional config mount.
-- Reverse-proxy or firewall requirements.
+Sambee has three different release channels. You select which to follow via the Docker image tag:
+
+- `stable` for the production channel.
+- `beta` for prerelease builds.
+- `test` for preview builds.
+
+{{< admonition type="tip" >}}
+While Sambee is in beta, the `stable` tag may not be available yet.
+{{< /admonition >}}
 
 ## 4. Optional: Create a Local Configuration File
 
@@ -98,12 +103,6 @@ By default, the service is available at:
 - Frontend: `http://localhost:8000`
 - Backend API: `http://localhost:8000/api`
 - API docs: `http://localhost:8000/docs`
-
-If you want a different release channel, change the image tag in `docker-compose.yml` before pulling:
-
-- `stable` for the current production channel.
-- `beta` for prerelease builds promoted from a published GitHub prerelease.
-- `test` for the newest manually published preview build.
 
 ## Verify the Deployment
 

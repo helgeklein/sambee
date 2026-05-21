@@ -421,7 +421,6 @@
     "ids": [
       "1-create-a-deployment-directory",
       "1-do-not-trigger-synchronous-state-changes-in-capture-phase-pointer-handlers-unless-necessary",
-      "1-obtain-the-example-files",
       "2-keep-portal-rendered-viewer-surfaces-render-isolated",
       "2-prepare-persistent-storage",
       "3-create-the-compose-file",
@@ -890,6 +889,7 @@
       "section-operations",
       "security-and-policy-constraints",
       "security-model",
+      "select-a-release-channel",
       "selection-and-dual-pane-workflows",
       "selection-copy-and-move",
       "server-side-conversion-contract",
