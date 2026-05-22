@@ -2,6 +2,34 @@
   color: "0e8a16"
   description: Dependency update and supply-chain maintenance work.
 
+- name: backend
+  color: "0052cc"
+  description: Changes affecting the backend API, server behavior, or SMB access.
+
+- name: bug
+  color: "d73a4a"
+  description: Something is broken or behaving incorrectly.
+
+- name: enhancement
+  color: "a2eeef"
+  description: A request for new behavior or an improvement.
+
+- name: docs
+  color: "0075ca"
+  description: Changes or issues affecting documentation or docs tooling.
+
+- name: needs-triage
+  color: "ededed"
+  description: Newly filed and not yet routed by a maintainer.
+
+- name: needs-info
+  color: "fbca04"
+  description: More information is needed before work can proceed.
+
+- name: needs-repro
+  color: "f9d0c4"
+  description: A reliable reproduction is still needed.
+
 - name: github-actions
   color: "1d76db"
   description: Changes related to GitHub Actions workflows and actions.
@@ -21,6 +49,10 @@
 - name: rust
   color: "b7410e"
   description: Changes affecting Rust code or cargo dependencies.
+
+- name: website
+  color: "0f8b8d"
+  description: Changes affecting the website, docs platform, or Hugo-based site behavior.
 
 - name: docker
   color: "0052cc"

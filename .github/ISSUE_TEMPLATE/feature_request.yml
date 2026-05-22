@@ -1,0 +1,112 @@
+name: Feature request
+description: Propose a new capability or workflow improvement for Sambee.
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for new capabilities, workflow improvements, or meaningful UX changes.
+
+        Strong requests describe the user problem first, then the desired outcome.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched for existing feature requests before filing this issue.
+          required: true
+        - label: This request describes a concrete problem or workflow gap, not only a solution idea.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Main area
+      options:
+        - Frontend web app
+        - Backend API or SMB access
+        - Companion app
+        - Website or docs
+        - CI, build, or developer tooling
+        - Cross-cutting or multiple areas
+        - Unsure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Target workflow
+      options:
+        - SMB share browsing or file operations
+        - Local drive access through Companion
+        - Desktop app open or edit handoff
+        - Sign-in, auth, or session behavior
+        - File preview, viewer, or editor behavior
+        - Deployment, configuration, or upgrade
+        - Docs or website navigation
+        - Developer workflow or CI
+        - Other or unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the current limitation, pain point, or missing workflow.
+      placeholder: Administrators can troubleshoot Companion log locations, but end users do not have a clear in-product path to collect the right diagnostics.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the result you want, independent of implementation details where possible.
+      placeholder: Users should be able to export a sanitized diagnostics bundle directly from the product.
+    validations:
+      required: true
+
+  - type: textarea
+    id: users
+    attributes:
+      label: Who benefits and why
+      description: Explain the user, operator, or developer impact.
+      placeholder: This would help admins support remote users and reduce support back-and-forth during Companion issues.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List concrete behaviors that would make this request complete.
+      placeholder: |
+        - A user can trigger diagnostic export from the UI.
+        - Sensitive secrets are excluded or redacted.
+        - The export includes frontend and companion logs when available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds considered
+      description: Include current workarounds or competing approaches.
+      placeholder: We currently walk users through file-system log collection, which is slow and error-prone.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Add mockups, related issues, prior discussion, or technical constraints.
+      placeholder: This is related to support friction around local-drive pairing and desktop-app handoff.
+    validations:
+      required: false

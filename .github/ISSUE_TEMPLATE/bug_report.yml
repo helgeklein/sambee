@@ -1,0 +1,184 @@
+name: Bug report
+description: Report a broken behavior, regression, or workflow failure in Sambee.
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for defects in Sambee, including backend, frontend, companion, docs, and deployment behavior.
+
+        Before filing:
+        - Search for existing issues that describe the same failure.
+        - Check the troubleshooting guidance if the problem looks environment-specific.
+        - Include logs or diagnostics when the issue involves local drives, companion pairing, desktop-app opening, SMB connectivity, or deployment failures.
+
+        Companion log locations and verbose-logging guidance:
+        https://sambee.net/docs/0.7/admin-guide/reference/companion-support-reference/
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I searched for existing issues before filing this report.
+          required: true
+        - label: I reviewed relevant docs or troubleshooting guidance before filing.
+          required: true
+        - label: I can reproduce this issue again, or I have explained why I cannot.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Choose the main part of Sambee affected by this bug.
+      options:
+        - Frontend web app
+        - Backend API or SMB access
+        - Companion app
+        - Website or docs
+        - CI, build, or developer tooling
+        - Unsure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: workflow
+    attributes:
+      label: Affected workflow
+      description: Pick the user or operator workflow closest to the failure.
+      options:
+        - SMB share browsing or file operations
+        - Local drive access through Companion
+        - Desktop app open or edit handoff
+        - Sign-in, auth, or session behavior
+        - File preview, viewer, or editor behavior
+        - Deployment, configuration, or upgrade
+        - Docs or website navigation
+        - Other or unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the bug in one or two sentences.
+      placeholder: When I try to pair Companion from Firefox on Linux, the pairing succeeds once and then fails after a browser restart.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Give a reliable reproduction if possible.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Choose ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The connection should stay paired and local drives should appear in the connection list.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: Pairing appears to succeed, but the UI returns to an unpaired state after refresh.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does this happen?
+      options:
+        - Always
+        - Often
+        - Sometimes
+        - Only once
+        - Unknown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Regression?
+      description: Did this work in an earlier version or environment?
+      options:
+        - Yes, it worked before
+        - No, it never worked for me
+        - Unsure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Sambee version
+      description: Include the app version, container tag, or commit if known.
+      placeholder: 0.7.x, preview tag, or commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and environment
+      description: Include the client or host OS and whether this is local dev, Docker, or another deployment mode.
+      placeholder: Windows 11 client + Docker deployment on Debian, or macOS 15 local dev
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      description: Required for web UI, auth, and Companion workflows. Use N/A if not relevant.
+      placeholder: Firefox 138, Chrome 136, Safari 18, or N/A
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Logs, diagnostics, screenshots, or console output
+      description: Paste relevant log lines, browser console errors, backend logs, or companion logs. Redact secrets.
+      placeholder: |
+        - Companion log excerpt:
+        - Browser console error:
+        - Backend traceback:
+        - SMB or deployment log lines:
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Explain who is blocked and how severe the problem is.
+      placeholder: This blocks local-drive access for all Windows users in our environment.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add any other details, links to related issues, or failed workarounds.
+      placeholder: Related to #123, only happens behind a reverse proxy, disappears when Companion verbose logging is enabled.
+    validations:
+      required: false

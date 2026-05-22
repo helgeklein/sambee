@@ -22,6 +22,14 @@ Sambee also bridges the gap between the browser and the apps installed on your c
 - [Admin guide](https://sambee.net/docs/admin-guide/)
 - [Developer guide](https://sambee.net/docs/developer-guide/)
 
+## Reporting Issues
+
+Use the GitHub issue forms for bug reports and feature requests.
+
+- Search for an existing issue first.
+- Include logs and environment details for Companion, SMB, deployment, or browser-specific problems.
+- Check the troubleshooting and support reference docs before filing environment-specific bugs.
+
 ## License
 
 MIT
