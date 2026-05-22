@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Troubleshooting and diagnostics
-    url: https://sambee.net/docs/0.7/admin-guide/reference/companion-support-reference/
-    about: Check Companion log locations, verbose logging, and support diagnostics before filing environment-specific issues.
   - name: Sambee documentation
     url: https://sambee.net/docs/
     about: Review the user, admin, and developer guides for setup and workflow questions.

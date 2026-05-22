@@ -15,9 +15,6 @@ body:
         - Check the troubleshooting guidance if the problem looks environment-specific.
         - Include logs or diagnostics when the issue involves local drives, companion pairing, desktop-app opening, SMB connectivity, or deployment failures.
 
-        Companion log locations and verbose-logging guidance:
-        https://sambee.net/docs/0.7/admin-guide/reference/companion-support-reference/
-
   - type: checkboxes
     id: checks
     attributes:
@@ -42,23 +39,6 @@ body:
         - Website or docs
         - CI, build, or developer tooling
         - Unsure
-    validations:
-      required: true
-
-  - type: dropdown
-    id: workflow
-    attributes:
-      label: Affected workflow
-      description: Pick the user or operator workflow closest to the failure.
-      options:
-        - SMB share browsing or file operations
-        - Local drive access through Companion
-        - Desktop app open or edit handoff
-        - Sign-in, auth, or session behavior
-        - File preview, viewer, or editor behavior
-        - Deployment, configuration, or upgrade
-        - Docs or website navigation
-        - Other or unsure
     validations:
       required: true
 

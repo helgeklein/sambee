@@ -37,23 +37,6 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: workflow
-    attributes:
-      label: Target workflow
-      options:
-        - SMB share browsing or file operations
-        - Local drive access through Companion
-        - Desktop app open or edit handoff
-        - Sign-in, auth, or session behavior
-        - File preview, viewer, or editor behavior
-        - Deployment, configuration, or upgrade
-        - Docs or website navigation
-        - Developer workflow or CI
-        - Other or unsure
-    validations:
-      required: true
-
   - type: textarea
     id: problem
     attributes:
