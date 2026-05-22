@@ -2,6 +2,27 @@
 title = "Companion Support Reference"
 +++
 
+## Communication and Security Model
+
+Sambee uses two different browser-to-companion paths, depending on the workflow.
+
+- Local-drive browsing uses the companion's localhost API on `127.0.0.1:21549`.
+- Real-time local directory updates use a localhost WebSocket on the same port.
+- Desktop-app opening uses the `sambee://` custom URI scheme.
+
+The localhost API is bound to the local machine only. It is not meant for remote network access.
+
+Localhost traffic is authenticated after pairing, but it is not transport-encrypted.
+
+- HTTP requests use an HMAC derived from a shared secret and a current timestamp.
+- WebSocket and browser resource URLs use the same HMAC model through query parameters because browsers cannot attach custom headers in those cases.
+- The companion rejects requests outside the allowed clock-skew window.
+- Pairing is scoped to the browser origin, not just to the machine as a whole.
+
+The shared secret is created only after the user confirms the same pairing code in both the browser and the companion. The companion stores its copy in the OS credential store. The browser stores its copy locally for that paired browser profile.
+
+If you need contributor-level implementation detail, continue to the developer guide page [Browser-to-Companion Trust Model](../../../../0.7/developer-guide/companion-architecture/browser-to-companion-trust-model/).
+
 ## Preference Files
 
 | Platform | Location |
