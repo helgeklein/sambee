@@ -13,9 +13,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::http_client::{
-    classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
-};
+use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 use crate::sync::operations::{UPLOAD_MAX_RETRIES, UPLOAD_RETRY_BASE_MS};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,7 +63,17 @@ pub async fn upload_file(
     session_token: &str,
 ) -> Result<UploadResponse, String> {
     let client = plain_client(UPLOAD_TIMEOUT_SECS)?;
-    upload_file_with_client(&client, app, window_label, server_url, connection_id, remote_path, local_path, session_token).await
+    upload_file_with_client(
+        &client,
+        app,
+        window_label,
+        server_url,
+        connection_id,
+        remote_path,
+        local_path,
+        session_token,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -80,7 +88,17 @@ pub async fn upload_file_with_store(
     session_token: &str,
 ) -> Result<UploadResponse, String> {
     let client = http_clients.client_for_server(server_url, UPLOAD_TIMEOUT_SECS)?;
-    upload_file_with_client(&client, app, window_label, server_url, connection_id, remote_path, local_path, session_token).await
+    upload_file_with_client(
+        &client,
+        app,
+        window_label,
+        server_url,
+        connection_id,
+        remote_path,
+        local_path,
+        session_token,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]

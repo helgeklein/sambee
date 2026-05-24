@@ -70,10 +70,7 @@ impl SambeeHttpClientStore {
             .map_err(|_| "HTTP client cookie store lock poisoned".to_string())?;
         jars.insert(normalized_server.clone(), jar);
 
-        info!(
-            "Stored {} reverse-proxy cookie(s) for {}",
-            stored_count, normalized_server
-        );
+        info!("Stored {} reverse-proxy cookie(s) for {}", stored_count, normalized_server);
         Ok(stored_count)
     }
 
@@ -88,21 +85,14 @@ impl SambeeHttpClientStore {
 }
 
 pub fn format_proxy_auth_required_message(endpoint: &str, detail: &str) -> String {
-    format!(
-        "{PROXY_AUTH_REQUIRED_PREFIX} {endpoint} appears to have been intercepted by a reverse proxy or SSO login flow. {detail}"
-    )
+    format!("{PROXY_AUTH_REQUIRED_PREFIX} {endpoint} appears to have been intercepted by a reverse proxy or SSO login flow. {detail}")
 }
 
 pub fn is_proxy_auth_required_error(message: &str) -> bool {
     message.starts_with(PROXY_AUTH_REQUIRED_PREFIX)
 }
 
-pub fn classify_proxy_auth_intercept(
-    endpoint: &str,
-    status: Option<StatusCode>,
-    content_type: Option<&str>,
-    body: &str,
-) -> Option<String> {
+pub fn classify_proxy_auth_intercept(endpoint: &str, status: Option<StatusCode>, content_type: Option<&str>, body: &str) -> Option<String> {
     let normalized_body = body.to_ascii_lowercase();
     let normalized_content_type = content_type.unwrap_or_default().to_ascii_lowercase();
     let looks_like_html = normalized_content_type.contains("text/html") || normalized_content_type.contains("application/xhtml");
@@ -169,9 +159,7 @@ mod tests {
             .http_only(true)
             .build();
 
-        let count = store
-            .store_webview_cookies("https://sambee.example.com", vec![cookie])
-            .unwrap();
+        let count = store.store_webview_cookies("https://sambee.example.com", vec![cookie]).unwrap();
 
         assert_eq!(count, 1);
         assert!(store.client_for_server("https://sambee.example.com", 5).is_ok());

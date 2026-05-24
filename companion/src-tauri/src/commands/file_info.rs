@@ -10,9 +10,7 @@ use reqwest::header;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::http_client::{
-    classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
-};
+use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Response types
@@ -124,7 +122,9 @@ pub async fn get_file_info_with_client(
         if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), Some(&content_type), &body) {
             return Err(message);
         }
-        return Err(format!("Failed to parse file info response: unexpected content type '{content_type}'"));
+        return Err(format!(
+            "Failed to parse file info response: unexpected content type '{content_type}'"
+        ));
     }
 
     let info: FileInfoResponse = serde_json::from_str(&body).map_err(|e| format!("Failed to parse file info response: {e}"))?;

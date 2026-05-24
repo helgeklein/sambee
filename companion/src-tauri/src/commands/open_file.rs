@@ -85,7 +85,9 @@ pub enum FinishEditingResult {
         download_modified: String,
         server_modified: String,
     },
-    AuthRetry { reason: AuthRetryReason },
+    AuthRetry {
+        reason: AuthRetryReason,
+    },
 }
 
 #[derive(Serialize)]
@@ -386,7 +388,9 @@ pub fn start_heartbeat_task(
                 })
                 .await
             } else {
-                super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token).await
+                super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token)
+                    .await
+                    .map_err(crate::proxy_auth::ProxyAuthRetryError::Operation)
             };
 
             match result {
@@ -467,7 +471,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
                     }
                 }
                 Err(e) => {
-                    if is_proxy_auth_required_error(&e) {
+                    if e.should_abort_safety_check() {
                         return Err(format!(
                             "Conflict check could not reach the Sambee backend after reauthentication. Upload was cancelled to avoid overwriting a newer server version: {e}"
                         ));
@@ -502,7 +506,9 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
                 if is_proxy_auth_required_error(&e) {
                     crate::proxy_auth::authenticate_reverse_proxy(&app, &server_url, &http_clients).await?;
                     reset_operation_for_auth_retry(&store, &app, op_id);
-                    return Ok(FinishEditingResult::AuthRetry { reason: AuthRetryReason::Upload });
+                    return Ok(FinishEditingResult::AuthRetry {
+                        reason: AuthRetryReason::Upload,
+                    });
                 }
                 error!("Upload failed for {}: {e}", filename);
                 store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
@@ -641,7 +647,11 @@ pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) ->
 //
 /// Shared helper: upload a file (optionally to a different path) then
 /// release lock, recycle, close window, notify.
-async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_override: Option<&str>) -> Result<ConflictResolutionResult, String> {
+async fn upload_and_finish(
+    app: &AppHandle,
+    operation_id: &str,
+    upload_path_override: Option<&str>,
+) -> Result<ConflictResolutionResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -685,7 +695,9 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
             if is_proxy_auth_required_error(&e) {
                 crate::proxy_auth::authenticate_reverse_proxy(app, &server_url, &http_clients).await?;
                 reset_operation_for_auth_retry(&store, app, op_id);
-                return Ok(ConflictResolutionResult::AuthRetry { reason: AuthRetryReason::Conflict });
+                return Ok(ConflictResolutionResult::AuthRetry {
+                    reason: AuthRetryReason::Conflict,
+                });
             }
             error!("Upload failed for {}: {e}", filename);
             store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
@@ -889,7 +901,9 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<Re
         Err(e) => {
             if is_proxy_auth_required_error(&e) {
                 crate::proxy_auth::authenticate_reverse_proxy(&app, &op.server_url, &http_clients).await?;
-                return Ok(RecoveryUploadResult::AuthRetry { reason: AuthRetryReason::Upload });
+                return Ok(RecoveryUploadResult::AuthRetry {
+                    reason: AuthRetryReason::Upload,
+                });
             }
             error!("Recovery upload failed for {}: {e}", filename);
             Err(format!("Upload failed: {e}"))

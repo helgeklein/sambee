@@ -116,7 +116,6 @@ pub async fn exchange_uri_token_with_client(
     url: &str,
     uri_token: &str,
 ) -> Result<String, TokenExchangeError> {
-
     let response = client
         .post(url)
         .query(&[("token", uri_token)])
@@ -177,14 +176,11 @@ async fn parse_token_exchange_response(
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
         .unwrap_or_default();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| TokenExchangeError::InvalidResponse {
-            content_type: Some(content_type.clone()),
-            body_preview: None,
-            message: format!("Failed to read token response body: {e}"),
-        })?;
+    let body = response.text().await.map_err(|e| TokenExchangeError::InvalidResponse {
+        content_type: Some(content_type.clone()),
+        body_preview: None,
+        message: format!("Failed to read token response body: {e}"),
+    })?;
 
     if !content_type.to_ascii_lowercase().contains("application/json") {
         let preview = body_preview(&body);
@@ -203,16 +199,14 @@ async fn parse_token_exchange_response(
         });
     }
 
-    serde_json::from_str::<CompanionTokenResponse>(&body).map_err(|e| {
-        TokenExchangeError::InvalidResponse {
-            content_type: Some(content_type.clone()),
-            body_preview: Some(body_preview(&body)),
-            message: format!(
-                "Failed to parse token response from {} as JSON: {e}. Preview: {}",
-                final_url,
-                body_preview(&body)
-            ),
-        }
+    serde_json::from_str::<CompanionTokenResponse>(&body).map_err(|e| TokenExchangeError::InvalidResponse {
+        content_type: Some(content_type.clone()),
+        body_preview: Some(body_preview(&body)),
+        message: format!(
+            "Failed to parse token response from {} as JSON: {e}. Preview: {}",
+            final_url,
+            body_preview(&body)
+        ),
     })
 }
 
@@ -293,11 +287,12 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("Redirected to https://auth.example.com/login"), "Unexpected error message: {err}");
         assert!(
-            err.starts_with("Proxy authentication required:")
-                && err.contains("embedded window")
-                && err.contains("backend-origin cookies"),
+            err.contains("Redirected to https://auth.example.com/login"),
+            "Unexpected error message: {err}"
+        );
+        assert!(
+            err.starts_with("Proxy authentication required:") && err.contains("embedded window") && err.contains("backend-origin cookies"),
             "Unexpected error message: {err}"
         );
     }
@@ -335,29 +330,27 @@ mod tests {
         let app = Router::new()
             .route(
                 "/api/companion/token",
-                post(
-                    |State(state): State<AppState>, headers: axum::http::HeaderMap| async move {
-                        let has_cookie = headers
-                            .get(header::COOKIE)
-                            .and_then(|value| value.to_str().ok())
-                            .is_some_and(|value| value.contains("proxy_session=ok"));
-                        *state.saw_cookie.lock().await = has_cookie;
+                post(|State(state): State<AppState>, headers: axum::http::HeaderMap| async move {
+                    let has_cookie = headers
+                        .get(header::COOKIE)
+                        .and_then(|value| value.to_str().ok())
+                        .is_some_and(|value| value.contains("proxy_session=ok"));
+                    *state.saw_cookie.lock().await = has_cookie;
 
-                        if has_cookie {
-                            axum::Json(serde_json::json!({
-                                "token": "session-token",
-                                "expires_in": 3600
-                            }))
+                    if has_cookie {
+                        axum::Json(serde_json::json!({
+                            "token": "session-token",
+                            "expires_in": 3600
+                        }))
+                        .into_response()
+                    } else {
+                        (
+                            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                            Html("<html><body>Please sign in</body></html>"),
+                        )
                             .into_response()
-                        } else {
-                            (
-                                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
-                                Html("<html><body>Please sign in</body></html>"),
-                            )
-                                .into_response()
-                        }
-                    },
-                ),
+                    }
+                }),
             )
             .with_state(state.clone());
         let server_url = spawn_test_server(app).await;

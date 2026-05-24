@@ -5,6 +5,7 @@
 //! webview, then Rust reads the webview cookie store and seeds the shared
 //! reqwest client store.
 
+use std::fmt;
 use std::future::Future;
 
 use log::{info, warn};
@@ -18,6 +19,51 @@ const PROXY_AUTH_WINDOW_HEIGHT: f64 = 760.0;
 const PROXY_AUTH_TIMEOUT_SECS: u64 = 300;
 const PROXY_AUTH_POLL_MS: u64 = 500;
 const PROXY_AUTH_CHECK_PATH: &str = "/api/companion/proxy-auth-check";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProxyAuthRetryError {
+    Operation(String),
+    Authentication(String),
+    StillBlockedAfterReauth { operation_name: String },
+}
+
+impl ProxyAuthRetryError {
+    pub fn is_still_blocked_after_reauth(&self) -> bool {
+        matches!(self, Self::StillBlockedAfterReauth { .. })
+    }
+
+    pub fn should_abort_safety_check(&self) -> bool {
+        matches!(self, Self::Authentication(_) | Self::StillBlockedAfterReauth { .. })
+    }
+
+    pub fn into_user_message(self) -> String {
+        match self {
+            Self::Operation(message) | Self::Authentication(message) => message,
+            Self::StillBlockedAfterReauth { operation_name } => still_blocked_after_reauth_message(&operation_name),
+        }
+    }
+}
+
+impl From<ProxyAuthRetryError> for String {
+    fn from(error: ProxyAuthRetryError) -> Self {
+        error.into_user_message()
+    }
+}
+
+impl fmt::Display for ProxyAuthRetryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Operation(message) | Self::Authentication(message) => formatter.write_str(message),
+            Self::StillBlockedAfterReauth { operation_name } => formatter.write_str(&still_blocked_after_reauth_message(operation_name)),
+        }
+    }
+}
+
+fn still_blocked_after_reauth_message(operation_name: &str) -> String {
+    format!(
+        "{operation_name} still could not reach the Sambee backend after reauthentication. Check the reverse proxy cookie domain and path settings."
+    )
+}
 
 /// Open an auth webview and store backend-origin cookies when auth completes.
 pub async fn authenticate_reverse_proxy(
@@ -85,7 +131,7 @@ pub async fn retry_if_proxy_auth_required<T, F, Fut>(
     http_clients: &SambeeHttpClientStore,
     operation_name: &str,
     mut operation: F,
-) -> Result<T, String>
+) -> Result<T, ProxyAuthRetryError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, String>>,
@@ -94,15 +140,22 @@ where
         Ok(result) => Ok(result),
         Err(err) if is_proxy_auth_required_error(&err) => {
             warn!("{operation_name} requires reverse-proxy reauthentication: {err}");
-            authenticate_reverse_proxy(app, server_url, http_clients).await?;
-            match operation().await {
-                Err(retry_err) if is_proxy_auth_required_error(&retry_err) => Err(format!(
-                    "{operation_name} still could not reach the Sambee backend after reauthentication. Check the reverse proxy cookie domain and path settings."
-                )),
-                other => other,
-            }
+            authenticate_reverse_proxy(app, server_url, http_clients)
+                .await
+                .map_err(ProxyAuthRetryError::Authentication)?;
+            classify_after_reauth_retry(operation_name, operation().await)
         }
-        Err(err) => Err(err),
+        Err(err) => Err(ProxyAuthRetryError::Operation(err)),
+    }
+}
+
+fn classify_after_reauth_retry<T>(operation_name: &str, result: Result<T, String>) -> Result<T, ProxyAuthRetryError> {
+    match result {
+        Err(retry_err) if is_proxy_auth_required_error(&retry_err) => Err(ProxyAuthRetryError::StillBlockedAfterReauth {
+            operation_name: operation_name.to_string(),
+        }),
+        Ok(result) => Ok(result),
+        Err(err) => Err(ProxyAuthRetryError::Operation(err)),
     }
 }
 
@@ -136,5 +189,60 @@ mod tests {
         let probe = url::Url::parse("https://sambee.example.com/api/companion/proxy-auth-check").unwrap();
         let current = url::Url::parse("https://sambee.example.com/api/companion/proxy-auth-check?done=1").unwrap();
         assert!(same_auth_probe(&current, &probe));
+    }
+
+    #[test]
+    fn test_still_blocked_after_reauth_message_and_helper() {
+        let error = ProxyAuthRetryError::StillBlockedAfterReauth {
+            operation_name: "File metadata lookup".to_string(),
+        };
+
+        assert!(error.is_still_blocked_after_reauth());
+        assert!(error.should_abort_safety_check());
+        assert_eq!(
+            error.to_string(),
+            "File metadata lookup still could not reach the Sambee backend after reauthentication. Check the reverse proxy cookie domain and path settings."
+        );
+    }
+
+    #[test]
+    fn test_authentication_error_aborts_safety_check() {
+        let error = ProxyAuthRetryError::Authentication("Authentication window was closed before sign-in completed".to_string());
+
+        assert!(error.should_abort_safety_check());
+        assert!(!error.is_still_blocked_after_reauth());
+    }
+
+    #[test]
+    fn test_operation_error_does_not_abort_safety_check() {
+        let error = ProxyAuthRetryError::Operation("ordinary metadata failure".to_string());
+
+        assert!(!error.should_abort_safety_check());
+        assert!(!error.is_still_blocked_after_reauth());
+    }
+
+    #[test]
+    fn test_classify_after_reauth_retry_preserves_operation_error() {
+        let result = classify_after_reauth_retry::<()>("Conflict check", Err("ordinary failure".to_string()));
+
+        assert_eq!(result, Err(ProxyAuthRetryError::Operation("ordinary failure".to_string())));
+    }
+
+    #[test]
+    fn test_classify_after_reauth_retry_marks_proxy_auth_failure() {
+        let result = classify_after_reauth_retry::<()>(
+            "Conflict check",
+            Err(crate::http_client::format_proxy_auth_required_message(
+                "Conflict check",
+                "HTML login page returned",
+            )),
+        );
+
+        assert_eq!(
+            result,
+            Err(ProxyAuthRetryError::StillBlockedAfterReauth {
+                operation_name: "Conflict check".to_string(),
+            })
+        );
     }
 }

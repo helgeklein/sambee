@@ -246,6 +246,12 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     })
     .await;
 
+    if let Err(ref err) = file_info {
+        if err.should_abort_safety_check() {
+            return Err(err.to_string());
+        }
+    }
+
     // Store server-side modified_at for later conflict detection
     let server_last_modified = file_info.as_ref().ok().and_then(|info| info.modified_at.clone());
 
@@ -293,7 +299,8 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     let lock_id = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
         commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
     })
-    .await?;
+    .await
+    .map_err(String::from)?;
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
@@ -309,18 +316,19 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         )
         .await
     })
-        .await
-        .inspect_err(|_e| {
-            // Release lock on download failure (best-effort)
-            let srv = uri.server.clone();
-            let cid = uri.conn_id.clone();
-            let p = uri.path.clone();
-            let tok = session_token.clone();
-            let clients = http_clients.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &tok).await;
-            });
-        })?;
+    .await
+    .inspect_err(|_e| {
+        // Release lock on download failure (best-effort)
+        let srv = uri.server.clone();
+        let cid = uri.conn_id.clone();
+        let p = uri.path.clone();
+        let tok = session_token.clone();
+        let clients = http_clients.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &tok).await;
+        });
+    })
+    .map_err(String::from)?;
 
     // 4. Create FileOperation and persist
     let operation = sync::operations::FileOperation {
