@@ -7,16 +7,16 @@ This section covers the workflows where a small metadata mistake can create cros
 For Sambee Docker image releases, read these pages in order:
 
 - [Dependency and Release Workflow](./dependency-and-release-workflow/)
-- [Docker Release Overview](./container-image-build-and-publish-workflow/)
-- [Publish Test Docker Candidate](./publish-a-preview-docker-image/)
-- [Promote Docker Candidate](./promote-a-preview-candidate-to-stable-or-beta/)
-- [Docker Backfill And Cleanup](./maintain-docker-release-tags-and-preview-retention/)
+- [Docker Release Overview](./docker-release-overview/)
+- [Publish Test Docker Candidate](./publish-test-docker-candidate/)
+- [Promote Docker Candidate](./promote-docker-candidate/)
+- [Docker Backfill And Cleanup](./docker-backfill-and-cleanup/)
 
 Use these pages when the goal is to take one reviewed commit all the way to `stable` without rebuilding at release time.
 
 For Companion release distribution, read these pages in order:
 
-- [Companion Release Overview](./companion-distribution-and-update-workflow/)
+- [Companion Release Overview](./companion-release-overview/)
 - [Build Companion Release](./build-companion-release/)
 - [Promote Companion Release](./promote-companion-release/)
 - [Companion Channels, Feeds, And Downloads](./companion-channels-feeds-and-downloads/)

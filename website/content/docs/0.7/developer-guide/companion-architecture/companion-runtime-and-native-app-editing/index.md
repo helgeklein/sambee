@@ -180,7 +180,7 @@ The pairing window is a separate UI surface because browser-to-companion approva
 
 - Use [Browser-to-Companion Trust Model](../browser-to-companion-trust-model/) for pairing, localhost auth, deep-link trust boundaries, and origin scoping.
 - Use [Local-Drive and Save-Back Pipeline](../local-drive-and-save-back-pipeline/) for the difference between local-drive access and SMB-backed save-back.
-- Use [Companion Distribution and Update Workflow](../../release-and-versioning/companion-distribution-and-update-workflow/) when the change affects packaged releases or updater rollout rather than runtime behavior.
+- Use [Companion Release Overview](../../release-and-versioning/companion-release-overview/) when the change affects packaged releases or updater rollout rather than runtime behavior.
 
 ## Validation Expectations
 

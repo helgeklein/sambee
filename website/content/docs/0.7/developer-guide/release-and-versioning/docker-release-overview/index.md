@@ -27,8 +27,8 @@ Use a prerelease tag that keeps the checked-in base version and appends the prer
 Read the detailed pages in this order:
 
 1. [Publish Test Docker Candidate](../publish-a-preview-docker-image/)
-2. [Promote Docker Candidate](../promote-a-preview-candidate-to-stable-or-beta/)
-3. [Docker Backfill And Cleanup](../maintain-docker-release-tags-and-preview-retention/)
+2. [Promote Docker Candidate](../promote-docker-candidate/)
+3. [Docker Backfill And Cleanup](../docker-backfill-and-cleanup/)
 
 ## Workflow Map
 
@@ -88,11 +88,11 @@ It also:
 
 Release promotion does not rebuild the image. It verifies candidate image metadata and the published metadata bundle first, then promotes the existing digest.
 
-Use [Publish Test Docker Candidate](../publish-a-preview-docker-image/) for the build-and-publish flow.
+Use [Publish Test Docker Candidate](../publish-test-docker-candidate/) for the build-and-publish flow.
 
-Use [Promote Docker Candidate](../promote-a-preview-candidate-to-stable-or-beta/) for the release path.
+Use [Promote Docker Candidate](../promote-docker-candidate/) for the release path.
 
-Use [Docker Backfill And Cleanup](../maintain-docker-release-tags-and-preview-retention/) for recovery, backfill, and cleanup.
+Use [Docker Backfill And Cleanup](../docker-backfill-and-cleanup/) for recovery, backfill, and cleanup.
 
 Use [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/) for the deeper signing, SBOM, provenance, and vulnerability-scanning details.
 

@@ -2,7 +2,7 @@
 title = "Companion Release Overview"
 +++
 
-Sambee Companion ships one binary line that is built once, published once, and later promoted across update channels by changing public feed files.
+Sambee Companion releases are built once, published once, and later promoted across update channels by changing public feed files.
 
 That is the key difference between the Companion and Docker release paths.
 
@@ -38,8 +38,9 @@ Read the detailed pages in this order:
 | Workflow or system | When to use it | Result |
 |---|---|---|
 | `Release: Build Companion Artifact` | You want to create release assets for one Companion version. | Builds the selected platform set and updates a draft GitHub Release in `helgeklein/sambee-companion`. |
-| `Release: Promote Companion Release` | A published Companion release is approved for one or more channels or for Sambee download metadata. | Rewrites only the selected feed files in the release repository and pushes those pointer updates. |
-| `helgeklein/sambee-companion` | You need the public distribution surface. | Hosts immutable release assets and committed feed files under `docs/feeds`. |
+| `Release: Promote Companion Release` | A published Companion release is approved for one or more channels or for Sambee download metadata. | Rewrites the selected feed files in `docs/feeds` of the release repository and publishes the updates at `https://release-feeds.sambee.net`. |
+| `helgeklein/sambee-companion` | You need the release repository that owns public Companion release artifacts. | Hosts immutable GitHub Release assets and stores the committed feed files under `docs/feeds` to be served by GitHub Pages. |
+| `https://release-feeds.sambee.net` | You need the public feed host that installed Companion builds and Sambee read. | Serves the promoted feed JSON files from GitHub Pages (not from the main `sambee.net` website deployment). |
 
 ## Main Control Points
 
@@ -48,14 +49,13 @@ Read the detailed pages in this order:
 | `.github/workflows/build-companion.yml` | Builds platform artifacts and updates a draft release. |
 | `.github/workflows/promote-companion-release.yml` | Promotes one published release to selected public feeds. |
 | `.github/scripts/promote_companion_release.py` | Resolves release assets and writes the feed JSON files. |
-| `helgeklein/sambee-companion` | Dedicated public release repository. |
-| `release-repo/docs/feeds` | Committed channel metadata and Sambee download metadata. |
+| `helgeklein/sambee-companion` | Dedicated public release repository for Companion GitHub Releases and committed feed source files. |
+| `release-repo/docs/feeds` | Source-controlled feed JSON files that promotion updates and commits. |
+| `https://release-feeds.sambee.net` | Public host that serves the promoted feed JSON files to Companion and Sambee. |
 
 ## Channels And Consumers
 
-Companion does not use separate binaries per channel.
-
-It uses one published release plus multiple mutable feed pointers.
+Companion does not use separate binaries per channel. It uses one published release plus multiple mutable feed pointers.
 
 | Consumer | Public file | Purpose |
 |---|---|---|
@@ -66,6 +66,9 @@ Changing a Companion channel feed affects auto-update visibility for installed a
 Changing the Sambee metadata feed affects which direct downloads Sambee surfaces.
 
 Those are separate decisions and can be promoted independently.
+
+The current public feed host is not the same deployment surface as the main `sambee.net` website built from this repository.
+The live feed host responds separately from the Cloudflare Pages deployment used by `sambee.net`.
 
 ## Published Artifact
 

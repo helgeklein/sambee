@@ -4,11 +4,7 @@ title = "Build Companion Release"
 
 This is step 1 of the Companion release flow.
 
-Use this workflow to create the published Companion release assets for one version.
-
-GitHub Actions displays this workflow as `Release: Build Companion Artifact`.
-
-It builds release artifacts and updates a draft GitHub Release, but it does not decide which update channels see that release.
+Use this workflow to create the published Companion release assets for one version. GitHub Actions displays this workflow as `Release: Build Companion Artifact`. It builds release artifacts and updates a draft GitHub Release, but it does not decide which update channels see that release.
 
 ## Use It When
 
@@ -83,7 +79,7 @@ Before you publish the draft release, verify:
 
 If the draft contents are wrong, fix the release process and produce a new release instead of trying to patch channel metadata around a bad artifact set.
 
-## Run It
+## Run the Workflow
 
 Use this order when you are preparing a Companion release:
 
@@ -93,4 +89,3 @@ Use this order when you are preparing a Companion release:
 4. Wait for the workflow to update the draft release in `helgeklein/sambee-companion`.
 5. Review the uploaded assets and publish the draft release.
 6. Continue with [Promote Companion Release](../promote-companion-release/).
-

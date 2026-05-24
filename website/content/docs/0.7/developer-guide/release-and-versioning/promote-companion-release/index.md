@@ -4,12 +4,9 @@ title = "Promote Companion Release"
 
 This is step 2 of the Companion release flow.
 
-Use this workflow to point one or more public feeds at an already published Companion release.
+Use this workflow to point one or more public feeds at an already published Companion release. GitHub Actions displays this workflow as `Release: Promote Companion Release`.
 
-GitHub Actions displays this workflow as `Release: Promote Companion Release`.
-
-It does not rebuild binaries.
-It rewrites feed files in the public release repository and commits those pointer changes.
+This workflow does not rebuild binaries. It rewrites feed files in the public release repository and commits those pointer changes. Those committed files are then served from the separate `https://release-feeds.sambee.net` host.
 
 ## Use It When
 
@@ -57,6 +54,7 @@ The Sambee target updates:
 - `docs/feeds/sambee/companion/latest.json`
 
 After the files are rewritten, the workflow commits and pushes those feed updates to the release repository.
+The public feed host then serves those committed JSON files.
 
 ## Validation Rules
 
@@ -83,7 +81,7 @@ Companion updater feeds and Sambee download metadata are separate surfaces.
 
 Use [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-downloads/) when you need the underlying model.
 
-## Run It
+## Run the Workflow
 
 Use this order when you are promoting a Companion release:
 

@@ -142,7 +142,7 @@ That keeps automation-owned labels deterministic without forcing the repository 
 Use the more specific pages for the workflows that have dedicated operational guidance:
 
 - [Dependency Security and Dependabot](../../security/dependency-security-and-dependabot/)
-- [Container Image Build and Publish Workflow](../../release-and-versioning/container-image-build-and-publish-workflow/)
-- [Companion Distribution and Update Workflow](../../release-and-versioning/companion-distribution-and-update-workflow/)
+- [Docker Release Overview](../../release-and-versioning/docker-release-overview/)
+- [Companion Release Overview](../../release-and-versioning/companion-release-overview/)
 - [Set Up Cloudflare Pages Publishing](../../../website-dev-guide/setup-and-operations/set-up-cloudflare-pages-publishing/)
 

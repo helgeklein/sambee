@@ -8,7 +8,7 @@ It explains which public files exist, who reads them, and why channel promotion 
 
 ## Core Model
 
-Companion release distribution is intentionally split between build control in the main repository and public distribution in a dedicated release repository.
+Companion release distribution is intentionally split between build control in the main repository, release assets in a dedicated release repository, and public feed serving from a separate feed host.
 
 That split keeps Companion binaries out of normal Sambee deployments while still letting:
 
@@ -18,9 +18,10 @@ That split keeps Companion binaries out of normal Sambee deployments while still
 The current model uses four moving parts:
 
 1. The main `sambee` repository builds Companion releases.
-2. The dedicated `sambee-companion` repository hosts release assets and committed feed files.
-3. Channel manifests under `stable`, `beta`, and `test` decide which published release installed Companion builds see.
-4. A separate Sambee download-metadata file decides which installer links Sambee renders in the product UI.
+2. The dedicated `sambee-companion` repository hosts immutable GitHub Release assets and stores the committed feed files under `docs/feeds`.
+3. The separate host `https://release-feeds.sambee.net` serves those committed feed files publicly.
+4. Channel manifests under `stable`, `beta`, and `test` decide which published release installed Companion builds see.
+5. A separate Sambee download-metadata file decides which installer links Sambee renders in the product UI.
 
 The important consequence is simple: channels are feed pointers, not separate binaries.
 
@@ -32,6 +33,9 @@ The public feed host is:
 
 - `https://release-feeds.sambee.net`
 
+That host is separate from the main `sambee.net` website deployment in this repository.
+The website workflow here deploys `website/public` to Cloudflare Pages for `sambee.net`, while the live feed host currently responds separately.
+
 The current public layout is:
 
 ```text
@@ -42,6 +46,7 @@ feeds/sambee/companion/latest.json
 ```
 
 Inside the release repository, those files are committed under `docs/feeds/`.
+That repository path is the source of the published feed JSON, not the same thing as the main website source tree in this repository.
 
 ## Who Reads What
 
