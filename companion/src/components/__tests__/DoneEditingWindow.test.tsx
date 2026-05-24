@@ -85,7 +85,7 @@ describe("DoneEditingWindow", () => {
       }
 
       if (command === "finish_editing") {
-        return Promise.resolve("ok");
+        return Promise.resolve({ status: "completed" });
       }
 
       return Promise.resolve(undefined);
@@ -177,7 +177,7 @@ describe("DoneEditingWindow", () => {
       }
 
       if (command === "finish_editing") {
-        return Promise.reject(new Error("retry-auth:upload"));
+        return Promise.resolve({ status: "auth_retry", reason: "upload" });
       }
 
       return Promise.resolve(undefined);

@@ -1,6 +1,13 @@
-const AUTH_RETRY_PREFIX = "retry-auth:";
-
 export type AuthRetryReason = "upload" | "conflict";
+
+export type AuthRetryResult = {
+  status: "auth_retry";
+  reason: AuthRetryReason;
+};
+
+export type CompletedResult = {
+  status: "completed";
+};
 
 export function getTauriErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -10,17 +17,15 @@ export function getTauriErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export function parseAuthRetryReason(error: unknown): AuthRetryReason | null {
-  const message = getTauriErrorMessage(error);
-  const markerIndex = message.indexOf(AUTH_RETRY_PREFIX);
-  if (markerIndex === -1) {
-    return null;
+export function isAuthRetryResult(result: unknown, reason?: AuthRetryReason): result is AuthRetryResult {
+  if (!result || typeof result !== "object") {
+    return false;
   }
 
-  const reason = message.slice(markerIndex + AUTH_RETRY_PREFIX.length).trim();
-  if (reason === "upload" || reason === "conflict") {
-    return reason;
+  const candidate = result as Partial<AuthRetryResult>;
+  if (candidate.status !== "auth_retry") {
+    return false;
   }
 
-  return null;
+  return reason ? candidate.reason === reason : candidate.reason === "upload" || candidate.reason === "conflict";
 }

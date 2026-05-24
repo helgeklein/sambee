@@ -13,7 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
-import { getTauriErrorMessage, parseAuthRetryReason } from "../utils/tauriErrorMarkers";
+import { type AuthRetryResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,7 +43,7 @@ interface RecoveryDialogProps {
   /** Called when all leftovers have been handled (or dismissed). */
   onDone: () => void;
   /** Optional override used by browser previews for upload. */
-  onUploadAction?: (operationDir: string) => Promise<void>;
+  onUploadAction?: (operationDir: string) => Promise<RecoveryUploadResult | undefined>;
   /** Optional override used by browser previews for discard. */
   onDiscardAction?: (operationDir: string) => Promise<void>;
   /** Optional override used by browser previews for dismiss. */
@@ -65,6 +65,13 @@ interface ItemState {
   /** Whether this item has been resolved. */
   resolved: boolean;
 }
+
+type RecoveryUploadResult =
+  | AuthRetryResult
+  | {
+      status: "completed";
+      message: string;
+    };
 
 //
 // RecoveryDialog
@@ -112,9 +119,25 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
       updateItemState(operationDir, { loading: true, notice: null, error: null });
       try {
         if (onUploadAction) {
-          await onUploadAction(operationDir);
+          const result = await onUploadAction(operationDir);
+          if (isAuthRetryResult(result, "upload")) {
+            updateItemState(operationDir, {
+              loading: false,
+              notice: translate("recovery.authRefreshedRetryUpload"),
+              error: null,
+            });
+            return;
+          }
         } else {
-          await invoke("recovery_upload", { operationDir });
+          const result = await invoke<RecoveryUploadResult>("recovery_upload", { operationDir });
+          if (isAuthRetryResult(result, "upload")) {
+            updateItemState(operationDir, {
+              loading: false,
+              notice: translate("recovery.authRefreshedRetryUpload"),
+              error: null,
+            });
+            return;
+          }
         }
         const updated = {
           ...states,
@@ -123,15 +146,6 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
         setStates(updated);
         checkAllResolved(updated);
       } catch (e) {
-        if (parseAuthRetryReason(e) === "upload") {
-          updateItemState(operationDir, {
-            loading: false,
-            notice: translate("recovery.authRefreshedRetryUpload"),
-            error: null,
-          });
-          return;
-        }
-
         updateItemState(operationDir, { loading: false, error: getTauriErrorMessage(e) });
       }
     },

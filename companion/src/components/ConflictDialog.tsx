@@ -15,7 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
-import { getTauriErrorMessage, parseAuthRetryReason } from "../utils/tauriErrorMarkers";
+import { type AuthRetryResult, type CompletedResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
 import "../styles/dialog.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,6 +33,8 @@ export interface ConflictInfo {
   /** Current server `modified_at` (ISO 8601). */
   server_modified: string;
 }
+
+type ConflictResolutionResult = CompletedResult | AuthRetryResult;
 
 /** Props for the ConflictDialog component. */
 interface ConflictDialogProps {
@@ -74,17 +76,18 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
       if (onOverwriteAction) {
         await onOverwriteAction();
       } else {
-        await invoke("resolve_conflict_overwrite", {
+        const result = await invoke<ConflictResolutionResult>("resolve_conflict_overwrite", {
           operationId: conflict.operation_id,
         });
+        if (isAuthRetryResult(result, "conflict")) {
+          setNotice(translate("conflictDialog.authRefreshedRetry"));
+          setLoading(false);
+          return;
+        }
       }
       onActionComplete?.("overwrite");
     } catch (e) {
-      if (parseAuthRetryReason(e) === "conflict") {
-        setNotice(translate("conflictDialog.authRefreshedRetry"));
-      } else {
-        setError(getTauriErrorMessage(e));
-      }
+      setError(getTauriErrorMessage(e));
       setLoading(false);
     }
   }, [conflict.operation_id, onActionComplete, onOverwriteAction]);
@@ -100,17 +103,18 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
       if (onSaveCopyAction) {
         await onSaveCopyAction();
       } else {
-        await invoke("resolve_conflict_save_copy", {
+        const result = await invoke<ConflictResolutionResult>("resolve_conflict_save_copy", {
           operationId: conflict.operation_id,
         });
+        if (isAuthRetryResult(result, "conflict")) {
+          setNotice(translate("conflictDialog.authRefreshedRetry"));
+          setLoading(false);
+          return;
+        }
       }
       onActionComplete?.("saveCopy");
     } catch (e) {
-      if (parseAuthRetryReason(e) === "conflict") {
-        setNotice(translate("conflictDialog.authRefreshedRetry"));
-      } else {
-        setError(getTauriErrorMessage(e));
-      }
+      setError(getTauriErrorMessage(e));
       setLoading(false);
     }
   }, [conflict.operation_id, onActionComplete, onSaveCopyAction]);

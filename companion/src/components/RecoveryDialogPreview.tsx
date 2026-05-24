@@ -42,12 +42,21 @@ export function RecoveryDialogPreview() {
 
   const leftovers = count === "one" ? PREVIEW_LEFTOVERS.slice(0, 1) : PREVIEW_LEFTOVERS;
 
-  const actionHandler = useMemo(
+  const uploadActionHandler = useMemo(
     () => async () => {
       if (actionResult === "reauth") {
-        throw new Error("retry-auth:upload");
+        return { status: "auth_retry" as const, reason: "upload" as const };
       }
 
+      if (actionResult === "error") {
+        throw new Error("Mock preview error: the recovery action failed.");
+      }
+    },
+    [actionResult]
+  );
+
+  const simpleActionHandler = useMemo(
+    () => async () => {
       if (actionResult === "error") {
         throw new Error("Mock preview error: the recovery action failed.");
       }
@@ -92,9 +101,9 @@ export function RecoveryDialogPreview() {
           <RecoveryDialog
             leftovers={leftovers}
             onDone={() => setVisible(false)}
-            onUploadAction={actionHandler}
-            onDiscardAction={actionHandler}
-            onDismissAction={actionHandler}
+            onUploadAction={uploadActionHandler}
+            onDiscardAction={simpleActionHandler}
+            onDismissAction={simpleActionHandler}
           />
         </div>
       ) : (

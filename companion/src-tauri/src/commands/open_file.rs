@@ -68,14 +68,44 @@ const DONE_EDITING_CASCADE_STEP: f64 = 32.0;
 /// Label prefix for Done Editing windows (used to count open instances).
 pub(crate) const DONE_EDITING_LABEL_PREFIX: &str = "done-editing-";
 
-/// Prefix used to distinguish a conflict result from a normal success in
-/// `finish_editing`. The frontend checks for this prefix to show the
-/// conflict resolution dialog.
-const CONFLICT_PREFIX: &str = "conflict:";
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthRetryReason {
+    Upload,
+    Conflict,
+}
 
-/// Prefix used to tell the frontend that authentication was refreshed and the
-/// user should retry the upload action explicitly.
-const AUTH_RETRY_PREFIX: &str = "retry-auth:";
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FinishEditingResult {
+    Completed,
+    Conflict {
+        operation_id: String,
+        filename: String,
+        download_modified: String,
+        server_modified: String,
+    },
+    AuthRetry { reason: AuthRetryReason },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ConflictResolutionResult {
+    Completed,
+    AuthRetry { reason: AuthRetryReason },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RecoveryUploadResult {
+    Completed { message: String },
+    AuthRetry { reason: AuthRetryReason },
+}
+
+fn reset_operation_for_auth_retry(store: &OperationStore, app: &AppHandle, op_id: uuid::Uuid) {
+    store.update_status(op_id, OperationStatus::Editing);
+    crate::refresh_tray_menu(app);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -381,7 +411,7 @@ pub fn start_heartbeat_task(
 /// If the file is modified → upload, release lock, recycle, close window.
 /// If unchanged → release lock, recycle, close window.
 #[tauri::command]
-pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<String, String> {
+pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<FinishEditingResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -427,18 +457,22 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
                                 "Conflict detected for {}: download_modified={}, server_modified={}",
                                 filename, download_modified_at, current_modified
                             );
-                            let conflict_json = serde_json::json!({
-                                "operation_id": operation.id.to_string(),
-                                "filename": filename,
-                                "download_modified": download_modified_at,
-                                "server_modified": current_modified,
+                            return Ok(FinishEditingResult::Conflict {
+                                operation_id: operation.id.to_string(),
+                                filename: filename.to_string(),
+                                download_modified: download_modified_at.to_string(),
+                                server_modified: current_modified.to_string(),
                             });
-                            return Ok(format!("{CONFLICT_PREFIX}{}", conflict_json));
                         }
                     }
                 }
                 Err(e) => {
-                    // Could not check — log but proceed with upload
+                    if is_proxy_auth_required_error(&e) {
+                        return Err(format!(
+                            "Conflict check could not reach the Sambee backend after reauthentication. Upload was cancelled to avoid overwriting a newer server version: {e}"
+                        ));
+                    }
+
                     warn!("Conflict check failed (proceeding with upload): {e}");
                 }
             }
@@ -466,10 +500,9 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
             }
             Err(e) => {
                 if is_proxy_auth_required_error(&e) {
-                    if let Err(auth_err) = crate::proxy_auth::authenticate_reverse_proxy(&app, &server_url, &http_clients).await {
-                        return Err(auth_err);
-                    }
-                    return Err(format!("{AUTH_RETRY_PREFIX}upload"));
+                    crate::proxy_auth::authenticate_reverse_proxy(&app, &server_url, &http_clients).await?;
+                    reset_operation_for_auth_retry(&store, &app, op_id);
+                    return Ok(FinishEditingResult::AuthRetry { reason: AuthRetryReason::Upload });
                 }
                 error!("Upload failed for {}: {e}", filename);
                 store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
@@ -507,7 +540,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     let _ = app.emit("notification", serde_json::json!({ "message": message }));
 
     info!("Edit session completed: {}", filename);
-    Ok(message)
+    Ok(FinishEditingResult::Completed)
 }
 
 //
@@ -575,7 +608,7 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
 ///
 /// Skips the conflict check and force-uploads the local file.
 #[tauri::command]
-pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) -> Result<String, String> {
+pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) -> Result<ConflictResolutionResult, String> {
     upload_and_finish(&app, &operation_id, None).await
 }
 
@@ -588,7 +621,7 @@ pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) ->
 /// both the current server version and the user's local edits.
 /// Copy path: `{stem} (conflict copy).{ext}` or `{name} (conflict copy)`.
 #[tauri::command]
-pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) -> Result<String, String> {
+pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) -> Result<ConflictResolutionResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -608,7 +641,7 @@ pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) ->
 //
 /// Shared helper: upload a file (optionally to a different path) then
 /// release lock, recycle, close window, notify.
-async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_override: Option<&str>) -> Result<String, String> {
+async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_override: Option<&str>) -> Result<ConflictResolutionResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -650,10 +683,9 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
         }
         Err(e) => {
             if is_proxy_auth_required_error(&e) {
-                if let Err(auth_err) = crate::proxy_auth::authenticate_reverse_proxy(app, &server_url, &http_clients).await {
-                    return Err(auth_err);
-                }
-                return Err(format!("{AUTH_RETRY_PREFIX}conflict"));
+                crate::proxy_auth::authenticate_reverse_proxy(app, &server_url, &http_clients).await?;
+                reset_operation_for_auth_retry(&store, app, op_id);
+                return Ok(ConflictResolutionResult::AuthRetry { reason: AuthRetryReason::Conflict });
             }
             error!("Upload failed for {}: {e}", filename);
             store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
@@ -693,7 +725,7 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     let _ = app.emit("notification", serde_json::json!({ "message": message }));
 
     info!("Conflict resolved for {}", filename);
-    Ok(message)
+    Ok(ConflictResolutionResult::Completed)
 }
 
 //
@@ -821,7 +853,7 @@ pub struct LeftoverInfo {
 ///
 /// Re-exchanges a session (or uses existing token), uploads, then recycles.
 #[tauri::command]
-pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<String, String> {
+pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<RecoveryUploadResult, String> {
     let sidecar_path = std::path::PathBuf::from(&operation_dir).join(crate::sync::operations::SIDECAR_FILENAME);
 
     let op = crate::sync::operations::load_operation_sidecar(&sidecar_path)?;
@@ -852,12 +884,12 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<St
             let message = format!("✓ {} — recovered and uploaded to server.", filename);
             let _ = app.emit("notification", serde_json::json!({ "message": &message }));
             info!("Recovery upload successful: {}", filename);
-            Ok(message)
+            Ok(RecoveryUploadResult::Completed { message })
         }
         Err(e) => {
             if is_proxy_auth_required_error(&e) {
                 crate::proxy_auth::authenticate_reverse_proxy(&app, &op.server_url, &http_clients).await?;
-                return Err(format!("{AUTH_RETRY_PREFIX}upload"));
+                return Ok(RecoveryUploadResult::AuthRetry { reason: AuthRetryReason::Upload });
             }
             error!("Recovery upload failed for {}: {e}", filename);
             Err(format!("Upload failed: {e}"))

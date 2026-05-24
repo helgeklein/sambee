@@ -225,9 +225,16 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         Err(token::TokenExchangeError::ProxyAuthenticationRequired { message, .. }) => {
             warn!("{message}");
             proxy_auth::authenticate_reverse_proxy(&app, &uri.server, &http_clients).await?;
-            token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients)
-                .await
-                .map_err(|e| e.to_string())?
+            match token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients).await {
+                Ok(token) => token,
+                Err(token::TokenExchangeError::ProxyAuthenticationRequired { .. }) => {
+                    return Err(
+                        "Authentication completed, but no usable backend cookie was available for Companion requests. Check the reverse proxy cookie domain and path settings."
+                            .to_string(),
+                    );
+                }
+                Err(e) => return Err(e.to_string()),
+            }
         }
         Err(e) => return Err(e.to_string()),
     };

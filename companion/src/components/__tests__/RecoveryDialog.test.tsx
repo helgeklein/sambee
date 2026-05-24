@@ -22,7 +22,7 @@ describe("RecoveryDialog", () => {
         leftovers={LEFTOVERS}
         onDone={() => {}}
         onUploadAction={async () => {
-          throw new Error("retry-auth:upload");
+          return { status: "auth_retry", reason: "upload" };
         }}
       />
     );

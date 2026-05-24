@@ -68,6 +68,7 @@ pub async fn upload_file(
     upload_file_with_client(&client, app, window_label, server_url, connection_id, remote_path, local_path, session_token).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_file_with_store(
     http_clients: &SambeeHttpClientStore,
     app: &AppHandle,
@@ -82,6 +83,7 @@ pub async fn upload_file_with_store(
     upload_file_with_client(&client, app, window_label, server_url, connection_id, remote_path, local_path, session_token).await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_file_with_client(
     client: &Client,
     app: &AppHandle,
