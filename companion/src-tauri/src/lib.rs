@@ -986,6 +986,10 @@ fn epoch_days_to_ymd(epoch_days: u64) -> (u64, u64, u64) {
     (y, m, d)
 }
 
+fn should_prevent_implicit_last_window_exit(exit_code: Option<i32>) -> bool {
+    exit_code.is_none()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App builder
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1159,6 +1163,29 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Sambee Companion");
+        .build(tauri::generate_context!())
+        .expect("error while building Sambee Companion")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                if should_prevent_implicit_last_window_exit(code) {
+                    info!("Preventing implicit app exit after the last window was destroyed");
+                    api.prevent_exit();
+                }
+            }
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prevents_exit_when_last_window_is_destroyed() {
+        assert!(should_prevent_implicit_last_window_exit(None));
+    }
+
+    #[test]
+    fn allows_explicit_exit_requests() {
+        assert!(!should_prevent_implicit_last_window_exit(Some(0)));
+    }
 }
