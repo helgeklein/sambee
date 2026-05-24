@@ -50,45 +50,90 @@ The companion writes both Rust-backend messages and TypeScript-frontend messages
 | `error` | Always | failures that stop an operation from completing |
 | `warn` | Always | degraded but non-fatal behavior |
 | `info` | Verbose mode only | lifecycle steps and state transitions |
-| `debug` | Verbose mode only | detailed diagnostic context |
+| `debug` | Verbose mode only for Sambee app and frontend logs | detailed diagnostic context |
 
 Errors and warnings are always written, even when verbose logging is off. That keeps production incidents diagnosable without requiring the user to reproduce them in a special logging mode.
 
-## Verbose Logging Controls
+Normal verbose logging keeps dependency transport logs quiet. HTTP transport diagnostics for `reqwest`, `hyper`, `hyper_util`, `h2`, `rustls`, and `tokio_rustls` are enabled separately because they can be very noisy.
 
-Verbose logging is read once at startup, so restart the companion after changing it.
+## Logging Controls
 
-### Windows Registry Value
+Logging settings are read once at startup, so restart the companion after changing logging registry values or logging environment variables.
 
-Set `VerboseLogging` to `1` under:
+Two logging toggles are available:
+
+| Setting | Purpose |
+|---|---|
+| `VerboseLogging` | Enables verbose Sambee app and frontend logs. |
+| `TransportLogging` | Enables HTTP transport diagnostics for `reqwest`, `hyper`, `hyper_util`, `h2`, `rustls`, and `tokio_rustls`. |
+
+### Windows Registry Values
+
+On Windows, configure logging through registry values under:
 
 ```text
 HKEY_CURRENT_USER\Software\Sambee\Companion
 ```
 
-Command-line example:
+Use type `REG_DWORD`. A non-zero value enables the setting. A missing value or `0` leaves the setting disabled.
+
+To enable verbose Sambee app and frontend logs:
 
 ```cmd
 reg add "HKCU\Software\Sambee\Companion" /v VerboseLogging /t REG_DWORD /d 1 /f
 ```
 
-To disable it again:
+To enable HTTP transport diagnostics:
+
+```cmd
+reg add "HKCU\Software\Sambee\Companion" /v TransportLogging /t REG_DWORD /d 1 /f
+```
+
+To disable them again:
 
 ```cmd
 reg add "HKCU\Software\Sambee\Companion" /v VerboseLogging /t REG_DWORD /d 0 /f
+reg add "HKCU\Software\Sambee\Companion" /v TransportLogging /t REG_DWORD /d 0 /f
 ```
 
-### Environment Variable
+Restart Companion after changing either registry value.
 
-On any platform, you can also launch the companion with:
+### Linux and macOS Environment Variables
+
+On Linux and macOS, launch the companion with environment variables for the logging modes you need.
+
+Verbose Sambee app and frontend logs:
 
 ```bash
 SAMBEE_LOG_VERBOSE=1 ./sambee-companion
 ```
 
-The environment variable takes priority over the Windows registry setting and is the simplest one-off debugging option across platforms.
+HTTP transport diagnostics:
 
-Use verbose logging when the normal log file does not explain why startup, local-drive access, or file-return workflows are failing.
+```bash
+SAMBEE_LOG_TRANSPORT=1 ./sambee-companion
+```
+
+You can combine both logging modes:
+
+```bash
+SAMBEE_LOG_VERBOSE=1 SAMBEE_LOG_TRANSPORT=1 ./sambee-companion
+```
+
+The environment variables are also available on Windows for one-off terminal-launched debugging and take precedence over the registry values. Use `0` or `false` to force a setting off for that launch.
+
+Use verbose logging when the normal log file does not explain why startup, local-drive access, or file-return workflows are failing. Add transport diagnostics when you need HTTP, TLS, proxy, or HTTP/2 details.
+
+## Support Log Checklist
+
+When collecting Companion logs for a native-editing issue, include:
+
+- Whether the `Sambee Authentication` window appeared.
+- Whether the failure happened during token exchange, file-info lookup, lock acquisition, download, upload, lock release, or heartbeat.
+- The reverse proxy or SSO product in front of Sambee, if one is used.
+- The Companion log file from the affected desktop.
+
+Companion sanitizes URLs before writing request diagnostics. Sensitive query values such as tokens, secrets, passwords, cookies, authorization data, sessions, keys, and theme payloads should not appear in support logs.
 
 ## Log Rotation
 

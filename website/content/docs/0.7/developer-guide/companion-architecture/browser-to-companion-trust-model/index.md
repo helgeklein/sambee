@@ -12,19 +12,23 @@ Sambee uses two browser-to-companion interaction models.
 
 This path is used when the browser asks the companion to open an SMB-backed file in a native desktop app.
 
-1. the browser asks the backend for a short-lived URI token
-2. the browser launches a `sambee://` deep link
-3. the companion exchanges the one-time token for a session token
-4. the companion downloads the file, acquires the edit lock, and later uploads the result
+1. The browser asks the backend for a short-lived URI token.
+1. The browser launches a `sambee://` deep link.
+1. Companion exchanges the one-time token for a session token.
+1. Companion downloads the file, acquires the edit lock, and later uploads the result.
+
+Companion sends the URI token to the backend token endpoint in a JSON request body. Do not reintroduce query-string token exchange compatibility; deep-link tokens are sensitive and should not be exposed in URLs, logs, proxy access logs, or browser history.
+
+The deep-link token is not a general browser-to-companion credential. It is a short-lived bootstrap value for one native-editing handoff.
 
 ### Localhost API Path
 
 This path is used for local-drive access and related browser-to-desktop features.
 
 1. the browser probes `http://localhost:21549/api/health`
-2. browser and companion perform an explicit pairing flow
-3. the browser uses authenticated localhost requests for local-drive operations
-4. the companion sends directory-change notifications over a paired WebSocket channel
+1. browser and companion perform an explicit pairing flow
+1. the browser uses authenticated localhost requests for local-drive operations
+1. the companion sends directory-change notifications over a paired WebSocket channel
 
 ## Why Pairing Exists
 
@@ -63,6 +67,10 @@ After pairing, companion-bound requests use HMAC-based authentication rather tha
 - do not replace explicit pairing with silent trust-on-first-use behavior
 - keep browser-to-companion auth distinct from backend bearer-token auth
 - preserve the server-side edit-lock lifecycle for SMB-backed editing instead of letting the companion bypass it
+- keep reverse-proxy cookies distinct from Sambee bearer tokens and companion localhost pairing secrets
+- redact deep-link tokens, sessions, cookies, authorization data, and other sensitive query values before logging
+
+Reverse-proxy authentication is a separate trust path from localhost pairing. The companion may use cookies captured in its own backend-origin authentication webview for Rust-side backend requests, but it must not import cookies from the user's normal browser session.
 
 ## What Changes Are High Risk
 

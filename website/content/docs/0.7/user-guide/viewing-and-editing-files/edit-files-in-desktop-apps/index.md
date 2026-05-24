@@ -25,6 +25,10 @@ In Sambee, right-click the file and choose **Open in companion app**, or press <
 Sambee hands the request to Companion through a `sambee://` link. When your browser asks whether to allow that link to open, choose **yes**.
 {{< /admonition >}}
 
+{{< admonition type="note" >}}
+If your Sambee site is behind a proxy server, Companion may show a separate **Sambee Authentication** window before opening the file. Sign in there and then continue the desktop-editing workflow.
+{{< /admonition >}}
+
 ### What Happens Under the Hood
 
 Companion handles the rest of the edit session:

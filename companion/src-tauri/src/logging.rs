@@ -12,11 +12,11 @@
 //!
 //! Verbose logging is controlled by a platform-specific config switch:
 //!
-//! - **Windows**: Registry `DWORD` value `VerboseLogging` under
-//!   `HKEY_CURRENT_USER\Software\Sambee\Companion` (set to `1` to enable).
-//! - **All platforms**: Environment variable `SAMBEE_LOG_VERBOSE=1`.
-//! - **Transport diagnostics**: Environment variable `SAMBEE_LOG_TRANSPORT=1`
-//!   enables verbose dependency logs for reqwest/hyper/h2/rustls.
+//! - **Windows**: Registry `DWORD` values `VerboseLogging` and
+//!   `TransportLogging` under `HKEY_CURRENT_USER\Software\Sambee\Companion`
+//!   (set to `1` to enable).
+//! - **All platforms**: Environment variables `SAMBEE_LOG_VERBOSE=1` and
+//!   `SAMBEE_LOG_TRANSPORT=1`.
 //!
 //! The switch is read once at startup. To change it, restart the companion.
 
@@ -50,12 +50,14 @@ const ENV_VAR_VERBOSE: &str = "SAMBEE_LOG_VERBOSE";
 const ENV_VAR_TRANSPORT: &str = "SAMBEE_LOG_TRANSPORT";
 
 /// Windows registry key path (under HKCU) for companion settings.
-#[cfg(target_os = "windows")]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 const REGISTRY_KEY_PATH: &str = r"Software\Sambee\Companion";
 
 /// Windows registry value name for the verbose-logging toggle.
-#[cfg(target_os = "windows")]
-const REGISTRY_VALUE_NAME: &str = "VerboseLogging";
+const REGISTRY_VERBOSE_VALUE_NAME: &str = "VerboseLogging";
+
+/// Windows registry value name for the HTTP transport diagnostics toggle.
+const REGISTRY_TRANSPORT_VALUE_NAME: &str = "TransportLogging";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Logger state
@@ -201,30 +203,49 @@ fn rotated_path(base: &std::path::Path, n: u32) -> PathBuf {
 /// 2. Windows registry DWORD `VerboseLogging` under
 ///    `HKCU\Software\Sambee\Companion`.
 ///
-/// Returns `true` if any source says verbose logging is on.
+/// Returns `true` when the first configured source says verbose logging is on.
 fn read_verbose_config() -> bool {
-    // 1. Environment variable (cross-platform).
-    if let Ok(val) = std::env::var(ENV_VAR_VERBOSE) {
-        if val == "1" || val.eq_ignore_ascii_case("true") {
-            return true;
-        }
-    }
-
-    // 2. Windows registry.
-    #[cfg(target_os = "windows")]
-    {
-        if read_registry_verbose() {
-            return true;
-        }
-    }
-
-    false
+    read_logging_config(ENV_VAR_VERBOSE, REGISTRY_VERBOSE_VALUE_NAME)
 }
 
+/// Determine whether HTTP transport diagnostics are enabled.
+///
+/// Checks (in order):
+/// 1. Environment variable `SAMBEE_LOG_TRANSPORT` (all platforms).
+/// 2. Windows registry DWORD `TransportLogging` under
+///    `HKCU\Software\Sambee\Companion`.
+///
+/// Returns `true` when the first configured source says transport logging is on.
 fn read_transport_config() -> bool {
-    std::env::var(ENV_VAR_TRANSPORT)
-        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+    read_logging_config(ENV_VAR_TRANSPORT, REGISTRY_TRANSPORT_VALUE_NAME)
+}
+
+fn read_logging_config(env_var: &str, registry_value_name: &str) -> bool {
+    if let Some(value) = parse_logging_bool(std::env::var(env_var).ok().as_deref()) {
+        return value;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return read_registry_bool(registry_value_name);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = registry_value_name;
+        false
+    }
+}
+
+fn parse_logging_bool(value: Option<&str>) -> Option<bool> {
+    let value = value?.trim();
+    if value == "1" || value.eq_ignore_ascii_case("true") {
+        Some(true)
+    } else if value == "0" || value.eq_ignore_ascii_case("false") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn effective_level_for_target(
@@ -252,11 +273,11 @@ fn is_transport_log_target(target: &str) -> bool {
         .any(|prefix| target == *prefix || target.starts_with(&format!("{prefix}::")))
 }
 
-/// Read the `VerboseLogging` DWORD from the Windows registry.
+/// Read a logging DWORD from the Windows registry.
 ///
 /// Returns `true` if the value exists and is non-zero.
 #[cfg(target_os = "windows")]
-fn read_registry_verbose() -> bool {
+fn read_registry_bool(value_name: &str) -> bool {
     use winreg::enums::HKEY_CURRENT_USER;
     use winreg::RegKey;
 
@@ -266,7 +287,7 @@ fn read_registry_verbose() -> bool {
         Err(_) => return false,
     };
 
-    match key.get_value::<u32, _>(REGISTRY_VALUE_NAME) {
+    match key.get_value::<u32, _>(value_name) {
         Ok(val) => val != 0,
         Err(_) => false,
     }
@@ -541,5 +562,20 @@ mod tests {
             effective_level_for_target("hyper_util::client", LevelFilter::Debug, LevelFilter::Warn, LevelFilter::Debug),
             LevelFilter::Debug
         );
+    }
+
+    #[test]
+    fn test_parse_logging_bool_accepts_enable_and_disable_values() {
+        assert_eq!(parse_logging_bool(Some("1")), Some(true));
+        assert_eq!(parse_logging_bool(Some("true")), Some(true));
+        assert_eq!(parse_logging_bool(Some("0")), Some(false));
+        assert_eq!(parse_logging_bool(Some("false")), Some(false));
+        assert_eq!(parse_logging_bool(Some("unexpected")), None);
+        assert_eq!(parse_logging_bool(None), None);
+    }
+
+    #[test]
+    fn test_registry_path_uses_canonical_sambee_casing() {
+        assert_eq!(REGISTRY_KEY_PATH, r"Software\Sambee\Companion");
     }
 }
