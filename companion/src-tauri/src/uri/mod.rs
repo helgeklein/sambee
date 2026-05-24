@@ -6,6 +6,7 @@
 //! The parser extracts and validates all required query parameters.
 
 use thiserror::Error;
+use url::form_urlencoded;
 use url::Url;
 
 /// Errors that can occur when parsing a `sambee://` URI.
@@ -99,6 +100,29 @@ impl SambeeUri {
             theme,
         })
     }
+}
+
+pub fn sanitized_uri_for_logging(url: &Url) -> String {
+    let mut sanitized = url.clone();
+    let mut serializer = form_urlencoded::Serializer::new(String::new());
+
+    for (key, value) in url.query_pairs() {
+        match key.as_ref() {
+            "token" => {
+                serializer.append_pair(&key, "<redacted>");
+            }
+            "theme" => {
+                serializer.append_pair(&key, "<present>");
+            }
+            _ => {
+                serializer.append_pair(&key, &value);
+            }
+        }
+    }
+
+    let query = serializer.finish();
+    sanitized.set_query((!query.is_empty()).then_some(&query));
+    sanitized.to_string()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -220,5 +244,18 @@ mod tests {
 
         let parsed = SambeeUri::parse(&url).unwrap();
         assert_eq!(parsed.path, "/docs/my file.docx");
+    }
+
+    #[test]
+    fn test_sanitized_uri_for_logging_redacts_token_and_theme() {
+        let url =
+            Url::parse("sambee://open?server=https://example.com&token=secret-token&connId=c&path=/f&theme=eyJtb2RlIjoiZGFyayJ9").unwrap();
+
+        let sanitized = sanitized_uri_for_logging(&url);
+
+        assert!(sanitized.contains("token=%3Credacted%3E"));
+        assert!(sanitized.contains("theme=%3Cpresent%3E"));
+        assert!(!sanitized.contains("secret-token"));
+        assert!(!sanitized.contains("eyJtb2RlIjoiZGFyayJ9"));
     }
 }

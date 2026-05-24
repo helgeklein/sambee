@@ -2,36 +2,37 @@
 title = "Companion Release Overview"
 +++
 
-Sambee Companion releases are built once, published once, and later promoted across update channels by changing public feed files.
+Sambee Companion releases are built and published once, and later promoted across update channels by changing public feed files.
 
-That is the key difference between the Companion and Docker release paths.
+Key differences between the Companion and Docker release paths:
 
-Docker releases promote an already published container digest.
-Companion releases promote an already published GitHub Release by rewriting feeds that different consumers read.
+- Docker releases promote an already published container digest.
+- Companion releases promote an already published GitHub Release by rewriting feeds read by Companion's auto-updater and by the Sambee frontend.
 
-Use this page as the entry point for the Companion release path.
-
-## Path To Stable
+## Summary
 
 If you want to take a new Companion version to the `stable` update channel, follow this order:
 
 1. Update `VERSION` and run `./scripts/sync-version`.
-2. Merge the reviewed version-sync changes.
-3. Run `Release: Build Companion Artifact` and either check `build_all_platforms` for a full build or check only the specific platform boxes you want to publish.
-4. Review the draft release in `helgeklein/sambee-companion` and publish it.
-5. Run `Release: Promote Companion Release` for `test` and any other targets you want exposed first.
-6. Validate both update behavior and direct-download metadata against the promoted feeds.
-7. Rerun `Release: Promote Companion Release` for `beta`, `stable`, or Sambee download metadata when that same published release is approved for broader use.
+   - Git merge the reviewed `version-sync` changes.
+1. Run `Release: Build Companion Artifact` and select the target platforms.
+   - This creates draft release in the GitHub repo `helgeklein/sambee-companion`.
+1. Test the draft release.
+   - Download the installer from the releases artifacts, install and test.
+1. Publish the draft release.
+1. Run `Release: Promote Companion Release` for `test`.
+   - Validate both update behavior and direct-download metadata against the promoted feeds.
+1. Rerun `Release: Promote Companion Release` for `beta`, `stable`, and Sambee download metadata.
 
 Companion release tags follow the `companion-vX.Y.Z` pattern.
 
-One published release can later move from `test` to `beta` to `stable` without rebuilding binaries.
+One published release can move from `test` to `beta` to `stable` without rebuilding binaries.
 
 Read the detailed pages in this order:
 
 1. [Build Companion Release](../build-companion-release/)
-2. [Promote Companion Release](../promote-companion-release/)
-3. [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-downloads/)
+1. [Promote Companion Release](../promote-companion-release/)
+1. [Companion Channels, Feeds, And Downloads](../companion-channels-feeds-and-downloads/)
 
 ## Workflow Map
 

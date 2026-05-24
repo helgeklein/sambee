@@ -5,12 +5,16 @@
 //! - **File size checks** — warn before downloading very large files
 //! - **Conflict detection** — compare `modified_at` before upload
 
-use log::info;
+use std::time::Duration;
+
+use log::{debug, info};
 use reqwest::header;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
+use crate::http_client::{
+    classify_proxy_auth_intercept, log_request_error, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Response types
@@ -59,7 +63,7 @@ pub async fn get_file_info(
     remote_path: &str,
     session_token: &str,
 ) -> Result<FileInfoResponse, String> {
-    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = plain_client()?;
     get_file_info_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -70,7 +74,7 @@ pub async fn get_file_info_with_store(
     remote_path: &str,
     session_token: &str,
 ) -> Result<FileInfoResponse, String> {
-    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = http_clients.client_for_server(server_url)?;
     get_file_info_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -87,36 +91,42 @@ pub async fn get_file_info_with_client(
 
     let response = client
         .get(&url)
+        .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {session_token}"))
         .send()
         .await
-        .map_err(|e| format!("File info request failed: {e}"))?;
+        .map_err(|error| log_request_error("File info request", "GET", &url, &error))?;
 
     let status = response.status();
+    let response_url = response.url().clone();
+    let response_content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+
+    debug!(
+        "File info HTTP response received: status={}, url='{}', content_type={:?}",
+        status, response_url, response_content_type
+    );
+
     if !status.is_success() {
-        let content_type = response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
-        if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), content_type.as_deref(), &body) {
+        debug!("File info error body received: {} bytes", body.len());
+        if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), response_content_type.as_deref(), &body) {
             return Err(message);
         }
         return Err(format!("File info failed (HTTP {status}): {body}"));
     }
 
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-        .unwrap_or_default();
+    let content_type = response_content_type.unwrap_or_default();
     let body = response
         .text()
         .await
-        .map_err(|e| format!("Failed to read file info response: {e}"))?;
+        .map_err(|error| log_request_error("File info response body", "GET", response_url.as_str(), &error))?;
+
+    debug!("File info success body received: {} bytes", body.len());
 
     if !content_type.to_ascii_lowercase().contains("application/json") {
         if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), Some(&content_type), &body) {
@@ -128,6 +138,11 @@ pub async fn get_file_info_with_client(
     }
 
     let info: FileInfoResponse = serde_json::from_str(&body).map_err(|e| format!("Failed to parse file info response: {e}"))?;
+
+    debug!(
+        "File info JSON parsed successfully: file_type='{}', mime_type={:?}",
+        info.file_type, info.mime_type
+    );
 
     info!(
         "File info: name='{}', size={:?}, modified_at={:?}",

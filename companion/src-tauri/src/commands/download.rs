@@ -4,13 +4,13 @@
 //! and saves it to a local temp directory with a `-copy` suffix.
 
 use std::fs;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use log::{error, info};
 use reqwest::header;
 use reqwest::Client;
 
-use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore};
+use crate::http_client::{classify_proxy_auth_intercept, log_request_error, plain_client, SambeeHttpClientStore};
 use crate::sync::temp;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ pub async fn download_file(
     session_token: &str,
     expected_size: Option<u64>,
 ) -> Result<DownloadResult, String> {
-    let client = plain_client(DOWNLOAD_TIMEOUT_SECS)?;
+    let client = plain_client()?;
     download_file_with_client(&client, server_url, connection_id, remote_path, session_token, expected_size).await
 }
 
@@ -84,7 +84,7 @@ pub async fn download_file_with_store(
     session_token: &str,
     expected_size: Option<u64>,
 ) -> Result<DownloadResult, String> {
-    let client = http_clients.client_for_server(server_url, DOWNLOAD_TIMEOUT_SECS)?;
+    let client = http_clients.client_for_server(server_url)?;
     download_file_with_client(&client, server_url, connection_id, remote_path, session_token, expected_size).await
 }
 
@@ -115,13 +115,15 @@ pub async fn download_file_with_client(
 
     let response = client
         .get(&url)
+        .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {session_token}"))
         .send()
         .await
-        .map_err(|e| {
-            error!("Download request failed: {e}");
-            format!("Download request failed: {e}")
+        .map_err(|error| {
+            let message = log_request_error("Download request", "GET", &url, &error);
+            let _ = fs::remove_dir_all(&op_dir);
+            message
         })?;
 
     let status = response.status();
@@ -150,9 +152,9 @@ pub async fn download_file_with_client(
         .unwrap_or_default();
 
     if content_type.to_ascii_lowercase().contains("text/html") {
-        let body = response.text().await.map_err(|e| {
+        let body = response.text().await.map_err(|error| {
             let _ = fs::remove_dir_all(&op_dir);
-            format!("Failed to read download response: {e}")
+            log_request_error("Download HTML response body", "GET", &url, &error)
         })?;
 
         if let Some(message) = classify_proxy_auth_intercept("File download", Some(status), Some(&content_type), &body) {
@@ -165,9 +167,9 @@ pub async fn download_file_with_client(
     }
 
     // Write response body to file
-    let bytes = response.bytes().await.map_err(|e| {
+    let bytes = response.bytes().await.map_err(|error| {
         let _ = fs::remove_dir_all(&op_dir);
-        format!("Failed to read download response: {e}")
+        log_request_error("Download response body", "GET", &url, &error)
     })?;
 
     if let Err(e) = validate_download_size(remote_path, expected_size, bytes.len() as u64) {

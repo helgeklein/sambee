@@ -26,6 +26,8 @@ In normal use it shifts between a few runtime modes:
 
 That split is deliberate. The companion should stay lightweight when idle, but it still needs focused UI surfaces for edit coordination and pairing approval.
 
+Because the companion is a tray-oriented app, closing the last transient webview must not implicitly terminate the process. The runtime intentionally prevents last-window destruction from exiting the app; explicit quit requests from the tray still exit normally.
+
 ## Main Code Areas
 
 | Path | Responsibility |
@@ -35,6 +37,7 @@ That split is deliberate. The companion should stay lightweight when idle, but i
 | `companion/src/stores/` | persisted frontend preferences for app selection and companion settings |
 | `companion/src-tauri/src/lib.rs` | Tauri setup, plugin wiring, deep-link handling, window management, tray behavior, and lifecycle orchestration |
 | `companion/src-tauri/src/commands/` | commands for file info, download, upload, app selection, pairing, localization, and updates |
+| `companion/src-tauri/src/http_client.rs` | shared backend HTTP clients, reverse-proxy cookie jars, request diagnostics, and URL sanitization |
 | `companion/src-tauri/src/app_registry/` | platform-specific native-app discovery and launch integration |
 | `companion/src-tauri/src/sync/` | operation persistence, temp-file handling, recycle retention, and recovery helpers |
 | `companion/src-tauri/src/token/` and `uri/` | URI parsing and token exchange for deep-link editing |
@@ -64,6 +67,8 @@ The implemented flow is:
 4. Companion reads backend-origin cookies from that same webview and seeds its shared Rust `reqwest` cookie jar.
 5. Token exchange and the rest of the native-edit lifecycle reuse that authenticated client state.
 
+The HTTP client store is keyed by normalized server URL. For each server, it keeps a stable cookie jar plus default and no-redirect clients. The no-redirect client is used where redirect responses are diagnostic signals, such as URI-token exchange. The default client is reused for file-info lookup, lock acquisition, download, upload, lock release, and heartbeat requests.
+
 This matters for the trust model:
 
 - Browser-to-companion localhost pairing remains separate from reverse-proxy authentication.
@@ -73,6 +78,10 @@ This matters for the trust model:
 - Cookie values must not be logged.
 
 Companion automatically retries idempotent backend calls such as file-info lookup, lock acquisition, download, lock release, and heartbeats after reauthentication. Non-idempotent uploads are not replayed automatically; the runtime instead asks the user to retry the action after authentication has been refreshed.
+
+HTTP/2 is fully supported by the Companion HTTP stack.
+
+Request failures are logged with classified diagnostics such as timeout, connect, request, body, decode, and status. URLs and chained source errors are sanitized before logging so deep-link tokens, proxy sessions, and other sensitive query values do not appear in logs.
 
 ## Native-App Edit Lifecycle
 

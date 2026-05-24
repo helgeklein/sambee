@@ -51,9 +51,10 @@ For that to work reliably:
 - The reverse-proxy cookie must be valid for the Sambee backend origin that Companion calls.
 - The login flow must work inside the system webview used by Tauri on the target desktop platform.
 - The proxy must not depend on browser features that are unavailable in that embedded webview.
+- The proxy must allow authenticated requests to the Companion backend endpoints after the embedded webview has established the proxy session.
 
 {{< admonition type="note" >}}
 Companion does not and cannot read cookies from the user’s Sambee frontend browser session.
 {{< /admonition >}}
 
-Operationally, that means you should test both the browser UI and a real Companion native-edit session when introducing or changing proxy auth.
+Operationally, that means you should test both the browser UI and a real Companion native-edit session when introducing or changing proxy auth. A useful native-edit test signs in through the Companion authentication window, opens an SMB-backed file in a desktop app, uploads or closes the edit session, and confirms that lock release works without a second unexpected login prompt.
