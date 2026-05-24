@@ -54,6 +54,7 @@ describe("Companion API", () => {
 
   describe("getCompanionUri()", () => {
     it("builds a sambee:// URI with server, token, connection, and path", async () => {
+      mockAxiosInstance.defaults.baseURL = "/api";
       mockAxiosInstance.post.mockResolvedValueOnce({
         data: { uri_token: "test-uri-token-123", expires_in: 60 },
       } as AxiosResponse);
@@ -73,6 +74,7 @@ describe("Companion API", () => {
     });
 
     it("includes base64-encoded theme when provided", async () => {
+      mockAxiosInstance.defaults.baseURL = "/api";
       mockAxiosInstance.post.mockResolvedValueOnce({
         data: { uri_token: "tok-456", expires_in: 60 },
       } as AxiosResponse);
@@ -85,6 +87,7 @@ describe("Companion API", () => {
     });
 
     it("omits theme parameter when not provided", async () => {
+      mockAxiosInstance.defaults.baseURL = "/api";
       mockAxiosInstance.post.mockResolvedValueOnce({
         data: { uri_token: "tok-789", expires_in: 60 },
       } as AxiosResponse);
@@ -95,6 +98,7 @@ describe("Companion API", () => {
     });
 
     it("encodes special characters in path", async () => {
+      mockAxiosInstance.defaults.baseURL = "/api";
       mockAxiosInstance.post.mockResolvedValueOnce({
         data: { uri_token: "tok-special", expires_in: 60 },
       } as AxiosResponse);
@@ -105,6 +109,7 @@ describe("Companion API", () => {
     });
 
     it("propagates API errors", async () => {
+      mockAxiosInstance.defaults.baseURL = "/api";
       mockAxiosInstance.post.mockRejectedValueOnce({
         response: { status: 401, data: { detail: "Not authenticated" } },
       });
@@ -114,6 +119,18 @@ describe("Companion API", () => {
           response: expect.objectContaining({ status: 401 }),
         })
       );
+    });
+
+    it("uses the backend server root when the API base URL is absolute", async () => {
+      mockAxiosInstance.defaults.baseURL = "https://api.sambee.example.com/api";
+      mockAxiosInstance.post.mockResolvedValueOnce({
+        data: { uri_token: "tok-absolute", expires_in: 60 },
+      } as AxiosResponse);
+
+      const uri = await apiService.getCompanionUri("conn-4", "Documents/report.docx");
+
+      expect(uri).toContain("server=https%3A%2F%2Fapi.sambee.example.com");
+      expect(uri).not.toContain("server=https%3A%2F%2Fsambee.example.com");
     });
   });
 });
