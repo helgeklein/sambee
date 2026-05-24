@@ -19,19 +19,27 @@ That is the job of `Release: Promote Companion Release`.
 
 ## Input
 
-The manual workflow accepts one input:
+The manual workflow exposes one checkbox per platform:
 
 | Input | What it means | Typical usage |
 |---|---|---|
-| `platforms` | Which platform set to build. | Leave it at `all` for a normal release. Use a single platform only when you deliberately need a partial release. |
+| `build_all_platforms` | Include every supported platform in one run. | Check it for a normal full release. |
+| `build_linux_x64` | Include the Linux x64 build. | Check it when you need Linux release assets. |
+| `build_macos_arm64` | Include the macOS ARM64 build. | Check it when you need Apple Silicon macOS release assets. |
+| `build_windows_x64` | Include the Windows x64 build. | Check it when you need the standard Windows desktop release assets. |
+| `build_windows_arm64` | Include the Windows ARM64 build. | Check it when you need Windows on ARM release assets. |
 
-Current choices are:
+Current platform checkboxes are:
 
-- `all`
-- `linux-x64`
-- `macos-arm64`
-- `windows-x64`
-- `windows-arm64`
+- `build_all_platforms`
+- `build_linux_x64`
+- `build_macos_arm64`
+- `build_windows_x64`
+- `build_windows_arm64`
+
+If you check `build_all_platforms`, the workflow builds the full matrix and ignores the per-platform checkboxes.
+If you leave every checkbox cleared, the workflow does not build anything.
+Check only the platforms you want when you deliberately need a partial release.
 
 ## What It Does
 
@@ -39,7 +47,7 @@ Before packaging, the workflow:
 
 1. Checks out the main repository.
 2. Runs version-sync verification.
-3. Builds the selected platform matrix.
+3. Builds the platform matrix derived from the checked boxes.
 4. Uses Tauri packaging to upload assets into a draft release in `helgeklein/sambee-companion`.
 
 The build matrix is currently configured for:
@@ -85,7 +93,7 @@ Use this order when you are preparing a Companion release:
 
 1. Merge the version-sync changes for the release you want to ship.
 2. Start `Release: Build Companion Artifact` from the commit you want to release.
-3. Leave `platforms` at `all` unless you intentionally want a partial platform release.
+3. Check `build_all_platforms` for a normal full release, or check only the specific platform boxes you want for a partial release. If you leave all boxes cleared, the workflow skips artifact builds.
 4. Wait for the workflow to update the draft release in `helgeklein/sambee-companion`.
 5. Review the uploaded assets and publish the draft release.
 6. Continue with [Promote Companion Release](../promote-companion-release/).

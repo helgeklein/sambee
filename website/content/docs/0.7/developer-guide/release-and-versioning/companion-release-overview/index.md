@@ -17,7 +17,7 @@ If you want to take a new Companion version to the `stable` update channel, foll
 
 1. Update `VERSION` and run `./scripts/sync-version`.
 2. Merge the reviewed version-sync changes.
-3. Run `Release: Build Companion Artifact` for the platforms you want to publish.
+3. Run `Release: Build Companion Artifact` and either check `build_all_platforms` for a full build or check only the specific platform boxes you want to publish.
 4. Review the draft release in `helgeklein/sambee-companion` and publish it.
 5. Run `Release: Promote Companion Release` for `test` and any other targets you want exposed first.
 6. Validate both update behavior and direct-download metadata against the promoted feeds.

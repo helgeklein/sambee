@@ -9,16 +9,26 @@ env:
 on:
   workflow_dispatch:
     inputs:
-      platforms:
-        description: 'Platforms to build'
-        type: choice
-        options:
-          - all
-          - linux-x64
-          - macos-arm64
-          - windows-x64
-          - windows-arm64
-        default: 'all'
+      build_all_platforms:
+        description: 'Build all supported platforms'
+        type: boolean
+        default: false
+      build_linux_x64:
+        description: 'Build Linux x64'
+        type: boolean
+        default: false
+      build_macos_arm64:
+        description: 'Build macOS ARM64'
+        type: boolean
+        default: false
+      build_windows_x64:
+        description: 'Build Windows x64'
+        type: boolean
+        default: false
+      build_windows_arm64:
+        description: 'Build Windows ARM64'
+        type: boolean
+        default: false
 
 # Cancel any in-progress builds for the same ref
 concurrency:
@@ -30,7 +40,8 @@ permissions:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────
-  # Compute build matrix (filter by selected platform for manual runs)
+  # Compute build matrix from manual platform toggles.
+  # If no boxes are checked, skip the build matrix entirely.
   # ─────────────────────────────────────────────────────────────────────
   prepare:
     runs-on: ubuntu-latest
@@ -40,11 +51,34 @@ jobs:
       - id: set-matrix
         run: |
           ALL='[{"platform":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","label":"linux-x64","bundles":"deb,appimage"},{"platform":"macos-latest","target":"aarch64-apple-darwin","label":"macos-arm64","bundles":"dmg"},{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","label":"windows-x64","bundles":"nsis"},{"platform":"windows-latest","target":"aarch64-pc-windows-msvc","label":"windows-arm64","bundles":"nsis"}]'
-          SELECTED="${{ github.event.inputs.platforms }}"
-          if [[ -z "$SELECTED" || "$SELECTED" == "all" ]]; then
+          SELECTED_LABELS=()
+
+          if [[ "${{ inputs.build_all_platforms }}" == 'true' ]]; then
+            echo 'Selected platforms: all supported platforms' >> "$GITHUB_STEP_SUMMARY"
             echo "matrix={\"include\":$ALL}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "${{ inputs.build_linux_x64 }}" == 'true' ]]; then
+            SELECTED_LABELS+=("linux-x64")
+          fi
+          if [[ "${{ inputs.build_macos_arm64 }}" == 'true' ]]; then
+            SELECTED_LABELS+=("macos-arm64")
+          fi
+          if [[ "${{ inputs.build_windows_x64 }}" == 'true' ]]; then
+            SELECTED_LABELS+=("windows-x64")
+          fi
+          if [[ "${{ inputs.build_windows_arm64 }}" == 'true' ]]; then
+            SELECTED_LABELS+=("windows-arm64")
+          fi
+
+          if [[ ${#SELECTED_LABELS[@]} -eq 0 ]]; then
+            echo 'No platforms were selected. Skipping companion artifact builds.' >> "$GITHUB_STEP_SUMMARY"
+            echo '::notice::No platforms were selected. Skipping companion artifact builds.'
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
           else
-            FILTERED=$(echo "$ALL" | jq -c "[.[] | select(.label == \"$SELECTED\")]")
+            printf 'Selected platforms: %s\n' "$(IFS=', '; echo "${SELECTED_LABELS[*]}")" >> "$GITHUB_STEP_SUMMARY"
+            FILTERED=$(echo "$ALL" | jq -c --argjson selected "$(printf '%s\n' "${SELECTED_LABELS[@]}" | jq -R . | jq -s .)" '[.[] | select(.label as $label | $selected | index($label))]')
             echo "matrix={\"include\":$FILTERED}" >> "$GITHUB_OUTPUT"
           fi
 
@@ -53,6 +87,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   build:
     needs: prepare
+    if: ${{ fromJson(needs.prepare.outputs.matrix).include[0] != null }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
