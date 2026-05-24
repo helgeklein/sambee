@@ -4,7 +4,7 @@
 //! a longer-lived session JWT via `POST /api/companion/token?token=...`.
 
 use log::{info, warn};
-use reqwest::{header, redirect, Client, Response};
+use reqwest::{header, redirect, Client, Response, StatusCode};
 use serde::Deserialize;
 
 use crate::http_client::{format_proxy_auth_required_message, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
@@ -150,19 +150,155 @@ pub async fn exchange_uri_token_with_client(
     }
 
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        warn!("Token exchange failed: HTTP {status} — {body}");
-        return Err(TokenExchangeError::HttpStatus {
-            status: status.as_u16(),
-            body_preview: body_preview(&body),
-            message: format!("Token exchange failed (HTTP {status}): {body}"),
-        });
+        let error = classify_non_success_token_exchange_response(response, server_url, &final_url, status).await;
+        warn!("Token exchange failed: {error}");
+        return Err(error);
     }
 
     let body = parse_token_exchange_response(response, server_url, &final_url).await?;
 
     info!("Token exchange successful, session expires in {}s", body.expires_in);
     Ok(body.token)
+}
+
+async fn classify_non_success_token_exchange_response(
+    response: Response,
+    server_url: &str,
+    final_url: &reqwest::Url,
+    status: StatusCode,
+) -> TokenExchangeError {
+    let headers = response.headers().clone();
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let www_authenticate = headers
+        .get(header::WWW_AUTHENTICATE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let proxy_authenticate = headers
+        .get(header::PROXY_AUTHENTICATE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let body = response.text().await.unwrap_or_default();
+
+    if let Some(error) = classify_token_exchange_auth_intercept(TokenExchangeAuthContext {
+        server_url,
+        final_url,
+        status,
+        location: location.as_deref(),
+        www_authenticate: www_authenticate.as_deref(),
+        proxy_authenticate: proxy_authenticate.as_deref(),
+        content_type: content_type.as_deref(),
+        body: &body,
+    }) {
+        return error;
+    }
+
+    TokenExchangeError::HttpStatus {
+        status: status.as_u16(),
+        body_preview: body_preview(&body),
+        message: format!("Token exchange failed (HTTP {status}): {body}"),
+    }
+}
+
+struct TokenExchangeAuthContext<'a> {
+    server_url: &'a str,
+    final_url: &'a reqwest::Url,
+    status: StatusCode,
+    location: Option<&'a str>,
+    www_authenticate: Option<&'a str>,
+    proxy_authenticate: Option<&'a str>,
+    content_type: Option<&'a str>,
+    body: &'a str,
+}
+
+fn classify_token_exchange_auth_intercept(context: TokenExchangeAuthContext<'_>) -> Option<TokenExchangeError> {
+    let is_auth_status = matches!(
+        context.status,
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::PROXY_AUTHENTICATION_REQUIRED
+    );
+    let has_auth_challenge = context.www_authenticate.is_some() || context.proxy_authenticate.is_some();
+    let looks_like_html = looks_like_html_response(context.content_type, context.body);
+    let login_url = context
+        .location
+        .map(str::to_owned)
+        .or_else(|| extract_external_auth_url(context.body, context.server_url));
+
+    if !is_auth_status || !(has_auth_challenge || looks_like_html || login_url.is_some()) {
+        return None;
+    }
+
+    let mut detail = format!("HTTP {}. ", context.status);
+    if let Some(content_type) = context.content_type.filter(|value| !value.is_empty()) {
+        detail.push_str(&format!("Content-Type: {content_type}. "));
+    }
+    if let Some(challenge) = context.www_authenticate.filter(|value| !value.is_empty()) {
+        detail.push_str(&format!("WWW-Authenticate: {challenge}. "));
+    }
+    if let Some(challenge) = context.proxy_authenticate.filter(|value| !value.is_empty()) {
+        detail.push_str(&format!("Proxy-Authenticate: {challenge}. "));
+    }
+    if let Some(url) = login_url.as_deref() {
+        detail.push_str(&format!("Auth URL: {url}. "));
+    }
+    detail.push_str(&format!("Preview: {}", body_preview(context.body)));
+
+    Some(TokenExchangeError::ProxyAuthenticationRequired {
+        server_url: context.server_url.to_string(),
+        login_url,
+        message: format_proxy_auth_required_message(
+            "Token exchange",
+            &format!(
+                "The token endpoint returned an authentication/interstitial response from {} instead of JSON. Companion can authenticate in an embedded window and retry if the proxy uses backend-origin cookies. {}",
+                context.final_url, detail
+            ),
+        ),
+    })
+}
+
+fn looks_like_html_response(content_type: Option<&str>, body: &str) -> bool {
+    let normalized_content_type = content_type.unwrap_or_default().to_ascii_lowercase();
+    if normalized_content_type.contains("text/html") || normalized_content_type.contains("application/xhtml") {
+        return true;
+    }
+
+    let normalized_body = body.to_ascii_lowercase();
+    ["<html", "<!doctype html", "<body", "<a href=", "<form", "<meta http-equiv"]
+        .iter()
+        .any(|needle| normalized_body.contains(needle))
+}
+
+fn extract_external_auth_url(body: &str, server_url: &str) -> Option<String> {
+    let backend_origin = reqwest::Url::parse(server_url).ok()?.origin().ascii_serialization();
+
+    for marker in ["href=\"", "href='", "action=\"", "action='", "content=\"0;url=", "content='0;url="] {
+        if let Some(url) = extract_attribute_url(body, marker) {
+            let parsed_url = reqwest::Url::parse(&url).ok()?;
+            if parsed_url.origin().ascii_serialization() != backend_origin {
+                return Some(url);
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_attribute_url(body: &str, marker: &str) -> Option<String> {
+    let start = body.find(marker)? + marker.len();
+    let quote = marker.chars().last()?;
+    let remainder = &body[start..];
+    let end = remainder.find(quote)?;
+    let candidate = remainder[..end].trim();
+    if candidate.starts_with("http://") || candidate.starts_with("https://") {
+        Some(candidate.to_string())
+    } else {
+        None
+    }
 }
 
 async fn parse_token_exchange_response(
@@ -317,6 +453,96 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.contains("instead of JSON"), "Unexpected error message: {err}");
         assert!(err.contains("login page"), "Unexpected error message: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_exchange_uri_token_401_html_auth_link_reports_proxy_auth_required() {
+        let app = Router::new().route(
+            "/api/companion/token",
+            post(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                    r#"<a href="https://auth.example.com/?rd=https%3A%2F%2Fsambee.example.com%2Fapi%2Fcompanion%2Ftoken">401 Unauthorized</a>"#,
+                )
+            }),
+        );
+        let server_url = spawn_test_server(app).await;
+        let client = Client::builder().redirect(redirect::Policy::none()).build().unwrap();
+
+        let result = exchange_uri_token_with_client(&client, &server_url, &format!("{server_url}/api/companion/token"), "fake-token").await;
+
+        match result {
+            Err(TokenExchangeError::ProxyAuthenticationRequired { login_url, message, .. }) => {
+                assert_eq!(
+                    login_url.as_deref(),
+                    Some("https://auth.example.com/?rd=https%3A%2F%2Fsambee.example.com%2Fapi%2Fcompanion%2Ftoken")
+                );
+                assert!(message.contains("HTTP 401 Unauthorized"), "Unexpected error message: {message}");
+                assert!(message.contains("embedded window"), "Unexpected error message: {message}");
+            }
+            other => panic!("Expected ProxyAuthenticationRequired, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_exchange_uri_token_401_json_stays_http_status() {
+        let app = Router::new().route(
+            "/api/companion/token",
+            post(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    r#"{"detail":"invalid or expired companion link"}"#,
+                )
+            }),
+        );
+        let server_url = spawn_test_server(app).await;
+        let client = Client::builder().redirect(redirect::Policy::none()).build().unwrap();
+
+        let result = exchange_uri_token_with_client(&client, &server_url, &format!("{server_url}/api/companion/token"), "fake-token").await;
+
+        match result {
+            Err(TokenExchangeError::HttpStatus { status, message, .. }) => {
+                assert_eq!(status, 401);
+                assert!(
+                    message.contains("invalid or expired companion link"),
+                    "Unexpected error message: {message}"
+                );
+            }
+            other => panic!("Expected HttpStatus, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_exchange_uri_token_401_with_www_authenticate_reports_proxy_auth_required() {
+        let app = Router::new().route(
+            "/api/companion/token",
+            post(|| async {
+                (
+                    StatusCode::UNAUTHORIZED,
+                    [
+                        (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+                        (header::WWW_AUTHENTICATE, "Basic realm=\"Sambee\""),
+                    ],
+                    "Unauthorized",
+                )
+            }),
+        );
+        let server_url = spawn_test_server(app).await;
+        let client = Client::builder().redirect(redirect::Policy::none()).build().unwrap();
+
+        let result = exchange_uri_token_with_client(&client, &server_url, &format!("{server_url}/api/companion/token"), "fake-token").await;
+
+        match result {
+            Err(TokenExchangeError::ProxyAuthenticationRequired { message, .. }) => {
+                assert!(
+                    message.contains("WWW-Authenticate: Basic realm=\"Sambee\""),
+                    "Unexpected error message: {message}"
+                );
+            }
+            other => panic!("Expected ProxyAuthenticationRequired, got {other:?}"),
+        }
     }
 
     #[tokio::test]

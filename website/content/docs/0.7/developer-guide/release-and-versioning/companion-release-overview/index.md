@@ -2,14 +2,12 @@
 title = "Companion Release Overview"
 +++
 
-Sambee Companion releases are built once, published once, and later promoted across update channels by changing public feed files.
+Sambee Companion releases are built and published once, and later promoted across update channels by changing public feed files.
 
-That is the key difference between the Companion and Docker release paths.
+Key difference between the Companion and Docker release paths:
 
-Docker releases promote an already published container digest.
-Companion releases promote an already published GitHub Release by rewriting feeds that different consumers read.
-
-Use this page as the entry point for the Companion release path.
+- Docker releases promote an already published container digest.
+- Companion releases promote an already published GitHub Release by rewriting feeds read by Companion's auto-updater and by the Sambee frontend.
 
 ## Path To Stable
 
