@@ -284,7 +284,7 @@ fn sanitize_text_for_logging(text: &str) -> String {
 
 fn sanitize_url_for_logging_part(part: &str) -> String {
     let trimmed = part.trim_matches(|character: char| matches!(character, ',' | ';' | ')' | '(' | '[' | ']'));
-    if trimmed == part || Url::parse(trimmed).is_err() {
+    if Url::parse(trimmed).is_err() {
         return part.to_string();
     }
 
@@ -377,5 +377,14 @@ mod tests {
         assert!(sanitized.contains("session_id=%3Credacted%3E"));
         assert!(!sanitized.contains("secret"));
         assert!(!sanitized.contains("encoded"));
+    }
+
+    #[test]
+    fn test_sanitize_text_for_logging_redacts_bare_url() {
+        let sanitized = sanitize_text_for_logging("request failed for https://sambee.example.com/api?token=secret&path=/docs/report.pdf");
+
+        assert!(sanitized.contains("token=%3Credacted%3E"));
+        assert!(sanitized.contains("path=%2Fdocs%2Freport.pdf"));
+        assert!(!sanitized.contains("token=secret"));
     }
 }
