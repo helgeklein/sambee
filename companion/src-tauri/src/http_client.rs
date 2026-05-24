@@ -43,6 +43,7 @@ impl SambeeHttpClientStore {
     ) -> Result<Client, String> {
         let mut builder = Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
+            .http1_only()
             .redirect(redirect_policy);
 
         if let Some(jar) = self.cookie_jar(server_url)? {
@@ -121,6 +122,7 @@ pub fn classify_proxy_auth_intercept(endpoint: &str, status: Option<StatusCode>,
 pub fn plain_client(timeout_secs: u64) -> Result<Client, String> {
     Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
+        .http1_only()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {e}"))
 }
