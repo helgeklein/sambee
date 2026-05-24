@@ -4,29 +4,9 @@ title = "Promote Docker Candidate"
 
 This is step 2 of the Docker release flow.
 
-Use this workflow when an already tested preview candidate should become an official Docker release.
+Use this `Release: Publish Docker Image` workflow to move the `beta` or `stable` tags to an existing Docker image, and to apply version tags to the image (stable releases only).
 
-GitHub Actions displays this workflow as `Release: Publish Docker Image`.
-
-It runs from `release.published` and promotes an existing image digest. It does not build a new image.
-
-## Path To Stable
-
-To take a version to `stable`, follow this sequence:
-
-1. Update `VERSION`.
-2. Run `./scripts/sync-version`.
-3. Review and merge the resulting version-sync changes.
-4. Run [Publish Test Docker Candidate](../publish-a-preview-docker-image/) for the exact commit you want to ship.
-5. Validate that preview candidate.
-6. Create the Git tag `vX.Y.Z` from that same commit.
-7. Publish the GitHub Release.
-8. Let `Release: Publish Docker Image` verify and promote the already published candidate digest.
-
-For prereleases, the same flow promotes the candidate to `beta` instead of `stable`.
-The checked-in `VERSION` remains the product version for the candidate build; the prerelease suffix lives only on the Git tag and GitHub Release.
-
-## Promotion Checks
+## Validation
 
 Before promotion, the workflow checks all of the following:
 
@@ -49,17 +29,15 @@ Prereleases publish:
 
 - The moving channel tag `beta`.
 
-The prerelease suffix remains only on the Git tag and GitHub Release. It is not added as a Docker image tag.
+After the tag-promotion steps finish, the workflow uploads `metadata.json`, `provenance/intoto.jsonl`, and the platform SPDX SBOM files to the GitHub Release as convenience assets. The digest-derived `.meta` artifact in `ghcr.io/<owner>/sambee-signatures` remains the canonical metadata bundle.
 
-The digest stays the canonical deployment target.
-
-After the release tags are attached, the workflow uploads `metadata.json`, `provenance/intoto.jsonl`, and the platform SPDX SBOM files to the GitHub Release as convenience assets. The digest-derived `.meta` artifact in `ghcr.io/<owner>/sambee-signatures` remains the canonical metadata bundle.
+The workflow then signs the promoted digest with Cosign. That signing step covers the same image digest that was validated and promoted.
 
 ## Why No Rebuild
 
 This model avoids rebuilding at release time.
 
-The thing tested as a preview candidate is therefore the exact thing that later becomes `stable` or `beta`. The preview-generated SBOM and provenance bundle is also verified against that same digest during promotion.
+The image tested as a preview candidate is therefore the exact same image that later becomes `stable` or `beta`. The preview-generated SBOM and provenance bundle is also verified against that same digest during promotion.
 
 ## Tag Contract
 
@@ -72,15 +50,3 @@ Examples:
 - A prerelease Git tag and GitHub Release may be `vX.Y.Z-beta.N`.
 
 If those values drift apart, promotion fails.
-
-## After Promotion
-
-Once the release workflow succeeds:
-
-1. Deploy by digest where possible.
-2. Use `stable` or `beta` only when you intentionally want the moving channel alias.
-3. Use the admin deployment guidance if you are updating operator-facing examples or deployment instructions.
-
-See [Deploy Sambee with Docker](../../../admin-guide/installation-and-deployment/deploy-sambee-with-docker/) for the operator view.
-
-See [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/) for the signing and metadata-bundle details.

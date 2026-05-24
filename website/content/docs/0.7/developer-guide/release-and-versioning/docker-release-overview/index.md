@@ -8,21 +8,18 @@ The release flow builds a candidate once, validates it, and later promotes that 
 
 Use this page as the entry point for the Docker release path.
 
-## Path To Stable
+## Summary
 
-If you want to take a new version to the `stable` image channel, follow this order:
+If you want to publish a new Docker image:
 
 1. Update `VERSION` and run `./scripts/sync-version`.
-2. Merge the reviewed version-sync changes.
-3. Run `Release: Create Docker Image` for the exact commit you want to ship.
-4. Validate that preview candidate in an environment appropriate for release.
-5. Create the release tag `vX.Y.Z` from that same commit.
-6. Publish the GitHub Release.
-7. Let `Release: Publish Docker Image` verify and promote the existing candidate digest.
-8. Deploy by digest where possible, or use the promoted `stable` tag when you need the moving channel alias.
-
-For prereleases, the flow is the same except the published GitHub Release becomes a `beta` image promotion instead of `stable`.
-Use a prerelease tag that keeps the checked-in base version and appends the prerelease suffix, for example `vX.Y.Z-beta.N`.
+   - Git merge the reviewed `version-sync` changes.
+1. Run `Release: Create Docker Image` for the commit you want to ship.
+   - This creates a new Docker image in GHCR and moves the `test` tag to it.
+1. Test and validate the new image.
+1. Create a GitHub Release from that same commit.
+   - Tag the GitHub Release as `vX.Y.Z-beta.N` (prereleases) or `vX.Y.Z` (stable releases).
+1. Release publication triggers `Release: Publish Docker Image`, which tags the image built earlier as `beta` (prereleases) or `stable` and adds version tags for stable releases.
 
 Read the detailed pages in this order:
 

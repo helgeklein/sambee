@@ -4,11 +4,9 @@ title = "Publish Test Docker Candidate"
 
 This is step 1 of the Docker release flow.
 
-Use this workflow to create a real, deployable Docker image candidate for a specific commit.
+Use this `Release: Create Docker Image` workflow to create a deployable Docker image from a specific commit. It is the only workflow that builds and pushes a new Sambee image to GitHub Container Registry.
 
-GitHub Actions displays this workflow as `Release: Create Docker Image`.
-
-It is the only workflow that builds and pushes a new Sambee image to GitHub Container Registry.
+This workflow does not publish a GitHub Release, and it does not move anything to `stable` or `beta`. It builds a candidate image, validates it, publishes it under an immutable `sha-<full-commit-sha>` tag, and moves the `test` tag to that same digest.
 
 ## Use It When
 
@@ -16,7 +14,7 @@ Run the preview workflow when:
 
 - you want to test a specific commit in a real deployment environment.
 - you want a candidate image that can later be promoted to `stable` or `beta` without rebuilding.
-- you want to validate a preview-only version label before a formal release.
+- you want the candidate to identify itself with a preview-only version label before a formal release.
 
 Do not use this workflow for pull-request smoke testing. That is the job of `CI: Validate Docker Image`.
 
@@ -26,14 +24,16 @@ The manual workflow accepts these inputs:
 
 | Input | What it means | Typical usage |
 |---|---|---|
-| `source_ref` | The commit SHA or tag to build. If you leave it empty, the workflow uses the commit from which you started the run. | Leave empty when you start the workflow from the exact commit you want. Set it only when you need another immutable ref. |
-| `publish_version_override` | A preview-only version label for this run. If you leave it empty, the workflow uses the checked-in `VERSION` value. | Use it for test-only publishes such as `0.8.0-test.1`. Leave it empty for a normal release candidate. |
+| `source_ref` | Which code to build. Use a commit SHA or tag. | Leave empty to build from the latest commit of the branch you selected when starting the run. Set it only when you need to point the run at a different commit. |
+| `publish_version_override` | Which version label to bake into the image. This is **not** the image tag used by Docker Compose. If you leave it empty, the workflow uses the checked-in `VERSION` value. | Use it for preview-only labels such as `0.8.0-test.1`. Leave it empty for a normal release candidate. |
 
 If `publish_version_override` is set, CI rewrites `VERSION` for that run only and reruns `./scripts/sync-version` before building.
 
-## Pre-Publish Checks
+That version value is written into the image metadata and the generated metadata bundle. It is not the main preview lookup tag. The candidate is still published under `sha-<full-commit-sha>` and then exposed through the moving `test` tag.
 
-Before it publishes anything, the workflow requires:
+## Validation
+
+Before it publishes anything, the workflow runs the following validation checks:
 
 - Backend type checks must pass.
 - Backend tests must pass.
@@ -41,23 +41,20 @@ Before it publishes anything, the workflow requires:
 - Frontend tests must pass.
 - Each supported platform image must build, publish by digest, and start successfully.
 
-The published `test` image is therefore already a validated candidate.
-
-The workflow also forces a fresh rebuild of the Dockerfile layer that installs Debian packages for that run.
-
-That keeps preview candidates aligned with the latest package fixes available from the Debian repositories at build time while still letting the rest of the image reuse BuildKit cache.
+The workflow forces a fresh rebuild of the Dockerfile layer that installs Debian packages for that run. That keeps preview candidates aligned with the latest package fixes available from the Debian repositories at build time while still letting the rest of the image reuse BuildKit cache.
 
 ## Published Output
 
 After validation, the workflow:
 
 1. Builds and pushes native `linux/amd64` and `linux/arm64` platform manifests.
-2. Starts and scans those same pushed platform manifests.
-3. Assembles those manifests into the multi-platform candidate index.
-4. Publishes the candidate index under `sha-<full-commit-sha>`.
-5. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes the metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
-6. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
-7. Signs the digest with Cosign using GitHub Actions OIDC.
+2. Starts those same images and waits for the health endpoint to succeed.
+3. Scans those same images with Trivy.
+4. Assembles the platform manifests into one multi-platform candidate index.
+5. Publishes that candidate index under `sha-<full-commit-sha>`.
+6. Extracts per-platform SBOM and provenance payloads on native runners, then assembles and publishes the metadata bundle under the digest-derived `.meta` tag in `ghcr.io/<owner>/sambee-signatures`.
+7. Moves the `test` tag onto that same digest after metadata bundle publication succeeds.
+8. Signs the digest with Cosign using GitHub Actions OIDC.
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
 
@@ -66,7 +63,7 @@ The workflow uses digest-only platform pushes while assembling the final candida
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.
 That signature repository can still show both digest-derived signature tags and referenced untagged bundle manifests, which are part of Cosign's current storage model rather than extra preview image variants.
 
-## Scan Behavior
+## Security Scan Behavior
 
 The preview workflow runs Trivy before publish.
 
@@ -76,7 +73,7 @@ The preview scan runs against the same pushed platform digests that are later as
 
 Those manifests use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
 
-## Run It
+## Run the Workflow
 
 Use this order when you are preparing a release candidate:
 
@@ -86,7 +83,7 @@ Use this order when you are preparing a release candidate:
 4. Leave `publish_version_override` empty unless this is a preview-only label.
 5. Wait for the workflow to publish `sha-<full-commit-sha>` and update `test`.
 6. Validate the candidate in the target environment.
-7. If the candidate is approved, move on to [Promote Docker Candidate](../promote-a-preview-candidate-to-stable-or-beta/).
+7. If the candidate is approved, move on to [Promote Docker Candidate](../promote-docker-candidate/).
 
 ## Metadata
 
