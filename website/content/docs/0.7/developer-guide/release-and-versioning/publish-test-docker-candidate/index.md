@@ -93,4 +93,3 @@ Use this order when you are preparing a release candidate:
 The published image includes OCI labels for the source repository, source ref name, git revision, version, creation time, and license.
 
 The workflow also generates `GIT_COMMIT` in CI before building because GitHub-hosted runners do not run the local git hooks that usually keep that file current. That keeps frontend and backend build metadata aligned inside the container image.
-
