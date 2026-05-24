@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
+import { getTauriErrorMessage, parseAuthRetryReason } from "../utils/tauriErrorMarkers";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +58,8 @@ interface RecoveryDialogProps {
 interface ItemState {
   /** Whether the item is currently being processed. */
   loading: boolean;
+  /** Informational message shown when auth was refreshed and the action should be retried. */
+  notice: string | null;
   /** Error message if the action failed. */
   error: string | null;
   /** Whether this item has been resolved. */
@@ -73,7 +76,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
   const [states, setStates] = useState<Record<string, ItemState>>(() => {
     const init: Record<string, ItemState> = {};
     for (const l of leftovers) {
-      init[l.operation_dir] = { loading: false, error: null, resolved: false };
+      init[l.operation_dir] = { loading: false, notice: null, error: null, resolved: false };
     }
     return init;
   });
@@ -106,7 +109,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
   //
   const handleUpload = useCallback(
     async (operationDir: string) => {
-      updateItemState(operationDir, { loading: true, error: null });
+      updateItemState(operationDir, { loading: true, notice: null, error: null });
       try {
         if (onUploadAction) {
           await onUploadAction(operationDir);
@@ -115,12 +118,21 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
         }
         const updated = {
           ...states,
-          [operationDir]: { loading: false, error: null, resolved: true },
+          [operationDir]: { loading: false, notice: null, error: null, resolved: true },
         };
         setStates(updated);
         checkAllResolved(updated);
       } catch (e) {
-        updateItemState(operationDir, { loading: false, error: String(e) });
+        if (parseAuthRetryReason(e) === "upload") {
+          updateItemState(operationDir, {
+            loading: false,
+            notice: translate("recovery.authRefreshedRetryUpload"),
+            error: null,
+          });
+          return;
+        }
+
+        updateItemState(operationDir, { loading: false, error: getTauriErrorMessage(e) });
       }
     },
     [checkAllResolved, onUploadAction, states, updateItemState]
@@ -131,7 +143,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
   //
   const handleDiscard = useCallback(
     async (operationDir: string) => {
-      updateItemState(operationDir, { loading: true, error: null });
+      updateItemState(operationDir, { loading: true, notice: null, error: null });
       try {
         if (onDiscardAction) {
           await onDiscardAction(operationDir);
@@ -140,12 +152,12 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
         }
         const updated = {
           ...states,
-          [operationDir]: { loading: false, error: null, resolved: true },
+          [operationDir]: { loading: false, notice: null, error: null, resolved: true },
         };
         setStates(updated);
         checkAllResolved(updated);
       } catch (e) {
-        updateItemState(operationDir, { loading: false, error: String(e) });
+        updateItemState(operationDir, { loading: false, error: getTauriErrorMessage(e) });
       }
     },
     [checkAllResolved, onDiscardAction, states, updateItemState]
@@ -156,7 +168,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
   //
   const handleDismiss = useCallback(
     async (operationDir: string) => {
-      updateItemState(operationDir, { loading: true, error: null });
+      updateItemState(operationDir, { loading: true, notice: null, error: null });
       try {
         if (onDismissAction) {
           await onDismissAction(operationDir);
@@ -165,12 +177,12 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
         }
         const updated = {
           ...states,
-          [operationDir]: { loading: false, error: null, resolved: true },
+          [operationDir]: { loading: false, notice: null, error: null, resolved: true },
         };
         setStates(updated);
         checkAllResolved(updated);
       } catch (e) {
-        updateItemState(operationDir, { loading: false, error: String(e) });
+        updateItemState(operationDir, { loading: false, error: getTauriErrorMessage(e) });
       }
     },
     [checkAllResolved, onDismissAction, states, updateItemState]
@@ -215,7 +227,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
                   onClick={() => handleUpload(leftover.operation_dir)}
                   disabled={state?.loading}
                 >
-                  {translate("recovery.actions.upload")}
+                  {state?.notice ? translate("recovery.actions.retryUpload") : translate("recovery.actions.upload")}
                 </button>
                 <button
                   type="button"
@@ -234,6 +246,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
                   {translate("recovery.actions.later")}
                 </button>
               </div>
+              {state?.notice && <p class="dialog-notice">{state.notice}</p>}
               {state?.error && <p class="dialog-error">{state.error}</p>}
             </div>
           );

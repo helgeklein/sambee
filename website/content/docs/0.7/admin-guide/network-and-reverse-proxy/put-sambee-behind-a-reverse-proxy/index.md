@@ -39,3 +39,21 @@ networks:
 Here, `expose` makes Sambee's port `8000` available to other containers on the same Docker network without publishing it directly to the host.
 
 The important point is that Sambee serves plain HTTP to the reverse proxy and does not act as the HTTPS edge itself.
+
+## Companion Native Editing Behind Interactive Auth
+
+If your reverse proxy protects the Sambee backend with an interactive login flow, Companion native editing can still work, but the proxy setup has to satisfy a few constraints.
+
+The Companion runtime opens its own `Sambee Authentication` webview when reverse-proxy auth intercepts backend API calls. After the user signs in there, Companion reuses backend-origin cookies from that embedded webview for its Rust-side API requests.
+
+For that to work reliably:
+
+- The reverse-proxy cookie must be valid for the Sambee backend origin that Companion calls.
+- The login flow must work inside the system webview used by Tauri on the target desktop platform.
+- The proxy must not depend on browser features that are unavailable in that embedded webview.
+
+{{< admonition type="note" >}}
+Companion does not and cannot read cookies from the user’s Sambee frontend browser session.
+{{< /admonition >}}
+
+Operationally, that means you should test both the browser UI and a real Companion native-edit session when introducing or changing proxy auth.

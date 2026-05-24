@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
+import { getTauriErrorMessage, parseAuthRetryReason } from "../utils/tauriErrorMarkers";
 import "../styles/dialog.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ interface ConflictDialogProps {
  */
 export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSaveCopyAction, onActionComplete }: ConflictDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   //
@@ -66,6 +68,7 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
   //
   const handleOverwrite = useCallback(async () => {
     setLoading(true);
+    setNotice(null);
     setError(null);
     try {
       if (onOverwriteAction) {
@@ -77,7 +80,11 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
       }
       onActionComplete?.("overwrite");
     } catch (e) {
-      setError(String(e));
+      if (parseAuthRetryReason(e) === "conflict") {
+        setNotice(translate("conflictDialog.authRefreshedRetry"));
+      } else {
+        setError(getTauriErrorMessage(e));
+      }
       setLoading(false);
     }
   }, [conflict.operation_id, onActionComplete, onOverwriteAction]);
@@ -87,6 +94,7 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
   //
   const handleSaveAsCopy = useCallback(async () => {
     setLoading(true);
+    setNotice(null);
     setError(null);
     try {
       if (onSaveCopyAction) {
@@ -98,7 +106,11 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
       }
       onActionComplete?.("saveCopy");
     } catch (e) {
-      setError(String(e));
+      if (parseAuthRetryReason(e) === "conflict") {
+        setNotice(translate("conflictDialog.authRefreshedRetry"));
+      } else {
+        setError(getTauriErrorMessage(e));
+      }
       setLoading(false);
     }
   }, [conflict.operation_id, onActionComplete, onSaveCopyAction]);
@@ -127,6 +139,8 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
           </div>
         </div>
       </div>
+
+      {notice && <p class="done-editing-notice">{notice}</p>}
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleOverwrite} disabled={loading}>

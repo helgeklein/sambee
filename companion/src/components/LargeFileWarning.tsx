@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
+import { getTauriErrorMessage } from "../utils/tauriErrorMarkers";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ export function LargeFileWarning({ info, onResolved, onRespondAction }: LargeFil
         }
         onResolved();
       } catch (e) {
-        setError(String(e));
+        setError(getTauriErrorMessage(e));
         setLoading(false);
       }
     },

@@ -117,4 +117,26 @@ describe("PairingWindow", () => {
       expect(closeWindowMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  it("shows an inline error when confirming pairing fails", async () => {
+    invokeMock.mockRejectedValue(new Error("Failed to confirm pairing"));
+
+    render(<PairingWindow />);
+
+    emitEvent("show-pairing", {
+      pairing_id: "pair-1",
+      origin: "https://example.test",
+      pairing_code: "482901",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: translate("pairing.title") })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: translate("pairing.actions.codesMatch") }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to confirm pairing")).toBeInTheDocument();
+    });
+  });
 });

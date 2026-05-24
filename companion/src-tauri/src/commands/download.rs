@@ -7,9 +7,10 @@ use std::fs;
 use std::time::SystemTime;
 
 use log::{error, info};
+use reqwest::header;
 use reqwest::Client;
 
-use crate::http_client::{plain_client, SambeeHttpClientStore};
+use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore};
 use crate::sync::temp;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,11 +126,42 @@ pub async fn download_file_with_client(
 
     let status = response.status();
     if !status.is_success() {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
+        if let Some(message) = classify_proxy_auth_intercept("File download", Some(status), content_type.as_deref(), &body) {
+            let _ = fs::remove_dir_all(&op_dir);
+            return Err(message);
+        }
         error!("Download failed: HTTP {status} — {body}");
         // Clean up the empty operation directory on failure
         let _ = fs::remove_dir_all(&op_dir);
         return Err(format!("Download failed (HTTP {status}): {body}"));
+    }
+
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .unwrap_or_default();
+
+    if content_type.to_ascii_lowercase().contains("text/html") {
+        let body = response.text().await.map_err(|e| {
+            let _ = fs::remove_dir_all(&op_dir);
+            format!("Failed to read download response: {e}")
+        })?;
+
+        if let Some(message) = classify_proxy_auth_intercept("File download", Some(status), Some(&content_type), &body) {
+            let _ = fs::remove_dir_all(&op_dir);
+            return Err(message);
+        }
+
+        let _ = fs::remove_dir_all(&op_dir);
+        return Err("Download returned HTML instead of file contents".to_string());
     }
 
     // Write response body to file

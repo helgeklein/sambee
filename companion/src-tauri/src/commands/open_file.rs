@@ -14,7 +14,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
-use crate::http_client::SambeeHttpClientStore;
+use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
 use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
 
 fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
@@ -72,6 +72,10 @@ pub(crate) const DONE_EDITING_LABEL_PREFIX: &str = "done-editing-";
 /// `finish_editing`. The frontend checks for this prefix to show the
 /// conflict resolution dialog.
 const CONFLICT_PREFIX: &str = "conflict:";
+
+/// Prefix used to tell the frontend that authentication was refreshed and the
+/// user should retry the upload action explicitly.
+const AUTH_RETRY_PREFIX: &str = "retry-auth:";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -347,7 +351,10 @@ pub fn start_heartbeat_task(
             }
 
             let result = if let Some(ref clients) = http_clients {
-                super::upload::send_heartbeat_with_store(clients, &server_url, &connection_id, &remote_path, &session_token).await
+                crate::proxy_auth::retry_if_proxy_auth_required(&app_clone, &server_url, clients, "Lock heartbeat", || async {
+                    super::upload::send_heartbeat_with_store(clients, &server_url, &connection_id, &remote_path, &session_token).await
+                })
+                .await
             } else {
                 super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token).await
             };
@@ -407,7 +414,11 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         // Before uploading, check if the server-side file was modified
         // by another user while we held our lock.
         if let Some(ref download_modified_at) = operation.server_last_modified {
-            match super::file_info::get_file_info_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await {
+            match crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Conflict check", || async {
+                super::file_info::get_file_info_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+            })
+            .await
+            {
                 Ok(current_info) => {
                     if let Some(ref current_modified) = current_info.modified_at {
                         if current_modified != download_modified_at {
@@ -454,6 +465,12 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
                 info!("Upload successful for {}", filename);
             }
             Err(e) => {
+                if is_proxy_auth_required_error(&e) {
+                    if let Err(auth_err) = crate::proxy_auth::authenticate_reverse_proxy(&app, &server_url, &http_clients).await {
+                        return Err(auth_err);
+                    }
+                    return Err(format!("{AUTH_RETRY_PREFIX}upload"));
+                }
                 error!("Upload failed for {}: {e}", filename);
                 store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
                 crate::refresh_tray_menu(&app);
@@ -463,7 +480,10 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     }
 
     // Release lock (best-effort)
-    let _ = super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await;
+    let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
+        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+    })
+    .await;
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -520,7 +540,10 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
         .clone();
 
     // Release lock (best-effort)
-    let _ = super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await;
+    let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
+        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+    })
+    .await;
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -626,6 +649,12 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
             info!("Upload successful (conflict resolved) for {}", filename);
         }
         Err(e) => {
+            if is_proxy_auth_required_error(&e) {
+                if let Err(auth_err) = crate::proxy_auth::authenticate_reverse_proxy(app, &server_url, &http_clients).await {
+                    return Err(auth_err);
+                }
+                return Err(format!("{AUTH_RETRY_PREFIX}conflict"));
+            }
             error!("Upload failed for {}: {e}", filename);
             store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
             crate::refresh_tray_menu(app);
@@ -634,13 +663,16 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     }
 
     // Release lock
-    let _ = super::upload::release_lock_with_store(
-        &http_clients,
-        &server_url,
-        &connection_id,
-        &operation.remote_path, // Always release lock on the original path
-        &token,
-    )
+    let _ = crate::proxy_auth::retry_if_proxy_auth_required(app, &server_url, &http_clients, "Lock release", || async {
+        super::upload::release_lock_with_store(
+            &http_clients,
+            &server_url,
+            &connection_id,
+            &operation.remote_path, // Always release lock on the original path
+            &token,
+        )
+        .await
+    })
     .await;
 
     // Recycle temp file
@@ -823,6 +855,10 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<St
             Ok(message)
         }
         Err(e) => {
+            if is_proxy_auth_required_error(&e) {
+                crate::proxy_auth::authenticate_reverse_proxy(&app, &op.server_url, &http_clients).await?;
+                return Err(format!("{AUTH_RETRY_PREFIX}upload"));
+            }
             error!("Recovery upload failed for {}: {e}", filename);
             Err(format!("Upload failed: {e}"))
         }

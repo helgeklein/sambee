@@ -192,6 +192,23 @@ class TestCompanionTokenExchange:
         assert response.status_code == 401
 
 
+class TestProxyAuthProbe:
+    """Tests for GET /api/companion/proxy-auth-check."""
+
+    def test_proxy_auth_check_requires_auth(self, client: TestClient):
+        """The probe endpoint should be protected like normal backend routes."""
+
+        response = client.get("/api/companion/proxy-auth-check")
+        assert response.status_code == 401
+
+    def test_proxy_auth_check_returns_ok(self, client: TestClient, auth_headers_admin: dict):
+        """Authenticated callers get a tiny success response for the auth webview."""
+
+        response = client.get("/api/companion/proxy-auth-check", headers=auth_headers_admin)
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok"}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Lock Lifecycle
 # ──────────────────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { useMemo, useState } from "preact/hooks";
 import { DialogPreviewLayout, type PreviewThemeMode } from "./DialogPreviewLayout";
 import { type LeftoverInfo, RecoveryDialog } from "./RecoveryDialog";
 
-type PreviewActionResult = "success" | "error";
+type PreviewActionResult = "success" | "error" | "reauth";
 type PreviewCount = "one" | "three";
 
 const PREVIEW_LEFTOVERS: LeftoverInfo[] = [
@@ -44,6 +44,10 @@ export function RecoveryDialogPreview() {
 
   const actionHandler = useMemo(
     () => async () => {
+      if (actionResult === "reauth") {
+        throw new Error("retry-auth:upload");
+      }
+
       if (actionResult === "error") {
         throw new Error("Mock preview error: the recovery action failed.");
       }
@@ -78,6 +82,7 @@ export function RecoveryDialogPreview() {
           >
             <option value="success">Success</option>
             <option value="error">Error</option>
+            <option value="reauth">Reauthenticate and retry</option>
           </select>
         </label>,
       ]}

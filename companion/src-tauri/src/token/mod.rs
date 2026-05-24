@@ -7,7 +7,7 @@ use log::{info, warn};
 use reqwest::{header, redirect, Client, Response};
 use serde::Deserialize;
 
-use crate::http_client::{SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
+use crate::http_client::{format_proxy_auth_required_message, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -34,22 +34,39 @@ pub struct CompanionTokenResponse {
 
 /// Structured token exchange failure.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum TokenExchangeError {
-    ProxyAuthenticationRequired { message: String },
-    HttpClient(String),
-    Request(String),
-    HttpStatus(String),
-    InvalidResponse(String),
+    ProxyAuthenticationRequired {
+        server_url: String,
+        login_url: Option<String>,
+        message: String,
+    },
+    HttpClient {
+        message: String,
+    },
+    Request {
+        message: String,
+    },
+    HttpStatus {
+        status: u16,
+        body_preview: String,
+        message: String,
+    },
+    InvalidResponse {
+        content_type: Option<String>,
+        body_preview: Option<String>,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for TokenExchangeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ProxyAuthenticationRequired { message }
-            | Self::HttpClient(message)
-            | Self::Request(message)
-            | Self::HttpStatus(message)
-            | Self::InvalidResponse(message) => f.write_str(message),
+            Self::ProxyAuthenticationRequired { message, .. }
+            | Self::HttpClient { message }
+            | Self::Request { message }
+            | Self::HttpStatus { message, .. }
+            | Self::InvalidResponse { message, .. } => f.write_str(message),
         }
     }
 }
@@ -88,12 +105,17 @@ pub async fn exchange_uri_token_with_store(
             TOKEN_EXCHANGE_TIMEOUT_SECS.max(DEFAULT_REQUEST_TIMEOUT_SECS),
             redirect::Policy::none(),
         )
-        .map_err(TokenExchangeError::HttpClient)?;
+        .map_err(|message| TokenExchangeError::HttpClient { message })?;
 
-    exchange_uri_token_with_client(&client, &url, uri_token).await
+    exchange_uri_token_with_client(&client, server_url, &url, uri_token).await
 }
 
-pub async fn exchange_uri_token_with_client(client: &Client, url: &str, uri_token: &str) -> Result<String, TokenExchangeError> {
+pub async fn exchange_uri_token_with_client(
+    client: &Client,
+    server_url: &str,
+    url: &str,
+    uri_token: &str,
+) -> Result<String, TokenExchangeError> {
 
     let response = client
         .post(url)
@@ -101,7 +123,9 @@ pub async fn exchange_uri_token_with_client(client: &Client, url: &str, uri_toke
         .header(header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|e| TokenExchangeError::Request(format!("Token exchange request failed: {e}")))?;
+        .map_err(|e| TokenExchangeError::Request {
+            message: format!("Token exchange request failed: {e}"),
+        })?;
 
     let final_url = response.url().clone();
     let status = response.status();
@@ -112,26 +136,41 @@ pub async fn exchange_uri_token_with_client(client: &Client, url: &str, uri_toke
             .get(header::LOCATION)
             .and_then(|value| value.to_str().ok())
             .unwrap_or("<missing Location header>");
-        let message = format!(
-            "Token exchange was redirected to {location} (HTTP {status}). This usually means a reverse proxy or SSO layer is protecting /api/companion/token. Companion can authenticate in an embedded window and retry if the proxy uses backend-origin cookies."
+        let message = format_proxy_auth_required_message(
+            "Token exchange",
+            &format!(
+                "Redirected to {location} (HTTP {status}). Companion can authenticate in an embedded window and retry if the proxy uses backend-origin cookies."
+            ),
         );
         warn!("{message}");
-        return Err(TokenExchangeError::ProxyAuthenticationRequired { message });
+        return Err(TokenExchangeError::ProxyAuthenticationRequired {
+            server_url: server_url.to_string(),
+            login_url: Some(location.to_string()),
+            message,
+        });
     }
 
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         warn!("Token exchange failed: HTTP {status} — {body}");
-        return Err(TokenExchangeError::HttpStatus(format!("Token exchange failed (HTTP {status}): {body}")));
+        return Err(TokenExchangeError::HttpStatus {
+            status: status.as_u16(),
+            body_preview: body_preview(&body),
+            message: format!("Token exchange failed (HTTP {status}): {body}"),
+        });
     }
 
-    let body = parse_token_exchange_response(response, &final_url).await?;
+    let body = parse_token_exchange_response(response, server_url, &final_url).await?;
 
     info!("Token exchange successful, session expires in {}s", body.expires_in);
     Ok(body.token)
 }
 
-async fn parse_token_exchange_response(response: Response, final_url: &reqwest::Url) -> Result<CompanionTokenResponse, TokenExchangeError> {
+async fn parse_token_exchange_response(
+    response: Response,
+    server_url: &str,
+    final_url: &reqwest::Url,
+) -> Result<CompanionTokenResponse, TokenExchangeError> {
     let content_type = response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -141,24 +180,39 @@ async fn parse_token_exchange_response(response: Response, final_url: &reqwest::
     let body = response
         .text()
         .await
-        .map_err(|e| TokenExchangeError::InvalidResponse(format!("Failed to read token response body: {e}")))?;
+        .map_err(|e| TokenExchangeError::InvalidResponse {
+            content_type: Some(content_type.clone()),
+            body_preview: None,
+            message: format!("Failed to read token response body: {e}"),
+        })?;
 
     if !content_type.to_ascii_lowercase().contains("application/json") {
         let preview = body_preview(&body);
-        return Err(TokenExchangeError::ProxyAuthenticationRequired { message: format!(
-            "Token exchange returned content type '{}' from {} instead of JSON. This usually means a reverse proxy or auth gateway returned a login page. Preview: {}",
-            if content_type.is_empty() { "<missing>" } else { &content_type },
-            final_url,
-            preview
-        )});
+        return Err(TokenExchangeError::ProxyAuthenticationRequired {
+            server_url: server_url.to_string(),
+            login_url: Some(final_url.to_string()),
+            message: format_proxy_auth_required_message(
+                "Token exchange",
+                &format!(
+                    "Returned content type '{}' from {} instead of JSON. This usually means a reverse proxy or auth gateway returned a login page. Preview: {}",
+                    if content_type.is_empty() { "<missing>" } else { &content_type },
+                    final_url,
+                    preview
+                ),
+            ),
+        });
     }
 
     serde_json::from_str::<CompanionTokenResponse>(&body).map_err(|e| {
-        TokenExchangeError::InvalidResponse(format!(
-            "Failed to parse token response from {} as JSON: {e}. Preview: {}",
-            final_url,
-            body_preview(&body)
-        ))
+        TokenExchangeError::InvalidResponse {
+            content_type: Some(content_type.clone()),
+            body_preview: Some(body_preview(&body)),
+            message: format!(
+                "Failed to parse token response from {} as JSON: {e}. Preview: {}",
+                final_url,
+                body_preview(&body)
+            ),
+        }
     })
 }
 
@@ -183,10 +237,14 @@ fn body_preview(body: &str) -> String {
 mod tests {
     use super::*;
     use axum::{
+        extract::State,
         response::{Html, IntoResponse, Redirect},
         routing::post,
         Router,
     };
+    use std::sync::Arc;
+    use tauri::webview::Cookie;
+    use tokio::sync::Mutex;
 
     async fn spawn_test_server(app: Router) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -235,9 +293,11 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(err.contains("redirected to https://auth.example.com/login"), "Unexpected error message: {err}");
+        assert!(err.contains("Redirected to https://auth.example.com/login"), "Unexpected error message: {err}");
         assert!(
-            err.contains("embedded window") && err.contains("backend-origin cookies"),
+            err.starts_with("Proxy authentication required:")
+                && err.contains("embedded window")
+                && err.contains("backend-origin cookies"),
             "Unexpected error message: {err}"
         );
     }
@@ -262,5 +322,54 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.contains("instead of JSON"), "Unexpected error message: {err}");
         assert!(err.contains("login page"), "Unexpected error message: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_exchange_uri_token_with_store_uses_cookie_jar() {
+        #[derive(Clone, Default)]
+        struct AppState {
+            saw_cookie: Arc<Mutex<bool>>,
+        }
+
+        let state = AppState::default();
+        let app = Router::new()
+            .route(
+                "/api/companion/token",
+                post(
+                    |State(state): State<AppState>, headers: axum::http::HeaderMap| async move {
+                        let has_cookie = headers
+                            .get(header::COOKIE)
+                            .and_then(|value| value.to_str().ok())
+                            .is_some_and(|value| value.contains("proxy_session=ok"));
+                        *state.saw_cookie.lock().await = has_cookie;
+
+                        if has_cookie {
+                            axum::Json(serde_json::json!({
+                                "token": "session-token",
+                                "expires_in": 3600
+                            }))
+                            .into_response()
+                        } else {
+                            (
+                                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                                Html("<html><body>Please sign in</body></html>"),
+                            )
+                                .into_response()
+                        }
+                    },
+                ),
+            )
+            .with_state(state.clone());
+        let server_url = spawn_test_server(app).await;
+
+        let store = SambeeHttpClientStore::default();
+        store
+            .store_webview_cookies(&server_url, vec![Cookie::build(("proxy_session", "ok")).path("/").build()])
+            .unwrap();
+
+        let result = exchange_uri_token_with_store(&server_url, "fake-token", &store).await;
+
+        assert_eq!(result.unwrap(), "session-token");
+        assert!(*state.saw_cookie.lock().await);
     }
 }

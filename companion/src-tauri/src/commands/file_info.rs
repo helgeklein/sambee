@@ -6,10 +6,13 @@
 //! - **Conflict detection** — compare `modified_at` before upload
 
 use log::info;
+use reqwest::header;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::http_client::{plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
+use crate::http_client::{
+    classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Response types
@@ -94,14 +97,37 @@ pub async fn get_file_info_with_client(
 
     let status = response.status();
     if !status.is_success() {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
+        if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), content_type.as_deref(), &body) {
+            return Err(message);
+        }
         return Err(format!("File info failed (HTTP {status}): {body}"));
     }
 
-    let info: FileInfoResponse = response
-        .json()
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let body = response
+        .text()
         .await
-        .map_err(|e| format!("Failed to parse file info response: {e}"))?;
+        .map_err(|e| format!("Failed to read file info response: {e}"))?;
+
+    if !content_type.to_ascii_lowercase().contains("application/json") {
+        if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), Some(&content_type), &body) {
+            return Err(message);
+        }
+        return Err(format!("Failed to parse file info response: unexpected content type '{content_type}'"));
+    }
+
+    let info: FileInfoResponse = serde_json::from_str(&body).map_err(|e| format!("Failed to parse file info response: {e}"))?;
 
     info!(
         "File info: name='{}', size={:?}, modified_at={:?}",

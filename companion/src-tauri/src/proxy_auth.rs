@@ -5,10 +5,12 @@
 //! webview, then Rust reads the webview cookie store and seeds the shared
 //! reqwest client store.
 
+use std::future::Future;
+
 use log::{info, warn};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::http_client::SambeeHttpClientStore;
+use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
 
 const PROXY_AUTH_WINDOW_LABEL: &str = "proxy-auth";
 const PROXY_AUTH_WINDOW_WIDTH: f64 = 720.0;
@@ -75,6 +77,33 @@ pub async fn authenticate_reverse_proxy(
 
     let _ = window.destroy();
     Err("Timed out waiting for reverse-proxy authentication to complete".to_string())
+}
+
+pub async fn retry_if_proxy_auth_required<T, F, Fut>(
+    app: &tauri::AppHandle,
+    server_url: &str,
+    http_clients: &SambeeHttpClientStore,
+    operation_name: &str,
+    mut operation: F,
+) -> Result<T, String>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, String>>,
+{
+    match operation().await {
+        Ok(result) => Ok(result),
+        Err(err) if is_proxy_auth_required_error(&err) => {
+            warn!("{operation_name} requires reverse-proxy reauthentication: {err}");
+            authenticate_reverse_proxy(app, server_url, http_clients).await?;
+            match operation().await {
+                Err(retry_err) if is_proxy_auth_required_error(&retry_err) => Err(format!(
+                    "{operation_name} still could not reach the Sambee backend after reauthentication. Check the reverse proxy cookie domain and path settings."
+                )),
+                other => other,
+            }
+        }
+        Err(err) => Err(err),
+    }
 }
 
 fn build_probe_url(server_url: &str) -> Result<String, String> {

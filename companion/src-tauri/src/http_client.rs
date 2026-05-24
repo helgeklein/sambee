@@ -11,11 +11,16 @@ use std::time::Duration;
 
 use log::info;
 use reqwest::cookie::Jar;
-use reqwest::{redirect, Client, Url};
+use reqwest::{redirect, Client, StatusCode, Url};
 use tauri::webview::Cookie;
 
 /// Default HTTP request timeout for short backend API requests.
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
+
+/// Prefix used in user-facing errors when reverse-proxy auth intercepted a request.
+pub const PROXY_AUTH_REQUIRED_PREFIX: &str = "Proxy authentication required:";
+
+const ERROR_BODY_PREVIEW_MAX_CHARS: usize = 200;
 
 /// Process-local store of reverse-proxy cookie jars, keyed by normalized server URL.
 #[derive(Clone, Default)]
@@ -82,6 +87,46 @@ impl SambeeHttpClientStore {
     }
 }
 
+pub fn format_proxy_auth_required_message(endpoint: &str, detail: &str) -> String {
+    format!(
+        "{PROXY_AUTH_REQUIRED_PREFIX} {endpoint} appears to have been intercepted by a reverse proxy or SSO login flow. {detail}"
+    )
+}
+
+pub fn is_proxy_auth_required_error(message: &str) -> bool {
+    message.starts_with(PROXY_AUTH_REQUIRED_PREFIX)
+}
+
+pub fn classify_proxy_auth_intercept(
+    endpoint: &str,
+    status: Option<StatusCode>,
+    content_type: Option<&str>,
+    body: &str,
+) -> Option<String> {
+    let normalized_body = body.to_ascii_lowercase();
+    let normalized_content_type = content_type.unwrap_or_default().to_ascii_lowercase();
+    let looks_like_html = normalized_content_type.contains("text/html") || normalized_content_type.contains("application/xhtml");
+    let looks_like_login = ["sign in", "login", "log in", "single sign-on", "sso", "authenticate"]
+        .iter()
+        .any(|needle| normalized_body.contains(needle));
+
+    if status.is_some_and(|value| value.is_redirection()) || (looks_like_html && looks_like_login) {
+        let mut detail = String::new();
+        if let Some(status) = status {
+            detail.push_str(&format!("HTTP {status}. "));
+        }
+        if let Some(content_type) = content_type {
+            if !content_type.is_empty() {
+                detail.push_str(&format!("Content-Type: {content_type}. "));
+            }
+        }
+        detail.push_str(&format!("Preview: {}", body_preview(body)));
+        return Some(format_proxy_auth_required_message(endpoint, &detail));
+    }
+
+    None
+}
+
 /// Build a plain client for call sites that do not have managed state.
 pub fn plain_client(timeout_secs: u64) -> Result<Client, String> {
     Client::builder()
@@ -95,6 +140,19 @@ fn normalize_server_url(server_url: &str) -> Result<String, String> {
     url.set_query(None);
     url.set_fragment(None);
     Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+fn body_preview(body: &str) -> String {
+    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut preview = collapsed.chars().take(ERROR_BODY_PREVIEW_MAX_CHARS).collect::<String>();
+    if collapsed.chars().count() > ERROR_BODY_PREVIEW_MAX_CHARS {
+        preview.push_str("...");
+    }
+    if preview.is_empty() {
+        "<empty body>".to_string()
+    } else {
+        preview
+    }
 }
 
 #[cfg(test)]
@@ -117,5 +175,19 @@ mod tests {
 
         assert_eq!(count, 1);
         assert!(store.client_for_server("https://sambee.example.com", 5).is_ok());
+    }
+
+    #[test]
+    fn test_classify_proxy_auth_intercept_detects_login_page() {
+        let message = classify_proxy_auth_intercept(
+            "file info",
+            Some(StatusCode::OK),
+            Some("text/html; charset=utf-8"),
+            "<html><body>Please sign in</body></html>",
+        )
+        .unwrap();
+
+        assert!(message.starts_with(PROXY_AUTH_REQUIRED_PREFIX));
+        assert!(message.contains("file info appears to have been intercepted"));
     }
 }

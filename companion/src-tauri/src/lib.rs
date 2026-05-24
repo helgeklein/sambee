@@ -222,7 +222,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     info!("Step 1: Exchanging URI token...");
     let session_token = match token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients).await {
         Ok(token) => token,
-        Err(token::TokenExchangeError::ProxyAuthenticationRequired { message }) => {
+        Err(token::TokenExchangeError::ProxyAuthenticationRequired { message, .. }) => {
             warn!("{message}");
             proxy_auth::authenticate_reverse_proxy(&app, &uri.server, &http_clients).await?;
             token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients)
@@ -234,7 +234,10 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 1.5. Fetch file info for size check and conflict detection baseline
     info!("Step 1.5: Fetching file info...");
-    let file_info = commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
+    let file_info = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "File metadata lookup", || async {
+        commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
+    })
+    .await;
 
     // Store server-side modified_at for later conflict detection
     let server_last_modified = file_info.as_ref().ok().and_then(|info| info.modified_at.clone());
@@ -280,19 +283,25 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 2. Acquire edit lock
     info!("Step 2: Acquiring edit lock...");
-    let lock_id = commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await?;
+    let lock_id = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
+        commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
+    })
+    .await?;
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
     let expected_download_size = file_info.as_ref().ok().and_then(|info| info.size);
-    let download_result = commands::download::download_file_with_store(
-        &http_clients,
-        &uri.server,
-        &uri.conn_id,
-        &uri.path,
-        &session_token,
-        expected_download_size,
-    )
+    let download_result = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "File download", || async {
+        commands::download::download_file_with_store(
+            &http_clients,
+            &uri.server,
+            &uri.conn_id,
+            &uri.path,
+            &session_token,
+            expected_download_size,
+        )
+        .await
+    })
         .await
         .inspect_err(|_e| {
             // Release lock on download failure (best-effort)

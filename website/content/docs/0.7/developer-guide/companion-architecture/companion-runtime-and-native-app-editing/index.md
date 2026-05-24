@@ -52,6 +52,28 @@ The runtime pieces involved are:
 
 The deep link can also carry theme data so the companion UI matches the browser-side theme during the editing flow.
 
+## Reverse-Proxy Authentication Path
+
+Native editing supports reverse proxies and SSO layers that require interactive browser authentication before backend API requests are allowed through.
+
+The implemented flow is:
+
+1. Companion tries the normal URI-token exchange.
+2. If token exchange is intercepted by a login redirect or HTML sign-in page, the companion opens a dedicated `Sambee Authentication` webview.
+3. The user signs in through that embedded webview.
+4. Companion reads backend-origin cookies from that same webview and seeds its shared Rust `reqwest` cookie jar.
+5. Token exchange and the rest of the native-edit lifecycle reuse that authenticated client state.
+
+This matters for the trust model:
+
+- Browser-to-companion localhost pairing remains separate from reverse-proxy authentication.
+- The Sambee bearer token remains separate from reverse-proxy cookies.
+- External browser cookies are not read or imported.
+- Reverse-proxy cookies stay inside the companion-owned webview and Rust HTTP client state.
+- Cookie values must not be logged.
+
+Companion automatically retries idempotent backend calls such as file-info lookup, lock acquisition, download, lock release, and heartbeats after reauthentication. Non-idempotent uploads are not replayed automatically; the runtime instead asks the user to retry the action after authentication has been refreshed.
+
 ## Native-App Edit Lifecycle
 
 The implemented lifecycle in `lib.rs` is intentionally explicit.
