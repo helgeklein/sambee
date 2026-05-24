@@ -14,7 +14,7 @@ mod sync;
 mod token;
 mod uri;
 
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::sync::{Arc, RwLock};
 use tauri::{
     menu::{Menu, MenuItem},
@@ -246,18 +246,38 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     })
     .await;
 
+    match &file_info {
+        Ok(info) => debug!(
+            "Step 1.5 completed successfully: name='{}', file_type='{}', size={:?}, modified_at={:?}, mime_type={:?}",
+            info.name, info.file_type, info.size, info.modified_at, info.mime_type
+        ),
+        Err(err) => debug!(
+            "Step 1.5 completed with error: {}; should_abort_safety_check={}",
+            err,
+            err.should_abort_safety_check()
+        ),
+    }
+
     if let Err(ref err) = file_info {
         if err.should_abort_safety_check() {
             return Err(err.to_string());
         }
+
+        debug!("Continuing without file metadata because the lookup error is non-fatal");
     }
 
     // Store server-side modified_at for later conflict detection
     let server_last_modified = file_info.as_ref().ok().and_then(|info| info.modified_at.clone());
+    debug!("Conflict baseline after Step 1.5: server_last_modified={:?}", server_last_modified);
 
     // Check file size against threshold
     if let Ok(ref info) = file_info {
         if let Some(size_bytes) = info.size {
+            debug!(
+                "Evaluating large-file gate: size_bytes={}, limit_mb={}",
+                size_bytes, DEFAULT_MAX_FILE_SIZE_MB
+            );
+
             if let Some(size_mb) = sync::operations::exceeds_size_limit(size_bytes, DEFAULT_MAX_FILE_SIZE_MB) {
                 info!(
                     "File {} is {} MB (limit {} MB) — requesting confirmation",
@@ -273,7 +293,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
                 }
 
                 // Emit event to frontend for user confirmation
-                let _ = app.emit(
+                match app.emit(
                     "confirm-large-file",
                     serde_json::json!({
                         "confirm_id": confirm_id,
@@ -281,30 +301,66 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
                         "size_mb": size_mb,
                         "limit_mb": DEFAULT_MAX_FILE_SIZE_MB,
                     }),
-                );
+                ) {
+                    Ok(()) => debug!("Large-file confirmation event emitted successfully"),
+                    Err(e) => warn!("Failed to emit large-file confirmation event: {e}"),
+                }
 
                 // Wait for user response (blocks lifecycle until dialog answered)
-                let proceed = rx.await.unwrap_or(false);
+                debug!("Waiting for large-file confirmation response: confirm_id={confirm_id}");
+                let proceed = match rx.await {
+                    Ok(proceed) => {
+                        debug!("Large-file confirmation resolved: confirm_id={}, proceed={}", confirm_id, proceed);
+                        proceed
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Large-file confirmation channel closed before a response was received for {}: {e}",
+                            confirm_id
+                        );
+                        false
+                    }
+                };
                 if !proceed {
                     info!("User cancelled large file download for {}", info.name);
                     return Ok(());
                 }
                 info!("User confirmed large file download for {}", info.name);
+            } else {
+                debug!(
+                    "Large-file gate not triggered: size_bytes={} is within the {} MB limit",
+                    size_bytes, DEFAULT_MAX_FILE_SIZE_MB
+                );
             }
+        } else {
+            debug!("File info returned no size; skipping large-file gate");
         }
+    } else {
+        debug!("Skipping large-file gate because file metadata is unavailable");
     }
 
     // 2. Acquire edit lock
     info!("Step 2: Acquiring edit lock...");
-    let lock_id = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
+    debug!("Proceeding from Step 1.5 to Step 2");
+    let lock_id = match proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
         commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
     })
     .await
-    .map_err(String::from)?;
+    {
+        Ok(lock_id) => {
+            debug!("Step 2 completed successfully: lock_id={lock_id}");
+            lock_id
+        }
+        Err(err) => {
+            warn!("Step 2 failed during lock acquisition: {err}");
+            return Err(String::from(err));
+        }
+    };
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
     let expected_download_size = file_info.as_ref().ok().and_then(|info| info.size);
+    debug!("Starting Step 3 with expected_download_size={expected_download_size:?}");
     let download_result = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "File download", || async {
         commands::download::download_file_with_store(
             &http_clients,
@@ -329,6 +385,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         });
     })
     .map_err(String::from)?;
+
+    debug!(
+        "Step 3 completed successfully: operation_id={}, local_path='{}', original_mtime={:?}",
+        download_result.operation_id,
+        download_result.local_path.display(),
+        download_result.original_mtime
+    );
 
     // 4. Create FileOperation and persist
     let operation = sync::operations::FileOperation {
@@ -386,13 +449,24 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     }
 
     // Ensure the main window exists so the app picker can be displayed
-    let newly_created = ensure_main_window(
+    let newly_created = match ensure_main_window(
         &app,
         "Sambee Companion — Choose Application",
         APP_PICKER_WIDTH,
         APP_PICKER_INITIAL_HEIGHT,
-    )
-    .unwrap_or(false);
+    ) {
+        Ok(created) => {
+            debug!(
+                "Main window ready for app picker: newly_created={}, request_id={}, extension='{}'",
+                created, request_id, file_extension
+            );
+            created
+        }
+        Err(e) => {
+            warn!("Failed to ensure main window for app picker: {e}");
+            false
+        }
+    };
 
     // Delay event emission if the window was just created
     let delay_ms = if newly_created {
@@ -413,14 +487,17 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
             let _ = win.set_focus();
         }
 
-        let _ = app_for_emit.emit_to(
+        match app_for_emit.emit_to(
             MAIN_WINDOW_LABEL,
             "show-app-picker",
             serde_json::json!({
                 "extension": ext_for_emit,
                 "request_id": req_id_for_emit,
             }),
-        );
+        ) {
+            Ok(()) => debug!("App picker event emitted successfully"),
+            Err(e) => warn!("Failed to emit app picker event: {e}"),
+        }
 
         // Also send the current theme to the window
         if let Some(theme_state) = app_for_emit.try_state::<ThemeState>() {
@@ -431,7 +508,24 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     });
 
     // Wait for user selection (blocks lifecycle until picker answered)
-    let selection = rx.await.unwrap_or(None);
+    debug!("Waiting for app picker selection: request_id={request_id}");
+    let selection = match rx.await {
+        Ok(selection) => {
+            debug!(
+                "App picker selection resolved: request_id={}, selected={}",
+                request_id,
+                selection.is_some()
+            );
+            selection
+        }
+        Err(e) => {
+            warn!(
+                "App picker selection channel closed before a response was received for {}: {e}",
+                request_id
+            );
+            None
+        }
+    };
 
     // Hide the main window after selection
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {

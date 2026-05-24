@@ -5,7 +5,7 @@
 //! - **File size checks** — warn before downloading very large files
 //! - **Conflict detection** — compare `modified_at` before upload
 
-use log::info;
+use log::{debug, info};
 use reqwest::header;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -94,29 +94,34 @@ pub async fn get_file_info_with_client(
         .map_err(|e| format!("File info request failed: {e}"))?;
 
     let status = response.status();
+    let response_url = response.url().clone();
+    let response_content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+
+    debug!(
+        "File info HTTP response received: status={}, url='{}', content_type={:?}",
+        status, response_url, response_content_type
+    );
+
     if !status.is_success() {
-        let content_type = response
-            .headers()
-            .get(header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
-        if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), content_type.as_deref(), &body) {
+        debug!("File info error body received: {} bytes", body.len());
+        if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), response_content_type.as_deref(), &body) {
             return Err(message);
         }
         return Err(format!("File info failed (HTTP {status}): {body}"));
     }
 
-    let content_type = response
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-        .unwrap_or_default();
+    let content_type = response_content_type.unwrap_or_default();
     let body = response
         .text()
         .await
         .map_err(|e| format!("Failed to read file info response: {e}"))?;
+
+    debug!("File info success body received: {} bytes", body.len());
 
     if !content_type.to_ascii_lowercase().contains("application/json") {
         if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), Some(&content_type), &body) {
@@ -128,6 +133,11 @@ pub async fn get_file_info_with_client(
     }
 
     let info: FileInfoResponse = serde_json::from_str(&body).map_err(|e| format!("Failed to parse file info response: {e}"))?;
+
+    debug!(
+        "File info JSON parsed successfully: file_type='{}', mime_type={:?}",
+        info.file_type, info.mime_type
+    );
 
     info!(
         "File info: name='{}', size={:?}, modified_at={:?}",

@@ -8,7 +8,7 @@
 use std::fmt;
 use std::future::Future;
 
-use log::{info, warn};
+use log::{debug, info, warn};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
@@ -136,16 +136,33 @@ where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, String>>,
 {
+    debug!("Starting operation '{operation_name}'");
+
     match operation().await {
-        Ok(result) => Ok(result),
+        Ok(result) => {
+            debug!("Operation '{operation_name}' completed without reverse-proxy reauthentication");
+            Ok(result)
+        }
         Err(err) if is_proxy_auth_required_error(&err) => {
             warn!("{operation_name} requires reverse-proxy reauthentication: {err}");
             authenticate_reverse_proxy(app, server_url, http_clients)
                 .await
                 .map_err(ProxyAuthRetryError::Authentication)?;
-            classify_after_reauth_retry(operation_name, operation().await)
+
+            let retry_result = operation().await;
+            match &retry_result {
+                Ok(_) => debug!("Operation '{operation_name}' completed after reverse-proxy reauthentication"),
+                Err(retry_err) => {
+                    debug!("Operation '{operation_name}' retry after reverse-proxy reauthentication returned error: {retry_err}")
+                }
+            }
+
+            classify_after_reauth_retry(operation_name, retry_result)
         }
-        Err(err) => Err(ProxyAuthRetryError::Operation(err)),
+        Err(err) => {
+            debug!("Operation '{operation_name}' failed without triggering reverse-proxy reauthentication: {err}");
+            Err(ProxyAuthRetryError::Operation(err))
+        }
     }
 }
 
