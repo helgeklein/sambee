@@ -15,6 +15,8 @@
 //! - **Windows**: Registry `DWORD` value `VerboseLogging` under
 //!   `HKEY_CURRENT_USER\Software\Sambee\Companion` (set to `1` to enable).
 //! - **All platforms**: Environment variable `SAMBEE_LOG_VERBOSE=1`.
+//! - **Transport diagnostics**: Environment variable `SAMBEE_LOG_TRANSPORT=1`
+//!   enables verbose dependency logs for reqwest/hyper/h2/rustls.
 //!
 //! The switch is read once at startup. To change it, restart the companion.
 
@@ -44,6 +46,9 @@ const LOG_DIR_NAME: &str = "logs";
 /// Environment variable that enables verbose logging on all platforms.
 const ENV_VAR_VERBOSE: &str = "SAMBEE_LOG_VERBOSE";
 
+/// Environment variable that enables HTTP transport dependency debug logs.
+const ENV_VAR_TRANSPORT: &str = "SAMBEE_LOG_TRANSPORT";
+
 /// Windows registry key path (under HKCU) for companion settings.
 #[cfg(target_os = "windows")]
 const REGISTRY_KEY_PATH: &str = r"Software\Sambee\Companion";
@@ -70,8 +75,12 @@ struct LogState {
 /// macros (`info!`, `warn!`, `error!`, `debug!`) used throughout the
 /// companion codebase.
 struct FileLogger {
-    /// Maximum level this logger will accept.
-    level: LevelFilter,
+    /// Maximum level accepted for Sambee application logs.
+    app_level: LevelFilter,
+    /// Maximum level accepted for non-Sambee dependency logs.
+    dependency_level: LevelFilter,
+    /// Maximum level accepted for HTTP transport dependency logs.
+    transport_level: LevelFilter,
     /// Mutable state (file handle + path) behind a mutex for thread safety.
     state: Mutex<LogState>,
 }
@@ -81,7 +90,7 @@ impl Log for FileLogger {
     // enabled
     //
     fn enabled(&self, metadata: &Metadata) -> bool {
-        metadata.level() <= self.level
+        metadata.level() <= effective_level_for_target(metadata.target(), self.app_level, self.dependency_level, self.transport_level)
     }
 
     //
@@ -210,6 +219,37 @@ fn read_verbose_config() -> bool {
     }
 
     false
+}
+
+fn read_transport_config() -> bool {
+    std::env::var(ENV_VAR_TRANSPORT)
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+fn effective_level_for_target(
+    target: &str,
+    app_level: LevelFilter,
+    dependency_level: LevelFilter,
+    transport_level: LevelFilter,
+) -> LevelFilter {
+    if is_app_log_target(target) {
+        app_level
+    } else if is_transport_log_target(target) {
+        transport_level
+    } else {
+        dependency_level
+    }
+}
+
+fn is_app_log_target(target: &str) -> bool {
+    target.starts_with("sambee_companion") || target == "frontend"
+}
+
+fn is_transport_log_target(target: &str) -> bool {
+    ["reqwest", "hyper", "hyper_util", "h2", "rustls", "tokio_rustls"]
+        .iter()
+        .any(|prefix| target == *prefix || target.starts_with(&format!("{prefix}::")))
 }
 
 /// Read the `VerboseLogging` DWORD from the Windows registry.
@@ -369,7 +409,14 @@ pub fn log_dir_path() -> Option<PathBuf> {
 /// the application can still start.
 pub fn init() -> Result<(), String> {
     let verbose = read_verbose_config();
-    let level = if verbose { LevelFilter::Debug } else { LevelFilter::Warn };
+    let transport = read_transport_config();
+    let app_level = if verbose { LevelFilter::Debug } else { LevelFilter::Warn };
+    let dependency_level = LevelFilter::Warn;
+    let transport_level = if transport { LevelFilter::Debug } else { dependency_level };
+    let max_level = [app_level, dependency_level, transport_level]
+        .into_iter()
+        .max()
+        .unwrap_or(LevelFilter::Warn);
 
     let log_dir = resolve_log_dir()?;
     let log_file_path = log_dir.join(LOG_FILE_NAME);
@@ -381,18 +428,23 @@ pub fn init() -> Result<(), String> {
         .map_err(|e| format!("Failed to open log file {}: {e}", log_file_path.display()))?;
 
     let logger = FileLogger {
-        level,
+        app_level,
+        dependency_level,
+        transport_level,
         state: Mutex::new(LogState { file, log_dir }),
     };
 
     log::set_boxed_logger(Box::new(logger)).map_err(|e| format!("Failed to install logger: {e}"))?;
-    log::set_max_level(level);
+    log::set_max_level(max_level);
 
     // First log line — always written regardless of level.
     log::info!(
-        "Sambee Companion started — log level={}, verbose={}, file={}",
-        level,
+        "Sambee Companion started — app_log_level={}, dependency_log_level={}, transport_log_level={}, verbose={}, transport={}, file={}",
+        app_level,
+        dependency_level,
+        transport_level,
         verbose,
+        transport,
         log_file_path.display()
     );
 
@@ -452,5 +504,42 @@ mod tests {
         let base = PathBuf::from("/tmp/logs/sambee-companion.log");
         assert_eq!(rotated_path(&base, 1), PathBuf::from("/tmp/logs/sambee-companion.log.1"));
         assert_eq!(rotated_path(&base, 3), PathBuf::from("/tmp/logs/sambee-companion.log.3"));
+    }
+
+    #[test]
+    fn test_effective_level_keeps_app_debug_in_verbose_mode() {
+        assert_eq!(
+            effective_level_for_target(
+                "sambee_companion_lib::token",
+                LevelFilter::Debug,
+                LevelFilter::Warn,
+                LevelFilter::Warn
+            ),
+            LevelFilter::Debug
+        );
+        assert_eq!(
+            effective_level_for_target("frontend", LevelFilter::Debug, LevelFilter::Warn, LevelFilter::Warn),
+            LevelFilter::Debug
+        );
+    }
+
+    #[test]
+    fn test_effective_level_keeps_transport_warn_without_transport_mode() {
+        assert_eq!(
+            effective_level_for_target("h2::codec::framed_read", LevelFilter::Debug, LevelFilter::Warn, LevelFilter::Warn),
+            LevelFilter::Warn
+        );
+        assert_eq!(
+            effective_level_for_target("reqwest::connect", LevelFilter::Debug, LevelFilter::Warn, LevelFilter::Warn),
+            LevelFilter::Warn
+        );
+    }
+
+    #[test]
+    fn test_effective_level_enables_transport_debug_in_transport_mode() {
+        assert_eq!(
+            effective_level_for_target("hyper_util::client", LevelFilter::Debug, LevelFilter::Warn, LevelFilter::Debug),
+            LevelFilter::Debug
+        );
     }
 }

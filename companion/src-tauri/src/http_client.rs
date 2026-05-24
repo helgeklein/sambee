@@ -6,10 +6,11 @@
 //! reuse them consistently.
 
 use std::collections::HashMap;
+use std::error::Error as _;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use log::info;
+use log::{info, warn};
 use reqwest::cookie::Jar;
 use reqwest::{redirect, Client, StatusCode, Url};
 use tauri::webview::Cookie;
@@ -17,71 +18,108 @@ use tauri::webview::Cookie;
 /// Default HTTP request timeout for short backend API requests.
 pub const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
 
+/// TCP/TLS connection timeout for backend HTTP requests.
+pub const CONNECT_TIMEOUT_SECS: u64 = 15;
+
 /// Prefix used in user-facing errors when reverse-proxy auth intercepted a request.
 pub const PROXY_AUTH_REQUIRED_PREFIX: &str = "Proxy authentication required:";
 
 const ERROR_BODY_PREVIEW_MAX_CHARS: usize = 200;
 
-/// Process-local store of reverse-proxy cookie jars, keyed by normalized server URL.
+/// Process-local store of reverse-proxy-aware backend HTTP clients.
 #[derive(Clone, Default)]
 pub struct SambeeHttpClientStore {
-    jars_by_server: Arc<RwLock<HashMap<String, Arc<Jar>>>>,
+    states_by_server: Arc<RwLock<HashMap<String, Arc<ServerHttpState>>>>,
+}
+
+struct ServerHttpState {
+    jar: Arc<Jar>,
+    default_client: Client,
+    no_redirect_client: Client,
 }
 
 impl SambeeHttpClientStore {
-    /// Build a backend HTTP client for the given server.
-    pub fn client_for_server(&self, server_url: &str, timeout_secs: u64) -> Result<Client, String> {
-        self.client_for_server_with_redirects(server_url, timeout_secs, redirect::Policy::default())
+    /// Return a cached backend HTTP client for the given server.
+    pub fn client_for_server(&self, server_url: &str) -> Result<Client, String> {
+        Ok(self.state_for_server(server_url)?.default_client.clone())
     }
 
-    /// Build a backend HTTP client with an explicit redirect policy.
-    pub fn client_for_server_with_redirects(
-        &self,
-        server_url: &str,
-        timeout_secs: u64,
-        redirect_policy: redirect::Policy,
-    ) -> Result<Client, String> {
-        let mut builder = Client::builder()
-            .timeout(Duration::from_secs(timeout_secs))
-            .redirect(redirect_policy);
-
-        if let Some(jar) = self.cookie_jar(server_url)? {
-            builder = builder.cookie_provider(jar);
-        }
-
-        builder.build().map_err(|e| format!("Failed to create HTTP client: {e}"))
+    /// Return a cached backend HTTP client with redirects disabled.
+    pub fn client_for_server_no_redirects(&self, server_url: &str) -> Result<Client, String> {
+        Ok(self.state_for_server(server_url)?.no_redirect_client.clone())
     }
 
     /// Store webview cookies for future requests to this server.
     pub fn store_webview_cookies(&self, server_url: &str, cookies: Vec<Cookie<'static>>) -> Result<usize, String> {
         let normalized_server = normalize_server_url(server_url)?;
         let url = Url::parse(&normalized_server).map_err(|e| format!("Invalid server URL '{normalized_server}': {e}"))?;
+        let state = self.state_for_normalized_server(&normalized_server)?;
 
-        let jar = Arc::new(Jar::default());
         let mut stored_count = 0usize;
         for cookie in cookies {
-            jar.add_cookie_str(&cookie.to_string(), &url);
+            state.jar.add_cookie_str(&cookie.to_string(), &url);
             stored_count += 1;
         }
-
-        let mut jars = self
-            .jars_by_server
-            .write()
-            .map_err(|_| "HTTP client cookie store lock poisoned".to_string())?;
-        jars.insert(normalized_server.clone(), jar);
 
         info!("Stored {} reverse-proxy cookie(s) for {}", stored_count, normalized_server);
         Ok(stored_count)
     }
 
-    fn cookie_jar(&self, server_url: &str) -> Result<Option<Arc<Jar>>, String> {
+    fn state_for_server(&self, server_url: &str) -> Result<Arc<ServerHttpState>, String> {
         let normalized_server = normalize_server_url(server_url)?;
-        let jars = self
-            .jars_by_server
-            .read()
-            .map_err(|_| "HTTP client cookie store lock poisoned".to_string())?;
-        Ok(jars.get(&normalized_server).cloned())
+        self.state_for_normalized_server(&normalized_server)
     }
+
+    fn state_for_normalized_server(&self, normalized_server: &str) -> Result<Arc<ServerHttpState>, String> {
+        if let Some(state) = self
+            .states_by_server
+            .read()
+            .map_err(|_| "HTTP client store lock poisoned".to_string())?
+            .get(normalized_server)
+            .cloned()
+        {
+            return Ok(state);
+        }
+
+        let mut states = self
+            .states_by_server
+            .write()
+            .map_err(|_| "HTTP client store lock poisoned".to_string())?;
+
+        if let Some(state) = states.get(normalized_server).cloned() {
+            return Ok(state);
+        }
+
+        let state = Arc::new(ServerHttpState::new()?);
+        states.insert(normalized_server.to_string(), state.clone());
+        Ok(state)
+    }
+}
+
+impl ServerHttpState {
+    fn new() -> Result<Self, String> {
+        let jar = Arc::new(Jar::default());
+        let default_client = build_client_with_jar(jar.clone(), true)?;
+        let no_redirect_client = build_client_with_jar(jar.clone(), false)?;
+
+        Ok(Self {
+            jar,
+            default_client,
+            no_redirect_client,
+        })
+    }
+}
+
+fn build_client_with_jar(jar: Arc<Jar>, follow_redirects: bool) -> Result<Client, String> {
+    let mut builder = Client::builder()
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .cookie_provider(jar);
+
+    if !follow_redirects {
+        builder = builder.redirect(redirect::Policy::none());
+    }
+
+    builder.build().map_err(|error| format!("Failed to create HTTP client: {error}"))
 }
 
 pub fn format_proxy_auth_required_message(endpoint: &str, detail: &str) -> String {
@@ -118,11 +156,103 @@ pub fn classify_proxy_auth_intercept(endpoint: &str, status: Option<StatusCode>,
 }
 
 /// Build a plain client for call sites that do not have managed state.
-pub fn plain_client(timeout_secs: u64) -> Result<Client, String> {
+pub fn plain_client() -> Result<Client, String> {
     Client::builder()
-        .timeout(Duration::from_secs(timeout_secs))
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
         .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))
+        .map_err(|error| format!("Failed to create HTTP client: {error}"))
+}
+
+pub fn log_request_error(operation: &str, method: &str, url: &str, error: &reqwest::Error) -> String {
+    let message = format!(
+        "{} {} {} failed: {}",
+        operation,
+        method,
+        sanitize_url_for_logging(url),
+        describe_reqwest_error(error)
+    );
+    warn!("{message}");
+    message
+}
+
+pub fn describe_reqwest_error(error: &reqwest::Error) -> String {
+    let mut categories = Vec::new();
+    if error.is_timeout() {
+        categories.push("timeout");
+    }
+    if error.is_connect() {
+        categories.push("connect");
+    }
+    if error.is_request() {
+        categories.push("request");
+    }
+    if error.is_body() {
+        categories.push("body");
+    }
+    if error.is_decode() {
+        categories.push("decode");
+    }
+    if error.is_status() {
+        categories.push("status");
+    }
+
+    let category_text = if categories.is_empty() {
+        "kind=unknown".to_string()
+    } else {
+        format!("kind={}", categories.join("+"))
+    };
+
+    let mut parts = vec![category_text];
+    if let Some(status) = error.status() {
+        parts.push(format!("status={status}"));
+    }
+    if let Some(url) = error.url() {
+        parts.push(format!("url={}", sanitize_url_for_logging(url.as_str())));
+    }
+
+    let message = if let Some(url) = error.url() {
+        error.to_string().replace(url.as_str(), &sanitize_url_for_logging(url.as_str()))
+    } else {
+        error.to_string()
+    };
+    parts.push(format!("message={message}"));
+
+    let mut sources = Vec::new();
+    let mut source = error.source();
+    while let Some(current) = source {
+        sources.push(sanitize_text_for_logging(&current.to_string()));
+        source = current.source();
+    }
+    if !sources.is_empty() {
+        parts.push(format!("sources=[{}]", sources.join("; ")));
+    }
+
+    parts.join(", ")
+}
+
+pub fn sanitize_url_for_logging(raw_url: &str) -> String {
+    let Ok(mut url) = Url::parse(raw_url) else {
+        return sanitize_text_for_logging(raw_url);
+    };
+
+    let Some(query) = url.query() else {
+        return url.to_string();
+    };
+
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+        if is_sensitive_query_key(&key) {
+            serializer.append_pair(&key, "<redacted>");
+        } else if key.eq_ignore_ascii_case("theme") {
+            serializer.append_pair(&key, "<present>");
+        } else {
+            serializer.append_pair(&key, &value);
+        }
+    }
+
+    let sanitized_query = serializer.finish();
+    url.set_query((!sanitized_query.is_empty()).then_some(&sanitized_query));
+    url.to_string()
 }
 
 fn normalize_server_url(server_url: &str) -> Result<String, String> {
@@ -145,6 +275,34 @@ fn body_preview(body: &str) -> String {
     }
 }
 
+fn sanitize_text_for_logging(text: &str) -> String {
+    text.split_whitespace()
+        .map(sanitize_url_for_logging_part)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn sanitize_url_for_logging_part(part: &str) -> String {
+    let trimmed = part.trim_matches(|character: char| matches!(character, ',' | ';' | ')' | '(' | '[' | ']'));
+    if trimmed == part || Url::parse(trimmed).is_err() {
+        return part.to_string();
+    }
+
+    part.replace(trimmed, &sanitize_url_for_logging(trimmed))
+}
+
+fn is_sensitive_query_key(key: &str) -> bool {
+    let normalized = key.to_ascii_lowercase();
+    normalized.contains("token")
+        || normalized.contains("secret")
+        || normalized.contains("password")
+        || normalized.contains("cookie")
+        || normalized.contains("authorization")
+        || normalized.contains("session")
+        || normalized == "key"
+        || normalized == "theme"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,7 +320,36 @@ mod tests {
         let count = store.store_webview_cookies("https://sambee.example.com", vec![cookie]).unwrap();
 
         assert_eq!(count, 1);
-        assert!(store.client_for_server("https://sambee.example.com", 5).is_ok());
+        assert!(store.client_for_server("https://sambee.example.com").is_ok());
+    }
+
+    #[test]
+    fn test_cookie_jar_is_stable_after_client_creation() {
+        use reqwest::cookie::CookieStore;
+
+        let store = SambeeHttpClientStore::default();
+        assert!(store.client_for_server("https://sambee.example.com").is_ok());
+
+        let cookie = Cookie::build(("proxy_session", "secret"))
+            .domain("sambee.example.com")
+            .path("/")
+            .secure(true)
+            .http_only(true)
+            .build();
+        store.store_webview_cookies("https://sambee.example.com", vec![cookie]).unwrap();
+
+        let state = store.state_for_server("https://sambee.example.com").unwrap();
+        let url = Url::parse("https://sambee.example.com/api/companion/token").unwrap();
+        let cookies = state.jar.cookies(&url).unwrap();
+
+        assert!(cookies.to_str().unwrap().contains("proxy_session=secret"));
+    }
+
+    #[test]
+    fn test_no_redirect_client_is_available() {
+        let store = SambeeHttpClientStore::default();
+
+        assert!(store.client_for_server_no_redirects("https://sambee.example.com").is_ok());
     }
 
     #[test]
@@ -177,5 +364,18 @@ mod tests {
 
         assert!(message.starts_with(PROXY_AUTH_REQUIRED_PREFIX));
         assert!(message.contains("file info appears to have been intercepted"));
+    }
+
+    #[test]
+    fn test_sanitize_url_for_logging_redacts_sensitive_query_values() {
+        let sanitized =
+            sanitize_url_for_logging("https://sambee.example.com/api?token=secret&theme=encoded&path=/docs/report.pdf&session_id=abc");
+
+        assert!(sanitized.contains("token=%3Credacted%3E"));
+        assert!(sanitized.contains("theme=%3Credacted%3E") || sanitized.contains("theme=%3Cpresent%3E"));
+        assert!(sanitized.contains("path=%2Fdocs%2Freport.pdf"));
+        assert!(sanitized.contains("session_id=%3Credacted%3E"));
+        assert!(!sanitized.contains("secret"));
+        assert!(!sanitized.contains("encoded"));
     }
 }

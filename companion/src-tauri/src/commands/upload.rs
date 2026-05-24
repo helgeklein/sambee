@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
 use log::{error, info, warn};
 use reqwest::header;
@@ -13,7 +14,9 @@ use reqwest::Client;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
+use crate::http_client::{
+    classify_proxy_auth_intercept, log_request_error, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
+};
 use crate::sync::operations::{UPLOAD_MAX_RETRIES, UPLOAD_RETRY_BASE_MS};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +65,7 @@ pub async fn upload_file(
     local_path: &Path,
     session_token: &str,
 ) -> Result<UploadResponse, String> {
-    let client = plain_client(UPLOAD_TIMEOUT_SECS)?;
+    let client = plain_client()?;
     upload_file_with_client(
         &client,
         app,
@@ -87,7 +90,7 @@ pub async fn upload_file_with_store(
     local_path: &Path,
     session_token: &str,
 ) -> Result<UploadResponse, String> {
-    let client = http_clients.client_for_server(server_url, UPLOAD_TIMEOUT_SECS)?;
+    let client = http_clients.client_for_server(server_url)?;
     upload_file_with_client(
         &client,
         app,
@@ -150,6 +153,7 @@ pub async fn upload_file_with_client(
 
         match client
             .post(&url)
+            .timeout(Duration::from_secs(UPLOAD_TIMEOUT_SECS))
             .query(&[("path", remote_path)])
             .header("Authorization", format!("Bearer {session_token}"))
             .multipart(form)
@@ -204,8 +208,8 @@ pub async fn upload_file_with_client(
 
                 warn!("Upload attempt {attempt}/{UPLOAD_MAX_RETRIES} failed: {last_error}");
             }
-            Err(e) => {
-                last_error = format!("{e}");
+            Err(error) => {
+                last_error = log_request_error("Upload request", "POST", &url, &error);
                 warn!("Upload attempt {attempt}/{UPLOAD_MAX_RETRIES} error: {last_error}");
             }
         }
@@ -237,7 +241,7 @@ pub async fn upload_file_with_client(
 /// `POST /api/companion/{connId}/lock?path={remote_path}`
 #[allow(dead_code)]
 pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<String, String> {
-    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = plain_client()?;
     acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -248,7 +252,7 @@ pub async fn acquire_lock_with_store(
     remote_path: &str,
     session_token: &str,
 ) -> Result<String, String> {
-    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = http_clients.client_for_server(server_url)?;
     acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -263,12 +267,13 @@ pub async fn acquire_lock_with_client(
 
     let response = client
         .post(&url)
+        .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {session_token}"))
         .json(&serde_json::json!({ "companion_session": session_token }))
         .send()
         .await
-        .map_err(|e| format!("Lock acquire request failed: {e}"))?;
+        .map_err(|error| log_request_error("Lock acquire request", "POST", &url, &error))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -303,7 +308,7 @@ pub async fn acquire_lock_with_client(
 /// `DELETE /api/companion/{connId}/lock?path={remote_path}`
 #[allow(dead_code)]
 pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
-    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = plain_client()?;
     release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -314,7 +319,7 @@ pub async fn release_lock_with_store(
     remote_path: &str,
     session_token: &str,
 ) -> Result<(), String> {
-    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = http_clients.client_for_server(server_url)?;
     release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -329,11 +334,12 @@ pub async fn release_lock_with_client(
 
     let response = client
         .delete(&url)
+        .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {session_token}"))
         .send()
         .await
-        .map_err(|e| format!("Lock release request failed: {e}"))?;
+        .map_err(|error| log_request_error("Lock release request", "DELETE", &url, &error))?;
 
     let status = response.status();
     if !status.is_success() {
@@ -362,7 +368,7 @@ pub async fn release_lock_with_client(
 ///
 /// `POST /api/companion/{connId}/lock/heartbeat?path={remote_path}`
 pub async fn send_heartbeat(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
-    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = plain_client()?;
     send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -373,7 +379,7 @@ pub async fn send_heartbeat_with_store(
     remote_path: &str,
     session_token: &str,
 ) -> Result<(), String> {
-    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    let client = http_clients.client_for_server(server_url)?;
     send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
 
@@ -392,11 +398,12 @@ pub async fn send_heartbeat_with_client(
 
     let response = client
         .post(&url)
+        .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {session_token}"))
         .send()
         .await
-        .map_err(|e| format!("Heartbeat request failed: {e}"))?;
+        .map_err(|error| log_request_error("Heartbeat request", "POST", &url, &error))?;
 
     let status = response.status();
     if !status.is_success() {

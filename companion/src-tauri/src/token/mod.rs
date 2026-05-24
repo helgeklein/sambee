@@ -3,11 +3,13 @@
 //! Handles exchanging the short-lived URI token (received via deep-link) for
 //! a longer-lived session JWT via `POST /api/companion/token`.
 
+use std::time::Duration;
+
 use log::{info, warn};
-use reqwest::{header, redirect, Client, Response, StatusCode};
+use reqwest::{header, Client, Response, StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::http_client::{format_proxy_auth_required_message, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
+use crate::http_client::{format_proxy_auth_required_message, log_request_error, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -100,11 +102,7 @@ pub async fn exchange_uri_token_with_store(
     info!("Exchanging URI token with server: {url}");
 
     let client = http_clients
-        .client_for_server_with_redirects(
-            server_url,
-            TOKEN_EXCHANGE_TIMEOUT_SECS.max(DEFAULT_REQUEST_TIMEOUT_SECS),
-            redirect::Policy::none(),
-        )
+        .client_for_server_no_redirects(server_url)
         .map_err(|message| TokenExchangeError::HttpClient { message })?;
 
     exchange_uri_token_with_client(&client, server_url, &url, uri_token).await
@@ -123,12 +121,13 @@ pub async fn exchange_uri_token_with_client(
 ) -> Result<String, TokenExchangeError> {
     let response = client
         .post(url)
+        .timeout(Duration::from_secs(TOKEN_EXCHANGE_TIMEOUT_SECS.max(DEFAULT_REQUEST_TIMEOUT_SECS)))
         .header(header::ACCEPT, "application/json")
         .json(&TokenExchangeRequest { token: uri_token })
         .send()
         .await
-        .map_err(|e| TokenExchangeError::Request {
-            message: format!("Token exchange request failed: {e}"),
+        .map_err(|error| TokenExchangeError::Request {
+            message: log_request_error("Token exchange request", "POST", url, &error),
         })?;
 
     let final_url = response.url().clone();
@@ -473,7 +472,7 @@ mod tests {
             }),
         );
         let server_url = spawn_test_server(app).await;
-        let client = Client::builder().redirect(redirect::Policy::none()).build().unwrap();
+        let client = Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
 
         let result = exchange_uri_token_with_client(&client, &server_url, &format!("{server_url}/api/companion/token"), "fake-token").await;
 
@@ -503,7 +502,7 @@ mod tests {
             }),
         );
         let server_url = spawn_test_server(app).await;
-        let client = Client::builder().redirect(redirect::Policy::none()).build().unwrap();
+        let client = Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
 
         let result = exchange_uri_token_with_client(&client, &server_url, &format!("{server_url}/api/companion/token"), "fake-token").await;
 
@@ -535,7 +534,7 @@ mod tests {
             }),
         );
         let server_url = spawn_test_server(app).await;
-        let client = Client::builder().redirect(redirect::Policy::none()).build().unwrap();
+        let client = Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
 
         let result = exchange_uri_token_with_client(&client, &server_url, &format!("{server_url}/api/companion/token"), "fake-token").await;
 

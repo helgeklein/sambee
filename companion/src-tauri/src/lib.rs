@@ -27,7 +27,7 @@ use crate::http_client::SambeeHttpClientStore;
 use crate::server::localization::LocalizationState;
 use crate::server::pairing::PairingState;
 use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
-use crate::uri::SambeeUri;
+use crate::uri::{sanitized_uri_for_logging, SambeeUri};
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct PendingAppPickerRequest {
@@ -990,6 +990,18 @@ fn should_prevent_implicit_last_window_exit(exit_code: Option<i32>) -> bool {
     exit_code.is_none()
 }
 
+fn format_argv_for_logging(argv: &[String]) -> String {
+    let sanitized = argv
+        .iter()
+        .map(|arg| match url::Url::parse(arg) {
+            Ok(url) if url.scheme() == "sambee" => sanitized_uri_for_logging(&url),
+            _ => arg.clone(),
+        })
+        .collect::<Vec<_>>();
+
+    format!("{sanitized:?}")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // App builder
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1011,7 +1023,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            info!("Single-instance: re-opened with argv={argv:?}");
+            info!("Single-instance: re-opened with argv={}", format_argv_for_logging(&argv));
 
             // argv[1..] may contain deep-link URIs forwarded from the new instance
             let urls: Vec<url::Url> = argv
@@ -1187,5 +1199,29 @@ mod tests {
     #[test]
     fn allows_explicit_exit_requests() {
         assert!(!should_prevent_implicit_last_window_exit(Some(0)));
+    }
+
+    #[test]
+    fn redacts_single_instance_sambee_uri_args() {
+        let argv = vec![
+            "C:\\Program Files\\Sambee Companion\\sambee-companion.exe".to_string(),
+            "sambee://open/?server=https%3A%2F%2Fsambee.example.com&token=secret&connId=abc&path=%2Fdocs%2Ffile.pdf&theme=encoded"
+                .to_string(),
+        ];
+
+        let formatted = format_argv_for_logging(&argv);
+
+        assert!(formatted.contains("token=%3Credacted%3E"));
+        assert!(formatted.contains("theme=%3Cpresent%3E"));
+        assert!(!formatted.contains("token=secret"));
+        assert!(!formatted.contains("theme=encoded"));
+        assert!(formatted.contains("sambee-companion.exe"));
+    }
+
+    #[test]
+    fn keeps_non_uri_single_instance_args_readable() {
+        let argv = vec!["sambee-companion.exe".to_string(), "--from-autostart".to_string()];
+
+        assert_eq!(format_argv_for_logging(&argv), "[\"sambee-companion.exe\", \"--from-autostart\"]");
     }
 }
