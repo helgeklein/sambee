@@ -64,27 +64,51 @@ update_package_lock_json() {
 
 update_cargo_toml() {
     local file="$1"
-    local tmp
-    tmp="$(mktemp)"
+    python3 - "$file" "$VERSION" <<'PY'
+import sys
+from pathlib import Path
 
-    awk -v ver="$VERSION" '
-        BEGIN { in_package = 0; updated = 0 }
-        /^\[package\]/ { in_package = 1; print; next }
-        /^\[/ && !/^\[package\]/ { in_package = 0 }
-        in_package && /^version[[:space:]]*=/ {
-            print "version = \"" ver "\""
-            updated = 1
-            next
-        }
-        { print }
-        END {
-            if (!updated) {
-                exit 2
-            }
-        }
-    ' "$file" > "$tmp"
+file_path = Path(sys.argv[1])
+version = sys.argv[2]
 
-    mv "$tmp" "$file"
+with file_path.open("r", encoding="utf-8", newline="") as handle:
+    lines = handle.readlines()
+
+in_package = False
+updated = False
+
+for index, line in enumerate(lines):
+    stripped = line.strip()
+
+    if stripped == "[package]":
+        in_package = True
+        continue
+
+    if stripped.startswith("[") and stripped != "[package]":
+        in_package = False
+
+    if in_package and line.startswith("version"):
+        newline = "\n"
+        if line.endswith("\r\n"):
+            newline = "\r\n"
+        elif line.endswith("\n"):
+            newline = "\n"
+        elif line.endswith("\r"):
+            newline = "\r"
+        else:
+            newline = ""
+
+        lines[index] = f'version = "{version}"{newline}'
+        updated = True
+        break
+
+if not updated:
+    raise SystemExit(2)
+
+with file_path.open("w", encoding="utf-8", newline="") as handle:
+    handle.writelines(lines)
+PY
+
     echo "  ✅ Updated $file"
 }
 
@@ -95,28 +119,52 @@ update_cargo_lock() {
         return
     fi
 
-    local tmp
-    tmp="$(mktemp)"
+    python3 - "$file" "$VERSION" <<'PY'
+import sys
+from pathlib import Path
 
-    awk -v ver="$VERSION" '
-        BEGIN { in_target_pkg = 0; updated = 0 }
-        /^\[\[package\]\]$/ { in_target_pkg = 0; print; next }
-        /^name = "sambee-companion"$/ { in_target_pkg = 1; print; next }
-        in_target_pkg && /^version = "/ {
-            print "version = \"" ver "\""
-            updated = 1
-            in_target_pkg = 0
-            next
-        }
-        { print }
-        END {
-            if (!updated) {
-                exit 2
-            }
-        }
-    ' "$file" > "$tmp"
+file_path = Path(sys.argv[1])
+version = sys.argv[2]
 
-    mv "$tmp" "$file"
+with file_path.open("r", encoding="utf-8", newline="") as handle:
+    lines = handle.readlines()
+
+in_target_pkg = False
+updated = False
+
+for index, line in enumerate(lines):
+    stripped = line.strip()
+
+    if stripped == "[[package]]":
+        in_target_pkg = False
+        continue
+
+    if stripped == 'name = "sambee-companion"':
+        in_target_pkg = True
+        continue
+
+    if in_target_pkg and stripped.startswith('version = "'):
+        newline = "\n"
+        if line.endswith("\r\n"):
+            newline = "\r\n"
+        elif line.endswith("\n"):
+            newline = "\n"
+        elif line.endswith("\r"):
+            newline = "\r"
+        else:
+            newline = ""
+
+        lines[index] = f'version = "{version}"{newline}'
+        updated = True
+        break
+
+if not updated:
+    raise SystemExit(2)
+
+with file_path.open("w", encoding="utf-8", newline="") as handle:
+    handle.writelines(lines)
+PY
+
     echo "  ✅ Updated $file"
 }
 
