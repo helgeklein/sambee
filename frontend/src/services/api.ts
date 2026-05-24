@@ -41,11 +41,32 @@ export interface DirectorySearchOptions {
 }
 
 const CONNECTIONS_API_BASE = "/connections";
+const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
 
 function normalizeUser(user: User): User {
   return { ...user };
+}
+
+function getCompanionServerUrl(apiBaseUrl: string | undefined): string {
+  if (!apiBaseUrl || apiBaseUrl === API_PATH_SUFFIX) {
+    return window.location.origin;
+  }
+
+  const resolvedUrl = new URL(apiBaseUrl, window.location.origin);
+  const normalizedPath = resolvedUrl.pathname.replace(/\/+$/, "");
+
+  if (normalizedPath === API_PATH_SUFFIX) {
+    resolvedUrl.pathname = "";
+  } else if (normalizedPath.endsWith(API_PATH_SUFFIX)) {
+    resolvedUrl.pathname = normalizedPath.slice(0, -API_PATH_SUFFIX.length) || "/";
+  }
+
+  resolvedUrl.search = "";
+  resolvedUrl.hash = "";
+
+  return resolvedUrl.toString().replace(/\/$/, "");
 }
 
 class ApiService {
@@ -1107,7 +1128,7 @@ class ApiService {
     });
 
     const { uri_token } = response.data;
-    const serverUrl = encodeURIComponent(window.location.origin);
+    const serverUrl = encodeURIComponent(getCompanionServerUrl(this.api.defaults.baseURL));
     const encodedPath = encodeURIComponent(path);
 
     let uri = `sambee://open?server=${serverUrl}&token=${uri_token}&connId=${connectionId}&path=${encodedPath}`;
