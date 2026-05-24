@@ -75,6 +75,16 @@
   border: 1px solid var(--danger-border, rgba(220, 38, 38, 0.2));
 }
 
+.done-editing-notice {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--info-text, #1d4ed8);
+  background: var(--info-bg, rgba(37, 99, 235, 0.08));
+  border-radius: 4px;
+  border: 1px solid var(--info-border, rgba(37, 99, 235, 0.2));
+}
+
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 
 .btn-primary {

@@ -14,6 +14,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
+use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
 use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
 
 fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
@@ -67,10 +68,46 @@ const DONE_EDITING_CASCADE_STEP: f64 = 32.0;
 /// Label prefix for Done Editing windows (used to count open instances).
 pub(crate) const DONE_EDITING_LABEL_PREFIX: &str = "done-editing-";
 
-/// Prefix used to distinguish a conflict result from a normal success in
-/// `finish_editing`. The frontend checks for this prefix to show the
-/// conflict resolution dialog.
-const CONFLICT_PREFIX: &str = "conflict:";
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthRetryReason {
+    Upload,
+    Conflict,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum FinishEditingResult {
+    Completed,
+    Conflict {
+        operation_id: String,
+        filename: String,
+        download_modified: String,
+        server_modified: String,
+    },
+    AuthRetry {
+        reason: AuthRetryReason,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ConflictResolutionResult {
+    Completed,
+    AuthRetry { reason: AuthRetryReason },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RecoveryUploadResult {
+    Completed { message: String },
+    AuthRetry { reason: AuthRetryReason },
+}
+
+fn reset_operation_for_auth_retry(store: &OperationStore, app: &AppHandle, op_id: uuid::Uuid) {
+    store.update_status(op_id, OperationStatus::Editing);
+    crate::refresh_tray_menu(app);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -331,6 +368,7 @@ pub fn start_heartbeat_task(
     session_token: String,
 ) {
     let app_clone = app.clone();
+    let http_clients = app.try_state::<SambeeHttpClientStore>().map(|state| state.inner().clone());
 
     tauri::async_runtime::spawn(async move {
         let interval = std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS);
@@ -344,7 +382,18 @@ pub fn start_heartbeat_task(
                 break;
             }
 
-            match super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token).await {
+            let result = if let Some(ref clients) = http_clients {
+                crate::proxy_auth::retry_if_proxy_auth_required(&app_clone, &server_url, clients, "Lock heartbeat", || async {
+                    super::upload::send_heartbeat_with_store(clients, &server_url, &connection_id, &remote_path, &session_token).await
+                })
+                .await
+            } else {
+                super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token)
+                    .await
+                    .map_err(crate::proxy_auth::ProxyAuthRetryError::Operation)
+            };
+
+            match result {
                 Ok(()) => {}
                 Err(e) => {
                     warn!("Heartbeat failed (will retry next interval): {e}");
@@ -366,7 +415,7 @@ pub fn start_heartbeat_task(
 /// If the file is modified → upload, release lock, recycle, close window.
 /// If unchanged → release lock, recycle, close window.
 #[tauri::command]
-pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<String, String> {
+pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<FinishEditingResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -383,6 +432,11 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     let token = operation.token.clone();
     let original_mtime = operation.original_mtime;
     let filename = operation.filename();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Check if file was modified
     let current_mtime = fs::metadata(&local_path).and_then(|m| m.modified()).unwrap_or(original_mtime);
@@ -394,7 +448,11 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         // Before uploading, check if the server-side file was modified
         // by another user while we held our lock.
         if let Some(ref download_modified_at) = operation.server_last_modified {
-            match super::file_info::get_file_info(&server_url, &connection_id, &remote_path, &token).await {
+            match crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Conflict check", || async {
+                super::file_info::get_file_info_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+            })
+            .await
+            {
                 Ok(current_info) => {
                     if let Some(ref current_modified) = current_info.modified_at {
                         if current_modified != download_modified_at {
@@ -403,18 +461,22 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
                                 "Conflict detected for {}: download_modified={}, server_modified={}",
                                 filename, download_modified_at, current_modified
                             );
-                            let conflict_json = serde_json::json!({
-                                "operation_id": operation.id.to_string(),
-                                "filename": filename,
-                                "download_modified": download_modified_at,
-                                "server_modified": current_modified,
+                            return Ok(FinishEditingResult::Conflict {
+                                operation_id: operation.id.to_string(),
+                                filename: filename.to_string(),
+                                download_modified: download_modified_at.to_string(),
+                                server_modified: current_modified.to_string(),
                             });
-                            return Ok(format!("{CONFLICT_PREFIX}{}", conflict_json));
                         }
                     }
                 }
                 Err(e) => {
-                    // Could not check — log but proceed with upload
+                    if e.should_abort_safety_check() {
+                        return Err(format!(
+                            "Conflict check could not reach the Sambee backend after reauthentication. Upload was cancelled to avoid overwriting a newer server version: {e}"
+                        ));
+                    }
+
                     warn!("Conflict check failed (proceeding with upload): {e}");
                 }
             }
@@ -425,11 +487,29 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         store.update_status(op_id, OperationStatus::Uploading(0.0));
         crate::refresh_tray_menu(&app);
 
-        match super::upload::upload_file(&app, &window_label, &server_url, &connection_id, &remote_path, &local_path, &token).await {
+        match super::upload::upload_file_with_store(
+            &http_clients,
+            &app,
+            &window_label,
+            &server_url,
+            &connection_id,
+            &remote_path,
+            &local_path,
+            &token,
+        )
+        .await
+        {
             Ok(_resp) => {
                 info!("Upload successful for {}", filename);
             }
             Err(e) => {
+                if is_proxy_auth_required_error(&e) {
+                    crate::proxy_auth::authenticate_reverse_proxy(&app, &server_url, &http_clients).await?;
+                    reset_operation_for_auth_retry(&store, &app, op_id);
+                    return Ok(FinishEditingResult::AuthRetry {
+                        reason: AuthRetryReason::Upload,
+                    });
+                }
                 error!("Upload failed for {}: {e}", filename);
                 store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
                 crate::refresh_tray_menu(&app);
@@ -439,7 +519,10 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     }
 
     // Release lock (best-effort)
-    let _ = super::upload::release_lock(&server_url, &connection_id, &remote_path, &token).await;
+    let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
+        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+    })
+    .await;
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -463,7 +546,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     let _ = app.emit("notification", serde_json::json!({ "message": message }));
 
     info!("Edit session completed: {}", filename);
-    Ok(message)
+    Ok(FinishEditingResult::Completed)
 }
 
 //
@@ -489,9 +572,17 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
     let remote_path = operation.remote_path.clone();
     let token = operation.token.clone();
     let filename = operation.filename();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Release lock (best-effort)
-    let _ = super::upload::release_lock(&server_url, &connection_id, &remote_path, &token).await;
+    let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
+        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+    })
+    .await;
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -523,7 +614,7 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
 ///
 /// Skips the conflict check and force-uploads the local file.
 #[tauri::command]
-pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) -> Result<String, String> {
+pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) -> Result<ConflictResolutionResult, String> {
     upload_and_finish(&app, &operation_id, None).await
 }
 
@@ -536,7 +627,7 @@ pub async fn resolve_conflict_overwrite(app: AppHandle, operation_id: String) ->
 /// both the current server version and the user's local edits.
 /// Copy path: `{stem} (conflict copy).{ext}` or `{name} (conflict copy)`.
 #[tauri::command]
-pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) -> Result<String, String> {
+pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) -> Result<ConflictResolutionResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -556,7 +647,11 @@ pub async fn resolve_conflict_save_copy(app: AppHandle, operation_id: String) ->
 //
 /// Shared helper: upload a file (optionally to a different path) then
 /// release lock, recycle, close window, notify.
-async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_override: Option<&str>) -> Result<String, String> {
+async fn upload_and_finish(
+    app: &AppHandle,
+    operation_id: &str,
+    upload_path_override: Option<&str>,
+) -> Result<ConflictResolutionResult, String> {
     let op_id: uuid::Uuid = operation_id.parse().map_err(|_| "Invalid operation ID".to_string())?;
 
     let store = app
@@ -572,15 +667,38 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     let remote_path = upload_path_override.unwrap_or(&operation.remote_path);
     let token = operation.token.clone();
     let filename = operation.filename();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Upload
     store.update_status(op_id, OperationStatus::Uploading(0.0));
     crate::refresh_tray_menu(app);
-    match super::upload::upload_file(app, &window_label, &server_url, &connection_id, remote_path, &local_path, &token).await {
+    match super::upload::upload_file_with_store(
+        &http_clients,
+        app,
+        &window_label,
+        &server_url,
+        &connection_id,
+        remote_path,
+        &local_path,
+        &token,
+    )
+    .await
+    {
         Ok(_) => {
             info!("Upload successful (conflict resolved) for {}", filename);
         }
         Err(e) => {
+            if is_proxy_auth_required_error(&e) {
+                crate::proxy_auth::authenticate_reverse_proxy(app, &server_url, &http_clients).await?;
+                reset_operation_for_auth_retry(&store, app, op_id);
+                return Ok(ConflictResolutionResult::AuthRetry {
+                    reason: AuthRetryReason::Conflict,
+                });
+            }
             error!("Upload failed for {}: {e}", filename);
             store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
             crate::refresh_tray_menu(app);
@@ -589,12 +707,16 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     }
 
     // Release lock
-    let _ = super::upload::release_lock(
-        &server_url,
-        &connection_id,
-        &operation.remote_path, // Always release lock on the original path
-        &token,
-    )
+    let _ = crate::proxy_auth::retry_if_proxy_auth_required(app, &server_url, &http_clients, "Lock release", || async {
+        super::upload::release_lock_with_store(
+            &http_clients,
+            &server_url,
+            &connection_id,
+            &operation.remote_path, // Always release lock on the original path
+            &token,
+        )
+        .await
+    })
     .await;
 
     // Recycle temp file
@@ -615,7 +737,7 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     let _ = app.emit("notification", serde_json::json!({ "message": message }));
 
     info!("Conflict resolved for {}", filename);
-    Ok(message)
+    Ok(ConflictResolutionResult::Completed)
 }
 
 //
@@ -743,15 +865,21 @@ pub struct LeftoverInfo {
 ///
 /// Re-exchanges a session (or uses existing token), uploads, then recycles.
 #[tauri::command]
-pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<String, String> {
+pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<RecoveryUploadResult, String> {
     let sidecar_path = std::path::PathBuf::from(&operation_dir).join(crate::sync::operations::SIDECAR_FILENAME);
 
     let op = crate::sync::operations::load_operation_sidecar(&sidecar_path)?;
     let filename = op.filename().to_string();
     let local_path = op.local_path.clone();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Attempt upload with existing token (may fail if expired)
-    let upload_result = super::upload::upload_file(
+    let upload_result = super::upload::upload_file_with_store(
+        &http_clients,
         &app,
         "main", // no Done Editing window for recovery
         &op.server_url,
@@ -768,9 +896,15 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<St
             let message = format!("✓ {} — recovered and uploaded to server.", filename);
             let _ = app.emit("notification", serde_json::json!({ "message": &message }));
             info!("Recovery upload successful: {}", filename);
-            Ok(message)
+            Ok(RecoveryUploadResult::Completed { message })
         }
         Err(e) => {
+            if is_proxy_auth_required_error(&e) {
+                crate::proxy_auth::authenticate_reverse_proxy(&app, &op.server_url, &http_clients).await?;
+                return Ok(RecoveryUploadResult::AuthRetry {
+                    reason: AuthRetryReason::Upload,
+                });
+            }
             error!("Recovery upload failed for {}: {e}", filename);
             Err(format!("Upload failed: {e}"))
         }

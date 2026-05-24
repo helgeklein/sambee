@@ -11,7 +11,7 @@ import {
 const PREVIEW_TITLEBAR_HEIGHT = 38;
 
 type PreviewFileState = "unchanged" | "modified";
-type PreviewWindowState = "idle" | "processing" | "error";
+type PreviewWindowState = "idle" | "processing" | "error" | "reauth";
 
 const PREVIEW_CONTEXT: DoneEditingContext = {
   operation_id: "preview-done-editing",
@@ -43,6 +43,7 @@ export function DoneEditingWindowPreview() {
 
   const isModified = fileStatus.kind === "modified";
   const processing = windowState === "processing";
+  const notice = windowState === "reauth" ? translate("doneEditing.authRefreshedRetryUpload") : null;
   const error = windowState === "error" ? "Mock preview error: uploading the edited file failed." : null;
 
   const doneButtonLabel = processing
@@ -50,7 +51,9 @@ export function DoneEditingWindowPreview() {
       ? translate("doneEditing.buttons.uploading")
       : translate("doneEditing.buttons.closing")
     : isModified
-      ? translate("doneEditing.buttons.doneUpload")
+      ? notice
+        ? translate("doneEditing.buttons.retryUpload")
+        : translate("doneEditing.buttons.doneUpload")
       : translate("doneEditing.buttons.doneClose");
 
   return (
@@ -77,6 +80,7 @@ export function DoneEditingWindowPreview() {
             <option value="idle">Idle</option>
             <option value="processing">Processing</option>
             <option value="error">Error</option>
+            <option value="reauth">Reauthenticate and retry</option>
           </select>
         </label>,
       ]}
@@ -99,6 +103,7 @@ export function DoneEditingWindowPreview() {
           fileStatus={fileStatus}
           processing={processing}
           uploadProgress={0.62}
+          notice={notice}
           error={error}
           conflict={null}
           holdProgress={0}

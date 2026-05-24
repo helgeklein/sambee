@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { useI18n } from "../i18n/useI18n";
 import { log } from "../lib/logger";
+import { getTauriErrorMessage } from "../utils/tauriErrorMarkers";
 import { PairingRequest } from "./PairingRequest";
 
 interface PairingEventPayload {
@@ -22,6 +23,7 @@ type PairingViewState =
 export function PairingWindow() {
   const { t } = useI18n();
   const [view, setView] = useState<PairingViewState>({ kind: "idle" });
+  const [error, setError] = useState<string | null>(null);
 
   const closeWindow = useCallback(async () => {
     try {
@@ -33,6 +35,7 @@ export function PairingWindow() {
 
   useEffect(() => {
     const unlistenPairing = listen<PairingEventPayload>("show-pairing", (event) => {
+      setError(null);
       setView({
         kind: "pairing",
         pairingId: event.payload.pairing_id,
@@ -42,6 +45,7 @@ export function PairingWindow() {
     });
 
     const unlistenCompleted = listen("pairing-completed", () => {
+      setError(null);
       setView({ kind: "success" });
     });
 
@@ -56,8 +60,11 @@ export function PairingWindow() {
       await invoke("confirm_pending_pairing", { pairingId });
     } catch (err) {
       log.error("Failed to confirm pairing:", err);
+      setError(getTauriErrorMessage(err));
       return;
     }
+
+    setError(null);
 
     setView((current) => {
       if (current.kind !== "pairing") {
@@ -78,8 +85,11 @@ export function PairingWindow() {
         await invoke("reject_pending_pairing", { pairingId });
       } catch (err) {
         log.error("Failed to reject pairing:", err);
+        setError(getTauriErrorMessage(err));
         return;
       }
+
+      setError(null);
 
       await closeWindow();
     },
@@ -144,6 +154,7 @@ export function PairingWindow() {
 
   return (
     <PairingRequest
+      error={error}
       origin={view.origin}
       pairingCode={view.pairingCode}
       onConfirm={() => handleConfirm(view.pairingId)}

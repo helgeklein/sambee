@@ -172,6 +172,12 @@ class CompanionDownloadMetadataResponse(BaseModel):
     assets: dict[str, str]
 
 
+class ProxyAuthCheckResponse(BaseModel):
+    """Response for Companion reverse-proxy authentication probing."""
+
+    status: Literal["ok"]
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -303,7 +309,29 @@ async def exchange_companion_token(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. Lock management endpoints
+# 3. Reverse-proxy authentication probe
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/proxy-auth-check", response_model=ProxyAuthCheckResponse)
+async def proxy_auth_check(
+    current_user: User = Depends(get_current_user_with_auth_check),
+) -> ProxyAuthCheckResponse:
+    """Confirm that a Companion-owned webview has passed reverse-proxy auth.
+
+    The Companion opens this URL in an embedded Tauri webview when a reverse
+    proxy or SSO layer intercepts token exchange. The endpoint has no side
+    effects and does not consume URI tokens; it only gives the webview a stable
+    backend-origin success URL from which Companion can read proxy cookies.
+    """
+
+    set_user(current_user.username)
+    logger.info(f"Companion proxy auth check succeeded: user={current_user.username}")
+    return ProxyAuthCheckResponse(status="ok")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Lock management endpoints
 # ──────────────────────────────────────────────────────────────────────────────
 
 

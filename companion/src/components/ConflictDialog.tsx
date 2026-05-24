@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
+import { type AuthRetryResult, type CompletedResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
 import "../styles/dialog.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,6 +33,8 @@ export interface ConflictInfo {
   /** Current server `modified_at` (ISO 8601). */
   server_modified: string;
 }
+
+type ConflictResolutionResult = CompletedResult | AuthRetryResult;
 
 /** Props for the ConflictDialog component. */
 interface ConflictDialogProps {
@@ -59,6 +62,7 @@ interface ConflictDialogProps {
  */
 export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSaveCopyAction, onActionComplete }: ConflictDialogProps) {
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   //
@@ -66,18 +70,24 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
   //
   const handleOverwrite = useCallback(async () => {
     setLoading(true);
+    setNotice(null);
     setError(null);
     try {
       if (onOverwriteAction) {
         await onOverwriteAction();
       } else {
-        await invoke("resolve_conflict_overwrite", {
+        const result = await invoke<ConflictResolutionResult>("resolve_conflict_overwrite", {
           operationId: conflict.operation_id,
         });
+        if (isAuthRetryResult(result, "conflict")) {
+          setNotice(translate("conflictDialog.authRefreshedRetry"));
+          setLoading(false);
+          return;
+        }
       }
       onActionComplete?.("overwrite");
     } catch (e) {
-      setError(String(e));
+      setError(getTauriErrorMessage(e));
       setLoading(false);
     }
   }, [conflict.operation_id, onActionComplete, onOverwriteAction]);
@@ -87,18 +97,24 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
   //
   const handleSaveAsCopy = useCallback(async () => {
     setLoading(true);
+    setNotice(null);
     setError(null);
     try {
       if (onSaveCopyAction) {
         await onSaveCopyAction();
       } else {
-        await invoke("resolve_conflict_save_copy", {
+        const result = await invoke<ConflictResolutionResult>("resolve_conflict_save_copy", {
           operationId: conflict.operation_id,
         });
+        if (isAuthRetryResult(result, "conflict")) {
+          setNotice(translate("conflictDialog.authRefreshedRetry"));
+          setLoading(false);
+          return;
+        }
       }
       onActionComplete?.("saveCopy");
     } catch (e) {
-      setError(String(e));
+      setError(getTauriErrorMessage(e));
       setLoading(false);
     }
   }, [conflict.operation_id, onActionComplete, onSaveCopyAction]);
@@ -127,6 +143,8 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
           </div>
         </div>
       </div>
+
+      {notice && <p class="done-editing-notice">{notice}</p>}
 
       <div class="dialog-actions">
         <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleOverwrite} disabled={loading}>

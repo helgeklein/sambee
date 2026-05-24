@@ -4,13 +4,14 @@ import { translate } from "../i18n";
 interface PairingRequestProps {
   origin: string;
   pairingCode: string;
+  error?: string | null;
   onConfirm: () => void | Promise<void>;
   onReject: () => void | Promise<void>;
   onClose: () => void | Promise<void>;
 }
 
 /** Companion-side approval screen for browser pairing requests. */
-export function PairingRequest({ origin, pairingCode, onConfirm, onReject, onClose }: PairingRequestProps) {
+export function PairingRequest({ origin, pairingCode, error = null, onConfirm, onReject, onClose }: PairingRequestProps) {
   return (
     <div class="pairing-request">
       <div class="pairing-request__header">
@@ -34,6 +35,8 @@ export function PairingRequest({ origin, pairingCode, onConfirm, onReject, onClo
       </div>
 
       <p class="pairing-request__hint">{translate("pairing.hint")}</p>
+
+      {error && <p class="pairing-request__error">{error}</p>}
 
       <div class="pairing-request__actions">
         <button type="button" class="pairing-request__secondary-btn" onClick={onReject}>

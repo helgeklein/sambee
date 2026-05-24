@@ -2,7 +2,7 @@ import { useMemo, useState } from "preact/hooks";
 import { DialogPreviewLayout, type PreviewThemeMode } from "./DialogPreviewLayout";
 import { type LeftoverInfo, RecoveryDialog } from "./RecoveryDialog";
 
-type PreviewActionResult = "success" | "error";
+type PreviewActionResult = "success" | "error" | "reauth";
 type PreviewCount = "one" | "three";
 
 const PREVIEW_LEFTOVERS: LeftoverInfo[] = [
@@ -42,7 +42,20 @@ export function RecoveryDialogPreview() {
 
   const leftovers = count === "one" ? PREVIEW_LEFTOVERS.slice(0, 1) : PREVIEW_LEFTOVERS;
 
-  const actionHandler = useMemo(
+  const uploadActionHandler = useMemo(
+    () => async () => {
+      if (actionResult === "reauth") {
+        return { status: "auth_retry" as const, reason: "upload" as const };
+      }
+
+      if (actionResult === "error") {
+        throw new Error("Mock preview error: the recovery action failed.");
+      }
+    },
+    [actionResult]
+  );
+
+  const simpleActionHandler = useMemo(
     () => async () => {
       if (actionResult === "error") {
         throw new Error("Mock preview error: the recovery action failed.");
@@ -78,6 +91,7 @@ export function RecoveryDialogPreview() {
           >
             <option value="success">Success</option>
             <option value="error">Error</option>
+            <option value="reauth">Reauthenticate and retry</option>
           </select>
         </label>,
       ]}
@@ -87,9 +101,9 @@ export function RecoveryDialogPreview() {
           <RecoveryDialog
             leftovers={leftovers}
             onDone={() => setVisible(false)}
-            onUploadAction={actionHandler}
-            onDiscardAction={actionHandler}
-            onDismissAction={actionHandler}
+            onUploadAction={uploadActionHandler}
+            onDiscardAction={simpleActionHandler}
+            onDismissAction={simpleActionHandler}
           />
         </div>
       ) : (

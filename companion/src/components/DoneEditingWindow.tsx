@@ -17,15 +17,14 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { translate } from "../i18n";
 import { useI18n } from "../i18n/useI18n";
+import { type AuthRetryResult, type CompletedResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
 import type { ConflictInfo } from "./ConflictDialog";
 import { ConflictDialog } from "./ConflictDialog";
 import "../styles/done-editing.css";
 
 const HOLD_DURATION_MS = 1500;
 const HOLD_DURATION_SECONDS = HOLD_DURATION_MS / 1000;
-const CONFLICT_PREFIX = "conflict:";
 const DONE_EDITING_WINDOW_WIDTH = 340;
 const DONE_EDITING_DEFAULT_HEIGHT = 200;
 const DONE_EDITING_EXPANDED_HEIGHT = 240;
@@ -43,11 +42,19 @@ export type DoneEditingButtonHandlers = Pick<
   "onMouseDown" | "onMouseUp" | "onMouseLeave" | "onKeyDown" | "onKeyUp"
 >;
 
+type FinishEditingResult =
+  | CompletedResult
+  | AuthRetryResult
+  | (ConflictInfo & {
+      status: "conflict";
+    });
+
 interface DoneEditingWindowViewProps {
   context: DoneEditingContext;
   fileStatus: DoneEditingFileStatus;
   processing: boolean;
   uploadProgress: number;
+  notice: string | null;
   error: string | null;
   conflict: ConflictInfo | null;
   holdProgress: number;
@@ -69,6 +76,7 @@ export function DoneEditingWindow() {
   const [discardHoldProgress, setDiscardHoldProgress] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
 
@@ -172,33 +180,32 @@ export function DoneEditingWindow() {
     if (!context) return;
 
     setProcessing(true);
+    setNotice(null);
     setError(null);
 
     try {
-      const result = await invoke<string>("finish_editing", {
+      const result = await invoke<FinishEditingResult>("finish_editing", {
         operationId: context.operation_id,
       });
 
-      if (typeof result === "string" && result.startsWith(CONFLICT_PREFIX)) {
-        const conflictJson = result.slice(CONFLICT_PREFIX.length);
-        try {
-          setConflict(JSON.parse(conflictJson) as ConflictInfo);
-          setProcessing(false);
-        } catch {
-          setError(translate("doneEditing.parseConflictError"));
-          setProcessing(false);
-        }
+      if (result.status === "conflict") {
+        setConflict(result);
+        setProcessing(false);
+      } else if (isAuthRetryResult(result, "upload")) {
+        setNotice(t("doneEditing.authRefreshedRetryUpload"));
+        setProcessing(false);
       }
     } catch (err) {
-      setError(String(err));
+      setError(getTauriErrorMessage(err));
       setProcessing(false);
     }
-  }, [context]);
+  }, [context, t]);
 
   const confirmDiscard = useCallback(async () => {
     if (!context) return;
 
     setProcessing(true);
+    setNotice(null);
     setError(null);
 
     try {
@@ -206,7 +213,7 @@ export function DoneEditingWindow() {
         operationId: context.operation_id,
       });
     } catch (err) {
-      setError(String(err));
+      setError(getTauriErrorMessage(err));
       setProcessing(false);
     }
   }, [context]);
@@ -247,7 +254,9 @@ export function DoneEditingWindow() {
       ? t("doneEditing.buttons.uploading")
       : t("doneEditing.buttons.closing")
     : isModified
-      ? t("doneEditing.buttons.doneUpload")
+      ? notice
+        ? t("doneEditing.buttons.retryUpload")
+        : t("doneEditing.buttons.doneUpload")
       : t("doneEditing.buttons.doneClose");
 
   if (!context) {
@@ -264,6 +273,7 @@ export function DoneEditingWindow() {
       fileStatus={fileStatus}
       processing={processing}
       uploadProgress={uploadProgress}
+      notice={notice}
       error={error}
       conflict={conflict}
       holdProgress={holdProgress}
@@ -271,7 +281,9 @@ export function DoneEditingWindow() {
       doneButtonLabel={doneButtonLabel}
       doneAriaLabel={
         isModified
-          ? t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
+          ? notice
+            ? t("doneEditing.aria.retryUpload", { seconds: HOLD_DURATION_SECONDS })
+            : t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
           : t("doneEditing.aria.confirmClose", { seconds: HOLD_DURATION_SECONDS })
       }
       discardAriaLabel={t("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_SECONDS })}
@@ -291,6 +303,7 @@ export function DoneEditingWindowView({
   fileStatus,
   processing,
   uploadProgress,
+  notice,
   error,
   conflict,
   holdProgress,
@@ -354,6 +367,7 @@ export function DoneEditingWindowView({
           : t("doneEditing.unchanged")}
       </p>
 
+      {notice && <p class="done-editing-notice">{notice}</p>}
       {error && <p class="done-editing-error">{error}</p>}
 
       <button ref={primaryButtonRef} class="btn-primary" {...doneHandlers} disabled={processing} aria-label={doneAriaLabel}>

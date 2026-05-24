@@ -51,6 +51,15 @@
   color: var(--text-secondary, #1f262bb3);
 }
 
+.pairing-request__error {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  border-radius: 8px;
+  color: var(--danger-text, #dc2626);
+  background: var(--danger-bg, rgba(220, 38, 38, 0.06));
+  border: 1px solid var(--danger-border, rgba(220, 38, 38, 0.2));
+}
+
 .pairing-request__panel {
   display: flex;
   flex-direction: column;

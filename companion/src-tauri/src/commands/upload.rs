@@ -7,11 +7,13 @@ use std::fs;
 use std::path::Path;
 
 use log::{error, info, warn};
+use reqwest::header;
 use reqwest::multipart;
 use reqwest::Client;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::http_client::{classify_proxy_auth_intercept, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 use crate::sync::operations::{UPLOAD_MAX_RETRIES, UPLOAD_RETRY_BASE_MS};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +52,58 @@ pub struct UploadResponse {
 ///
 /// Emits `upload-progress` events to the specified Tauri window via
 /// `AppHandle::emit_to`.
+#[allow(dead_code)]
 pub async fn upload_file(
+    app: &AppHandle,
+    window_label: &str,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    local_path: &Path,
+    session_token: &str,
+) -> Result<UploadResponse, String> {
+    let client = plain_client(UPLOAD_TIMEOUT_SECS)?;
+    upload_file_with_client(
+        &client,
+        app,
+        window_label,
+        server_url,
+        connection_id,
+        remote_path,
+        local_path,
+        session_token,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_file_with_store(
+    http_clients: &SambeeHttpClientStore,
+    app: &AppHandle,
+    window_label: &str,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    local_path: &Path,
+    session_token: &str,
+) -> Result<UploadResponse, String> {
+    let client = http_clients.client_for_server(server_url, UPLOAD_TIMEOUT_SECS)?;
+    upload_file_with_client(
+        &client,
+        app,
+        window_label,
+        server_url,
+        connection_id,
+        remote_path,
+        local_path,
+        session_token,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn upload_file_with_client(
+    client: &Client,
     app: &AppHandle,
     window_label: &str,
     server_url: &str,
@@ -77,11 +130,6 @@ pub async fn upload_file(
     );
 
     let url = format!("{}/api/browse/{}/upload", server_url.trim_end_matches('/'), connection_id);
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(UPLOAD_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let mut last_error = String::new();
 
@@ -114,14 +162,38 @@ pub async fn upload_file(
                     // Emit 100% progress
                     let _ = app.emit_to(window_label, "upload-progress", serde_json::json!({ "progress": 1.0 }));
 
-                    let body: UploadResponse = response.json().await.map_err(|e| format!("Failed to parse upload response: {e}"))?;
+                    let content_type = response
+                        .headers()
+                        .get(header::CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_owned)
+                        .unwrap_or_default();
+                    let body_text = response.text().await.map_err(|e| format!("Failed to read upload response: {e}"))?;
+
+                    if !content_type.to_ascii_lowercase().contains("application/json") {
+                        if let Some(message) = classify_proxy_auth_intercept("File upload", Some(status), Some(&content_type), &body_text) {
+                            return Err(message);
+                        }
+                        return Err(format!("Failed to parse upload response: unexpected content type '{content_type}'"));
+                    }
+
+                    let body: UploadResponse =
+                        serde_json::from_str(&body_text).map_err(|e| format!("Failed to parse upload response: {e}"))?;
 
                     info!("Upload complete: {} → {}, size={}", local_path.display(), body.path, body.size);
                     return Ok(body);
                 }
 
                 // Non-success — check if retryable
+                let content_type = response
+                    .headers()
+                    .get(header::CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned);
                 let body_text = response.text().await.unwrap_or_default();
+                if let Some(message) = classify_proxy_auth_intercept("File upload", Some(status), content_type.as_deref(), &body_text) {
+                    return Err(message);
+                }
                 last_error = format!("HTTP {status}: {body_text}");
 
                 // 4xx errors (except 408/429) are not retryable
@@ -163,10 +235,32 @@ pub async fn upload_file(
 /// Acquire an edit lock on a file.
 ///
 /// `POST /api/companion/{connId}/lock?path={remote_path}`
+#[allow(dead_code)]
 pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<String, String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn acquire_lock_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<String, String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn acquire_lock_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<String, String> {
     let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
-    let client = Client::new();
     let response = client
         .post(&url)
         .query(&[("path", remote_path)])
@@ -178,7 +272,15 @@ pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &s
 
     let status = response.status();
     if !status.is_success() {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
+        if let Some(message) = classify_proxy_auth_intercept("Lock acquire", Some(status), content_type.as_deref(), &body) {
+            return Err(message);
+        }
         return Err(format!("Lock acquire failed (HTTP {status}): {body}"));
     }
 
@@ -199,10 +301,32 @@ pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &s
 /// Release an edit lock on a file.
 ///
 /// `DELETE /api/companion/{connId}/lock?path={remote_path}`
+#[allow(dead_code)]
 pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn release_lock_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn release_lock_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
     let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
-    let client = Client::new();
     let response = client
         .delete(&url)
         .query(&[("path", remote_path)])
@@ -213,7 +337,15 @@ pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &s
 
     let status = response.status();
     if !status.is_success() {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
+        if let Some(message) = classify_proxy_auth_intercept("Lock release", Some(status), content_type.as_deref(), &body) {
+            return Err(message);
+        }
         warn!("Lock release failed (HTTP {status}): {body}");
         // Non-fatal: lock will expire via heartbeat timeout
         return Err(format!("Lock release failed (HTTP {status}): {body}"));
@@ -230,13 +362,34 @@ pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &s
 ///
 /// `POST /api/companion/{connId}/lock/heartbeat?path={remote_path}`
 pub async fn send_heartbeat(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn send_heartbeat_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn send_heartbeat_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
     let url = format!(
         "{}/api/companion/{}/lock/heartbeat",
         server_url.trim_end_matches('/'),
         connection_id
     );
 
-    let client = Client::new();
     let response = client
         .post(&url)
         .query(&[("path", remote_path)])
@@ -245,8 +398,17 @@ pub async fn send_heartbeat(server_url: &str, connection_id: &str, remote_path: 
         .await
         .map_err(|e| format!("Heartbeat request failed: {e}"))?;
 
-    if !response.status().is_success() {
+    let status = response.status();
+    if !status.is_success() {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
+        if let Some(message) = classify_proxy_auth_intercept("Heartbeat", Some(status), content_type.as_deref(), &body) {
+            return Err(message);
+        }
         return Err(format!("Heartbeat failed: {body}"));
     }
 

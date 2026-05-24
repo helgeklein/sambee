@@ -85,7 +85,7 @@ describe("DoneEditingWindow", () => {
       }
 
       if (command === "finish_editing") {
-        return Promise.resolve("ok");
+        return Promise.resolve({ status: "completed" });
       }
 
       return Promise.resolve(undefined);
@@ -164,5 +164,69 @@ describe("DoneEditingWindow", () => {
 
     const uploadProgress = screen.getByRole("progressbar", { name: translate("doneEditing.aria.uploadProgress") });
     expect(uploadProgress).toHaveAttribute("aria-valuenow", "42");
+  });
+
+  it("shows an explicit retry state after reauthentication refreshes upload auth", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "get_done_editing_context") {
+        return Promise.resolve({
+          operation_id: "edit-2",
+          filename: "report.docx",
+          app_name: "LibreOffice Writer",
+        });
+      }
+
+      if (command === "finish_editing") {
+        return Promise.resolve({ status: "auth_retry", reason: "upload" });
+      }
+
+      return Promise.resolve(undefined);
+    });
+
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) =>
+        window.setTimeout(() => {
+          now = HOLD_DURATION_MS;
+          callback(now);
+        }, 16)
+      )
+    );
+    vi.stubGlobal(
+      "cancelAnimationFrame",
+      vi.fn((handle: number) => {
+        window.clearTimeout(handle);
+      })
+    );
+
+    render(<DoneEditingWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText("✎ report.docx")).toBeInTheDocument();
+    });
+
+    emitEvent("file-status", {
+      kind: "modified",
+      modifiedAt: "12:34:56",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(translate("doneEditing.buttons.doneUpload"))).toBeInTheDocument();
+    });
+
+    const doneButton = screen.getByText(translate("doneEditing.buttons.doneUpload")).closest("button");
+    expect(doneButton).not.toBeNull();
+
+    fireEvent.mouseDown(doneButton!);
+    vi.advanceTimersByTime(16);
+    fireEvent.mouseUp(doneButton!);
+
+    await waitFor(() => {
+      expect(screen.getByText(translate("doneEditing.authRefreshedRetryUpload"))).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(translate("doneEditing.buttons.retryUpload"))).toBeInTheDocument();
   });
 });

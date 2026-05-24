@@ -48,8 +48,10 @@ export const EN_TRANSLATIONS = {
     modifiedAt: "Modified at {{time}}",
     unchanged: "Unchanged",
     parseConflictError: "Failed to parse conflict info",
+    authRefreshedRetryUpload: "Authentication was refreshed. Hold Done Editing again to retry the upload.",
     buttons: {
       doneUpload: "✓ Done Editing — Hold to Upload",
+      retryUpload: "✓ Done Editing — Hold to Retry Upload",
       doneClose: "✓ Done Editing — Hold to Close",
       uploading: "✓ Uploading…",
       closing: "✓ Closing…",
@@ -57,6 +59,7 @@ export const EN_TRANSLATIONS = {
     },
     aria: {
       confirmUpload: "Hold for {{seconds}} seconds to confirm upload",
+      retryUpload: "Hold for {{seconds}} seconds to retry the upload after reauthentication",
       confirmClose: "Hold for {{seconds}} seconds to close and release lock",
       discardChanges: "Hold for {{seconds}} seconds to discard changes",
       uploadProgress: "Upload progress",
@@ -74,6 +77,7 @@ export const EN_TRANSLATIONS = {
       saveCopy: "Save as Copy",
       cancel: "Cancel",
     },
+    authRefreshedRetry: "Authentication was refreshed. Choose Overwrite or Save as Copy again to retry the upload.",
   },
   largeFileWarning: {
     title: "⚠ Large File",
@@ -88,8 +92,10 @@ export const EN_TRANSLATIONS = {
     subtitle_one: "{{count}} file from a previous session needs attention.",
     subtitle_other: "{{count}} files from a previous session need attention.",
     detail: "{{remotePath}} — modified {{localModified}}",
+    authRefreshedRetryUpload: "Authentication was refreshed. Click Upload again to retry sending this file to the server.",
     actions: {
       upload: "Upload",
+      retryUpload: "Retry Upload",
       discard: "Discard",
       later: "Later",
       dismissAll: "Dismiss All",
