@@ -240,11 +240,14 @@ title = "Release and Versioning"
 [pages.developer-guide.release-and-versioning]
 items = [
   "dependency-and-release-workflow",
-  "container-image-build-and-publish-workflow",
-  "publish-a-preview-docker-image",
-  "promote-a-preview-candidate-to-stable-or-beta",
-  "maintain-docker-release-tags-and-preview-retention",
-  "companion-distribution-and-update-workflow",
+  "docker-release-overview",
+  "publish-test-docker-candidate",
+  "promote-docker-candidate",
+  "docker-backfill-and-cleanup",
+  "companion-release-overview",
+  "build-companion-release",
+  "promote-companion-release",
+  "companion-channels-feeds-and-downloads",
 ]
 
 [[sections.website-dev-guide.items]]

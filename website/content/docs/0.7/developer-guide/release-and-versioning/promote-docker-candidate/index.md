@@ -84,4 +84,3 @@ Once the release workflow succeeds:
 See [Deploy Sambee with Docker](../../../admin-guide/installation-and-deployment/deploy-sambee-with-docker/) for the operator view.
 
 See [Container Image Security and Artifact Integrity](../../security/container-image-security-and-artifact-integrity/) for the signing and metadata-bundle details.
-

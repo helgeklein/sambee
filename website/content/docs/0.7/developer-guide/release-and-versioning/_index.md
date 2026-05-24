@@ -14,8 +14,11 @@ For Sambee Docker image releases, read these pages in order:
 
 Use these pages when the goal is to take one reviewed commit all the way to `stable` without rebuilding at release time.
 
-For Companion release distribution, use:
+For Companion release distribution, read these pages in order:
 
-- [Companion Distribution and Update Workflow](./companion-distribution-and-update-workflow/)
+- [Companion Release Overview](./companion-distribution-and-update-workflow/)
+- [Build Companion Release](./build-companion-release/)
+- [Promote Companion Release](./promote-companion-release/)
+- [Companion Channels, Feeds, And Downloads](./companion-channels-feeds-and-downloads/)
 
 Use this section when you are changing version numbers, updating reviewed dependencies, or touching release-sensitive files.
