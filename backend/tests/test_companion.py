@@ -132,7 +132,7 @@ class TestCompanionTokenExchange:
 
         response = client.post(
             "/api/companion/token",
-            params={"token": uri_token},
+            json={"token": uri_token},
         )
         assert response.status_code == 200
         data = response.json()
@@ -152,14 +152,14 @@ class TestCompanionTokenExchange:
         # First exchange succeeds
         response1 = client.post(
             "/api/companion/token",
-            params={"token": uri_token},
+            json={"token": uri_token},
         )
         assert response1.status_code == 200
 
         # Second exchange fails
         response2 = client.post(
             "/api/companion/token",
-            params={"token": uri_token},
+            json={"token": uri_token},
         )
         assert response2.status_code == 401
 
@@ -171,7 +171,7 @@ class TestCompanionTokenExchange:
 
         response = client.post(
             "/api/companion/token",
-            params={"token": "not-a-jwt"},
+            json={"token": "not-a-jwt"},
         )
         assert response.status_code == 401
 
@@ -187,7 +187,7 @@ class TestCompanionTokenExchange:
 
         response = client.post(
             "/api/companion/token",
-            params={"token": admin_token},
+            json={"token": admin_token},
         )
         assert response.status_code == 401
 

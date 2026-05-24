@@ -161,7 +161,7 @@ impl ThemeState {
 /// running instance receives a forwarded URI from the single-instance plugin.
 fn handle_deep_links(app: &tauri::AppHandle, urls: Vec<url::Url>) {
     for raw_url in urls {
-        info!("Received deep-link URI: {raw_url}");
+        info!("Received deep-link URI: {}", crate::uri::sanitized_uri_for_logging(&raw_url));
 
         match SambeeUri::parse(&raw_url) {
             Ok(parsed) => {

@@ -1,11 +1,11 @@
 //! Companion authentication token management.
 //!
 //! Handles exchanging the short-lived URI token (received via deep-link) for
-//! a longer-lived session JWT via `POST /api/companion/token?token=...`.
+//! a longer-lived session JWT via `POST /api/companion/token`.
 
 use log::{info, warn};
 use reqwest::{header, redirect, Client, Response, StatusCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::http_client::{format_proxy_auth_required_message, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 
@@ -80,7 +80,7 @@ impl std::fmt::Display for TokenExchangeError {
 //
 /// Exchange a short-lived URI token for a longer-lived companion session JWT.
 ///
-/// Calls `POST {server_url}/api/companion/token?token={uri_token}`.
+/// Calls `POST {server_url}/api/companion/token` with a JSON body.
 /// Returns the session JWT string on success.
 #[allow(dead_code)]
 pub async fn exchange_uri_token(server_url: &str, uri_token: &str) -> Result<String, String> {
@@ -110,6 +110,11 @@ pub async fn exchange_uri_token_with_store(
     exchange_uri_token_with_client(&client, server_url, &url, uri_token).await
 }
 
+#[derive(Serialize)]
+struct TokenExchangeRequest<'a> {
+    token: &'a str,
+}
+
 pub async fn exchange_uri_token_with_client(
     client: &Client,
     server_url: &str,
@@ -118,8 +123,8 @@ pub async fn exchange_uri_token_with_client(
 ) -> Result<String, TokenExchangeError> {
     let response = client
         .post(url)
-        .query(&[("token", uri_token)])
         .header(header::ACCEPT, "application/json")
+        .json(&TokenExchangeRequest { token: uri_token })
         .send()
         .await
         .map_err(|e| TokenExchangeError::Request {

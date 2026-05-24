@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from jwt.exceptions import InvalidTokenError
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -128,6 +128,12 @@ class CompanionTokenResponse(BaseModel):
 
     token: str
     expires_in: int
+
+
+class CompanionTokenExchangeRequest(BaseModel):
+    """Request body for exchanging a URI token."""
+
+    token: str
 
 
 class LockRequest(BaseModel):
@@ -241,7 +247,7 @@ async def create_uri_token(
 @router.post("/token", response_model=CompanionTokenResponse)
 async def exchange_companion_token(
     session: Session = Depends(get_session),
-    token: str = Query(..., description="The short-lived URI token to exchange"),
+    body: CompanionTokenExchangeRequest = Body(...),
 ) -> CompanionTokenResponse:
     """Exchange a short-lived URI token for a longer-lived companion session JWT.
 
@@ -256,7 +262,7 @@ async def exchange_companion_token(
     )
 
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[static.algorithm])
+        payload = jwt.decode(body.token, settings.secret_key, algorithms=[static.algorithm])
     except InvalidTokenError:
         logger.warning("Companion token exchange failed: invalid JWT")
         raise credentials_exception
