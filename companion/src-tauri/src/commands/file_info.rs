@@ -9,6 +9,8 @@ use log::info;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::http_client::{plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Response types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +51,30 @@ pub struct FileInfoResponse {
 /// Fetch file metadata from the Sambee server.
 ///
 /// Calls `GET /api/browse/{connId}/info?path={remote_path}`.
+#[allow(dead_code)]
 pub async fn get_file_info(
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<FileInfoResponse, String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    get_file_info_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn get_file_info_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<FileInfoResponse, String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    get_file_info_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn get_file_info_with_client(
+    client: &Client,
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
@@ -59,7 +84,6 @@ pub async fn get_file_info(
 
     info!("Fetching file info: conn_id={}, path='{}'", connection_id, remote_path);
 
-    let client = Client::new();
     let response = client
         .get(&url)
         .query(&[("path", remote_path)])

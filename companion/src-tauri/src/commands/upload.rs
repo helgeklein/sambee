@@ -12,6 +12,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::http_client::{plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS};
 use crate::sync::operations::{UPLOAD_MAX_RETRIES, UPLOAD_RETRY_BASE_MS};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,7 +51,36 @@ pub struct UploadResponse {
 ///
 /// Emits `upload-progress` events to the specified Tauri window via
 /// `AppHandle::emit_to`.
+#[allow(dead_code)]
 pub async fn upload_file(
+    app: &AppHandle,
+    window_label: &str,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    local_path: &Path,
+    session_token: &str,
+) -> Result<UploadResponse, String> {
+    let client = plain_client(UPLOAD_TIMEOUT_SECS)?;
+    upload_file_with_client(&client, app, window_label, server_url, connection_id, remote_path, local_path, session_token).await
+}
+
+pub async fn upload_file_with_store(
+    http_clients: &SambeeHttpClientStore,
+    app: &AppHandle,
+    window_label: &str,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    local_path: &Path,
+    session_token: &str,
+) -> Result<UploadResponse, String> {
+    let client = http_clients.client_for_server(server_url, UPLOAD_TIMEOUT_SECS)?;
+    upload_file_with_client(&client, app, window_label, server_url, connection_id, remote_path, local_path, session_token).await
+}
+
+pub async fn upload_file_with_client(
+    client: &Client,
     app: &AppHandle,
     window_label: &str,
     server_url: &str,
@@ -77,11 +107,6 @@ pub async fn upload_file(
     );
 
     let url = format!("{}/api/browse/{}/upload", server_url.trim_end_matches('/'), connection_id);
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(UPLOAD_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let mut last_error = String::new();
 
@@ -163,10 +188,32 @@ pub async fn upload_file(
 /// Acquire an edit lock on a file.
 ///
 /// `POST /api/companion/{connId}/lock?path={remote_path}`
+#[allow(dead_code)]
 pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<String, String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn acquire_lock_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<String, String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn acquire_lock_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<String, String> {
     let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
-    let client = Client::new();
     let response = client
         .post(&url)
         .query(&[("path", remote_path)])
@@ -199,10 +246,32 @@ pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &s
 /// Release an edit lock on a file.
 ///
 /// `DELETE /api/companion/{connId}/lock?path={remote_path}`
+#[allow(dead_code)]
 pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn release_lock_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn release_lock_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
     let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
-    let client = Client::new();
     let response = client
         .delete(&url)
         .query(&[("path", remote_path)])
@@ -230,13 +299,34 @@ pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &s
 ///
 /// `POST /api/companion/{connId}/lock/heartbeat?path={remote_path}`
 pub async fn send_heartbeat(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+    let client = plain_client(DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn send_heartbeat_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
+    let client = http_clients.client_for_server(server_url, DEFAULT_REQUEST_TIMEOUT_SECS)?;
+    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
+}
+
+pub async fn send_heartbeat_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<(), String> {
     let url = format!(
         "{}/api/companion/{}/lock/heartbeat",
         server_url.trim_end_matches('/'),
         connection_id
     );
 
-    let client = Client::new();
     let response = client
         .post(&url)
         .query(&[("path", remote_path)])

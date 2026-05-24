@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use log::{error, info};
 use reqwest::Client;
 
+use crate::http_client::{plain_client, SambeeHttpClientStore};
 use crate::sync::temp;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +63,32 @@ fn validate_download_size(remote_path: &str, expected_size: Option<u64>, actual_
 /// 2. Streams the file from `GET /api/viewer/{connId}/download?path={remote_path}`.
 /// 3. Saves it with a `-copy` suffix (e.g. `report-copy.docx`).
 /// 4. Returns the local path and the file's mtime (used for change detection).
+#[allow(dead_code)]
 pub async fn download_file(
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+    expected_size: Option<u64>,
+) -> Result<DownloadResult, String> {
+    let client = plain_client(DOWNLOAD_TIMEOUT_SECS)?;
+    download_file_with_client(&client, server_url, connection_id, remote_path, session_token, expected_size).await
+}
+
+pub async fn download_file_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+    expected_size: Option<u64>,
+) -> Result<DownloadResult, String> {
+    let client = http_clients.client_for_server(server_url, DOWNLOAD_TIMEOUT_SECS)?;
+    download_file_with_client(&client, server_url, connection_id, remote_path, session_token, expected_size).await
+}
+
+pub async fn download_file_with_client(
+    client: &Client,
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
@@ -85,11 +111,6 @@ pub async fn download_file(
         remote_path,
         local_path.display()
     );
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let response = client
         .get(&url)

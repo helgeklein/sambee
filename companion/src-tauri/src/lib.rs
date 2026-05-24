@@ -6,7 +6,9 @@
 
 mod app_registry;
 mod commands;
+mod http_client;
 mod logging;
+mod proxy_auth;
 mod server;
 mod sync;
 mod token;
@@ -21,6 +23,7 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 
+use crate::http_client::SambeeHttpClientStore;
 use crate::server::localization::LocalizationState;
 use crate::server::pairing::PairingState;
 use crate::sync::operations::{OperationStatus, OperationStore, PendingAppSelections, PendingConfirmations, DEFAULT_MAX_FILE_SIZE_MB};
@@ -209,13 +212,29 @@ fn handle_deep_links(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 /// 6. Spawn "Done Editing" window
 /// 7. Start file status polling + heartbeat
 async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(), String> {
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
+
     // 1. Exchange URI token for session JWT
     info!("Step 1: Exchanging URI token...");
-    let session_token = token::exchange_uri_token(&uri.server, &uri.token).await?;
+    let session_token = match token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients).await {
+        Ok(token) => token,
+        Err(token::TokenExchangeError::ProxyAuthenticationRequired { message }) => {
+            warn!("{message}");
+            proxy_auth::authenticate_reverse_proxy(&app, &uri.server, &http_clients).await?;
+            token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients)
+                .await
+                .map_err(|e| e.to_string())?
+        }
+        Err(e) => return Err(e.to_string()),
+    };
 
     // 1.5. Fetch file info for size check and conflict detection baseline
     info!("Step 1.5: Fetching file info...");
-    let file_info = commands::file_info::get_file_info(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
+    let file_info = commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
 
     // Store server-side modified_at for later conflict detection
     let server_last_modified = file_info.as_ref().ok().and_then(|info| info.modified_at.clone());
@@ -261,12 +280,19 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     // 2. Acquire edit lock
     info!("Step 2: Acquiring edit lock...");
-    let lock_id = commands::upload::acquire_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await?;
+    let lock_id = commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await?;
 
     // 3. Download file to local temp
     info!("Step 3: Downloading file...");
     let expected_download_size = file_info.as_ref().ok().and_then(|info| info.size);
-    let download_result = commands::download::download_file(&uri.server, &uri.conn_id, &uri.path, &session_token, expected_download_size)
+    let download_result = commands::download::download_file_with_store(
+        &http_clients,
+        &uri.server,
+        &uri.conn_id,
+        &uri.path,
+        &session_token,
+        expected_download_size,
+    )
         .await
         .inspect_err(|_e| {
             // Release lock on download failure (best-effort)
@@ -274,8 +300,9 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
             let cid = uri.conn_id.clone();
             let p = uri.path.clone();
             let tok = session_token.clone();
+            let clients = http_clients.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = commands::upload::release_lock(&srv, &cid, &p, &tok).await;
+                let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &tok).await;
             });
         })?;
 
@@ -398,7 +425,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         None => {
             // User cancelled — release lock and clean up
             info!("User cancelled app picker — aborting edit lifecycle");
-            let _ = commands::upload::release_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
+            let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
             store.remove(operation.id);
             refresh_tray_menu(&app);
             if let Err(e) = sync::operations::remove_operation_sidecar(&operation) {
@@ -412,7 +439,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     if let Err(e) =
         commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await
     {
-        let _ = commands::upload::release_lock(&uri.server, &uri.conn_id, &uri.path, &session_token).await;
+        let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
         let _ = sync::recycle::recycle_file(&download_result.local_path);
         store.remove(operation.id);
         refresh_tray_menu(&app);
@@ -897,6 +924,7 @@ pub fn run() {
         .manage(PendingConfirmations::default())
         .manage(PendingAppSelections::default())
         .manage(PendingMainWindowAppPicker::default())
+        .manage(SambeeHttpClientStore::default())
         .manage(Arc::new(PairingState::new()))
         .manage(Arc::new(LocalizationState::new()))
         .invoke_handler(tauri::generate_handler![

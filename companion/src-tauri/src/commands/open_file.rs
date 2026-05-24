@@ -14,6 +14,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
+use crate::http_client::SambeeHttpClientStore;
 use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
 
 fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
@@ -331,6 +332,7 @@ pub fn start_heartbeat_task(
     session_token: String,
 ) {
     let app_clone = app.clone();
+    let http_clients = app.try_state::<SambeeHttpClientStore>().map(|state| state.inner().clone());
 
     tauri::async_runtime::spawn(async move {
         let interval = std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS);
@@ -344,7 +346,13 @@ pub fn start_heartbeat_task(
                 break;
             }
 
-            match super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token).await {
+            let result = if let Some(ref clients) = http_clients {
+                super::upload::send_heartbeat_with_store(clients, &server_url, &connection_id, &remote_path, &session_token).await
+            } else {
+                super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token).await
+            };
+
+            match result {
                 Ok(()) => {}
                 Err(e) => {
                     warn!("Heartbeat failed (will retry next interval): {e}");
@@ -383,6 +391,11 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     let token = operation.token.clone();
     let original_mtime = operation.original_mtime;
     let filename = operation.filename();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Check if file was modified
     let current_mtime = fs::metadata(&local_path).and_then(|m| m.modified()).unwrap_or(original_mtime);
@@ -394,7 +407,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         // Before uploading, check if the server-side file was modified
         // by another user while we held our lock.
         if let Some(ref download_modified_at) = operation.server_last_modified {
-            match super::file_info::get_file_info(&server_url, &connection_id, &remote_path, &token).await {
+            match super::file_info::get_file_info_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await {
                 Ok(current_info) => {
                     if let Some(ref current_modified) = current_info.modified_at {
                         if current_modified != download_modified_at {
@@ -425,7 +438,18 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
         store.update_status(op_id, OperationStatus::Uploading(0.0));
         crate::refresh_tray_menu(&app);
 
-        match super::upload::upload_file(&app, &window_label, &server_url, &connection_id, &remote_path, &local_path, &token).await {
+        match super::upload::upload_file_with_store(
+            &http_clients,
+            &app,
+            &window_label,
+            &server_url,
+            &connection_id,
+            &remote_path,
+            &local_path,
+            &token,
+        )
+        .await
+        {
             Ok(_resp) => {
                 info!("Upload successful for {}", filename);
             }
@@ -439,7 +463,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Stri
     }
 
     // Release lock (best-effort)
-    let _ = super::upload::release_lock(&server_url, &connection_id, &remote_path, &token).await;
+    let _ = super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await;
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -489,9 +513,14 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
     let remote_path = operation.remote_path.clone();
     let token = operation.token.clone();
     let filename = operation.filename();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Release lock (best-effort)
-    let _ = super::upload::release_lock(&server_url, &connection_id, &remote_path, &token).await;
+    let _ = super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await;
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -572,11 +601,27 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     let remote_path = upload_path_override.unwrap_or(&operation.remote_path);
     let token = operation.token.clone();
     let filename = operation.filename();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Upload
     store.update_status(op_id, OperationStatus::Uploading(0.0));
     crate::refresh_tray_menu(app);
-    match super::upload::upload_file(app, &window_label, &server_url, &connection_id, remote_path, &local_path, &token).await {
+    match super::upload::upload_file_with_store(
+        &http_clients,
+        app,
+        &window_label,
+        &server_url,
+        &connection_id,
+        remote_path,
+        &local_path,
+        &token,
+    )
+    .await
+    {
         Ok(_) => {
             info!("Upload successful (conflict resolved) for {}", filename);
         }
@@ -589,7 +634,8 @@ async fn upload_and_finish(app: &AppHandle, operation_id: &str, upload_path_over
     }
 
     // Release lock
-    let _ = super::upload::release_lock(
+    let _ = super::upload::release_lock_with_store(
+        &http_clients,
         &server_url,
         &connection_id,
         &operation.remote_path, // Always release lock on the original path
@@ -749,9 +795,15 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<St
     let op = crate::sync::operations::load_operation_sidecar(&sidecar_path)?;
     let filename = op.filename().to_string();
     let local_path = op.local_path.clone();
+    let http_clients = app
+        .try_state::<SambeeHttpClientStore>()
+        .ok_or_else(|| "HTTP client store not available".to_string())?
+        .inner()
+        .clone();
 
     // Attempt upload with existing token (may fail if expired)
-    let upload_result = super::upload::upload_file(
+    let upload_result = super::upload::upload_file_with_store(
+        &http_clients,
         &app,
         "main", // no Done Editing window for recovery
         &op.server_url,
