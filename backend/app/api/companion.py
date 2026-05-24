@@ -57,8 +57,8 @@ logger = get_logger(__name__)
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
 
-# URI tokens are single-use and expire quickly
-URI_TOKEN_EXPIRE_SECONDS = 60
+# URI tokens are single-use but must survive an interactive reverse-proxy login.
+URI_TOKEN_EXPIRE_SECONDS = 300
 
 # Companion session tokens live longer
 COMPANION_TOKEN_EXPIRE_MINUTES = 60
