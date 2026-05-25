@@ -57,6 +57,12 @@ updates:
     labels:
       - dependencies
       - python
+    ignore:
+      # pydantic-core is a transitive dependency pinned exactly by the direct
+      # pydantic requirement. Dependabot lockfile-only bumps here can become
+      # impossible to install under --require-hashes until a newer pydantic
+      # release adopts that core version.
+      - dependency-name: "pydantic-core"
     groups:
       backend-python-dev-tools:
         patterns:
