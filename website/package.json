@@ -23,7 +23,7 @@
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.18",
     "chokidar": "^4.0.3",
-    "concurrently": "^9.2.1",
+    "concurrently": "^10.0.3",
     "pagefind": "^1.4.0",
     "tailwind-bootstrap-grid": "^6.0.0",
     "tailwindcss": "^4.1.18",
