@@ -54,7 +54,7 @@ fi
 
 # Backend: Unit Tests
 echo -e "${YELLOW}=== Backend: Unit Tests ===${NC}"
-echo -e "${BLUE}Running pytest...${NC}"
+echo -e "${BLUE}Running pytest (excluding performance tests)...${NC}"
 
 # Determine number of workers for parallel execution
 # Use number of CPU cores, or default to 4
@@ -70,18 +70,34 @@ fi
 # Use coverage only if COVERAGE env var is set
 if [ "${COVERAGE:-0}" = "1" ]; then
     # Coverage with parallel execution
-    PYTEST_CMD="pytest -n $NUM_WORKERS --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml"
+    PYTEST_CMD=(pytest -n "$NUM_WORKERS" -m "not performance" --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml)
     echo -e "${BLUE}Coverage: enabled${NC}"
 else
     # Parallel execution without coverage (fastest)
-    PYTEST_CMD="pytest -n $NUM_WORKERS"
+    PYTEST_CMD=(pytest -n "$NUM_WORKERS" -m "not performance")
     echo -e "${BLUE}Coverage: disabled${NC}"
 fi
 
-if $PYTEST_CMD; then
+if "${PYTEST_CMD[@]}"; then
     echo -e "${GREEN}✓ Backend tests passed${NC}\n"
 else
     echo -e "${RED}✗ Backend tests failed${NC}\n"
+    OVERALL_STATUS=1
+fi
+
+echo -e "${YELLOW}=== Backend: Performance Tests ===${NC}"
+echo -e "${BLUE}Running performance tests serially...${NC}"
+
+if [ "${COVERAGE:-0}" = "1" ]; then
+    PERFORMANCE_PYTEST_CMD=(pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=html --cov-report=xml)
+else
+    PERFORMANCE_PYTEST_CMD=(pytest -m performance)
+fi
+
+if "${PERFORMANCE_PYTEST_CMD[@]}"; then
+    echo -e "${GREEN}✓ Backend performance tests passed${NC}\n"
+else
+    echo -e "${RED}✗ Backend performance tests failed${NC}\n"
     OVERALL_STATUS=1
 fi
 
