@@ -17,11 +17,11 @@ Do not default to either no validation or every possible check.
 
 | Change area | Baseline checks |
 |---|---|
-| Backend behavior | `cd backend && pytest -v`, `cd backend && mypy app` |
+| Backend behavior | `cd backend && pytest -m 'not performance' -v`, `cd backend && pytest -m performance -v`, `cd backend && mypy app` |
 | Frontend behavior | `cd frontend && npm test`, `cd frontend && npx tsc --noEmit`, `cd frontend && npm run lint` |
 | Companion behavior | `cd companion && npx tsc --noEmit`, `cd companion && npm run lint`, `cd companion/src-tauri && cargo test` |
 
-For fast local iteration, `./scripts/test` runs the main backend and frontend test suites together. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
+For fast local iteration, `./scripts/test` runs the main backend and frontend test suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
 
 ## Cross-Boundary Changes Need Cross-Boundary Checks
 
@@ -164,7 +164,7 @@ Use the shared fixtures instead of rebuilding the same setup in each test file.
 
 ## Performance Notes
 
-- backend tests use `pytest-xdist` for parallel execution in the normal workflow
+- backend tests use `pytest-xdist` for parallel execution in the normal workflow, but `@performance` tests run separately without xdist so timing assertions stay stable
 - coverage is intentionally optional during routine local work because it is slower
 - use deeper coverage when the change touches risky backend behavior or when CI-equivalent evidence matters
 

@@ -1394,9 +1394,9 @@ watchfiles==1.2.0 \
     --hash=sha256:faea288b6f0ab1902ef08f4ca6de005dccf856c4e0c4f21b8c5fce02d90a1b08 \
     --hash=sha256:fff610d7bb2256a317bb1e96f0d7862c7aa8076733ee5df0fd41bbe76a24a4f4
     # via uvicorn
-wcwidth==0.8.0 \
-    --hash=sha256:68a882ff6d14e3d14e0cae590b96a0551be64ce4905408112a8254434a1bdf69 \
-    --hash=sha256:8c75e6099cefd197c4bcc67a486f70b5dbc68f997c05f34a811d853910450d64
+wcwidth==0.8.1 \
+    --hash=sha256:f453740b1e4a4f3291faa37944c555d71056c4da08d59809b307ef4feba695c8 \
+    --hash=sha256:faf5b4a5366a72dc49cad48cdf21f52bdf63bdda995178e483ba247ff79089b9
     # via prompt-toolkit
 websockets==16.0 \
     --hash=sha256:0298d07ee155e2e9fda5be8a9042200dd2e3bb0b8a38482156576f863a9d457c \

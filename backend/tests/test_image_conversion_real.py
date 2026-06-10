@@ -341,6 +341,7 @@ class TestConversionPipeline:
         if failures:
             pytest.fail("Conversion failures:\n" + "\n".join(failures))
 
+    @pytest.mark.performance
     def test_conversion_performance(self):
         """Test that conversions complete within reasonable time."""
         import time
