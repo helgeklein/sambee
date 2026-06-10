@@ -144,7 +144,7 @@ jobs:
         shell: bash
     steps:
     - name: Checkout code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Cache Python virtual environment
       uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
@@ -211,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
@@ -252,7 +252,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
     - name: Sync and verify version metadata
       uses: ./.github/actions/sync-version-check
@@ -279,7 +279,7 @@ jobs:
       uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
     - name: Cache Rust build artifacts
-      uses: Swatinem/rust-cache@8ba370a7908a18ecf2b2aa574dbfdf4e4e50514c
+      uses: Swatinem/rust-cache@c106961feec855ef5a58494c5a2a31c9d80429a9
       with:
         workspaces: companion/src-tauri -> target
 
