@@ -184,14 +184,23 @@ jobs:
         source .venv/bin/activate
         mypy app
 
-    - name: Run pytest
+    - name: Run pytest (excluding performance)
       env:
         SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
         ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
       run: |
         cd backend
         source .venv/bin/activate
-        pytest -n auto --cov=app --cov-report=term-missing --cov-report=xml
+        pytest -n auto -m 'not performance' --cov=app --cov-report=term-missing --cov-report=xml
+
+    - name: Run performance pytest
+      env:
+        SECRET_KEY: test-secret-key-for-ci-only-not-for-production-use
+        ENCRYPTION_KEY: YYFPojCh_1WUExv5xXVEyFe0ITw_5dgZZ-fC-iZk3nU=
+      run: |
+        cd backend
+        source .venv/bin/activate
+        pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=xml
 
     - name: Upload coverage reports
       if: always()

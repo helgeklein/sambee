@@ -57,6 +57,8 @@ Manual dispatch runs all three areas.
 
 The workflow ends with a single gate job so branch protection can depend on one stable required check instead of a changing set of per-area jobs.
 
+In the backend job, regular tests run under `pytest-xdist` for throughput, while `@performance` tests run in a separate serial pass so wall-clock assertions are not distorted by parallel worker contention.
+
 ### Caching Model
 
 The test workflow uses layered caching to reduce repeated setup work while keeping dependency inputs explicit.
