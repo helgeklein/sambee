@@ -6,17 +6,17 @@ This is step 1 of the Docker release flow.
 
 Use this `Release: Create Docker Image` workflow to create a deployable Docker image from a specific commit. It is the only workflow that builds and pushes a new Sambee image to GitHub Container Registry.
 
-This workflow does not publish a GitHub Release, and it does not move anything to `stable` or `beta`. It builds a candidate image, validates it, publishes it under an immutable `sha-<full-commit-sha>` tag, and moves the `test` tag to that same digest.
+This workflow does not create a Git tag, does not publish a GitHub Release, and does not move anything to `stable` or `beta`. It builds a candidate image, validates it, publishes it under an immutable `sha-<full-commit-sha>` tag, and moves the `test` tag to that same digest.
 
-## Use It When
+## Summary
 
-Run the preview workflow when:
+Use this order when you are preparing a release candidate (RC) Docker image:
 
-- you want to test a specific commit in a real deployment environment.
-- you want a candidate image that can later be promoted to `stable` or `beta` without rebuilding.
-- you want the candidate to identify itself with a preview-only version label before a formal release.
-
-Do not use this workflow for pull-request smoke testing. That is the job of `CI: Validate Docker Image`.
+1. Merge the commit you may want to ship.
+1. Start `Release: Create Docker Image` from that exact commit.
+   - Leave `source_ref` empty unless you deliberately need another immutable ref.
+   - Leave `publish_version_override` empty unless this is a preview-only label.
+1. Wait for the workflow to publish a new Docker image in GHCR tagged `sha-<full-commit-sha>` and `test`.
 
 ## Inputs
 
@@ -72,18 +72,6 @@ For preview publishing, Trivy findings are advisory rather than blocking. That k
 The preview scan runs against the same pushed platform digests that are later assembled into the published candidate index, so validation and publication use the same platform manifests.
 
 Those manifests use the same OS-package refresh policy, so the candidate that gets published is rebuilt against current Debian package metadata for that workflow run.
-
-## Run the Workflow
-
-Use this order when you are preparing a release candidate:
-
-1. Merge the commit you may want to ship.
-2. Start `Release: Create Docker Image` from that exact commit.
-3. Leave `source_ref` empty unless you deliberately need another immutable ref.
-4. Leave `publish_version_override` empty unless this is a preview-only label.
-5. Wait for the workflow to publish `sha-<full-commit-sha>` and update `test`.
-6. Validate the candidate in the target environment.
-7. If the candidate is approved, move on to [Promote Docker Candidate](../promote-docker-candidate/).
 
 ## Metadata
 

@@ -17,13 +17,17 @@ If you want to publish a new Docker image:
 1. Run `Release: Create Docker Image` for the commit you want to ship.
    - This creates a new Docker image in GHCR and moves the `test` tag to it.
 1. Test and validate the new image.
-1. Create a GitHub Release from that same commit.
-   - Tag the GitHub Release as `vX.Y.Z-beta.N` (prereleases) or `vX.Y.Z` (stable releases).
+1. Create and push the real release Git tag on that same commit.
+   - Use:
+      - `git tag -a vX.Y.Z-beta.N <commit> -m "Sambee X.Y.Z beta N"` for prereleases
+      - `git tag -a vX.Y.Z <commit> -m "Sambee X.Y.Z"` for stable releases
+   - Push the tag with `git push origin <tag>`.
+1. Publish a GitHub Release from that existing tag.
 1. Release publication triggers `Release: Publish Docker Image`, which tags the image built earlier as `beta` (prereleases) or `stable` and adds version tags for stable releases.
 
 Read the detailed pages in this order:
 
-1. [Publish Test Docker Candidate](../publish-a-preview-docker-image/)
+1. [Publish Test Docker Candidate](../publish-test-docker-candidate/)
 2. [Promote Docker Candidate](../promote-docker-candidate/)
 3. [Docker Backfill And Cleanup](../docker-backfill-and-cleanup/)
 
@@ -33,7 +37,7 @@ Read the detailed pages in this order:
 |---|---|---|
 | `CI: Validate Docker Image` | Any pull request, push to `main`, or manual smoke-test run. | Proves the production image still builds and starts, but does not publish anything. |
 | `Release: Create Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes the metadata bundle, marks that digest as the current `test` image, and signs the digest. |
-| `Release: Publish Docker Image` | A GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags and the `stable` or `beta` channel tag. |
+| `Release: Publish Docker Image` | A Git tag was pushed and the matching GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags and the `stable` or `beta` channel tag. |
 | `Maintenance: Backfill Docker Release Tags` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without publishing a new runtime image. |
 | `Maintenance: Clean Up Docker Package Versions` | Preview history and unreferenced GHCR artifacts need cleanup. | Deletes unprotected SHA-tagged preview GHCR versions, prunes stale signature artifacts, and removes unreferenced untagged package versions while preserving release-tagged artifacts and protected aliases including `test`. |
 

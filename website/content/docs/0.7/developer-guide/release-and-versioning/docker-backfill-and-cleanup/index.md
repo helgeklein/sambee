@@ -85,4 +85,4 @@ There is no retention count anymore. The workflow deletes every package version 
 - Do not treat immutable `sha-<full-commit-sha>` preview tags as permanent history. The cleanup workflow is expected to prune them.
 - Do not use moving tags such as `stable`, `beta`, or `test` as the only source of deployment truth when a digest is available.
 
-If you are starting from a new candidate commit rather than repairing an existing release path, go back to [Publish Test Docker Candidate](../publish-a-preview-docker-image/) or [Promote Docker Candidate](../promote-a-preview-candidate-to-stable-or-beta/).
+If you are starting from a new candidate commit rather than repairing an existing release path, go back to [Publish Test Docker Candidate](../publish-test-docker-candidate/) or [Promote Docker Candidate](../promote-docker-candidate/).

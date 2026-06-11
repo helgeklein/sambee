@@ -6,14 +6,41 @@ This is step 2 of the Docker release flow.
 
 Use this `Release: Publish Docker Image` workflow to move the `beta` or `stable` tags to an existing Docker image, and to apply version tags to the image (stable releases only).
 
+## How To Trigger the Workflow
+
+Use this order:
+
+1. Identify the commit whose preview image you validated from the tag on the GHCR Docker image (`sha-<commit>`).
+1. Create the release Git tag on that exact commit.
+1. Push the tag to GitHub.
+1. Publish the GitHub Release from that tag.
+
+For example, if the approved commit is `89378a28b18ba6532571e62734a6a9aefac6c99a` and `VERSION` is `0.7.0`:
+
+### Beta Example
+
+```bash
+git tag -a v0.7.0-beta.1 89378a28b18ba6532571e62734a6a9aefac6c99a -m "Sambee 0.7.0 beta 1"
+git push origin v0.7.0-beta.1
+```
+
+### Stable Example
+
+```bash
+git tag -a v0.7.0 89378a28b18ba6532571e62734a6a9aefac6c99a -m "Sambee 0.7.0"
+git push origin v0.7.0
+```
+
+In the GitHub web UI, create a release from the existing tag. Avoid the branch selection.
+
 ## Validation
 
 Before promotion, the workflow checks all of the following:
 
 1. Stable releases must use the tag `v$(cat VERSION)`. Prereleases must start with that same base version and add a prerelease suffix, for example `v0.8.0-beta.1`.
-2. The corresponding immutable preview candidate tag `sha-<full-commit-sha>` exists in GitHub Container Registry.
-3. The candidate image labels match the expected revision, checked-in product version, and source repository.
-4. The preview-built SBOM and provenance metadata bundle exists under the expected digest-derived `.meta` tag and matches the candidate digest.
+1. The corresponding immutable preview candidate tag `sha-<full-commit-sha>` exists in GitHub Container Registry.
+1. The candidate image labels match the expected revision, checked-in product version, and source repository.
+1. The preview-built SBOM and provenance metadata bundle exists under the expected digest-derived `.meta` tag and matches the candidate digest.
 
 If any of those checks fail, promotion stops.
 
@@ -47,6 +74,6 @@ Examples:
 
 - `VERSION` contains `0.7.0`.
 - A stable Git tag and GitHub Release must be `v0.7.0`.
-- A prerelease Git tag and GitHub Release may be `vX.Y.Z-beta.N`.
+- A prerelease Git tag and GitHub Release may be `v0.7.0-beta.1`.
 
 If those values drift apart, promotion fails.
