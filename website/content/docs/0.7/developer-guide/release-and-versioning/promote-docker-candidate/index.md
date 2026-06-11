@@ -51,10 +51,13 @@ Stable releases publish:
 - The full version tag, such as `0.7.0`.
 - The moving minor-series tag, such as `0.7`.
 - The moving channel tag `stable`.
+- The moving channel tag `beta`, unless `beta` already points to a higher semver release.
 
 Prereleases publish:
 
 - The moving channel tag `beta`.
+
+That stable-release `beta` catch-up rule uses standard semver precedence. Build metadata does not make a version newer for ordering purposes.
 
 After the tag-promotion steps finish, the workflow uploads `metadata.json`, `provenance/intoto.jsonl`, and the platform SPDX SBOM files to the GitHub Release as convenience assets. The digest-derived `.meta` artifact in `ghcr.io/<owner>/sambee-signatures` remains the canonical metadata bundle.
 

@@ -58,6 +58,8 @@ After validation, the workflow:
 
 The digest is the real artifact identity. The `test` tag is only a moving alias.
 
+Later promotion may move `stable`, `beta`, or both channel aliases to that same digest, depending on the release type and the current `beta` version.
+
 The workflow uses digest-only platform pushes while assembling the final candidate index. Treat those platform manifests as internal publish artifacts, not release candidates.
 
 Cosign writes the signature artifact into a dedicated signature repository so the main `sambee` package page stays centered on deployable image versions.

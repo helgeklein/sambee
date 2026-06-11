@@ -24,6 +24,7 @@ If you want to publish a new Docker image:
    - Push the tag with `git push origin <tag>`.
 1. Publish a GitHub Release from that existing tag.
 1. Release publication triggers `Release: Publish Docker Image`, which tags the image built earlier as `beta` (prereleases) or `stable` and adds version tags for stable releases.
+   - Stable publication also moves `beta` forward unless `beta` already points to a higher semver release.
 
 Read the detailed pages in this order:
 
@@ -37,7 +38,7 @@ Read the detailed pages in this order:
 |---|---|---|
 | `CI: Validate Docker Image` | Any pull request, push to `main`, or manual smoke-test run. | Proves the production image still builds and starts, but does not publish anything. |
 | `Release: Create Docker Image` | You want a real candidate image for a specific commit or tag. | Builds, validates, publishes the metadata bundle, marks that digest as the current `test` image, and signs the digest. |
-| `Release: Publish Docker Image` | A Git tag was pushed and the matching GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags and the `stable` or `beta` channel tag. |
+| `Release: Publish Docker Image` | A Git tag was pushed and the matching GitHub Release was published from an approved candidate commit. | Verifies the existing preview-built digest, then attaches release tags, moves `stable` or `beta`, and catches `beta` up during stable publication unless `beta` already points to a higher semver release. |
 | `Maintenance: Backfill Docker Release Tags` | You need to restore or attach release tags for an already approved GitHub Release. | Reapplies release tags and channel aliases to an existing digest without publishing a new runtime image. |
 | `Maintenance: Clean Up Docker Package Versions` | Preview history and unreferenced GHCR artifacts need cleanup. | Deletes unprotected SHA-tagged preview GHCR versions, prunes stale signature artifacts, and removes unreferenced untagged package versions while preserving release-tagged artifacts and protected aliases including `test`. |
 
@@ -46,7 +47,7 @@ Read the detailed pages in this order:
 Sambee publishes three moving channel tags:
 
 - `stable` for the current non-prerelease line.
-- `beta` for the current prerelease line.
+- `beta` for the current prerelease line, or for the newest stable line when `beta` is not already ahead on a higher semver prerelease path.
 - `test` for the newest manually published preview candidate.
 
 Each preview publish also creates an immutable lookup tag in the `sha-<full-commit-sha>` form.

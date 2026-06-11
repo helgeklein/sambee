@@ -246,13 +246,76 @@ jobs:
       shell: bash
       run: crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
 
-    - name: Promote channel tag
+    - name: Decide whether stable promotion should also move beta
+      id: beta-policy
+      if: ${{ needs.prepare.outputs.release_type == 'stable' }}
+      shell: bash
+      run: |
+        beta_ref="${{ needs.prepare.outputs.image_name }}:beta"
+        beta_version=""
+        beta_digest=""
+
+        set +e
+        beta_digest="$(crane digest "$beta_ref" 2>/dev/null)"
+        status=$?
+        set -e
+
+        if [[ $status -eq 0 ]]; then
+          beta_config="$(crane config "$beta_ref")"
+          beta_version="$(jq -r '.config.Labels["org.opencontainers.image.version"] // empty' <<<"$beta_config")"
+          echo "Current beta digest: $beta_digest"
+          if [[ -n "$beta_version" ]]; then
+            echo "Current beta version: $beta_version"
+          else
+            echo "Current beta version label is missing; beta will be updated unless it already matches the promoted digest."
+          fi
+        else
+          echo "Current beta tag does not exist; beta will be updated."
+        fi
+
+        decision="promote"
+        if [[ -n "$beta_digest" && "$beta_digest" == "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" ]]; then
+          decision="keep"
+          echo "Beta already points at the promoted digest; no beta update is needed."
+        else
+          decision="$(python3 .github/scripts/should_promote_beta_tag.py \
+            --stable-version "${{ needs.prepare.outputs.version }}" \
+            --beta-version "$beta_version")"
+        fi
+
+        echo "decision=$decision" >> "$GITHUB_OUTPUT"
+
+    - name: Promote prerelease beta channel tag
+      if: ${{ needs.prepare.outputs.release_type == 'beta' }}
       shell: bash
       run: |
         bash .github/scripts/promote_container_image.sh \
           --image-name "${{ needs.prepare.outputs.image_name }}" \
           --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
-          --tag "${{ needs.prepare.outputs.release_type }}"
+          --tag beta
+
+    - name: Promote stable channel tag
+      if: ${{ needs.prepare.outputs.release_type == 'stable' }}
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --tag stable
+
+    - name: Promote beta channel tag to catch up with stable
+      if: ${{ needs.prepare.outputs.release_type == 'stable' && steps.beta-policy.outputs.decision == 'promote' }}
+      shell: bash
+      run: |
+        bash .github/scripts/promote_container_image.sh \
+          --image-name "${{ needs.prepare.outputs.image_name }}" \
+          --source-digest "${{ needs.resolve-candidate-artifact.outputs.candidate_digest }}" \
+          --tag beta
+
+    - name: Keep beta on newer release line
+      if: ${{ needs.prepare.outputs.release_type == 'stable' && steps.beta-policy.outputs.decision == 'keep' }}
+      shell: bash
+      run: echo "Keeping beta on its current digest because it is already aligned or points to a higher semver release."
 
   upload-metadata-release-assets:
     needs: [prepare, resolve-candidate-artifact, publish-release-tags]
