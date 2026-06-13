@@ -79,16 +79,6 @@ const HORIZONTAL_CHROME_SPACING = {
   sm: `${QUICK_BAR_SPACING.sm.horizontal}px`,
 } as const;
 
-const SPACE_TRIGGER_KEYS = new Set([" ", "Space", "Spacebar"]);
-
-function isSpaceTriggerKey(key: string): boolean {
-  return SPACE_TRIGGER_KEYS.has(key);
-}
-
-function getModeMenuItems(menuElement: HTMLElement): HTMLLIElement[] {
-  return Array.from(menuElement.querySelectorAll<HTMLLIElement>('[role="menuitem"]'));
-}
-
 const QUICK_BAR_MODE_LABEL_SX = {
   fontSize: "0.75rem",
   fontWeight: 600,
@@ -167,7 +157,6 @@ export function UnifiedSearchBar({
   const [hasSearched, setHasSearched] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isSearchPending, setIsSearchPending] = useState(false);
-  const [isModeMenuKeyboardOpened, setIsModeMenuKeyboardOpened] = useState(false);
 
   const theme = useTheme();
   const { t } = useTranslation();
@@ -178,7 +167,6 @@ export function UnifiedSearchBar({
     handleKeyDown: handleModeMenuKeyDown,
     handleKeyUp: handleModeMenuKeyUp,
     handleClose: handleModeMenuClose,
-    openMenu: openModeMenu,
   } = usePillButtonMenu();
 
   // ── Refs ───────────────────────────────────────────────────────────────
@@ -188,7 +176,6 @@ export function UnifiedSearchBar({
   const pendingQueryRef = useRef<string>("");
   const providerRef = useRef(provider);
   const internalInputRef = useRef<HTMLInputElement>(null);
-  const skipModeSpaceKeyUpRef = useRef(false);
   const activatedRef = useRef(false);
   const lastResetProviderRef = useRef(provider);
   const lastActivationTokenRef = useRef(activationToken);
@@ -270,14 +257,6 @@ export function UnifiedSearchBar({
     }, 0);
   }, [effectiveInputRef]);
 
-  const handleModeMenuButtonClick = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      setIsModeMenuKeyboardOpened(false);
-      handleModeMenuClick(event);
-    },
-    [handleModeMenuClick]
-  );
-
   const handleModeTriggerKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.key === "Escape") {
@@ -287,80 +266,10 @@ export function UnifiedSearchBar({
         return;
       }
 
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        setIsModeMenuKeyboardOpened(true);
-        openModeMenu(event.currentTarget);
-        return;
-      }
-
-      if (isSpaceTriggerKey(event.key)) {
-        event.preventDefault();
-        event.stopPropagation();
-        skipModeSpaceKeyUpRef.current = true;
-        setIsModeMenuKeyboardOpened(true);
-        openModeMenu(event.currentTarget);
-        return;
-      }
-
       handleModeMenuKeyDown(event);
     },
-    [focusQuickBarInput, handleModeMenuKeyDown, openModeMenu]
+    [focusQuickBarInput, handleModeMenuKeyDown]
   );
-
-  const handleModeTriggerKeyUp = useCallback(
-    (event: React.KeyboardEvent<HTMLElement>) => {
-      if (isSpaceTriggerKey(event.key) && skipModeSpaceKeyUpRef.current) {
-        skipModeSpaceKeyUpRef.current = false;
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-
-      handleModeMenuKeyUp(event);
-    },
-    [handleModeMenuKeyUp]
-  );
-
-  const handleModeMenuListKeyDown = useCallback((event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-      return;
-    }
-
-    const activeElement = document.activeElement;
-    if (!(activeElement instanceof HTMLElement) || !event.currentTarget.contains(activeElement)) {
-      return;
-    }
-
-    const menuRoot = event.currentTarget.matches('[role="menu"]')
-      ? event.currentTarget
-      : event.currentTarget.querySelector<HTMLElement>('[role="menu"]');
-
-    if (!menuRoot) {
-      return;
-    }
-
-    const menuItems = getModeMenuItems(menuRoot);
-    if (menuItems.length === 0) {
-      return;
-    }
-
-    const selectedIndex = menuItems.findIndex((menuItem) => menuItem.classList.contains("Mui-selected"));
-    const focusedItemIndex = menuItems.findIndex((menuItem) => menuItem === activeElement || menuItem.contains(activeElement));
-    const currentIndex = focusedItemIndex >= 0 ? focusedItemIndex : selectedIndex;
-
-    let nextIndex = currentIndex;
-    if (event.key === "ArrowDown") {
-      nextIndex = currentIndex >= 0 ? Math.min(currentIndex + 1, menuItems.length - 1) : 0;
-    } else {
-      nextIndex = currentIndex >= 0 ? Math.max(currentIndex - 1, 0) : menuItems.length - 1;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    menuItems[nextIndex]?.focus();
-  }, []);
 
   const modeSelector = useMemo(() => {
     if (!provider.modeLabel || !provider.modeId || !modeOptions || modeOptions.length === 0) {
@@ -370,9 +279,9 @@ export function UnifiedSearchBar({
     return (
       <>
         <Button
-          onClick={handleModeMenuButtonClick}
+          onClick={handleModeMenuClick}
           onKeyDown={handleModeTriggerKeyDown}
-          onKeyUp={handleModeTriggerKeyUp}
+          onKeyUp={handleModeMenuKeyUp}
           size="small"
           tabIndex={disableTabFocus ? -1 : undefined}
           aria-label={modeSelectorAriaLabel ?? t("fileBrowser.search.modeSelectorAriaLabel")}
@@ -398,25 +307,13 @@ export function UnifiedSearchBar({
           id="quick-bar-mode-menu"
           anchorEl={modeMenuAnchorEl}
           open={isModeMenuOpen}
-          autoFocus={isModeMenuKeyboardOpened}
-          disableAutoFocusItem={!isModeMenuKeyboardOpened}
-          variant={isModeMenuKeyboardOpened ? "selectedMenu" : "menu"}
           onClose={(_event, reason) => {
             handleModeMenuClose();
-            setIsModeMenuKeyboardOpened(false);
 
             if (reason === "escapeKeyDown") {
               focusQuickBarInput();
             }
           }}
-          MenuListProps={
-            isModeMenuKeyboardOpened
-              ? {
-                  autoFocus: true,
-                  autoFocusItem: true,
-                }
-              : undefined
-          }
           anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
           transformOrigin={{ vertical: "top", horizontal: "left" }}
           slotProps={{
@@ -425,7 +322,6 @@ export function UnifiedSearchBar({
                 ...getSecondaryToolbarMenuPaperStyle(menuTheme),
                 minWidth: 180,
               }),
-              onKeyDownCapture: handleModeMenuListKeyDown,
             },
           }}
         >
@@ -450,15 +346,11 @@ export function UnifiedSearchBar({
   }, [
     disableTabFocus,
     focusQuickBarInput,
-    handleModeMenuButtonClick,
     handleModeMenuClick,
     handleModeMenuClose,
-    handleModeMenuListKeyDown,
     handleModeMenuKeyUp,
     handleModeTriggerKeyDown,
-    handleModeTriggerKeyUp,
     handleModeSelect,
-    isModeMenuKeyboardOpened,
     isModeMenuOpen,
     modeMenuAnchorEl,
     modeOptions,
@@ -467,26 +359,6 @@ export function UnifiedSearchBar({
     provider.modeLabel,
     t,
   ]);
-
-  const startAdornment = useMemo(() => {
-    if (!modeSelector) {
-      return undefined;
-    }
-
-    return (
-      <InputAdornment
-        position="start"
-        sx={{
-          ml: 0,
-          mr: 0,
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
-        {modeSelector}
-      </InputAdornment>
-    );
-  }, [modeSelector]);
 
   const endAdornment = useMemo(() => {
     const showShortcutBadge = !query && !isFocused && !!kbdBadge;
@@ -925,46 +797,69 @@ export function UnifiedSearchBar({
             backgroundColor: useCompactLayout ? "background.paper" : "background.default",
           }}
         >
-          <TextField
-            fullWidth
-            size="small"
-            placeholder={provider.placeholder}
-            value={query}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onFocus={handleInputFocus}
-            onBlur={() => setIsFocused(false)}
-            inputRef={effectiveInputRef}
-            inputProps={disableTabFocus ? { tabIndex: -1 } : undefined}
+          <Box
             sx={{
-              "& .MuiInputBase-root": {
-                fontSize: { xs: "16px", sm: "14px" },
-              },
-              "& .MuiInputBase-root.Mui-focused": {
-                outline: (theme) => `3px solid ${theme.palette.appBar?.focus}`,
+              display: "flex",
+              alignItems: "center",
+              px: HORIZONTAL_CHROME_SPACING,
+              "&:focus-within": {
+                outline: (shellTheme) => `3px solid ${shellTheme.palette.appBar?.focus}`,
                 outlineOffset: "0",
               },
-              "& .MuiInputBase-input": {
-                padding: INPUT_PADDING,
-              },
-              "& .MuiOutlinedInput-notchedOutline": {
-                border: "none",
-              },
-              "&:hover .MuiOutlinedInput-notchedOutline": {
-                border: "none",
-              },
-              "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
-                border: "none",
-              },
             }}
-            InputProps={{
-              sx: {
-                px: HORIZONTAL_CHROME_SPACING,
-              },
-              startAdornment,
-              endAdornment,
-            }}
-          />
+          >
+            {modeSelector ? (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {modeSelector}
+              </Box>
+            ) : null}
+            <TextField
+              fullWidth
+              size="small"
+              placeholder={provider.placeholder}
+              value={query}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onFocus={handleInputFocus}
+              onBlur={() => setIsFocused(false)}
+              inputRef={effectiveInputRef}
+              inputProps={disableTabFocus ? { tabIndex: -1 } : undefined}
+              sx={{
+                flex: 1,
+                "& .MuiInputBase-root": {
+                  fontSize: { xs: "16px", sm: "14px" },
+                  pl: 0,
+                },
+                "& .MuiInputBase-root.Mui-focused": {
+                  outline: "none",
+                },
+                "& .MuiInputBase-input": {
+                  padding: INPUT_PADDING,
+                },
+                "& .MuiOutlinedInput-notchedOutline": {
+                  border: "none",
+                },
+                "&:hover .MuiOutlinedInput-notchedOutline": {
+                  border: "none",
+                },
+                "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
+                  border: "none",
+                },
+              }}
+              InputProps={{
+                sx: {
+                  px: 0,
+                },
+                endAdornment,
+              }}
+            />
+          </Box>
         </Paper>
 
         {/* Dropdown results panel */}
