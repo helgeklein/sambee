@@ -64,13 +64,19 @@ const DROPDOWN_WIDTH_PX = 700;
 const PAGE_JUMP_SIZE = 10;
 
 /** Preserve touch comfort on mobile while tightening desktop density slightly. */
-const MOBILE_HORIZONTAL_SPACING_PX = 14;
-const DESKTOP_HORIZONTAL_SPACING_PX = 12;
-const MOBILE_INPUT_PADDING = `10px ${MOBILE_HORIZONTAL_SPACING_PX}px`;
-const DESKTOP_INPUT_PADDING = `7.5px ${DESKTOP_HORIZONTAL_SPACING_PX}px`;
+const QUICK_BAR_SPACING = {
+  xs: { horizontal: 10, vertical: 10 },
+  sm: { horizontal: 8, vertical: 8 },
+} as const;
+
+const INPUT_PADDING = {
+  xs: `${QUICK_BAR_SPACING.xs.vertical}px ${QUICK_BAR_SPACING.xs.horizontal}px`,
+  sm: `${QUICK_BAR_SPACING.sm.vertical}px ${QUICK_BAR_SPACING.sm.horizontal}px`,
+} as const;
+
 const HORIZONTAL_CHROME_SPACING = {
-  xs: `${MOBILE_HORIZONTAL_SPACING_PX}px`,
-  sm: `${DESKTOP_HORIZONTAL_SPACING_PX}px`,
+  xs: `${QUICK_BAR_SPACING.xs.horizontal}px`,
+  sm: `${QUICK_BAR_SPACING.sm.horizontal}px`,
 } as const;
 
 // ============================================================================
@@ -779,7 +785,7 @@ export function UnifiedSearchBar({
                 outlineOffset: "0",
               },
               "& .MuiInputBase-input": {
-                padding: { xs: MOBILE_INPUT_PADDING, sm: DESKTOP_INPUT_PADDING },
+                padding: INPUT_PADDING,
               },
               "& .MuiOutlinedInput-notchedOutline": {
                 border: "none",
