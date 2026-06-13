@@ -891,7 +891,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByRole("button", { name: /folder: alpha/i })).not.toHaveAttribute("data-selected", "true");
     });
 
-    it("restores the just-left directory selection when backing out from an empty filter input", async () => {
+    it("does not navigate out when Backspace is pressed in an empty filter quick bar", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
@@ -956,15 +956,13 @@ describe("Browser Component - Interactions", () => {
       await user.type(filterInput, "rep");
       await user.keyboard("{Escape}");
       expect(filterInput).toHaveValue("");
+      const initialCallCount = (api.listDirectory as Mock).mock.calls.length;
       await user.keyboard("{Backspace}");
 
-      await waitFor(() => {
-        expectDirectoryLoad("conn-1", "");
-      });
-
-      await waitFor(() => {
-        expect(screen.getByRole("button", { name: /folder: zeta/i })).toHaveAttribute("data-selected", "true");
-      });
+      expect(filterInput).toHaveFocus();
+      expect((api.listDirectory as Mock).mock.calls.length).toBe(initialCallCount);
+      expect(screen.getByRole("button", { name: /switch quick bar mode/i })).toHaveTextContent("Filter");
+      expect(screen.getByRole("button", { name: /file: report\.pdf/i })).toBeInTheDocument();
     });
 
     it("switches quick-bar modes from the mode pill", async () => {
@@ -1117,6 +1115,51 @@ describe("Browser Component - Interactions", () => {
       await waitFor(() => {
         expectDirectoryLoad("conn-1", "");
       });
+    });
+
+    it("does not navigate to parent when Backspace is pressed in an empty commands quick bar", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockImplementation((_connectionId, path) => {
+        if (path === "Documents") {
+          return Promise.resolve({
+            items: [
+              {
+                name: "file.txt",
+                path: "Documents/file.txt",
+                type: FileType.FILE,
+                size: 100,
+                modified_at: "2024-01-01T00:00:00Z",
+                is_readable: true,
+                is_hidden: false,
+              },
+            ],
+            path: "Documents",
+            total: 1,
+          });
+        }
+        return Promise.resolve(mockDirectoryListing);
+      });
+
+      renderBrowser("/browse/smb/test-server-1/Documents");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("file.txt").length).toBeGreaterThan(0);
+      });
+
+      const initialCallCount = (api.listDirectory as Mock).mock.calls.length;
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      expect(commandInput).toHaveFocus();
+      expect(commandInput).toHaveValue("");
+
+      await user.keyboard("{Backspace}");
+
+      expect(commandInput).toHaveFocus();
+      expect((api.listDirectory as Mock).mock.calls.length).toBe(initialCallCount);
+      expect(screen.queryByPlaceholderText("Navigate to any directory")).not.toBeInTheDocument();
     });
 
     it("opens shortcuts dialog with ? key", async () => {

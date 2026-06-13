@@ -1650,14 +1650,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const isInInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
       if (isInInput) {
-        // Backspace on empty search input → navigate up
-        if (e.key === "Backspace" && (target as HTMLInputElement).value === "" && currentPathRef.current) {
-          const input = target as HTMLInputElement;
-          if (input.selectionStart === 0 && input.selectionEnd === 0) {
-            e.preventDefault();
-            handleNavigateUpDirectory();
-            return;
-          }
+        const input = target as HTMLInputElement;
+
+        // Quick-bar inputs own their keyboard interaction. File-list handlers
+        // must not react while focus remains inside the quick bar.
+        if (input.dataset.quickBarInput === "true") {
+          return;
         }
 
         const allowedKeysInInput = ["?", "Escape"];

@@ -8,7 +8,6 @@
 ## Quick Bar
 
 - Commands mode:
-   - Doesn't filter out unhandled keystrokes so backspace bubbles up to the file list and causes directory navigation
    - `Rename focused item` doesn't work. Focus issue?
    - `Show keyboard shortcuts` opens the shortcut modal beneath (z-index) the still-open quick bar dropdown
 

@@ -865,7 +865,10 @@ export function UnifiedSearchBar({
               onFocus={handleInputFocus}
               onBlur={() => setIsFocused(false)}
               inputRef={effectiveInputRef}
-              inputProps={disableTabFocus ? { tabIndex: -1 } : undefined}
+              inputProps={{
+                ...(disableTabFocus ? { tabIndex: -1 } : {}),
+                "data-quick-bar-input": "true",
+              }}
               sx={{
                 flex: 1,
                 "& .MuiInputBase-root": {
