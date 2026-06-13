@@ -1438,23 +1438,29 @@ const Browser: React.FC = () => {
   const openQuickBarMode = useCallback(
     (mode: "navigate" | "commands" | "filter") => {
       const sourcePaneId = effectiveActivePaneIdRef.current;
+      if (quickBarMode === "filter" && mode !== "filter") {
+        quickBarPane.clearCurrentDirectoryFilter();
+      }
       setQuickBarPaneId(sourcePaneId);
       setQuickBarMode(mode);
       setQuickBarActivationToken((current) => current + 1);
       focusQuickBarInput(sourcePaneId);
     },
-    [focusQuickBarInput]
+    [focusQuickBarInput, quickBarMode, quickBarPane]
   );
 
   const switchQuickBarMode = useCallback(
     (mode: "navigate" | "commands" | "filter") => {
       const sourcePaneId = quickBarPaneId === "right" && isDualMode ? "right" : "left";
+      if (quickBarMode === "filter" && mode !== "filter") {
+        quickBarPane.clearCurrentDirectoryFilter();
+      }
       setQuickBarPaneId(sourcePaneId);
       setQuickBarMode(mode);
       setQuickBarActivationToken((current) => current + 1);
       focusQuickBarInput(sourcePaneId);
     },
-    [focusQuickBarInput, isDualMode, quickBarPaneId]
+    [focusQuickBarInput, isDualMode, quickBarMode, quickBarPane, quickBarPaneId]
   );
 
   const browserCommandContext = useMemo(

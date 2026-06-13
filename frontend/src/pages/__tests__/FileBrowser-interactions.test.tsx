@@ -747,7 +747,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveValue("read");
     });
 
-    it("preserves the filter across mode switches and clears it after directory navigation", async () => {
+    it("clears the filter when leaving Filter mode and keeps it cleared after directory navigation", async () => {
       const user = userEvent.setup();
 
       vi.mocked(api.listDirectory).mockImplementation(async (_connectionId, path) => {
@@ -788,11 +788,11 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
       expect(await screen.findByPlaceholderText("Navigate to any directory")).toHaveFocus();
-      expect(screen.getByText("Filtered by: doc")).toBeInTheDocument();
+      expect(screen.queryByText("Filtered by: doc")).not.toBeInTheDocument();
 
       await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
       const restoredFilterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      expect(restoredFilterInput).toHaveValue("doc");
+      expect(restoredFilterInput).toHaveValue("");
 
       await user.click(screen.getByRole("button", { name: /documents/i }));
 
@@ -997,12 +997,20 @@ describe("Browser Component - Interactions", () => {
         expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
       });
 
+      await user.type(screen.getByPlaceholderText("Filter files in the current directory"), "read");
+
+      await waitFor(() => {
+        expect(screen.getByText("Filtered by: read")).toBeInTheDocument();
+      });
+
       await user.click(screen.getByRole("button", { name: "Switch quick bar mode" }));
       await user.click(await screen.findByRole("menuitem", { name: "Navigate" }));
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText("Navigate to any directory")).toHaveFocus();
         expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Navigate");
+        expect(screen.queryByText("Filtered by: read")).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /readme.txt/i })).toBeInTheDocument();
       });
     });
 
