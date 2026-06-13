@@ -58,6 +58,24 @@ const resultsProvider: SearchProvider = {
   getStatusInfo: () => null,
 };
 
+const commandsProvider: SearchProvider = {
+  id: "commands-provider",
+  modeId: "commands",
+  modeLabel: "Commands",
+  placeholder: "Search commands",
+  debounceMs: 0,
+  minQueryLength: 0,
+  fetchResults: async () => [
+    {
+      id: "command-1",
+      value: "command-1",
+      display: "Open settings",
+    },
+  ],
+  onSelect: () => undefined,
+  getStatusInfo: () => null,
+};
+
 const modeOptions = [
   {
     id: "navigate",
@@ -200,6 +218,64 @@ describe("UnifiedSearchBar", () => {
     expect(await screen.findByRole("menu")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the dropdown open when activation switches the focused quick bar into commands mode", async () => {
+    const user = userEvent.setup();
+
+    const { rerender } = renderWithProvider(<UnifiedSearchBar provider={resultsProvider} activationToken={0} modeOptions={modeOptions} />);
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+
+    rerender(
+      <SambeeThemeProvider>
+        <UnifiedSearchBar provider={commandsProvider} activationToken={1} modeOptions={modeOptions} />
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
+    });
+  });
+
+  it("reopens the commands dropdown when the same mode is reactivated from outside the quick bar", async () => {
+    const user = userEvent.setup();
+
+    const { rerender } = renderWithProvider(
+      <>
+        <UnifiedSearchBar provider={commandsProvider} activationToken={0} modeOptions={modeOptions} />
+        <button type="button">File list focus target</button>
+      </>
+    );
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
+    const outsideTarget = screen.getByRole("button", { name: "File list focus target" });
+    outsideTarget.focus();
+    expect(outsideTarget).toHaveFocus();
+
+    rerender(
+      <SambeeThemeProvider>
+        <>
+          <UnifiedSearchBar provider={commandsProvider} activationToken={1} modeOptions={modeOptions} />
+          <button type="button">File list focus target</button>
+        </>
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
     });
   });
 

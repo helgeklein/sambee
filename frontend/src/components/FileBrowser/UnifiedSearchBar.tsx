@@ -736,11 +736,14 @@ export function UnifiedSearchBar({
       debounceTimerRef.current = null;
     }
 
+    const isInputFocused = document.activeElement === effectiveInputRef.current;
+    const shouldOpenOnActivation = activationChanged && !disableDropdown && provider.minQueryLength === 0;
+
     setResults([]);
     setSelectedIndex(0);
     setIsLoading(false);
     setIsSearchPending(false);
-    setIsDropdownOpen(false);
+    setIsDropdownOpen(shouldOpenOnActivation);
     setHasSearched(false);
 
     if (!isControlledQuery) {
@@ -750,13 +753,16 @@ export function UnifiedSearchBar({
     lastResetProviderRef.current = provider;
     lastActivationTokenRef.current = activationToken;
 
-    const isInputFocused = document.activeElement === effectiveInputRef.current;
     activatedRef.current = isInputFocused;
+
+    if (shouldOpenOnActivation) {
+      void executeSearch("");
+    }
 
     if (isInputFocused) {
       providerRef.current.onActivate?.();
     }
-  }, [activationToken, effectiveInputRef, isControlledQuery, provider.id]);
+  }, [activationToken, disableDropdown, effectiveInputRef, executeSearch, isControlledQuery, provider.id, provider.minQueryLength]);
 
   useEffect(() => {
     if (disableDropdown) {
