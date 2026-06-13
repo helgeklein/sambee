@@ -279,6 +279,42 @@ describe("UnifiedSearchBar", () => {
     });
   });
 
+  it("preserves the navigate query when the same mode is reactivated from outside the quick bar", async () => {
+    const user = userEvent.setup();
+
+    const { rerender } = renderWithProvider(
+      <>
+        <UnifiedSearchBar provider={resultsProvider} activationToken={0} modeOptions={modeOptions} />
+        <button type="button">Outside focus target</button>
+      </>
+    );
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+    await user.type(searchInput, "ab");
+
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+    expect(searchInput).toHaveValue("ab");
+
+    const outsideTarget = screen.getByRole("button", { name: "Outside focus target" });
+    outsideTarget.focus();
+    expect(outsideTarget).toHaveFocus();
+
+    rerender(
+      <SambeeThemeProvider>
+        <>
+          <UnifiedSearchBar provider={resultsProvider} activationToken={1} modeOptions={modeOptions} />
+          <button type="button">Outside focus target</button>
+        </>
+      </SambeeThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox")).toHaveValue("ab");
+      expect(screen.getByRole("listbox")).toBeInTheDocument();
+    });
+  });
+
   it("supports arrow navigation in the mode menu after opening with Space from the focused mode button", async () => {
     const user = userEvent.setup();
 

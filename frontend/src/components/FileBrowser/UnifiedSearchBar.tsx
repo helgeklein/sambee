@@ -737,16 +737,30 @@ export function UnifiedSearchBar({
     }
 
     const isInputFocused = document.activeElement === effectiveInputRef.current;
-    const shouldOpenOnActivation = activationChanged && !disableDropdown && provider.minQueryLength === 0;
+    const nextQuery = providerChanged ? "" : query;
+    const effectiveMinQueryLength = getEffectiveMinQueryLength(nextQuery);
+    const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(nextQuery);
+    const shouldSearchOnActivation = activationChanged && !disableDropdown && nextQuery.length >= effectiveMinQueryLength;
+    const shouldShowBelowMinimumOnActivation =
+      activationChanged &&
+      !disableDropdown &&
+      nextQuery.length > 0 &&
+      nextQuery.length < effectiveMinQueryLength &&
+      !!effectiveBelowMinimumMessage;
+    const shouldOpenOnActivation = shouldSearchOnActivation || shouldShowBelowMinimumOnActivation;
+    const shouldPreserveSearchStateOnActivation = shouldSearchOnActivation && !providerChanged;
 
-    setResults([]);
-    setSelectedIndex(0);
-    setIsLoading(false);
+    if (!shouldPreserveSearchStateOnActivation) {
+      setResults([]);
+      setSelectedIndex(0);
+      setHasSearched(false);
+    }
+
+    setIsLoading(shouldSearchOnActivation);
     setIsSearchPending(false);
     setIsDropdownOpen(shouldOpenOnActivation);
-    setHasSearched(false);
 
-    if (!isControlledQuery) {
+    if (!isControlledQuery && providerChanged) {
       setInternalQuery("");
     }
 
@@ -755,14 +769,24 @@ export function UnifiedSearchBar({
 
     activatedRef.current = isInputFocused;
 
-    if (shouldOpenOnActivation) {
-      void executeSearch("");
+    if (shouldSearchOnActivation) {
+      void executeSearch(nextQuery);
     }
 
     if (isInputFocused) {
       providerRef.current.onActivate?.();
     }
-  }, [activationToken, disableDropdown, effectiveInputRef, executeSearch, isControlledQuery, provider.id, provider.minQueryLength]);
+  }, [
+    activationToken,
+    disableDropdown,
+    effectiveInputRef,
+    executeSearch,
+    getEffectiveBelowMinimumMessage,
+    getEffectiveMinQueryLength,
+    isControlledQuery,
+    provider.id,
+    query,
+  ]);
 
   useEffect(() => {
     if (disableDropdown) {
