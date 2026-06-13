@@ -257,6 +257,20 @@ export function UnifiedSearchBar({
     }, 0);
   }, [effectiveInputRef]);
 
+  const handleModeTriggerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        focusQuickBarInput();
+        return;
+      }
+
+      handleModeMenuKeyDown(event);
+    },
+    [focusQuickBarInput, handleModeMenuKeyDown]
+  );
+
   const modeSelector = useMemo(() => {
     if (!provider.modeLabel || !provider.modeId || !modeOptions || modeOptions.length === 0) {
       return null;
@@ -266,7 +280,7 @@ export function UnifiedSearchBar({
       <>
         <Button
           onClick={handleModeMenuClick}
-          onKeyDown={handleModeMenuKeyDown}
+          onKeyDown={handleModeTriggerKeyDown}
           onKeyUp={handleModeMenuKeyUp}
           size="small"
           tabIndex={disableTabFocus ? -1 : undefined}
@@ -334,8 +348,8 @@ export function UnifiedSearchBar({
     focusQuickBarInput,
     handleModeMenuClick,
     handleModeMenuClose,
-    handleModeMenuKeyDown,
     handleModeMenuKeyUp,
+    handleModeTriggerKeyDown,
     handleModeSelect,
     isModeMenuOpen,
     modeMenuAnchorEl,
@@ -614,6 +628,12 @@ export function UnifiedSearchBar({
           } else if (onBlurToFileList) {
             // Third Escape: blur back to the file list
             onBlurToFileList();
+          }
+          break;
+
+        case "Tab":
+          if (isDropdownOpen) {
+            setIsDropdownOpen(false);
           }
           break;
       }

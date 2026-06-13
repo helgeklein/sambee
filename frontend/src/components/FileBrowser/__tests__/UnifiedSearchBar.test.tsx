@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../../i18n";
@@ -27,6 +27,37 @@ const noResultsProvider: SearchProvider = {
   onSelect: () => undefined,
   getStatusInfo: () => null,
 };
+
+const resultsProvider: SearchProvider = {
+  id: "results-provider",
+  modeId: "navigate",
+  modeLabel: "Navigate",
+  placeholder: "Search",
+  debounceMs: 0,
+  minQueryLength: 0,
+  fetchResults: async () => [
+    {
+      id: "folder-1",
+      value: "/docs",
+      display: "Docs",
+    },
+  ],
+  onSelect: () => undefined,
+  getStatusInfo: () => null,
+};
+
+const modeOptions = [
+  {
+    id: "navigate",
+    label: "Navigate",
+    onSelect: vi.fn(),
+  },
+  {
+    id: "commands",
+    label: "Commands",
+    onSelect: vi.fn(),
+  },
+];
 
 function renderWithProvider(component: React.ReactElement) {
   return render(<SambeeThemeProvider>{component}</SambeeThemeProvider>);
@@ -65,5 +96,46 @@ describe("UnifiedSearchBar", () => {
     await user.type(searchInput, "abc");
 
     expect(screen.getByText(translate("fileBrowser.search.results.none", { query: "abc" }))).toBeInTheDocument();
+  });
+
+  it("closes the dropdown when tab moves focus away", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(
+      <>
+        <UnifiedSearchBar provider={resultsProvider} />
+        <button type="button">Next focus target</button>
+      </>
+    );
+
+    const searchInput = screen.getByRole("textbox");
+    await user.click(searchInput);
+
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+
+    await user.tab();
+
+    expect(screen.getByRole("button", { name: "Next focus target" })).toHaveFocus();
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+  });
+
+  it("returns focus to the quick-bar input when Escape is pressed on the mode button", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={noResultsProvider} modeOptions={modeOptions} />);
+
+    const searchInput = screen.getByRole("textbox");
+    const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
+
+    modeButton.focus();
+    expect(modeButton).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(searchInput).toHaveFocus();
+    });
   });
 });
