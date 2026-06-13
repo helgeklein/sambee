@@ -1076,6 +1076,32 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("opens the focused item when Open Focused Item is selected from commands mode", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        const documentsElements = screen.getAllByText("Documents");
+        expect(documentsElements.length).toBeGreaterThan(0);
+      });
+
+      const documentsFolder = screen.getByRole("button", {
+        name: /documents/i,
+      });
+      await user.click(documentsFolder);
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      await user.type(commandInput, "open");
+      await user.click(await screen.findByText("Open Focused Item"));
+
+      await waitFor(() => {
+        expectDirectoryLoad("conn-1", "Documents");
+      });
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
     it("navigates to parent with Backspace key", async () => {
       const user = userEvent.setup();
 
@@ -1300,6 +1326,27 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Delete", () => {
+    it("opens delete dialog when Delete Focused Item is selected from commands mode", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      await user.type(commandInput, "delete");
+      await user.click(await screen.findByText("Delete Focused Item"));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
     it("opens confirm dialog when Delete key pressed on focused file", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
@@ -1400,6 +1447,27 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Rename", () => {
+    it("opens rename dialog when Rename Focused Item is selected from commands mode", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      await user.type(commandInput, "rename");
+      await user.click(await screen.findByText("Rename Focused Item"));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
     it("opens rename dialog when F2 is pressed on focused file", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

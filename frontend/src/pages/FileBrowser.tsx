@@ -1486,9 +1486,9 @@ const Browser: React.FC = () => {
       openHelp: () => setShowHelp(true),
       refresh: quickBarPane.handleRefresh,
       navigateUp: quickBarPane.handleNavigateUpDirectory,
-      openFocusedItem: quickBarPane.handleOpenFile,
-      renameFocusedItem: quickBarPane.handleRenameRequest,
-      deleteFocusedItem: quickBarPane.handleDeleteRequest,
+      openFocusedItem: () => quickBarPane.handleOpenFile({ requireListFocus: false }),
+      renameFocusedItem: () => quickBarPane.handleRenameRequest({ requireListFocus: false }),
+      deleteFocusedItem: () => quickBarPane.handleDeleteRequest({ requireListFocus: false }),
       newDirectory: quickBarPane.handleNewDirectoryRequest,
       newFile: quickBarPane.handleNewFileRequest,
       openInApp: () => {

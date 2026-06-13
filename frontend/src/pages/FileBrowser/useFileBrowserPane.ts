@@ -998,16 +998,29 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer, listContainerEl]
   );
 
-  const handleOpenFile = useCallback(() => {
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+  const getFocusedFileForAction = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      if (!listContainerEl) return null;
 
-    const file = filesRef.current[focusedIndex];
+      const requireListFocus = options?.requireListFocus ?? true;
+      if (requireListFocus) {
+        const activeElement = document.activeElement;
+        if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) {
+          return null;
+        }
+      }
+
+      return filesRef.current[focusedIndex] ?? null;
+    },
+    [focusedIndex, listContainerEl]
+  );
+
+  const handleOpenFile = useCallback((options?: { requireListFocus?: boolean }) => {
+    const file = getFocusedFileForAction(options);
     if (file) {
       handleFileClick(file, focusedIndex);
     }
-  }, [focusedIndex, handleFileClick, listContainerEl]);
+  }, [focusedIndex, getFocusedFileForAction, handleFileClick]);
 
   const handleNavigateUpDirectory = useCallback(() => {
     if (!currentPathRef.current) return;
@@ -1201,18 +1214,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Delete
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleDeleteRequest = useCallback(() => {
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    const file = filesRef.current[focusedIndex];
+  const handleDeleteRequest = useCallback((options?: { requireListFocus?: boolean }) => {
+    const file = getFocusedFileForAction(options);
     if (!file) return;
     if (connectionIsReadOnly) return;
 
     setDeleteTarget(file);
     setDeleteDialogOpen(true);
-  }, [connectionIsReadOnly, focusedIndex, listContainerEl]);
+  }, [connectionIsReadOnly, getFocusedFileForAction]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget || !connectionId) return;
@@ -1255,19 +1264,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Rename
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleRenameRequest = useCallback(() => {
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
-
-    const file = filesRef.current[focusedIndex];
+  const handleRenameRequest = useCallback((options?: { requireListFocus?: boolean }) => {
+    const file = getFocusedFileForAction(options);
     if (!file) return;
     if (connectionIsReadOnly) return;
 
     setRenameError(null);
     setRenameTarget(file);
     setRenameDialogOpen(true);
-  }, [connectionIsReadOnly, focusedIndex, listContainerEl]);
+  }, [connectionIsReadOnly, getFocusedFileForAction]);
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {

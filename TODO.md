@@ -5,11 +5,6 @@
 - Table editing: UI is gross and ugly
 - Inline code styling
 
-## Quick Bar
-
-- Commands mode:
-   - `Rename focused item` doesn't work. Focus issue?
-
 ## File list
 
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
