@@ -1182,6 +1182,24 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
+    it("closes the commands dropdown after selecting Show Keyboard Shortcuts", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      await user.keyboard("{Control>}p{/Control}");
+
+      const commandInput = await screen.findByPlaceholderText("Run a command");
+      await user.type(commandInput, "show");
+      await user.click(await screen.findByText("Show Keyboard Shortcuts"));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+
     it("handles keyboard navigation without crashing on empty directory", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");

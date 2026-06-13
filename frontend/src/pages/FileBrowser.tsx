@@ -1530,6 +1530,16 @@ const Browser: React.FC = () => {
     onSelect: (command) => command.run(browserCommandContext),
   });
 
+  const suppressQuickBarDropdown =
+    showHelp ||
+    settingsOpen ||
+    mobileSettingsOpen ||
+    copyMoveDialogOpen ||
+    conflictDialogOpen ||
+    quickBarPane.deleteDialogOpen ||
+    quickBarPane.renameDialogOpen ||
+    quickBarPane.createDialogOpen;
+
   const filterInputProvider = useMemo(
     () => ({
       id: "current-directory-filter-input",
@@ -2031,6 +2041,7 @@ const Browser: React.FC = () => {
               searchQueryValue={quickBarQueryValue}
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
               disableSearchDropdown={quickBarMode === "filter"}
+              suppressSearchDropdown={suppressQuickBarDropdown}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               disableTabFocus={isDualMode}
               modeOptions={quickBarModeOptions}
@@ -2121,6 +2132,7 @@ const Browser: React.FC = () => {
               searchQueryValue={quickBarQueryValue}
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
               disableSearchDropdown={quickBarMode === "filter"}
+              suppressSearchDropdown={suppressQuickBarDropdown}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               modeOptions={quickBarModeOptions}
             />
@@ -2148,6 +2160,7 @@ const Browser: React.FC = () => {
                   searchQueryValue={quickBarQueryValue}
                   onSearchQueryValueChange={handleQuickBarQueryValueChange}
                   disableSearchDropdown={quickBarMode === "filter"}
+                  suppressSearchDropdown={suppressQuickBarDropdown}
                   onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
                   modeOptions={quickBarModeOptions}
                 />

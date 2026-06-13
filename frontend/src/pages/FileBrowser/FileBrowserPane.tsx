@@ -79,6 +79,9 @@ export interface FileBrowserPaneProps {
   /** Disable dropdown behavior for list-backed filter mode. */
   disableSearchDropdown?: boolean;
 
+  /** Temporarily suppress the quick-bar dropdown while a higher-priority dialog is open. */
+  suppressSearchDropdown?: boolean;
+
   /** Move focus from the search input into the file list. */
   onSearchArrowDownToFileList?: () => void;
   /** Explicit quick-bar mode options shown in the search bar. */
@@ -104,6 +107,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   searchQueryValue,
   onSearchQueryValueChange,
   disableSearchDropdown,
+  suppressSearchDropdown,
   onSearchArrowDownToFileList,
   modeOptions,
 }) => {
@@ -380,6 +384,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             queryValue={searchQueryValue}
             onQueryValueChange={onSearchQueryValueChange}
             disableDropdown={disableSearchDropdown}
+            suppressDropdown={suppressSearchDropdown}
             onArrowDownToFileList={onSearchArrowDownToFileList}
             modeOptions={modeOptions}
           />

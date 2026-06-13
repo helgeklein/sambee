@@ -9,7 +9,6 @@
 
 - Commands mode:
    - `Rename focused item` doesn't work. Focus issue?
-   - `Show keyboard shortcuts` opens the shortcut modal beneath (z-index) the still-open quick bar dropdown
 
 ## File list
 

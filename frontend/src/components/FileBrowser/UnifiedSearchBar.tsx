@@ -42,6 +42,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
@@ -119,6 +120,8 @@ interface UnifiedSearchBarProps {
   modeOptions?: UnifiedSearchBarModeOption[];
   /** Accessible label for the quick-bar mode selector trigger. */
   modeSelectorAriaLabel?: string;
+  /** Temporarily suppress the results dropdown while a higher-priority overlay is open. */
+  suppressDropdown?: boolean;
 }
 
 export interface UnifiedSearchBarModeOption {
@@ -147,6 +150,7 @@ export function UnifiedSearchBar({
   disableTabFocus,
   modeOptions,
   modeSelectorAriaLabel,
+  suppressDropdown = false,
 }: UnifiedSearchBarProps) {
   // ── State ──────────────────────────────────────────────────────────────
   const [internalQuery, setInternalQuery] = useState("");
@@ -499,11 +503,15 @@ export function UnifiedSearchBar({
   //
   const handleSelect = useCallback(
     (value: string) => {
+      // Apply quick-bar teardown before command side effects open other overlays.
+      flushSync(() => {
+        setQuery("");
+        setResults([]);
+        setIsDropdownOpen(false);
+        setHasSearched(false);
+      });
+
       const selectionBehavior: SearchSelectionBehavior | undefined = providerRef.current.onSelect(value);
-      setQuery("");
-      setResults([]);
-      setIsDropdownOpen(false);
-      setHasSearched(false);
 
       const focusTarget = selectionBehavior?.focusTarget ?? "file-list";
 
@@ -668,6 +676,11 @@ export function UnifiedSearchBar({
     setIsFocused(true);
     handleFocus();
 
+    if (suppressDropdown) {
+      setIsDropdownOpen(false);
+      return;
+    }
+
     const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
     const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
 
@@ -698,7 +711,14 @@ export function UnifiedSearchBar({
     results.length,
     hasSearched,
     query,
+    suppressDropdown,
   ]);
+
+  useEffect(() => {
+    if (suppressDropdown) {
+      setIsDropdownOpen(false);
+    }
+  }, [suppressDropdown]);
 
   // ── Cleanup on unmount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -789,13 +809,13 @@ export function UnifiedSearchBar({
   ]);
 
   useEffect(() => {
-    if (disableDropdown) {
+    if (disableDropdown || suppressDropdown) {
       return;
     }
     if (document.activeElement === effectiveInputRef.current && provider.minQueryLength === 0) {
       void executeSearch("");
     }
-  }, [disableDropdown, effectiveInputRef, executeSearch, provider.minQueryLength]);
+  }, [disableDropdown, effectiveInputRef, executeSearch, provider.minQueryLength, suppressDropdown]);
 
   useEffect(() => {
     if (isModeMenuOpen && isDropdownOpen) {
@@ -904,6 +924,7 @@ export function UnifiedSearchBar({
         {/* Dropdown results panel */}
         <Popper
           open={
+            !suppressDropdown &&
             !disableDropdown &&
             isDropdownOpen &&
             (results.length > 0 || showNoResults || showBelowMinimum || isSearchPending || isLoading || statusInfo !== null)

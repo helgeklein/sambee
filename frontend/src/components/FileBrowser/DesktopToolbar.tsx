@@ -17,6 +17,7 @@ interface DesktopToolbarProps {
   searchQueryValue?: string;
   onSearchQueryValueChange?: (value: string) => void;
   disableSearchDropdown?: boolean;
+  suppressSearchDropdown?: boolean;
   onSearchArrowDownToFileList?: () => void;
   /** Remove toolbar controls from Tab order (dual-pane mode uses Tab for pane switching) */
   disableTabFocus?: boolean;
@@ -36,6 +37,7 @@ export function DesktopToolbar({
   searchQueryValue,
   onSearchQueryValueChange,
   disableSearchDropdown,
+  suppressSearchDropdown,
   onSearchArrowDownToFileList,
   disableTabFocus,
   modeOptions,
@@ -61,6 +63,7 @@ export function DesktopToolbar({
             queryValue={searchQueryValue}
             onQueryValueChange={onSearchQueryValueChange}
             disableDropdown={disableSearchDropdown}
+            suppressDropdown={suppressSearchDropdown}
             onArrowDownToFileList={onSearchArrowDownToFileList}
             disableTabFocus={disableTabFocus}
             modeOptions={modeOptions}
