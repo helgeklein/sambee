@@ -28,6 +28,18 @@ const noResultsProvider: SearchProvider = {
   getStatusInfo: () => null,
 };
 
+const filterProvider: SearchProvider = {
+  id: "filter-provider",
+  modeId: "filter",
+  modeLabel: "Filter",
+  placeholder: "Filter current directory",
+  debounceMs: 0,
+  minQueryLength: 0,
+  fetchResults: async () => [],
+  onSelect: () => undefined,
+  getStatusInfo: () => null,
+};
+
 const resultsProvider: SearchProvider = {
   id: "results-provider",
   modeId: "navigate",
@@ -50,6 +62,11 @@ const modeOptions = [
   {
     id: "navigate",
     label: "Navigate",
+    onSelect: vi.fn(),
+  },
+  {
+    id: "filter",
+    label: "Filter",
     onSelect: vi.fn(),
   },
   {
@@ -136,6 +153,58 @@ describe("UnifiedSearchBar", () => {
 
     await waitFor(() => {
       expect(searchInput).toHaveFocus();
+    });
+  });
+
+  it("supports arrow navigation in the mode menu after clicking from filter mode with typed input", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+
+    const searchInput = screen.getByRole("textbox");
+    const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
+
+    await user.click(searchInput);
+    await user.type(searchInput, "s");
+    await user.click(modeButton);
+
+    await screen.findByRole("menuitem", { name: "Filter" });
+
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Commands" })).toHaveFocus();
+    });
+
+    await user.keyboard("{ArrowUp}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
+    });
+  });
+
+  it("supports arrow navigation in the mode menu after opening with Space from the focused mode button", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+
+    const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
+    modeButton.focus();
+
+    await user.keyboard("{Space}");
+
+    await screen.findByRole("menuitem", { name: "Filter" });
+
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Commands" })).toHaveFocus();
+    });
+
+    await user.keyboard("{ArrowUp}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
     });
   });
 });
