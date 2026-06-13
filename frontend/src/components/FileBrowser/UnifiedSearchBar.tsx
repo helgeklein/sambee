@@ -41,7 +41,7 @@ import {
 } from "@mui/material";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
@@ -239,6 +239,13 @@ export function UnifiedSearchBar({
     [handleModeMenuClose]
   );
 
+  const focusQuickBarInput = useCallback(() => {
+    setTimeout(() => {
+      effectiveInputRef.current?.focus();
+      effectiveInputRef.current?.select();
+    }, 0);
+  }, [effectiveInputRef]);
+
   const modeSelector = useMemo(() => {
     if (!provider.modeLabel || !provider.modeId || !modeOptions || modeOptions.length === 0) {
       return null;
@@ -275,7 +282,20 @@ export function UnifiedSearchBar({
           id="quick-bar-mode-menu"
           anchorEl={modeMenuAnchorEl}
           open={isModeMenuOpen}
-          onClose={handleModeMenuClose}
+          autoFocus
+          disableAutoFocusItem={false}
+          variant="selectedMenu"
+          onClose={(_event, reason) => {
+            handleModeMenuClose();
+
+            if (reason === "escapeKeyDown") {
+              focusQuickBarInput();
+            }
+          }}
+          MenuListProps={{
+            autoFocus: true,
+            autoFocusItem: isModeMenuOpen,
+          }}
           anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
           transformOrigin={{ vertical: "top", horizontal: "left" }}
           slotProps={{
@@ -288,18 +308,19 @@ export function UnifiedSearchBar({
           }}
         >
           {modeOptions.map((modeOption, index) => (
-            <Box key={modeOption.id}>
+            <Fragment key={modeOption.id}>
               {index > 0 ? <Divider /> : null}
               <MenuItem onClick={() => handleModeSelect(modeOption)} selected={modeOption.id === provider.modeId}>
                 {modeOption.label}
               </MenuItem>
-            </Box>
+            </Fragment>
           ))}
         </Menu>
       </>
     );
   }, [
     disableTabFocus,
+    focusQuickBarInput,
     handleModeMenuClick,
     handleModeMenuClose,
     handleModeMenuKeyDown,
