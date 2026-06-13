@@ -79,6 +79,17 @@ const HORIZONTAL_CHROME_SPACING = {
   sm: `${QUICK_BAR_SPACING.sm.horizontal}px`,
 } as const;
 
+const QUICK_BAR_MODE_LABEL_SX = {
+  fontSize: "0.75rem",
+  fontWeight: 600,
+  lineHeight: 1.2,
+} as const;
+
+const QUICK_BAR_MODE_MENU_ITEM_SX = {
+  fontSize: "0.8125rem",
+  lineHeight: 1.35,
+} as const;
+
 // ============================================================================
 // Props
 // ============================================================================
@@ -272,7 +283,7 @@ export function UnifiedSearchBar({
           }}
         >
           <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
-            <Typography variant="body2" sx={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.2 }}>
+            <Typography variant="body2" sx={QUICK_BAR_MODE_LABEL_SX}>
               {provider.modeLabel}
             </Typography>
             <ArrowDropDownIcon fontSize="small" />
@@ -310,7 +321,7 @@ export function UnifiedSearchBar({
           {modeOptions.map((modeOption, index) => (
             <Fragment key={modeOption.id}>
               {index > 0 ? <Divider /> : null}
-              <MenuItem onClick={() => handleModeSelect(modeOption)} selected={modeOption.id === provider.modeId}>
+              <MenuItem onClick={() => handleModeSelect(modeOption)} selected={modeOption.id === provider.modeId} sx={QUICK_BAR_MODE_MENU_ITEM_SX}>
                 {modeOption.label}
               </MenuItem>
             </Fragment>
