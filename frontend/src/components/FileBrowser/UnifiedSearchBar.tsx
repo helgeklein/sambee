@@ -767,6 +767,12 @@ export function UnifiedSearchBar({
     }
   }, [disableDropdown, effectiveInputRef, executeSearch, provider.minQueryLength]);
 
+  useEffect(() => {
+    if (isModeMenuOpen && isDropdownOpen) {
+      setIsDropdownOpen(false);
+    }
+  }, [isDropdownOpen, isModeMenuOpen]);
+
   // ── Derived state ──────────────────────────────────────────────────────
   const statusInfo = provider.getStatusInfo();
   const effectiveMinQueryLength = getEffectiveMinQueryLength(query);

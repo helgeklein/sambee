@@ -183,6 +183,26 @@ describe("UnifiedSearchBar", () => {
     });
   });
 
+  it("closes the quick-bar dropdown when clicking the mode button to open the mode menu", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={resultsProvider} modeOptions={modeOptions} />);
+
+    const searchInput = screen.getByRole("textbox");
+    const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
+
+    await user.click(searchInput);
+
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+
+    await user.click(modeButton);
+
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    });
+  });
+
   it("supports arrow navigation in the mode menu after opening with Space from the focused mode button", async () => {
     const user = userEvent.setup();
 
