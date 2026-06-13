@@ -48,6 +48,13 @@ export function usePillButtonMenu(onAfterClose?: () => void, options?: PillButto
       return;
     }
 
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      setAnchorEl(event.currentTarget);
+      return;
+    }
+
     if (isSpaceTriggerKey(event.key)) {
       event.preventDefault();
       event.stopPropagation();

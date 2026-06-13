@@ -227,4 +227,21 @@ describe("UnifiedSearchBar", () => {
       expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
     });
   });
+
+  it("opens the mode menu with ArrowDown from the focused mode button", async () => {
+    const user = userEvent.setup();
+
+    renderWithProvider(<UnifiedSearchBar provider={filterProvider} modeOptions={modeOptions} disableDropdown={true} />);
+
+    const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
+    modeButton.focus();
+
+    await user.keyboard("{ArrowDown}");
+
+    await waitFor(() => {
+      expect(screen.getByRole("menuitem", { name: "Filter" })).toHaveFocus();
+    });
+
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
 });
