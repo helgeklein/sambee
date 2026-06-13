@@ -20,14 +20,19 @@
  * - Responsive: works in both desktop header and mobile sticky bar
  */
 
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
+  Button,
   CircularProgress,
   ClickAwayListener,
+  Divider,
   IconButton,
   InputAdornment,
   ListItemButton,
+  Menu,
+  MenuItem,
   Paper,
   Popper,
   TextField,
@@ -38,6 +43,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
+import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
 import type { SearchProvider, SearchResult, SearchSelectionBehavior } from "./search/types";
 
 // ============================================================================
@@ -56,12 +63,15 @@ const DROPDOWN_WIDTH_PX = 700;
 /** Number of items to jump with Page Up/Down */
 const PAGE_JUMP_SIZE = 10;
 
-/** The default quick-bar mode should read as the baseline, not a tagged variant. */
-const DEFAULT_MODE_ID = "navigate";
-
 /** Preserve touch comfort on mobile while tightening desktop density slightly. */
-const MOBILE_INPUT_PADDING = "10px 14px";
-const DESKTOP_INPUT_PADDING = "7.5px 12px";
+const MOBILE_HORIZONTAL_SPACING_PX = 14;
+const DESKTOP_HORIZONTAL_SPACING_PX = 12;
+const MOBILE_INPUT_PADDING = `10px ${MOBILE_HORIZONTAL_SPACING_PX}px`;
+const DESKTOP_INPUT_PADDING = `7.5px ${DESKTOP_HORIZONTAL_SPACING_PX}px`;
+const HORIZONTAL_CHROME_SPACING = {
+  xs: `${MOBILE_HORIZONTAL_SPACING_PX}px`,
+  sm: `${DESKTOP_HORIZONTAL_SPACING_PX}px`,
+} as const;
 
 // ============================================================================
 // Props
@@ -88,6 +98,16 @@ interface UnifiedSearchBarProps {
   disableDropdown?: boolean;
   /** Called when ArrowDown should hand focus from the input to the file list. */
   onArrowDownToFileList?: () => void;
+  /** Explicit quick-bar mode options shown in the mode-selector menu. */
+  modeOptions?: UnifiedSearchBarModeOption[];
+  /** Accessible label for the quick-bar mode selector trigger. */
+  modeSelectorAriaLabel?: string;
+}
+
+export interface UnifiedSearchBarModeOption {
+  id: string;
+  label: string;
+  onSelect: () => void;
 }
 
 // ============================================================================
@@ -108,6 +128,8 @@ export function UnifiedSearchBar({
   disableDropdown = false,
   onArrowDownToFileList,
   disableTabFocus,
+  modeOptions,
+  modeSelectorAriaLabel,
 }: UnifiedSearchBarProps) {
   // ── State ──────────────────────────────────────────────────────────────
   const [internalQuery, setInternalQuery] = useState("");
@@ -121,6 +143,14 @@ export function UnifiedSearchBar({
 
   const theme = useTheme();
   const { t } = useTranslation();
+  const {
+    anchorEl: modeMenuAnchorEl,
+    open: isModeMenuOpen,
+    handleClick: handleModeMenuClick,
+    handleKeyDown: handleModeMenuKeyDown,
+    handleKeyUp: handleModeMenuKeyUp,
+    handleClose: handleModeMenuClose,
+  } = usePillButtonMenu();
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -195,36 +225,91 @@ export function UnifiedSearchBar({
     );
   }, [provider.shortcutHint, useCompactLayout, theme.palette.mode]);
 
-  const shouldShowModeBadge = !!provider.modeLabel && provider.modeId !== DEFAULT_MODE_ID && query.length === 0;
+  const handleModeSelect = useCallback(
+    (modeOption: UnifiedSearchBarModeOption) => {
+      modeOption.onSelect();
+      handleModeMenuClose();
+    },
+    [handleModeMenuClose]
+  );
 
-  const modeBadge = useMemo(() => {
-    if (!provider.modeLabel || !shouldShowModeBadge) return null;
+  const modeSelector = useMemo(() => {
+    if (!provider.modeLabel || !provider.modeId || !modeOptions || modeOptions.length === 0) {
+      return null;
+    }
 
     return (
-      <Box
-        aria-hidden="true"
-        sx={{
-          display: "inline-flex",
-          alignItems: "center",
-          px: 0.75,
-          py: 0.25,
-          borderRadius: 999,
-          backgroundColor: "action.selected",
-          color: "text.secondary",
-          fontSize: "0.7rem",
-          fontWeight: 600,
-          letterSpacing: "0.02em",
-          whiteSpace: "nowrap",
-          mr: 0,
-        }}
-      >
-        {provider.modeLabel}
-      </Box>
+      <>
+        <Button
+          onClick={handleModeMenuClick}
+          onKeyDown={handleModeMenuKeyDown}
+          onKeyUp={handleModeMenuKeyUp}
+          size="small"
+          tabIndex={disableTabFocus ? -1 : undefined}
+          aria-label={modeSelectorAriaLabel ?? t("fileBrowser.search.modeSelectorAriaLabel")}
+          aria-controls={isModeMenuOpen ? "quick-bar-mode-menu" : undefined}
+          aria-haspopup="true"
+          aria-expanded={isModeMenuOpen ? "true" : undefined}
+          sx={{
+            ...pillButtonStyle,
+            minWidth: "auto",
+            px: 1.25,
+            py: 0.25,
+            color: "text.secondary",
+          }}
+        >
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
+            <Typography variant="body2" sx={{ fontSize: "0.75rem", fontWeight: 600, lineHeight: 1.2 }}>
+              {provider.modeLabel}
+            </Typography>
+            <ArrowDropDownIcon fontSize="small" />
+          </Box>
+        </Button>
+        <Menu
+          id="quick-bar-mode-menu"
+          anchorEl={modeMenuAnchorEl}
+          open={isModeMenuOpen}
+          onClose={handleModeMenuClose}
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+          slotProps={{
+            paper: {
+              sx: (menuTheme) => ({
+                ...getSecondaryToolbarMenuPaperStyle(menuTheme),
+                minWidth: 180,
+              }),
+            },
+          }}
+        >
+          {modeOptions.map((modeOption, index) => (
+            <Box key={modeOption.id}>
+              {index > 0 ? <Divider /> : null}
+              <MenuItem onClick={() => handleModeSelect(modeOption)} selected={modeOption.id === provider.modeId}>
+                {modeOption.label}
+              </MenuItem>
+            </Box>
+          ))}
+        </Menu>
+      </>
     );
-  }, [provider.modeLabel, shouldShowModeBadge]);
+  }, [
+    disableTabFocus,
+    handleModeMenuClick,
+    handleModeMenuClose,
+    handleModeMenuKeyDown,
+    handleModeMenuKeyUp,
+    handleModeSelect,
+    isModeMenuOpen,
+    modeMenuAnchorEl,
+    modeOptions,
+    modeSelectorAriaLabel,
+    provider.modeId,
+    provider.modeLabel,
+    t,
+  ]);
 
   const startAdornment = useMemo(() => {
-    if (!modeBadge) {
+    if (!modeSelector) {
       return undefined;
     }
 
@@ -233,16 +318,15 @@ export function UnifiedSearchBar({
         position="start"
         sx={{
           ml: 0,
-          mr: 0.75,
+          mr: 0,
           display: "flex",
           alignItems: "center",
-          gap: 0.5,
         }}
       >
-        {modeBadge}
+        {modeSelector}
       </InputAdornment>
     );
-  }, [modeBadge]);
+  }, [modeSelector]);
 
   const endAdornment = useMemo(() => {
     const showShortcutBadge = !query && !isFocused && !!kbdBadge;
@@ -252,7 +336,12 @@ export function UnifiedSearchBar({
     }
 
     return (
-      <InputAdornment position="end">
+      <InputAdornment
+        position="end"
+        sx={{
+          ml: 0,
+        }}
+      >
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           {isLoading ? <CircularProgress size={18} /> : null}
           {query ? (
@@ -703,6 +792,9 @@ export function UnifiedSearchBar({
               },
             }}
             InputProps={{
+              sx: {
+                px: HORIZONTAL_CHROME_SPACING,
+              },
               startAdornment,
               endAdornment,
             }}

@@ -435,7 +435,7 @@ describe("Browser Component - Interactions", () => {
   });
 
   describe("Keyboard Navigation", () => {
-    it("opens smart navigation with Ctrl+K even when a toolbar button is focused", async () => {
+    it("opens navigate mode with Ctrl+K even when a toolbar button is focused", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -450,7 +450,7 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
 
-      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = await screen.findByPlaceholderText("Navigate to any directory");
       expect(quickBarInput).toHaveFocus();
     });
 
@@ -462,7 +462,7 @@ describe("Browser Component - Interactions", () => {
         expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
       });
 
-      const quickBarInput = screen.getByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = screen.getByPlaceholderText("Navigate to any directory");
       quickBarInput.focus();
       expect(quickBarInput).toHaveFocus();
 
@@ -472,7 +472,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByText("Test Server 1 (192.168.1.100/share1)")).toBeInTheDocument();
     });
 
-    it("does not show an empty no-results dropdown when smart navigation opens", async () => {
+    it("does not show an empty no-results dropdown when navigate mode opens", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -482,7 +482,7 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
 
-      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = await screen.findByPlaceholderText("Navigate to any directory");
       expect(quickBarInput).toHaveFocus();
       expect(screen.queryByText(/No results found for/i)).not.toBeInTheDocument();
       expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
@@ -498,7 +498,7 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
 
-      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = await screen.findByPlaceholderText("Navigate to any directory");
       await user.type(quickBarInput, "e");
 
       expect(screen.getByText("Type at least 2 characters to search")).toBeInTheDocument();
@@ -506,7 +506,7 @@ describe("Browser Component - Interactions", () => {
       expect(screen.queryByText(/No results found for/i)).not.toBeInTheDocument();
     });
 
-    it("shows mode badges only for non-default or idle quick-bar modes", async () => {
+    it("always shows the current quick-bar mode pill", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -515,27 +515,27 @@ describe("Browser Component - Interactions", () => {
       });
 
       await user.keyboard("{Control>}k{/Control}");
-      await screen.findByPlaceholderText("Go to any folder or type > for commands");
-      expect(screen.queryByText("Navigate")).not.toBeInTheDocument();
+      await screen.findByPlaceholderText("Navigate to any directory");
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Navigate");
 
       await user.keyboard("{Control>}p{/Control}");
 
       const commandInput = await screen.findByPlaceholderText("Run a command");
-      expect(screen.getByText("Commands")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Commands");
 
       await user.type(commandInput, "f");
-      expect(screen.queryByText("Commands")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Commands");
 
       await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
 
       const filterInput = await screen.findByPlaceholderText("Filter files in the current directory");
-      expect(screen.getByText("Filter")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
 
       await user.type(filterInput, "r");
-      expect(screen.queryByText("Filter")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
     });
 
-    it("keeps Home and End bound to the smart navigation input text", async () => {
+    it("keeps Home and End bound to the navigate input text", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -545,7 +545,7 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
 
-      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = await screen.findByPlaceholderText("Navigate to any directory");
       await user.type(quickBarInput, "abc");
       await user.keyboard("{Home}");
       await user.keyboard("x");
@@ -613,7 +613,7 @@ describe("Browser Component - Interactions", () => {
       await user.click(rightPane as HTMLElement);
       await user.keyboard("{Control>}k{/Control}");
 
-      const quickBarInput = screen.getByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = screen.getByPlaceholderText("Navigate to any directory");
       await user.type(quickBarInput, "Ri");
 
       await waitFor(() => {
@@ -628,7 +628,7 @@ describe("Browser Component - Interactions", () => {
       });
 
       await user.click(leftPane as HTMLElement);
-      await user.click(screen.getByPlaceholderText("Go to any folder or type > for commands"));
+      await user.click(screen.getByPlaceholderText("Navigate to any directory"));
       await user.keyboard("{Enter}");
 
       await waitFor(() => {
@@ -662,7 +662,7 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
 
-      const quickBarInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
+      const quickBarInput = await screen.findByPlaceholderText("Navigate to any directory");
       await user.type(quickBarInput, "do");
 
       await waitFor(() => {
@@ -787,7 +787,7 @@ describe("Browser Component - Interactions", () => {
       });
 
       await user.keyboard("{Control>}k{/Control}");
-      expect(await screen.findByPlaceholderText("Go to any folder or type > for commands")).toHaveFocus();
+      expect(await screen.findByPlaceholderText("Navigate to any directory")).toHaveFocus();
       expect(screen.getByText("Filtered by: doc")).toBeInTheDocument();
 
       await user.keyboard("{Control>}{Alt>}f{/Alt}{/Control}");
@@ -967,7 +967,7 @@ describe("Browser Component - Interactions", () => {
       });
     });
 
-    it("switches from smart navigation to commands when > is the first character", async () => {
+    it("switches quick-bar modes from the mode pill", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
 
@@ -978,68 +978,32 @@ describe("Browser Component - Interactions", () => {
 
       await user.keyboard("{Control>}k{/Control}");
 
-      const smartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
-      await user.type(smartInput, ">filt");
+      const modeButton = await screen.findByRole("button", { name: "Switch quick bar mode" });
+      expect(modeButton).toHaveTextContent("Navigate");
+
+      await user.click(modeButton);
+      await user.click(await screen.findByRole("menuitem", { name: "Commands" }));
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText("Run a command")).toHaveValue(">filt");
+        expect(screen.getByPlaceholderText("Run a command")).toHaveFocus();
+        expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Commands");
       });
 
-      expect(await screen.findByText("Filter Current Directory")).toBeInTheDocument();
-    });
-
-    it("returns to smart navigation UI when Ctrl+K is pressed from command-prefixed quick nav", async () => {
-      const user = userEvent.setup();
-      renderBrowser("/browse/smb/test-server-1");
+      await user.click(screen.getByRole("button", { name: "Switch quick bar mode" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Filter" }));
 
       await waitFor(() => {
-        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+        expect(screen.getByPlaceholderText("Filter files in the current directory")).toHaveFocus();
+        expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Filter");
       });
 
-      await user.keyboard("{Control>}k{/Control}");
-
-      const smartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
-      await user.type(smartInput, ">filt");
+      await user.click(screen.getByRole("button", { name: "Switch quick bar mode" }));
+      await user.click(await screen.findByRole("menuitem", { name: "Navigate" }));
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText("Run a command")).toHaveValue(">filt");
+        expect(screen.getByPlaceholderText("Navigate to any directory")).toHaveFocus();
+        expect(screen.getByRole("button", { name: "Switch quick bar mode" })).toHaveTextContent("Navigate");
       });
-
-      await user.keyboard("{Control>}k{/Control}");
-
-      const resetSmartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
-      expect(resetSmartInput).toHaveFocus();
-      expect(resetSmartInput).toHaveValue("");
-      expect(screen.queryByPlaceholderText("Run a command")).not.toBeInTheDocument();
-    });
-
-    it("clears the stale command badge after escaping out of command-prefixed quick nav", async () => {
-      const user = userEvent.setup();
-      renderBrowser("/browse/smb/test-server-1");
-
-      await waitFor(() => {
-        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
-      });
-
-      await user.keyboard("{Control>}k{/Control}");
-
-      const smartInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
-      await user.type(smartInput, ">filt");
-
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText("Run a command")).toHaveValue(">filt");
-      });
-
-      await user.keyboard("{Escape}{Escape}");
-
-      const resetInput = await screen.findByPlaceholderText("Go to any folder or type > for commands");
-      expect(resetInput).toHaveValue("");
-      expect(screen.queryByText("Commands")).not.toBeInTheDocument();
-
-      await user.type(resetInput, "do");
-
-      expect(screen.queryByText("Commands")).not.toBeInTheDocument();
-      expect(screen.queryByPlaceholderText("Run a command")).not.toBeInTheDocument();
     });
 
     it("navigates down with ArrowDown key", async () => {

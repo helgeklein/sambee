@@ -31,7 +31,7 @@ import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
-import { useBrowserCommandsProvider, useSmartBrowserSearchProvider } from "../components/FileBrowser/search";
+import { useBrowserCommandsProvider } from "../components/FileBrowser/search";
 import { KeyboardShortcutsHelp } from "../components/KeyboardShortcutsHelp";
 import HamburgerMenu from "../components/Mobile/HamburgerMenu";
 import { MobileSettingsDrawer } from "../components/Mobile/MobileSettingsDrawer";
@@ -142,7 +142,7 @@ const Browser: React.FC = () => {
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const [mobileSettingsInitialView, setMobileSettingsInitialView] = useState<MobileSettingsView>("main");
   const [showHelp, setShowHelp] = useState(false);
-  const [quickBarMode, setQuickBarMode] = useState<"smart" | "commands" | "filter">("smart");
+  const [quickBarMode, setQuickBarMode] = useState<"navigate" | "commands" | "filter">("navigate");
   const [quickBarActivationToken, setQuickBarActivationToken] = useState(0);
   const [quickBarPaneId, setQuickBarPaneId] = useState<PaneId>("left");
   const [companionHintOpen, setCompanionHintOpen] = useState(false);
@@ -1424,12 +1424,8 @@ const Browser: React.FC = () => {
     setSettingsOpen(true);
   }, [useCompactLayout]);
 
-  const openQuickBarMode = useCallback(
-    (mode: "smart" | "commands" | "filter") => {
-      const sourcePaneId = effectiveActivePaneIdRef.current;
-      setQuickBarPaneId(sourcePaneId);
-      setQuickBarMode(mode);
-      setQuickBarActivationToken((current) => current + 1);
+  const focusQuickBarInput = useCallback(
+    (sourcePaneId: PaneId) => {
       setTimeout(() => {
         const sourcePane = sourcePaneId === "right" && isDualMode ? rightPane : leftPane;
         sourcePane.searchInputRef.current?.focus();
@@ -1437,6 +1433,28 @@ const Browser: React.FC = () => {
       }, 0);
     },
     [isDualMode, leftPane, rightPane]
+  );
+
+  const openQuickBarMode = useCallback(
+    (mode: "navigate" | "commands" | "filter") => {
+      const sourcePaneId = effectiveActivePaneIdRef.current;
+      setQuickBarPaneId(sourcePaneId);
+      setQuickBarMode(mode);
+      setQuickBarActivationToken((current) => current + 1);
+      focusQuickBarInput(sourcePaneId);
+    },
+    [focusQuickBarInput]
+  );
+
+  const switchQuickBarMode = useCallback(
+    (mode: "navigate" | "commands" | "filter") => {
+      const sourcePaneId = quickBarPaneId === "right" && isDualMode ? "right" : "left";
+      setQuickBarPaneId(sourcePaneId);
+      setQuickBarMode(mode);
+      setQuickBarActivationToken((current) => current + 1);
+      focusQuickBarInput(sourcePaneId);
+    },
+    [focusQuickBarInput, isDualMode, quickBarPaneId]
   );
 
   const browserCommandContext = useMemo(
@@ -1454,7 +1472,7 @@ const Browser: React.FC = () => {
       canOpenFocusedFileInApp: quickBarCanOpenInApp,
       canCopyToOtherPane: quickBarCanCopyToOtherPane,
       canMoveToOtherPane: quickBarCanMoveToOtherPane,
-      openQuickNav: () => openQuickBarMode("smart"),
+      openQuickNav: () => openQuickBarMode("navigate"),
       openFilterMode: () => openQuickBarMode("filter"),
       openCommandMode: () => openQuickBarMode("commands"),
       openSettings: handleOpenSettings,
@@ -1506,11 +1524,6 @@ const Browser: React.FC = () => {
     onSelect: (command) => command.run(browserCommandContext),
   });
 
-  const smartBrowserSearchProvider = useSmartBrowserSearchProvider({
-    directoryProvider: quickBarPane.directorySearchProvider,
-    commandsProvider: browserCommandsProvider,
-  });
-
   const filterInputProvider = useMemo(
     () => ({
       id: "current-directory-filter-input",
@@ -1536,8 +1549,29 @@ const Browser: React.FC = () => {
       return filterInputProvider;
     }
 
-    return smartBrowserSearchProvider;
-  }, [browserCommandsProvider, filterInputProvider, quickBarMode, smartBrowserSearchProvider]);
+    return quickBarPane.directorySearchProvider;
+  }, [browserCommandsProvider, filterInputProvider, quickBarMode, quickBarPane.directorySearchProvider]);
+
+  const quickBarModeOptions = useMemo(
+    () => [
+      {
+        id: "navigate",
+        label: t("fileBrowser.search.modes.navigate"),
+        onSelect: () => switchQuickBarMode("navigate"),
+      },
+      {
+        id: "filter",
+        label: t("fileBrowser.search.modes.filter"),
+        onSelect: () => switchQuickBarMode("filter"),
+      },
+      {
+        id: "commands",
+        label: t("fileBrowser.search.modes.commands"),
+        onSelect: () => switchQuickBarMode("commands"),
+      },
+    ],
+    [switchQuickBarMode, t]
+  );
 
   const quickBarQueryValue = quickBarMode === "filter" ? quickBarPane.currentDirectoryFilter : undefined;
   const handleQuickBarQueryValueChange = quickBarMode === "filter" ? quickBarPane.setCurrentDirectoryFilter : undefined;
@@ -1641,13 +1675,13 @@ const Browser: React.FC = () => {
         handler: activePane.handleRefresh,
         enabled: browsing,
       },
-      // Smart navigation (Ctrl+K) — also focuses the search bar
+      // Navigate mode (Ctrl+K) — also focuses the search bar
       {
         ...BROWSER_SHORTCUTS.QUICK_NAVIGATE,
-        handler: () => openQuickBarMode("smart"),
+        handler: () => openQuickBarMode("navigate"),
         enabled: browsing,
       },
-      // Smart navigation compatibility alias (Ctrl+Alt+F)
+      // Filter mode (Ctrl+Alt+F)
       {
         ...BROWSER_SHORTCUTS.FILTER_CURRENT_DIRECTORY,
         handler: () => openQuickBarMode("filter"),
@@ -1993,6 +2027,7 @@ const Browser: React.FC = () => {
               disableSearchDropdown={quickBarMode === "filter"}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
               disableTabFocus={isDualMode}
+              modeOptions={quickBarModeOptions}
             />
           )}
         </Toolbar>
@@ -2081,6 +2116,7 @@ const Browser: React.FC = () => {
               onSearchQueryValueChange={handleQuickBarQueryValueChange}
               disableSearchDropdown={quickBarMode === "filter"}
               onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
+              modeOptions={quickBarModeOptions}
             />
 
             {/* Divider + Right Pane — dual mode only */}
@@ -2107,6 +2143,7 @@ const Browser: React.FC = () => {
                   onSearchQueryValueChange={handleQuickBarQueryValueChange}
                   disableSearchDropdown={quickBarMode === "filter"}
                   onSearchArrowDownToFileList={handleQuickBarArrowDownToFileList}
+                  modeOptions={quickBarModeOptions}
                 />
               </>
             )}

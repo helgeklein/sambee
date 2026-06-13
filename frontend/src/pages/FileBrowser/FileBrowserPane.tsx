@@ -25,6 +25,7 @@ import { FileList } from "../../components/FileBrowser/FileList";
 import RenameDialog from "../../components/FileBrowser/RenameDialog";
 import { STATUS_BAR_HEIGHT, StatusBar } from "../../components/FileBrowser/StatusBar";
 import type { SearchProvider } from "../../components/FileBrowser/search";
+import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
 import type { Connection } from "../../types";
 import { FileType } from "../../types";
@@ -80,6 +81,8 @@ export interface FileBrowserPaneProps {
 
   /** Move focus from the search input into the file list. */
   onSearchArrowDownToFileList?: () => void;
+  /** Explicit quick-bar mode options shown in the search bar. */
+  modeOptions?: UnifiedSearchBarModeOption[];
 }
 
 // ============================================================================
@@ -102,6 +105,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   onSearchQueryValueChange,
   disableSearchDropdown,
   onSearchArrowDownToFileList,
+  modeOptions,
 }) => {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -377,6 +381,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             onQueryValueChange={onSearchQueryValueChange}
             disableDropdown={disableSearchDropdown}
             onArrowDownToFileList={onSearchArrowDownToFileList}
+            modeOptions={modeOptions}
           />
           {connectionIsReadOnly && (
             <Box sx={{ px: 2, pb: 1 }}>

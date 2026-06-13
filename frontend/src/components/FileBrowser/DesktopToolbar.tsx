@@ -3,6 +3,7 @@ import type React from "react";
 import { SambeeLogo } from "../SambeeLogo";
 import { DesktopToolbarActions } from "./DesktopToolbarActions";
 import type { SearchProvider } from "./search/types";
+import type { UnifiedSearchBarModeOption } from "./UnifiedSearchBar";
 import { UnifiedSearchBar } from "./UnifiedSearchBar";
 
 interface DesktopToolbarProps {
@@ -19,6 +20,7 @@ interface DesktopToolbarProps {
   onSearchArrowDownToFileList?: () => void;
   /** Remove toolbar controls from Tab order (dual-pane mode uses Tab for pane switching) */
   disableTabFocus?: boolean;
+  modeOptions?: UnifiedSearchBarModeOption[];
 }
 
 //
@@ -36,6 +38,7 @@ export function DesktopToolbar({
   disableSearchDropdown,
   onSearchArrowDownToFileList,
   disableTabFocus,
+  modeOptions,
 }: DesktopToolbarProps) {
   return (
     <>
@@ -60,6 +63,7 @@ export function DesktopToolbar({
             disableDropdown={disableSearchDropdown}
             onArrowDownToFileList={onSearchArrowDownToFileList}
             disableTabFocus={disableTabFocus}
+            modeOptions={modeOptions}
           />
         </Box>
       )}
