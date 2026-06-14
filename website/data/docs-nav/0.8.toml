@@ -1,8 +1,18 @@
 books = [
+  "release-info",
   "user-guide",
   "admin-guide",
   "developer-guide",
   "website-dev-guide",
+]
+
+[[sections.release-info.items]]
+slug = "news-and-changes"
+title = "News and Changes"
+
+[pages.release-info.news-and-changes]
+items = [
+  "whats-new",
 ]
 
 [[sections.user-guide.items]]
