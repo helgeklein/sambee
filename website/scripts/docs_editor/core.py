@@ -13,7 +13,7 @@ import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 import tomllib
 
@@ -64,6 +64,17 @@ class VersionsDocument:
     preamble: str
     current: str
     versions: list[VersionEntry]
+
+
+class DocsValidatorModule(Protocol):
+    """Typed surface of the dynamically loaded docs validator module."""
+
+    WEBSITE_DIR: Path
+    DOCS_CONTENT_DIR: Path
+    DOCS_NAV_DIR: Path
+    DOCS_VERSIONS_FILE: Path
+
+    def validate_all(self) -> list[Any]: ...
 
 
 @dataclass(frozen=True)
@@ -1464,6 +1475,10 @@ class DocsEditor:
                 ]
             )
         else:
+            if source_version is None:
+                raise DocsEditorError(
+                    "source version is required when creating an inherited docs version"
+                )
             changes.append(
                 PlannedChange(
                     "write_text",
@@ -2365,11 +2380,12 @@ class DocsEditor:
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        module.WEBSITE_DIR = self.paths.website_dir
-        module.DOCS_CONTENT_DIR = self.paths.docs_content_dir
-        module.DOCS_NAV_DIR = self.paths.docs_nav_dir
-        module.DOCS_VERSIONS_FILE = self.paths.docs_versions_file
-        return module.validate_all()
+        validator_module = cast(DocsValidatorModule, module)
+        validator_module.WEBSITE_DIR = self.paths.website_dir
+        validator_module.DOCS_CONTENT_DIR = self.paths.docs_content_dir
+        validator_module.DOCS_NAV_DIR = self.paths.docs_nav_dir
+        validator_module.DOCS_VERSIONS_FILE = self.paths.docs_versions_file
+        return validator_module.validate_all()
 
     def format_validation_issues(self, issues: list[Any]) -> list[str]:
         """Convert validator issue objects into strings."""

@@ -103,7 +103,7 @@ Required input:
 Optional input:
 
 - `--label <label>`
-- `--status <status>`
+- `--status <status>`: optional UI label appended in parentheses after the version label, for example `preview` or `current`
 - `--visible true|false`
 - `--searchable true|false`
 - `--set-current`
@@ -133,7 +133,9 @@ Important details:
 
 - the new version slug must not collide with an existing version
 - the reference version must exist
-- `current` changes only when `--set-current` is passed
+- `status` is display metadata only; it does not decide which version is current
+- the actual current docs version is controlled by the top-level `current = "<slug>"` entry in `website/data/docs-versions.toml`
+- the current docs version changes only when `--set-current` is passed
 - `searchable` defaults to `false` unless explicitly set otherwise
 
 `version delete` removes a version entry, its nav file, and its content directory.

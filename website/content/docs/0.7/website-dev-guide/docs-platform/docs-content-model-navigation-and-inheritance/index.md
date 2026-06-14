@@ -21,30 +21,20 @@ The path itself defines the docs identity:
 - section slug: `content/docs/<version>/<book>/<section>/`
 - page slug: `content/docs/<version>/<book>/<section>/<page>/`
 
-Do not duplicate that identity in front matter.
-
-Docs pages must not introduce:
-
-- `doc_id`
-- `product_version`
-- `aliases`
-
 ## Public URL Contract
 
-For the current docs version, the canonical public routes are stable and unversioned:
+For the docs version marked as current, the canonical public routes are stable and unversioned:
 
 - `/docs/<book>/`
 - `/docs/<book>/<section>/`
 - `/docs/<book>/<section>/<page>/`
 
-Archived versions remain available at explicit versioned routes:
+Explicit versioned routes are available for each existing version:
 
 - `/docs/<version>/`
 - `/docs/<version>/<book>/`
 - `/docs/<version>/<book>/<section>/`
 - `/docs/<version>/<book>/<section>/<page>/`
-
-Explicit current-version URLs under `/docs/<current>/...` are compatibility routes. They should redirect to the matching stable current route.
 
 ## Filesystem Contract
 
@@ -73,16 +63,15 @@ A section folder may contain zero or one of:
 - `_index.md`: real section landing-page content
 - `_inherit.md`: empty inheritance marker
 
-No file is valid and means the section is structural only. This Website Dev Guide uses that pattern: the section folders group pages in navigation, but the guide does not create separate section landing pages.
+If there's no file, it means the section is structural only and has no content of its own.
 
 ## Marker Files Are Markers Only
 
 Inheritance markers do not carry content or override metadata.
 
-- `inherit.md` must be empty and have no front matter.
-- `_inherit.md` must be empty and have no front matter.
+- `inherit.md` and `_inherit.md` must be empty and have no front matter.
 
-If a newer version needs different content, replace the marker with real content instead of trying to add special-case metadata to the marker file.
+If a newer version needs different content, replace the marker with real content.
 
 ## Navigation Data Contract
 
@@ -137,17 +126,17 @@ Important rules:
 
 Do not infer chronology from the version slug string itself. Use the declared order.
 
-## Inheritance Resolution
+### Inheritance Resolution
 
 When Hugo renders a docs URL for a version, the system checks the requested version first and then walks backward through earlier versions until it finds real content.
 
 For article pages, the resolution order is:
 
 1. check `index.md` at the requested path
-2. if present, use it
-3. otherwise, if `inherit.md` exists, move to the previous declared version and check the same path
-4. if neither file exists, validation should fail
-5. if the backward scan ends without finding real content, validation should fail
+   - if present, use it
+   - otherwise, if `inherit.md` exists, move to the previous declared version and check the same path
+   - if neither file exists, validation should fail
+1. if the backward scan ends without finding real content, validation should fail
 
 Landing-page resolution follows the same pattern with `_index.md` and `_inherit.md`.
 
@@ -179,45 +168,3 @@ When changing docs content, navigation, or routing behavior:
 - adding content or front matter to `inherit.md` or `_inherit.md`
 - putting published content into a source-material folder and assuming it is live docs
 - changing template or script behavior without preserving the same docs path contract
-
-## Validation Commands
-
-Use the full website build for meaningful verification:
-
-```bash
-cd website
-npm run build
-```
-
-If you only need docs structure validation while iterating on content-model rules, run:
-
-```bash
-cd website
-npm run docs:validate
-```
-
-If you are changing inheritance or route-anchor behavior directly, also regenerate the transient anchors during testing:
-
-```bash
-cd website
-npm run docs:materialize-inherited
-```
-
-## Search Behavior
-
-Docs search is intentionally version-aware.
-
-- Pagefind indexes stable current docs URLs, not explicit current-version compatibility routes
-- current docs search results therefore keep stable unversioned URLs
-- explicit versioned docs pages are excluded from the current-version search index
-- on non-docs pages, the UI defaults docs search filters to the `current` version from `website/data/docs-versions.toml`
-- versions with `searchable = false` are excluded from docs search indexing
-
-## Commands for Runtime Changes
-
-The most relevant commands when you are changing docs runtime behavior are:
-
-- `npm run docs:validate`: validate docs content, nav data, markers, and inheritance rules
-- `npm run docs:materialize-inherited`: regenerate transient inherited-route and stable current-route anchors
-- `npm run build`: generate theme assets, validate docs, materialize docs route anchors, and build the site
-- `npm run build:search`: run the full build and then generate the Pagefind search index

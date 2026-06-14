@@ -2,43 +2,7 @@
 title = "Docs Authoring Workflow"
 +++
 
-The live docs are authored in the website, not in the source-material folders.
-
 For wording, list punctuation, and capitalization conventions, use the [Docs Style Guide](../docs-style-guide/).
-
-## Know the Destination
-
-Use these locations for different jobs:
-
-| Area | Use it for |
-|---|---|
-| published docs content | final content that readers see on the website |
-| docs navigation data | published navigation order for one version |
-| user and admin source notes | working material that may later become User Guide or Admin Guide content |
-| developer source notes | working material that may later become Developer Guide content |
-| planning notes | rollout and design material, not published docs |
-
-If readers should see it on the website, the content belongs under `website/content/docs/`.
-
-## Choose the Right Book First
-
-Before you write anything, decide which public docs book owns the topic.
-
-- `user-guide`: user tasks and product usage
-- `admin-guide`: deployment, configuration, operations, and recovery topics
-- `developer-guide`: backend, frontend, companion, and product implementation topics
-- `website-dev-guide`: website editing, docs authoring, docs tooling, routing, media, typography, and website theme internals
-
-Picking the wrong book usually creates duplication later.
-
-## Standard Workflow
-
-For a normal content change:
-
-1. choose the book, section, page, and docs version
-2. create or update the content file at the path that matches the intended URL
-3. add or update the matching nav entry in `website/data/docs-nav/<version>.toml`
-4. run the website build before you consider the work done
 
 ## Content Structure Rules
 
@@ -107,19 +71,6 @@ Navigation data controls order, not content. Keep these rules in mind:
 - changing a slug changes the public URL
 - page titles come from the page's own front matter, not from the nav file
 - section titles come from `docs-nav/<version>.toml`
-
-## Legacy Website Notes Should Be Reshaped, Not Mirrored Blindly
-
-If you are migrating older website implementation notes or planning material, treat them as source material rather than as publishable docs.
-
-When you migrate or update that material:
-
-- keep active technical contracts
-- remove planning-only or obsolete statements
-- split large internal notes into reader-oriented public pages when that improves navigation
-- keep examples when they make the workflow easier to follow
-
-The published Website Dev Guide is now the canonical destination for website editing and website implementation docs.
 
 ## When to Use the Docs Editor Instead of Manual File Edits
 

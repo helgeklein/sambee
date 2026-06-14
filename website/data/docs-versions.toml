@@ -49,4 +49,5 @@ searchable = true
 slug = "0.8"
 label = "0.8"
 visible = true
+status = "preview"
 searchable = false

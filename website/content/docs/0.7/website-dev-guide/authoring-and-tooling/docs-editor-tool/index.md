@@ -2,15 +2,7 @@
 title = "Docs Editor Tool"
 +++
 
-The docs editor CLI manages structural website docs changes safely and consistently.
-
-Use it when you need to change the shape of the docs tree across:
-
-- `website/content/docs/`
-- `website/data/docs-nav/<version>.toml`
-- `website/data/docs-versions.toml`
-
-For ordinary copy edits inside an existing page, edit the Markdown file directly instead.
+The docs editor CLI manages structural website docs changes safely and consistently. For ordinary copy edits inside an existing page, edit the Markdown file directly instead.
 
 ## Tool Location
 
@@ -45,17 +37,35 @@ The docs editor supports four entity types:
 
 Supported structural operations include:
 
-- create a docs book
-- delete a docs book
-- rename a docs book
-- create a section
-- delete a section
-- rename a section
-- create a page
-- delete a page
-- rename a page
+- creating
+- deleteting
+- renaming
 
-## Example: Preview a New Book
+## Example: Create a New Version
+
+This example:
+
+- creates `0.8` as a new version
+- adds it as to the end of the version list as the newest version (`--latest`)
+- adds the status label `preview` (which is shown in the UI)
+
+```bash
+cd website
+python3 scripts/docs-editor.py version create 0.8 \
+  --latest \
+  --status preview
+```
+
+Apply the same change:
+
+```bash
+cd website
+python3 scripts/docs-editor.py --apply version create 0.8 \
+  --latest \
+  --status preview
+```
+
+## Example: Create a New Book
 
 ```bash
 cd website
@@ -94,7 +104,7 @@ python3 scripts/docs-editor.py section create \
 
 That creates the section directory and nav entry without `_index.md` or `_inherit.md`.
 
-## Example: Preview a New Page
+## Example: Create a New Page
 
 ```bash
 cd website
@@ -118,7 +128,7 @@ python3 scripts/docs-editor.py --apply page create \
   --title "Docs Editor Tool"
 ```
 
-## Example: Rename a Page Safely
+## Example: Rename a Page
 
 ```bash
 cd website
@@ -142,7 +152,7 @@ The docs editor is deliberately conservative.
 - destructive operations require confirmation unless you pass `--yes`
 - docs validation runs automatically after a successful apply
 
-## Refusal Semantics
+### Refusal Semantics
 
 The tool refuses destructive operations when they would silently rewrite newer authored content.
 
@@ -164,16 +174,3 @@ Use [Docs Editor Operation Reference](../docs-editor-operation-reference/) when 
 - real-content stub and inherited-marker behavior
 - preview output details
 - per-entity create, delete, and rename reference behavior
-
-## When the Tool Is Better than Manual Edits
-
-Use the CLI when the change touches structure and ordering together.
-
-Examples:
-
-- introducing a new book
-- reorganizing sections
-- renaming a page slug
-- deleting a page that may exist through inheritance in later versions
-
-Manual file edits are still fine for revising the body text of an existing page.
