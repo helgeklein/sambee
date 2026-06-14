@@ -337,7 +337,12 @@ export function UnifiedSearchBar({
             }
 
             items.push(
-              <MenuItem key={modeOption.id} onClick={() => handleModeSelect(modeOption)} selected={modeOption.id === provider.modeId} sx={QUICK_BAR_MODE_MENU_ITEM_SX}>
+              <MenuItem
+                key={modeOption.id}
+                onClick={() => handleModeSelect(modeOption)}
+                selected={modeOption.id === provider.modeId}
+                sx={QUICK_BAR_MODE_MENU_ITEM_SX}
+              >
                 {modeOption.label}
               </MenuItem>
             );

@@ -267,10 +267,8 @@ describe("UnifiedSearchBar", () => {
 
     rerender(
       <SambeeThemeProvider>
-        <>
-          <UnifiedSearchBar provider={commandsProvider} activationToken={1} modeOptions={modeOptions} />
-          <button type="button">File list focus target</button>
-        </>
+        <UnifiedSearchBar provider={commandsProvider} activationToken={1} modeOptions={modeOptions} />
+        <button type="button">File list focus target</button>
       </SambeeThemeProvider>
     );
 
@@ -302,10 +300,8 @@ describe("UnifiedSearchBar", () => {
 
     rerender(
       <SambeeThemeProvider>
-        <>
-          <UnifiedSearchBar provider={resultsProvider} activationToken={1} modeOptions={modeOptions} />
-          <button type="button">Outside focus target</button>
-        </>
+        <UnifiedSearchBar provider={resultsProvider} activationToken={1} modeOptions={modeOptions} />
+        <button type="button">Outside focus target</button>
       </SambeeThemeProvider>
     );
 

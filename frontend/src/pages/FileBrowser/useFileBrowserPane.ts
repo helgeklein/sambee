@@ -1015,12 +1015,15 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [focusedIndex, listContainerEl]
   );
 
-  const handleOpenFile = useCallback((options?: { requireListFocus?: boolean }) => {
-    const file = getFocusedFileForAction(options);
-    if (file) {
-      handleFileClick(file, focusedIndex);
-    }
-  }, [focusedIndex, getFocusedFileForAction, handleFileClick]);
+  const handleOpenFile = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      const file = getFocusedFileForAction(options);
+      if (file) {
+        handleFileClick(file, focusedIndex);
+      }
+    },
+    [focusedIndex, getFocusedFileForAction, handleFileClick]
+  );
 
   const handleNavigateUpDirectory = useCallback(() => {
     if (!currentPathRef.current) return;
@@ -1214,14 +1217,17 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Delete
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleDeleteRequest = useCallback((options?: { requireListFocus?: boolean }) => {
-    const file = getFocusedFileForAction(options);
-    if (!file) return;
-    if (connectionIsReadOnly) return;
+  const handleDeleteRequest = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      const file = getFocusedFileForAction(options);
+      if (!file) return;
+      if (connectionIsReadOnly) return;
 
-    setDeleteTarget(file);
-    setDeleteDialogOpen(true);
-  }, [connectionIsReadOnly, getFocusedFileForAction]);
+      setDeleteTarget(file);
+      setDeleteDialogOpen(true);
+    },
+    [connectionIsReadOnly, getFocusedFileForAction]
+  );
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget || !connectionId) return;
@@ -1264,15 +1270,18 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Rename
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleRenameRequest = useCallback((options?: { requireListFocus?: boolean }) => {
-    const file = getFocusedFileForAction(options);
-    if (!file) return;
-    if (connectionIsReadOnly) return;
+  const handleRenameRequest = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      const file = getFocusedFileForAction(options);
+      if (!file) return;
+      if (connectionIsReadOnly) return;
 
-    setRenameError(null);
-    setRenameTarget(file);
-    setRenameDialogOpen(true);
-  }, [connectionIsReadOnly, getFocusedFileForAction]);
+      setRenameError(null);
+      setRenameTarget(file);
+      setRenameDialogOpen(true);
+    },
+    [connectionIsReadOnly, getFocusedFileForAction]
+  );
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {
@@ -1703,7 +1712,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [disabled, handleNavigateUpDirectory, viewInfo, updateFocus, listContainerEl]);
+  }, [disabled, viewInfo, updateFocus, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Return
