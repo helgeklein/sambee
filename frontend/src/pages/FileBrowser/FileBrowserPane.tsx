@@ -25,6 +25,7 @@ import { FileList } from "../../components/FileBrowser/FileList";
 import RenameDialog from "../../components/FileBrowser/RenameDialog";
 import { STATUS_BAR_HEIGHT, StatusBar } from "../../components/FileBrowser/StatusBar";
 import type { SearchProvider } from "../../components/FileBrowser/search";
+import type { UnifiedSearchBarModeOption } from "../../components/FileBrowser/UnifiedSearchBar";
 import { UnifiedSearchBar } from "../../components/FileBrowser/UnifiedSearchBar";
 import type { Connection } from "../../types";
 import { FileType } from "../../types";
@@ -78,8 +79,13 @@ export interface FileBrowserPaneProps {
   /** Disable dropdown behavior for list-backed filter mode. */
   disableSearchDropdown?: boolean;
 
+  /** Temporarily suppress the quick-bar dropdown while a higher-priority dialog is open. */
+  suppressSearchDropdown?: boolean;
+
   /** Move focus from the search input into the file list. */
   onSearchArrowDownToFileList?: () => void;
+  /** Explicit quick-bar mode options shown in the search bar. */
+  modeOptions?: UnifiedSearchBarModeOption[];
 }
 
 // ============================================================================
@@ -101,7 +107,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
   searchQueryValue,
   onSearchQueryValueChange,
   disableSearchDropdown,
+  suppressSearchDropdown,
   onSearchArrowDownToFileList,
+  modeOptions,
 }) => {
   const theme = useTheme();
   const { t } = useTranslation();
@@ -376,7 +384,9 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             queryValue={searchQueryValue}
             onQueryValueChange={onSearchQueryValueChange}
             disableDropdown={disableSearchDropdown}
+            suppressDropdown={suppressSearchDropdown}
             onArrowDownToFileList={onSearchArrowDownToFileList}
+            modeOptions={modeOptions}
           />
           {connectionIsReadOnly && (
             <Box sx={{ px: 2, pb: 1 }}>

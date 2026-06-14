@@ -205,7 +205,7 @@ export interface UseFileBrowserPaneReturn {
   handleEnd: () => void;
   handlePageDown: (e?: KeyboardEvent) => void;
   handlePageUp: (e?: KeyboardEvent) => void;
-  handleOpenFile: () => void;
+  handleOpenFile: (options?: { requireListFocus?: boolean }) => void;
   navigateToPath: (path: string, options?: { blurActiveElement?: boolean }) => void;
   prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
@@ -220,10 +220,10 @@ export interface UseFileBrowserPaneReturn {
   handleViewClose: () => void;
 
   // ── CRUD Dialog Handlers ───────────────────────────────────────────────
-  handleDeleteRequest: () => void;
+  handleDeleteRequest: (options?: { requireListFocus?: boolean }) => void;
   handleDeleteConfirm: () => Promise<void>;
   closeDeleteDialog: () => void;
-  handleRenameRequest: () => void;
+  handleRenameRequest: (options?: { requireListFocus?: boolean }) => void;
   handleRenameConfirm: (newName: string) => Promise<void>;
   handleRenameForFile: (file: FileEntry, index: number) => void;
   closeRenameDialog: () => void;

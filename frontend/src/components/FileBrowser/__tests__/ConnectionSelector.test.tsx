@@ -39,6 +39,7 @@ describe("ConnectionSelector", () => {
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],
+    ["ArrowDown", "{ArrowDown}"],
   ])("opens and keeps the top-bar connection menu open when %s is pressed", async (_label, sequence) => {
     const user = userEvent.setup();
 

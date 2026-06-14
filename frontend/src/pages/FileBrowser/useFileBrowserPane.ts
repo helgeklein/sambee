@@ -998,16 +998,32 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [focusedIndex, visibleRowCount, updateFocus, rowVirtualizer, listContainerEl]
   );
 
-  const handleOpenFile = useCallback(() => {
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+  const getFocusedFileForAction = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      if (!listContainerEl) return null;
 
-    const file = filesRef.current[focusedIndex];
-    if (file) {
-      handleFileClick(file, focusedIndex);
-    }
-  }, [focusedIndex, handleFileClick, listContainerEl]);
+      const requireListFocus = options?.requireListFocus ?? true;
+      if (requireListFocus) {
+        const activeElement = document.activeElement;
+        if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) {
+          return null;
+        }
+      }
+
+      return filesRef.current[focusedIndex] ?? null;
+    },
+    [focusedIndex, listContainerEl]
+  );
+
+  const handleOpenFile = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      const file = getFocusedFileForAction(options);
+      if (file) {
+        handleFileClick(file, focusedIndex);
+      }
+    },
+    [focusedIndex, getFocusedFileForAction, handleFileClick]
+  );
 
   const handleNavigateUpDirectory = useCallback(() => {
     if (!currentPathRef.current) return;
@@ -1201,18 +1217,17 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Delete
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleDeleteRequest = useCallback(() => {
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+  const handleDeleteRequest = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      const file = getFocusedFileForAction(options);
+      if (!file) return;
+      if (connectionIsReadOnly) return;
 
-    const file = filesRef.current[focusedIndex];
-    if (!file) return;
-    if (connectionIsReadOnly) return;
-
-    setDeleteTarget(file);
-    setDeleteDialogOpen(true);
-  }, [connectionIsReadOnly, focusedIndex, listContainerEl]);
+      setDeleteTarget(file);
+      setDeleteDialogOpen(true);
+    },
+    [connectionIsReadOnly, getFocusedFileForAction]
+  );
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget || !connectionId) return;
@@ -1255,19 +1270,18 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Rename
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleRenameRequest = useCallback(() => {
-    if (!listContainerEl) return;
-    const activeElement = document.activeElement;
-    if (activeElement !== listContainerEl && !listContainerEl.contains(activeElement)) return;
+  const handleRenameRequest = useCallback(
+    (options?: { requireListFocus?: boolean }) => {
+      const file = getFocusedFileForAction(options);
+      if (!file) return;
+      if (connectionIsReadOnly) return;
 
-    const file = filesRef.current[focusedIndex];
-    if (!file) return;
-    if (connectionIsReadOnly) return;
-
-    setRenameError(null);
-    setRenameTarget(file);
-    setRenameDialogOpen(true);
-  }, [connectionIsReadOnly, focusedIndex, listContainerEl]);
+      setRenameError(null);
+      setRenameTarget(file);
+      setRenameDialogOpen(true);
+    },
+    [connectionIsReadOnly, getFocusedFileForAction]
+  );
 
   const handleRenameConfirm = useCallback(
     async (newName: string) => {
@@ -1650,14 +1664,12 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       const isInInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
       if (isInInput) {
-        // Backspace on empty search input → navigate up
-        if (e.key === "Backspace" && (target as HTMLInputElement).value === "" && currentPathRef.current) {
-          const input = target as HTMLInputElement;
-          if (input.selectionStart === 0 && input.selectionEnd === 0) {
-            e.preventDefault();
-            handleNavigateUpDirectory();
-            return;
-          }
+        const input = target as HTMLInputElement;
+
+        // Quick-bar inputs own their keyboard interaction. File-list handlers
+        // must not react while focus remains inside the quick bar.
+        if (input.dataset.quickBarInput === "true") {
+          return;
         }
 
         const allowedKeysInInput = ["?", "Escape"];
@@ -1700,7 +1712,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [disabled, handleNavigateUpDirectory, viewInfo, updateFocus, listContainerEl]);
+  }, [disabled, viewInfo, updateFocus, listContainerEl]);
 
   // ──────────────────────────────────────────────────────────────────────────
   // Return

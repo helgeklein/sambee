@@ -1,55 +1,55 @@
-{{/* Purpose: Resolve the best docs URL for a target version using the agreed fallback chain. */}}
-{{ $page := .page }}
-{{ $targetVersion := .targetVersion }}
-{{ $context := partial "docs/context.html" $page }}
-{{ $fallbackURL := "/docs/" }}
+{{- /* Purpose: Resolve the best docs URL for a target version using the agreed fallback chain. */ -}}
+{{- $page := .page -}}
+{{- $targetVersion := .targetVersion -}}
+{{- $context := partial "docs/context.html" $page -}}
+{{- $fallbackURL := "/docs/" -}}
 
-{{ if $targetVersion }}
-  {{ $fallbackURL = partial "docs/page-url.html" (dict "version" $targetVersion) }}
-{{ end }}
+{{- if $targetVersion -}}
+  {{- $fallbackURL = partial "docs/page-url.html" (dict "version" $targetVersion) -}}
+{{- end -}}
 
-{{ if and $context.isDocs $targetVersion }}
-  {{ $candidateLocations := slice }}
+{{- if and $context.isDocs $targetVersion -}}
+  {{- $candidateLocations := slice -}}
 
-  {{ if eq $context.kind "page" }}
-    {{ $candidateLocations = $candidateLocations | append (dict "book" $context.book "section" $context.section "page" $context.page) }}
-  {{ end }}
+  {{- if eq $context.kind "page" -}}
+    {{- $candidateLocations = $candidateLocations | append (dict "book" $context.book "section" $context.section "page" $context.page) -}}
+  {{- end -}}
 
-  {{ if or (eq $context.kind "page") (eq $context.kind "section") }}
-    {{ $candidateLocations = $candidateLocations | append (dict "book" $context.book "section" $context.section) }}
-  {{ end }}
+  {{- if or (eq $context.kind "page") (eq $context.kind "section") -}}
+    {{- $candidateLocations = $candidateLocations | append (dict "book" $context.book "section" $context.section) -}}
+  {{- end -}}
 
-  {{ if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") }}
-    {{ $candidateLocations = $candidateLocations | append (dict "book" $context.book) }}
-  {{ end }}
+  {{- if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") -}}
+    {{- $candidateLocations = $candidateLocations | append (dict "book" $context.book) -}}
+  {{- end -}}
 
-  {{ if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") (eq $context.kind "version") }}
-    {{ $candidateLocations = $candidateLocations | append (dict) }}
-  {{ end }}
+  {{- if or (eq $context.kind "page") (eq $context.kind "section") (eq $context.kind "book") (eq $context.kind "version") -}}
+    {{- $candidateLocations = $candidateLocations | append (dict) -}}
+  {{- end -}}
 
-  {{ $resolved := false }}
+  {{- $resolved := false -}}
 
-  {{ range $candidateLocations }}
-    {{ if not $resolved }}
-      {{ $candidate := . }}
-      {{ $lookupPath := partial "docs/page-path.html" (dict
+  {{- range $candidateLocations -}}
+    {{- if not $resolved -}}
+      {{- $candidate := . -}}
+      {{- $lookupPath := partial "docs/page-path.html" (dict
         "version" $targetVersion
         "book" ($candidate.book | default "")
         "section" ($candidate.section | default "")
         "page" ($candidate.page | default "")
         "preferStable" false
-      ) }}
-      {{ with site.GetPage $lookupPath }}
-        {{ $fallbackURL = partial "docs/page-url.html" (dict
+      ) -}}
+      {{- with site.GetPage $lookupPath -}}
+        {{- $fallbackURL = partial "docs/page-url.html" (dict
           "version" $targetVersion
           "book" ($candidate.book | default "")
           "section" ($candidate.section | default "")
           "page" ($candidate.page | default "")
-        ) }}
-        {{ $resolved = true }}
-      {{ end }}
-    {{ end }}
-  {{ end }}
-{{ end }}
+        ) -}}
+        {{- $resolved = true -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
 
 {{- $fallbackURL -}}

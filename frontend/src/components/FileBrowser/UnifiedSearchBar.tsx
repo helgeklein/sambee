@@ -20,14 +20,19 @@
  * - Responsive: works in both desktop header and mobile sticky bar
  */
 
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import ClearIcon from "@mui/icons-material/Clear";
 import {
   Box,
+  Button,
   CircularProgress,
   ClickAwayListener,
+  Divider,
   IconButton,
   InputAdornment,
   ListItemButton,
+  Menu,
+  MenuItem,
   Paper,
   Popper,
   TextField,
@@ -37,7 +42,10 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
+import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
 import type { SearchProvider, SearchResult, SearchSelectionBehavior } from "./search/types";
 
 // ============================================================================
@@ -56,12 +64,32 @@ const DROPDOWN_WIDTH_PX = 700;
 /** Number of items to jump with Page Up/Down */
 const PAGE_JUMP_SIZE = 10;
 
-/** The default quick-bar mode should read as the baseline, not a tagged variant. */
-const DEFAULT_MODE_ID = "navigate";
-
 /** Preserve touch comfort on mobile while tightening desktop density slightly. */
-const MOBILE_INPUT_PADDING = "10px 14px";
-const DESKTOP_INPUT_PADDING = "7.5px 12px";
+const QUICK_BAR_SPACING = {
+  xs: { horizontal: 10, vertical: 10 },
+  sm: { horizontal: 8, vertical: 8 },
+} as const;
+
+const INPUT_PADDING = {
+  xs: `${QUICK_BAR_SPACING.xs.vertical}px ${QUICK_BAR_SPACING.xs.horizontal}px`,
+  sm: `${QUICK_BAR_SPACING.sm.vertical}px ${QUICK_BAR_SPACING.sm.horizontal}px`,
+} as const;
+
+const HORIZONTAL_CHROME_SPACING = {
+  xs: `${QUICK_BAR_SPACING.xs.horizontal}px`,
+  sm: `${QUICK_BAR_SPACING.sm.horizontal}px`,
+} as const;
+
+const QUICK_BAR_MODE_LABEL_SX = {
+  fontSize: "0.75rem",
+  fontWeight: 600,
+  lineHeight: 1.2,
+} as const;
+
+const QUICK_BAR_MODE_MENU_ITEM_SX = {
+  fontSize: "0.8125rem",
+  lineHeight: 1.35,
+} as const;
 
 // ============================================================================
 // Props
@@ -88,6 +116,18 @@ interface UnifiedSearchBarProps {
   disableDropdown?: boolean;
   /** Called when ArrowDown should hand focus from the input to the file list. */
   onArrowDownToFileList?: () => void;
+  /** Explicit quick-bar mode options shown in the mode-selector menu. */
+  modeOptions?: UnifiedSearchBarModeOption[];
+  /** Accessible label for the quick-bar mode selector trigger. */
+  modeSelectorAriaLabel?: string;
+  /** Temporarily suppress the results dropdown while a higher-priority overlay is open. */
+  suppressDropdown?: boolean;
+}
+
+export interface UnifiedSearchBarModeOption {
+  id: string;
+  label: string;
+  onSelect: () => void;
 }
 
 // ============================================================================
@@ -108,6 +148,9 @@ export function UnifiedSearchBar({
   disableDropdown = false,
   onArrowDownToFileList,
   disableTabFocus,
+  modeOptions,
+  modeSelectorAriaLabel,
+  suppressDropdown = false,
 }: UnifiedSearchBarProps) {
   // ── State ──────────────────────────────────────────────────────────────
   const [internalQuery, setInternalQuery] = useState("");
@@ -121,6 +164,14 @@ export function UnifiedSearchBar({
 
   const theme = useTheme();
   const { t } = useTranslation();
+  const {
+    anchorEl: modeMenuAnchorEl,
+    open: isModeMenuOpen,
+    handleClick: handleModeMenuClick,
+    handleKeyDown: handleModeMenuKeyDown,
+    handleKeyUp: handleModeMenuKeyUp,
+    handleClose: handleModeMenuClose,
+  } = usePillButtonMenu();
 
   // ── Refs ───────────────────────────────────────────────────────────────
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -195,54 +246,128 @@ export function UnifiedSearchBar({
     );
   }, [provider.shortcutHint, useCompactLayout, theme.palette.mode]);
 
-  const shouldShowModeBadge = !!provider.modeLabel && provider.modeId !== DEFAULT_MODE_ID && query.length === 0;
+  const handleModeSelect = useCallback(
+    (modeOption: UnifiedSearchBarModeOption) => {
+      modeOption.onSelect();
+      handleModeMenuClose();
+    },
+    [handleModeMenuClose]
+  );
 
-  const modeBadge = useMemo(() => {
-    if (!provider.modeLabel || !shouldShowModeBadge) return null;
+  const focusQuickBarInput = useCallback(() => {
+    setTimeout(() => {
+      effectiveInputRef.current?.focus();
+      effectiveInputRef.current?.select();
+    }, 0);
+  }, [effectiveInputRef]);
 
-    return (
-      <Box
-        aria-hidden="true"
-        sx={{
-          display: "inline-flex",
-          alignItems: "center",
-          px: 0.75,
-          py: 0.25,
-          borderRadius: 999,
-          backgroundColor: "action.selected",
-          color: "text.secondary",
-          fontSize: "0.7rem",
-          fontWeight: 600,
-          letterSpacing: "0.02em",
-          whiteSpace: "nowrap",
-          mr: 0,
-        }}
-      >
-        {provider.modeLabel}
-      </Box>
-    );
-  }, [provider.modeLabel, shouldShowModeBadge]);
+  const handleModeTriggerKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        focusQuickBarInput();
+        return;
+      }
 
-  const startAdornment = useMemo(() => {
-    if (!modeBadge) {
-      return undefined;
+      handleModeMenuKeyDown(event);
+    },
+    [focusQuickBarInput, handleModeMenuKeyDown]
+  );
+
+  const modeSelector = useMemo(() => {
+    if (!provider.modeLabel || !provider.modeId || !modeOptions || modeOptions.length === 0) {
+      return null;
     }
 
     return (
-      <InputAdornment
-        position="start"
-        sx={{
-          ml: 0,
-          mr: 0.75,
-          display: "flex",
-          alignItems: "center",
-          gap: 0.5,
-        }}
-      >
-        {modeBadge}
-      </InputAdornment>
+      <>
+        <Button
+          onClick={handleModeMenuClick}
+          onKeyDown={handleModeTriggerKeyDown}
+          onKeyUp={handleModeMenuKeyUp}
+          size="small"
+          tabIndex={disableTabFocus ? -1 : undefined}
+          aria-label={modeSelectorAriaLabel ?? t("fileBrowser.search.modeSelectorAriaLabel")}
+          aria-controls={isModeMenuOpen ? "quick-bar-mode-menu" : undefined}
+          aria-haspopup="true"
+          aria-expanded={isModeMenuOpen ? "true" : undefined}
+          sx={{
+            ...pillButtonStyle,
+            minWidth: "auto",
+            px: 1.25,
+            py: 0.25,
+            color: "text.secondary",
+          }}
+        >
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
+            <Typography variant="body2" sx={QUICK_BAR_MODE_LABEL_SX}>
+              {provider.modeLabel}
+            </Typography>
+            <ArrowDropDownIcon fontSize="small" />
+          </Box>
+        </Button>
+        <Menu
+          id="quick-bar-mode-menu"
+          anchorEl={modeMenuAnchorEl}
+          open={isModeMenuOpen}
+          onClose={(_event, reason) => {
+            handleModeMenuClose();
+
+            if (reason === "escapeKeyDown") {
+              focusQuickBarInput();
+            }
+          }}
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+          slotProps={{
+            paper: {
+              sx: (menuTheme) => ({
+                ...getSecondaryToolbarMenuPaperStyle(menuTheme),
+                minWidth: 180,
+              }),
+            },
+          }}
+        >
+          {modeOptions.flatMap((modeOption, index) => {
+            const items = [];
+
+            if (index > 0) {
+              items.push(<Divider key={`${modeOption.id}-divider`} />);
+            }
+
+            items.push(
+              <MenuItem
+                key={modeOption.id}
+                onClick={() => handleModeSelect(modeOption)}
+                selected={modeOption.id === provider.modeId}
+                sx={QUICK_BAR_MODE_MENU_ITEM_SX}
+              >
+                {modeOption.label}
+              </MenuItem>
+            );
+
+            return items;
+          })}
+        </Menu>
+      </>
     );
-  }, [modeBadge]);
+  }, [
+    disableTabFocus,
+    focusQuickBarInput,
+    handleModeMenuClick,
+    handleModeMenuClose,
+    handleModeMenuKeyUp,
+    handleModeTriggerKeyDown,
+    handleModeSelect,
+    isModeMenuOpen,
+    modeMenuAnchorEl,
+    modeOptions,
+    modeSelectorAriaLabel,
+    provider.modeId,
+    provider.modeLabel,
+    t,
+  ]);
 
   const endAdornment = useMemo(() => {
     const showShortcutBadge = !query && !isFocused && !!kbdBadge;
@@ -252,7 +377,12 @@ export function UnifiedSearchBar({
     }
 
     return (
-      <InputAdornment position="end">
+      <InputAdornment
+        position="end"
+        sx={{
+          ml: 0,
+        }}
+      >
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
           {isLoading ? <CircularProgress size={18} /> : null}
           {query ? (
@@ -378,11 +508,15 @@ export function UnifiedSearchBar({
   //
   const handleSelect = useCallback(
     (value: string) => {
+      // Apply quick-bar teardown before command side effects open other overlays.
+      flushSync(() => {
+        setQuery("");
+        setResults([]);
+        setIsDropdownOpen(false);
+        setHasSearched(false);
+      });
+
       const selectionBehavior: SearchSelectionBehavior | undefined = providerRef.current.onSelect(value);
-      setQuery("");
-      setResults([]);
-      setIsDropdownOpen(false);
-      setHasSearched(false);
 
       const focusTarget = selectionBehavior?.focusTarget ?? "file-list";
 
@@ -489,6 +623,12 @@ export function UnifiedSearchBar({
             onBlurToFileList();
           }
           break;
+
+        case "Tab":
+          if (isDropdownOpen) {
+            setIsDropdownOpen(false);
+          }
+          break;
       }
     },
     [disableDropdown, handleSelect, isDropdownOpen, onArrowDownToFileList, onBlurToFileList, query, results, selectedIndex, setQuery]
@@ -541,6 +681,11 @@ export function UnifiedSearchBar({
     setIsFocused(true);
     handleFocus();
 
+    if (suppressDropdown) {
+      setIsDropdownOpen(false);
+      return;
+    }
+
     const effectiveMinQueryLength = getEffectiveMinQueryLength(query);
     const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(query);
 
@@ -571,7 +716,14 @@ export function UnifiedSearchBar({
     results.length,
     hasSearched,
     query,
+    suppressDropdown,
   ]);
+
+  useEffect(() => {
+    if (suppressDropdown) {
+      setIsDropdownOpen(false);
+    }
+  }, [suppressDropdown]);
 
   // ── Cleanup on unmount ─────────────────────────────────────────────────
   useEffect(() => {
@@ -609,36 +761,72 @@ export function UnifiedSearchBar({
       debounceTimerRef.current = null;
     }
 
-    setResults([]);
-    setSelectedIndex(0);
-    setIsLoading(false);
-    setIsSearchPending(false);
-    setIsDropdownOpen(false);
-    setHasSearched(false);
+    const isInputFocused = document.activeElement === effectiveInputRef.current;
+    const nextQuery = providerChanged ? "" : query;
+    const effectiveMinQueryLength = getEffectiveMinQueryLength(nextQuery);
+    const effectiveBelowMinimumMessage = getEffectiveBelowMinimumMessage(nextQuery);
+    const shouldSearchOnActivation = activationChanged && !disableDropdown && nextQuery.length >= effectiveMinQueryLength;
+    const shouldShowBelowMinimumOnActivation =
+      activationChanged &&
+      !disableDropdown &&
+      nextQuery.length > 0 &&
+      nextQuery.length < effectiveMinQueryLength &&
+      !!effectiveBelowMinimumMessage;
+    const shouldOpenOnActivation = shouldSearchOnActivation || shouldShowBelowMinimumOnActivation;
+    const shouldPreserveSearchStateOnActivation = shouldSearchOnActivation && !providerChanged;
 
-    if (!isControlledQuery) {
+    if (!shouldPreserveSearchStateOnActivation) {
+      setResults([]);
+      setSelectedIndex(0);
+      setHasSearched(false);
+    }
+
+    setIsLoading(shouldSearchOnActivation);
+    setIsSearchPending(false);
+    setIsDropdownOpen(shouldOpenOnActivation);
+
+    if (!isControlledQuery && providerChanged) {
       setInternalQuery("");
     }
 
     lastResetProviderRef.current = provider;
     lastActivationTokenRef.current = activationToken;
 
-    const isInputFocused = document.activeElement === effectiveInputRef.current;
     activatedRef.current = isInputFocused;
+
+    if (shouldSearchOnActivation) {
+      void executeSearch(nextQuery);
+    }
 
     if (isInputFocused) {
       providerRef.current.onActivate?.();
     }
-  }, [activationToken, effectiveInputRef, isControlledQuery, provider.id]);
+  }, [
+    activationToken,
+    disableDropdown,
+    effectiveInputRef,
+    executeSearch,
+    getEffectiveBelowMinimumMessage,
+    getEffectiveMinQueryLength,
+    isControlledQuery,
+    provider.id,
+    query,
+  ]);
 
   useEffect(() => {
-    if (disableDropdown) {
+    if (disableDropdown || suppressDropdown) {
       return;
     }
     if (document.activeElement === effectiveInputRef.current && provider.minQueryLength === 0) {
       void executeSearch("");
     }
-  }, [disableDropdown, effectiveInputRef, executeSearch, provider.minQueryLength]);
+  }, [disableDropdown, effectiveInputRef, executeSearch, provider.minQueryLength, suppressDropdown]);
+
+  useEffect(() => {
+    if (isModeMenuOpen && isDropdownOpen) {
+      setIsDropdownOpen(false);
+    }
+  }, [isDropdownOpen, isModeMenuOpen]);
 
   // ── Derived state ──────────────────────────────────────────────────────
   const statusInfo = provider.getStatusInfo();
@@ -670,48 +858,78 @@ export function UnifiedSearchBar({
             backgroundColor: useCompactLayout ? "background.paper" : "background.default",
           }}
         >
-          <TextField
-            fullWidth
-            size="small"
-            placeholder={provider.placeholder}
-            value={query}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            onFocus={handleInputFocus}
-            onBlur={() => setIsFocused(false)}
-            inputRef={effectiveInputRef}
-            inputProps={disableTabFocus ? { tabIndex: -1 } : undefined}
+          <Box
             sx={{
-              "& .MuiInputBase-root": {
-                fontSize: { xs: "16px", sm: "14px" },
-              },
-              "& .MuiInputBase-root.Mui-focused": {
-                outline: (theme) => `3px solid ${theme.palette.appBar?.focus}`,
+              display: "flex",
+              alignItems: "center",
+              px: HORIZONTAL_CHROME_SPACING,
+              "&:focus-within": {
+                outline: (shellTheme) => `3px solid ${shellTheme.palette.appBar?.focus}`,
                 outlineOffset: "0",
               },
-              "& .MuiInputBase-input": {
-                padding: { xs: MOBILE_INPUT_PADDING, sm: DESKTOP_INPUT_PADDING },
-              },
-              "& .MuiOutlinedInput-notchedOutline": {
-                border: "none",
-              },
-              "&:hover .MuiOutlinedInput-notchedOutline": {
-                border: "none",
-              },
-              "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
-                border: "none",
-              },
             }}
-            InputProps={{
-              startAdornment,
-              endAdornment,
-            }}
-          />
+          >
+            {modeSelector ? (
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {modeSelector}
+              </Box>
+            ) : null}
+            <TextField
+              fullWidth
+              size="small"
+              placeholder={provider.placeholder}
+              value={query}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              onFocus={handleInputFocus}
+              onBlur={() => setIsFocused(false)}
+              inputRef={effectiveInputRef}
+              inputProps={{
+                ...(disableTabFocus ? { tabIndex: -1 } : {}),
+                "data-quick-bar-input": "true",
+              }}
+              sx={{
+                flex: 1,
+                "& .MuiInputBase-root": {
+                  fontSize: { xs: "16px", sm: "14px" },
+                  pl: 0,
+                },
+                "& .MuiInputBase-root.Mui-focused": {
+                  outline: "none",
+                },
+                "& .MuiInputBase-input": {
+                  padding: INPUT_PADDING,
+                },
+                "& .MuiOutlinedInput-notchedOutline": {
+                  border: "none",
+                },
+                "&:hover .MuiOutlinedInput-notchedOutline": {
+                  border: "none",
+                },
+                "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
+                  border: "none",
+                },
+              }}
+              InputProps={{
+                sx: {
+                  px: 0,
+                },
+                endAdornment,
+              }}
+            />
+          </Box>
         </Paper>
 
         {/* Dropdown results panel */}
         <Popper
           open={
+            !suppressDropdown &&
             !disableDropdown &&
             isDropdownOpen &&
             (results.length > 0 || showNoResults || showBelowMinimum || isSearchPending || isLoading || statusInfo !== null)

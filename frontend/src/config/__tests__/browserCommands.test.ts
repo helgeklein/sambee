@@ -9,7 +9,7 @@ function createContext(): BrowserCommandContext {
     settingsOpen: false,
     mobileSettingsOpen: false,
     helpOpen: false,
-    quickBarMode: "smart",
+    quickBarMode: "navigate",
     hasFiles: true,
     hasFocusedFile: true,
     connectionSelected: true,
@@ -49,17 +49,17 @@ describe("browserCommands", () => {
     const context = createContext();
 
     expect(getEnabledBrowserCommands(context)[0]).toMatchObject({
-      title: "Open Smart Navigation",
+      title: "Open Navigate Mode",
       category: "Navigation",
-      description: "Jump to directories from the smart navigation bar",
+      description: "Jump to directories from the quick bar",
     });
 
     await setLocale("en-XA");
 
     expect(getEnabledBrowserCommands(context)[0]).toMatchObject({
-      title: "[Óṕéń Šḿåŕť Ńåṽíğåťíóń]",
+      title: "[Óṕéń Ńåṽíğåťé Ḿóďé]",
       category: "[Ńåṽíğåťíóń]",
-      description: "[Ĵúḿṕ ťó ďíŕéćťóŕíéš ƒŕóḿ ťħé šḿåŕť ńåṽíğåťíóń ƀåŕ]",
+      description: "[Ĵúḿṕ ťó ďíŕéćťóŕíéš ƒŕóḿ ťħé qúíćķ ƀåŕ]",
     });
   });
 

@@ -35,8 +35,8 @@ describe("frontend i18n", () => {
     expect(translate("app.loading")).toBe("Loading...");
     expect(translate("auth.login.title")).toBe("Sambee Login");
     expect(translate("fileBrowser.list.emptyDirectory")).toBe("This directory is empty");
-    expect(translate("fileBrowser.search.placeholders.smart")).toBe("Go to any folder or type > for commands");
-    expect(translate("fileBrowser.commands.items.quickNav.title")).toBe("Open Smart Navigation");
+    expect(translate("fileBrowser.search.placeholders.directory")).toBe("Navigate to any directory");
+    expect(translate("fileBrowser.commands.items.quickNav.title")).toBe("Open Navigate Mode");
     expect(translate("fileBrowser.row.openInCompanionApp")).toBe("Open in companion app");
     expect(translate("app.errorBoundary.title")).toBe("Something went wrong");
     expect(translate("viewer.fallback.failedTitle")).toBe("Viewer unavailable");
@@ -56,8 +56,8 @@ describe("frontend i18n", () => {
     expect(translate("app.loading")).toBe("[Ĺóåďíńğ...]");
     expect(translate("auth.login.title")).toBe("[Šåḿƀéé Ĺóğíń]");
     expect(translate("fileBrowser.list.emptyDirectory")).toBe("[Ťħíš ďíŕéćťóŕý íš éḿṕťý]");
-    expect(translate("fileBrowser.search.placeholders.smart")).toBe("[Ğó ťó åńý ƒóĺďéŕ óŕ ťýṕé > ƒóŕ ćóḿḿåńďš]");
-    expect(translate("fileBrowser.commands.items.quickNav.title")).toBe("[Óṕéń Šḿåŕť Ńåṽíğåťíóń]");
+    expect(translate("fileBrowser.search.placeholders.directory")).toBe("[Ńåṽíğåťé ťó åńý ďíŕéćťóŕý]");
+    expect(translate("fileBrowser.commands.items.quickNav.title")).toBe("[Óṕéń Ńåṽíğåťé Ḿóďé]");
     expect(translate("fileBrowser.row.openInCompanionApp")).toBe("[Óṕéń íń ćóḿṕåńíóń åṕṕ]");
     expect(translate("app.errorBoundary.title")).toBe("[Šóḿéťħíńğ ŵéńť ŵŕóńğ]");
     expect(translate("viewer.fallback.failedTitle")).toBe("[Ṽíéŵéŕ úńåṽåíĺåƀĺé]");

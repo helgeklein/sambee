@@ -7,7 +7,7 @@ export interface BrowserCommandContext {
   settingsOpen: boolean;
   mobileSettingsOpen: boolean;
   helpOpen: boolean;
-  quickBarMode: "smart" | "commands" | "filter";
+  quickBarMode: "navigate" | "commands" | "filter";
   hasFiles: boolean;
   hasFocusedFile: boolean;
   connectionSelected: boolean;
@@ -73,7 +73,7 @@ const BROWSER_COMMANDS = [
     titleKey: "fileBrowser.commands.items.quickNav.title",
     categoryKey: "fileBrowser.commands.categories.navigation",
     descriptionKey: "fileBrowser.commands.items.quickNav.description",
-    keywords: ["smart", "navigation", "directory", "jump", "path"],
+    keywords: ["navigate", "navigation", "directory", "jump", "path", "smart"],
     defaultShortcutIds: ["quick-navigate"],
     shortcutLabel: "Ctrl+K",
     selectionFocusTarget: "quick-bar",
@@ -97,7 +97,7 @@ const BROWSER_COMMANDS = [
     titleKey: "fileBrowser.commands.items.commandPalette.title",
     categoryKey: "fileBrowser.commands.categories.navigation",
     descriptionKey: "fileBrowser.commands.items.commandPalette.description",
-    keywords: ["command", "palette", "actions", "f1", ">"],
+    keywords: ["command", "palette", "actions", "f1"],
     defaultShortcutIds: ["command-palette", "command-palette-alternate"],
     shortcutLabel: "Ctrl+P / F1",
     selectionFocusTarget: "quick-bar",

@@ -28,6 +28,10 @@ export function getContainedButtonFocusVisibleBoxShadow(theme: Theme, shadowInde
   return `${theme.shadows[shadowIndex]}, 0 0 0 ${CONTAINED_BUTTON_FOCUS_INNER_RING_WIDTH}px ${getContainedButtonFocusAccentColor(theme)}`;
 }
 
+export function getPillButtonFocusVisibleBoxShadow(theme: Theme): string {
+  return `0 0 0 ${FOCUS_RING_WIDTH - 1}px ${theme.palette.primary.main}`;
+}
+
 export interface SecondaryToolbarSurfaceColors {
   stripBackground: string;
   popupBackground: string;
@@ -142,12 +146,15 @@ export const pillButtonStyle: SxProps<Theme> = {
   bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
   color: (theme) => getSecondaryToolbarSurfaceColors(theme).textColor,
   textTransform: "none",
+  "&:focus": {
+    outline: "none",
+  },
   "&:hover": {
     bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
   },
-  "&.Mui-focusVisible": {
+  "&&.Mui-focusVisible": {
     outline: "none",
     borderColor: "primary.main",
-    boxShadow: (theme) => `0 0 0 ${FOCUS_RING_WIDTH - 1}px ${theme.palette.primary.main}`,
+    boxShadow: (theme) => getPillButtonFocusVisibleBoxShadow(theme),
   },
 };

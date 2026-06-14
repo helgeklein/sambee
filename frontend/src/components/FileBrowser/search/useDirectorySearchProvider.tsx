@@ -433,8 +433,8 @@ export function useDirectorySearchProvider(
 
   return {
     id: "directory-search",
-    modeId: "quick-nav",
-    modeLabel: t("fileBrowser.search.modes.quickNav"),
+    modeId: "navigate",
+    modeLabel: t("fileBrowser.search.modes.navigate"),
     placeholder: t("fileBrowser.search.placeholders.directory"),
     debounceMs: DIRECTORY_SEARCH_DEBOUNCE_MS,
     minQueryLength: DIRECTORY_MIN_QUERY_LENGTH,

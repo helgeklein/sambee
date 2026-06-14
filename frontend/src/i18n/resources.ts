@@ -481,6 +481,7 @@ export const EN_TRANSLATIONS = {
   },
   fileBrowser: {
     search: {
+      modeSelectorAriaLabel: "Switch quick bar mode",
       modes: {
         navigate: "Navigate",
         quickNav: "Quick Nav",
@@ -532,8 +533,8 @@ export const EN_TRANSLATIONS = {
       },
       items: {
         quickNav: {
-          title: "Open Smart Navigation",
-          description: "Jump to directories from the smart navigation bar",
+          title: "Open Navigate Mode",
+          description: "Jump to directories from the quick bar",
         },
         filterCurrentDirectory: {
           title: "Filter Current Directory",
@@ -611,7 +612,7 @@ export const EN_TRANSLATIONS = {
       navigateUp: "Go up one directory",
       navigateDown: "Navigate down",
       navigateUpRow: "Navigate up",
-      openSmartNavigation: "Open smart navigation",
+      openSmartNavigation: "Open navigate mode",
       openQuickNavigation: "Open quick navigation",
       filterCurrentDirectory: "Filter the current directory",
       showCommands: "Show commands",

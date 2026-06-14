@@ -26,6 +26,7 @@ describe("SortControls", () => {
   it.each([
     ["Enter", "{Enter}"],
     ["Space", " "],
+    ["ArrowDown", "{ArrowDown}"],
   ])("opens and keeps the top-bar sort menu open when %s is pressed", async (_label, sequence) => {
     const user = userEvent.setup();
 
