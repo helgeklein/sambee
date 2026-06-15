@@ -89,6 +89,34 @@ JSON preview output includes:
 
 For propagated destructive operations, `metadata` includes `propagated_versions` when later inherited-only versions will follow the change.
 
+## Standalone Report Generator
+
+Use [Docs Editor Tool](../docs-editor-tool/) for the high-level explanation of when to use the report and what it shows.
+
+This reference section keeps only the CLI-specific behavior.
+
+The report generator command is `website/scripts/docs-report.py`.
+
+Behavior:
+
+1. reads version metadata, nav files, and docs content directly from the repository
+2. writes `website-meta/docs-reports/docs-structure-report.html` by default
+3. embeds the report data, CSS, and JavaScript into one standalone HTML file
+
+Example:
+
+```bash
+cd /workspace
+python3 website/scripts/docs-report.py
+```
+
+Check mode compares the current repository state against the committed HTML report and exits non-zero when the report needs regeneration:
+
+```bash
+cd /workspace
+python3 website/scripts/docs-report.py --check
+```
+
 ## Operation Reference
 
 ### Version Operations
@@ -230,14 +258,44 @@ If the page already exists as an inherited page marker:
 - the nav entry already exists
 - the page folder contains an empty `inherit.md`
 
-Then the correct workflow is to materialize real content manually:
+Then use `page materialize` instead of `page create`.
+
+`page materialize` replaces `inherit.md` with a real `index.md`, using the currently resolved inherited page content as the starting point.
+
+Optional input:
+
+- `--title <title>`: replace the inherited page title while materializing the real content
+
+Example:
+
+```bash
+cd website
+python3 scripts/docs-editor.py page materialize --version 0.8 --book website-dev-guide --section docs-platform --page website-and-docs-architecture-overview
+```
+
+Manual fallback if you need to control the copy step yourself:
 
 1. remove the inherited marker
 1. add `index.md`
 1. copy the inherited page body as the starting point
 1. edit that authored copy for the version-specific behavior
 
-This is intentionally outside the scope of `page create`, because the page identity and nav structure already exist.
+This remains outside the scope of `page create`, because the page identity and nav structure already exist.
+
+`page inherit` does the reverse: it replaces a real `index.md` in the selected version with `inherit.md` so the page resolves from an earlier authored version again.
+
+Important details:
+
+- it is destructive because it removes that version's authored page content
+- apply mode requires `--yes` in non-interactive shells
+- it refuses when no earlier version resolves the same path to real `index.md` content
+
+Example:
+
+```bash
+cd website
+python3 scripts/docs-editor.py --apply --yes page inherit --version 0.8 --book website-dev-guide --section docs-platform --page website-and-docs-architecture-overview
+```
 
 Optional input includes `--position <index|before:<slug>|after:<slug>|start|end>`.
 

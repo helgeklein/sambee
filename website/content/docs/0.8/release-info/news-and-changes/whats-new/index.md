@@ -9,3 +9,11 @@ The [quick bar](../../../user-guide/browsing-and-navigation/smart-navigation-and
 Previously, those three functions were not clearly distinguished. The three modes are now separated more distinctly, and the current mode is shown directly in the quick bar through a dedicated button. This makes the feature easier to discover and also allows users to switch modes with the mouse or by touch (in addition to the existing keyboard shortcuts).
 
 In addition, several bugs were fixed to improve the overall experience.
+
+## Internals
+
+### Website Docs Editor Tool
+
+- UI improvements (e.g., better help output)
+- New commands to convert pages between inherited and independent: `page materialize` and `page inherit`
+- Test & validation suite that is also called in CI

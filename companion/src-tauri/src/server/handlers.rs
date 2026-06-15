@@ -298,36 +298,65 @@ pub async fn sync_localization(
 /// `GET /api/pair/status` — pairing status for the current browser origin.
 pub async fn pair_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<PairStatusResponse> {
     let current_origin = extract_origin(&headers).ok();
-    let current_origin_paired = current_origin
-        .as_deref()
-        .map(|origin| {
+    let (current_origin_paired, status) = current_origin.as_deref().map_or(
+        (false, PublicPairingStatus::Unpaired),
+        |origin| {
             let paired = state.pairing.get_secret_for_origin(origin).is_some();
             if paired && !state.pairing.is_origin_paired(origin) {
                 state.pairing.record_verified_origin(origin);
             }
-            paired
-        })
-        .unwrap_or(false);
+
+            let status = if paired {
+                PublicPairingStatus::Paired
+            } else if state.pairing.has_pending_pairing_for_origin(origin) {
+                PublicPairingStatus::PendingLocalApproval
+            } else {
+                PublicPairingStatus::Unpaired
+            };
+
+            (paired, status)
+        },
+    );
 
     Json(PairStatusResponse {
         current_origin,
         current_origin_paired,
+        status,
     })
 }
 
-/// `GET /api/pairings` — list all browser origins paired with this companion.
-pub async fn list_pairings(State(state): State<Arc<AppState>>) -> Json<Vec<String>> {
-    Json(state.pairing.get_paired_origins())
-}
-
 #[derive(Deserialize)]
-pub struct UnpairQuery {
-    pub origin: String,
+pub struct PairCancelRequest {
+    pub pairing_id: String,
+    pub origin: Option<String>,
 }
 
-/// `DELETE /api/pairings` — remove a previously paired browser origin.
-pub async fn delete_pairing(State(state): State<Arc<AppState>>, Query(query): Query<UnpairQuery>) -> Result<StatusCode, ApiError> {
-    state.pairing.unpair(&query.origin).map_err(ApiError::BadRequest)?;
+/// `POST /api/pair/cancel` — explicitly cancel a pending browser-side pairing.
+pub async fn pair_cancel(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<PairCancelRequest>,
+) -> Result<StatusCode, ApiError> {
+    let origin = extract_origin(&headers).or_else(|_| {
+        body.origin
+            .as_deref()
+            .map(str::trim)
+            .filter(|origin| !origin.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing cancel request".to_string()))
+    })?;
+
+    state.pairing.cancel(&body.pairing_id, &origin).map_err(ApiError::BadRequest)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /api/pair/current` — remove the current browser origin's pairing.
+pub async fn delete_current_pairing(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ApiError> {
+    let origin = extract_origin(&headers)?;
+    state.pairing.unpair(&origin).map_err(ApiError::BadRequest)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1156,7 +1185,7 @@ fn extract_origin(headers: &HeaderMap) -> Result<String, ApiError> {
     headers
         .get("origin")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+        .and_then(auth::normalize_browser_origin)
         .ok_or_else(|| ApiError::BadRequest("Missing Origin header".to_string()))
 }
 
@@ -1165,7 +1194,7 @@ fn extract_origin_from_pair_initiate_request(body: &PairInitiateRequest) -> Resu
         .as_deref()
         .map(str::trim)
         .filter(|origin| !origin.is_empty())
-        .map(ToOwned::to_owned)
+        .and_then(auth::normalize_browser_origin)
         .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing request".to_string()))
 }
 

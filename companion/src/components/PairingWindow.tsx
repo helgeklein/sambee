@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { useI18n } from "../i18n/useI18n";
 import { log } from "../lib/logger";
 import { getTauriErrorMessage } from "../utils/tauriErrorMarkers";
@@ -16,7 +16,7 @@ interface PairingEventPayload {
 type PairingViewState =
   | { kind: "idle" }
   | { kind: "pairing"; pairingId: string; origin: string; pairingCode: string }
-  | { kind: "approved"; origin: string; pairingCode: string }
+  | { kind: "approved"; pairingId: string; origin: string; pairingCode: string }
   | { kind: "success" };
 
 /** Dedicated root component for the pairing approval window. */
@@ -24,13 +24,35 @@ export function PairingWindow() {
   const { t } = useI18n();
   const [view, setView] = useState<PairingViewState>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
+  const windowRef = useRef(getCurrentWindow()).current;
+  const viewRef = useRef<PairingViewState>({ kind: "idle" });
+  const bypassNextCloseRequestRef = useRef(false);
+
+  useEffect(() => {
+    viewRef.current = view;
+  }, [view]);
 
   const closeWindow = useCallback(async () => {
     try {
-      await getCurrentWindow().close();
+      bypassNextCloseRequestRef.current = true;
+      await windowRef.close();
     } catch (err) {
+      bypassNextCloseRequestRef.current = false;
       log.warn("Failed to close pairing window:", err);
     }
+  }, [windowRef]);
+
+  const rejectPendingPairing = useCallback(async (pairingId: string) => {
+    try {
+      await invoke("reject_pending_pairing", { pairingId });
+    } catch (err) {
+      log.error("Failed to reject pairing:", err);
+      setError(getTauriErrorMessage(err));
+      return false;
+    }
+
+    setError(null);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -49,11 +71,34 @@ export function PairingWindow() {
       setView({ kind: "success" });
     });
 
+    const unlistenCloseRequested = windowRef.onCloseRequested(async (event) => {
+      if (bypassNextCloseRequestRef.current) {
+        bypassNextCloseRequestRef.current = false;
+        return;
+      }
+
+      const currentView = viewRef.current;
+
+      if (currentView.kind !== "pairing" && currentView.kind !== "approved") {
+        return;
+      }
+
+      event.preventDefault();
+
+      const rejected = await rejectPendingPairing(currentView.pairingId);
+      if (!rejected) {
+        return;
+      }
+
+      await closeWindow();
+    });
+
     return () => {
       unlistenPairing.then((fn) => fn());
       unlistenCompleted.then((fn) => fn());
+      unlistenCloseRequested.then((fn) => fn());
     };
-  }, []);
+  }, [closeWindow, rejectPendingPairing, windowRef]);
 
   const handleConfirm = useCallback(async (pairingId: string) => {
     try {
@@ -73,6 +118,7 @@ export function PairingWindow() {
 
       return {
         kind: "approved",
+        pairingId: current.pairingId,
         origin: current.origin,
         pairingCode: current.pairingCode,
       };
@@ -81,24 +127,24 @@ export function PairingWindow() {
 
   const handleReject = useCallback(
     async (pairingId: string) => {
-      try {
-        await invoke("reject_pending_pairing", { pairingId });
-      } catch (err) {
-        log.error("Failed to reject pairing:", err);
-        setError(getTauriErrorMessage(err));
+      const rejected = await rejectPendingPairing(pairingId);
+      if (!rejected) {
         return;
       }
 
-      setError(null);
-
       await closeWindow();
     },
-    [closeWindow]
+    [closeWindow, rejectPendingPairing]
   );
 
   const handleClose = useCallback(async () => {
+    if (view.kind === "pairing" || view.kind === "approved") {
+      await handleReject(view.pairingId);
+      return;
+    }
+
     await closeWindow();
-  }, [closeWindow]);
+  }, [closeWindow, handleReject, view]);
 
   if (view.kind === "approved") {
     return (
@@ -116,6 +162,12 @@ export function PairingWindow() {
         <div class="pairing-request__panel">
           <span class="pairing-request__label">{t("pairing.labels.verificationCode")}</span>
           <div class="pairing-request__code">{view.pairingCode}</div>
+        </div>
+
+        <div class="pairing-request__actions">
+          <button type="button" class="pairing-request__secondary-btn" onClick={handleClose}>
+            {t("pairing.actions.close")}
+          </button>
         </div>
       </div>
     );

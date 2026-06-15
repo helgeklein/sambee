@@ -23,6 +23,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       companion: ${{ steps.filter.outputs.companion }}
+      website: ${{ steps.filter.outputs.website }}
     steps:
     - name: Detect changed paths
       id: filter
@@ -48,6 +49,9 @@ jobs:
           "VERSION",
           "scripts/sync-version",
         }
+        website_extras = {
+          "VERSION",
+        }
 
         def write_output(name: str, value: bool) -> None:
             with open(output_path, "a", encoding="utf-8") as handle:
@@ -58,6 +62,7 @@ jobs:
         if event_name == "workflow_dispatch":
             for component in ("backend", "frontend", "companion"):
                 write_output(component, True)
+            write_output("website", True)
             sys.exit(0)
 
         with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
@@ -101,6 +106,7 @@ jobs:
             if not before or set(before) == {"0"}:
                 for component in ("backend", "frontend", "companion"):
                     write_output(component, True)
+                write_output("website", True)
                 print("Push event is missing a valid 'before' SHA; running all components")
                 sys.exit(0)
 
@@ -118,14 +124,44 @@ jobs:
         backend = any(name.startswith("backend/") or name in backend_extras for name in filenames)
         frontend = any(name.startswith("frontend/") or name in frontend_extras for name in filenames)
         companion = any(name.startswith("companion/") or name in companion_extras for name in filenames)
+        website = any(
+          name.startswith("website/")
+          or name.startswith("website-meta/")
+          or name in website_extras
+          for name in filenames
+        )
 
         print(f"Detected {len(filenames)} changed files")
-        print(f"backend={backend} frontend={frontend} companion={companion}")
+        print(f"backend={backend} frontend={frontend} companion={companion} website={website}")
 
         write_output("backend", backend)
         write_output("frontend", frontend)
         write_output("companion", companion)
+        write_output("website", website)
         PY
+
+  # ──────────────────────────────────────────────
+  # Website docs: validator + standalone tests
+  # ──────────────────────────────────────────────
+  website-docs:
+    needs: changes
+    if: needs.changes.outputs.website == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+    - name: Validate docs tree
+      run: python3 website/scripts/validate-docs-content.py
+
+    - name: Check committed docs structure report
+      run: python3 website/scripts/docs-report.py --check
+
+    - name: Run standalone docs validator tests
+      run: python3 -m unittest discover -s website/tests -p 'test_validate_docs_content.py'
+
+    - name: Run standalone docs report tests
+      run: python3 -m unittest discover -s website/tests -p 'test_docs_report.py'
 
   # ──────────────────────────────────────────────
   # Backend: Python + mypy + pytest
@@ -306,12 +342,12 @@ jobs:
   # ──────────────────────────────────────────────
   test-gate:
     if: always()
-    needs: [backend, frontend, companion]
+    needs: [backend, frontend, companion, website-docs]
     runs-on: ubuntu-latest
     steps:
     - name: Check results
       run: |
-        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }}"
+        results="${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.companion.result }} ${{ needs.website-docs.result }}"
         for r in $results; do
           if [[ "$r" != "success" && "$r" != "skipped" ]]; then
             echo "Job failed or was cancelled: $r"

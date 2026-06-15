@@ -43,11 +43,13 @@ interface CompanionPairingDialogProps {
   onInitiate: () => Promise<{ pairingId: string; pairingCode: string }>;
   /** Confirm pairing after user verifies the code. */
   onConfirm: (pairingId: string) => Promise<void>;
+  /** Cancel a pending pairing when the dialog is dismissed mid-flow. */
+  onCancel: (pairingId: string) => Promise<void>;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, onClose, onInitiate, onConfirm }) => {
+const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, onClose, onInitiate, onConfirm, onCancel }) => {
   const [step, setStep] = useState<PairingStep>("idle");
   const [pairingCode, setPairingCode] = useState("");
   const [pairingId, setPairingId] = useState("");
@@ -95,9 +97,18 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
 
   /** Handle dialog close — reset state. */
   const handleClose = useCallback(() => {
+    const activePairingId = pairingId;
+    const shouldCancelPendingPairing = activePairingId && (step === "showing_code" || step === "confirming");
+
     resetState();
     onClose();
-  }, [resetState, onClose]);
+
+    if (shouldCancelPendingPairing) {
+      void onCancel(activePairingId).catch((err) => {
+        logger.warn("Pairing cancellation failed after dialog close", { error: err, pairingId: activePairingId }, "companion");
+      });
+    }
+  }, [onCancel, onClose, pairingId, resetState, step]);
 
   const handleKeyDown = useMemo(() => {
     if (step === "showing_code" && pairingCode) {

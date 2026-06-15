@@ -60,25 +60,39 @@ class NavData:
     pages: dict[str, dict[str, list[str]]]
 
 
+@dataclass(frozen=True)
+class VersionMetadata:
+    """Parsed docs version metadata from docs-versions.toml."""
+
+    current: str
+    slugs: list[str]
+
+
 def load_toml(path: Path) -> dict[str, Any]:
     """Load TOML data from ``path``."""
     with path.open("rb") as file:
         return tomllib.load(file)
 
 
-def load_version_order() -> tuple[list[str], list[DocsIssue]]:
-    """Return canonical docs versions in release order."""
+def load_version_metadata() -> tuple[VersionMetadata | None, list[DocsIssue]]:
+    """Return canonical docs version metadata and validation issues."""
     issues: list[DocsIssue] = []
 
     if not DOCS_VERSIONS_FILE.exists():
-        return [], [DocsIssue(DOCS_VERSIONS_FILE, "docs versions file is missing")]
+        return None, [DocsIssue(DOCS_VERSIONS_FILE, "docs versions file is missing")]
 
     data = load_toml(DOCS_VERSIONS_FILE)
     versions = data.get("versions", [])
+    current = data.get("current")
     version_slugs: list[str] = []
 
     if not isinstance(versions, list):
-        return [], [DocsIssue(DOCS_VERSIONS_FILE, "versions must be an array")]
+        return None, [DocsIssue(DOCS_VERSIONS_FILE, "versions must be an array")]
+
+    if not isinstance(current, str) or not current.strip():
+        issues.append(
+            DocsIssue(DOCS_VERSIONS_FILE, "current must be a non-empty string")
+        )
 
     for index, entry in enumerate(versions):
         if not isinstance(entry, dict):
@@ -97,7 +111,27 @@ def load_version_order() -> tuple[list[str], list[DocsIssue]]:
         version_slugs.append(slug)
 
     issues.extend(find_duplicates(DOCS_VERSIONS_FILE, "version slug", version_slugs))
-    return version_slugs, issues
+
+    if isinstance(current, str) and current.strip() and current not in version_slugs:
+        issues.append(
+            DocsIssue(
+                DOCS_VERSIONS_FILE,
+                f"current references undeclared version slug: {current}",
+            )
+        )
+
+    if issues:
+        return None, issues
+
+    return VersionMetadata(current=current, slugs=version_slugs), issues
+
+
+def load_version_order() -> tuple[list[str], list[DocsIssue]]:
+    """Return canonical docs versions in release order."""
+    metadata, issues = load_version_metadata()
+    if metadata is None:
+        return [], issues
+    return metadata.slugs, issues
 
 
 def parse_nav_file(path: Path) -> tuple[NavData | None, list[DocsIssue]]:
@@ -344,6 +378,45 @@ def validate_legacy_front_matter() -> list[DocsIssue]:
     return issues
 
 
+def validate_nav_hierarchy(nav_data: NavData) -> list[DocsIssue]:
+    """Validate that nav sections/pages only reference declared parent nodes."""
+    issues: list[DocsIssue] = []
+    declared_books = set(nav_data.books)
+
+    for book_slug in sorted(nav_data.sections):
+        if book_slug not in declared_books:
+            issues.append(
+                DocsIssue(
+                    nav_data.path,
+                    f"sections table references undeclared book slug: {book_slug}",
+                )
+            )
+
+    for book_slug, section_pages in sorted(nav_data.pages.items()):
+        if book_slug not in declared_books:
+            issues.append(
+                DocsIssue(
+                    nav_data.path,
+                    f"pages table references undeclared book slug: {book_slug}",
+                )
+            )
+            continue
+
+        declared_sections = {
+            entry.slug for entry in nav_data.sections.get(book_slug, [])
+        }
+        for section_slug in sorted(section_pages):
+            if section_slug not in declared_sections:
+                issues.append(
+                    DocsIssue(
+                        nav_data.path,
+                        f"pages table references undeclared section slug under {book_slug}: {section_slug}",
+                    )
+                )
+
+    return issues
+
+
 def resolve_page_inheritance(
     version_order: list[str], version: str, relative_parts: tuple[str, ...]
 ) -> bool:
@@ -397,6 +470,8 @@ def validate_nav_content(
                 nav_data.path, "nav filename must match a declared docs version slug"
             )
         )
+
+    issues.extend(validate_nav_hierarchy(nav_data))
 
     if not version_dir.exists():
         return [
@@ -472,6 +547,158 @@ def validate_nav_content(
     return issues
 
 
+def child_dirs(path: Path) -> list[Path]:
+    """Return sorted direct child directories."""
+    if not path.exists():
+        return []
+    return sorted(child for child in path.iterdir() if child.is_dir())
+
+
+def child_files(path: Path) -> list[Path]:
+    """Return sorted direct child files."""
+    if not path.exists():
+        return []
+    return sorted(child for child in path.iterdir() if child.is_file())
+
+
+def validate_expected_bundle_files(
+    path: Path,
+    *,
+    allowed_names: set[str],
+    label: str,
+) -> list[DocsIssue]:
+    """Reject unexpected direct files inside one docs bundle directory."""
+    issues: list[DocsIssue] = []
+    for file_path in child_files(path):
+        if file_path.name not in allowed_names:
+            issues.append(
+                DocsIssue(path, f"unexpected file in {label}: {file_path.name}")
+            )
+    return issues
+
+
+def validate_version_tree(nav_data: NavData) -> list[DocsIssue]:
+    """Validate that the docs filesystem contains no orphan content for one version."""
+    issues: list[DocsIssue] = []
+    version_dir = DOCS_CONTENT_DIR / nav_data.version
+    declared_books = set(nav_data.books)
+
+    issues.extend(
+        validate_expected_bundle_files(
+            version_dir,
+            allowed_names={BRANCH_INDEX_FILE, BRANCH_INHERIT_FILE},
+            label=f"version bundle {nav_data.version}",
+        )
+    )
+
+    for book_dir in child_dirs(version_dir):
+        if book_dir.name not in declared_books:
+            issues.append(
+                DocsIssue(
+                    book_dir, "book folder exists on disk but is not listed in nav"
+                )
+            )
+            continue
+
+        issues.extend(
+            validate_expected_bundle_files(
+                book_dir,
+                allowed_names={BRANCH_INDEX_FILE, BRANCH_INHERIT_FILE},
+                label=f"book bundle {nav_data.version}/{book_dir.name}",
+            )
+        )
+
+        declared_sections = {
+            entry.slug for entry in nav_data.sections.get(book_dir.name, [])
+        }
+        for section_dir in child_dirs(book_dir):
+            if section_dir.name not in declared_sections:
+                issues.append(
+                    DocsIssue(
+                        section_dir,
+                        "section folder exists on disk but is not listed in nav",
+                    )
+                )
+                continue
+
+            issues.extend(
+                validate_expected_bundle_files(
+                    section_dir,
+                    allowed_names={BRANCH_INDEX_FILE, BRANCH_INHERIT_FILE},
+                    label=(
+                        f"section bundle {nav_data.version}/{book_dir.name}/{section_dir.name}"
+                    ),
+                )
+            )
+
+            declared_pages = set(
+                nav_data.pages.get(book_dir.name, {}).get(section_dir.name, [])
+            )
+            for page_dir in child_dirs(section_dir):
+                if page_dir.name not in declared_pages:
+                    issues.append(
+                        DocsIssue(
+                            page_dir,
+                            "page folder exists on disk but is not listed in nav",
+                        )
+                    )
+                    continue
+
+                issues.extend(
+                    validate_expected_bundle_files(
+                        page_dir,
+                        allowed_names={INDEX_FILE, INHERIT_FILE},
+                        label=(
+                            f"page bundle {nav_data.version}/{book_dir.name}/{section_dir.name}/{page_dir.name}"
+                        ),
+                    )
+                )
+
+    return issues
+
+
+def validate_declared_versions(
+    version_order: list[str],
+    nav_versions: set[str],
+    content_versions: set[str],
+) -> list[DocsIssue]:
+    """Validate declared versions against nav files and content directories."""
+    issues: list[DocsIssue] = []
+
+    for version in version_order:
+        nav_path = DOCS_NAV_DIR / f"{version}.toml"
+        version_dir = DOCS_CONTENT_DIR / version
+        if version not in nav_versions:
+            issues.append(
+                DocsIssue(nav_path, "declared docs version is missing its nav file")
+            )
+        if version not in content_versions:
+            issues.append(
+                DocsIssue(
+                    version_dir,
+                    "declared docs version is missing its content directory",
+                )
+            )
+
+    for version in sorted(nav_versions - set(version_order)):
+        issues.append(
+            DocsIssue(
+                DOCS_NAV_DIR / f"{version}.toml",
+                "nav file exists for undeclared docs version",
+            )
+        )
+
+    for version in sorted(content_versions - set(version_order)):
+        issues.append(
+            DocsIssue(
+                DOCS_CONTENT_DIR / version,
+                "content directory exists for undeclared docs version",
+            )
+        )
+
+    return issues
+
+
 def validate_all() -> list[DocsIssue]:
     """Run all docs content validation checks."""
     issues: list[DocsIssue] = []
@@ -495,11 +722,20 @@ def validate_all() -> list[DocsIssue]:
         issues.append(DocsIssue(DOCS_NAV_DIR, "no docs nav files found"))
         return issues
 
+    nav_versions = {path.stem for path in nav_files}
+    content_versions = {
+        path.name for path in child_dirs(DOCS_CONTENT_DIR) if path.name != "_index.md"
+    }
+    issues.extend(
+        validate_declared_versions(version_order, nav_versions, content_versions)
+    )
+
     for nav_file in nav_files:
         nav_data, nav_issues = parse_nav_file(nav_file)
         issues.extend(nav_issues)
         if nav_data is not None:
             issues.extend(validate_nav_content(nav_data, version_order))
+            issues.extend(validate_version_tree(nav_data))
 
     return issues
 

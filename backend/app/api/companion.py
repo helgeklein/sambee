@@ -157,7 +157,6 @@ class LockStatusResponse(BaseModel):
     locked: bool
     locked_by: str | None = None
     locked_at: str | None = None
-    companion_session: str | None = None
 
 
 class VersionCheckResponse(BaseModel):
@@ -543,7 +542,6 @@ async def get_lock_status(
         locked=True,
         locked_by=lock.locked_by,
         locked_at=lock.locked_at.isoformat(),
-        companion_session=lock.companion_session,
     )
 
 

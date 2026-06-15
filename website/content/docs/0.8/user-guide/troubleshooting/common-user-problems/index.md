@@ -11,7 +11,9 @@ Work through this checklist:
 1. Confirm that you are using a desktop browser. Local-drive access is not available on iPhone, iPad, or Android browsers.
 1. Confirm that Sambee Companion is installed and running on the same computer as the browser.
 1. Open **Settings** > **Local Drives** and check the current status.
-1. If the browser is not paired, start pairing again.
+1. If Sambee shows **Waiting for approval**, finish or reject the request in the Companion pairing window.
+1. If Sambee shows that this browser needs repair, start pairing again to restore the browser-side secret.
+1. If you closed the pairing dialog earlier, start a new pairing request. Pending requests are cancelled when either side closes the pairing UI.
 
 If you still need the full setup flow, continue with [Install and Pair the Companion App](../../companion-app/install-and-pair-the-companion-app/) and [Access Local Drives](../../accessing-files/access-local-drives/).
 

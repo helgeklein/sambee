@@ -51,6 +51,7 @@ export interface CompanionHealthResponse {
 export interface PairStatusResponse {
   current_origin: string | null;
   current_origin_paired: boolean;
+  status: "unpaired" | "pending_local_approval" | "paired";
 }
 
 /** Authenticated pairing test response. */
@@ -195,9 +196,9 @@ class CompanionService {
     this.checkHealth = this.checkHealth.bind(this);
     this.initiatePairing = this.initiatePairing.bind(this);
     this.confirmPairing = this.confirmPairing.bind(this);
+    this.cancelPairing = this.cancelPairing.bind(this);
     this.getPairStatus = this.getPairStatus.bind(this);
-    this.listPairings = this.listPairings.bind(this);
-    this.unpairOrigin = this.unpairOrigin.bind(this);
+    this.unpairCurrentOrigin = this.unpairCurrentOrigin.bind(this);
     this.testPairing = this.testPairing.bind(this);
     this.syncLocalization = this.syncLocalization.bind(this);
     this.getDrives = this.getDrives.bind(this);
@@ -310,23 +311,24 @@ class CompanionService {
     }
   }
 
+  /** Cancel a pending pairing for the current browser origin. */
+  async cancelPairing(pairingId: string): Promise<void> {
+    await this.client.post("/pair/cancel", {
+      pairing_id: pairingId,
+      origin: window.location.origin || undefined,
+    });
+  }
+
   /** Query the companion for the current browser origin's pairing status. */
   async getPairStatus(): Promise<PairStatusResponse> {
     const response = await this.client.get<PairStatusResponse>("/pair/status");
     return response.data;
   }
 
-  /** List all browser origins currently paired with the companion. */
-  async listPairings(): Promise<string[]> {
-    const response = await this.client.get<string[]>("/pairings");
-    return response.data;
-  }
-
-  /** Remove a paired browser origin from the companion. */
-  async unpairOrigin(origin: string): Promise<void> {
-    await this.client.delete("/pairings", {
-      params: { origin },
-    });
+  /** Remove the current browser origin from the companion. */
+  async unpairCurrentOrigin(): Promise<void> {
+    const headers = await this.buildAuthHeaders();
+    await this.client.delete("/pair/current", { headers });
   }
 
   /** Validate the current browser's authenticated pairing with the companion. */

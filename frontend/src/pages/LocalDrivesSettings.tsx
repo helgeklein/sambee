@@ -172,6 +172,18 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     [onConnectionsChanged, refresh, showNotification]
   );
 
+  const handleCancelPairing = useCallback(
+    async (pairingId: string) => {
+      try {
+        await companionService.cancelPairing(pairingId);
+        await refresh();
+      } catch (error) {
+        logger.warn("Failed to cancel pending browser pairing", { error, pairingId }, "companion");
+      }
+    },
+    [refresh]
+  );
+
   const handleTestPairing = useCallback(async () => {
     setTesting(true);
     try {
@@ -190,7 +202,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     setUnpairing(true);
 
     try {
-      await companionService.unpairOrigin(currentOrigin);
+      await companionService.unpairCurrentOrigin();
       clearStoredSecret();
       await refresh();
       onConnectionsChanged?.();
@@ -203,7 +215,8 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     }
   }, [currentOrigin, onConnectionsChanged, refresh, showNotification]);
 
-  const currentOriginPaired = state.currentPairStatus?.current_origin_paired ?? false;
+  const currentOriginPaired = state.currentPairStatus?.status === "paired";
+  const currentOriginPendingApproval = state.currentPairStatus?.status === "pending_local_approval";
   const currentOriginRecoverable = currentOriginPaired && !browserHasStoredSecret;
   const browserFullyPaired = currentOriginPaired && browserHasStoredSecret;
   const downloadEntries = useMemo(
@@ -273,6 +286,15 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       };
     }
 
+    if (currentOriginPendingApproval) {
+      return {
+        badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+        badgeVariant: "themed" as const,
+        title: LOCAL_DRIVES_PAGE_COPY.summaryPendingApprovalTitle,
+        message: LOCAL_DRIVES_PAGE_COPY.statusPendingApproval,
+      };
+    }
+
     if (currentOriginRecoverable) {
       return {
         badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
@@ -288,7 +310,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       title: LOCAL_DRIVES_PAGE_COPY.summaryPairingRequiredTitle,
       message: LOCAL_DRIVES_PAGE_COPY.statusUnpaired,
     };
-  }, [browserFullyPaired, currentOriginRecoverable, state.companionAvailable]);
+  }, [browserFullyPaired, currentOriginPendingApproval, currentOriginRecoverable, state.companionAvailable]);
   const sectionCardSx = {
     border: 1,
     borderColor: "divider",
@@ -462,16 +484,23 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                 <Box sx={sectionCardSx}>
                   <Stack spacing={2}>
                     <Typography variant="body2" color="text.secondary">
-                      {LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
+                      {currentOriginPendingApproval
+                        ? LOCAL_DRIVES_PAGE_COPY.pairingSectionPendingApproval
+                        : currentOriginRecoverable
+                          ? LOCAL_DRIVES_PAGE_COPY.pairingSectionRepair
+                          : LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
                     </Typography>
                     <Box sx={cardActionRowSx}>
                       <Button
                         variant="contained"
                         startIcon={<UsbIcon />}
                         onClick={() => setPairingDialogOpen(true)}
+                        disabled={currentOriginPendingApproval}
                         sx={settingsPrimaryButtonSx}
                       >
-                        {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
+                        {currentOriginPendingApproval
+                          ? LOCAL_DRIVES_PAGE_COPY.waitingForApprovalButton
+                          : LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
                       </Button>
                     </Box>
                   </Stack>
@@ -543,6 +572,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           onClose={() => setPairingDialogOpen(false)}
           onInitiate={companionService.initiatePairing}
           onConfirm={handleConfirmPairing}
+          onCancel={handleCancelPairing}
         />
       )}
 

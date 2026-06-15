@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../i18n";
 import { PairingWindow } from "../PairingWindow";
 
-const { invokeMock, listenHandlers, closeWindowMock, warnMock, errorMock } = vi.hoisted(() => ({
+const { invokeMock, listenHandlers, closeWindowMock, onCloseRequestedMock, closeRequestedHandlerRef, warnMock, errorMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
   listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
   closeWindowMock: vi.fn(),
+  onCloseRequestedMock: vi.fn(),
+  closeRequestedHandlerRef: { current: null as ((event: { preventDefault: () => void }) => void | Promise<void>) | null },
   warnMock: vi.fn(),
   errorMock: vi.fn(),
 }));
@@ -27,6 +29,12 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     close: closeWindowMock,
+    onCloseRequested: onCloseRequestedMock.mockImplementation((handler) => {
+      closeRequestedHandlerRef.current = handler;
+      return Promise.resolve(() => {
+        closeRequestedHandlerRef.current = null;
+      });
+    }),
   }),
 }));
 
@@ -53,6 +61,8 @@ describe("PairingWindow", () => {
   beforeEach(() => {
     invokeMock.mockReset();
     closeWindowMock.mockReset();
+    onCloseRequestedMock.mockClear();
+    closeRequestedHandlerRef.current = null;
     warnMock.mockReset();
     errorMock.mockReset();
     listenHandlers.clear();
@@ -137,6 +147,63 @@ describe("PairingWindow", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Failed to confirm pairing")).toBeInTheDocument();
+    });
+  });
+
+  it("rejects the pending pairing when the user closes after local approval", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    render(<PairingWindow />);
+
+    emitEvent("show-pairing", {
+      pairing_id: "pair-1",
+      origin: "https://example.test",
+      pairing_code: "482901",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: translate("pairing.title") })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: translate("pairing.actions.codesMatch") }));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("confirm_pending_pairing", { pairingId: "pair-1" });
+    });
+
+    expect(await screen.findByRole("heading", { name: translate("pairing.approved.title") })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: translate("pairing.actions.close") }));
+      await Promise.resolve();
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("reject_pending_pairing", { pairingId: "pair-1" });
+    expect(closeWindowMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("intercepts native window close and rejects the pending pairing first", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    render(<PairingWindow />);
+
+    emitEvent("show-pairing", {
+      pairing_id: "pair-1",
+      origin: "https://example.test",
+      pairing_code: "482901",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: translate("pairing.title") })).toBeInTheDocument();
+    });
+
+    const preventDefault = vi.fn();
+    await closeRequestedHandlerRef.current?.({ preventDefault });
+
+    await waitFor(() => {
+      expect(preventDefault).toHaveBeenCalledTimes(1);
+      expect(invokeMock).toHaveBeenCalledWith("reject_pending_pairing", { pairingId: "pair-1" });
+      expect(closeWindowMock).toHaveBeenCalledTimes(1);
     });
   });
 });

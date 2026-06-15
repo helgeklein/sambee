@@ -142,7 +142,10 @@ export function ConnectionSelector({
 
         {/* Local drives management action */}
         {/* Connections settings shortcut for local-drive management */}
-        {(companionStatus === "unpaired" || companionStatus === "unavailable") && (
+        {(companionStatus === "unpaired" ||
+          companionStatus === "unavailable" ||
+          companionStatus === "pending_local_approval" ||
+          companionStatus === "needs_repair") && (
           <>
             <Divider />
             <MenuItem onClick={handleOpenConnectionsSettings}>

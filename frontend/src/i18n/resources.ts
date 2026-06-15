@@ -201,6 +201,7 @@ export const EN_TRANSLATIONS = {
       statusLabelUnavailable: "Companion unavailable",
       summaryReadyTitle: "Local drives are ready to use",
       summaryPairingRequiredTitle: "Pair this browser to use local drives",
+      summaryPendingApprovalTitle: "Finish approval in Sambee Companion",
       summaryRepairTitle: "Repair this browser pairing",
       summaryUnavailableTitle: "Start or install Sambee Companion",
       companionRunningChecklistLabel: "Companion app is running",
@@ -212,6 +213,10 @@ export const EN_TRANSLATIONS = {
       pairingSectionReady: "This browser is already paired with Sambee Companion.",
       pairingSectionUnavailable: "Start Sambee Companion on this computer before pairing this browser.",
       pairingSectionRequired: "Approve a pairing request in Sambee Companion to unlock local-drive browsing.",
+      pairingSectionPendingApproval:
+        "A pairing request is already waiting in Sambee Companion. Approve or reject it there before starting another pairing attempt.",
+      pairingSectionRepair:
+        "This browser needs to pair again to restore its local secret. Starting a new pairing will replace the missing browser-side secret.",
       verificationSectionTitle: "Verify local access",
       verificationSectionDescription: "Run a quick check to confirm this browser can still reach local drives.",
       verificationSectionReady: "Run a pairing test to confirm local-drive access is working right now.",
@@ -226,6 +231,8 @@ export const EN_TRANSLATIONS = {
       pairingTestFailed: "Pairing test failed. Pair this browser again to restore local drive access.",
       statusUnavailable: "Sambee Companion is not running. Start the companion app to manage local-drive access or create a new pairing.",
       statusPaired: "This browser is paired with Sambee Companion and can access local drives.",
+      statusPendingApproval:
+        "A pairing request from this browser is waiting for approval in Sambee Companion. Finish that request there before trying again.",
       statusRecoverable:
         "This browser origin is known to the companion, but this browser no longer has its local pairing secret. Pair again to restore access.",
       statusUnpaired: "This browser is not currently paired with Sambee Companion.",
@@ -242,6 +249,7 @@ export const EN_TRANSLATIONS = {
       downloadLoadFailed: "Failed to resolve Companion download information.",
       testCurrentPairingButton: "Test Current Pairing",
       pairThisBrowserButton: "Pair This Browser",
+      waitingForApprovalButton: "Waiting For Approval...",
       unpairThisBrowserButton: "Unpair This Browser",
       testingButton: "Testing...",
       unpairingButton: "Unpairing...",

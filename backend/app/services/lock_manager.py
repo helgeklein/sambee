@@ -101,7 +101,6 @@ def _release_orphaned_locks() -> int:
                 f"Releasing orphaned lock: path='{lock.file_path}', "
                 f"connection_id={lock.connection_id}, "
                 f"locked_by='{lock.locked_by}', "
-                f"session={lock.companion_session}, "
                 f"last_heartbeat={lock.last_heartbeat.isoformat()}"
             )
             session.delete(lock)

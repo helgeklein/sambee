@@ -22,6 +22,10 @@ export type CompanionStatus =
   | "unavailable"
   /** Reachable but not yet paired. */
   | "unpaired"
+  /** A pairing is in progress and waiting for local approval in the companion. */
+  | "pending_local_approval"
+  /** The companion still recognizes this origin, but the browser secret is missing or invalid. */
+  | "needs_repair"
   /** Paired and ready for authenticated requests. */
   | "paired"
   /** Currently performing initial detection. */
@@ -71,11 +75,19 @@ export function useCompanion(): UseCompanionResult {
       }
 
       const storedSecret = hasStoredSecret();
+      const pairStatus = await companionService.getPairStatus();
+      const currentOriginPaired = pairStatus.status === "paired";
+
+      if (pairStatus.status === "pending_local_approval") {
+        setStatus("pending_local_approval");
+        setDrives([]);
+        return;
+      }
 
       // Companion is reachable and the browser already has a shared secret.
       // Even if the companion's health flag is stale, a successful authenticated
       // drive fetch proves the pairing is still valid.
-      if (storedSecret) {
+      if (storedSecret && currentOriginPaired) {
         try {
           const driveList = await companionService.getDrives();
           if (mountedRef.current) {
@@ -84,26 +96,24 @@ export function useCompanion(): UseCompanionResult {
           }
           return;
         } catch (err) {
-          if (health.paired) {
-            logger.warn("Companion paired but failed to load drives", { error: err }, "companion");
-            if (mountedRef.current) {
-              setStatus("paired");
-              setDrives([]);
-            }
-            return;
-          }
-
           logger.warn("Stored companion secret was not accepted during startup", { error: err }, "companion");
+          if (mountedRef.current) {
+            setStatus("needs_repair");
+            setDrives([]);
+          }
+          return;
         }
       }
 
-      if (health.paired) {
-        setStatus("paired");
+      if (currentOriginPaired) {
+        logger.warn("Companion reported this origin as paired but no usable browser secret was available", {}, "companion");
+        setStatus("needs_repair");
         setDrives([]);
-      } else {
-        setStatus("unpaired");
-        setDrives([]);
+        return;
       }
+
+      setStatus("unpaired");
+      setDrives([]);
     } catch {
       if (mountedRef.current) {
         setStatus("unavailable");

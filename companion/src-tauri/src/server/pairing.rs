@@ -125,6 +125,13 @@ impl PairingState {
         Ok((pairing_id, nonce_companion_hex, code))
     }
 
+    /// Check whether an origin currently has a non-expired pending pairing.
+    pub fn has_pending_pairing_for_origin(&self, origin: &str) -> bool {
+        let mut pending = self.pending.lock().unwrap();
+        pending.retain(|_, p| p.created_at.elapsed() < PAIRING_TIMEOUT);
+        pending.values().any(|pairing| pairing.origin == origin)
+    }
+
     /// Mark the companion side of a pairing as confirmed by the user.
     pub fn companion_confirm(&self, pairing_id: &str) -> Result<(), String> {
         let mut pending = self.pending.lock().unwrap();
@@ -147,6 +154,24 @@ impl PairingState {
         let mut pending = self.pending.lock().unwrap();
         pending.remove(pairing_id);
         info!("Pairing companion-rejected: id={pairing_id}");
+    }
+
+    /// Cancel a pending pairing from the browser side, scoped to the initiating origin.
+    pub fn cancel(&self, pairing_id: &str, origin: &str) -> Result<(), String> {
+        let mut pending = self.pending.lock().unwrap();
+        pending.retain(|_, p| p.created_at.elapsed() < PAIRING_TIMEOUT);
+
+        let pairing = pending
+            .get(pairing_id)
+            .ok_or_else(|| "Unknown or expired pairing".to_string())?;
+
+        if pairing.origin != origin {
+            return Err("Pairing does not belong to this origin".to_string());
+        }
+
+        pending.remove(pairing_id);
+        info!("Pairing browser-cancelled: id={pairing_id}, origin={origin}");
+        Ok(())
     }
 
     /// Complete the pairing: verify the companion confirmed, generate shared secret,

@@ -19,6 +19,7 @@ use hmac::{Hmac, Mac};
 use log::warn;
 use serde::Deserialize;
 use sha2::Sha256;
+use url::Url;
 
 use super::errors::ApiError;
 use super::AppState;
@@ -58,6 +59,50 @@ impl AuthState {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+/// Parse and normalize a browser origin to its exact serialized form.
+pub fn normalize_browser_origin(origin: &str) -> Option<String> {
+    let Ok(url) = Url::parse(origin) else {
+        return None;
+    };
+
+    match url.scheme() {
+        "http" | "https" => Some(url.origin().ascii_serialization()),
+        _ => None,
+    }
+}
+
+/// Return true for local development origins served from loopback hosts.
+pub fn is_loopback_dev_origin(origin: &str) -> bool {
+    let Some(normalized_origin) = normalize_browser_origin(origin) else {
+        return false;
+    };
+
+    let Ok(url) = Url::parse(&normalized_origin) else {
+        return false;
+    };
+
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+
+    matches!(host, "localhost" | "127.0.0.1" | "::1" | "[::1]")
+}
+
+/// Return true when the origin is a valid browser origin that may access the localhost API via CORS.
+pub fn is_allowed_browser_origin_for_cors(origin: &str) -> bool {
+    if is_loopback_dev_origin(origin) {
+        return true;
+    }
+
+    normalize_browser_origin(origin).is_some()
+}
+
+/// Parse and normalize a browser origin or reject it as invalid.
+pub fn require_normalized_browser_origin(origin: &str) -> Result<String, ApiError> {
+    normalize_browser_origin(origin)
+        .ok_or_else(|| ApiError::Forbidden("Origin is not allowed to access the companion bootstrap API".to_string()))
 }
 
 /// Axum middleware that validates HMAC-authenticated requests.
@@ -135,7 +180,7 @@ fn extract_auth_credentials(request: &Request<axum::body::Body>) -> Result<(Stri
         .headers()
         .get("origin")
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
+        .and_then(normalize_browser_origin)
         .ok_or_else(|| ApiError::Forbidden("Missing Origin header".to_string()))?;
 
     let hmac_value = request
@@ -176,8 +221,10 @@ fn validate_hmac(
     timestamp_str: &str,
     log_context: &AuthLogContext,
 ) -> Result<(), ApiError> {
+    let origin = require_normalized_browser_origin(origin)?;
+
     // Get shared secret for this origin from pairing state
-    let secret = state.pairing.get_secret_for_origin(origin).ok_or_else(|| {
+    let secret = state.pairing.get_secret_for_origin(&origin).ok_or_else(|| {
         warn!(
             "Auth rejected: no pairing found for origin {origin}; transport={}; method={}; path={}",
             log_context.auth_transport, log_context.method, log_context.path,
@@ -222,9 +269,36 @@ fn validate_hmac(
         return Err(ApiError::Forbidden("Invalid authentication".to_string()));
     }
 
-    if !state.pairing.is_origin_paired(origin) {
-        state.pairing.record_verified_origin(origin);
+    if !state.pairing.is_origin_paired(&origin) {
+        state.pairing.record_verified_origin(&origin);
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_allowed_browser_origin_for_cors, is_loopback_dev_origin, normalize_browser_origin};
+
+    #[test]
+    fn normalizes_browser_origins_exactly() {
+        assert_eq!(normalize_browser_origin("https://Sambee.Example.com:8443").as_deref(), Some("https://sambee.example.com:8443"));
+        assert_eq!(normalize_browser_origin("http://localhost:5173").as_deref(), Some("http://localhost:5173"));
+    }
+
+    #[test]
+    fn recognizes_typical_loopback_dev_origins() {
+        assert!(is_loopback_dev_origin("http://localhost:5173"));
+        assert!(is_loopback_dev_origin("http://127.0.0.1:3000"));
+        assert!(is_loopback_dev_origin("https://localhost:8443"));
+        assert!(!is_loopback_dev_origin("https://sambee.example.com"));
+    }
+
+    #[test]
+    fn cors_allows_valid_browser_origins_and_rejects_non_http_origins() {
+        assert!(is_allowed_browser_origin_for_cors("https://sambee.example.com"));
+        assert!(is_allowed_browser_origin_for_cors("http://127.0.0.1:5173"));
+        assert!(!is_allowed_browser_origin_for_cors("file:///tmp/index.html"));
+        assert!(!is_allowed_browser_origin_for_cors("not-an-origin"));
+    }
 }

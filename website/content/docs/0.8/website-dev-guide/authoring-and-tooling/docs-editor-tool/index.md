@@ -49,6 +49,8 @@ Supported structural operations include:
 - deleting
 - renaming
 
+The docs editor package also includes a standalone visualization report generator for the docs tree.
+
 ## Common Tasks
 
 Use the built-in help when you know the action but not the exact flags:
@@ -171,14 +173,74 @@ Sometimes a later version already has the page path and nav entry, but the page 
 
 In that case, do not use `page create`. The page already exists structurally.
 
-Instead:
+Use `page materialize`:
+
+```bash
+cd website
+python3 scripts/docs-editor.py page materialize \
+  --version 0.8 \
+  --book website-dev-guide \
+  --section docs-platform \
+  --page website-and-docs-architecture-overview
+```
+
+Apply it:
+
+```bash
+cd website
+python3 scripts/docs-editor.py --apply page materialize \
+  --version 0.8 \
+  --book website-dev-guide \
+  --section docs-platform \
+  --page website-and-docs-architecture-overview
+```
+
+That command:
+
+- removes the empty `inherit.md` marker in that version
+- copies the currently resolved inherited `index.md` content into the page directory
+- lets you optionally replace the page title with `--title`
+
+After that, edit the new `index.md` for the version-specific behavior.
+
+## Convert Real Page Content Back to Inherited Content
+
+If you no longer need a version-specific page override, you can convert the page back to an inherited marker.
+
+Use `page inherit`:
+
+```bash
+cd website
+python3 scripts/docs-editor.py page inherit \
+  --version 0.8 \
+  --book website-dev-guide \
+  --section docs-platform \
+  --page website-and-docs-architecture-overview
+```
+
+Apply it:
+
+```bash
+cd website
+python3 scripts/docs-editor.py --apply --yes page inherit \
+  --version 0.8 \
+  --book website-dev-guide \
+  --section docs-platform \
+  --page website-and-docs-architecture-overview
+```
+
+This is destructive because it removes that version's real `index.md` and replaces it with `inherit.md`.
+
+The command refuses when no earlier version provides real page content for the same path.
+
+Manual fallback if you need finer control:
 
 1. Identify the inherited source page you want to override.
 1. Copy that page's current content into the later version as a starting point.
 1. Replace the later version's empty `inherit.md` with a real `index.md`.
 1. Edit the new `index.md` for the version-specific behavior.
 
-This is a manual content-materialization step, not a page-creation step. The docs editor currently manages page identity and nav structure, but it does not provide a dedicated command that turns an existing inherited page marker into authored page content.
+This is still not a page-creation step. The page identity and nav structure already exist; `page materialize` only turns the inherited marker into authored page content in the selected version.
 
 If a position selector fails, the CLI also reports the valid sibling slugs so you can retry without opening the nav file first.
 
@@ -200,6 +262,38 @@ Typical refusal case:
 - an older version rename would force changes into a later version that already has real content at the affected path
 
 In that case, the CLI exits non-zero, reports the refusal reason, and leaves the docs tree unchanged.
+
+## Generate a Docs Structure Report
+
+The docs editor package also includes a standalone report generator for exploring the docs tree across versions.
+
+Use it when you want a repo-local HTML view of:
+
+- books, sections, and pages in one expandable tree-table
+- current-version metadata and version status labels
+- inherited versus authored versus branched page states
+- diff counts for branched pages relative to the earlier authored version
+- per-page version comparison in the side panel
+
+The wrapper script lives at `website/scripts/docs-report.py`.
+
+Generate the report into the committed output path:
+
+```bash
+cd /workspace
+python3 website/scripts/docs-report.py
+```
+
+That writes `website-meta/docs-reports/docs-structure-report.html`.
+
+Use check mode in CI or before opening a pull request:
+
+```bash
+cd /workspace
+python3 website/scripts/docs-report.py --check
+```
+
+That exits non-zero when the committed HTML report is stale.
 
 ## Detailed Reference
 

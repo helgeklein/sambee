@@ -4,7 +4,9 @@ title = "Docs Style Guide"
 
 Use this page as the canonical copy style reference for published docs.
 
-## List Style
+## Lists
+
+### Sentence Style
 
 Use one list style per list. Do not mix sentence bullets and fragment bullets.
 
@@ -31,5 +33,20 @@ Valid fragment list:
 - `website/content/docs/`
 - `Ctrl` + `K`
 ```
+
+### List Structure
+
+- Make use of multiple hierarchies to structure content.
+- Mixing ordered and unordered lists is allowed.
+
+### Ordered Lists
+
+- Don't number ordered lists consecutively, use `1.` for all items. Let the Markdown renderer do the numbering.
+
+## Headings
+
+- Use multiple heading levels to logically group and structure content. Don't limit yourself to h2.
+
+## More Information
 
 See [Docs Authoring Workflow](../docs-authoring-workflow/) for where copy edits fit into the docs workflow, and [Docs Editor Tool](../docs-editor-tool/) for structural docs changes.
