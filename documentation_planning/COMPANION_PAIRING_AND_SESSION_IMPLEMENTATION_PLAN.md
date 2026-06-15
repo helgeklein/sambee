@@ -90,28 +90,28 @@ This phase should not redesign the backend edit-session contract yet. It should 
 
 ### Backend tasks
 
-1. Remove companion session values from lock-status response payloads.
-2. Remove companion session values from logs and cleanup messages.
+1. Remove companion session values from lock-status response payloads. ✅
+2. Remove companion session values from logs and cleanup messages. ✅
 3. Confirm that no lock-related API response returns bearer-equivalent data.
 4. Add regression tests covering token non-disclosure in lock responses.
 
 ### Companion tasks
 
-1. Replace permissive localhost CORS with exact-origin validation for browser requests and preserve loopback development-origin support.
+1. Replace permissive localhost CORS with exact-origin validation for browser requests and preserve loopback development-origin support. ✅
 2. Reclassify localhost routes into three groups:
    - public bootstrap routes
    - authenticated local-drive routes
    - companion-preferences or locally approved management routes
-3. Restrict browser-managed pairing actions to the current origin and remove browser access to arbitrary pairing inventory.
-4. Remove any browser-facing paired-origin enumeration route from the supported browser contract.
-5. Add a real cancellation path for pending pairings when either UI surface closes.
-6. Ensure the health or status surface exposes origin-scoped readiness for browser use rather than a global paired boolean.
+3. Restrict browser-managed pairing actions to the current origin and remove browser access to arbitrary pairing inventory. ✅
+4. Remove any browser-facing paired-origin enumeration route from the supported browser contract. ✅
+5. Add a real cancellation path for pending pairings when either UI surface closes. ✅
+6. Ensure the health or status surface exposes origin-scoped readiness for browser use rather than a global paired boolean. ✅
 7. Add rate limiting or equivalent guardrails for pairing-window creation.
 
 ### Frontend tasks
 
-1. Stop inferring readiness from global paired state.
-2. Switch pairing detection to an origin-scoped typed status contract.
+1. Stop inferring readiness from global paired state. ✅
+2. Switch pairing detection to an origin-scoped typed status contract. ✅
 3. Handle explicit states for:
    - unavailable
    - unpaired
@@ -119,19 +119,19 @@ This phase should not redesign the backend edit-session contract yet. It should 
    - paired
    - recoverable secret missing
    - rejected or cancelled
-4. Update pairing UI flows so browser and native close paths both trigger cancellation behavior instead of silent timeout or orphaned pending approval.
-5. Separate fast-changing local companion status polling from slower backend metadata refresh.
+4. Update pairing UI flows so browser and native close paths both trigger cancellation behavior instead of silent timeout or orphaned pending approval. ✅
+5. Separate fast-changing local companion status polling from slower backend metadata refresh. ✅
 
 ### Data and protocol tasks
 
-1. Define the new typed browser-facing companion status response.
-2. Define which localhost routes remain public and which require browser-secret auth or local approval.
-3. Define origin normalization, exact-origin approval rules, and loopback development-origin allowance as the trusted-origin source of truth.
+1. Define the new typed browser-facing companion status response. ✅
+2. Define which localhost routes remain public and which require browser-secret auth or local approval. Partially completed in code and current browser contract, but the route-classification cleanup is not fully finished.
+3. Define origin normalization, exact-origin approval rules, and loopback development-origin allowance as the trusted-origin source of truth. ✅
 
 ### Documentation tasks
 
-1. Update developer documentation to explain the tightened localhost trust boundary, exact-origin pairing approval, loopback development-origin behavior, and the new origin-scoped pairing status model.
-2. Update any companion setup or troubleshooting docs that currently describe global pairing state, hostname-based trust, or silently expiring pending pairings.
+1. Update developer documentation to explain the tightened localhost trust boundary, exact-origin pairing approval, loopback development-origin behavior, and the new origin-scoped pairing status model. ✅
+2. Update any companion setup or troubleshooting docs that currently describe global pairing state, hostname-based trust, or silently expiring pending pairings. ✅
 3. Add release notes for the Phase 1 behavioral changes so internal testers know what pairing, cancellation, re-pair, and localhost behavior should now look like.
 
 ### Phase 1 implementation status
@@ -148,16 +148,16 @@ Completed in the current codebase:
 Still remaining inside Phase 1:
 
 1. Add explicit rate limiting or equivalent anti-spam guardrails for pairing-window creation.
-2. Finish any remaining docs rollout under `website/content/docs/`.
+2. Add release notes for the Phase 1 behavioral changes so internal testers know what pairing, cancellation, re-pair, and localhost behavior should now look like.
 
 ### Phase 1 acceptance criteria
 
-- Browser pairing readiness depends only on origin-scoped status.
-- Closing either pairing UI path leaves no orphan pending pairing.
-- Untrusted or non-current origins cannot use browser-facing pairing management to mutate unrelated pairing state.
-- Lock-status responses and logs no longer disclose companion bearer tokens.
+- Browser pairing readiness depends only on origin-scoped status. ✅
+- Closing either pairing UI path leaves no orphan pending pairing. ✅
+- Untrusted or non-current origins cannot use browser-facing pairing management to mutate unrelated pairing state. ✅ for current browser-facing management flows.
+- Lock-status responses and logs no longer disclose companion bearer tokens. ✅
 - Existing local-drive browsing still works for a properly paired browser on the approved exact Sambee origin, and local frontend development continues to work from typical loopback origins.
-- Documentation reflects the new pairing states, pairing-cancellation behavior, and localhost trust restrictions introduced in Phase 1.
+- Documentation reflects the new pairing states, pairing-cancellation behavior, and localhost trust restrictions introduced in Phase 1. ✅
 
 ### Phase 1 test plan
 
