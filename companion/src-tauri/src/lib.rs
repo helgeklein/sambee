@@ -342,14 +342,17 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     // 2. Acquire edit lock
     info!("Step 2: Acquiring edit lock...");
     debug!("Proceeding from Step 1.5 to Step 2");
-    let lock_id = match proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
+    let lock_context = match proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
         commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
     })
     .await
     {
-        Ok(lock_id) => {
-            debug!("Step 2 completed successfully: lock_id={lock_id}");
-            lock_id
+        Ok(lock_context) => {
+            debug!(
+                "Step 2 completed successfully: lock_id={}, server_operation_id={}",
+                lock_context.lock_id, lock_context.operation_id
+            );
+            lock_context
         }
         Err(err) => {
             warn!("Step 2 failed during lock acquisition: {err}");
@@ -367,7 +370,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
             &uri.server,
             &uri.conn_id,
             &uri.path,
-            &session_token,
+            &lock_context,
             expected_download_size,
         )
         .await
@@ -378,10 +381,10 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         let srv = uri.server.clone();
         let cid = uri.conn_id.clone();
         let p = uri.path.clone();
-        let tok = session_token.clone();
+        let held_lock_context = lock_context.clone();
         let clients = http_clients.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &tok).await;
+            let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &held_lock_context).await;
         });
     })
     .map_err(String::from)?;
@@ -405,7 +408,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         original_mtime: download_result.original_mtime,
         status: OperationStatus::Editing,
         opened_with_app: None,
-        lock_id: Some(lock_id),
+        lock_context: Some(lock_context.clone()),
         server_last_modified,
     };
 
@@ -543,7 +546,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         None => {
             // User cancelled — release lock and clean up
             info!("User cancelled app picker — aborting edit lifecycle");
-            let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
+            let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &lock_context).await;
             store.remove(operation.id);
             refresh_tray_menu(&app);
             if let Err(e) = sync::operations::remove_operation_sidecar(&operation) {
@@ -557,7 +560,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     if let Err(e) =
         commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await
     {
-        let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
+        let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &lock_context).await;
         let _ = sync::recycle::recycle_file(&download_result.local_path);
         store.remove(operation.id);
         refresh_tray_menu(&app);
@@ -595,7 +598,15 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         download_result.original_mtime,
     );
 
-    commands::open_file::start_heartbeat_task(&app, window_label, uri.server, uri.conn_id, uri.path, session_token);
+    commands::open_file::start_heartbeat_task(
+        &app,
+        window_label,
+        operation.id,
+        uri.server,
+        uri.conn_id,
+        uri.path,
+        lock_context,
+    );
 
     info!("Edit lifecycle started successfully for operation {}", operation.id);
     Ok(())
@@ -1066,6 +1077,7 @@ pub fn run() {
             commands::app_picker::consume_pending_app_picker,
             commands::localization::get_synced_localization,
             commands::open_file::get_done_editing_context,
+            commands::open_file::open_sambee_status_page,
             commands::open_file::finish_editing,
             commands::open_file::discard_editing,
             commands::open_file::resolve_conflict_overwrite,

@@ -26,6 +26,7 @@ use super::auth;
 use super::drives;
 use super::errors::ApiError;
 use super::models::*;
+use super::pairing::PairingInitiateError;
 use super::AppState;
 
 /// Characters forbidden in file/directory names (matches backend validation).
@@ -244,7 +245,10 @@ pub async fn pair_initiate(
 ) -> Result<Json<PairInitiateResponse>, ApiError> {
     let origin = extract_origin(&headers).or_else(|_| extract_origin_from_pair_initiate_request(&body))?;
 
-    let (pairing_id, nonce_companion, code) = state.pairing.initiate(&body.nonce_browser, &origin).map_err(ApiError::BadRequest)?;
+    let (pairing_id, nonce_companion, code) = state.pairing.initiate(&body.nonce_browser, &origin).map_err(|err| match err {
+        PairingInitiateError::Validation(msg) => ApiError::BadRequest(msg),
+        PairingInitiateError::RateLimited(msg) => ApiError::TooManyRequests(msg),
+    })?;
 
     show_pairing_window(&state.app, &pairing_id, &origin, &code);
 

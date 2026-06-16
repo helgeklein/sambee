@@ -1,17 +1,27 @@
 import asyncio
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely, require_share_name
+from app.api.companion import (
+    COMPANION_ERROR_LOCK_LOST,
+    _generate_lock_capability,
+    _generate_operation_id,
+    _get_current_companion_operation_user,
+    _raise_companion_operation_error,
+    _validate_operation_lock_scope,
+)
 from app.core.logging import get_logger, set_user
-from app.core.security import decrypt_password, get_current_user_with_auth_check
+from app.core.security import decrypt_password, get_current_user_for_token, get_current_user_with_auth_check, oauth2_scheme_optional
 from app.db.database import get_session
 from app.models.connection import Connection
+from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import (
     ConflictInfo,
     CopyMoveRequest,
@@ -31,6 +41,17 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 DIRECTORY_LIST_ROUTE_TIMEOUT_SECONDS = 35.0
+
+
+def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> EditLock | None:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)
+    statement = (
+        select(EditLock)
+        .where(EditLock.connection_id == connection_id)
+        .where(EditLock.file_path == path)
+        .where(EditLock.last_heartbeat >= cutoff)
+    )
+    return session.exec(statement).first()
 
 
 #
@@ -219,6 +240,198 @@ class UploadResponse(BaseModel):
     last_modified: str | None
 
 
+class BrowserEditLockResponse(BaseModel):
+    """Response for browser-authenticated edit lock operations."""
+
+    lock_id: str
+    lock_capability: str
+    operation_id: str
+    file_path: str
+    locked_by: str
+    locked_at: str
+
+
+class BrowserEditLockControlRequest(BaseModel):
+    """Request body for browser-authenticated lock heartbeat and release."""
+
+    operation_id: str
+    lock_id: str
+    lock_capability: str
+
+
+class BrowserEditLockStatusResponse(BaseModel):
+    """Response for browser-authenticated edit lock status queries."""
+
+    locked: bool
+    locked_by: str | None = None
+    locked_at: str | None = None
+
+
+def _validate_browser_lock_control(lock: EditLock, body: BrowserEditLockControlRequest) -> None:
+    """Require a browser edit-lock control request to match the active lock."""
+
+    if lock.operation_id != body.operation_id or lock.lock_capability != body.lock_capability:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Edit lock context mismatch",
+        )
+
+    if str(lock.id) != body.lock_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lock not found or expired",
+        )
+
+
+@router.post("/{connection_id}/lock", response_model=BrowserEditLockResponse)
+async def acquire_browser_edit_lock(
+    connection_id: uuid.UUID,
+    path: str = Query(..., description="Path to the file to lock"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> BrowserEditLockResponse:
+    """Acquire or refresh an edit lock for in-browser markdown editing."""
+
+    set_user(current_user.username)
+
+    connection = _get_connection_or_404(session, current_user, connection_id)
+    require_connection_write_access(current_user, connection, action="acquire_browser_lock", path=path)
+
+    existing = _get_active_lock(connection_id, path, session)
+    if existing:
+        if existing.locked_by != current_user.username:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"File is locked for editing by {existing.locked_by}",
+            )
+
+        if not existing.lock_capability:
+            existing.lock_capability = _generate_lock_capability()
+        if not existing.operation_id:
+            existing.operation_id = _generate_operation_id()
+        existing.companion_session = ""
+        existing.last_heartbeat = datetime.now(timezone.utc)
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+
+        return BrowserEditLockResponse(
+            lock_id=str(existing.id),
+            lock_capability=existing.lock_capability,
+            operation_id=existing.operation_id,
+            file_path=existing.file_path,
+            locked_by=existing.locked_by,
+            locked_at=existing.locked_at.isoformat(),
+        )
+
+    lock = EditLock(
+        file_path=path,
+        connection_id=connection_id,
+        locked_by=current_user.username,
+        operation_id=_generate_operation_id(),
+        companion_session="",
+        lock_capability=_generate_lock_capability(),
+    )
+    session.add(lock)
+    session.commit()
+    session.refresh(lock)
+
+    return BrowserEditLockResponse(
+        lock_id=str(lock.id),
+        lock_capability=lock.lock_capability,
+        operation_id=lock.operation_id,
+        file_path=lock.file_path,
+        locked_by=lock.locked_by,
+        locked_at=lock.locked_at.isoformat(),
+    )
+
+
+@router.post("/{connection_id}/lock/heartbeat")
+async def heartbeat_browser_edit_lock(
+    connection_id: uuid.UUID,
+    body: BrowserEditLockControlRequest,
+    path: str = Query(..., description="Path to the locked file"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    """Refresh an active browser edit lock."""
+
+    set_user(current_user.username)
+
+    lock = _get_active_lock(connection_id, path, session)
+    if not lock:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lock not found or expired",
+        )
+
+    _validate_browser_lock_control(lock, body)
+
+    if lock.locked_by != current_user.username:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Lock is held by another user",
+        )
+
+    lock.last_heartbeat = datetime.now(timezone.utc)
+    session.add(lock)
+    session.commit()
+
+    return {"status": "ok"}
+
+
+@router.delete("/{connection_id}/lock")
+async def release_browser_edit_lock(
+    connection_id: uuid.UUID,
+    body: BrowserEditLockControlRequest,
+    path: str = Query(..., description="Path to the locked file"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> dict[str, str]:
+    """Release an active browser edit lock."""
+
+    set_user(current_user.username)
+
+    lock = _get_active_lock(connection_id, path, session)
+    if not lock:
+        return {"status": "ok"}
+
+    _validate_browser_lock_control(lock, body)
+
+    if lock.locked_by != current_user.username:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Lock is held by another user",
+        )
+
+    session.delete(lock)
+    session.commit()
+
+    return {"status": "ok"}
+
+
+@router.get("/{connection_id}/lock-status", response_model=BrowserEditLockStatusResponse)
+async def get_browser_edit_lock_status(
+    connection_id: uuid.UUID,
+    path: str = Query(..., description="Path to check"),
+    current_user: User = Depends(get_current_user_with_auth_check),
+    session: Session = Depends(get_session),
+) -> BrowserEditLockStatusResponse:
+    """Return whether the file is actively locked for browser editing."""
+
+    set_user(current_user.username)
+
+    lock = _get_active_lock(connection_id, path, session)
+    if not lock:
+        return BrowserEditLockStatusResponse(locked=False)
+
+    return BrowserEditLockStatusResponse(
+        locked=True,
+        locked_by=lock.locked_by,
+        locked_at=lock.locked_at.isoformat(),
+    )
+
+
 #
 # upload_file
 #
@@ -226,8 +439,11 @@ class UploadResponse(BaseModel):
 async def upload_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Destination path on the share"),
+    operation_id: Optional[str] = Query(None, description="Active companion operation ID"),
+    lock_id: Optional[str] = Query(None, description="Active companion lock ID"),
+    lock_capability: Optional[str] = Query(None, description="Active companion lock capability"),
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user_with_auth_check),
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     session: Session = Depends(get_session),
 ) -> UploadResponse:
     """Upload a file to the SMB share.
@@ -236,6 +452,39 @@ async def upload_file(
     overwriting the existing file.  Used by both the companion app (writing
     back edited files) and the web UI (future upload feature).
     """
+
+    if operation_id or lock_id or lock_capability:
+        if not operation_id or not lock_id or not lock_capability or not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing companion operation context",
+            )
+
+        current_user = _get_current_companion_operation_user(
+            token,
+            connection_id=connection_id,
+            path=path,
+            operation_id=operation_id,
+            lock_id=lock_id,
+            session=session,
+        )
+
+        lock = _get_active_lock(connection_id, path, session)
+        if not lock:
+            _raise_companion_operation_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code=COMPANION_ERROR_LOCK_LOST,
+                message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+            )
+
+        _validate_operation_lock_scope(
+            lock,
+            operation_id=operation_id,
+            lock_id=lock_id,
+            lock_capability=lock_capability,
+        )
+    else:
+        current_user = await get_current_user_for_token(token, session)
 
     set_user(current_user.username)
     logger.info(f"Upload file: connection_id={connection_id}, path='{path}'")

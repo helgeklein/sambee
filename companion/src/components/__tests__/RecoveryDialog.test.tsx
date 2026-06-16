@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { translate } from "../../i18n";
 import { type LeftoverInfo, RecoveryDialog } from "../RecoveryDialog";
@@ -34,5 +34,32 @@ describe("RecoveryDialog", () => {
     });
 
     expect(screen.getByText(translate("recovery.actions.retryUpload"))).toBeInTheDocument();
+  });
+
+  it("reopens Sambee from a blocked lifecycle recovery state", async () => {
+    const onBlockedLifecycleAction = vi.fn(async () => {});
+
+    render(
+      <RecoveryDialog
+        leftovers={LEFTOVERS}
+        onDone={() => {}}
+        onUploadAction={async () => {
+          return { status: "recovery_required", message: "Recovery session expired during upload." };
+        }}
+        onBlockedLifecycleAction={onBlockedLifecycleAction}
+      />
+    );
+
+    fireEvent.click(screen.getByText(translate("recovery.actions.upload")));
+
+    await waitFor(() => {
+      expect(screen.getByText(translate("doneEditing.buttons.recoveryRequired"))).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText(translate("doneEditing.buttons.recoveryRequired")));
+
+    await waitFor(() => {
+      expect(onBlockedLifecycleAction).toHaveBeenCalledWith("recovery_required", "https://sambee.example.test");
+    });
   });
 });

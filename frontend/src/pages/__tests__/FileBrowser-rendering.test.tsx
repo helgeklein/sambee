@@ -138,6 +138,7 @@ describe("Browser Component - Rendering", () => {
       <SambeeThemeProvider>
         <FileBrowserAlerts
           error={null}
+          companionLifecycleStatus={null}
           loadingConnections={false}
           connectionsCount={1}
           isAdmin={true}
@@ -159,6 +160,26 @@ describe("Browser Component - Rendering", () => {
     // Optimized: Use findByText instead of waitFor + getByText
     expect(await screen.findByText(/Connection failed/i)).toBeInTheDocument();
     expect(screen.queryByText(/This directory is empty/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a typed companion lifecycle alert from the route query", async () => {
+    renderBrowser("/browse/smb/test-server-1?companion_status=renewal_required");
+
+    expect(
+      await screen.findByText(/The companion edit session expired before the file could be finished/i)
+    ).toBeInTheDocument();
+  });
+
+  it("dismisses the typed companion lifecycle alert and clears the query state", async () => {
+    renderBrowser("/browse/smb/test-server-1?companion_status=lock_lost");
+
+    expect(await screen.findByText(/The companion lost the active edit lock for this file/i)).toBeInTheDocument();
+
+    screen.getByRole("button", { name: "Close" }).click();
+
+    await waitFor(() => {
+      expect(screen.queryByText(/The companion lost the active edit lock for this file/i)).not.toBeInTheDocument();
+    });
   });
 
   it("refreshes the visible pane automatically when backend availability recovers", async () => {

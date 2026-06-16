@@ -49,9 +49,19 @@ export const EN_TRANSLATIONS = {
     unchanged: "Unchanged",
     parseConflictError: "Failed to parse conflict info",
     authRefreshedRetryUpload: "Authentication was refreshed. Hold Done Editing again to retry the upload.",
+    lifecycle: {
+      renewalRequired: "This edit session expired before Companion could renew it. Reopen the file from Sambee, then try saving again.",
+      authFailed: "Companion could not prove this edit session is still authorized. Reopen the file from Sambee to start a fresh session.",
+      lockLost: "This edit lock is no longer active on the server. Reopen the file from Sambee before trying to upload again.",
+      recoveryRequired: "This edit session expired and cannot be resumed. Reopen the file from Sambee to start a new recovery flow.",
+    },
     buttons: {
       doneUpload: "✓ Done Editing — Hold to Upload",
       retryUpload: "✓ Done Editing — Hold to Retry Upload",
+      reopenRequired: "Session Expired — Reopen from Sambee",
+      authFailed: "Authentication Failed — Reopen from Sambee",
+      lockLost: "Lock Lost — Reopen from Sambee",
+      recoveryRequired: "Recovery Required — Reopen from Sambee",
       doneClose: "✓ Done Editing — Hold to Close",
       uploading: "✓ Uploading…",
       closing: "✓ Closing…",
@@ -62,6 +72,8 @@ export const EN_TRANSLATIONS = {
       retryUpload: "Hold for {{seconds}} seconds to retry the upload after reauthentication",
       confirmClose: "Hold for {{seconds}} seconds to close and release lock",
       discardChanges: "Hold for {{seconds}} seconds to discard changes",
+      actionUnavailable: "This action is unavailable until the file is reopened from Sambee",
+      reopenInBrowser: "Open Sambee in your browser to start a new edit session",
       uploadProgress: "Upload progress",
     },
   },
@@ -78,6 +90,13 @@ export const EN_TRANSLATIONS = {
       cancel: "Cancel",
     },
     authRefreshedRetry: "Authentication was refreshed. Choose Overwrite or Save as Copy again to retry the upload.",
+    lifecycle: {
+      renewalRequired:
+        "This edit session expired before the upload could be authorized. Close this dialog and reopen the file from Sambee.",
+      authFailed: "Companion could not prove this edit session is still authorized. Close this dialog and reopen the file from Sambee.",
+      lockLost: "The server lock for this edit session is no longer active. Close this dialog and reopen the file from Sambee.",
+      recoveryRequired: "This edit session expired and cannot be resumed. Close this dialog and reopen the file from Sambee.",
+    },
   },
   largeFileWarning: {
     title: "⚠ Large File",
@@ -93,6 +112,12 @@ export const EN_TRANSLATIONS = {
     subtitle_other: "{{count}} files from a previous session need attention.",
     detail: "{{remotePath}} — modified {{localModified}}",
     authRefreshedRetryUpload: "Authentication was refreshed. Click Upload again to retry sending this file to the server.",
+    lifecycle: {
+      renewalRequired: "This recovered edit session expired before it could upload. Reopen the file from Sambee or discard this temp copy.",
+      authFailed: "Companion could not prove this recovered edit session is still authorized. Reopen the file from Sambee or discard this temp copy.",
+      lockLost: "The server lock for this recovered edit session is gone. Reopen the file from Sambee or discard this temp copy.",
+      recoveryRequired: "This recovered edit session expired and cannot be resumed. Reopen the file from Sambee or discard this temp copy.",
+    },
     actions: {
       upload: "Upload",
       retryUpload: "Retry Upload",

@@ -694,6 +694,15 @@ export const EN_TRANSLATIONS = {
           "Backend connection lost. The current UI remains available, but refreshes and live updates may fail until the connection returns.",
         backendReconnecting: "Reconnecting to backend. Live updates may be delayed for a moment.",
         loadingConnections: "Loading connections...",
+        companionLaunchHint: "Opening in Sambee Companion. If nothing happened, make sure the companion app is installed and then try again.",
+        companionLifecycle: {
+          renewal_required: "The companion edit session expired before the file could be finished. Open the file from Sambee again to continue editing.",
+          auth_failed:
+            "The companion could not finish signing in to the Sambee backend. Complete sign-in in the companion and then reopen the file from Sambee.",
+          lock_lost: "The companion lost the active edit lock for this file. Reopen the file from Sambee before making more edits.",
+          recovery_required:
+            "The companion has an unfinished recovery item for this file. Resolve it in the companion before starting a new edit session from Sambee.",
+        },
       },
       mobileMenu: {
         selectConnectionAriaLabel: "Select connection",

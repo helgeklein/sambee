@@ -15,7 +15,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
-import { type AuthRetryResult, type CompletedResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
+import {
+  type AuthRetryResult,
+  type CompletedResult,
+  getTauriErrorMessage,
+  isAuthRetryResult,
+  isLifecycleErrorResult,
+  type LifecycleErrorResult,
+  type LifecycleErrorStatus,
+} from "../utils/tauriErrorMarkers";
+import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
 import "../styles/dialog.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,9 +41,37 @@ export interface ConflictInfo {
   download_modified: string;
   /** Current server `modified_at` (ISO 8601). */
   server_modified: string;
+  /** Server URL used to reopen Sambee after terminal lifecycle failures. */
+  server_url: string;
 }
 
-type ConflictResolutionResult = CompletedResult | AuthRetryResult;
+type ConflictResolutionResult = CompletedResult | AuthRetryResult | LifecycleErrorResult;
+
+function conflictLifecycleMessage(status: LifecycleErrorStatus, fallbackMessage: string) {
+  switch (status) {
+    case "renewal_required":
+      return translate("conflictDialog.lifecycle.renewalRequired", { message: fallbackMessage });
+    case "auth_failed":
+      return translate("conflictDialog.lifecycle.authFailed", { message: fallbackMessage });
+    case "lock_lost":
+      return translate("conflictDialog.lifecycle.lockLost", { message: fallbackMessage });
+    case "recovery_required":
+      return translate("conflictDialog.lifecycle.recoveryRequired", { message: fallbackMessage });
+  }
+}
+
+function blockedLifecyclePrimaryActionLabel(status: LifecycleErrorStatus) {
+  switch (status) {
+    case "renewal_required":
+      return translate("doneEditing.buttons.reopenRequired");
+    case "auth_failed":
+      return translate("doneEditing.buttons.authFailed");
+    case "lock_lost":
+      return translate("doneEditing.buttons.lockLost");
+    case "recovery_required":
+      return translate("doneEditing.buttons.recoveryRequired");
+  }
+}
 
 /** Props for the ConflictDialog component. */
 interface ConflictDialogProps {
@@ -43,9 +80,11 @@ interface ConflictDialogProps {
   /** Called when the dialog is resolved or cancelled. */
   onResolved: () => void;
   /** Optional override used by browser previews for the overwrite action. */
-  onOverwriteAction?: () => Promise<void>;
+  onOverwriteAction?: () => Promise<ConflictResolutionResult | void>;
   /** Optional override used by browser previews for the save-copy action. */
-  onSaveCopyAction?: () => Promise<void>;
+  onSaveCopyAction?: () => Promise<ConflictResolutionResult | void>;
+  /** Optional lifecycle hook used by previews/tests to reopen Sambee after a terminal status. */
+  onBlockedLifecycleAction?: (status: LifecycleErrorStatus, serverUrl: string) => Promise<void>;
   /** Optional lifecycle hook used by previews after a successful action. */
   onActionComplete?: (action: "overwrite" | "saveCopy" | "cancel") => void;
 }
@@ -60,10 +99,42 @@ interface ConflictDialogProps {
 /**
  * Inline conflict resolution dialog.
  */
-export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSaveCopyAction, onActionComplete }: ConflictDialogProps) {
+export function ConflictDialog({
+  conflict,
+  onResolved,
+  onOverwriteAction,
+  onSaveCopyAction,
+  onBlockedLifecycleAction,
+  onActionComplete,
+}: ConflictDialogProps) {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [blockedLifecycle, setBlockedLifecycle] = useState<LifecycleErrorStatus | null>(null);
+
+  const handleBlockedLifecycleAction = useCallback(async () => {
+    if (!blockedLifecycle) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      if (onBlockedLifecycleAction) {
+        await onBlockedLifecycleAction(blockedLifecycle, conflict.server_url);
+      } else {
+        await openSambeeStatusPage(conflict.server_url, blockedLifecycle);
+      }
+    } catch (e) {
+      setError(getTauriErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [blockedLifecycle, conflict.server_url, onBlockedLifecycleAction]);
+
+  const primaryActionLabel = blockedLifecycle
+    ? blockedLifecyclePrimaryActionLabel(blockedLifecycle)
+    : translate("conflictDialog.actions.overwrite");
 
   //
   // handleOverwrite
@@ -72,19 +143,26 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
     setLoading(true);
     setNotice(null);
     setError(null);
+    setBlockedLifecycle(null);
     try {
-      if (onOverwriteAction) {
-        await onOverwriteAction();
-      } else {
-        const result = await invoke<ConflictResolutionResult>("resolve_conflict_overwrite", {
-          operationId: conflict.operation_id,
-        });
-        if (isAuthRetryResult(result, "conflict")) {
-          setNotice(translate("conflictDialog.authRefreshedRetry"));
-          setLoading(false);
-          return;
-        }
+      const result = onOverwriteAction
+        ? await onOverwriteAction()
+        : await invoke<ConflictResolutionResult>("resolve_conflict_overwrite", {
+            operationId: conflict.operation_id,
+          });
+
+      if (isAuthRetryResult(result, "conflict")) {
+        setNotice(translate("conflictDialog.authRefreshedRetry"));
+        setLoading(false);
+        return;
       }
+      if (isLifecycleErrorResult(result)) {
+        setBlockedLifecycle(result.status);
+        setError(conflictLifecycleMessage(result.status, result.message));
+        setLoading(false);
+        return;
+      }
+
       onActionComplete?.("overwrite");
     } catch (e) {
       setError(getTauriErrorMessage(e));
@@ -99,19 +177,26 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
     setLoading(true);
     setNotice(null);
     setError(null);
+    setBlockedLifecycle(null);
     try {
-      if (onSaveCopyAction) {
-        await onSaveCopyAction();
-      } else {
-        const result = await invoke<ConflictResolutionResult>("resolve_conflict_save_copy", {
-          operationId: conflict.operation_id,
-        });
-        if (isAuthRetryResult(result, "conflict")) {
-          setNotice(translate("conflictDialog.authRefreshedRetry"));
-          setLoading(false);
-          return;
-        }
+      const result = onSaveCopyAction
+        ? await onSaveCopyAction()
+        : await invoke<ConflictResolutionResult>("resolve_conflict_save_copy", {
+            operationId: conflict.operation_id,
+          });
+
+      if (isAuthRetryResult(result, "conflict")) {
+        setNotice(translate("conflictDialog.authRefreshedRetry"));
+        setLoading(false);
+        return;
       }
+      if (isLifecycleErrorResult(result)) {
+        setBlockedLifecycle(result.status);
+        setError(conflictLifecycleMessage(result.status, result.message));
+        setLoading(false);
+        return;
+      }
+
       onActionComplete?.("saveCopy");
     } catch (e) {
       setError(getTauriErrorMessage(e));
@@ -147,10 +232,20 @@ export function ConflictDialog({ conflict, onResolved, onOverwriteAction, onSave
       {notice && <p class="done-editing-notice">{notice}</p>}
 
       <div class="dialog-actions">
-        <button type="button" class="dialog-btn dialog-btn--primary" onClick={handleOverwrite} disabled={loading}>
-          {translate("conflictDialog.actions.overwrite")}
+        <button
+          type="button"
+          class="dialog-btn dialog-btn--primary"
+          onClick={blockedLifecycle ? () => void handleBlockedLifecycleAction() : handleOverwrite}
+          disabled={loading}
+        >
+          {primaryActionLabel}
         </button>
-        <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleSaveAsCopy} disabled={loading}>
+        <button
+          type="button"
+          class="dialog-btn dialog-btn--ghost"
+          onClick={handleSaveAsCopy}
+          disabled={loading || blockedLifecycle !== null}
+        >
           {translate("conflictDialog.actions.saveCopy")}
         </button>
         <button type="button" class="dialog-btn dialog-btn--ghost" onClick={handleCancel} disabled={loading}>

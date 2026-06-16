@@ -17,6 +17,7 @@ const PREVIEW_CONTEXT: DoneEditingContext = {
   operation_id: "preview-done-editing",
   filename: "Quarterly Budget.xlsx",
   app_name: "LibreOffice Calc",
+  server_url: "https://sambee.example.test",
 };
 
 const NOOP_BUTTON_HANDLERS: DoneEditingButtonHandlers = {

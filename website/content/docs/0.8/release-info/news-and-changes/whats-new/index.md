@@ -12,7 +12,13 @@ In addition, several bugs were fixed to improve the overall experience.
 
 ## Internals
 
-### Website Docs Editor Tool
+### Documentation System
+
+Sambee has a best-in-class documentation system that deduplicates content, inheriting unchanged text copy through versions. This enables us to provide complete and accurate docs for each product version while minimizing maintenance effort.
+
+This release adds a new docs reporting and visualization tool that creates an HTML report of all docs books, sections, and pages with their respectice properties (e.g., inherited, branched). The report also has a diff view that highlights changes between any two document versions.
+
+Docs editor tool improvements:
 
 - UI improvements (e.g., better help output)
 - New commands to convert pages between inherited and independent: `page materialize` and `page inherit`

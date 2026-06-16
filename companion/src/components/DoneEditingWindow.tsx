@@ -18,7 +18,16 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { JSX } from "preact";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { useI18n } from "../i18n/useI18n";
-import { type AuthRetryResult, type CompletedResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
+import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
+import {
+  type AuthRetryResult,
+  type CompletedResult,
+  getTauriErrorMessage,
+  isAuthRetryResult,
+  isLifecycleErrorResult,
+  type LifecycleErrorResult,
+  type LifecycleErrorStatus,
+} from "../utils/tauriErrorMarkers";
 import type { ConflictInfo } from "./ConflictDialog";
 import { ConflictDialog } from "./ConflictDialog";
 import "../styles/done-editing.css";
@@ -33,6 +42,7 @@ export interface DoneEditingContext {
   operation_id: string;
   filename: string;
   app_name: string;
+  server_url: string;
 }
 
 export type DoneEditingFileStatus = { kind: "unchanged" } | { kind: "modified"; modifiedAt: string };
@@ -45,6 +55,7 @@ export type DoneEditingButtonHandlers = Pick<
 type FinishEditingResult =
   | CompletedResult
   | AuthRetryResult
+  | LifecycleErrorResult
   | (ConflictInfo & {
       status: "conflict";
     });
@@ -65,7 +76,35 @@ interface DoneEditingWindowViewProps {
   doneHandlers: DoneEditingButtonHandlers;
   discardHandlers: DoneEditingButtonHandlers;
   onConflictResolved: () => void;
+  onPrimaryClick?: () => void;
   autoFocusPrimary?: boolean;
+  doneDisabled?: boolean;
+}
+
+function doneEditingLifecycleMessage(t: ReturnType<typeof useI18n>["t"], status: LifecycleErrorStatus, fallbackMessage: string) {
+  switch (status) {
+    case "renewal_required":
+      return t("doneEditing.lifecycle.renewalRequired", { message: fallbackMessage });
+    case "auth_failed":
+      return t("doneEditing.lifecycle.authFailed", { message: fallbackMessage });
+    case "lock_lost":
+      return t("doneEditing.lifecycle.lockLost", { message: fallbackMessage });
+    case "recovery_required":
+      return t("doneEditing.lifecycle.recoveryRequired", { message: fallbackMessage });
+  }
+}
+
+function doneEditingLifecycleButtonLabel(t: ReturnType<typeof useI18n>["t"], status: LifecycleErrorStatus) {
+  switch (status) {
+    case "renewal_required":
+      return t("doneEditing.buttons.reopenRequired");
+    case "auth_failed":
+      return t("doneEditing.buttons.authFailed");
+    case "lock_lost":
+      return t("doneEditing.buttons.lockLost");
+    case "recovery_required":
+      return t("doneEditing.buttons.recoveryRequired");
+  }
 }
 
 export function DoneEditingWindow() {
@@ -79,6 +118,7 @@ export function DoneEditingWindow() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<ConflictInfo | null>(null);
+  const [blockedLifecycle, setBlockedLifecycle] = useState<LifecycleErrorStatus | null>(null);
 
   const holdStart = useRef<number | null>(null);
   const discardHoldStart = useRef<number | null>(null);
@@ -182,6 +222,7 @@ export function DoneEditingWindow() {
     setProcessing(true);
     setNotice(null);
     setError(null);
+    setBlockedLifecycle(null);
 
     try {
       const result = await invoke<FinishEditingResult>("finish_editing", {
@@ -193,6 +234,10 @@ export function DoneEditingWindow() {
         setProcessing(false);
       } else if (isAuthRetryResult(result, "upload")) {
         setNotice(t("doneEditing.authRefreshedRetryUpload"));
+        setProcessing(false);
+      } else if (isLifecycleErrorResult(result)) {
+        setBlockedLifecycle(result.status);
+        setError(doneEditingLifecycleMessage(t, result.status, result.message));
         setProcessing(false);
       }
     } catch (err) {
@@ -249,15 +294,33 @@ export function DoneEditingWindow() {
   const doneHandlers = makeHandlers(setHoldProgress, holdStart, holdAnimationFrame, confirmDone);
   const discardHandlers = makeHandlers(setDiscardHoldProgress, discardHoldStart, discardAnimationFrame, confirmDiscard);
 
-  const doneButtonLabel = processing
-    ? isModified
-      ? t("doneEditing.buttons.uploading")
-      : t("doneEditing.buttons.closing")
-    : isModified
-      ? notice
-        ? t("doneEditing.buttons.retryUpload")
-        : t("doneEditing.buttons.doneUpload")
-      : t("doneEditing.buttons.doneClose");
+  const reopenFromSambee = useCallback(async () => {
+    if (!context || !blockedLifecycle) {
+      return;
+    }
+
+    setProcessing(true);
+    setError(null);
+    try {
+      await openSambeeStatusPage(context.server_url, blockedLifecycle);
+    } catch (err) {
+      setError(getTauriErrorMessage(err));
+    } finally {
+      setProcessing(false);
+    }
+  }, [blockedLifecycle, context]);
+
+  const doneButtonLabel = blockedLifecycle
+    ? doneEditingLifecycleButtonLabel(t, blockedLifecycle)
+    : processing
+      ? isModified
+        ? t("doneEditing.buttons.uploading")
+        : t("doneEditing.buttons.closing")
+      : isModified
+        ? notice
+          ? t("doneEditing.buttons.retryUpload")
+          : t("doneEditing.buttons.doneUpload")
+        : t("doneEditing.buttons.doneClose");
 
   if (!context) {
     return (
@@ -280,16 +343,20 @@ export function DoneEditingWindow() {
       discardHoldProgress={discardHoldProgress}
       doneButtonLabel={doneButtonLabel}
       doneAriaLabel={
-        isModified
-          ? notice
-            ? t("doneEditing.aria.retryUpload", { seconds: HOLD_DURATION_SECONDS })
-            : t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
-          : t("doneEditing.aria.confirmClose", { seconds: HOLD_DURATION_SECONDS })
+        blockedLifecycle
+          ? t("doneEditing.aria.reopenInBrowser")
+          : isModified
+            ? notice
+              ? t("doneEditing.aria.retryUpload", { seconds: HOLD_DURATION_SECONDS })
+              : t("doneEditing.aria.confirmUpload", { seconds: HOLD_DURATION_SECONDS })
+            : t("doneEditing.aria.confirmClose", { seconds: HOLD_DURATION_SECONDS })
       }
       discardAriaLabel={t("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_SECONDS })}
       doneHandlers={doneHandlers}
       discardHandlers={discardHandlers}
+      onPrimaryClick={blockedLifecycle ? () => void reopenFromSambee() : undefined}
       autoFocusPrimary
+      doneDisabled={false}
       onConflictResolved={() => {
         setConflict(null);
         setProcessing(false);
@@ -313,8 +380,10 @@ export function DoneEditingWindowView({
   discardAriaLabel,
   doneHandlers,
   discardHandlers,
+  onPrimaryClick,
   autoFocusPrimary = false,
   onConflictResolved,
+  doneDisabled = false,
 }: DoneEditingWindowViewProps) {
   const { t } = useI18n();
   const isModified = fileStatus.kind === "modified";
@@ -370,10 +439,17 @@ export function DoneEditingWindowView({
       {notice && <p class="done-editing-notice">{notice}</p>}
       {error && <p class="done-editing-error">{error}</p>}
 
-      <button ref={primaryButtonRef} class="btn-primary" {...doneHandlers} disabled={processing} aria-label={doneAriaLabel}>
+      <button
+        ref={primaryButtonRef}
+        class="btn-primary"
+        {...(onPrimaryClick ? {} : doneHandlers)}
+        onClick={onPrimaryClick}
+        disabled={processing || doneDisabled}
+        aria-label={doneAriaLabel}
+      >
         {doneButtonLabel}
       </button>
-      {holdProgress > 0 && (
+      {!onPrimaryClick && holdProgress > 0 && (
         <div class="hold-progress-track" role="progressbar" aria-valuenow={Math.round(holdProgress * 100)} aria-valuemax={100}>
           <div class="hold-progress-fill" style={{ width: `${holdProgress * 100}%` }} />
         </div>

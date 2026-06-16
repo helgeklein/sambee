@@ -106,7 +106,7 @@ This phase should not redesign the backend edit-session contract yet. It should 
 4. Remove any browser-facing paired-origin enumeration route from the supported browser contract. ✅
 5. Add a real cancellation path for pending pairings when either UI surface closes. ✅
 6. Ensure the health or status surface exposes origin-scoped readiness for browser use rather than a global paired boolean. ✅
-7. Add rate limiting or equivalent guardrails for pairing-window creation.
+7. Add rate limiting or equivalent guardrails for pairing-window creation. ✅
 
 ### Frontend tasks
 
@@ -144,11 +144,11 @@ Completed in the current codebase:
 4. Browser and native pairing-close paths now cancel pending pairings explicitly.
 5. Pairing approval uses exact-origin normalization in production and allows typical loopback origins for development.
 6. Frontend state now distinguishes pending local approval and repair-required states.
+7. Pairing-window creation now has anti-spam guardrails.
 
 Still remaining inside Phase 1:
 
-1. Add explicit rate limiting or equivalent anti-spam guardrails for pairing-window creation.
-2. Add release notes for the Phase 1 behavioral changes so internal testers know what pairing, cancellation, re-pair, and localhost behavior should now look like.
+1. Add release notes for the shipped Phase 1 behavioral changes so internal testers know what pairing, cancellation, re-pair, and localhost behavior should now look like.
 
 ### Phase 1 acceptance criteria
 
@@ -180,30 +180,30 @@ Protocol draft:
 
 - `documentation_planning/COMPANION_PAIRING_AND_SESSION_PROTOCOL_SPEC_DRAFT.md`
 
-Before implementation begins, write the concrete contract for:
+Completed in the current planning baseline:
 
-1. URI bootstrap token claims and lifetime.
-2. Companion session token claims, including:
+1. URI bootstrap token claims and lifetime are defined. ✅
+2. Companion session token claims are defined, including: ✅
    - token class
    - user identity
-   - token version or revocation semantics
+   - required numeric token-version revocation claim
    - allowed connection ID
    - operation ID
    - token purpose
    - expiry behavior
-3. Lock acquisition response payload, including:
+3. Lock acquisition response payload is defined, including: ✅
    - lock ID
-   - optional lock capability
+   - mandatory lock capability
    - operation session details if returned at acquisition time
-4. Renewal endpoint request and response shapes.
-5. Error codes and recovery states for:
+4. Renewal endpoint request and response shapes are defined, including proactive renewal and renewal-required thresholds. ✅
+5. Error codes and recovery states are defined for: ✅
    - invalid companion token
    - expired operation session
    - renewal required
    - lock lost
    - capability mismatch
 
-This contract should be treated as the implementation source of truth for the cutover.
+The protocol draft should now be treated as the implementation source of truth for the cutover. The remaining Phase 2A work is no longer contract design; it is implementation-task extraction and keeping developer and operational docs aligned as the implementation lands.
 
 The corresponding developer and operational docs should be updated as the contract stabilizes, not deferred until after implementation.
 
@@ -226,7 +226,7 @@ The corresponding developer and operational docs should be updated as the contra
 #### Lock ownership redesign
 
 1. Add lock ID based ownership as the primary lock reference model.
-2. Add lock capability generation and validation if the team chooses to implement the stronger model immediately.
+2. Add mandatory lock capability generation and validation as part of the day-one cutover.
 3. Stop using stored bearer tokens as proof of lock ownership.
 4. Update heartbeat and release endpoints to use lock identity and the new ownership rules.
 5. Remove `companion_session` from lock request models.
@@ -245,22 +245,61 @@ The corresponding developer and operational docs should be updated as the contra
 2. Add audit-friendly identifiers for operation ID, lock ID, connection ID, and user ID.
 3. Confirm logs never include raw bearer or lock-secret values.
 
+#### Current backend implementation status
+
+Completed in the current codebase:
+
+1. Durable URI token replay protection is implemented with a database-backed JTI registry. ✅
+2. Companion bootstrap tokens are now structurally distinct from normal browser tokens and include companion token-class, purpose, token-version, connection, and path claims. ✅
+3. Lock acquisition, heartbeat, and release now reject ordinary browser access tokens and enforce the scoped companion bootstrap token at the backend boundary. ✅
+4. Edit locks now use a generated `lock_capability` for lock-control proof, and heartbeat plus release require both `lock_id` and `lock_capability` instead of relying on stored bearer material. ✅
+5. Lock acquisition now mints and returns `operation_id` plus an operation-scoped companion token, and heartbeat plus release enforce that operation session instead of accepting the bootstrap session. ✅
+6. The shared backend download and upload routes now accept companion operation sessions only when the request also supplies the matching `operation_id`, `lock_id`, and `lock_capability`, while preserving the normal browser-auth path for ordinary web requests. ✅
+7. The backend now exposes an operation-session renewal endpoint and only renews active operation tokens inside the final renewable window while revalidating the live lock context. ✅
+8. Lock acquisition no longer accepts the legacy `companion_session` request body and now relies on the companion bootstrap token in the `Authorization` header only. ✅
+9. Operation-scoped companion endpoints and shared transfer routes now return explicit `renewal_required` and `lock_lost` lifecycle errors so the native companion can stop retrying blindly and surface actionable states. ✅
+10. Companion token exchange, lock acquisition, renewal, release, force-unlock, and orphan-lock cleanup now emit audit-safe logs with stable identifiers such as user ID, connection ID, lock ID, operation ID, and URI token JTI without logging bearer or capability secrets. ✅
+
+Still remaining inside Phase 2B:
+
+None. ✅
+
 ### Phase 2C: Companion implementation
 
 1. Update backend token exchange code to request and store the new companion session shape.
-2. Track operation ID, lock ID, and lock capability in native state for the life of an edit session.
-3. Update file-open, download, heartbeat, upload, and release flows to use the new contract.
-4. Implement renewal logic for long-running edits.
+2. Track operation ID, lock ID, and lock capability in native state for the life of an edit session. ✅
+3. Update file-open, download, heartbeat, upload, and release flows to use the new contract. ✅
+4. Implement renewal logic for long-running edits. ✅
 5. Surface explicit renewal-needed or re-auth-needed states in the native editing flow.
 6. Stop depending on any backend response that returns a session-equivalent value from lock status.
 7. Ensure retry behavior does not mask hard auth or lock-loss failures indefinitely.
 
+Current companion implementation status:
+
+1. Native edit-session state now persists the backend-issued lock context, including `operation_id`, `lock_id`, `lock_capability`, and the operation-scoped companion token. ✅
+2. Lock acquisition now consumes the expanded backend response instead of treating the lock API as `lock_id`-only. ✅
+3. Native download, upload, heartbeat, release, and recovery-upload paths now send the operation-scoped request tuple expected by the backend (`operation_id`, `lock_id`, `lock_capability`, plus the operation token). ✅
+4. The companion heartbeat flow now proactively renews operation sessions, updates the persisted lock context, and carries refreshed operation tokens forward to upload and release flows. ✅
+5. Native upload, conflict-resolution, recovery, and heartbeat flows now recognize explicit `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required` outcomes instead of treating them as generic failures or retrying indefinitely. ✅
+6. Done Editing, conflict-resolution, and recovery UI now treat `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required` as terminal, user-facing states instead of surfacing only raw generic errors. ✅
+7. Done Editing, conflict-resolution, and recovery dialogs now reopen the browser on the Sambee `/browse` page with a typed `companion_status` query for all browser-visible terminal states, replacing dead-end retry states with a concrete recovery handoff. ✅
+
 ### Phase 2D: Frontend implementation
 
 1. Update browser-to-backend deep-link initiation only as needed for the narrower bootstrap model.
-2. Ensure browser state and UX can represent the companion-side statuses surfaced by the new edit flow.
-3. Remove any assumptions that the old lock or token contract still exists.
+2. Ensure browser state and UX can represent the companion-side statuses surfaced by the new edit flow, especially `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`.
+3. Remove any assumptions that the old lock or token contract still exists. ✅
 4. Update any companion-download or launch guidance that depends on previous edit-session behavior.
+
+Current frontend implementation status:
+
+1. Browser markdown editing no longer calls the companion-only lock lifecycle and instead uses browser-authenticated browse lock endpoints. ✅
+2. The frontend lock client now persists and sends explicit lock context (`operation_id`, `lock_id`, `lock_capability`) for heartbeat and release instead of assuming path-only lock control. ✅
+3. Browser lock-status reads no longer expect or expose `companion_session` or any other session-equivalent value. ✅
+4. The browser file-browser page now accepts a typed `companion_status` receiver signal and renders explicit user-facing guidance for `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`, instead of collapsing companion return states into generic errors. ✅
+5. The companion Done Editing, conflict-resolution, and recovery terminal-state flows now reopen the browser on the Sambee `/browse` page with a typed `companion_status` query for `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`, giving the user a concrete browser recovery path. ✅
+6. Companion operation-token validation now emits structured `auth_failed` and `recovery_required` states, so the browser receiver path has active producer coverage for all four browser-visible lifecycle statuses. ✅
+7. Companion-download and launch guidance still needs a final review against the Phase 2 protocol and browser UX. ⏳
 
 ### Phase 2E: Data migration and cutover
 
@@ -372,8 +411,8 @@ The corresponding developer and operational docs should be updated as the contra
 
 ## Suggested Delivery Order Within Engineering
 
-1. Write the concrete Phase 2 protocol contract.
-2. Implement and verify Phase 1 localhost and leakage hardening.
+1. ✅ Freeze the concrete Phase 2 protocol contract.
+2. Finish the remaining Phase 1 release notes so the shipped localhost hardening baseline is fully closed.
 3. Build backend Phase 2 foundations first: token classes, JTI store, lock model, renewal endpoints.
 4. Update companion to the new Phase 2 protocol.
 5. Update frontend assumptions and state handling required by the new protocol.

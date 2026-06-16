@@ -20,6 +20,9 @@ pub enum ApiError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    #[error("Too many requests: {0}")]
+    TooManyRequests(String),
+
     #[error("Conflict")]
     Conflict(Value),
 
@@ -49,6 +52,7 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, Value::String(msg)),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, Value::String(msg)),
             ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, Value::String(msg)),
+            ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, Value::String(msg)),
             ApiError::Conflict(val) => (StatusCode::CONFLICT, val),
             ApiError::Io(ref e) => {
                 let code = match e.kind() {

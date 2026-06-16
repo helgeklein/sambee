@@ -14,11 +14,11 @@ Started during application lifespan (main.py) and cancelled on shutdown.
 """
 
 import asyncio
-import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
+from app.core.logging import format_audit_fields, get_logger
 from app.db.database import engine
 from app.models.edit_lock import (
     HEARTBEAT_TIMEOUT_SECONDS,
@@ -26,7 +26,7 @@ from app.models.edit_lock import (
     EditLock,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _orphan_task: asyncio.Task[None] | None = None
 
@@ -72,7 +72,7 @@ async def _orphan_check_loop() -> None:
             await asyncio.sleep(ORPHAN_CHECK_INTERVAL_SECONDS)
             released = _release_orphaned_locks()
             if released > 0:
-                logger.info(f"Released {released} orphaned edit lock(s)")
+                logger.info(f"Released orphaned edit locks: {format_audit_fields(released_count=released)}")
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -98,10 +98,7 @@ def _release_orphaned_locks() -> int:
 
         for lock in orphaned:
             logger.warning(
-                f"Releasing orphaned lock: path='{lock.file_path}', "
-                f"connection_id={lock.connection_id}, "
-                f"locked_by='{lock.locked_by}', "
-                f"last_heartbeat={lock.last_heartbeat.isoformat()}"
+                f"Releasing orphaned lock: {format_audit_fields(connection_id=lock.connection_id, path=lock.file_path, lock_id=lock.id, operation_id=lock.operation_id, locked_by=lock.locked_by, last_heartbeat=lock.last_heartbeat.isoformat())}"
             )
             session.delete(lock)
 

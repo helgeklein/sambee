@@ -17,7 +17,7 @@ use tauri::{AppHandle, Emitter};
 use crate::http_client::{
     classify_proxy_auth_intercept, log_request_error, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
 };
-use crate::sync::operations::{UPLOAD_MAX_RETRIES, UPLOAD_RETRY_BASE_MS};
+use crate::sync::operations::{CompanionLockContext, UPLOAD_MAX_RETRIES, UPLOAD_RETRY_BASE_MS};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -38,6 +38,134 @@ pub struct UploadResponse {
     pub path: String,
     pub size: u64,
     pub last_modified: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LockResponse {
+    lock_id: String,
+    lock_capability: String,
+    operation_id: String,
+    operation_token: String,
+    renew_after_seconds: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenewSessionResponse {
+    pub token: String,
+    #[allow(dead_code)]
+    pub expires_in: u64,
+    pub renew_after_seconds: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct BackendErrorResponse {
+    detail: BackendErrorDetail,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum BackendErrorDetail {
+    #[allow(dead_code)]
+    Message(String),
+    Structured(BackendStructuredErrorDetail),
+}
+
+#[derive(Debug, Deserialize)]
+struct BackendStructuredErrorDetail {
+    code: String,
+    message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompanionLifecycleErrorCode {
+    RenewalRequired,
+    AuthFailed,
+    LockLost,
+    RecoveryRequired,
+}
+
+const LIFECYCLE_ERROR_PREFIX: &str = "sambee_companion_lifecycle:";
+
+impl CompanionLifecycleErrorCode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::RenewalRequired => "renewal_required",
+            Self::AuthFailed => "auth_failed",
+            Self::LockLost => "lock_lost",
+            Self::RecoveryRequired => "recovery_required",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "renewal_required" => Some(Self::RenewalRequired),
+            "auth_failed" => Some(Self::AuthFailed),
+            "lock_lost" => Some(Self::LockLost),
+            "recovery_required" => Some(Self::RecoveryRequired),
+            _ => None,
+        }
+    }
+}
+
+fn encode_lifecycle_error(code: CompanionLifecycleErrorCode, message: &str) -> String {
+    format!("{LIFECYCLE_ERROR_PREFIX}{}:{message}", code.as_str())
+}
+
+fn decode_lifecycle_error(error: &str) -> Option<(CompanionLifecycleErrorCode, &str)> {
+    let payload = error.strip_prefix(LIFECYCLE_ERROR_PREFIX)?;
+    let (code, message) = payload.split_once(':')?;
+    Some((CompanionLifecycleErrorCode::from_str(code)?, message))
+}
+
+fn classify_lifecycle_error(body_text: &str) -> Option<String> {
+    let parsed: BackendErrorResponse = serde_json::from_str(body_text).ok()?;
+    match parsed.detail {
+        BackendErrorDetail::Structured(detail) => {
+            let code = CompanionLifecycleErrorCode::from_str(&detail.code)?;
+            Some(encode_lifecycle_error(code, &detail.message))
+        }
+        BackendErrorDetail::Message(_) => None,
+    }
+}
+
+pub fn lifecycle_error_message(error: &str) -> Option<&str> {
+    decode_lifecycle_error(error).map(|(_, message)| message)
+}
+
+pub fn is_renewal_required_error(error: &str) -> bool {
+    matches!(
+        decode_lifecycle_error(error),
+        Some((CompanionLifecycleErrorCode::RenewalRequired, _))
+    )
+}
+
+pub fn is_lock_lost_error(error: &str) -> bool {
+    matches!(decode_lifecycle_error(error), Some((CompanionLifecycleErrorCode::LockLost, _)))
+}
+
+pub fn is_auth_failed_error(error: &str) -> bool {
+    matches!(decode_lifecycle_error(error), Some((CompanionLifecycleErrorCode::AuthFailed, _)))
+}
+
+pub fn is_recovery_required_error(error: &str) -> bool {
+    matches!(decode_lifecycle_error(error), Some((CompanionLifecycleErrorCode::RecoveryRequired, _)))
+}
+
+fn build_operation_query<'a>(remote_path: &'a str, lock_context: &'a CompanionLockContext) -> [(&'a str, &'a str); 4] {
+    [
+        ("path", remote_path),
+        ("operation_id", lock_context.operation_id.as_str()),
+        ("lock_id", lock_context.lock_id.as_str()),
+        ("lock_capability", lock_context.lock_capability.as_str()),
+    ]
+}
+
+fn build_lock_control_body(lock_context: &CompanionLockContext) -> serde_json::Value {
+    serde_json::json!({
+        "operation_id": lock_context.operation_id,
+        "lock_id": lock_context.lock_id,
+        "lock_capability": lock_context.lock_capability,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,7 +191,7 @@ pub async fn upload_file(
     connection_id: &str,
     remote_path: &str,
     local_path: &Path,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<UploadResponse, String> {
     let client = plain_client()?;
     upload_file_with_client(
@@ -74,7 +202,7 @@ pub async fn upload_file(
         connection_id,
         remote_path,
         local_path,
-        session_token,
+        lock_context,
     )
     .await
 }
@@ -88,7 +216,7 @@ pub async fn upload_file_with_store(
     connection_id: &str,
     remote_path: &str,
     local_path: &Path,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<UploadResponse, String> {
     let client = http_clients.client_for_server(server_url)?;
     upload_file_with_client(
@@ -99,7 +227,7 @@ pub async fn upload_file_with_store(
         connection_id,
         remote_path,
         local_path,
-        session_token,
+        lock_context,
     )
     .await
 }
@@ -113,7 +241,7 @@ pub async fn upload_file_with_client(
     connection_id: &str,
     remote_path: &str,
     local_path: &Path,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<UploadResponse, String> {
     let filename = local_path
         .file_name()
@@ -154,8 +282,8 @@ pub async fn upload_file_with_client(
         match client
             .post(&url)
             .timeout(Duration::from_secs(UPLOAD_TIMEOUT_SECS))
-            .query(&[("path", remote_path)])
-            .header("Authorization", format!("Bearer {session_token}"))
+            .query(&build_operation_query(remote_path, lock_context))
+            .header("Authorization", format!("Bearer {}", lock_context.operation_token))
             .multipart(form)
             .send()
             .await
@@ -196,6 +324,9 @@ pub async fn upload_file_with_client(
                     .map(str::to_owned);
                 let body_text = response.text().await.unwrap_or_default();
                 if let Some(message) = classify_proxy_auth_intercept("File upload", Some(status), content_type.as_deref(), &body_text) {
+                    return Err(message);
+                }
+                if let Some(message) = classify_lifecycle_error(&body_text) {
                     return Err(message);
                 }
                 last_error = format!("HTTP {status}: {body_text}");
@@ -240,7 +371,12 @@ pub async fn upload_file_with_client(
 ///
 /// `POST /api/companion/{connId}/lock?path={remote_path}`
 #[allow(dead_code)]
-pub async fn acquire_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<String, String> {
+pub async fn acquire_lock(
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    session_token: &str,
+) -> Result<CompanionLockContext, String> {
     let client = plain_client()?;
     acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
@@ -251,7 +387,7 @@ pub async fn acquire_lock_with_store(
     connection_id: &str,
     remote_path: &str,
     session_token: &str,
-) -> Result<String, String> {
+) -> Result<CompanionLockContext, String> {
     let client = http_clients.client_for_server(server_url)?;
     acquire_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
 }
@@ -262,7 +398,7 @@ pub async fn acquire_lock_with_client(
     connection_id: &str,
     remote_path: &str,
     session_token: &str,
-) -> Result<String, String> {
+) -> Result<CompanionLockContext, String> {
     let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
     let response = client
@@ -270,7 +406,6 @@ pub async fn acquire_lock_with_client(
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {session_token}"))
-        .json(&serde_json::json!({ "companion_session": session_token }))
         .send()
         .await
         .map_err(|error| log_request_error("Lock acquire request", "POST", &url, &error))?;
@@ -286,18 +421,23 @@ pub async fn acquire_lock_with_client(
         if let Some(message) = classify_proxy_auth_intercept("Lock acquire", Some(status), content_type.as_deref(), &body) {
             return Err(message);
         }
+        if let Some(message) = classify_lifecycle_error(&body) {
+            return Err(message);
+        }
         return Err(format!("Lock acquire failed (HTTP {status}): {body}"));
     }
 
-    #[derive(Deserialize)]
-    struct LockResp {
-        lock_id: String,
-    }
+    let body: LockResponse = response.json().await.map_err(|e| format!("Failed to parse lock response: {e}"))?;
 
-    let body: LockResp = response.json().await.map_err(|e| format!("Failed to parse lock response: {e}"))?;
-
-    info!("Lock acquired: lock_id={}", body.lock_id);
-    Ok(body.lock_id)
+    info!("Lock acquired: lock_id={}, operation_id={}", body.lock_id, body.operation_id);
+    Ok(CompanionLockContext {
+        lock_id: body.lock_id,
+        lock_capability: body.lock_capability,
+        operation_id: body.operation_id,
+        operation_token: body.operation_token,
+        renew_after_seconds: body.renew_after_seconds,
+        token_issued_at_epoch_seconds: chrono::Utc::now().timestamp(),
+    })
 }
 
 //
@@ -307,9 +447,14 @@ pub async fn acquire_lock_with_client(
 ///
 /// `DELETE /api/companion/{connId}/lock?path={remote_path}`
 #[allow(dead_code)]
-pub async fn release_lock(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+pub async fn release_lock(
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    lock_context: &CompanionLockContext,
+) -> Result<(), String> {
     let client = plain_client()?;
-    release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+    release_lock_with_client(&client, server_url, connection_id, remote_path, lock_context).await
 }
 
 pub async fn release_lock_with_store(
@@ -317,10 +462,10 @@ pub async fn release_lock_with_store(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<(), String> {
     let client = http_clients.client_for_server(server_url)?;
-    release_lock_with_client(&client, server_url, connection_id, remote_path, session_token).await
+    release_lock_with_client(&client, server_url, connection_id, remote_path, lock_context).await
 }
 
 pub async fn release_lock_with_client(
@@ -328,7 +473,7 @@ pub async fn release_lock_with_client(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<(), String> {
     let url = format!("{}/api/companion/{}/lock", server_url.trim_end_matches('/'), connection_id);
 
@@ -336,7 +481,8 @@ pub async fn release_lock_with_client(
         .delete(&url)
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
-        .header("Authorization", format!("Bearer {session_token}"))
+        .header("Authorization", format!("Bearer {}", lock_context.operation_token))
+        .json(&build_lock_control_body(lock_context))
         .send()
         .await
         .map_err(|error| log_request_error("Lock release request", "DELETE", &url, &error))?;
@@ -350,6 +496,9 @@ pub async fn release_lock_with_client(
             .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
         if let Some(message) = classify_proxy_auth_intercept("Lock release", Some(status), content_type.as_deref(), &body) {
+            return Err(message);
+        }
+        if let Some(message) = classify_lifecycle_error(&body) {
             return Err(message);
         }
         warn!("Lock release failed (HTTP {status}): {body}");
@@ -367,9 +516,14 @@ pub async fn release_lock_with_client(
 /// Send a heartbeat to keep an edit lock alive.
 ///
 /// `POST /api/companion/{connId}/lock/heartbeat?path={remote_path}`
-pub async fn send_heartbeat(server_url: &str, connection_id: &str, remote_path: &str, session_token: &str) -> Result<(), String> {
+pub async fn send_heartbeat(
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    lock_context: &CompanionLockContext,
+) -> Result<(), String> {
     let client = plain_client()?;
-    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
+    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, lock_context).await
 }
 
 pub async fn send_heartbeat_with_store(
@@ -377,10 +531,10 @@ pub async fn send_heartbeat_with_store(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<(), String> {
     let client = http_clients.client_for_server(server_url)?;
-    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, session_token).await
+    send_heartbeat_with_client(&client, server_url, connection_id, remote_path, lock_context).await
 }
 
 pub async fn send_heartbeat_with_client(
@@ -388,7 +542,7 @@ pub async fn send_heartbeat_with_client(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
 ) -> Result<(), String> {
     let url = format!(
         "{}/api/companion/{}/lock/heartbeat",
@@ -400,7 +554,8 @@ pub async fn send_heartbeat_with_client(
         .post(&url)
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
         .query(&[("path", remote_path)])
-        .header("Authorization", format!("Bearer {session_token}"))
+        .header("Authorization", format!("Bearer {}", lock_context.operation_token))
+        .json(&build_lock_control_body(lock_context))
         .send()
         .await
         .map_err(|error| log_request_error("Heartbeat request", "POST", &url, &error))?;
@@ -416,10 +571,85 @@ pub async fn send_heartbeat_with_client(
         if let Some(message) = classify_proxy_auth_intercept("Heartbeat", Some(status), content_type.as_deref(), &body) {
             return Err(message);
         }
+        if let Some(message) = classify_lifecycle_error(&body) {
+            return Err(message);
+        }
         return Err(format!("Heartbeat failed: {body}"));
     }
 
     Ok(())
+}
+
+pub async fn renew_operation_session(
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    lock_context: &CompanionLockContext,
+) -> Result<CompanionLockContext, String> {
+    let client = plain_client()?;
+    renew_operation_session_with_client(&client, server_url, connection_id, remote_path, lock_context).await
+}
+
+pub async fn renew_operation_session_with_store(
+    http_clients: &SambeeHttpClientStore,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    lock_context: &CompanionLockContext,
+) -> Result<CompanionLockContext, String> {
+    let client = http_clients.client_for_server(server_url)?;
+    renew_operation_session_with_client(&client, server_url, connection_id, remote_path, lock_context).await
+}
+
+pub async fn renew_operation_session_with_client(
+    client: &Client,
+    server_url: &str,
+    connection_id: &str,
+    remote_path: &str,
+    lock_context: &CompanionLockContext,
+) -> Result<CompanionLockContext, String> {
+    let url = format!("{}/api/companion/{}/session/renew", server_url.trim_end_matches('/'), connection_id);
+
+    let response = client
+        .post(&url)
+        .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
+        .query(&[("path", remote_path)])
+        .header("Authorization", format!("Bearer {}", lock_context.operation_token))
+        .json(&build_lock_control_body(lock_context))
+        .send()
+        .await
+        .map_err(|error| log_request_error("Operation session renew request", "POST", &url, &error))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let body = response.text().await.unwrap_or_default();
+        if let Some(message) = classify_proxy_auth_intercept("Operation session renew", Some(status), content_type.as_deref(), &body) {
+            return Err(message);
+        }
+        if let Some(message) = classify_lifecycle_error(&body) {
+            return Err(message);
+        }
+        return Err(format!("Operation session renew failed (HTTP {status}): {body}"));
+    }
+
+    let body: RenewSessionResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("Failed to parse operation session renewal response: {error}"))?;
+
+    Ok(CompanionLockContext {
+        lock_id: lock_context.lock_id.clone(),
+        lock_capability: lock_context.lock_capability.clone(),
+        operation_id: lock_context.operation_id.clone(),
+        operation_token: body.token,
+        renew_after_seconds: body.renew_after_seconds,
+        token_issued_at_epoch_seconds: chrono::Utc::now().timestamp(),
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -458,6 +688,39 @@ mod tests {
         assert!(resp.last_modified.is_none());
     }
 
+    #[test]
+    fn test_classify_lifecycle_error_parses_structured_backend_error() {
+        let body = r#"{"detail":{"code":"renewal_required","message":"renew now"}}"#;
+        let encoded = classify_lifecycle_error(body).expect("expected lifecycle error");
+
+        assert!(is_renewal_required_error(&encoded));
+        assert_eq!(lifecycle_error_message(&encoded), Some("renew now"));
+    }
+
+    #[test]
+    fn test_classify_lifecycle_error_parses_auth_failed_backend_error() {
+        let body = r#"{"detail":{"code":"auth_failed","message":"auth now"}}"#;
+        let encoded = classify_lifecycle_error(body).expect("expected lifecycle error");
+
+        assert!(is_auth_failed_error(&encoded));
+        assert_eq!(lifecycle_error_message(&encoded), Some("auth now"));
+    }
+
+    #[test]
+    fn test_classify_lifecycle_error_parses_recovery_required_backend_error() {
+        let body = r#"{"detail":{"code":"recovery_required","message":"recover now"}}"#;
+        let encoded = classify_lifecycle_error(body).expect("expected lifecycle error");
+
+        assert!(is_recovery_required_error(&encoded));
+        assert_eq!(lifecycle_error_message(&encoded), Some("recover now"));
+    }
+
+    #[test]
+    fn test_classify_lifecycle_error_ignores_plain_detail() {
+        let body = r#"{"detail":"plain error"}"#;
+        assert!(classify_lifecycle_error(body).is_none());
+    }
+
     //
     // test_acquire_lock_bad_server
     //
@@ -472,7 +735,16 @@ mod tests {
     //
     #[tokio::test]
     async fn test_release_lock_bad_server() {
-        let result = release_lock("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
+        let lock_context = CompanionLockContext {
+            lock_id: "lock-test".to_string(),
+            lock_capability: "cap-test".to_string(),
+            operation_id: "op-test".to_string(),
+            operation_token: "operation-token".to_string(),
+            renew_after_seconds: 600,
+            token_issued_at_epoch_seconds: 1_700_000_000,
+        };
+
+        let result = release_lock("http://127.0.0.1:1", "test-conn", "/docs/test.txt", &lock_context).await;
         assert!(result.is_err());
     }
 
@@ -481,7 +753,16 @@ mod tests {
     //
     #[tokio::test]
     async fn test_send_heartbeat_bad_server() {
-        let result = send_heartbeat("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
+        let lock_context = CompanionLockContext {
+            lock_id: "lock-test".to_string(),
+            lock_capability: "cap-test".to_string(),
+            operation_id: "op-test".to_string(),
+            operation_token: "operation-token".to_string(),
+            renew_after_seconds: 600,
+            token_issued_at_epoch_seconds: 1_700_000_000,
+        };
+
+        let result = send_heartbeat("http://127.0.0.1:1", "test-conn", "/docs/test.txt", &lock_context).await;
         assert!(result.is_err());
     }
 }

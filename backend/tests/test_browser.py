@@ -4,13 +4,15 @@ Uses mocked SMB backend to avoid dependency on real SMB server.
 """
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session, select
 
 from app.models.connection import Connection, ConnectionScope
+from app.models.edit_lock import EditLock
 from app.models.file import DirectoryListing, FileInfo, FileType
 
 
@@ -227,6 +229,103 @@ class TestGetFileInfo:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Path not found: /missing.txt"
+
+
+@pytest.mark.integration
+class TestBrowserEditLocks:
+    """Test browser-authenticated edit lock lifecycle endpoints."""
+
+    def test_acquire_browser_edit_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+    ):
+        response = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["lock_id"]
+        assert data["lock_capability"]
+        assert data["operation_id"]
+        assert data["file_path"] == "/docs/readme.md"
+
+    def test_browser_edit_lock_heartbeat_and_release(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        session: Session,
+    ):
+        acquire = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+        assert acquire.status_code == 200
+        lock = acquire.json()
+
+        heartbeat = client.post(
+            f"/api/browse/{test_connection.id}/lock/heartbeat",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+            json={
+                "operation_id": lock["operation_id"],
+                "lock_id": lock["lock_id"],
+                "lock_capability": lock["lock_capability"],
+            },
+        )
+        assert heartbeat.status_code == 200
+
+        release = client.request(
+            "DELETE",
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+            json={
+                "operation_id": lock["operation_id"],
+                "lock_id": lock["lock_id"],
+                "lock_capability": lock["lock_capability"],
+            },
+        )
+        assert release.status_code == 200
+        assert session.exec(select(EditLock).where(EditLock.connection_id == test_connection.id)).first() is None
+
+    def test_get_browser_edit_lock_status_omits_secret_material(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        test_connection: Connection,
+        session: Session,
+    ):
+        lock = EditLock(
+            file_path="/docs/readme.md",
+            connection_id=test_connection.id,
+            locked_by="testuser",
+            operation_id="browser-op",
+            companion_session="legacy-secret",
+            lock_capability="browser-capability",
+            last_heartbeat=datetime.now(timezone.utc),
+        )
+        session.add(lock)
+        session.commit()
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/lock-status",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "locked": True,
+            "locked_by": "testuser",
+            "locked_at": lock.locked_at.isoformat(),
+        }
 
     def test_get_file_info_timeout_returns_gateway_timeout(
         self,

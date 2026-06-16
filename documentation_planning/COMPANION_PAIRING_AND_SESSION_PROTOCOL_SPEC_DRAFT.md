@@ -71,7 +71,7 @@ The important change is that the companion no longer uses one broad session toke
 - Issued by: backend
 - Requested by: browser
 - Delivered to companion via: `sambee://` deep link
-- Current endpoint shape retained: `POST /api/companion/uri-token`
+- Endpoint: `POST /api/companion/uri-token`
 
 ### Claims
 
@@ -120,7 +120,7 @@ It is not valid for:
 
 - Issued by: backend
 - Requested by: companion
-- Exchange endpoint retained in principle: `POST /api/companion/token`
+- Endpoint: `POST /api/companion/token`
 
 ### Claims
 
@@ -128,7 +128,7 @@ It is not valid for:
 - `token_class`: `companion_session`
 - `purpose`: `bootstrap`
 - `jti`: unique token ID
-- `tv`: user token-version or equivalent revocation version
+- `tv`: required numeric user token-version claim used for revocation enforcement
 - `conn_id`: allowed connection ID
 - `path`: allowed remote path
 - `iat`: issued-at timestamp
@@ -142,7 +142,7 @@ It is not valid for:
 ### Validation rules
 
 - accepted only on endpoints that explicitly allow `purpose=bootstrap`
-- must pass normal revocation or token-version checks
+- must pass required `tv` user token-version checks
 - `conn_id` must match the target connection
 - `path` must match the target file when the endpoint acts on one file
 
@@ -171,7 +171,7 @@ It is valid for:
 - `token_class`: `companion_session`
 - `purpose`: `edit_operation`
 - `jti`: unique token ID
-- `tv`: user token-version or equivalent revocation version
+- `tv`: required numeric user token-version claim used for revocation enforcement
 - `conn_id`: allowed connection ID
 - `op_id`: allowed operation ID
 - `lock_id`: allowed lock ID
@@ -183,12 +183,14 @@ It is valid for:
 
 - TTL: 15 minutes
 - Renewable: yes
+- Client renew target: renew proactively when 5 minutes remain
+- Server renewal-required threshold: requests with 2 minutes or less remaining must fail with `OPERATION_SESSION_RENEWAL_REQUIRED` until renewal succeeds
 - Renewal window: only while the operation and lock remain valid
 
 ### Validation rules
 
 - accepted only on endpoints that explicitly require `purpose=edit_operation`
-- must pass revocation or token-version checks
+- must pass required `tv` user token-version checks
 - `conn_id`, `op_id`, and `lock_id` must match the target request
 - if the endpoint acts on one file, `path` must also match
 
@@ -257,8 +259,6 @@ It is valid for:
 
 ### `GET /api/companion/{connection_id}/file-info`
 
-This endpoint name may stay as-is if an existing metadata endpoint already exists. The contract requirement is what matters.
-
 ### Auth
 
 - `Authorization: Bearer <companion-bootstrap-session>`
@@ -294,7 +294,7 @@ This endpoint name may stay as-is if an existing metadata endpoint already exist
 ```json
 {
   "lock_id": "lock_opaque_id",
-  "lock_capability": "lock_secret_if_enabled",
+  "lock_capability": "lock_secret",
   "operation_id": "op_opaque_id",
   "operation_token": "operation-session-jwt",
   "operation_expires_in": 900,
@@ -312,8 +312,8 @@ This endpoint name may stay as-is if an existing metadata endpoint already exist
 
 ### Notes
 
-- `lock_capability` is required in the final target design.
-- If delivery uses a temporary bridge first, the backend may enforce strict owner binding before full capability enforcement, but the protocol target remains capability-based lock control.
+- `lock_capability` is mandatory in the day-one cutover design.
+- Heartbeat, upload, release, and renewal must all enforce `lock_capability` from the first production implementation of this protocol.
 
 ## 5. Operation Download
 
@@ -348,7 +348,7 @@ This endpoint name may stay as-is if an existing metadata endpoint already exist
 {
   "operation_id": "op_opaque_id",
   "lock_id": "lock_opaque_id",
-  "lock_capability": "lock_secret_if_enabled"
+  "lock_capability": "lock_secret"
 }
 ```
 
@@ -366,7 +366,7 @@ This endpoint name may stay as-is if an existing metadata endpoint already exist
 
 - token must have `purpose=edit_operation`
 - `conn_id`, `op_id`, and `lock_id` must match
-- if lock capability is enabled, it must match
+- `lock_capability` must match
 
 ## 7. Upload Finalization
 
@@ -378,17 +378,20 @@ This endpoint name may stay as-is if an existing metadata endpoint already exist
 
 ### Request
 
-Must include:
+Content type: `multipart/form-data`
+
+Must include exactly:
 
 - `operation_id`
 - `lock_id`
-- `lock_capability` if enabled
-- the file payload or upload reference
+- `lock_capability`
+- one file payload field containing the edited file bytes
 
 ### Validation rules
 
 - same operation-session validation as heartbeat
 - upload must fail if the operation is expired, the lock is lost, or capability validation fails
+- upload references or alternate indirection modes are not part of the day-one protocol contract
 
 ## 8. Lock Release
 
@@ -404,7 +407,7 @@ Must include:
 {
   "operation_id": "op_opaque_id",
   "lock_id": "lock_opaque_id",
-  "lock_capability": "lock_secret_if_enabled"
+  "lock_capability": "lock_secret"
 }
 ```
 
@@ -435,7 +438,7 @@ Must include:
 {
   "operation_id": "op_opaque_id",
   "lock_id": "lock_opaque_id",
-  "lock_capability": "lock_secret_if_enabled"
+  "lock_capability": "lock_secret"
 }
 ```
 
@@ -454,23 +457,34 @@ Must include:
 - renewal is allowed only when:
   - the operation is still active
   - the lock is still held
-  - the lock capability matches if enabled
+  - the lock capability matches
   - the current operation session is still within its renewable window
 - renewal issues a fresh operation session with the same `conn_id`, `op_id`, `lock_id`, and `path`
 - renewal does not change lock ownership
+- the companion should renew proactively once the server-provided `renew_after_seconds` threshold is reached
+- if a continuity-critical request arrives with 2 minutes or less remaining on the current operation session, the backend should reject it with `OPERATION_SESSION_RENEWAL_REQUIRED` instead of allowing edge-of-expiry continuation
 
 ## 10. Lock Status
 
 ### `GET /api/companion/{connection_id}/lock-status`
 
+### Response
+
+```json
+{
+  "lock_id": "lock_opaque_id",
+  "operation_id": "op_opaque_id",
+  "locked_by_current_user": true,
+  "lock_active": true,
+  "expires_in": 90
+}
+```
+
 ### Contract requirements
 
 - must not return any bearer token or session-equivalent value
-- may return lock metadata such as:
-  - `lock_id`
-  - `locked_by_current_user`
-  - `operation_id`
-  - `expires_in`
+- must not return `lock_capability`
+- response shape is limited to `lock_id`, `operation_id`, `locked_by_current_user`, `lock_active`, and `expires_in`
 - must not be used as a side channel for token recovery
 
 ## Error Contract
@@ -552,7 +566,7 @@ For one native edit operation, the companion should track at least:
 - `lock_capability`
 - `status`
 
-Recommended status values:
+Required status values:
 
 - `starting`
 - `lock_acquired`
@@ -584,7 +598,7 @@ Recommended status values:
 
 - browser remains responsible only for initiating the backend URI bootstrap flow
 - browser does not receive operation tokens or lock capabilities
-- browser UI should be able to represent companion-side renewal or recovery failure states if surfaced back to it
+- browser UI should be able to represent these companion-side failure states when the companion surfaces them: `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`
 
 ## Staging Validation Checklist
 

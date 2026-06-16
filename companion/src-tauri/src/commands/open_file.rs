@@ -15,7 +15,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 
 use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
-use crate::sync::operations::{FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS};
+use crate::sync::operations::{
+    CompanionLockContext, FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS,
+};
 
 fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
     let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
@@ -47,6 +49,21 @@ pub struct EditContext {
     pub filename: String,
     /// Display name of the native application.
     pub app_name: String,
+    /// Base Sambee server URL used to reopen the browser on lifecycle failures.
+    pub server_url: String,
+}
+
+fn build_browser_status_url(server_url: &str, status: &str) -> Result<String, String> {
+    match status {
+        "renewal_required" | "auth_failed" | "lock_lost" | "recovery_required" => {}
+        _ => return Err(format!("Unsupported companion status '{status}'")),
+    }
+
+    let mut url = url::Url::parse(server_url.trim_end_matches('/')).map_err(|e| format!("Invalid server URL '{server_url}': {e}"))?;
+    url.set_path("/browse");
+    url.set_query(Some(&format!("companion_status={status}")));
+    url.set_fragment(None);
+    Ok(url.to_string())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,9 +101,22 @@ pub enum FinishEditingResult {
         filename: String,
         download_modified: String,
         server_modified: String,
+        server_url: String,
     },
     AuthRetry {
         reason: AuthRetryReason,
+    },
+    RenewalRequired {
+        message: String,
+    },
+    AuthFailed {
+        message: String,
+    },
+    LockLost {
+        message: String,
+    },
+    RecoveryRequired {
+        message: String,
     },
 }
 
@@ -95,6 +125,10 @@ pub enum FinishEditingResult {
 pub enum ConflictResolutionResult {
     Completed,
     AuthRetry { reason: AuthRetryReason },
+    RenewalRequired { message: String },
+    AuthFailed { message: String },
+    LockLost { message: String },
+    RecoveryRequired { message: String },
 }
 
 #[derive(Serialize)]
@@ -102,11 +136,74 @@ pub enum ConflictResolutionResult {
 pub enum RecoveryUploadResult {
     Completed { message: String },
     AuthRetry { reason: AuthRetryReason },
+    RenewalRequired { message: String },
+    AuthFailed { message: String },
+    LockLost { message: String },
+    RecoveryRequired { message: String },
 }
 
 fn reset_operation_for_auth_retry(store: &OperationStore, app: &AppHandle, op_id: uuid::Uuid) {
     store.update_status(op_id, OperationStatus::Editing);
     crate::refresh_tray_menu(app);
+}
+
+fn require_lock_context(operation: &FileOperation) -> Result<CompanionLockContext, String> {
+    operation.lock_context.clone().ok_or_else(|| {
+        format!(
+            "Edit session for '{}' is missing the server lock context required by the current companion protocol. Reopen the file from the browser and try again.",
+            operation.filename()
+        )
+    })
+}
+
+fn lock_context_needs_renewal(lock_context: &CompanionLockContext) -> bool {
+    let now = chrono::Utc::now().timestamp();
+    now.saturating_sub(lock_context.token_issued_at_epoch_seconds) >= lock_context.renew_after_seconds as i64
+}
+
+fn finish_result_from_lifecycle_error(error: &str) -> Option<FinishEditingResult> {
+    let message = super::upload::lifecycle_error_message(error)?.to_string();
+    if super::upload::is_renewal_required_error(error) {
+        Some(FinishEditingResult::RenewalRequired { message })
+    } else if super::upload::is_auth_failed_error(error) {
+        Some(FinishEditingResult::AuthFailed { message })
+    } else if super::upload::is_lock_lost_error(error) {
+        Some(FinishEditingResult::LockLost { message })
+    } else if super::upload::is_recovery_required_error(error) {
+        Some(FinishEditingResult::RecoveryRequired { message })
+    } else {
+        None
+    }
+}
+
+fn conflict_result_from_lifecycle_error(error: &str) -> Option<ConflictResolutionResult> {
+    let message = super::upload::lifecycle_error_message(error)?.to_string();
+    if super::upload::is_renewal_required_error(error) {
+        Some(ConflictResolutionResult::RenewalRequired { message })
+    } else if super::upload::is_auth_failed_error(error) {
+        Some(ConflictResolutionResult::AuthFailed { message })
+    } else if super::upload::is_lock_lost_error(error) {
+        Some(ConflictResolutionResult::LockLost { message })
+    } else if super::upload::is_recovery_required_error(error) {
+        Some(ConflictResolutionResult::RecoveryRequired { message })
+    } else {
+        None
+    }
+}
+
+fn recovery_result_from_lifecycle_error(error: &str) -> Option<RecoveryUploadResult> {
+    let message = super::upload::lifecycle_error_message(error)?.to_string();
+    if super::upload::is_renewal_required_error(error) {
+        Some(RecoveryUploadResult::RenewalRequired { message })
+    } else if super::upload::is_auth_failed_error(error) {
+        Some(RecoveryUploadResult::AuthFailed { message })
+    } else if super::upload::is_lock_lost_error(error) {
+        Some(RecoveryUploadResult::LockLost { message })
+    } else if super::upload::is_recovery_required_error(error) {
+        Some(RecoveryUploadResult::RecoveryRequired { message })
+    } else {
+        None
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,7 +246,22 @@ pub fn get_done_editing_context(app: AppHandle, window_label: String) -> Result<
         operation_id: operation.id.to_string(),
         filename: operation.filename().to_string(),
         app_name,
+        server_url: operation.server_url.clone(),
     })
+}
+
+#[tauri::command]
+pub fn open_sambee_status_page(app: AppHandle, server_url: String, status: String) -> Result<(), String> {
+    let status_url = build_browser_status_url(&server_url, &status)?;
+
+    #[allow(deprecated)] // tauri-plugin-opener is not yet adopted
+    app.shell().open(&status_url, None).map_err(|e| {
+        error!("Failed to open Sambee status page {}: {e}", status_url);
+        format!("Failed to open Sambee in your browser: {e}")
+    })?;
+
+    info!("Opened Sambee status page for status={status}");
+    Ok(())
 }
 
 //
@@ -297,6 +409,7 @@ pub fn spawn_done_editing_window(app: &AppHandle, operation: &FileOperation, app
         operation_id: operation.id.to_string(),
         filename: operation.filename().to_string(),
         app_name: app_display_name.to_string(),
+        server_url: operation.server_url.clone(),
     };
 
     // Use a short delay to ensure the window is ready to receive events
@@ -362,16 +475,19 @@ pub fn start_file_status_polling(app: &AppHandle, window_label: String, local_pa
 pub fn start_heartbeat_task(
     app: &AppHandle,
     window_label: String,
+    operation_id: uuid::Uuid,
     server_url: String,
     connection_id: String,
     remote_path: String,
-    session_token: String,
+    initial_lock_context: CompanionLockContext,
 ) {
     let app_clone = app.clone();
     let http_clients = app.try_state::<SambeeHttpClientStore>().map(|state| state.inner().clone());
+    let operation_store = app.try_state::<OperationStore>().map(|state| state.inner().clone());
 
     tauri::async_runtime::spawn(async move {
         let interval = std::time::Duration::from_secs(HEARTBEAT_INTERVAL_SECS);
+        let mut current_lock_context = initial_lock_context;
 
         loop {
             tokio::time::sleep(interval).await;
@@ -382,13 +498,80 @@ pub fn start_heartbeat_task(
                 break;
             }
 
+            if let Some(ref store) = operation_store {
+                if let Some(operation) = store.get(operation_id) {
+                    if let Some(lock_context) = operation.lock_context {
+                        current_lock_context = lock_context;
+                    }
+                }
+            }
+
+            if lock_context_needs_renewal(&current_lock_context) {
+                let renewed_context_result = if let Some(ref clients) = http_clients {
+                    crate::proxy_auth::retry_if_proxy_auth_required(
+                        &app_clone,
+                        &server_url,
+                        clients,
+                        "Operation session renew",
+                        || async {
+                            super::upload::renew_operation_session_with_store(
+                                clients,
+                                &server_url,
+                                &connection_id,
+                                &remote_path,
+                                &current_lock_context,
+                            )
+                            .await
+                        },
+                    )
+                    .await
+                } else {
+                    super::upload::renew_operation_session(&server_url, &connection_id, &remote_path, &current_lock_context)
+                        .await
+                        .map_err(crate::proxy_auth::ProxyAuthRetryError::Operation)
+                };
+
+                match renewed_context_result {
+                    Ok(renewed_context) => {
+                        current_lock_context = renewed_context.clone();
+                        if let Some(ref store) = operation_store {
+                            store.update_lock_context(operation_id, renewed_context.clone());
+                            if let Some(updated_operation) = store.get(operation_id) {
+                                if let Err(error) = crate::sync::operations::save_operation_sidecar(&updated_operation) {
+                                    warn!("Failed to persist renewed lock context for {}: {error}", updated_operation.filename());
+                                }
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        if let crate::proxy_auth::ProxyAuthRetryError::Operation(operation_error) = &error {
+                            if let Some(message) = super::upload::lifecycle_error_message(operation_error) {
+                                warn!("Stopping heartbeat after operation session renewal hard failure: {message}");
+                                let _ = app_clone.emit("notification", serde_json::json!({ "message": message }));
+                                break;
+                            }
+                        }
+
+                        warn!("Operation session renewal failed (will retry next interval): {error}");
+                    }
+                }
+            }
+
             let result = if let Some(ref clients) = http_clients {
+                let heartbeat_lock_context = current_lock_context.clone();
                 crate::proxy_auth::retry_if_proxy_auth_required(&app_clone, &server_url, clients, "Lock heartbeat", || async {
-                    super::upload::send_heartbeat_with_store(clients, &server_url, &connection_id, &remote_path, &session_token).await
+                    super::upload::send_heartbeat_with_store(
+                        clients,
+                        &server_url,
+                        &connection_id,
+                        &remote_path,
+                        &heartbeat_lock_context,
+                    )
+                    .await
                 })
                 .await
             } else {
-                super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &session_token)
+                super::upload::send_heartbeat(&server_url, &connection_id, &remote_path, &current_lock_context)
                     .await
                     .map_err(crate::proxy_auth::ProxyAuthRetryError::Operation)
             };
@@ -396,6 +579,14 @@ pub fn start_heartbeat_task(
             match result {
                 Ok(()) => {}
                 Err(e) => {
+                    if let crate::proxy_auth::ProxyAuthRetryError::Operation(operation_error) = &e {
+                        if let Some(message) = super::upload::lifecycle_error_message(operation_error) {
+                            warn!("Stopping heartbeat after lock lifecycle hard failure: {message}");
+                            let _ = app_clone.emit("notification", serde_json::json!({ "message": message }));
+                            break;
+                        }
+                    }
+
                     warn!("Heartbeat failed (will retry next interval): {e}");
                 }
             }
@@ -432,6 +623,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
     let token = operation.token.clone();
     let original_mtime = operation.original_mtime;
     let filename = operation.filename();
+    let lock_context = require_lock_context(&operation)?;
     let http_clients = app
         .try_state::<SambeeHttpClientStore>()
         .ok_or_else(|| "HTTP client store not available".to_string())?
@@ -466,6 +658,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
                                 filename: filename.to_string(),
                                 download_modified: download_modified_at.to_string(),
                                 server_modified: current_modified.to_string(),
+                                server_url: server_url.clone(),
                             });
                         }
                     }
@@ -495,7 +688,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
             &connection_id,
             &remote_path,
             &local_path,
-            &token,
+            &lock_context,
         )
         .await
         {
@@ -510,6 +703,10 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
                         reason: AuthRetryReason::Upload,
                     });
                 }
+                if let Some(result) = finish_result_from_lifecycle_error(&e) {
+                    reset_operation_for_auth_retry(&store, &app, op_id);
+                    return Ok(result);
+                }
                 error!("Upload failed for {}: {e}", filename);
                 store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
                 crate::refresh_tray_menu(&app);
@@ -519,8 +716,16 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
     }
 
     // Release lock (best-effort)
+    let release_lock_context = lock_context.clone();
     let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
-        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+        super::upload::release_lock_with_store(
+            &http_clients,
+            &server_url,
+            &connection_id,
+            &remote_path,
+            &release_lock_context,
+        )
+        .await
     })
     .await;
 
@@ -570,8 +775,8 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
     let server_url = operation.server_url.clone();
     let connection_id = operation.connection_id.clone();
     let remote_path = operation.remote_path.clone();
-    let token = operation.token.clone();
     let filename = operation.filename();
+    let lock_context = operation.lock_context.clone();
     let http_clients = app
         .try_state::<SambeeHttpClientStore>()
         .ok_or_else(|| "HTTP client store not available".to_string())?
@@ -579,10 +784,17 @@ pub async fn discard_editing(app: AppHandle, operation_id: String) -> Result<Str
         .clone();
 
     // Release lock (best-effort)
-    let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
-        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
-    })
-    .await;
+    if let Some(lock_context) = lock_context {
+        let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
+            super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &lock_context).await
+        })
+        .await;
+    } else {
+        warn!(
+            "Discarding '{}' without server lock release because the operation is missing the required lock context",
+            filename
+        );
+    }
 
     // Move temp file to recycle bin
     let _ = crate::sync::recycle::recycle_file(&local_path);
@@ -665,8 +877,8 @@ async fn upload_and_finish(
     let server_url = operation.server_url.clone();
     let connection_id = operation.connection_id.clone();
     let remote_path = upload_path_override.unwrap_or(&operation.remote_path);
-    let token = operation.token.clone();
     let filename = operation.filename();
+    let lock_context = require_lock_context(&operation)?;
     let http_clients = app
         .try_state::<SambeeHttpClientStore>()
         .ok_or_else(|| "HTTP client store not available".to_string())?
@@ -684,7 +896,7 @@ async fn upload_and_finish(
         &connection_id,
         remote_path,
         &local_path,
-        &token,
+        &lock_context,
     )
     .await
     {
@@ -699,6 +911,10 @@ async fn upload_and_finish(
                     reason: AuthRetryReason::Conflict,
                 });
             }
+            if let Some(result) = conflict_result_from_lifecycle_error(&e) {
+                reset_operation_for_auth_retry(&store, app, op_id);
+                return Ok(result);
+            }
             error!("Upload failed for {}: {e}", filename);
             store.update_status(op_id, OperationStatus::UploadFailed(e.clone()));
             crate::refresh_tray_menu(app);
@@ -707,13 +923,14 @@ async fn upload_and_finish(
     }
 
     // Release lock
+    let release_lock_context = lock_context.clone();
     let _ = crate::proxy_auth::retry_if_proxy_auth_required(app, &server_url, &http_clients, "Lock release", || async {
         super::upload::release_lock_with_store(
             &http_clients,
             &server_url,
             &connection_id,
             &operation.remote_path, // Always release lock on the original path
-            &token,
+            &release_lock_context,
         )
         .await
     })
@@ -871,6 +1088,7 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<Re
     let op = crate::sync::operations::load_operation_sidecar(&sidecar_path)?;
     let filename = op.filename().to_string();
     let local_path = op.local_path.clone();
+    let lock_context = require_lock_context(&op)?;
     let http_clients = app
         .try_state::<SambeeHttpClientStore>()
         .ok_or_else(|| "HTTP client store not available".to_string())?
@@ -886,7 +1104,7 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<Re
         &op.connection_id,
         &op.remote_path,
         &local_path,
-        &op.token,
+        &lock_context,
     )
     .await;
 
@@ -904,6 +1122,9 @@ pub async fn recovery_upload(app: AppHandle, operation_dir: String) -> Result<Re
                 return Ok(RecoveryUploadResult::AuthRetry {
                     reason: AuthRetryReason::Upload,
                 });
+            }
+            if let Some(result) = recovery_result_from_lifecycle_error(&e) {
+                return Ok(result);
             }
             error!("Recovery upload failed for {}: {e}", filename);
             Err(format!("Upload failed: {e}"))
@@ -1018,10 +1239,12 @@ mod tests {
             operation_id: "abc-123".to_string(),
             filename: "report-copy.docx".to_string(),
             app_name: "LibreOffice Writer".to_string(),
+            server_url: "https://sambee.example.test".to_string(),
         };
         let json = serde_json::to_string(&ctx).unwrap();
         assert!(json.contains("report-copy.docx"));
         assert!(json.contains("LibreOffice Writer"));
+        assert!(json.contains("sambee.example.test"));
     }
 
     //

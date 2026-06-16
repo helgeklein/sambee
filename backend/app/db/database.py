@@ -88,6 +88,7 @@ def init_db() -> None:
     # Import here to avoid circular dependency
     from app.core.secrets import get_or_create_app_secrets
     from app.models.app_secret import AppSecret  # noqa: F401 - Required for table creation
+    from app.models.companion_uri_token_jti import CompanionUriTokenJti  # noqa: F401 - Required for table creation
     from app.models.edit_lock import EditLock  # noqa: F401 - Required for table creation
     from app.models.system_settings import SystemSetting  # noqa: F401 - Required for table creation
     from app.models.user_settings import UserSetting  # noqa: F401 - Required for table creation

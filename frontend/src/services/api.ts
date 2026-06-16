@@ -859,44 +859,59 @@ class ApiService {
     await this.uploadFileBlob(connectionId, path, blob, filename);
   }
 
-  async acquireEditLock(connectionId: string, path: string, sessionId: string): Promise<EditLockInfo> {
+  async acquireEditLock(connectionId: string, path: string, _sessionId?: string): Promise<EditLockInfo> {
     this.assertEditLocksSupported(connectionId);
 
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const response = await client.post<EditLockInfo>(
-      `/companion/${segment}/lock`,
+    const response = await client.post<EditLockInfo>(`/browse/${segment}/lock`, undefined, {
+      ...extraConfig,
+      params: { path },
+    });
+
+    return response.data;
+  }
+
+  async heartbeatEditLock(connectionId: string, path: string, lockInfo: EditLockInfo): Promise<void> {
+    this.assertEditLocksSupported(connectionId);
+
+    if (!lockInfo.operation_id || !lockInfo.lock_capability) {
+      throw new Error("Edit lock context is incomplete");
+    }
+
+    const segment = getBrowseSegment(connectionId);
+    const { client, extraConfig } = await this.getClientConfig(connectionId);
+    await client.post(
+      `/browse/${segment}/lock/heartbeat`,
       {
-        companion_session: sessionId,
+        operation_id: lockInfo.operation_id,
+        lock_id: lockInfo.lock_id,
+        lock_capability: lockInfo.lock_capability,
       },
       {
         ...extraConfig,
         params: { path },
       }
     );
-
-    return response.data;
   }
 
-  async heartbeatEditLock(connectionId: string, path: string): Promise<void> {
+  async releaseEditLock(connectionId: string, path: string, lockInfo: EditLockInfo): Promise<void> {
     this.assertEditLocksSupported(connectionId);
+
+    if (!lockInfo.operation_id || !lockInfo.lock_capability) {
+      throw new Error("Edit lock context is incomplete");
+    }
 
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.post(`/companion/${segment}/lock/heartbeat`, undefined, {
+    await client.delete(`/browse/${segment}/lock`, {
       ...extraConfig,
       params: { path },
-    });
-  }
-
-  async releaseEditLock(connectionId: string, path: string): Promise<void> {
-    this.assertEditLocksSupported(connectionId);
-
-    const segment = getBrowseSegment(connectionId);
-    const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.delete(`/companion/${segment}/lock`, {
-      ...extraConfig,
-      params: { path },
+      data: {
+        operation_id: lockInfo.operation_id,
+        lock_id: lockInfo.lock_id,
+        lock_capability: lockInfo.lock_capability,
+      },
     });
   }
 
@@ -907,7 +922,7 @@ class ApiService {
 
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    const response = await client.get<EditLockStatus>(`/companion/${segment}/lock-status`, {
+    const response = await client.get<EditLockStatus>(`/browse/${segment}/lock-status`, {
       ...extraConfig,
       params: { path },
     });

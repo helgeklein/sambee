@@ -26,21 +26,21 @@ Edit locking:
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from secrets import token_urlsafe
+from typing import Any, Literal
 
 import jwt
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from jwt.exceptions import InvalidTokenError
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.core.config import settings, static
-from app.core.logging import get_logger, set_user
-from app.core.security import (
-    create_access_token,
-    get_current_user_with_auth_check,
-)
+from app.core.logging import format_audit_fields, get_logger, set_user
+from app.core.security import create_access_token, get_current_user_with_auth_check, is_user_expired, oauth2_scheme
 from app.db.database import get_session
+from app.models.companion_uri_token_jti import CompanionUriTokenJti
 from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.user import User, UserRole
 from app.services.companion_downloads import (
@@ -62,45 +62,84 @@ URI_TOKEN_EXPIRE_SECONDS = 300
 
 # Companion session tokens live longer
 COMPANION_TOKEN_EXPIRE_MINUTES = 60
+OPERATION_TOKEN_EXPIRE_MINUTES = 15
+OPERATION_TOKEN_RENEW_AFTER_SECONDS = 600
+OPERATION_TOKEN_RENEWABLE_WINDOW_SECONDS = (OPERATION_TOKEN_EXPIRE_MINUTES * 60) - OPERATION_TOKEN_RENEW_AFTER_SECONDS
 
 # JWT claim key that marks a token as a companion URI token
 URI_TOKEN_CLAIM = "companion_uri"
 
 # JWT claim key that marks a token as a companion session token
 COMPANION_TOKEN_CLAIM = "companion_session"
+COMPANION_TOKEN_CLASS = "companion_session"
+COMPANION_BOOTSTRAP_PURPOSE = "bootstrap"
+COMPANION_OPERATION_PURPOSE = "edit_operation"
+COMPANION_ERROR_RENEWAL_REQUIRED = "renewal_required"
+COMPANION_ERROR_AUTH_FAILED = "auth_failed"
+COMPANION_ERROR_LOCK_LOST = "lock_lost"
+COMPANION_ERROR_RECOVERY_REQUIRED = "recovery_required"
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# In-memory store for single-use URI token enforcement
-# ──────────────────────────────────────────────────────────────────────────────
-
-# Maps token JTI → expiry time.  Consumed tokens are added here so they
-# cannot be replayed.  Entries are lazily cleaned up on each access.
-_used_uri_tokens: dict[str, datetime] = {}
-
-
-#
-# _cleanup_expired_tokens
-#
-def _cleanup_expired_tokens() -> None:
-    """Remove expired entries from the used-token set."""
+def _cleanup_expired_uri_token_jtis(session: Session) -> None:
+    """Remove expired consumed URI token JTIs from the durable registry."""
 
     now = datetime.now(timezone.utc)
-    expired = [jti for jti, exp in _used_uri_tokens.items() if exp < now]
-    for jti in expired:
-        del _used_uri_tokens[jti]
+    expired_records = session.exec(select(CompanionUriTokenJti).where(CompanionUriTokenJti.expires_at < now)).all()
+    for record in expired_records:
+        session.delete(record)
+
+    if expired_records:
+        session.commit()
 
 
-#
-# _mark_token_used
-#
-def _mark_token_used(jti: str, expires: datetime) -> bool:
-    """Mark a URI token as consumed.  Returns False if already used."""
+def _raise_companion_operation_error(
+    *,
+    status_code: int,
+    code: Literal["renewal_required", "auth_failed", "lock_lost", "recovery_required"],
+    message: str,
+) -> None:
+    """Raise a structured companion lifecycle error for native edit flows."""
 
-    _cleanup_expired_tokens()
-    if jti in _used_uri_tokens:
+    raise HTTPException(
+        status_code=status_code,
+        detail=CompanionErrorDetail(code=code, message=message).model_dump(),
+    )
+
+
+def _companion_audit_fields(**fields: Any) -> str:
+    """Format audit-safe companion log fields."""
+
+    return format_audit_fields(**fields)
+
+
+def _mark_uri_token_used(
+    session: Session,
+    *,
+    jti: str,
+    expires_at: datetime,
+    user: User,
+    connection_id: str | None,
+    path: str | None,
+) -> bool:
+    """Mark a URI token as consumed in the durable registry."""
+
+    _cleanup_expired_uri_token_jtis(session)
+
+    record = CompanionUriTokenJti(
+        jti=jti,
+        user_id=user.id,
+        connection_id=uuid.UUID(connection_id) if connection_id else None,
+        path=path or "",
+        expires_at=expires_at,
+    )
+    session.add(record)
+
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
         return False
-    _used_uri_tokens[jti] = expires
+
     return True
 
 
@@ -136,19 +175,26 @@ class CompanionTokenExchangeRequest(BaseModel):
     token: str
 
 
-class LockRequest(BaseModel):
-    """Request body for acquiring a lock."""
-
-    companion_session: str
-
-
 class LockResponse(BaseModel):
     """Response for lock operations."""
 
     lock_id: str
+    lock_capability: str
+    operation_id: str
+    operation_token: str
+    operation_expires_in: int
+    renew_after_seconds: int
     file_path: str
     locked_by: str
     locked_at: str
+
+
+class LockControlRequest(BaseModel):
+    """Request body for heartbeat and release operations."""
+
+    operation_id: str
+    lock_id: str
+    lock_capability: str
 
 
 class LockStatusResponse(BaseModel):
@@ -157,6 +203,14 @@ class LockStatusResponse(BaseModel):
     locked: bool
     locked_by: str | None = None
     locked_at: str | None = None
+
+
+class OperationSessionRenewResponse(BaseModel):
+    """Response for operation-session renewal."""
+
+    token: str
+    expires_in: int
+    renew_after_seconds: int
 
 
 class VersionCheckResponse(BaseModel):
@@ -183,6 +237,13 @@ class ProxyAuthCheckResponse(BaseModel):
     status: Literal["ok"]
 
 
+class CompanionErrorDetail(BaseModel):
+    """Machine-readable companion lifecycle error payload."""
+
+    code: Literal["renewal_required", "auth_failed", "lock_lost", "recovery_required"]
+    message: str
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -202,6 +263,317 @@ def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> E
         .where(EditLock.last_heartbeat >= cutoff)
     )
     return session.exec(statement).first()
+
+
+def _get_current_companion_bootstrap_user(
+    companion_session: str,
+    *,
+    connection_id: uuid.UUID,
+    path: str,
+    session: Session,
+) -> User:
+    """Validate a companion bootstrap token and return the authenticated user."""
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired companion session",
+    )
+
+    try:
+        payload = jwt.decode(companion_session, settings.secret_key, algorithms=[static.algorithm])
+    except InvalidTokenError:
+        logger.warning("Companion lock bootstrap failed: invalid JWT")
+        raise credentials_exception
+
+    if not payload.get(COMPANION_TOKEN_CLAIM):
+        logger.warning("Companion lock bootstrap failed: missing companion token marker")
+        raise credentials_exception
+
+    if payload.get("token_class") != COMPANION_TOKEN_CLASS:
+        logger.warning("Companion lock bootstrap failed: wrong token class")
+        raise credentials_exception
+
+    if payload.get("purpose") != COMPANION_BOOTSTRAP_PURPOSE:
+        logger.warning("Companion lock bootstrap failed: wrong token purpose")
+        raise credentials_exception
+
+    subject: str | None = payload.get("sub")
+    if not subject:
+        logger.warning("Companion lock bootstrap failed: missing subject")
+        raise credentials_exception
+
+    statement = select(User).where(User.username == subject)
+    user = session.exec(statement).first()
+    if not user or not user.is_active or is_user_expired(user):
+        logger.warning("Companion lock bootstrap failed: user missing or inactive")
+        raise credentials_exception
+
+    token_version = int(payload.get("tv", -1))
+    if token_version != user.token_version:
+        logger.warning("Companion lock bootstrap failed: token version mismatch")
+        raise credentials_exception
+
+    if payload.get("conn_id") != str(connection_id) or payload.get("path") != path:
+        logger.warning(
+            f"Companion lock bootstrap failed: scope mismatch for user={user.username}, "
+            f"token_conn_id={payload.get('conn_id')}, request_conn_id={connection_id}, "
+            f"token_path={payload.get('path')}, request_path='{path}'"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Companion session scope mismatch",
+        )
+
+    return user
+
+
+def _generate_lock_capability() -> str:
+    """Create an opaque secret used for strong lock control."""
+
+    return token_urlsafe(32)
+
+
+def _generate_operation_id() -> str:
+    """Create an opaque identifier for one active native edit operation."""
+
+    return uuid.uuid4().hex
+
+
+def _create_operation_token(
+    *,
+    user: User,
+    connection_id: uuid.UUID,
+    path: str,
+    lock_id: uuid.UUID,
+    operation_id: str,
+) -> str:
+    """Create an operation-scoped companion token bound to one lock lifecycle."""
+
+    return create_access_token(
+        data={
+            "sub": user.username,
+            "tv": user.token_version,
+            "jti": uuid.uuid4().hex,
+            COMPANION_TOKEN_CLAIM: True,
+            "token_class": COMPANION_TOKEN_CLASS,
+            "purpose": COMPANION_OPERATION_PURPOSE,
+            "conn_id": str(connection_id),
+            "path": path,
+            "lock_id": str(lock_id),
+            "op_id": operation_id,
+        },
+        expires_delta=timedelta(minutes=OPERATION_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def _get_current_companion_operation_claims(
+    operation_session: str,
+    *,
+    connection_id: uuid.UUID,
+    path: str,
+    operation_id: str,
+    lock_id: str,
+    session: Session,
+) -> tuple[User, dict[str, Any]]:
+    """Validate an operation-scoped companion token and return the user plus decoded claims."""
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired companion session",
+    )
+
+    try:
+        payload: dict[str, Any] = jwt.decode(operation_session, settings.secret_key, algorithms=[static.algorithm])
+    except ExpiredSignatureError:
+        logger.warning("Companion operation request failed: operation token expired")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_RECOVERY_REQUIRED,
+            message="The companion edit session expired and can no longer be resumed. Reopen the file from Sambee and try again.",
+        )
+    except InvalidTokenError:
+        logger.warning("Companion operation request failed: invalid JWT")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    if not payload.get(COMPANION_TOKEN_CLAIM):
+        logger.warning("Companion operation request failed: missing companion token marker")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    if payload.get("token_class") != COMPANION_TOKEN_CLASS:
+        logger.warning("Companion operation request failed: wrong token class")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    if payload.get("purpose") != COMPANION_OPERATION_PURPOSE:
+        logger.warning("Companion operation request failed: wrong token purpose")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    subject: str | None = payload.get("sub")
+    if not subject:
+        logger.warning("Companion operation request failed: missing subject")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    statement = select(User).where(User.username == subject)
+    user = session.exec(statement).first()
+    if not user or not user.is_active or is_user_expired(user):
+        logger.warning("Companion operation request failed: user missing or inactive")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    token_version = int(payload.get("tv", -1))
+    if token_version != user.token_version:
+        logger.warning("Companion operation request failed: token version mismatch")
+        _raise_companion_operation_error(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code=COMPANION_ERROR_AUTH_FAILED,
+            message="The companion edit session is no longer authorized. Reopen the file from Sambee and try again.",
+        )
+
+    if payload.get("conn_id") != str(connection_id) or payload.get("path") != path:
+        logger.warning(
+            f"Companion operation request failed: scope mismatch for user={user.username}, "
+            f"token_conn_id={payload.get('conn_id')}, request_conn_id={connection_id}, "
+            f"token_path={payload.get('path')}, request_path='{path}'"
+        )
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The active edit lock no longer matches this file session. Reopen the file from Sambee and try again.",
+        )
+
+    if payload.get("op_id") != operation_id:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The active edit lock no longer matches this file session. Reopen the file from Sambee and try again.",
+        )
+
+    if payload.get("lock_id") != lock_id:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+        )
+
+    return user, payload
+
+
+def _get_current_companion_operation_user(
+    operation_session: str,
+    *,
+    connection_id: uuid.UUID,
+    path: str,
+    operation_id: str,
+    lock_id: str,
+    session: Session,
+) -> User:
+    """Validate an operation-scoped companion token and return the authenticated user."""
+
+    user, _payload = _get_current_companion_operation_claims(
+        operation_session,
+        connection_id=connection_id,
+        path=path,
+        operation_id=operation_id,
+        lock_id=lock_id,
+        session=session,
+    )
+    return user
+
+
+def _get_operation_token_remaining_seconds(payload: dict[str, Any]) -> int:
+    """Return the remaining lifetime of an operation token in whole seconds."""
+
+    exp_claim = payload.get("exp")
+    if isinstance(exp_claim, datetime):
+        expires_at = exp_claim.astimezone(timezone.utc)
+    elif isinstance(exp_claim, (int, float)):
+        expires_at = datetime.fromtimestamp(exp_claim, tz=timezone.utc)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired companion session",
+        )
+
+    remaining = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+    return max(0, remaining)
+
+
+def _validate_lock_control(lock: EditLock, body: LockControlRequest) -> None:
+    """Require both lock identity and lock capability for lock-control endpoints."""
+
+    if lock.operation_id != body.operation_id:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The active edit lock no longer matches this file session. Reopen the file from Sambee and try again.",
+        )
+
+    if str(lock.id) != body.lock_id:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+        )
+
+    if lock.lock_capability != body.lock_capability:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The active edit lock no longer matches this file session. Reopen the file from Sambee and try again.",
+        )
+
+
+def _validate_operation_lock_scope(
+    lock: EditLock,
+    *,
+    operation_id: str,
+    lock_id: str,
+    lock_capability: str,
+) -> None:
+    """Require the active lock to match the requested operation and lock identity."""
+
+    if lock.operation_id != operation_id:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The active edit lock no longer matches this file session. Reopen the file from Sambee and try again.",
+        )
+
+    if str(lock.id) != lock_id:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+        )
+
+    if lock.lock_capability != lock_capability:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The active edit lock no longer matches this file session. Reopen the file from Sambee and try again.",
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -234,7 +606,9 @@ async def create_uri_token(
         expires_delta=expires_delta,
     )
 
-    logger.info(f"URI token created: user={current_user.username}, connection_id={body.connection_id}, path='{body.path}'")
+    logger.info(
+        f"URI token created: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=body.connection_id, path=body.path, uri_token_jti=jti)}"
+    )
     return URITokenResponse(uri_token=token, expires_in=URI_TOKEN_EXPIRE_SECONDS)
 
 
@@ -284,13 +658,25 @@ async def exchange_companion_token(
         logger.warning(f"Companion token exchange failed: user '{username}' not found")
         raise credentials_exception
 
+    connection_id = payload.get("conn_id")
+    path = payload.get("path")
+
     # Enforce single-use
     exp_timestamp = payload.get("exp", 0)
     token_expiry = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
-    if not _mark_token_used(jti, token_expiry):
-        logger.warning(f"Companion token exchange failed: token already used (jti={jti})")
+    if not _mark_uri_token_used(
+        session,
+        jti=jti,
+        expires_at=token_expiry,
+        user=user,
+        connection_id=connection_id,
+        path=path,
+    ):
+        logger.warning(
+            f"Companion token exchange failed: {_companion_audit_fields(user_id=user.id, username=user.username, connection_id=connection_id, path=path, uri_token_jti=jti, outcome='replayed_token')}"
+        )
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_409_CONFLICT,
             detail="Token has already been used",
         )
 
@@ -300,13 +686,18 @@ async def exchange_companion_token(
         data={
             "sub": username,
             COMPANION_TOKEN_CLAIM: True,
-            "conn_id": payload.get("conn_id"),
-            "path": payload.get("path"),
+            "token_class": COMPANION_TOKEN_CLASS,
+            "purpose": COMPANION_BOOTSTRAP_PURPOSE,
+            "tv": user.token_version,
+            "conn_id": connection_id,
+            "path": path,
         },
         expires_delta=expires_delta,
     )
 
-    logger.info(f"Companion token exchanged: user={username}")
+    logger.info(
+        f"Companion token exchanged: {_companion_audit_fields(user_id=user.id, username=user.username, connection_id=connection_id, path=path, uri_token_jti=jti)}"
+    )
     return CompanionTokenResponse(
         token=session_token,
         expires_in=COMPANION_TOKEN_EXPIRE_MINUTES * 60,
@@ -331,7 +722,7 @@ async def proxy_auth_check(
     """
 
     set_user(current_user.username)
-    logger.info(f"Companion proxy auth check succeeded: user={current_user.username}")
+    logger.info(f"Companion proxy auth check succeeded: {_companion_audit_fields(user_id=current_user.id, username=current_user.username)}")
     return ProxyAuthCheckResponse(status="ok")
 
 
@@ -343,9 +734,8 @@ async def proxy_auth_check(
 @router.post("/{connection_id}/lock", response_model=LockResponse)
 async def acquire_lock(
     connection_id: uuid.UUID,
-    body: LockRequest,
     path: str = Query(..., description="Path to the file to lock"),
-    current_user: User = Depends(get_current_user_with_auth_check),
+    companion_session: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> LockResponse:
     """Acquire an edit lock on a file.
@@ -355,8 +745,17 @@ async def acquire_lock(
     an active lock, returns 409 Conflict.
     """
 
+    current_user = _get_current_companion_bootstrap_user(
+        companion_session,
+        connection_id=connection_id,
+        path=path,
+        session=session,
+    )
+
     set_user(current_user.username)
-    logger.info(f"Lock acquire: connection_id={connection_id}, path='{path}', user={current_user.username}")
+    logger.info(
+        f"Lock acquire requested: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path)}"
+    )
 
     connection = get_accessible_connection_or_404(session, current_user, connection_id)
     require_connection_write_access(current_user, connection, action="acquire_lock", path=path)
@@ -366,20 +765,40 @@ async def acquire_lock(
     if existing:
         if existing.locked_by == current_user.username:
             # Same user re-locking — update the existing lock
-            existing.companion_session = body.companion_session
+            if not existing.lock_capability:
+                existing.lock_capability = _generate_lock_capability()
+            if not existing.operation_id:
+                existing.operation_id = _generate_operation_id()
+            existing.companion_session = ""
             existing.last_heartbeat = datetime.now(timezone.utc)
             session.add(existing)
             session.commit()
             session.refresh(existing)
-            logger.info(f"Lock refreshed (same user): connection_id={connection_id}, path='{path}', user={current_user.username}")
+            operation_token = _create_operation_token(
+                user=current_user,
+                connection_id=connection_id,
+                path=path,
+                lock_id=existing.id,
+                operation_id=existing.operation_id,
+            )
+            logger.info(
+                f"Lock refreshed (same user): {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=existing.id, operation_id=existing.operation_id)}"
+            )
             return LockResponse(
                 lock_id=str(existing.id),
+                lock_capability=existing.lock_capability,
+                operation_id=existing.operation_id,
+                operation_token=operation_token,
+                operation_expires_in=OPERATION_TOKEN_EXPIRE_MINUTES * 60,
+                renew_after_seconds=OPERATION_TOKEN_RENEW_AFTER_SECONDS,
                 file_path=existing.file_path,
                 locked_by=existing.locked_by,
                 locked_at=existing.locked_at.isoformat(),
             )
         else:
-            logger.warning(f"Lock conflict: path='{path}' already locked by '{existing.locked_by}'")
+            logger.warning(
+                f"Lock conflict: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_owner=existing.locked_by, lock_id=existing.id, operation_id=existing.operation_id)}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"File is locked for editing by {existing.locked_by}",
@@ -390,15 +809,32 @@ async def acquire_lock(
         file_path=path,
         connection_id=connection_id,
         locked_by=current_user.username,
-        companion_session=body.companion_session,
+        operation_id=_generate_operation_id(),
+        companion_session="",
+        lock_capability=_generate_lock_capability(),
     )
     session.add(lock)
     session.commit()
     session.refresh(lock)
 
-    logger.info(f"Lock acquired: connection_id={connection_id}, path='{path}', user={current_user.username}, lock_id={lock.id}")
+    operation_token = _create_operation_token(
+        user=current_user,
+        connection_id=connection_id,
+        path=path,
+        lock_id=lock.id,
+        operation_id=lock.operation_id,
+    )
+
+    logger.info(
+        f"Lock acquired: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=lock.id, operation_id=lock.operation_id)}"
+    )
     return LockResponse(
         lock_id=str(lock.id),
+        lock_capability=lock.lock_capability,
+        operation_id=lock.operation_id,
+        operation_token=operation_token,
+        operation_expires_in=OPERATION_TOKEN_EXPIRE_MINUTES * 60,
+        renew_after_seconds=OPERATION_TOKEN_RENEW_AFTER_SECONDS,
         file_path=lock.file_path,
         locked_by=lock.locked_by,
         locked_at=lock.locked_at.isoformat(),
@@ -408,8 +844,9 @@ async def acquire_lock(
 @router.post("/{connection_id}/lock/heartbeat")
 async def heartbeat_lock(
     connection_id: uuid.UUID,
+    body: LockControlRequest,
     path: str = Query(..., description="Path to the locked file"),
-    current_user: User = Depends(get_current_user_with_auth_check),
+    operation_session: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Refresh the heartbeat on an active edit lock.
@@ -418,21 +855,38 @@ async def heartbeat_lock(
     Returns 404 if the lock no longer exists (e.g., force-unlocked by admin).
     """
 
+    current_user = _get_current_companion_operation_user(
+        operation_session,
+        connection_id=connection_id,
+        path=path,
+        operation_id=body.operation_id,
+        lock_id=body.lock_id,
+        session=session,
+    )
+
     set_user(current_user.username)
 
     lock = _get_active_lock(connection_id, path, session)
     if not lock:
-        logger.warning(f"Heartbeat for non-existent lock: connection_id={connection_id}, path='{path}', user={current_user.username}")
-        raise HTTPException(
+        logger.warning(
+            f"Heartbeat for non-existent lock: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=body.lock_id, operation_id=body.operation_id)}"
+        )
+        _raise_companion_operation_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Lock not found or expired",
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
         )
 
+    _validate_lock_control(lock, body)
+
     if lock.locked_by != current_user.username:
-        logger.warning(f"Heartbeat from wrong user: path='{path}', lock_owner={lock.locked_by}, requester={current_user.username}")
-        raise HTTPException(
+        logger.warning(
+            f"Heartbeat from wrong user: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_owner=lock.locked_by, lock_id=lock.id, operation_id=lock.operation_id)}"
+        )
+        _raise_companion_operation_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Lock is held by another user",
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer owned by this companion session. Reopen the file from Sambee and try again.",
         )
 
     lock.last_heartbeat = datetime.now(timezone.utc)
@@ -445,8 +899,9 @@ async def heartbeat_lock(
 @router.delete("/{connection_id}/lock")
 async def release_lock(
     connection_id: uuid.UUID,
+    body: LockControlRequest,
     path: str = Query(..., description="Path to the locked file"),
-    current_user: User = Depends(get_current_user_with_auth_check),
+    operation_session: str = Depends(oauth2_scheme),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
     """Release an edit lock on a file.
@@ -455,25 +910,104 @@ async def release_lock(
     "Discard Changes".  Only the lock holder can release their own lock.
     """
 
+    current_user = _get_current_companion_operation_user(
+        operation_session,
+        connection_id=connection_id,
+        path=path,
+        operation_id=body.operation_id,
+        lock_id=body.lock_id,
+        session=session,
+    )
+
     set_user(current_user.username)
-    logger.info(f"Lock release: connection_id={connection_id}, path='{path}', user={current_user.username}")
+    logger.info(
+        f"Lock release requested: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=body.lock_id, operation_id=body.operation_id)}"
+    )
 
     lock = _get_active_lock(connection_id, path, session)
     if not lock:
         # Lock already gone — idempotent success
         return {"status": "ok"}
 
+    _validate_lock_control(lock, body)
+
     if lock.locked_by != current_user.username:
-        raise HTTPException(
+        _raise_companion_operation_error(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Lock is held by another user",
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer owned by this companion session. Reopen the file from Sambee and try again.",
         )
 
     session.delete(lock)
     session.commit()
 
-    logger.info(f"Lock released: connection_id={connection_id}, path='{path}', user={current_user.username}")
+    logger.info(
+        f"Lock released: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=lock.id, operation_id=lock.operation_id)}"
+    )
     return {"status": "ok"}
+
+
+@router.post("/{connection_id}/session/renew", response_model=OperationSessionRenewResponse)
+async def renew_operation_session(
+    connection_id: uuid.UUID,
+    body: LockControlRequest,
+    path: str = Query(..., description="Path to the locked file"),
+    operation_session: str = Depends(oauth2_scheme),
+    session: Session = Depends(get_session),
+) -> OperationSessionRenewResponse:
+    """Mint a fresh operation-scoped companion token for an active lock."""
+
+    current_user, payload = _get_current_companion_operation_claims(
+        operation_session,
+        connection_id=connection_id,
+        path=path,
+        operation_id=body.operation_id,
+        lock_id=body.lock_id,
+        session=session,
+    )
+
+    set_user(current_user.username)
+
+    remaining_seconds = _get_operation_token_remaining_seconds(payload)
+    if remaining_seconds > OPERATION_TOKEN_RENEWABLE_WINDOW_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Operation session is not yet eligible for renewal",
+        )
+
+    lock = _get_active_lock(connection_id, path, session)
+    if not lock:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+        )
+
+    _validate_lock_control(lock, body)
+
+    if lock.locked_by != current_user.username:
+        _raise_companion_operation_error(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code=COMPANION_ERROR_LOCK_LOST,
+            message="The edit lock is no longer owned by this companion session. Reopen the file from Sambee and try again.",
+        )
+
+    token = _create_operation_token(
+        user=current_user,
+        connection_id=connection_id,
+        path=path,
+        lock_id=lock.id,
+        operation_id=lock.operation_id,
+    )
+
+    logger.info(
+        f"Operation session renewed: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=lock.id, operation_id=lock.operation_id)}"
+    )
+    return OperationSessionRenewResponse(
+        token=token,
+        expires_in=OPERATION_TOKEN_EXPIRE_MINUTES * 60,
+        renew_after_seconds=OPERATION_TOKEN_RENEW_AFTER_SECONDS,
+    )
 
 
 @router.delete("/{connection_id}/lock/force")
@@ -490,7 +1024,9 @@ async def force_unlock(
     """
 
     set_user(current_user.username)
-    logger.info(f"Force unlock: connection_id={connection_id}, path='{path}', user={current_user.username}")
+    logger.info(
+        f"Force unlock requested: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path)}"
+    )
 
     lock = _get_active_lock(connection_id, path, session)
     if not lock:
@@ -509,8 +1045,7 @@ async def force_unlock(
     session.commit()
 
     logger.info(
-        f"Lock force-released: connection_id={connection_id}, path='{path}', "
-        f"former_holder={former_holder}, released_by={current_user.username}"
+        f"Lock force-released: {_companion_audit_fields(user_id=current_user.id, username=current_user.username, connection_id=connection_id, path=path, lock_id=lock.id, operation_id=lock.operation_id, former_holder=former_holder)}"
     )
     return {"status": "ok"}
 
