@@ -283,6 +283,7 @@ Current companion implementation status:
 5. Native upload, conflict-resolution, recovery, and heartbeat flows now recognize explicit `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required` outcomes instead of treating them as generic failures or retrying indefinitely. ✅
 6. Done Editing, conflict-resolution, and recovery UI now treat `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required` as terminal, user-facing states instead of surfacing only raw generic errors. ✅
 7. Done Editing, conflict-resolution, and recovery dialogs now reopen the browser on the Sambee `/browse` page with a typed `companion_status` query for all browser-visible terminal states, replacing dead-end retry states with a concrete recovery handoff. ✅
+8. Launch-time companion auth failures during URI token exchange, reverse-proxy reauthentication, lock acquisition, or pre-edit download now reopen Sambee in the browser with `companion_status=auth_failed` instead of stopping at a companion-only notification. ✅
 
 ### Phase 2D: Frontend implementation
 
@@ -299,7 +300,8 @@ Current frontend implementation status:
 4. The browser file-browser page now accepts a typed `companion_status` receiver signal and renders explicit user-facing guidance for `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`, instead of collapsing companion return states into generic errors. ✅
 5. The companion Done Editing, conflict-resolution, and recovery terminal-state flows now reopen the browser on the Sambee `/browse` page with a typed `companion_status` query for `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`, giving the user a concrete browser recovery path. ✅
 6. Companion operation-token validation now emits structured `auth_failed` and `recovery_required` states, so the browser receiver path has active producer coverage for all four browser-visible lifecycle statuses. ✅
-7. Companion-download and launch guidance still needs a final review against the Phase 2 protocol and browser UX. ⏳
+7. Companion startup auth failures that occur before the native edit window opens now also use the browser receiver path, reducing launch failures that previously stopped at a local notification only. ✅
+8. Companion-download and launch guidance still needs a final review against the Phase 2 protocol and browser UX. ⏳
 
 ### Phase 2E: Data migration and cutover
 
