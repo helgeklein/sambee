@@ -128,6 +128,11 @@ jobs:
         uses: Swatinem/rust-cache@c106961feec855ef5a58494c5a2a31c9d80429a9
         with:
           workspaces: companion/src-tauri -> target
+          # This workflow delegates release bundling to tauri-action. On Windows,
+          # that path is not reliably present when rust-cache runs its post-job
+          # save step, which causes a noisy non-fatal cache path validation error.
+          # Keep caching the cargo registry/tooling, but skip target-dir saves here.
+          cache-targets: false
 
       # ── Node.js + frontend build ──
       - name: Set up Node.js
