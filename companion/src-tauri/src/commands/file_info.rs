@@ -15,12 +15,13 @@ use serde::{Deserialize, Serialize};
 use crate::http_client::{
     classify_proxy_auth_intercept, log_request_error, plain_client, SambeeHttpClientStore, DEFAULT_REQUEST_TIMEOUT_SECS,
 };
+use crate::sync::operations::CompanionLockContext;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Response types
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// File metadata returned by `GET /api/browse/{connId}/info?path=...`.
+/// File metadata returned by `GET /api/companion/{connId}/file-info?path=...`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileInfoResponse {
     /// Filename (e.g. "report.docx").
@@ -55,16 +56,17 @@ pub struct FileInfoResponse {
 //
 /// Fetch file metadata from the Sambee server.
 ///
-/// Calls `GET /api/browse/{connId}/info?path={remote_path}`.
+/// Calls `GET /api/companion/{connId}/file-info?path={remote_path}`.
 #[allow(dead_code)]
 pub async fn get_file_info(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: Option<&CompanionLockContext>,
+    session_token: Option<&str>,
 ) -> Result<FileInfoResponse, String> {
     let client = plain_client()?;
-    get_file_info_with_client(&client, server_url, connection_id, remote_path, session_token).await
+    get_file_info_with_client(&client, server_url, connection_id, remote_path, lock_context, session_token).await
 }
 
 pub async fn get_file_info_with_store(
@@ -72,10 +74,11 @@ pub async fn get_file_info_with_store(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: Option<&CompanionLockContext>,
+    session_token: Option<&str>,
 ) -> Result<FileInfoResponse, String> {
     let client = http_clients.client_for_server(server_url)?;
-    get_file_info_with_client(&client, server_url, connection_id, remote_path, session_token).await
+    get_file_info_with_client(&client, server_url, connection_id, remote_path, lock_context, session_token).await
 }
 
 pub async fn get_file_info_with_client(
@@ -83,17 +86,31 @@ pub async fn get_file_info_with_client(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: Option<&CompanionLockContext>,
+    session_token: Option<&str>,
 ) -> Result<FileInfoResponse, String> {
-    let url = format!("{}/api/browse/{}/info", server_url.trim_end_matches('/'), connection_id);
+    let url = format!("{}/api/companion/{}/file-info", server_url.trim_end_matches('/'), connection_id);
 
     info!("Fetching file info: conn_id={}, path='{}'", connection_id, remote_path);
 
-    let response = client
+    let mut request = client
         .get(&url)
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
-        .query(&[("path", remote_path)])
-        .header("Authorization", format!("Bearer {session_token}"))
+        .query(&[("path", remote_path)]);
+
+    if let Some(lock_context) = lock_context {
+        request = request
+            .query(&[
+                ("operation_id", lock_context.operation_id.as_str()),
+                ("lock_id", lock_context.lock_id.as_str()),
+            ])
+            .header("Authorization", format!("Bearer {}", lock_context.operation_token));
+    } else {
+        let session_token = session_token.ok_or_else(|| "File info request is missing companion authentication context".to_string())?;
+        request = request.header("Authorization", format!("Bearer {session_token}"));
+    }
+
+    let response = request
         .send()
         .await
         .map_err(|error| log_request_error("File info request", "GET", &url, &error))?;
@@ -115,6 +132,9 @@ pub async fn get_file_info_with_client(
         let body = response.text().await.unwrap_or_default();
         debug!("File info error body received: {} bytes", body.len());
         if let Some(message) = classify_proxy_auth_intercept("File info", Some(status), response_content_type.as_deref(), &body) {
+            return Err(message);
+        }
+        if let Some(message) = super::upload::classify_lifecycle_error(&body) {
             return Err(message);
         }
         return Err(format!("File info failed (HTTP {status}): {body}"));
@@ -207,7 +227,7 @@ mod tests {
     //
     #[tokio::test]
     async fn test_get_file_info_bad_server() {
-        let result = get_file_info("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token").await;
+        let result = get_file_info("http://127.0.0.1:1", "test-conn", "/docs/test.txt", None, Some("fake-token")).await;
         assert!(result.is_err());
     }
 }

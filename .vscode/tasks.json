@@ -165,7 +165,7 @@
       "problemMatcher": []
     },
     {
-      "label": "Companion: Type Check + Lint",
+      "label": "Companion: Validation Suite",
       "type": "shell",
       "command": "npx tsc --noEmit 2>&1 && echo '✓ TypeScript type check passed' && cd src-tauri && cargo clippy --lib --tests -- -D warnings 2>&1 && echo '✓ Clippy passed' && cargo fmt --check 2>&1 && echo '✓ Rust formatting OK' && cd .. && npm run check:rust:windows 2>&1 && echo '✓ Windows cross-check passed' && npm run lint 2>&1 && echo '✓ Biome lint passed' && echo '' && echo '══════════════════════════════════' && echo '  All companion checks passed ✓' && echo '══════════════════════════════════'",
       "options": {

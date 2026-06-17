@@ -10,7 +10,7 @@ Do not default to either no validation or every possible check.
 
 - backend-only change with no shared contract impact: run backend tests and type checking
 - frontend-only change: run frontend tests, type check, and lint
-- companion-only change: run companion checks and Rust tests
+- companion-only change: run companion checks, the Windows GNU cross-check, and Rust tests
 - shared workflow change: run every affected subsystem's checks
 
 ## Recommended Checks by Change Area
@@ -19,9 +19,9 @@ Do not default to either no validation or every possible check.
 |---|---|
 | Backend behavior | `cd backend && pytest -m 'not performance' -v`, `cd backend && pytest -m performance -v`, `cd backend && mypy app` |
 | Frontend behavior | `cd frontend && npm test`, `cd frontend && npx tsc --noEmit`, `cd frontend && npm run lint` |
-| Companion behavior | `cd companion && npx tsc --noEmit`, `cd companion && npm run lint`, `cd companion/src-tauri && cargo test` |
+| Companion behavior | `cd companion && npx tsc --noEmit`, `cd companion && npm run lint`, `cd companion && npm run check:rust:windows`, `cd companion/src-tauri && cargo test` |
 
-For fast local iteration, `./scripts/test` runs the main backend, frontend, and companion suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
+For fast local iteration, `./scripts/test` runs the main backend, frontend, and companion suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. The local companion pass now also includes the Windows GNU target compatibility check when the toolchain is installed. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
 
 ## Cross-Boundary Changes Need Cross-Boundary Checks
 
@@ -114,6 +114,19 @@ Possible future additions include:
 
 Localization is treated as typed product behavior, not just string replacement. If you touch translation wiring or browser-to-companion localization sync, validate the relevant frontend and companion checks.
 
+### Companion Cross-Target Safety
+
+Companion contributors now have a local Linux-hosted Windows-target safety check.
+
+- `npm run check:rust:windows` runs `cargo check` for `x86_64-pc-windows-gnu`.
+- In the devcontainer, the required Rust target and MinGW toolchain are preinstalled.
+- This check is for compatibility validation, not for producing release-ready Windows binaries.
+
+Keep the distinction clear:
+
+- local cross-check: prove the Windows target still compiles far enough for contract and dependency safety
+- release build: create the signed Windows installer and updater artifacts in CI on Windows runners
+
 ### Logging and Diagnostics
 
 Logging changes can affect both local debugging and backend trace collection. Validate the app surfaces that consume those logging contracts.
@@ -134,6 +147,7 @@ Run deeper or wider validation when:
 - the change affects a high-risk workflow such as file editing, locking, upload, or pairing
 - you changed dependencies or version metadata
 - you changed typed API contracts
+- you changed companion native dependencies, Windows-specific crates, or Tauri integration
 - the change fixes a regression that previously escaped narrower coverage
 
 The goal is not maximum command count. The goal is to prove the changed behavior still matches Sambee's cross-app contracts.

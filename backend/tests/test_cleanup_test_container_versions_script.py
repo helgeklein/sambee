@@ -4,13 +4,15 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Literal
 
 import pytest
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "cleanup_test_container_versions.py"
 
 
-def load_cleanup_module():
+def load_cleanup_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("cleanup_test_container_versions", SCRIPT_PATH)
     assert spec is not None
     assert spec.loader is not None
@@ -29,7 +31,7 @@ class FakeResponse:
     def __enter__(self) -> FakeResponse:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> Literal[False]:
         return False
 
     def read(self) -> bytes:

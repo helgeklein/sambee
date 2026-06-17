@@ -282,8 +282,14 @@ mod tests {
 
     #[test]
     fn normalizes_browser_origins_exactly() {
-        assert_eq!(normalize_browser_origin("https://Sambee.Example.com:8443").as_deref(), Some("https://sambee.example.com:8443"));
-        assert_eq!(normalize_browser_origin("http://localhost:5173").as_deref(), Some("http://localhost:5173"));
+        assert_eq!(
+            normalize_browser_origin("https://Sambee.Example.com:8443").as_deref(),
+            Some("https://sambee.example.com:8443")
+        );
+        assert_eq!(
+            normalize_browser_origin("http://localhost:5173").as_deref(),
+            Some("http://localhost:5173")
+        );
     }
 
     #[test]

@@ -125,8 +125,8 @@ impl PairingState {
     /// Start a new pairing: store the browser nonce, generate companion nonce,
     /// return the pairing ID and companion nonce.
     pub fn initiate(&self, nonce_browser_hex: &str, origin: &str) -> Result<(String, String, String), PairingInitiateError> {
-        let nonce_browser =
-            hex::decode(nonce_browser_hex).map_err(|_| PairingInitiateError::Validation("Invalid hex encoding for nonce_browser".to_string()))?;
+        let nonce_browser = hex::decode(nonce_browser_hex)
+            .map_err(|_| PairingInitiateError::Validation("Invalid hex encoding for nonce_browser".to_string()))?;
 
         if nonce_browser.len() != 32 {
             return Err(PairingInitiateError::Validation(
@@ -223,9 +223,7 @@ impl PairingState {
         let mut pending = self.pending.lock().unwrap();
         pending.retain(|_, p| p.created_at.elapsed() < PAIRING_TIMEOUT);
 
-        let pairing = pending
-            .get(pairing_id)
-            .ok_or_else(|| "Unknown or expired pairing".to_string())?;
+        let pairing = pending.get(pairing_id).ok_or_else(|| "Unknown or expired pairing".to_string())?;
 
         if pairing.origin != origin {
             return Err("Pairing does not belong to this origin".to_string());
@@ -238,8 +236,15 @@ impl PairingState {
 
     /// Complete the pairing: verify the companion confirmed, generate shared secret,
     /// store it in the keychain, and return it to the browser.
-    pub fn confirm(&self, pairing_id: &str) -> Result<String, String> {
+    pub fn confirm(&self, pairing_id: &str, origin: &str) -> Result<String, String> {
         let mut pending = self.pending.lock().unwrap();
+
+        let pairing = pending.get(pairing_id).ok_or_else(|| "Unknown or expired pairing".to_string())?;
+
+        if pairing.origin != origin {
+            return Err("Pairing does not belong to this origin".to_string());
+        }
+
         let pairing = pending.remove(pairing_id).ok_or_else(|| "Unknown or expired pairing".to_string())?;
 
         if pairing.created_at.elapsed() >= PAIRING_TIMEOUT {
@@ -326,6 +331,15 @@ impl PairingState {
                 (id.clone(), p.origin.clone(), code)
             })
             .collect()
+    }
+
+    /// Get the initiating origin for a pending pairing ID.
+    pub fn get_pending_origin(&self, pairing_id: &str) -> Option<String> {
+        let pending = self.pending.lock().unwrap();
+        pending
+            .get(pairing_id)
+            .filter(|pairing| pairing.created_at.elapsed() < PAIRING_TIMEOUT)
+            .map(|pairing| pairing.origin.clone())
     }
 
     /// Remove pairing for a specific origin.
@@ -461,5 +475,39 @@ mod tests {
 
         let result = pairing.initiate(NONCE_C, "https://sambee.example");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn returns_origin_for_pending_pairing_id() {
+        let pairing = PairingState::new_with_limits(Duration::ZERO, 1);
+
+        let (pairing_id, _, _) = pairing.initiate(NONCE_A, "https://sambee.example").unwrap();
+
+        assert_eq!(pairing.get_pending_origin(&pairing_id).as_deref(), Some("https://sambee.example"));
+        assert!(pairing.get_pending_origin("missing-id").is_none());
+    }
+
+    #[test]
+    fn rejects_confirm_for_different_origin() {
+        let pairing = PairingState::new_with_limits(Duration::ZERO, 1);
+
+        let (pairing_id, _, _) = pairing.initiate(NONCE_A, "https://sambee.example").unwrap();
+        pairing.companion_confirm(&pairing_id).unwrap();
+
+        let err = pairing.confirm(&pairing_id, "https://other.example").unwrap_err();
+        assert!(err.contains("does not belong to this origin"));
+        assert_eq!(pairing.get_pending_origin(&pairing_id).as_deref(), Some("https://sambee.example"));
+    }
+
+    #[test]
+    fn unpair_removes_only_the_requested_origin() {
+        let pairing = PairingState::new_with_limits(Duration::ZERO, 1);
+
+        pairing.record_verified_origin("https://sambee.example");
+        pairing.record_verified_origin("https://other.example");
+
+        pairing.unpair("https://sambee.example").unwrap();
+
+        assert_eq!(pairing.get_paired_origins(), vec!["https://other.example".to_string()]);
     }
 }

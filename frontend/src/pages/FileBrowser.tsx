@@ -19,16 +19,15 @@
  * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery, useTheme } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
-import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
+import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
 import { SecondaryActionStrip } from "../components/FileBrowser/SecondaryActionStrip";
@@ -894,6 +893,9 @@ const Browser: React.FC = () => {
       };
 
       ws.onerror = (error) => {
+        if (disposed || activeWs !== ws) {
+          return;
+        }
         logger.error("WebSocket error", { wsUrl, error: String(error) }, "websocket");
       };
 
@@ -946,7 +948,7 @@ const Browser: React.FC = () => {
       scheduleReconnect(reason, true);
     };
 
-    connectWebSocket();
+    scheduleReconnect("initial", true);
 
     return () => {
       disposed = true;

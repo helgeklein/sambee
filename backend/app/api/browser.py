@@ -118,10 +118,46 @@ async def list_directory(
 async def get_file_info(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file or directory"),
-    current_user: User = Depends(get_current_user_with_auth_check),
+    operation_id: Optional[str] = Query(None, description="Active companion operation ID"),
+    lock_id: Optional[str] = Query(None, description="Active companion lock ID"),
+    lock_capability: Optional[str] = Query(None, description="Active companion lock capability"),
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     session: Session = Depends(get_session),
 ) -> FileInfo:
     """Get information about a specific file or directory"""
+
+    if operation_id or lock_id or lock_capability:
+        if not operation_id or not lock_id or not lock_capability or not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing companion operation context",
+            )
+
+        current_user = _get_current_companion_operation_user(
+            token,
+            connection_id=connection_id,
+            path=path,
+            operation_id=operation_id,
+            lock_id=lock_id,
+            session=session,
+        )
+
+        lock = _get_active_lock(connection_id, path, session)
+        if not lock:
+            _raise_companion_operation_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code=COMPANION_ERROR_LOCK_LOST,
+                message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+            )
+
+        _validate_operation_lock_scope(
+            lock,
+            operation_id=operation_id,
+            lock_id=lock_id,
+            lock_capability=lock_capability,
+        )
+    else:
+        current_user = await get_current_user_for_token(token, session)
 
     # Set user context for logging
     set_user(current_user.username)
@@ -305,11 +341,30 @@ async def acquire_browser_edit_lock(
                 detail=f"File is locked for editing by {existing.locked_by}",
             )
 
-        if not existing.lock_capability:
-            existing.lock_capability = _generate_lock_capability()
-        if not existing.operation_id:
-            existing.operation_id = _generate_operation_id()
-        existing.companion_session = ""
+        if not existing.lock_capability or not existing.operation_id:
+            session.delete(existing)
+            session.commit()
+
+            replacement_lock = EditLock(
+                file_path=path,
+                connection_id=connection_id,
+                locked_by=current_user.username,
+                operation_id=_generate_operation_id(),
+                lock_capability=_generate_lock_capability(),
+            )
+            session.add(replacement_lock)
+            session.commit()
+            session.refresh(replacement_lock)
+
+            return BrowserEditLockResponse(
+                lock_id=str(replacement_lock.id),
+                lock_capability=replacement_lock.lock_capability,
+                operation_id=replacement_lock.operation_id,
+                file_path=replacement_lock.file_path,
+                locked_by=replacement_lock.locked_by,
+                locked_at=replacement_lock.locked_at.isoformat(),
+            )
+
         existing.last_heartbeat = datetime.now(timezone.utc)
         session.add(existing)
         session.commit()
@@ -329,7 +384,6 @@ async def acquire_browser_edit_lock(
         connection_id=connection_id,
         locked_by=current_user.username,
         operation_id=_generate_operation_id(),
-        companion_session="",
         lock_capability=_generate_lock_capability(),
     )
     session.add(lock)

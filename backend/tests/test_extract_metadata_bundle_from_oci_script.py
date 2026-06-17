@@ -7,6 +7,7 @@ import shutil
 import stat
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -142,7 +143,8 @@ def _build_oci_layout(
     }
 
     local_index = _candidate_index(platform_digests)
-    local_index["manifests"].extend(
+    manifests = cast(list[dict[str, object]], local_index["manifests"])
+    manifests.extend(
         {
             "digest": attestation_manifest_digests[platform],
             "mediaType": "application/vnd.oci.image.manifest.v1+json",

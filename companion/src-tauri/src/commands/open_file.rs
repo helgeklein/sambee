@@ -169,7 +169,7 @@ fn finish_result_from_lifecycle_error(error: &str) -> Option<FinishEditingResult
         Some(FinishEditingResult::AuthFailed { message })
     } else if super::upload::is_lock_lost_error(error) {
         Some(FinishEditingResult::LockLost { message })
-    } else if super::upload::is_recovery_required_error(error) {
+    } else if super::upload::is_capability_mismatch_error(error) || super::upload::is_recovery_required_error(error) {
         Some(FinishEditingResult::RecoveryRequired { message })
     } else {
         None
@@ -184,7 +184,7 @@ fn conflict_result_from_lifecycle_error(error: &str) -> Option<ConflictResolutio
         Some(ConflictResolutionResult::AuthFailed { message })
     } else if super::upload::is_lock_lost_error(error) {
         Some(ConflictResolutionResult::LockLost { message })
-    } else if super::upload::is_recovery_required_error(error) {
+    } else if super::upload::is_capability_mismatch_error(error) || super::upload::is_recovery_required_error(error) {
         Some(ConflictResolutionResult::RecoveryRequired { message })
     } else {
         None
@@ -199,7 +199,7 @@ fn recovery_result_from_lifecycle_error(error: &str) -> Option<RecoveryUploadRes
         Some(RecoveryUploadResult::AuthFailed { message })
     } else if super::upload::is_lock_lost_error(error) {
         Some(RecoveryUploadResult::LockLost { message })
-    } else if super::upload::is_recovery_required_error(error) {
+    } else if super::upload::is_capability_mismatch_error(error) || super::upload::is_recovery_required_error(error) {
         Some(RecoveryUploadResult::RecoveryRequired { message })
     } else {
         None
@@ -508,22 +508,16 @@ pub fn start_heartbeat_task(
 
             if lock_context_needs_renewal(&current_lock_context) {
                 let renewed_context_result = if let Some(ref clients) = http_clients {
-                    crate::proxy_auth::retry_if_proxy_auth_required(
-                        &app_clone,
-                        &server_url,
-                        clients,
-                        "Operation session renew",
-                        || async {
-                            super::upload::renew_operation_session_with_store(
-                                clients,
-                                &server_url,
-                                &connection_id,
-                                &remote_path,
-                                &current_lock_context,
-                            )
-                            .await
-                        },
-                    )
+                    crate::proxy_auth::retry_if_proxy_auth_required(&app_clone, &server_url, clients, "Operation session renew", || async {
+                        super::upload::renew_operation_session_with_store(
+                            clients,
+                            &server_url,
+                            &connection_id,
+                            &remote_path,
+                            &current_lock_context,
+                        )
+                        .await
+                    })
                     .await
                 } else {
                     super::upload::renew_operation_session(&server_url, &connection_id, &remote_path, &current_lock_context)
@@ -538,7 +532,10 @@ pub fn start_heartbeat_task(
                             store.update_lock_context(operation_id, renewed_context.clone());
                             if let Some(updated_operation) = store.get(operation_id) {
                                 if let Err(error) = crate::sync::operations::save_operation_sidecar(&updated_operation) {
-                                    warn!("Failed to persist renewed lock context for {}: {error}", updated_operation.filename());
+                                    warn!(
+                                        "Failed to persist renewed lock context for {}: {error}",
+                                        updated_operation.filename()
+                                    );
                                 }
                             }
                         }
@@ -560,14 +557,8 @@ pub fn start_heartbeat_task(
             let result = if let Some(ref clients) = http_clients {
                 let heartbeat_lock_context = current_lock_context.clone();
                 crate::proxy_auth::retry_if_proxy_auth_required(&app_clone, &server_url, clients, "Lock heartbeat", || async {
-                    super::upload::send_heartbeat_with_store(
-                        clients,
-                        &server_url,
-                        &connection_id,
-                        &remote_path,
-                        &heartbeat_lock_context,
-                    )
-                    .await
+                    super::upload::send_heartbeat_with_store(clients, &server_url, &connection_id, &remote_path, &heartbeat_lock_context)
+                        .await
                 })
                 .await
             } else {
@@ -620,7 +611,6 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
     let server_url = operation.server_url.clone();
     let connection_id = operation.connection_id.clone();
     let remote_path = operation.remote_path.clone();
-    let token = operation.token.clone();
     let original_mtime = operation.original_mtime;
     let filename = operation.filename();
     let lock_context = require_lock_context(&operation)?;
@@ -640,8 +630,17 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
         // Before uploading, check if the server-side file was modified
         // by another user while we held our lock.
         if let Some(ref download_modified_at) = operation.server_last_modified {
+            let conflict_check_lock_context = lock_context.clone();
             match crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Conflict check", || async {
-                super::file_info::get_file_info_with_store(&http_clients, &server_url, &connection_id, &remote_path, &token).await
+                super::file_info::get_file_info_with_store(
+                    &http_clients,
+                    &server_url,
+                    &connection_id,
+                    &remote_path,
+                    Some(&conflict_check_lock_context),
+                    None,
+                )
+                .await
             })
             .await
             {
@@ -718,14 +717,7 @@ pub async fn finish_editing(app: AppHandle, operation_id: String) -> Result<Fini
     // Release lock (best-effort)
     let release_lock_context = lock_context.clone();
     let _ = crate::proxy_auth::retry_if_proxy_auth_required(&app, &server_url, &http_clients, "Lock release", || async {
-        super::upload::release_lock_with_store(
-            &http_clients,
-            &server_url,
-            &connection_id,
-            &remote_path,
-            &release_lock_context,
-        )
-        .await
+        super::upload::release_lock_with_store(&http_clients, &server_url, &connection_id, &remote_path, &release_lock_context).await
     })
     .await;
 
@@ -1206,7 +1198,13 @@ pub fn has_active_operations(app: AppHandle) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use std::time::{Duration, UNIX_EPOCH};
+
+    fn encoded_lifecycle_error(code: &str, message: &str) -> String {
+        super::super::upload::classify_lifecycle_error(&format!(r#"{{"detail":{{"code":"{code}","message":"{message}"}}}}"#))
+            .expect("expected structured lifecycle error")
+    }
 
     //
     // test_format_system_time
@@ -1245,6 +1243,90 @@ mod tests {
         assert!(json.contains("report-copy.docx"));
         assert!(json.contains("LibreOffice Writer"));
         assert!(json.contains("sambee.example.test"));
+    }
+
+    #[test]
+    fn test_build_browser_status_url_accepts_supported_status() {
+        let url = build_browser_status_url("https://sambee.example.test/app/", "lock_lost").unwrap();
+        assert_eq!(url, "https://sambee.example.test/browse?companion_status=lock_lost");
+    }
+
+    #[test]
+    fn test_build_browser_status_url_rejects_unsupported_status() {
+        let err = build_browser_status_url("https://sambee.example.test", "unknown_status").unwrap_err();
+        assert!(err.contains("Unsupported companion status"));
+    }
+
+    #[test]
+    fn test_lock_context_needs_renewal_after_threshold() {
+        let now = Utc::now().timestamp();
+        let lock_context = CompanionLockContext {
+            lock_id: "lock-1".to_string(),
+            operation_id: "op-1".to_string(),
+            lock_capability: "cap-1".to_string(),
+            operation_token: "token-1".to_string(),
+            renew_after_seconds: 600,
+            token_issued_at_epoch_seconds: now - 600,
+        };
+
+        assert!(lock_context_needs_renewal(&lock_context));
+    }
+
+    #[test]
+    fn test_lock_context_needs_renewal_before_threshold() {
+        let now = Utc::now().timestamp();
+        let lock_context = CompanionLockContext {
+            lock_id: "lock-1".to_string(),
+            operation_id: "op-1".to_string(),
+            lock_capability: "cap-1".to_string(),
+            operation_token: "token-1".to_string(),
+            renew_after_seconds: 600,
+            token_issued_at_epoch_seconds: now - 599,
+        };
+
+        assert!(!lock_context_needs_renewal(&lock_context));
+    }
+
+    #[test]
+    fn test_finish_result_maps_capability_mismatch_to_recovery_required() {
+        let encoded = encoded_lifecycle_error("capability_mismatch", "wrong capability");
+
+        match finish_result_from_lifecycle_error(&encoded) {
+            Some(FinishEditingResult::RecoveryRequired { message }) => assert_eq!(message, "wrong capability"),
+            _ => panic!("expected recovery-required finish result"),
+        }
+    }
+
+    #[test]
+    fn test_conflict_result_maps_auth_failed() {
+        let encoded = encoded_lifecycle_error("auth_failed", "sign in again");
+
+        match conflict_result_from_lifecycle_error(&encoded) {
+            Some(ConflictResolutionResult::AuthFailed { message }) => assert_eq!(message, "sign in again"),
+            _ => panic!("expected auth-failed conflict result"),
+        }
+    }
+
+    #[test]
+    fn test_recovery_result_maps_lock_lost() {
+        let encoded = encoded_lifecycle_error("lock_lost", "lock disappeared");
+
+        match recovery_result_from_lifecycle_error(&encoded) {
+            Some(RecoveryUploadResult::LockLost { message }) => assert_eq!(message, "lock disappeared"),
+            _ => panic!("expected lock-lost recovery result"),
+        }
+    }
+
+    #[test]
+    fn test_operation_id_from_window_label_rejects_wrong_prefix() {
+        let err = operation_id_from_window_label("editor-window").unwrap_err();
+        assert!(err.contains("is not a Done Editing window"));
+    }
+
+    #[test]
+    fn test_operation_id_from_window_label_rejects_invalid_uuid() {
+        let err = operation_id_from_window_label("done-editing-not-a-uuid").unwrap_err();
+        assert!(err.contains("invalid operation ID"));
     }
 
     //

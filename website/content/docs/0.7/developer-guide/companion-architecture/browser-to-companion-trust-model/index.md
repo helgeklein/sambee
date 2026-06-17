@@ -14,12 +14,14 @@ This path is used when the browser asks the companion to open an SMB-backed file
 
 1. The browser asks the backend for a short-lived URI token.
 1. The browser launches a `sambee://` deep link.
-1. Companion exchanges the one-time token for a session token.
-1. Companion downloads the file, acquires the edit lock, and later uploads the result.
+1. Companion exchanges the one-time token for a companion bootstrap token.
+1. Companion uses that bootstrap token to look up file info, acquire the edit lock, receive an operation-scoped token plus lock context, and later upload or release through that narrower edit-session authority.
 
 Companion sends the URI token to the backend token endpoint in a JSON request body. Do not reintroduce query-string token exchange compatibility; deep-link tokens are sensitive and should not be exposed in URLs, logs, proxy access logs, or browser history.
 
 The deep-link token is not a general browser-to-companion credential. It is a short-lived bootstrap value for one native-editing handoff.
+
+After lock acquisition, the browser no longer carries the authority for that edit. The companion holds an operation-scoped backend token plus `operation_id`, `lock_id`, and `lock_capability` for the lifetime of the edit session.
 
 ### Localhost API Path
 
@@ -68,7 +70,7 @@ After pairing, companion-bound requests use HMAC-based authentication rather tha
 - keep browser-to-companion auth distinct from backend bearer-token auth
 - preserve the server-side edit-lock lifecycle for SMB-backed editing instead of letting the companion bypass it
 - keep reverse-proxy cookies distinct from Sambee bearer tokens and companion localhost pairing secrets
-- redact deep-link tokens, sessions, cookies, authorization data, and other sensitive query values before logging
+- redact deep-link tokens, bootstrap tokens, operation tokens, cookies, authorization data, and other sensitive query values before logging
 
 Reverse-proxy authentication is a separate trust path from localhost pairing. The companion may use cookies captured in its own backend-origin authentication webview for Rust-side backend requests, but it must not import cookies from the user's normal browser session.
 

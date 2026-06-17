@@ -13,7 +13,7 @@ You do not need Companion for accessing SMB shares from the browser.
 1. Once the installer is completed, Companion should be running.
 1. You can find the Companion icon in the system tray (Linux, Windows) or the menu bar (macOS).
 
-## Pair Sambee With Companion
+## Pair This Browser With Companion
 
 {{< admonition type="note" title="" >}}
 During pairing, Sambee and Companion exchange data that is needed to establish a secure connection. The concept is similar in nature to Bluetooth pairing.
@@ -23,4 +23,6 @@ Open **Settings** > **Local Drives**. Sambee checks whether it can find the Comp
 
 Select **Pair this browser**. Sambee and Companion both display a verification code. Confirm that both codes match, then finish pairing. Sambee should now show a check mark next to **This browser is paired**.
 
-Once Sambee is paired with Companion, local drives on your computer appear in Sambee's connection list.
+Pairing is scoped to the current browser origin and browser profile, not to the whole computer. If you use Sambee from a different browser, a different browser profile, or a different Sambee site origin, approve that browser separately.
+
+Once this browser is paired with Companion, local drives on your computer appear in Sambee's connection list.

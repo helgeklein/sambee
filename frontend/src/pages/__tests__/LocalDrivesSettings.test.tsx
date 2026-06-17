@@ -232,13 +232,14 @@ describe("LocalDrivesSettings", () => {
     expect(await screen.findByText("Companion download metadata feed request timed out.")).toBeInTheDocument();
   });
 
-  it("polls companion status every second while the page is visible", async () => {
+  it("uses a slower steady-state poll interval after pairing is already healthy", async () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: true,
       status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(true);
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
 
     renderSettings();
 
@@ -246,14 +247,9 @@ describe("LocalDrivesSettings", () => {
       expect(mockCheckHealth).toHaveBeenCalled();
     });
 
-    const initialCheckHealthCalls = mockCheckHealth.mock.calls.length;
-
-    await waitFor(
-      () => {
-        expect(mockCheckHealth.mock.calls.length).toBeGreaterThanOrEqual(initialCheckHealthCalls + 2);
-      },
-      { timeout: 3_500 }
-    );
+    await waitFor(() => {
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+    });
   });
 
   it("hides Companion install and pairing UI on unsupported mobile platforms", async () => {

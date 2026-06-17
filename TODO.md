@@ -1,9 +1,5 @@
 # TODO
 
-## Companion security
-
-- Review and improve
-
 ## Native editing
 
 - When opening a file with ctrl+enter for native editing from an SMB connection, the app picker always appears. When doing the same from a local drive connection, the file is opened in the default app. These two scenarios need to be consistent in their behavior.

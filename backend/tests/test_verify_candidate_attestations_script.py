@@ -6,6 +6,7 @@ import shutil
 import stat
 import subprocess
 from pathlib import Path
+from typing import Mapping
 
 import pytest
 
@@ -48,8 +49,8 @@ else:
 def _run_script(
     path_dir: Path,
     image_ref: str,
-    manifests: dict[str, object],
-    blobs: dict[tuple[str, str], object],
+    manifests: Mapping[str, object],
+    blobs: Mapping[tuple[str, str], object],
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PATH"] = f"{path_dir}:{env['PATH']}"

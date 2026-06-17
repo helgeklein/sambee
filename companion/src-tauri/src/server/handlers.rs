@@ -26,7 +26,7 @@ use super::auth;
 use super::drives;
 use super::errors::ApiError;
 use super::models::*;
-use super::pairing::PairingInitiateError;
+use super::pairing::{PairingInitiateError, PairingState};
 use super::AppState;
 
 /// Characters forbidden in file/directory names (matches backend validation).
@@ -271,9 +271,11 @@ pub struct PairConfirmRequest {
 /// `POST /api/pair/confirm` — complete a pairing after dual confirmation.
 pub async fn pair_confirm(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(body): Json<PairConfirmRequest>,
 ) -> Result<Json<PairConfirmResponse>, ApiError> {
-    let secret = state.pairing.confirm(&body.pairing_id).map_err(ApiError::BadRequest)?;
+    let origin = extract_origin(&headers)?;
+    let secret = state.pairing.confirm(&body.pairing_id, &origin).map_err(ApiError::BadRequest)?;
 
     show_pairing_success(&state.app);
 
@@ -301,32 +303,7 @@ pub async fn sync_localization(
 
 /// `GET /api/pair/status` — pairing status for the current browser origin.
 pub async fn pair_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<PairStatusResponse> {
-    let current_origin = extract_origin(&headers).ok();
-    let (current_origin_paired, status) = current_origin.as_deref().map_or(
-        (false, PublicPairingStatus::Unpaired),
-        |origin| {
-            let paired = state.pairing.get_secret_for_origin(origin).is_some();
-            if paired && !state.pairing.is_origin_paired(origin) {
-                state.pairing.record_verified_origin(origin);
-            }
-
-            let status = if paired {
-                PublicPairingStatus::Paired
-            } else if state.pairing.has_pending_pairing_for_origin(origin) {
-                PublicPairingStatus::PendingLocalApproval
-            } else {
-                PublicPairingStatus::Unpaired
-            };
-
-            (paired, status)
-        },
-    );
-
-    Json(PairStatusResponse {
-        current_origin,
-        current_origin_paired,
-        status,
-    })
+    Json(build_pair_status_response(&state.pairing, extract_origin(&headers).ok().as_deref()))
 }
 
 #[derive(Deserialize)]
@@ -341,24 +318,14 @@ pub async fn pair_cancel(
     headers: HeaderMap,
     Json(body): Json<PairCancelRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let origin = extract_origin(&headers).or_else(|_| {
-        body.origin
-            .as_deref()
-            .map(str::trim)
-            .filter(|origin| !origin.is_empty())
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing cancel request".to_string()))
-    })?;
+    let origin = resolve_pair_cancel_origin(&headers, body.origin.as_deref())?;
 
     state.pairing.cancel(&body.pairing_id, &origin).map_err(ApiError::BadRequest)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// `DELETE /api/pair/current` — remove the current browser origin's pairing.
-pub async fn delete_current_pairing(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Result<StatusCode, ApiError> {
+pub async fn delete_current_pairing(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
     let origin = extract_origin(&headers)?;
     state.pairing.unpair(&origin).map_err(ApiError::BadRequest)?;
     Ok(StatusCode::NO_CONTENT)
@@ -1202,6 +1169,41 @@ fn extract_origin_from_pair_initiate_request(body: &PairInitiateRequest) -> Resu
         .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing request".to_string()))
 }
 
+fn build_pair_status_response(pairing: &PairingState, current_origin: Option<&str>) -> PairStatusResponse {
+    let (current_origin_paired, status) = current_origin.map_or((false, PublicPairingStatus::Unpaired), |origin| {
+        let paired = pairing.get_secret_for_origin(origin).is_some();
+        if paired && !pairing.is_origin_paired(origin) {
+            pairing.record_verified_origin(origin);
+        }
+
+        let status = if paired {
+            PublicPairingStatus::Paired
+        } else if pairing.has_pending_pairing_for_origin(origin) {
+            PublicPairingStatus::PendingLocalApproval
+        } else {
+            PublicPairingStatus::Unpaired
+        };
+
+        (paired, status)
+    });
+
+    PairStatusResponse {
+        current_origin: current_origin.map(ToOwned::to_owned),
+        current_origin_paired,
+        status,
+    }
+}
+
+fn resolve_pair_cancel_origin(headers: &HeaderMap, request_origin: Option<&str>) -> Result<String, ApiError> {
+    extract_origin(headers).or_else(|_| {
+        request_origin
+            .map(str::trim)
+            .filter(|origin| !origin.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing cancel request".to_string()))
+    })
+}
+
 /// Map an I/O error to an appropriate API error with context.
 fn map_io_error(err: std::io::Error, path: &std::path::Path) -> ApiError {
     let path_display = path.display();
@@ -1351,7 +1353,11 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_drive_relative_path;
+    use super::{build_pair_status_response, normalize_drive_relative_path, resolve_pair_cancel_origin};
+    use crate::server::models::PublicPairingStatus;
+    use crate::server::pairing::PairingState;
+    use axum::http::{HeaderMap, HeaderValue};
+    const NONCE_A: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 
     #[test]
     fn normalizes_same_drive_absolute_windows_paths() {
@@ -1364,5 +1370,36 @@ mod tests {
     fn rejects_absolute_paths_for_different_windows_drive() {
         let err = normalize_drive_relative_path("d", r"c:\temp").unwrap_err();
         assert!(format!("{err}").contains("Path targets drive c, not drive d"));
+    }
+
+    #[test]
+    fn pair_status_reports_pending_local_approval_for_current_origin() {
+        let pairing = PairingState::new();
+        pairing.initiate(NONCE_A, "https://sambee.example").unwrap();
+
+        let response = build_pair_status_response(&pairing, Some("https://sambee.example"));
+
+        assert_eq!(response.current_origin.as_deref(), Some("https://sambee.example"));
+        assert!(!response.current_origin_paired);
+        assert_eq!(response.status, PublicPairingStatus::PendingLocalApproval);
+    }
+
+    #[test]
+    fn resolve_pair_cancel_origin_prefers_header_origin() {
+        let mut headers = HeaderMap::new();
+        headers.insert("origin", HeaderValue::from_static("https://sambee.example"));
+
+        let origin = resolve_pair_cancel_origin(&headers, Some("https://fallback.example")).unwrap();
+
+        assert_eq!(origin, "https://sambee.example");
+    }
+
+    #[test]
+    fn resolve_pair_cancel_origin_falls_back_to_request_body() {
+        let headers = HeaderMap::new();
+
+        let origin = resolve_pair_cancel_origin(&headers, Some("https://fallback.example")).unwrap();
+
+        assert_eq!(origin, "https://fallback.example");
     }
 }

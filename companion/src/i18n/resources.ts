@@ -16,10 +16,10 @@ export const EN_TRANSLATIONS = {
   },
   pairing: {
     idleMessage: "Waiting for a pairing request.",
-    eyebrow: "Pair with Browser",
-    title: "Confirm this pairing request",
+    eyebrow: "Approve Browser Origin",
+    title: "Confirm this browser origin",
     closeTitle: "Close",
-    body: "Sambee in the browser wants to pair with this companion instance.",
+    body: "Sambee in the browser wants this origin to access local drives through this companion.",
     labels: {
       requestingOrigin: "Requesting origin",
       verificationCode: "Verification code",
@@ -33,11 +33,11 @@ export const EN_TRANSLATIONS = {
     approved: {
       title: "Approval sent",
       body: "The codes matched for {{origin}}.",
-      hint: "Waiting for Sambee to finish storing the pairing.",
+      hint: "Waiting for Sambee to finish storing trust for this origin.",
     },
     success: {
-      title: "Pairing successful",
-      body: "This browser is now paired with Sambee Companion and can access local drives.",
+      title: "Origin approved",
+      body: "This browser origin is now trusted by Sambee Companion and can access local drives.",
       hint: "This window will close automatically in a moment.",
     },
   },
@@ -114,7 +114,8 @@ export const EN_TRANSLATIONS = {
     authRefreshedRetryUpload: "Authentication was refreshed. Click Upload again to retry sending this file to the server.",
     lifecycle: {
       renewalRequired: "This recovered edit session expired before it could upload. Reopen the file from Sambee or discard this temp copy.",
-      authFailed: "Companion could not prove this recovered edit session is still authorized. Reopen the file from Sambee or discard this temp copy.",
+      authFailed:
+        "Companion could not prove this recovered edit session is still authorized. Reopen the file from Sambee or discard this temp copy.",
       lockLost: "The server lock for this recovered edit session is gone. Reopen the file from Sambee or discard this temp copy.",
       recoveryRequired: "This recovered edit session expired and cannot be resumed. Reopen the file from Sambee or discard this temp copy.",
     },
@@ -145,7 +146,7 @@ export const EN_TRANSLATIONS = {
     title: "Preferences",
     closeTitle: "Close",
     sections: {
-      pairedBrowsers: "Paired Browsers",
+      pairedBrowsers: "Trusted Browser Origins",
       localization: "Localization",
       editingBehavior: "Editing Behavior",
       startup: "Startup",
@@ -153,19 +154,20 @@ export const EN_TRANSLATIONS = {
       notifications: "Notifications",
       tempFileCleanup: "Temp File Cleanup",
     },
-    pairedBrowsersHint: "These browser origins can access local drives through this companion. Removing one forces it to pair again.",
-    pairedBrowsersEmpty: "No browsers are currently paired with this companion.",
-    localizationStatusHint: "Shows the last localization synchronized from a paired Sambee browser.",
+    pairedBrowsersHint:
+      "These trusted browser origins can access local drives through this companion. Removing one forces that origin to request approval again.",
+    pairedBrowsersEmpty: "No browser origins are currently trusted by this companion.",
+    localizationStatusHint: "Shows the last localization synchronized from a trusted Sambee browser origin.",
     localizationStatus: {
       syncedBadge: "Synced from browser",
       languageLabel: "Language",
       regionalLocaleLabel: "Regional locale",
       updatedAtLabel: "Last updated",
-      sourceOriginLabel: "Source browser",
+      sourceOriginLabel: "Source origin",
       empty: "No browser localization has been synchronized yet.",
     },
-    unpairTitle: "Unpair browser",
-    unpairButton: "Unpair",
+    unpairTitle: "Remove trusted origin",
+    unpairButton: "Remove",
     conflictResolutionLabel: "Upload conflict resolution",
     conflictResolutionHint: "What to do when the file on the server changed while you were editing.",
     conflictActions: {
@@ -216,9 +218,9 @@ export const EN_TRANSLATIONS = {
     retentionHint: "Recycled temp files older than this are automatically deleted on startup (1–90).",
     savedIndicator: "Saved ✓",
     confirmUnpair: {
-      title: "Unpair browser?",
-      body: "{{origin}} will lose access to local drives until it pairs with this companion again.",
-      unpairing: "Unpairing…",
+      title: "Remove trusted origin?",
+      body: "{{origin}} will lose access to local drives until it requests approval from this companion again.",
+      unpairing: "Removing…",
     },
   },
 } satisfies TranslationTree;

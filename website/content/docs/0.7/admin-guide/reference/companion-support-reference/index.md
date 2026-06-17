@@ -19,7 +19,7 @@ Localhost traffic is authenticated after pairing, but it is not transport-encryp
 - The companion rejects requests outside the allowed clock-skew window.
 - Pairing is scoped to the browser origin, not just to the machine as a whole.
 
-The shared secret is created only after the user confirms the same pairing code in both the browser and the companion. The companion stores its copy in the OS credential store. The browser stores its copy locally for that paired browser profile.
+The shared secret is created only after the user confirms the same pairing code in both the browser and the companion. The companion stores its copy in the OS credential store. The browser stores its copy locally for that paired browser profile at that Sambee origin.
 
 If you need contributor-level implementation detail, continue to the developer guide page [Browser-to-Companion Trust Model](../../../../0.7/developer-guide/companion-architecture/browser-to-companion-trust-model/).
 
@@ -130,8 +130,11 @@ When collecting Companion logs for a native-editing issue, include:
 
 - Whether the `Sambee Authentication` window appeared.
 - Whether the failure happened during token exchange, file-info lookup, lock acquisition, download, upload, lock release, or heartbeat.
+- Whether Companion reported a lifecycle state such as renewal required, authentication failed, lock lost, or recovery required.
 - The reverse proxy or SSO product in front of Sambee, if one is used.
 - The Companion log file from the affected desktop.
+
+When verbose logging is enabled, include any operation or lock identifiers shown near the failing step. Those identifiers help correlate token exchange, lock acquisition, renewal, upload, and release events without exposing the secret material itself.
 
 Companion sanitizes URLs before writing request diagnostics. Sensitive query values such as tokens, secrets, passwords, cookies, authorization data, sessions, keys, and theme payloads should not appear in support logs.
 

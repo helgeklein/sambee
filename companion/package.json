@@ -1,6 +1,6 @@
 {
   "name": "sambee-companion",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "tauri": "tauri",
     "clean": "npm run clean:rust && rm -rf dist",
     "clean:rust": "cargo clean --manifest-path src-tauri/Cargo.toml",
-    "check:rust:windows": "cross_check_dir=\"$(mktemp -d -t sambee-companion-windows-check-XXXXXX)\" && trap 'rm -rf \"$cross_check_dir\"' EXIT && CARGO_TARGET_DIR=\"$cross_check_dir\" CARGO_INCREMENTAL=0 RUSTFLAGS='-A dead_code' cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-gnu",
+    "check:rust:windows": "mkdir -p src-tauri/target/windows-gnu-check && CARGO_TARGET_DIR=src-tauri/target/windows-gnu-check RUSTFLAGS='-A dead_code' cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-gnu",
     "test": "vitest run",
     "lint": "biome check src",
     "lint:fix": "biome check --write src",

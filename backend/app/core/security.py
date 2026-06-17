@@ -22,6 +22,10 @@ from app.models.user import User
 
 logger = get_logger(__name__)
 
+_COMPANION_URI_TOKEN_CLAIM = "companion_uri"
+_COMPANION_SESSION_TOKEN_CLAIM = "companion_session"
+_COMPANION_SESSION_TOKEN_CLASS = "companion_session"
+
 # Use argon2-cffi directly instead of passlib to avoid deprecation warnings
 _password_hasher = PasswordHasher()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
@@ -65,6 +69,14 @@ def _ensure_user_is_current(user: User | None, failure_exception: HTTPException)
         raise failure_exception
 
     return user
+
+
+def _reject_non_browser_token(payload: dict[str, Any], failure_exception: HTTPException) -> None:
+    if payload.get(_COMPANION_URI_TOKEN_CLAIM):
+        raise failure_exception
+
+    if payload.get(_COMPANION_SESSION_TOKEN_CLAIM) or payload.get("token_class") == _COMPANION_SESSION_TOKEN_CLASS:
+        raise failure_exception
 
 
 #
@@ -180,6 +192,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
             raise credentials_exception
     except InvalidTokenError:
         raise credentials_exception
+
+    _reject_non_browser_token(payload, credentials_exception)
 
     user = _get_user_from_subject(subject, session)
     user = _ensure_user_is_current(user, credentials_exception)

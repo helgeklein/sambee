@@ -10,13 +10,13 @@ Local drives in the browser require all of the following:
 
 - a desktop browser
 - Sambee Companion installed and running on the same computer
-- a completed browser pairing
+- a completed trust approval for this browser
 
 If any of those pieces is missing, continue with [Install and Pair the Companion App](../../companion-app/install-and-pair-the-companion-app/).
 
 ## Explore Local Drives
 
-When Companion is running and paired, local drives appear in the **Connection List** next to SMB connections (keyboard shortcut: <kbd>Ctrl</kbd> + <kbd>Down</kbd>).
+When Companion is running and this browser is paired, local drives appear in the **Connection List** next to SMB connections (keyboard shortcut: <kbd>Ctrl</kbd> + <kbd>Down</kbd>).
 
 The list reflects the drives and mounted volumes that the current desktop user can already access through the operating system. Typical examples include:
 
@@ -32,6 +32,7 @@ Sambee asks Companion for the current drive list when needed. You do not need to
 Open **Settings** > **Local Drives** and check the current status.
 
 - If Companion is not running, start it and refresh the page.
-- If the browser is not paired, pair it with Companion.
+- If the browser is not paired, pair this browser with Companion.
+- If Local Drives reports that pairing needs repair, reapprove this browser so Sambee can store a fresh local browser secret.
 
 For a step-by-step recovery checklist, continue with [Common User Problems](../../troubleshooting/common-user-problems/).

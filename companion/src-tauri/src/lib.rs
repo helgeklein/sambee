@@ -260,9 +260,7 @@ fn classify_startup_token_exchange_error(error: token::TokenExchangeError) -> St
             status: 401 | 403 | 407,
             message,
             ..
-        } => {
-            StartEditLifecycleError::auth_failed(message)
-        }
+        } => StartEditLifecycleError::auth_failed(message),
         other => StartEditLifecycleError::new(other.to_string()),
     }
 }
@@ -308,7 +306,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     // 1.5. Fetch file info for size check and conflict detection baseline
     info!("Step 1.5: Fetching file info...");
     let file_info = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "File metadata lookup", || async {
-        commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
+        commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, None, Some(&session_token)).await
     })
     .await;
 
@@ -469,7 +467,6 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         connection_id: uri.conn_id.clone(),
         remote_path: uri.path.clone(),
         local_path: download_result.local_path.clone(),
-        token: session_token.clone(),
         downloaded_at: std::time::SystemTime::now(),
         original_mtime: download_result.original_mtime,
         status: OperationStatus::Editing,
@@ -664,15 +661,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         download_result.original_mtime,
     );
 
-    commands::open_file::start_heartbeat_task(
-        &app,
-        window_label,
-        operation.id,
-        uri.server,
-        uri.conn_id,
-        uri.path,
-        lock_context,
-    );
+    commands::open_file::start_heartbeat_task(&app, window_label, operation.id, uri.server, uri.conn_id, uri.path, lock_context);
 
     info!("Edit lifecycle started successfully for operation {}", operation.id);
     Ok(())

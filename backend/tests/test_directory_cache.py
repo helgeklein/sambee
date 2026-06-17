@@ -93,10 +93,10 @@ class TestCacheState:
     def test_enum_values(self):
         """Verify all expected cache states exist with correct values."""
 
-        assert CacheState.EMPTY == "empty"
-        assert CacheState.BUILDING == "building"
-        assert CacheState.READY == "ready"
-        assert CacheState.UPDATING == "updating"
+        assert CacheState.EMPTY.value == "empty"
+        assert CacheState.BUILDING.value == "building"
+        assert CacheState.READY.value == "ready"
+        assert CacheState.UPDATING.value == "updating"
 
     def test_enum_is_string(self):
         """Cache states should be usable as strings."""

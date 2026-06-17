@@ -200,10 +200,10 @@ export const EN_TRANSLATIONS = {
       statusLabelActionRequired: "Action required",
       statusLabelUnavailable: "Companion unavailable",
       summaryReadyTitle: "Local drives are ready to use",
-      summaryPairingRequiredTitle: "Pair this browser to use local drives",
+      summaryPairingRequiredTitle: "Pair this browser for local-drive access",
       summaryPendingApprovalTitle: "Finish approval in Sambee Companion",
       summaryRepairTitle: "Repair this browser pairing",
-      summaryUnavailableTitle: "Start or install Sambee Companion",
+      summaryUnavailableTitle: "Start Sambee Companion on this computer",
       companionRunningChecklistLabel: "Companion app is running",
       browserFullyPairedChecklistLabel: "This browser is paired",
       accessSectionTitle: "Local access",
@@ -211,33 +211,35 @@ export const EN_TRANSLATIONS = {
       pairingSectionTitle: "Pair this browser",
       pairingSectionDescription: "Connect this browser to Sambee Companion to browse drives from your computer, too.",
       pairingSectionReady: "This browser is already paired with Sambee Companion.",
-      pairingSectionUnavailable: "Start Sambee Companion on this computer before pairing this browser.",
+      pairingSectionUnavailable: "Start Sambee Companion on this computer, then return here to pair this browser.",
       pairingSectionRequired: "Approve a pairing request in Sambee Companion to unlock local-drive browsing.",
       pairingSectionPendingApproval:
         "A pairing request is already waiting in Sambee Companion. Approve or reject it there before starting another pairing attempt.",
       pairingSectionRepair:
-        "This browser needs to pair again to restore its local secret. Starting a new pairing will replace the missing browser-side secret.",
+        "This browser needs to pair again to restore local-drive access. Starting a new pairing will replace the missing browser-side secret.",
       verificationSectionTitle: "Verify local access",
       verificationSectionDescription: "Run a quick check to confirm this browser can still reach local drives.",
-      verificationSectionReady: "Run a pairing test to confirm local-drive access is working right now.",
+      verificationSectionReady: "Run a quick access check before you open local files from Sambee.",
       verificationSectionBlocked: "Complete pairing first, then run a pairing test from here.",
       troubleshootingSectionTitle: "Manage this browser pairing",
       troubleshootingSectionDescription: "Review or remove the pairing that gives this browser access to local drives.",
-      troubleshootingSectionReady: "Unpair this browser to revoke its local-drive access on this computer.",
+      troubleshootingSectionReady: "Unpair this browser to remove its local-drive access on this computer.",
       loadError: "Failed to load companion status.",
       pairingCreated: "Local drive pairing created.",
       pairingRemoved: "This browser has been unpaired.",
       pairingRemoveFailed: "Failed to remove pairing.",
       pairingTestFailed: "Pairing test failed. Pair this browser again to restore local drive access.",
-      statusUnavailable: "Sambee Companion is not running. Start the companion app to manage local-drive access or create a new pairing.",
-      statusPaired: "This browser is paired with Sambee Companion and can access local drives.",
+      statusUnavailable:
+        "Sambee Companion is not running on this computer. Start it, then return here to pair this browser, test local-drive access, or launch local files from Sambee.",
+      statusPaired: "This browser is paired with Sambee Companion and ready to browse and launch local files from Sambee.",
       statusPendingApproval:
         "A pairing request from this browser is waiting for approval in Sambee Companion. Finish that request there before trying again.",
       statusRecoverable:
-        "This browser origin is known to the companion, but this browser no longer has its local pairing secret. Pair again to restore access.",
+        "This browser was previously paired with Sambee Companion, but its browser-side pairing secret is missing. Pair again to restore local-drive access.",
       statusUnpaired: "This browser is not currently paired with Sambee Companion.",
       downloadSectionTitle: "Install Sambee Companion",
-      downloadSectionDescription: "Download Sambee Companion if it is not installed on this computer yet.",
+      downloadSectionDescription:
+        "Download Sambee Companion if it is not installed on this computer. After installing it, start the app and return here to pair this browser or test local-drive access.",
       downloadSectionSourcePrefix: "Source",
       downloadVersionLabel: "Available version",
       downloadFeedSourceLabel: "Latest promoted release",
@@ -694,14 +696,16 @@ export const EN_TRANSLATIONS = {
           "Backend connection lost. The current UI remains available, but refreshes and live updates may fail until the connection returns.",
         backendReconnecting: "Reconnecting to backend. Live updates may be delayed for a moment.",
         loadingConnections: "Loading connections...",
-        companionLaunchHint: "Opening in Sambee Companion. If nothing happened, make sure the companion app is installed and then try again.",
+        companionLaunchHint:
+          "Opening in Sambee Companion. If nothing happened, make sure the companion app is installed and running. If Companion needs sign-in or recovery, Sambee will reopen here with the next step.",
         companionLifecycle: {
-          renewal_required: "The companion edit session expired before the file could be finished. Open the file from Sambee again to continue editing.",
+          renewal_required:
+            "The companion edit session expired before the file could be finished. Open the file from Sambee again to continue editing.",
           auth_failed:
-            "The companion could not finish signing in to the Sambee backend. Complete sign-in in the companion and then reopen the file from Sambee.",
+            "The companion could not finish signing in to the Sambee backend. Complete sign-in in Companion if prompted, then reopen the file from Sambee.",
           lock_lost: "The companion lost the active edit lock for this file. Reopen the file from Sambee before making more edits.",
           recovery_required:
-            "The companion has an unfinished recovery item for this file. Resolve it in the companion before starting a new edit session from Sambee.",
+            "The companion has an unfinished recovery item for this file. Resolve it from Sambee or in Companion before starting a new edit session.",
         },
       },
       mobileMenu: {

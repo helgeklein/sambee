@@ -13,6 +13,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
+import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
 import {
   type AuthRetryResult,
   getTauriErrorMessage,
@@ -21,7 +22,6 @@ import {
   type LifecycleErrorResult,
   type LifecycleErrorStatus,
 } from "../utils/tauriErrorMarkers";
-import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────

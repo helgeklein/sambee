@@ -15,6 +15,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
+import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
 import {
   type AuthRetryResult,
   type CompletedResult,
@@ -24,7 +25,6 @@ import {
   type LifecycleErrorResult,
   type LifecycleErrorStatus,
 } from "../utils/tauriErrorMarkers";
-import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
 import "../styles/dialog.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,9 +80,9 @@ interface ConflictDialogProps {
   /** Called when the dialog is resolved or cancelled. */
   onResolved: () => void;
   /** Optional override used by browser previews for the overwrite action. */
-  onOverwriteAction?: () => Promise<ConflictResolutionResult | void>;
+  onOverwriteAction?: () => Promise<ConflictResolutionResult | undefined>;
   /** Optional override used by browser previews for the save-copy action. */
-  onSaveCopyAction?: () => Promise<ConflictResolutionResult | void>;
+  onSaveCopyAction?: () => Promise<ConflictResolutionResult | undefined>;
   /** Optional lifecycle hook used by previews/tests to reopen Sambee after a terminal status. */
   onBlockedLifecycleAction?: (status: LifecycleErrorStatus, serverUrl: string) => Promise<void>;
   /** Optional lifecycle hook used by previews after a successful action. */

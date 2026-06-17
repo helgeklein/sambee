@@ -111,9 +111,6 @@ pub struct FileOperation {
     /// Local path to the downloaded temp copy.
     pub local_path: PathBuf,
 
-    /// Companion session JWT (longer-lived, obtained via token exchange).
-    pub token: String,
-
     /// When the file was downloaded.
     pub downloaded_at: SystemTime,
 
@@ -453,7 +450,6 @@ mod tests {
             connection_id: "conn-123".to_string(),
             remote_path: "/docs/report.docx".to_string(),
             local_path: PathBuf::from("/tmp/sambee-companion/test/report-copy.docx"),
-            token: "test-token".to_string(),
             downloaded_at: SystemTime::now(),
             original_mtime: SystemTime::now(),
             status: OperationStatus::Editing,

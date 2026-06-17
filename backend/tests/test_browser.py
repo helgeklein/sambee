@@ -4,13 +4,15 @@ Uses mocked SMB backend to avoid dependency on real SMB server.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app.api.companion import COMPANION_OPERATION_PURPOSE, COMPANION_TOKEN_CLAIM, COMPANION_TOKEN_CLASS
+from app.core.security import create_access_token
 from app.models.connection import Connection, ConnectionScope
 from app.models.edit_lock import EditLock
 from app.models.file import DirectoryListing, FileInfo, FileType
@@ -230,6 +232,88 @@ class TestGetFileInfo:
         assert response.status_code == 404
         assert response.json()["detail"] == "Path not found: /missing.txt"
 
+    def test_get_file_info_accepts_companion_operation_context(
+        self,
+        client: TestClient,
+        admin_user,
+        test_connection: Connection,
+        mock_smb_backend,
+        session: Session,
+    ):
+        """Companion conflict checks should be able to fetch file info with operation-scoped auth."""
+        _, mock_instance = mock_smb_backend
+        edit_lock = EditLock(
+            connection_id=test_connection.id,
+            file_path="/document.txt",
+            locked_by=admin_user.username,
+            last_heartbeat=datetime.now(timezone.utc) - timedelta(seconds=5),
+            operation_id="operation-123",
+            lock_capability="capability-123",
+        )
+        session.add(edit_lock)
+        session.commit()
+        session.refresh(edit_lock)
+        operation_token = create_access_token(
+            data={
+                "sub": admin_user.username,
+                "tv": admin_user.token_version,
+                COMPANION_TOKEN_CLAIM: True,
+                "token_class": COMPANION_TOKEN_CLASS,
+                "purpose": COMPANION_OPERATION_PURPOSE,
+                "conn_id": str(test_connection.id),
+                "path": "/document.txt",
+                "op_id": "operation-123",
+                "lock_id": str(edit_lock.id),
+            }
+        )
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/info",
+            headers={"Authorization": f"Bearer {operation_token}"},
+            params={
+                "path": "/document.txt",
+                "operation_id": "operation-123",
+                "lock_id": str(edit_lock.id),
+                "lock_capability": "capability-123",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["name"] == "document.txt"
+        mock_instance.get_file_info.assert_called_once_with("/document.txt")
+
+    def test_get_file_info_rejects_operation_token_without_operation_context(
+        self,
+        client: TestClient,
+        admin_user,
+        test_connection: Connection,
+        mock_smb_backend,
+    ):
+        """Operation tokens must not authenticate generic browser file-info requests."""
+        _, mock_instance = mock_smb_backend
+        operation_token = create_access_token(
+            data={
+                "sub": admin_user.username,
+                "tv": admin_user.token_version,
+                COMPANION_TOKEN_CLAIM: True,
+                "token_class": COMPANION_TOKEN_CLASS,
+                "purpose": COMPANION_OPERATION_PURPOSE,
+                "conn_id": str(test_connection.id),
+                "path": "/document.txt",
+                "op_id": "operation-123",
+                "lock_id": str(uuid.uuid4()),
+            }
+        )
+
+        response = client.get(
+            f"/api/browse/{test_connection.id}/info",
+            headers={"Authorization": f"Bearer {operation_token}"},
+            params={"path": "/document.txt"},
+        )
+
+        assert response.status_code == 401
+        mock_instance.get_file_info.assert_not_called()
+
 
 @pytest.mark.integration
 class TestBrowserEditLocks:
@@ -253,6 +337,45 @@ class TestBrowserEditLocks:
         assert data["lock_capability"]
         assert data["operation_id"]
         assert data["file_path"] == "/docs/readme.md"
+
+    def test_acquire_browser_edit_lock_replaces_malformed_legacy_lock(
+        self,
+        client: TestClient,
+        auth_headers_user: dict,
+        regular_user,
+        test_connection: Connection,
+        session: Session,
+    ):
+        legacy_lock = EditLock(
+            file_path="/docs/readme.md",
+            connection_id=test_connection.id,
+            locked_by=regular_user.username,
+            operation_id="",
+            lock_capability="",
+            last_heartbeat=datetime.now(timezone.utc),
+        )
+        session.add(legacy_lock)
+        session.commit()
+        session.refresh(legacy_lock)
+        legacy_lock_id = str(legacy_lock.id)
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/lock",
+            headers=auth_headers_user,
+            params={"path": "/docs/readme.md"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["lock_id"] != legacy_lock_id
+        assert data["lock_capability"]
+        assert data["operation_id"]
+
+        replacement_lock = session.exec(select(EditLock).where(EditLock.connection_id == test_connection.id)).one()
+        assert str(replacement_lock.id) == data["lock_id"]
+        assert replacement_lock.lock_capability == data["lock_capability"]
+        assert replacement_lock.operation_id == data["operation_id"]
+        assert replacement_lock.locked_by == regular_user.username
 
     def test_browser_edit_lock_heartbeat_and_release(
         self,
@@ -307,7 +430,6 @@ class TestBrowserEditLocks:
             connection_id=test_connection.id,
             locked_by="testuser",
             operation_id="browser-op",
-            companion_session="legacy-secret",
             lock_capability="browser-capability",
             last_heartbeat=datetime.now(timezone.utc),
         )
@@ -1247,6 +1369,36 @@ class TestValidateItemName:
 @pytest.mark.integration
 class TestUploadFile:
     """Tests for POST /api/browse/{connection_id}/upload"""
+
+    def test_upload_rejects_operation_token_without_operation_context(
+        self,
+        client: TestClient,
+        admin_user,
+        test_connection: Connection,
+    ):
+        """Operation tokens must not authenticate generic browser upload requests."""
+        operation_token = create_access_token(
+            data={
+                "sub": admin_user.username,
+                "tv": admin_user.token_version,
+                COMPANION_TOKEN_CLAIM: True,
+                "token_class": COMPANION_TOKEN_CLASS,
+                "purpose": COMPANION_OPERATION_PURPOSE,
+                "conn_id": str(test_connection.id),
+                "path": "/document.txt",
+                "op_id": "operation-123",
+                "lock_id": str(uuid.uuid4()),
+            }
+        )
+
+        response = client.post(
+            f"/api/browse/{test_connection.id}/upload",
+            headers={"Authorization": f"Bearer {operation_token}"},
+            params={"path": "/document.txt"},
+            files={"file": ("document.txt", b"updated content", "application/octet-stream")},
+        )
+
+        assert response.status_code == 401
 
     #
     # test_upload_success

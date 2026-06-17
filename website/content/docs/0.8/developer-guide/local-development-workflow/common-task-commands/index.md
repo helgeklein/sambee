@@ -16,6 +16,9 @@ Prefer the committed scripts and workspace tasks over improvised one-off command
 | Run fast repo tests | `./scripts/test` |
 | Run repo tests with coverage | `COVERAGE=1 ./scripts/test` |
 
+`./scripts/test` now includes the companion Windows GNU target compatibility check when the local toolchain is available.
+In the devcontainer, that toolchain is preinstalled as part of the image build.
+
 ## Backend Commands
 
 Use these when you are changing backend behavior, API contracts, or SMB handling.
@@ -52,13 +55,24 @@ Use these when local-drive access, native-app editing, or Tauri-side behavior ch
 ```bash
 cd companion && npm run lint
 cd companion && npx tsc --noEmit
+cd companion && npm run check:rust:windows
 cd companion/src-tauri && cargo test
 ```
+
+Use `npm run check:rust:windows` as a local Windows-target compatibility check.
+It runs `cargo check` for `x86_64-pc-windows-gnu` from Linux and is intended to catch cross-target breakage early without replacing the real Windows release build.
 
 Useful related task:
 
 - VS Code task `Companion: Run Rust Tests`
 - VS Code task `Companion: Validation Suite`
+
+The committed devcontainer image now includes:
+
+- the Rust target `x86_64-pc-windows-gnu`
+- the MinGW toolchain package `gcc-mingw-w64-x86-64`
+
+That means a rebuilt devcontainer can run the companion Windows GNU cross-check without extra manual setup.
 
 ## Local Dev Logs and Service Control
 
@@ -173,5 +187,7 @@ That workflow updates the frontend and companion package metadata and related ve
 - smallest relevant change: run the checks for the area you changed
 - cross-boundary change: run checks for every touched subsystem
 - dependency or versioning change: run the affected subsystem checks plus the sync workflow if `VERSION` changed
+
+For companion-native changes that affect packaging, Windows-specific crates, or Tauri platform integration, include the Windows GNU cross-check in the local validation set even when you are not creating release artifacts.
 
 For the broader validation strategy and how to choose depth, continue to [Test Strategy Overview](../../testing-and-quality-gates/test-strategy-overview/).

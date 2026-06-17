@@ -11,7 +11,9 @@ Covers:
 
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import jwt
@@ -21,6 +23,7 @@ from sqlmodel import Session, select
 
 from app.api.companion import (
     COMPANION_BOOTSTRAP_PURPOSE,
+    COMPANION_ERROR_CAPABILITY_MISMATCH,
     COMPANION_OPERATION_PURPOSE,
     COMPANION_TOKEN_CLAIM,
     COMPANION_TOKEN_CLASS,
@@ -28,7 +31,9 @@ from app.api.companion import (
     OPERATION_TOKEN_EXPIRE_MINUTES,
     OPERATION_TOKEN_RENEW_AFTER_SECONDS,
     URI_TOKEN_CLAIM,
+    URI_TOKEN_CLASS,
     URI_TOKEN_EXPIRE_SECONDS,
+    URI_TOKEN_PURPOSE,
     _is_version_compatible,
 )
 from app.core.security import create_access_token
@@ -58,7 +63,7 @@ def clear_used_tokens(session: Session):
 
 
 @pytest.fixture(name="companion_session_token_factory")
-def companion_session_token_factory_fixture():
+def companion_session_token_factory_fixture() -> Callable[..., str]:
     """Build a companion bootstrap token for a given user, connection, and path."""
 
     def factory(user: User, connection: Connection, path: str = "/docs/report.docx") -> str:
@@ -79,13 +84,21 @@ def companion_session_token_factory_fixture():
 
 
 @pytest.fixture(name="admin_companion_session")
-def admin_companion_session_fixture(admin_user: User, test_connection: Connection, companion_session_token_factory) -> str:
-    return companion_session_token_factory(admin_user, test_connection)
+def admin_companion_session_fixture(
+    admin_user: User,
+    test_connection: Connection,
+    companion_session_token_factory: Any,
+) -> str:
+    return cast(str, companion_session_token_factory(admin_user, test_connection))
 
 
 @pytest.fixture(name="user_companion_session")
-def user_companion_session_fixture(regular_user: User, test_connection: Connection, companion_session_token_factory) -> str:
-    return companion_session_token_factory(regular_user, test_connection)
+def user_companion_session_fixture(
+    regular_user: User,
+    test_connection: Connection,
+    companion_session_token_factory: Any,
+) -> str:
+    return cast(str, companion_session_token_factory(regular_user, test_connection))
 
 
 @pytest.fixture(name="admin_companion_headers")
@@ -172,6 +185,8 @@ def uri_token_fixture(admin_user: User, test_connection: Connection) -> str:
         data={
             "sub": admin_user.username,
             URI_TOKEN_CLAIM: True,
+            "token_class": URI_TOKEN_CLASS,
+            "purpose": URI_TOKEN_PURPOSE,
             "jti": uuid.uuid4().hex,
             "conn_id": str(test_connection.id),
             "path": "/docs/report.docx",
@@ -252,7 +267,11 @@ class TestCompanionTokenExchange:
         assert response.status_code == 200
         data = response.json()
         assert "token" in data
-        assert data["expires_in"] > 0
+        assert data["expires_in"] == COMPANION_TOKEN_EXPIRE_MINUTES * 60
+        assert data["token_class"] == COMPANION_TOKEN_CLASS
+        assert data["purpose"] == COMPANION_BOOTSTRAP_PURPOSE
+        assert data["connection_id"]
+        assert data["path"] == "/docs/report.docx"
 
         payload = jwt.decode(data["token"], options={"verify_signature": False})
         assert payload[COMPANION_TOKEN_CLAIM] is True
@@ -457,6 +476,44 @@ class TestLockLifecycle:
         assert response.json()["lock_capability"] == first_response.json()["lock_capability"]
         assert response.json()["operation_id"] == first_response.json()["operation_id"]
 
+    def test_same_user_relock_replaces_malformed_legacy_lock(
+        self,
+        client: TestClient,
+        test_connection: Connection,
+        admin_companion_session: str,
+        session: Session,
+    ):
+        """Same-user re-lock replaces a malformed legacy lock row with a fresh final-protocol lock."""
+
+        legacy_lock = EditLock(
+            file_path="/docs/report.docx",
+            connection_id=test_connection.id,
+            locked_by="testadmin",
+            operation_id="",
+            lock_capability="",
+        )
+        session.add(legacy_lock)
+        session.commit()
+        legacy_lock_id = str(legacy_lock.id)
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["lock_id"] != legacy_lock_id
+        assert data["lock_capability"]
+        assert data["operation_id"]
+
+        replacement_lock = session.exec(select(EditLock).where(EditLock.id == uuid.UUID(data["lock_id"]))).first()
+        assert replacement_lock is not None
+
+        removed_legacy_lock = session.exec(select(EditLock).where(EditLock.id == uuid.UUID(legacy_lock_id))).first()
+        assert removed_legacy_lock is None
+
     def test_acquire_lock_rejects_regular_browser_token(
         self,
         client: TestClient,
@@ -470,6 +527,29 @@ class TestLockLifecycle:
             params={"path": "/docs/report.docx"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
+        assert response.status_code == 401
+
+    def test_acquire_lock_rejects_revoked_bootstrap_token(
+        self,
+        client: TestClient,
+        admin_user: User,
+        test_connection: Connection,
+        companion_session_token_factory,
+        session: Session,
+    ):
+        """Lock acquisition rejects companion bootstrap tokens after token-version revocation."""
+
+        revoked_token = companion_session_token_factory(admin_user, test_connection)
+        admin_user.token_version += 1
+        session.add(admin_user)
+        session.commit()
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(revoked_token),
+        )
+
         assert response.status_code == 401
 
     def test_acquire_lock_rejects_scope_mismatch(
@@ -511,12 +591,13 @@ class TestLockLifecycle:
         # Send heartbeat
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data),
         )
         assert response.status_code == 200
-        assert response.json()["status"] == "ok"
+        assert response.json()["ok"] is True
+        assert response.json()["lock_expires_in"] > 0
+        assert response.json()["operation_expires_in"] > 0
 
     #
     # test_heartbeat_nonexistent_lock
@@ -537,7 +618,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/no-lock.docx"},
             headers=missing_path_headers,
             json={"operation_id": "missing-op", "lock_id": str(uuid.uuid4()), "lock_capability": "missing-capability"},
         )
@@ -570,7 +650,6 @@ class TestLockLifecycle:
         }
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=user_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -593,11 +672,43 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=auth_headers_admin,
             json=build_lock_control_payload(lock_data),
         )
         assert response.status_code == 401
+
+    def test_heartbeat_rejects_revoked_operation_token(
+        self,
+        client: TestClient,
+        admin_user: User,
+        test_connection: Connection,
+        admin_companion_session: str,
+        operation_session_token_factory,
+        session: Session,
+    ):
+        """Heartbeat rejects operation tokens after token-version revocation."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        revoked_headers = {
+            "Authorization": f"Bearer {operation_session_token_factory(admin_user, test_connection, operation_id=lock_data['operation_id'], lock_id=lock_data['lock_id'])}"
+        }
+        admin_user.token_version += 1
+        session.add(admin_user)
+        session.commit()
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/lock/heartbeat",
+            headers=revoked_headers,
+            json=build_lock_control_payload(lock_data),
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"]["code"] == "auth_failed"
 
     def test_heartbeat_rejects_bootstrap_companion_token(
         self,
@@ -616,7 +727,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=admin_companion_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -645,7 +755,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=mismatched_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -667,11 +776,11 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data, lock_capability="wrong-capability"),
         )
         assert response.status_code == 403
+        assert response.json()["detail"]["code"] == COMPANION_ERROR_CAPABILITY_MISMATCH
 
     def test_heartbeat_rejects_wrong_lock_id(
         self,
@@ -689,7 +798,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data, lock_id=str(uuid.uuid4())),
         )
@@ -714,11 +822,39 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/lock/heartbeat",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=payload,
         )
         assert response.status_code == 403
+
+    def test_heartbeat_requires_renewal_near_expiry(
+        self,
+        client: TestClient,
+        admin_user: User,
+        test_connection: Connection,
+        admin_companion_session: str,
+        operation_session_token_factory,
+    ):
+        """Heartbeat returns renewal-required inside the final server threshold."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        renewable_headers = {
+            "Authorization": f"Bearer {operation_session_token_factory(admin_user, test_connection, operation_id=lock_data['operation_id'], lock_id=lock_data['lock_id'], expires_delta=timedelta(seconds=120))}"
+        }
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/lock/heartbeat",
+            headers=renewable_headers,
+            json=build_lock_control_payload(lock_data),
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "renewal_required"
 
     #
     # test_release_lock
@@ -743,11 +879,11 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data),
         )
         assert response.status_code == 200
+        assert response.json()["released"] is True
 
         # Verify lock is gone
         status_resp = client.get(
@@ -755,7 +891,9 @@ class TestLockLifecycle:
             params={"path": "/docs/report.docx"},
             headers=auth_headers_admin,
         )
-        assert status_resp.json()["locked"] is False
+        assert status_resp.json()["lock_active"] is False
+        assert status_resp.json()["lock_id"] is None
+        assert status_resp.json()["operation_id"] is None
 
     #
     # test_release_nonexistent_lock_idempotent
@@ -779,11 +917,11 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/no-lock.docx"},
             headers=missing_path_headers,
             json={"operation_id": "missing-op", "lock_id": missing_lock_id, "lock_capability": "missing-capability"},
         )
         assert response.status_code == 200
+        assert response.json()["released"] is True
 
     #
     # test_release_wrong_user
@@ -812,7 +950,6 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=user_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -836,7 +973,6 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=auth_headers_admin,
             json=build_lock_control_payload(lock_data),
         )
@@ -860,7 +996,6 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=admin_companion_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -890,7 +1025,6 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=mismatched_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -913,11 +1047,11 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data, lock_capability="wrong-capability"),
         )
         assert response.status_code == 403
+        assert response.json()["detail"]["code"] == COMPANION_ERROR_CAPABILITY_MISMATCH
 
     def test_release_rejects_wrong_lock_id(
         self,
@@ -936,7 +1070,6 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data, lock_id=str(uuid.uuid4())),
         )
@@ -962,7 +1095,6 @@ class TestLockLifecycle:
         response = client.request(
             "DELETE",
             f"/api/companion/{test_connection.id}/lock",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=payload,
         )
@@ -990,7 +1122,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/session/renew",
-            params={"path": "/docs/report.docx"},
             headers=renewable_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -1022,7 +1153,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/session/renew",
-            params={"path": "/docs/report.docx"},
             headers=build_operation_headers(lock_data),
             json=build_lock_control_payload(lock_data),
         )
@@ -1046,7 +1176,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/session/renew",
-            params={"path": "/docs/report.docx"},
             headers=auth_headers_admin,
             json=build_lock_control_payload(lock_data),
         )
@@ -1075,13 +1204,12 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/session/renew",
-            params={"path": "/docs/report.docx"},
             headers=renewable_headers,
             json=build_lock_control_payload(lock_data, lock_capability="wrong-capability"),
         )
 
         assert response.status_code == 403
-        assert response.json()["detail"]["code"] == "lock_lost"
+        assert response.json()["detail"]["code"] == COMPANION_ERROR_CAPABILITY_MISMATCH
 
     def test_renew_operation_session_requires_renewal_after_expiry(
         self,
@@ -1105,7 +1233,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/session/renew",
-            params={"path": "/docs/report.docx"},
             headers=expired_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -1148,7 +1275,6 @@ class TestLockLifecycle:
 
         response = client.post(
             f"/api/companion/{test_connection.id}/session/renew",
-            params={"path": "/docs/report.docx"},
             headers=wrong_purpose_headers,
             json=build_lock_control_payload(lock_data),
         )
@@ -1174,7 +1300,7 @@ class TestLockLifecycle:
         client.post(
             f"/api/companion/{test_connection.id}/lock",
             params={"path": "/docs/report.docx"},
-            json={"companion_session": user_companion_session},
+            headers=build_bootstrap_headers(user_companion_session),
         )
 
         # Admin force-unlocks
@@ -1202,7 +1328,7 @@ class TestLockLifecycle:
         client.post(
             f"/api/companion/{test_connection.id}/lock",
             params={"path": "/docs/report.docx"},
-            json={"companion_session": admin_companion_session},
+            headers=build_bootstrap_headers(admin_companion_session),
         )
 
         # Regular user tries to force-unlock
@@ -1240,8 +1366,11 @@ class TestLockStatus:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["locked"] is False
-        assert data["locked_by"] is None
+        assert data["lock_active"] is False
+        assert data["lock_id"] is None
+        assert data["operation_id"] is None
+        assert data["locked_by_current_user"] is False
+        assert data["expires_in"] == 0
 
     #
     # test_lock_status_locked
@@ -1259,7 +1388,7 @@ class TestLockStatus:
         client.post(
             f"/api/companion/{test_connection.id}/lock",
             params={"path": "/docs/report.docx"},
-            json={"companion_session": admin_companion_session},
+            headers=build_bootstrap_headers(admin_companion_session),
         )
 
         response = client.get(
@@ -1269,8 +1398,15 @@ class TestLockStatus:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["locked"] is True
-        assert data["locked_by"] == "testadmin"
+        assert data["lock_active"] is True
+        assert data["locked_by_current_user"] is True
+        assert data["lock_id"]
+        assert data["operation_id"]
+        assert data["expires_in"] > 0
+        assert "lock_capability" not in data
+        assert "operation_token" not in data
+        assert "companion_session" not in data
+        assert "token" not in data
 
     #
     # test_lock_status_expired_not_shown
@@ -1290,7 +1426,6 @@ class TestLockStatus:
             connection_id=test_connection.id,
             locked_by="testadmin",
             operation_id="expired-op",
-            companion_session="",
             lock_capability="expired-capability",
             last_heartbeat=datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS + 60),
         )
@@ -1303,7 +1438,7 @@ class TestLockStatus:
             headers=auth_headers_admin,
         )
         assert response.status_code == 200
-        assert response.json()["locked"] is False
+        assert response.json()["lock_active"] is False
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1312,7 +1447,7 @@ class TestLockStatus:
 
 
 class TestOperationScopedFileTransfer:
-    """Tests for operation-scoped download and upload on shared endpoints."""
+    """Tests for operation-scoped companion download and upload endpoints."""
 
     def test_download_accepts_operation_session(
         self,
@@ -1328,12 +1463,12 @@ class TestOperationScopedFileTransfer:
             headers=build_bootstrap_headers(admin_companion_session),
         ).json()
 
-        with patch("app.api.viewer.SMBBackend") as mock_backend:
+        with patch("app.api.companion.SMBBackend") as mock_backend:
             backend_instance = AsyncMock()
             backend_instance.get_file_info.return_value = type(
                 "FileInfoStub",
                 (),
-                {"name": "report.docx", "size": 14, "type": "file"},
+                {"name": "report.docx", "size": 14, "type": "file", "mime_type": "application/octet-stream"},
             )()
 
             async def read_file(_path, **_kwargs):
@@ -1345,9 +1480,13 @@ class TestOperationScopedFileTransfer:
             mock_backend.return_value = backend_instance
 
             response = client.get(
-                f"/api/viewer/{test_connection.id}/download",
+                f"/api/companion/{test_connection.id}/download",
                 headers=build_operation_headers(lock_data),
-                params={"path": "/docs/report.docx", **build_operation_query(lock_data)},
+                params={
+                    "path": "/docs/report.docx",
+                    "operation_id": lock_data["operation_id"],
+                    "lock_id": lock_data["lock_id"],
+                },
             )
 
         assert response.status_code == 200
@@ -1369,12 +1508,98 @@ class TestOperationScopedFileTransfer:
         ).json()
 
         response = client.get(
-            f"/api/viewer/{test_connection.id}/download",
+            f"/api/companion/{test_connection.id}/download",
             headers=auth_headers_admin,
-            params={"path": "/docs/report.docx", **build_operation_query(lock_data)},
+            params={
+                "path": "/docs/report.docx",
+                "operation_id": lock_data["operation_id"],
+                "lock_id": lock_data["lock_id"],
+            },
         )
 
         assert response.status_code == 401
+
+    def test_download_rejects_operation_token_without_operation_scope(
+        self,
+        client: TestClient,
+        test_connection: Connection,
+        admin_companion_session: str,
+    ):
+        """Download rejects operation tokens when the generic viewer path is used."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        response = client.get(
+            f"/api/companion/{test_connection.id}/download",
+            headers=build_operation_headers(lock_data),
+            params={"path": "/docs/report.docx"},
+        )
+
+        assert response.status_code == 422
+
+    def test_download_requires_renewal_near_expiry(
+        self,
+        client: TestClient,
+        admin_user: User,
+        test_connection: Connection,
+        admin_companion_session: str,
+        operation_session_token_factory,
+    ):
+        """Companion download returns renewal-required inside the final server threshold."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        renewable_headers = {
+            "Authorization": f"Bearer {operation_session_token_factory(admin_user, test_connection, operation_id=lock_data['operation_id'], lock_id=lock_data['lock_id'], expires_delta=timedelta(seconds=120))}"
+        }
+
+        response = client.get(
+            f"/api/companion/{test_connection.id}/download",
+            headers=renewable_headers,
+            params={
+                "path": "/docs/report.docx",
+                "operation_id": lock_data["operation_id"],
+                "lock_id": lock_data["lock_id"],
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "renewal_required"
+
+    def test_download_rejects_path_scope_mismatch(
+        self,
+        client: TestClient,
+        test_connection: Connection,
+        admin_companion_session: str,
+    ):
+        """Companion download rejects operation requests for a different file path."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        response = client.get(
+            f"/api/companion/{test_connection.id}/download",
+            headers=build_operation_headers(lock_data),
+            params={
+                "path": "/docs/other.docx",
+                "operation_id": lock_data["operation_id"],
+                "lock_id": lock_data["lock_id"],
+            },
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "lock_lost"
 
     def test_upload_accepts_operation_session(
         self,
@@ -1398,17 +1623,21 @@ class TestOperationScopedFileTransfer:
             modified_at=datetime(2026, 2, 9, 14, 0, 0),
         )
 
-        with patch("app.api.browser.SMBBackend") as mock_backend:
+        with patch("app.api.companion.SMBBackend") as mock_backend:
             backend_instance = AsyncMock()
             backend_instance.write_file = AsyncMock(return_value=100)
             backend_instance.get_file_info = AsyncMock(return_value=mock_info)
             mock_backend.return_value = backend_instance
 
             response = client.post(
-                f"/api/browse/{test_connection.id}/upload",
+                f"/api/companion/{test_connection.id}/upload",
                 headers=build_operation_headers(lock_data),
-                params={"path": "/docs/report.docx", **build_operation_query(lock_data)},
-                files={"file": ("report.docx", b"updated content", "application/octet-stream")},
+                files={
+                    "operation_id": (None, lock_data["operation_id"]),
+                    "lock_id": (None, lock_data["lock_id"]),
+                    "lock_capability": (None, lock_data["lock_capability"]),
+                    "file": ("report.docx", b"updated content", "application/octet-stream"),
+                },
             )
 
         assert response.status_code == 200
@@ -1430,10 +1659,14 @@ class TestOperationScopedFileTransfer:
         ).json()
 
         response = client.post(
-            f"/api/browse/{test_connection.id}/upload",
+            f"/api/companion/{test_connection.id}/upload",
             headers=auth_headers_admin,
-            params={"path": "/docs/report.docx", **build_operation_query(lock_data)},
-            files={"file": ("report.docx", b"updated content", "application/octet-stream")},
+            files={
+                "operation_id": (None, lock_data["operation_id"]),
+                "lock_id": (None, lock_data["lock_id"]),
+                "lock_capability": (None, lock_data["lock_capability"]),
+                "file": ("report.docx", b"updated content", "application/octet-stream"),
+            },
         )
 
         assert response.status_code == 401
@@ -1461,10 +1694,104 @@ class TestOperationScopedFileTransfer:
         assert force_response.status_code == 200
 
         response = client.post(
-            f"/api/browse/{test_connection.id}/upload",
+            f"/api/companion/{test_connection.id}/upload",
             headers=build_operation_headers(lock_data),
-            params={"path": "/docs/report.docx", **build_operation_query(lock_data)},
-            files={"file": ("report.docx", b"updated content", "application/octet-stream")},
+            files={
+                "operation_id": (None, lock_data["operation_id"]),
+                "lock_id": (None, lock_data["lock_id"]),
+                "lock_capability": (None, lock_data["lock_capability"]),
+                "file": ("report.docx", b"updated content", "application/octet-stream"),
+            },
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "lock_lost"
+
+    def test_upload_requires_renewal_near_expiry(
+        self,
+        client: TestClient,
+        admin_user: User,
+        test_connection: Connection,
+        admin_companion_session: str,
+        operation_session_token_factory,
+    ):
+        """Companion upload returns renewal-required inside the final server threshold."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        renewable_headers = {
+            "Authorization": f"Bearer {operation_session_token_factory(admin_user, test_connection, operation_id=lock_data['operation_id'], lock_id=lock_data['lock_id'], expires_delta=timedelta(seconds=120))}"
+        }
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/upload",
+            headers=renewable_headers,
+            files={
+                "operation_id": (None, lock_data["operation_id"]),
+                "lock_id": (None, lock_data["lock_id"]),
+                "lock_capability": (None, lock_data["lock_capability"]),
+                "file": ("report.docx", b"updated content", "application/octet-stream"),
+            },
+        )
+
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "renewal_required"
+
+    def test_upload_rejects_wrong_operation_id(
+        self,
+        client: TestClient,
+        test_connection: Connection,
+        admin_companion_session: str,
+    ):
+        """Operation-scoped upload rejects a mismatched operation ID."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/upload",
+            headers=build_operation_headers(lock_data),
+            files={
+                "operation_id": (None, "wrong-operation"),
+                "lock_id": (None, lock_data["lock_id"]),
+                "lock_capability": (None, lock_data["lock_capability"]),
+                "file": ("report.docx", b"updated content", "application/octet-stream"),
+            },
+        )
+
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "lock_lost"
+
+    def test_upload_rejects_wrong_lock_id(
+        self,
+        client: TestClient,
+        test_connection: Connection,
+        admin_companion_session: str,
+    ):
+        """Operation-scoped upload rejects a mismatched lock ID."""
+
+        lock_data = client.post(
+            f"/api/companion/{test_connection.id}/lock",
+            params={"path": "/docs/report.docx"},
+            headers=build_bootstrap_headers(admin_companion_session),
+        ).json()
+
+        response = client.post(
+            f"/api/companion/{test_connection.id}/upload",
+            headers=build_operation_headers(lock_data),
+            files={
+                "operation_id": (None, lock_data["operation_id"]),
+                "lock_id": (None, str(uuid.uuid4())),
+                "lock_capability": (None, lock_data["lock_capability"]),
+                "file": ("report.docx", b"updated content", "application/octet-stream"),
+            },
         )
 
         assert response.status_code == 404
@@ -1664,7 +1991,6 @@ class TestOrphanLockCleanup:
             locked_by="crashed_user",
             operation_id="orphan-op",
             lock_capability="top-secret-capability",
-            companion_session="dead-session",
             last_heartbeat=datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS + 300),
         )
         session.add(orphaned)
@@ -1694,7 +2020,6 @@ class TestOrphanLockCleanup:
             file_path="/docs/active.docx",
             connection_id=test_connection.id,
             locked_by="active_user",
-            companion_session="alive-session",
             last_heartbeat=datetime.now(timezone.utc),
         )
         session.add(active)

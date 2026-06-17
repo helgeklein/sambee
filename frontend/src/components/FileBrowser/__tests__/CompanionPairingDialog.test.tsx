@@ -10,9 +10,16 @@ describe("CompanionPairingDialog", () => {
     ["Space", " "],
   ])("starts pairing when %s is pressed on the focused start button", async (_label, key) => {
     const onInitiate = vi.fn().mockResolvedValue({ pairingId: "pair-1", pairingCode: "ABC123" });
+    const onCancel = vi.fn().mockResolvedValue(undefined);
 
     render(
-      <CompanionPairingDialog open={true} onClose={vi.fn()} onInitiate={onInitiate} onConfirm={vi.fn().mockResolvedValue(undefined)} />
+      <CompanionPairingDialog
+        open={true}
+        onClose={vi.fn()}
+        onInitiate={onInitiate}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+        onCancel={onCancel}
+      />
     );
 
     const startButton = screen.getByRole("button", { name: COMPANION_PAIRING_DIALOG_COPY.startButton });
@@ -32,8 +39,9 @@ describe("CompanionPairingDialog", () => {
     const user = userEvent.setup();
     const onInitiate = vi.fn().mockResolvedValue({ pairingId: "pair-1", pairingCode: "ABC123" });
     const onConfirm = vi.fn().mockResolvedValue(undefined);
+    const onCancel = vi.fn().mockResolvedValue(undefined);
 
-    render(<CompanionPairingDialog open={true} onClose={vi.fn()} onInitiate={onInitiate} onConfirm={onConfirm} />);
+    render(<CompanionPairingDialog open={true} onClose={vi.fn()} onInitiate={onInitiate} onConfirm={onConfirm} onCancel={onCancel} />);
 
     await user.click(screen.getByRole("button", { name: COMPANION_PAIRING_DIALOG_COPY.startButton }));
 
@@ -44,6 +52,39 @@ describe("CompanionPairingDialog", () => {
 
     await waitFor(() => {
       expect(onConfirm).toHaveBeenCalledWith("pair-1");
+    });
+  });
+
+  it("cancels a pending pairing when the parent closes the dialog", async () => {
+    const user = userEvent.setup();
+    const onInitiate = vi.fn().mockResolvedValue({ pairingId: "pair-1", pairingCode: "ABC123" });
+    const onCancel = vi.fn().mockResolvedValue(undefined);
+
+    const { rerender } = render(
+      <CompanionPairingDialog
+        open={true}
+        onClose={vi.fn()}
+        onInitiate={onInitiate}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+        onCancel={onCancel}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: COMPANION_PAIRING_DIALOG_COPY.startButton }));
+    await screen.findByRole("button", { name: COMPANION_PAIRING_DIALOG_COPY.confirmButton });
+
+    rerender(
+      <CompanionPairingDialog
+        open={false}
+        onClose={vi.fn()}
+        onInitiate={onInitiate}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+        onCancel={onCancel}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onCancel).toHaveBeenCalledWith("pair-1");
     });
   });
 });

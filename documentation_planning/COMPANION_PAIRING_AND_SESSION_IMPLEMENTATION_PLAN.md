@@ -132,7 +132,7 @@ This phase should not redesign the backend edit-session contract yet. It should 
 
 1. Update developer documentation to explain the tightened localhost trust boundary, exact-origin pairing approval, loopback development-origin behavior, and the new origin-scoped pairing status model. ✅
 2. Update any companion setup or troubleshooting docs that currently describe global pairing state, hostname-based trust, or silently expiring pending pairings. ✅
-3. Add release notes for the Phase 1 behavioral changes so internal testers know what pairing, cancellation, re-pair, and localhost behavior should now look like.
+3. Release notes for the Phase 1 behavioral changes are not required for the current pre-production release train. N/A
 
 ### Phase 1 implementation status
 
@@ -148,7 +148,7 @@ Completed in the current codebase:
 
 Still remaining inside Phase 1:
 
-1. Add release notes for the shipped Phase 1 behavioral changes so internal testers know what pairing, cancellation, re-pair, and localhost behavior should now look like.
+None. ✅
 
 ### Phase 1 acceptance criteria
 
@@ -301,7 +301,7 @@ Current frontend implementation status:
 5. The companion Done Editing, conflict-resolution, and recovery terminal-state flows now reopen the browser on the Sambee `/browse` page with a typed `companion_status` query for `renewal_required`, `auth_failed`, `lock_lost`, and `recovery_required`, giving the user a concrete browser recovery path. ✅
 6. Companion operation-token validation now emits structured `auth_failed` and `recovery_required` states, so the browser receiver path has active producer coverage for all four browser-visible lifecycle statuses. ✅
 7. Companion startup auth failures that occur before the native edit window opens now also use the browser receiver path, reducing launch failures that previously stopped at a local notification only. ✅
-8. Companion-download and launch guidance still needs a final review against the Phase 2 protocol and browser UX. ⏳
+8. Companion-download and launch guidance in the browser and Local Drives settings now reflects the Phase 2 protocol and browser recovery UX, including the expectation that Sambee may return here with the next step after Companion sign-in or recovery failures. ✅
 
 ### Phase 2E: Data migration and cutover
 
@@ -310,17 +310,24 @@ Current frontend implementation status:
    - operation session state, if persisted
    - lock capability storage, if persisted
 2. Backfill or clear legacy lock rows in a way that does not leave stale bearer material behind.
+   Current status: schema migration 11 rebuilds `edit_locks` without the legacy `companion_session` column, preserving active lock rows while eliminating the persisted bearer-shaped field and its index. ✅
 3. Remove legacy lock-token fields from application models in the same coordinated release.
+   Current status: the active `EditLock` application model and lock create/refresh paths no longer carry the legacy persisted `companion_session` field. ✅
 4. Cut over companion and frontend to the new protocol only after the backend contract is deployed and verified in staging.
 5. Validate the full deep-link to edit, heartbeat, upload, and release lifecycle in staging before production rollout.
+   Current status: local pre-staging verification now covers the migrated-schema replay and lifecycle contract via backend tests for URI token exchange and replay, lock acquire, heartbeat, renewal, operation-scoped download and upload, lock release, wrong-capability rejection, and lock-status secrecy, plus companion-side tests for startup auth handoff and structured lifecycle error decoding. A live deployed staging pass is still required before rollout.
 
 ### Phase 2 documentation tasks
 
 1. Publish developer documentation for the new token classes, lock ownership model, and renewal flow.
+   Current status: the `0.7` companion architecture docs now publish the shipped bootstrap-token, operation-token, lock-ownership, renewal, and heartbeat model for developers. ✅
 2. Document the Phase 2 protocol contract and endpoint expectations in the repository docs, using the protocol spec draft as the source.
+   Current status: the repository docs now describe the shipped browser-to-companion trust boundary, native-edit lifecycle, and save-back contract, while the protocol spec draft remains the detailed planning reference. ✅
 3. Update operational troubleshooting docs for token exchange failures, renewal-required states, lock-loss handling, and replay rejection.
+   Current status: the `0.7` companion support reference and related user-facing troubleshooting docs now describe token-exchange/authentication failures, renewal-required and lock-loss style lifecycle states, and the identifiers operators should capture during troubleshooting. ✅
 4. Document any schema or data migration steps needed for coordinated rollout.
-5. Add release notes that call out the coordinated breaking cutover across backend, companion, and frontend.
+   Current status: the coordinated migration and cutover steps are captured directly in this implementation plan under Phase 2E. Separate public rollout notes are not required for the current pre-production release train. N/A
+5. Release notes for the coordinated breaking cutover are not required for the current pre-production release train. N/A
 
 ### Phase 2 acceptance criteria
 
@@ -333,6 +340,8 @@ Current frontend implementation status:
 - Full edit-session flow succeeds end to end using only the new protocol.
 - Developer and operational docs describe the new token, lock, renewal, and recovery model well enough for another engineer to implement or debug the flow without reading old code paths first.
 
+Current status: all documentation and local pre-staging acceptance criteria are satisfied. The only remaining unresolved Phase 2 gate is live deployed staging validation of the end-to-end edit flow.
+
 ### Phase 2 test plan
 
 1. Backend test: companion endpoints reject normal browser access tokens.
@@ -343,34 +352,49 @@ Current frontend implementation status:
 6. Companion integration test: long edit session renews successfully before expiry.
 7. Companion integration test: renewal-needed state is surfaced clearly when renewal fails.
 8. End-to-end test: deep link, lock acquisition, download, heartbeat, upload, and release work under the new protocol.
+9. Local pre-staging verification completed: migrated-schema backend lifecycle suite and companion deep-link/lifecycle interpretation checks pass. Live staging remains pending.
 
 ## Phase 3: Cleanup And UX Refinement
 
 ### Backend tasks
 
 1. Remove rollout-only migration guards and dead code from the companion auth path.
+   Current status: same-user re-lock no longer mutates malformed legacy lock rows in place to backfill missing `operation_id` or `lock_capability`. Both the companion lock path and the browser markdown-edit lock path now replace that stale cutover-era state with a fresh final-protocol lock, removing the active re-lock compatibility branch from live lock acquisition. ✅
 2. Remove obsolete legacy DTOs, endpoints, and compatibility branches.
+   Current status: the companion API bootstrap-token exchange layer now uses explicit bootstrap-token DTO and helper naming in place of the old generic session terminology, and the shared browser file-info route now accepts operation-scoped companion auth so native steady-state edit flows no longer need a browser-style bootstrap token fallback for conflict checks. ✅
 3. Tighten validation and log formatting based on what was learned in staging.
+   Current status: operation-token validation details, lifecycle lock-loss messages, and companion token-exchange docstrings now use bootstrap-token and edit-session terminology instead of the old generic companion-session wording. ✅
 
 ### Companion tasks
 
 1. Remove rollout-only branches from the edit-session and pairing code paths.
+   Current status: active edit operations no longer persist the older bootstrap token just to support conflict checks. Once the lock context is established, companion file-info conflict detection now reuses the operation-scoped token plus `operation_id`, `lock_id`, and `lock_capability`, removing a transitional auth branch from the steady-state edit lifecycle. ✅
 2. Simplify preferences and pairing-management UI around the finalized trust boundary.
+   Current status: the companion pairing window and preferences surface now speak in terms of approving browser origins and managing trusted browser origins for local-drive access, removing the older generic paired-browser wording from the native trust-management UI. ✅
 3. Confirm companion diagnostics reflect the new terminology: origin-scoped pairing, operation session, lock ID, renewal.
+   Current status: companion-side pairing diagnostics now log origin-aware approval and rejection events, and the remaining native copy uses origin-scoped pairing, edit-session, and trusted-origin terminology instead of older generic pairing language. ✅
 
 ### Frontend tasks
 
 1. Reduce unnecessary polling and move toward backoff or event-driven refresh where practical.
+   Current status: Local Drives settings now use visibility-aware, status-aware polling backoff instead of a fixed 1-second visible-page interval, with faster refresh while approval is pending and slower steady-state refresh once the pairing state is stable. ✅
 2. Simplify local-drive settings UX around the final typed status model.
+   Current status: Local Drives settings now derive summary, pairing, verification, and troubleshooting sections from one explicit view state (`unavailable`, `unpaired`, `pending_local_approval`, `needs_repair`, `paired`) instead of overlapping booleans, making the final origin-scoped pairing model the direct UI driver. ✅
 3. Remove legacy messaging based on the old global-paired or old token assumptions.
+   Current status: Local Drives copy now speaks in terms of browser pairing, local-drive access, and recovery of the browser-side secret rather than older generic pairing or token wording. ✅
 
 ### Documentation tasks
 
 1. Update end-user docs for pairing, local-drive access, native edit launch, and recovery flows.
+   Current status: the `0.7` end-user docs now describe browser-specific pairing, local-drive pairing repair, and the current desktop-edit recovery guidance on the Companion install/pair, Local Drives, troubleshooting, and desktop-editing pages. ✅
 2. Update admin or operator docs for companion deployment, trusted-origin expectations, and troubleshooting.
+   Current status: the `0.7` companion support reference now explains that browser trust is stored per Sambee origin and asks operators to capture lifecycle states plus operation and lock identifiers during native-edit troubleshooting. ✅
 3. Update developer docs so the final architecture, identifiers, and endpoint semantics match the shipped system rather than the transitional plan.
+   Current status: the `0.7` companion architecture docs now describe the shipped bootstrap-token handoff, operation-scoped token plus lock-context model, renewal and heartbeat behavior, and Companion HTTP/1.1 reverse-proxy posture instead of the older generic session-token narrative. ✅
 4. Remove or rewrite obsolete docs that describe the old bearer-token lock model, old global paired status, or the previous edit-session flow.
+   Current status: the affected `0.7` end-user, operator, and companion-architecture pages no longer describe global browser pairing or the older generic session-token wording. ✅
 5. Validate all docs changes with the repository docs tooling before the phase is considered complete.
+   Current status: `cd /workspace/website && npm run docs:validate` passes after the Phase 3 docs updates. ✅
 
 ### Phase 3 acceptance criteria
 
@@ -378,6 +402,8 @@ Current frontend implementation status:
 - No user-facing UI depends on the old global pairing model.
 - Observability and support flows use the new identifiers and state terminology consistently.
 - End-user, developer, and operational docs consistently describe the shipped behavior and no longer describe the retired protocol.
+
+Current status: all Phase 3 acceptance criteria are satisfied in the current codebase and docs set. ✅
 
 ## Cross-Cutting Task List By Repository
 
@@ -414,7 +440,7 @@ Current frontend implementation status:
 ## Suggested Delivery Order Within Engineering
 
 1. ✅ Freeze the concrete Phase 2 protocol contract.
-2. Finish the remaining Phase 1 release notes so the shipped localhost hardening baseline is fully closed.
+2. Phase 1 release notes are not required for the current pre-production release train.
 3. Build backend Phase 2 foundations first: token classes, JTI store, lock model, renewal endpoints.
 4. Update companion to the new Phase 2 protocol.
 5. Update frontend assumptions and state handling required by the new protocol.
@@ -430,6 +456,8 @@ Current frontend implementation status:
 - Long-running native edits survive routine expiry through bounded renewal, or fail into a clear recovery state.
 - The full system can be operated, debugged, and tested using the new identifiers and state model.
 - The documentation set under `website/content/docs/` accurately describes the shipped pairing, token, lock, renewal, rollout, and troubleshooting behavior.
+
+Current status: all program exit criteria are satisfied except for the remaining live deployed staging validation pass called out in Phase 2E.
 
 ## Documentation Execution Notes
 

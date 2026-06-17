@@ -16,6 +16,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \
         build-essential \
         curl \
+        gcc-mingw-w64-x86-64 \
         libkrb5-dev \
         ripgrep \
         smbclient \

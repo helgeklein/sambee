@@ -25,6 +25,7 @@ export function ConflictDialogPreview() {
         throw new Error("Mock preview error: the conflict action failed.");
       }
       setVisible(false);
+      return undefined;
     },
     [actionResult]
   );

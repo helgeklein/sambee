@@ -1,4 +1,4 @@
-import type { SxProps, Theme } from "@mui/material/styles";
+import type { SxProps, Theme } from "@mui/material";
 import { TOOLBAR_HEIGHT } from "./constants";
 
 export const SAFE_AREA_INSET = {

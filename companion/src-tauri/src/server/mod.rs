@@ -16,8 +16,8 @@ pub mod watcher;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Router;
 use axum::http::{header, Method};
+use axum::Router;
 use log::{error, info};
 use tauri::AppHandle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -81,11 +81,7 @@ async fn run_server(
 fn build_router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin, _| {
-            origin
-                .to_str()
-                .ok()
-                .map(auth::is_allowed_browser_origin_for_cors)
-                .unwrap_or(false)
+            origin.to_str().ok().map(auth::is_allowed_browser_origin_for_cors).unwrap_or(false)
         }))
         .allow_methods([Method::GET, Method::POST, Method::DELETE])
         .allow_headers([

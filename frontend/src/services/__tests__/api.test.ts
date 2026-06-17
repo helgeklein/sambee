@@ -838,9 +838,7 @@ describe("API Service", () => {
           locked_by: "alice",
           locked_at: "2026-03-23T12:00:00Z",
         })
-      ).rejects.toThrow(
-        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
-      );
+      ).rejects.toThrow(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
       await expect(
         apiService.releaseEditLock("local-drive:c", "/docs/readme.md", {
           lock_id: "lock-1",
@@ -848,9 +846,7 @@ describe("API Service", () => {
           locked_by: "alice",
           locked_at: "2026-03-23T12:00:00Z",
         })
-      ).rejects.toThrow(
-        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
-      );
+      ).rejects.toThrow(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
     });
   });
 

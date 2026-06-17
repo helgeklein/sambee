@@ -1,6 +1,6 @@
 //! Tauri command for downloading files from the Sambee server.
 //!
-//! Downloads a file via `GET /api/viewer/{connId}/download?path=...`
+//! Downloads a file via `GET /api/companion/{connId}/download?path=...`
 //! and saves it to a local temp directory with a `-copy` suffix.
 
 use std::fs;
@@ -104,7 +104,7 @@ pub async fn download_file_with_client(
     let local_path = temp::temp_file_path(&op_dir, remote_path);
 
     // Build download URL
-    let url = format!("{}/api/viewer/{}/download", server_url.trim_end_matches('/'), connection_id);
+    let url = format!("{}/api/companion/{}/download", server_url.trim_end_matches('/'), connection_id);
 
     info!(
         "Downloading: server={}, conn_id={}, path='{}' → {}",
@@ -121,7 +121,6 @@ pub async fn download_file_with_client(
             ("path", remote_path),
             ("operation_id", lock_context.operation_id.as_str()),
             ("lock_id", lock_context.lock_id.as_str()),
-            ("lock_capability", lock_context.lock_capability.as_str()),
         ])
         .header("Authorization", format!("Bearer {}", lock_context.operation_token))
         .send()
@@ -141,6 +140,10 @@ pub async fn download_file_with_client(
             .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
         if let Some(message) = classify_proxy_auth_intercept("File download", Some(status), content_type.as_deref(), &body) {
+            let _ = fs::remove_dir_all(&op_dir);
+            return Err(message);
+        }
+        if let Some(message) = super::upload::classify_lifecycle_error(&body) {
             let _ = fs::remove_dir_all(&op_dir);
             return Err(message);
         }

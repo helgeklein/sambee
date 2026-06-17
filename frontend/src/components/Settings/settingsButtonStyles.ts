@@ -1,5 +1,5 @@
 import type { SxProps, Theme } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha } from "@mui/material";
 import { getContainedButtonFocusVisibleBoxShadow, getElevatedButtonFocusRing } from "../../theme/commonStyles";
 
 const SETTINGS_BUTTON_MIN_HEIGHT_PX = 40;

@@ -1,6 +1,6 @@
 //! Tauri command for uploading edited files back to the Sambee server.
 //!
-//! Uploads via `POST /api/browse/{connId}/upload?path=...` (multipart).
+//! Uploads via `POST /api/companion/{connId}/upload` (multipart).
 //! Includes retry logic (3 attempts, exponential backoff) and progress events.
 
 use std::fs;
@@ -82,6 +82,7 @@ enum CompanionLifecycleErrorCode {
     AuthFailed,
     LockLost,
     RecoveryRequired,
+    CapabilityMismatch,
 }
 
 const LIFECYCLE_ERROR_PREFIX: &str = "sambee_companion_lifecycle:";
@@ -93,6 +94,7 @@ impl CompanionLifecycleErrorCode {
             Self::AuthFailed => "auth_failed",
             Self::LockLost => "lock_lost",
             Self::RecoveryRequired => "recovery_required",
+            Self::CapabilityMismatch => "capability_mismatch",
         }
     }
 
@@ -102,6 +104,7 @@ impl CompanionLifecycleErrorCode {
             "auth_failed" => Some(Self::AuthFailed),
             "lock_lost" => Some(Self::LockLost),
             "recovery_required" => Some(Self::RecoveryRequired),
+            "capability_mismatch" => Some(Self::CapabilityMismatch),
             _ => None,
         }
     }
@@ -117,7 +120,7 @@ fn decode_lifecycle_error(error: &str) -> Option<(CompanionLifecycleErrorCode, &
     Some((CompanionLifecycleErrorCode::from_str(code)?, message))
 }
 
-fn classify_lifecycle_error(body_text: &str) -> Option<String> {
+pub(crate) fn classify_lifecycle_error(body_text: &str) -> Option<String> {
     let parsed: BackendErrorResponse = serde_json::from_str(body_text).ok()?;
     match parsed.detail {
         BackendErrorDetail::Structured(detail) => {
@@ -148,16 +151,17 @@ pub fn is_auth_failed_error(error: &str) -> bool {
 }
 
 pub fn is_recovery_required_error(error: &str) -> bool {
-    matches!(decode_lifecycle_error(error), Some((CompanionLifecycleErrorCode::RecoveryRequired, _)))
+    matches!(
+        decode_lifecycle_error(error),
+        Some((CompanionLifecycleErrorCode::RecoveryRequired, _))
+    )
 }
 
-fn build_operation_query<'a>(remote_path: &'a str, lock_context: &'a CompanionLockContext) -> [(&'a str, &'a str); 4] {
-    [
-        ("path", remote_path),
-        ("operation_id", lock_context.operation_id.as_str()),
-        ("lock_id", lock_context.lock_id.as_str()),
-        ("lock_capability", lock_context.lock_capability.as_str()),
-    ]
+pub fn is_capability_mismatch_error(error: &str) -> bool {
+    matches!(
+        decode_lifecycle_error(error),
+        Some((CompanionLifecycleErrorCode::CapabilityMismatch, _))
+    )
 }
 
 fn build_lock_control_body(lock_context: &CompanionLockContext) -> serde_json::Value {
@@ -177,8 +181,8 @@ fn build_lock_control_body(lock_context: &CompanionLockContext) -> serde_json::V
 //
 /// Upload a local file to the Sambee server with retry and progress reporting.
 ///
-/// Calls `POST /api/browse/{connId}/upload?path={remote_path}` with a
-/// multipart form body. Retries up to 3 times with exponential backoff
+/// Calls `POST /api/companion/{connId}/upload` with a multipart form body.
+/// Retries up to 3 times with exponential backoff
 /// on transient failures.
 ///
 /// Emits `upload-progress` events to the specified Tauri window via
@@ -260,7 +264,7 @@ pub async fn upload_file_with_client(
         remote_path
     );
 
-    let url = format!("{}/api/browse/{}/upload", server_url.trim_end_matches('/'), connection_id);
+    let url = format!("{}/api/companion/{}/upload", server_url.trim_end_matches('/'), connection_id);
 
     let mut last_error = String::new();
 
@@ -277,12 +281,15 @@ pub async fn upload_file_with_client(
             .mime_str(&mime_type)
             .map_err(|e| format!("Failed to set MIME type: {e}"))?;
 
-        let form = multipart::Form::new().part("file", file_part);
+        let form = multipart::Form::new()
+            .text("operation_id", lock_context.operation_id.clone())
+            .text("lock_id", lock_context.lock_id.clone())
+            .text("lock_capability", lock_context.lock_capability.clone())
+            .part("file", file_part);
 
         match client
             .post(&url)
             .timeout(Duration::from_secs(UPLOAD_TIMEOUT_SECS))
-            .query(&build_operation_query(remote_path, lock_context))
             .header("Authorization", format!("Bearer {}", lock_context.operation_token))
             .multipart(form)
             .send()
@@ -445,7 +452,7 @@ pub async fn acquire_lock_with_client(
 //
 /// Release an edit lock on a file.
 ///
-/// `DELETE /api/companion/{connId}/lock?path={remote_path}`
+/// `DELETE /api/companion/{connId}/lock`
 #[allow(dead_code)]
 pub async fn release_lock(
     server_url: &str,
@@ -480,7 +487,6 @@ pub async fn release_lock_with_client(
     let response = client
         .delete(&url)
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
-        .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {}", lock_context.operation_token))
         .json(&build_lock_control_body(lock_context))
         .send()
@@ -515,7 +521,7 @@ pub async fn release_lock_with_client(
 //
 /// Send a heartbeat to keep an edit lock alive.
 ///
-/// `POST /api/companion/{connId}/lock/heartbeat?path={remote_path}`
+/// `POST /api/companion/{connId}/lock/heartbeat`
 pub async fn send_heartbeat(
     server_url: &str,
     connection_id: &str,
@@ -553,7 +559,6 @@ pub async fn send_heartbeat_with_client(
     let response = client
         .post(&url)
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
-        .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {}", lock_context.operation_token))
         .json(&build_lock_control_body(lock_context))
         .send()
@@ -576,6 +581,8 @@ pub async fn send_heartbeat_with_client(
         }
         return Err(format!("Heartbeat failed: {body}"));
     }
+
+    info!("Heartbeat succeeded: conn_id={}, path={}", connection_id, remote_path);
 
     Ok(())
 }
@@ -605,7 +612,7 @@ pub async fn renew_operation_session_with_client(
     client: &Client,
     server_url: &str,
     connection_id: &str,
-    remote_path: &str,
+    _remote_path: &str,
     lock_context: &CompanionLockContext,
 ) -> Result<CompanionLockContext, String> {
     let url = format!("{}/api/companion/{}/session/renew", server_url.trim_end_matches('/'), connection_id);
@@ -613,7 +620,6 @@ pub async fn renew_operation_session_with_client(
     let response = client
         .post(&url)
         .timeout(Duration::from_secs(DEFAULT_REQUEST_TIMEOUT_SECS))
-        .query(&[("path", remote_path)])
         .header("Authorization", format!("Bearer {}", lock_context.operation_token))
         .json(&build_lock_control_body(lock_context))
         .send()
@@ -713,6 +719,15 @@ mod tests {
 
         assert!(is_recovery_required_error(&encoded));
         assert_eq!(lifecycle_error_message(&encoded), Some("recover now"));
+    }
+
+    #[test]
+    fn test_classify_lifecycle_error_parses_capability_mismatch_backend_error() {
+        let body = r#"{"detail":{"code":"capability_mismatch","message":"wrong capability"}}"#;
+        let encoded = classify_lifecycle_error(body).expect("expected lifecycle error");
+
+        assert!(is_capability_mismatch_error(&encoded));
+        assert_eq!(lifecycle_error_message(&encoded), Some("wrong capability"));
     }
 
     #[test]
