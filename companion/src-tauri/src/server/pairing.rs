@@ -12,6 +12,12 @@ use log::{info, warn};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+#[derive(Clone, Copy)]
+pub enum VerifiedOriginRecordReason {
+    PairingCompleted,
+    RecoveredFromAuthenticatedRequest,
+}
+
 /// Keyring service name for storing pairing secrets.
 const KEYRING_SERVICE: &str = "sambee-companion";
 
@@ -108,7 +114,7 @@ impl PairingState {
     }
 
     /// Record an origin that has proven it holds a valid pairing secret.
-    pub fn record_verified_origin(&self, origin: &str) {
+    pub fn record_verified_origin(&self, origin: &str, reason: VerifiedOriginRecordReason) {
         let mut origins = self.paired_origins.lock().unwrap();
         if origins.iter().any(|entry| entry == origin) {
             return;
@@ -119,7 +125,14 @@ impl PairingState {
             warn!("Failed to persist paired origins list after auth for {origin}: {e}");
         }
 
-        info!("Recovered paired origin from successful authenticated request: {origin}");
+        match reason {
+            VerifiedOriginRecordReason::PairingCompleted => {
+                info!("Recorded paired origin during pairing completion: {origin}");
+            }
+            VerifiedOriginRecordReason::RecoveredFromAuthenticatedRequest => {
+                info!("Recovered paired origin from successful authenticated request: {origin}");
+            }
+        }
     }
 
     /// Start a new pairing: store the browser nonce, generate companion nonce,
@@ -271,7 +284,7 @@ impl PairingState {
         }
 
         // Add to cached paired origins
-        self.record_verified_origin(&pairing.origin);
+        self.record_verified_origin(&pairing.origin, VerifiedOriginRecordReason::PairingCompleted);
 
         info!("Pairing completed: origin={}", pairing.origin);
         Ok(secret_hex)
@@ -503,8 +516,8 @@ mod tests {
     fn unpair_removes_only_the_requested_origin() {
         let pairing = PairingState::new_with_limits(Duration::ZERO, 1);
 
-        pairing.record_verified_origin("https://sambee.example");
-        pairing.record_verified_origin("https://other.example");
+        pairing.record_verified_origin("https://sambee.example", VerifiedOriginRecordReason::PairingCompleted);
+        pairing.record_verified_origin("https://other.example", VerifiedOriginRecordReason::PairingCompleted);
 
         pairing.unpair("https://sambee.example").unwrap();
 

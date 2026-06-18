@@ -270,7 +270,9 @@ fn validate_hmac(
     }
 
     if !state.pairing.is_origin_paired(&origin) {
-        state.pairing.record_verified_origin(&origin);
+        state
+            .pairing
+            .record_verified_origin(&origin, crate::server::pairing::VerifiedOriginRecordReason::RecoveredFromAuthenticatedRequest);
     }
 
     Ok(())

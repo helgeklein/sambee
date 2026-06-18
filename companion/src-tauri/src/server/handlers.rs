@@ -1191,7 +1191,7 @@ fn build_pair_status_response(pairing: &PairingState, current_origin: Option<&st
     let (current_origin_paired, status) = current_origin.map_or((false, PublicPairingStatus::Unpaired), |origin| {
         let paired = pairing.get_secret_for_origin(origin).is_some();
         if paired && !pairing.is_origin_paired(origin) {
-            pairing.record_verified_origin(origin);
+            pairing.record_verified_origin(origin, crate::server::pairing::VerifiedOriginRecordReason::RecoveredFromAuthenticatedRequest);
         }
 
         let status = if paired {

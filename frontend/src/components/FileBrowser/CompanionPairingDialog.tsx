@@ -60,6 +60,7 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
   const doneButtonRef = useRef<HTMLButtonElement>(null);
   const wasOpenRef = useRef(open);
   const pendingPairingIdRef = useRef("");
+  const stepRef = useRef<PairingStep>("idle");
 
   /** Reset state when closing or retrying. */
   const resetState = useCallback(() => {
@@ -141,6 +142,10 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
   }, [handleClose, handleConfirm, handleStart, pairingCode, step]);
 
   useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+
+  useEffect(() => {
     if (!open) {
       return;
     }
@@ -175,11 +180,11 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
 
   useEffect(() => {
     return () => {
-      if (pendingPairingIdRef.current && (step === "showing_code" || step === "confirming")) {
+      if (pendingPairingIdRef.current && (stepRef.current === "showing_code" || stepRef.current === "confirming")) {
         cancelPendingPairing();
       }
     };
-  }, [cancelPendingPairing, step]);
+  }, [cancelPendingPairing]);
 
   return (
     <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} maxWidth="xs" fullWidth TransitionComponent={NoTransition}>

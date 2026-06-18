@@ -87,4 +87,32 @@ describe("CompanionPairingDialog", () => {
       expect(onCancel).toHaveBeenCalledWith("pair-1");
     });
   });
+
+  it("does not cancel pairing when moving from code verification to confirming", async () => {
+    const user = userEvent.setup();
+    const onInitiate = vi.fn().mockResolvedValue({ pairingId: "pair-1", pairingCode: "ABC123" });
+    const onCancel = vi.fn().mockResolvedValue(undefined);
+
+    let resolveConfirm: (() => void) | undefined;
+    const onConfirm = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveConfirm = resolve;
+        })
+    );
+
+    render(<CompanionPairingDialog open={true} onClose={vi.fn()} onInitiate={onInitiate} onConfirm={onConfirm} onCancel={onCancel} />);
+
+    await user.click(screen.getByRole("button", { name: COMPANION_PAIRING_DIALOG_COPY.startButton }));
+    await user.click(await screen.findByRole("button", { name: COMPANION_PAIRING_DIALOG_COPY.confirmButton }));
+
+    expect(onConfirm).toHaveBeenCalledWith("pair-1");
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText(COMPANION_PAIRING_DIALOG_COPY.confirming)).toBeInTheDocument();
+
+    resolveConfirm?.();
+    await waitFor(() => {
+      expect(screen.getByText(COMPANION_PAIRING_DIALOG_COPY.success)).toBeInTheDocument();
+    });
+  });
 });
