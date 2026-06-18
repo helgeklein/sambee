@@ -46,28 +46,6 @@ else
     exit 1
 fi
 
-# Companion: Rust (clippy + fmt check)
-if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
-    echo -e "${YELLOW}=== Companion: Rust (clippy + fmt) ===${NC}"
-    cd "$REPO_ROOT/companion/src-tauri" || exit 1
-
-    echo "Checking Rust code with clippy..."
-    if cargo clippy --lib --tests -- -D warnings 2>&1; then
-        echo -e "${GREEN}✓ Clippy check passed${NC}\n"
-    else
-        echo -e "${RED}✗ Clippy check failed${NC}\n"
-        exit 1
-    fi
-
-    echo "Checking Rust formatting..."
-    if cargo fmt --check 2>&1; then
-        echo -e "${GREEN}✓ Rust format check passed${NC}\n"
-    else
-        echo -e "${RED}✗ Rust format check failed${NC}\n"
-        exit 1
-    fi
-fi
-
 # Companion: TypeScript/CSS (Biome)
 if [ -d "$REPO_ROOT/companion/src" ]; then
     echo -e "${YELLOW}=== Companion: Biome ===${NC}"

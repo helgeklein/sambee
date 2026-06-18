@@ -10,6 +10,7 @@ import os
 import shutil
 import sys
 import tempfile
+import textwrap
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -44,6 +45,19 @@ class PageNodeState(Enum):
 
 class DocsEditorError(RuntimeError):
     """Raised when the docs editor cannot safely perform an operation."""
+
+
+TOP_LEVEL_HELP_EPILOG = """Default mode is preview: run a command without --apply to inspect the plan first.
+
+Typical workflow:
+    1. Run the command in preview mode.
+    2. Review the planned metadata and file changes.
+    3. Re-run with --apply when the plan is correct.
+
+Examples:
+    python3 scripts/docs-editor.py page create --version 0.7 --book website-dev-guide --section authoring-and-tooling --page new-page
+    python3 scripts/docs-editor.py --apply section rename --version 0.7 --book website-dev-guide --from old-section --to new-section --title "New Section"
+"""
 
 
 @dataclass(frozen=True)
@@ -352,14 +366,18 @@ class DocsEditor:
         if position.startswith("before:"):
             anchor = position.split(":", 1)[1]
             if anchor not in updated:
-                raise DocsEditorError(f"unknown position anchor: {anchor}")
+                raise DocsEditorError(
+                    f"unknown position anchor: {anchor}; choose one of: {', '.join(updated)}"
+                )
             updated.insert(updated.index(anchor), value)
             return updated
 
         if position.startswith("after:"):
             anchor = position.split(":", 1)[1]
             if anchor not in updated:
-                raise DocsEditorError(f"unknown position anchor: {anchor}")
+                raise DocsEditorError(
+                    f"unknown position anchor: {anchor}; choose one of: {', '.join(updated)}"
+                )
             updated.insert(updated.index(anchor) + 1, value)
             return updated
 
@@ -2114,8 +2132,17 @@ class DocsEditor:
 
         page_dir = self.page_root(version, book, section, page)
         if page_dir.exists():
+            inherited_marker = page_dir / PAGE_INHERIT
+            if inherited_marker.exists() and not (page_dir / PAGE_INDEX).exists():
+                raise DocsEditorError(
+                    textwrap.dedent(
+                        f"""page already exists as an inherited marker: {version}/{book}/{section}/{page}
+use page materialize instead:
+python3 scripts/docs-editor.py page materialize --version {version} --book {book} --section {section} --page {page}"""
+                    ).strip()
+                )
             raise DocsEditorError(
-                f"page folder already exists: {version}/{book}/{section}/{page}"
+                f"page folder already exists: {version}/{book}/{section}/{page}; use page rename/delete for structural changes or edit the existing page content directly"
             )
 
         nav_document = self.load_nav_document(version)
@@ -2187,6 +2214,140 @@ class DocsEditor:
             metadata={
                 "entity": "page",
                 "operation": "create",
+                "version": version,
+                "book": book,
+                "section": section,
+                "page": page,
+            },
+        )
+
+    def plan_page_materialize(
+        self,
+        version: str,
+        *,
+        book: str,
+        section: str,
+        page: str,
+        title: str | None,
+    ) -> OperationPlan:
+        """Build a plan for replacing an inherited page marker with real content."""
+        if version not in self.version_slugs():
+            raise DocsEditorError(f"unknown docs version: {version}")
+
+        page_dir = self.page_root(version, book, section, page)
+        if not page_dir.exists():
+            raise DocsEditorError(
+                f"page folder is missing: {version}/{book}/{section}/{page}"
+            )
+
+        nav_document = self.load_nav_document(version)
+        section_pages = nav_document.get("pages", {}).get(book, {}).get(section, [])
+        if page not in section_pages:
+            raise DocsEditorError(
+                f"page is not listed in nav: {version}/{book}/{section}/{page}"
+            )
+
+        page_state = self.classify_page_node_state(page_dir)
+        if page_state is PageNodeState.AUTHORED:
+            raise DocsEditorError(
+                f"page already has real content: {version}/{book}/{section}/{page}"
+            )
+        if page_state is PageNodeState.INVALID:
+            raise DocsEditorError(
+                f"page node is invalid: {version}/{book}/{section}/{page}; expected exactly one of index.md or inherit.md"
+            )
+
+        page_index_text = self.resolve_page_source_file(
+            version, (book, section, page)
+        ).read_text(encoding="utf-8")
+        if title is not None:
+            page_index_text = self.replace_title_in_markdown(page_index_text, title)
+
+        return OperationPlan(
+            summary=f"Materialize inherited page {book}/{section}/{page} in docs version {version}",
+            destructive=False,
+            changes=[
+                PlannedChange(
+                    "delete_file",
+                    page_dir / PAGE_INHERIT,
+                    f"Remove inherited page marker for {version}/{book}/{section}/{page}",
+                ),
+                PlannedChange(
+                    "write_text",
+                    page_dir / PAGE_INDEX,
+                    f"Create real page content for {version}/{book}/{section}/{page}",
+                    page_index_text,
+                ),
+            ],
+            metadata={
+                "entity": "page",
+                "operation": "materialize",
+                "version": version,
+                "book": book,
+                "section": section,
+                "page": page,
+                "title": title,
+            },
+        )
+
+    def plan_page_inherit(
+        self,
+        version: str,
+        *,
+        book: str,
+        section: str,
+        page: str,
+    ) -> OperationPlan:
+        """Build a plan for replacing real page content with an inherited marker."""
+        if version not in self.version_slugs():
+            raise DocsEditorError(f"unknown docs version: {version}")
+
+        page_dir = self.page_root(version, book, section, page)
+        if not page_dir.exists():
+            raise DocsEditorError(
+                f"page folder is missing: {version}/{book}/{section}/{page}"
+            )
+
+        nav_document = self.load_nav_document(version)
+        section_pages = nav_document.get("pages", {}).get(book, {}).get(section, [])
+        if page not in section_pages:
+            raise DocsEditorError(
+                f"page is not listed in nav: {version}/{book}/{section}/{page}"
+            )
+
+        page_state = self.classify_page_node_state(page_dir)
+        if page_state is PageNodeState.INHERITED:
+            raise DocsEditorError(
+                f"page is already inherited: {version}/{book}/{section}/{page}"
+            )
+        if page_state is PageNodeState.INVALID:
+            raise DocsEditorError(
+                f"page node is invalid: {version}/{book}/{section}/{page}; expected exactly one of index.md or inherit.md"
+            )
+        if not self.can_resolve_page_inheritance(version, (book, section, page)):
+            raise DocsEditorError(
+                f"cannot inherit page {version}/{book}/{section}/{page}: no earlier version resolves to index.md"
+            )
+
+        return OperationPlan(
+            summary=f"Convert page {book}/{section}/{page} to inherited content in docs version {version}",
+            destructive=True,
+            changes=[
+                PlannedChange(
+                    "delete_file",
+                    page_dir / PAGE_INDEX,
+                    f"Remove real page content for {version}/{book}/{section}/{page}",
+                ),
+                PlannedChange(
+                    "write_text",
+                    page_dir / PAGE_INHERIT,
+                    f"Create inherited page marker for {version}/{book}/{section}/{page}",
+                    self.empty_marker(page_dir / PAGE_INHERIT),
+                ),
+            ],
+            metadata={
+                "entity": "page",
+                "operation": "inherit",
                 "version": version,
                 "book": book,
                 "section": section,
@@ -2524,9 +2685,65 @@ class DocsEditor:
             ],
         }
 
+    def render_metadata(self, metadata: dict[str, Any]) -> list[str]:
+        """Render operation metadata for the human-readable preview."""
+        if not metadata:
+            return []
+
+        label_map = {
+            "entity": "Entity",
+            "operation": "Operation",
+            "new_version": "New version",
+            "source_version": "Source version",
+            "bootstrap": "Bootstrap workspace",
+            "position": "Position",
+            "title": "Title",
+            "book": "Book",
+            "section": "Section",
+            "page": "Page",
+            "version": "Version",
+            "old_book": "From book",
+            "new_book": "To book",
+            "old_section": "From section",
+            "new_section": "To section",
+            "old_page": "From page",
+            "new_page": "To page",
+            "propagated_versions": "Propagates to inherited versions",
+            "structural_only": "Structural only",
+            "inherit": "Inherited marker",
+            "set_current": "Set as current",
+            "new_current": "New current version",
+            "visible": "Visible in selectors",
+            "searchable": "Searchable",
+            "status": "Status label",
+            "label": "Version label",
+        }
+
+        def format_value(value: Any) -> str:
+            if isinstance(value, bool):
+                return "yes" if value else "no"
+            if isinstance(value, list):
+                return ", ".join(str(item) for item in value) if value else "none"
+            return str(value)
+
+        lines = ["Metadata:"]
+        for key, value in metadata.items():
+            if value is None:
+                continue
+            if isinstance(value, list) and not value:
+                continue
+            label = label_map.get(key, key.replace("_", " ").capitalize())
+            lines.append(f"- {label}: {format_value(value)}")
+
+        return lines if len(lines) > 1 else []
+
     def render_preview(self, plan: OperationPlan) -> str:
         """Render a human-readable plan preview."""
         lines = [plan.summary, ""]
+        metadata_lines = self.render_metadata(plan.metadata)
+        if metadata_lines:
+            lines.extend(metadata_lines)
+            lines.append("")
         for change in plan.changes:
             rendered_path = change.display_path(self.paths.website_dir)
             if change.target is not None:
@@ -2543,7 +2760,9 @@ class DocsEditor:
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
-        description="Safe editor tooling for the Sambee docs tree."
+        description="Safe editor tooling for the Sambee docs tree.",
+        epilog=TOP_LEVEL_HELP_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--apply", action="store_true", help="write changes to disk")
     parser.add_argument(
@@ -2685,7 +2904,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="new displayed section title and section landing-page title for real content in the target version",
     )
 
-    page_create_parser = page_commands.add_parser("create", help="create a docs page")
+    page_create_parser = page_commands.add_parser(
+        "create",
+        help="create a docs page",
+        description=(
+            "Create a new page path and nav entry. Use this only when the page does not already "
+            "exist in that version. If the page already exists with inherit.md, use page "
+            "materialize instead of page create."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     page_create_parser.add_argument(
         "--version", required=True, help="docs version slug"
     )
@@ -2702,6 +2930,46 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="create an inherited page marker instead of real page content",
     )
+
+    page_materialize_parser = page_commands.add_parser(
+        "materialize",
+        help="convert an inherited page into real page content",
+        description=(
+            "Replace an inherited page marker with a real index.md in the selected version, "
+            "using the currently resolved inherited content as the starting point."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    page_materialize_parser.add_argument(
+        "--version", required=True, help="docs version slug"
+    )
+    page_materialize_parser.add_argument("--book", required=True, help="book slug")
+    page_materialize_parser.add_argument(
+        "--section", required=True, help="section slug"
+    )
+    page_materialize_parser.add_argument("--page", required=True, help="page slug")
+    page_materialize_parser.add_argument(
+        "--title",
+        help="optional replacement title for the new real page content",
+    )
+
+    page_inherit_parser = page_commands.add_parser(
+        "inherit",
+        help="convert a real page back into an inherited marker",
+        description=(
+            "Replace index.md in the selected version with inherit.md so the page resolves from "
+            "an earlier authored version again."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    page_inherit_parser.add_argument(
+        "--version", required=True, help="docs version slug"
+    )
+    page_inherit_parser.add_argument("--book", required=True, help="book slug")
+    page_inherit_parser.add_argument(
+        "--section", required=True, help="section slug"
+    )
+    page_inherit_parser.add_argument("--page", required=True, help="page slug")
 
     page_delete_parser = page_commands.add_parser("delete", help="delete a docs page")
     page_delete_parser.add_argument(
@@ -2822,6 +3090,21 @@ def execute(args: argparse.Namespace) -> int:
                 title=args.title,
                 position=args.position,
                 inherit=args.inherit,
+            )
+        elif args.operation == "materialize":
+            plan = editor.plan_page_materialize(
+                args.version,
+                book=args.book,
+                section=args.section,
+                page=args.page,
+                title=args.title,
+            )
+        elif args.operation == "inherit":
+            plan = editor.plan_page_inherit(
+                args.version,
+                book=args.book,
+                section=args.section,
+                page=args.page,
             )
         elif args.operation == "delete":
             plan = editor.plan_page_delete(

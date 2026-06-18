@@ -72,6 +72,27 @@ def clear_context() -> None:
     user_var.set(None)
 
 
+def format_audit_fields(**fields: Any) -> str:
+    """Format audit-safe key/value pairs for log messages.
+
+    Skips fields with ``None`` values and quotes string-like identifiers while
+    avoiding raw bearer material unless a caller passes it explicitly.
+    """
+
+    formatted_fields: list[str] = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if isinstance(value, uuid.UUID):
+            formatted_fields.append(f"{key}='{value}'")
+        elif isinstance(value, str):
+            formatted_fields.append(f"{key}={value!r}")
+        else:
+            formatted_fields.append(f"{key}={value}")
+
+    return ", ".join(formatted_fields)
+
+
 class ContextAdapter(logging.LoggerAdapter[logging.Logger]):
     """
     Logging adapter that automatically adds request context to log messages.

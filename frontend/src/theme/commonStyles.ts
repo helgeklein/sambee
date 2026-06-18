@@ -1,5 +1,5 @@
 import type { SxProps, Theme } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+import { alpha } from "@mui/material";
 import type { ThemeConfig } from "./types";
 
 /**

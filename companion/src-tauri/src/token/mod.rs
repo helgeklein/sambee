@@ -26,12 +26,21 @@ const ERROR_BODY_PREVIEW_MAX_CHARS: usize = 200;
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Deserialized response from `POST /api/companion/token`.
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct CompanionTokenResponse {
     /// The longer-lived session JWT.
     pub token: String,
     /// Token lifetime in seconds.
     pub expires_in: u64,
+    /// Companion token class returned by the backend.
+    pub token_class: String,
+    /// Token purpose returned by the backend.
+    pub purpose: String,
+    /// Connection scope of the bootstrap token.
+    pub connection_id: String,
+    /// Path scope of the bootstrap token.
+    pub path: String,
 }
 
 /// Structured token exchange failure.
@@ -394,10 +403,14 @@ mod tests {
     //
     #[test]
     fn test_token_response_deserialization() {
-        let json = r#"{"token": "eyJhbGciOiJIUzI1NiJ9.test", "expires_in": 3600}"#;
+        let json = r#"{"token": "eyJhbGciOiJIUzI1NiJ9.test", "expires_in": 300, "token_class": "companion_session", "purpose": "bootstrap", "connection_id": "conn-1", "path": "/docs/report.docx"}"#;
         let resp: CompanionTokenResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.token, "eyJhbGciOiJIUzI1NiJ9.test");
-        assert_eq!(resp.expires_in, 3600);
+        assert_eq!(resp.expires_in, 300);
+        assert_eq!(resp.token_class, "companion_session");
+        assert_eq!(resp.purpose, "bootstrap");
+        assert_eq!(resp.connection_id, "conn-1");
+        assert_eq!(resp.path, "/docs/report.docx");
     }
 
     //
@@ -570,7 +583,11 @@ mod tests {
                     if has_cookie {
                         axum::Json(serde_json::json!({
                             "token": "session-token",
-                            "expires_in": 3600
+                            "expires_in": 300,
+                            "token_class": "companion_session",
+                            "purpose": "bootstrap",
+                            "connection_id": "conn-1",
+                            "path": "/docs/report.docx"
                         }))
                         .into_response()
                     } else {

@@ -179,11 +179,19 @@ fn handle_deep_links(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 
                 // Kick off the full edit lifecycle asynchronously
                 let app_handle = app.clone();
+                let launch_server = parsed.server.clone();
                 tauri::async_runtime::spawn(async move {
                     let notification_handle = app_handle.clone();
                     if let Err(e) = start_edit_lifecycle(app_handle, parsed).await {
                         error!("Edit lifecycle failed: {e}");
-                        let _ = notification_handle.emit("notification", serde_json::json!({ "message": e }));
+                        if let Some(status) = e.browser_status {
+                            let _ = commands::open_file::open_sambee_status_page(
+                                notification_handle.clone(),
+                                launch_server,
+                                status.to_string(),
+                            );
+                        }
+                        let _ = notification_handle.emit("notification", serde_json::json!({ "message": e.to_string() }));
                     }
                 });
             }
@@ -211,7 +219,61 @@ fn handle_deep_links(app: &tauri::AppHandle, urls: Vec<url::Url>) {
 /// 5. Open file in native app
 /// 6. Spawn "Done Editing" window
 /// 7. Start file status polling + heartbeat
-async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(), String> {
+#[derive(Debug, Clone)]
+struct StartEditLifecycleError {
+    message: String,
+    browser_status: Option<&'static str>,
+}
+
+impl StartEditLifecycleError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            browser_status: None,
+        }
+    }
+
+    fn auth_failed(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            browser_status: Some("auth_failed"),
+        }
+    }
+}
+
+impl std::fmt::Display for StartEditLifecycleError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl From<String> for StartEditLifecycleError {
+    fn from(message: String) -> Self {
+        Self::new(message)
+    }
+}
+
+fn classify_startup_token_exchange_error(error: token::TokenExchangeError) -> StartEditLifecycleError {
+    match error {
+        token::TokenExchangeError::ProxyAuthenticationRequired { message, .. } => StartEditLifecycleError::auth_failed(message),
+        token::TokenExchangeError::HttpStatus {
+            status: 401 | 403 | 407,
+            message,
+            ..
+        } => StartEditLifecycleError::auth_failed(message),
+        other => StartEditLifecycleError::new(other.to_string()),
+    }
+}
+
+fn classify_startup_proxy_auth_error(error: proxy_auth::ProxyAuthRetryError) -> StartEditLifecycleError {
+    match error {
+        proxy_auth::ProxyAuthRetryError::Operation(message) => StartEditLifecycleError::new(message),
+        proxy_auth::ProxyAuthRetryError::Authentication(message) => StartEditLifecycleError::auth_failed(message),
+        proxy_auth::ProxyAuthRetryError::StillBlockedAfterReauth { .. } => StartEditLifecycleError::auth_failed(error.to_string()),
+    }
+}
+
+async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(), StartEditLifecycleError> {
     let http_clients = app
         .try_state::<SambeeHttpClientStore>()
         .ok_or_else(|| "HTTP client store not available".to_string())?
@@ -224,25 +286,27 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         Ok(token) => token,
         Err(token::TokenExchangeError::ProxyAuthenticationRequired { message, .. }) => {
             warn!("{message}");
-            proxy_auth::authenticate_reverse_proxy(&app, &uri.server, &http_clients).await?;
+            proxy_auth::authenticate_reverse_proxy(&app, &uri.server, &http_clients)
+                .await
+                .map_err(StartEditLifecycleError::auth_failed)?;
             match token::exchange_uri_token_with_store(&uri.server, &uri.token, &http_clients).await {
                 Ok(token) => token,
                 Err(token::TokenExchangeError::ProxyAuthenticationRequired { .. }) => {
-                    return Err(
+                    return Err(StartEditLifecycleError::auth_failed(
                         "Authentication completed, but no usable backend cookie was available for Companion requests. Check the reverse proxy cookie domain and path settings."
                             .to_string(),
-                    );
+                    ));
                 }
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(classify_startup_token_exchange_error(e)),
             }
         }
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(classify_startup_token_exchange_error(e)),
     };
 
     // 1.5. Fetch file info for size check and conflict detection baseline
     info!("Step 1.5: Fetching file info...");
     let file_info = proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "File metadata lookup", || async {
-        commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
+        commands::file_info::get_file_info_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, None, Some(&session_token)).await
     })
     .await;
 
@@ -260,7 +324,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
 
     if let Err(ref err) = file_info {
         if err.should_abort_safety_check() {
-            return Err(err.to_string());
+            return Err(classify_startup_proxy_auth_error(err.clone()));
         }
 
         debug!("Continuing without file metadata because the lookup error is non-fatal");
@@ -342,18 +406,21 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     // 2. Acquire edit lock
     info!("Step 2: Acquiring edit lock...");
     debug!("Proceeding from Step 1.5 to Step 2");
-    let lock_id = match proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
+    let lock_context = match proxy_auth::retry_if_proxy_auth_required(&app, &uri.server, &http_clients, "Edit lock acquisition", || async {
         commands::upload::acquire_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await
     })
     .await
     {
-        Ok(lock_id) => {
-            debug!("Step 2 completed successfully: lock_id={lock_id}");
-            lock_id
+        Ok(lock_context) => {
+            debug!(
+                "Step 2 completed successfully: lock_id={}, server_operation_id={}",
+                lock_context.lock_id, lock_context.operation_id
+            );
+            lock_context
         }
         Err(err) => {
             warn!("Step 2 failed during lock acquisition: {err}");
-            return Err(String::from(err));
+            return Err(classify_startup_proxy_auth_error(err));
         }
     };
 
@@ -367,7 +434,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
             &uri.server,
             &uri.conn_id,
             &uri.path,
-            &session_token,
+            &lock_context,
             expected_download_size,
         )
         .await
@@ -378,13 +445,13 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         let srv = uri.server.clone();
         let cid = uri.conn_id.clone();
         let p = uri.path.clone();
-        let tok = session_token.clone();
+        let held_lock_context = lock_context.clone();
         let clients = http_clients.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &tok).await;
+            let _ = commands::upload::release_lock_with_store(&clients, &srv, &cid, &p, &held_lock_context).await;
         });
     })
-    .map_err(String::from)?;
+    .map_err(classify_startup_proxy_auth_error)?;
 
     debug!(
         "Step 3 completed successfully: operation_id={}, local_path='{}', original_mtime={:?}",
@@ -400,12 +467,11 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         connection_id: uri.conn_id.clone(),
         remote_path: uri.path.clone(),
         local_path: download_result.local_path.clone(),
-        token: session_token.clone(),
         downloaded_at: std::time::SystemTime::now(),
         original_mtime: download_result.original_mtime,
         status: OperationStatus::Editing,
         opened_with_app: None,
-        lock_id: Some(lock_id),
+        lock_context: Some(lock_context.clone()),
         server_last_modified,
     };
 
@@ -543,7 +609,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         None => {
             // User cancelled — release lock and clean up
             info!("User cancelled app picker — aborting edit lifecycle");
-            let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
+            let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &lock_context).await;
             store.remove(operation.id);
             refresh_tray_menu(&app);
             if let Err(e) = sync::operations::remove_operation_sidecar(&operation) {
@@ -557,14 +623,14 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
     if let Err(e) =
         commands::open_file::open_in_native_app(&app, &download_result.local_path, &app_executable, app_handler_id.as_deref()).await
     {
-        let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &session_token).await;
+        let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &lock_context).await;
         let _ = sync::recycle::recycle_file(&download_result.local_path);
         store.remove(operation.id);
         refresh_tray_menu(&app);
         if let Err(sidecar_err) = sync::operations::remove_operation_sidecar(&operation) {
             warn!("Failed to remove sidecar after open failure: {sidecar_err}");
         }
-        return Err(e);
+        return Err(e.into());
     }
 
     // Update the operation with the selected app
@@ -595,7 +661,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         download_result.original_mtime,
     );
 
-    commands::open_file::start_heartbeat_task(&app, window_label, uri.server, uri.conn_id, uri.path, session_token);
+    commands::open_file::start_heartbeat_task(&app, window_label, operation.id, uri.server, uri.conn_id, uri.path, lock_context);
 
     info!("Edit lifecycle started successfully for operation {}", operation.id);
     Ok(())
@@ -1066,6 +1132,7 @@ pub fn run() {
             commands::app_picker::consume_pending_app_picker,
             commands::localization::get_synced_localization,
             commands::open_file::get_done_editing_context,
+            commands::open_file::open_sambee_status_page,
             commands::open_file::finish_editing,
             commands::open_file::discard_editing,
             commands::open_file::resolve_conflict_overwrite,
@@ -1082,6 +1149,7 @@ pub fn run() {
             commands::pairing::unpair_origin,
             commands::update::check_for_companion_update,
             commands::update::install_companion_update,
+            commands::window::hide_window,
             logging::log_from_frontend,
         ])
         .setup(|app| {
@@ -1223,5 +1291,25 @@ mod tests {
         let argv = vec!["sambee-companion.exe".to_string(), "--from-autostart".to_string()];
 
         assert_eq!(format_argv_for_logging(&argv), "[\"sambee-companion.exe\", \"--from-autostart\"]");
+    }
+
+    #[test]
+    fn classifies_token_exchange_unauthorized_as_auth_failed() {
+        let error = classify_startup_token_exchange_error(token::TokenExchangeError::HttpStatus {
+            status: 401,
+            body_preview: "Invalid or expired URI token".to_string(),
+            message: "Token exchange failed (HTTP 401): Invalid or expired URI token".to_string(),
+        });
+
+        assert_eq!(error.browser_status, Some("auth_failed"));
+    }
+
+    #[test]
+    fn classifies_proxy_auth_retry_abort_as_auth_failed() {
+        let error = classify_startup_proxy_auth_error(proxy_auth::ProxyAuthRetryError::StillBlockedAfterReauth {
+            operation_name: "Edit lock acquisition".to_string(),
+        });
+
+        assert_eq!(error.browser_status, Some("auth_failed"));
     }
 }

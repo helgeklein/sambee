@@ -40,7 +40,7 @@ Because the companion is a tray-oriented app, closing the last transient webview
 | `companion/src-tauri/src/http_client.rs` | shared backend HTTP clients, reverse-proxy cookie jars, request diagnostics, and URL sanitization |
 | `companion/src-tauri/src/app_registry/` | platform-specific native-app discovery and launch integration |
 | `companion/src-tauri/src/sync/` | operation persistence, temp-file handling, recycle retention, and recovery helpers |
-| `companion/src-tauri/src/token/` and `uri/` | URI parsing and token exchange for deep-link editing |
+| `companion/src-tauri/src/token/` and `uri/` | URI parsing and bootstrap-token exchange for deep-link editing |
 
 ## Deep-Link Ingress
 
@@ -51,7 +51,7 @@ The runtime pieces involved are:
 - `tauri-plugin-deep-link` for receiving the URI
 - `tauri-plugin-single-instance` so later URIs are forwarded to the running instance instead of launching competing copies
 - `uri/mod.rs` for parsing required parameters such as `server`, `token`, `connId`, and `path`
-- `token/mod.rs` for exchanging the short-lived URI token for a companion session JWT
+- `token/mod.rs` for exchanging the short-lived URI token for a companion bootstrap token
 
 The deep link can also carry theme data so the companion UI matches the browser-side theme during the editing flow.
 
@@ -79,7 +79,7 @@ This matters for the trust model:
 
 Companion automatically retries idempotent backend calls such as file-info lookup, lock acquisition, download, lock release, and heartbeats after reauthentication. Non-idempotent uploads are not replayed automatically; the runtime instead asks the user to retry the action after authentication has been refreshed.
 
-HTTP/2 is fully supported by the Companion HTTP stack.
+For reverse-proxy auth robustness, the shared Companion HTTP clients stay on HTTP/1.1 rather than enabling HTTP/2.
 
 Request failures are logged with classified diagnostics such as timeout, connect, request, body, decode, and status. URLs and chained source errors are sanitized before logging so deep-link tokens, proxy sessions, and other sensitive query values do not appear in logs.
 
@@ -90,16 +90,16 @@ The implemented lifecycle in `lib.rs` is intentionally explicit.
 At a high level it is:
 
 1. parse the deep link
-2. exchange the URI token for a companion session token
+2. exchange the URI token for a companion bootstrap token
 3. fetch file metadata for file-size checks and conflict baseline
 4. optionally pause for a large-file confirmation dialog
-5. acquire the backend edit lock
+5. acquire the backend edit lock and receive operation-scoped lock context
 6. download the file into the companion temp area
 7. create a `FileOperation`, persist its sidecar, and add it to the in-memory store
 8. show the app picker and wait for user selection
 9. open the local file in the selected native application
 10. spawn a dedicated "Done Editing" window
-11. start background heartbeat and file-status polling
+11. start background renewal, heartbeat, and file-status polling
 
 Two rules matter here:
 
@@ -137,11 +137,10 @@ Each operation records:
 
 - server URL, connection, and remote path
 - local temp-file path
-- companion session token
 - current status
 - original modification time
 - chosen app name
-- lock information and server-side last-modified baseline
+- operation-scoped lock context and server-side last-modified baseline
 
 The companion keeps this state in two places:
 
@@ -163,7 +162,7 @@ The companion does not try to infer when a user is "probably done" in their nati
 Instead it keeps a dedicated "Done Editing" window open while:
 
 - file status polling checks whether the local temp file changed
-- heartbeat requests keep the backend edit lock alive
+- renewal and heartbeat requests keep the edit session and backend lock alive
 
 When the user explicitly finishes or discards the session, the companion can:
 

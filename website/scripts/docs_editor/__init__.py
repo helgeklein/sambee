@@ -18,6 +18,7 @@ from .core import (
     main,
     parse_bool,
 )
+from .report import generate_docs_report
 
 __all__ = [
     "BRANCH_INHERIT",
@@ -34,6 +35,7 @@ __all__ = [
     "PlannedChange",
     "VersionEntry",
     "VersionsDocument",
+    "generate_docs_report",
     "main",
     "parse_bool",
 ]

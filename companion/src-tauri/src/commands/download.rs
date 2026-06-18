@@ -1,6 +1,6 @@
 //! Tauri command for downloading files from the Sambee server.
 //!
-//! Downloads a file via `GET /api/viewer/{connId}/download?path=...`
+//! Downloads a file via `GET /api/companion/{connId}/download?path=...`
 //! and saves it to a local temp directory with a `-copy` suffix.
 
 use std::fs;
@@ -11,6 +11,7 @@ use reqwest::header;
 use reqwest::Client;
 
 use crate::http_client::{classify_proxy_auth_intercept, log_request_error, plain_client, SambeeHttpClientStore};
+use crate::sync::operations::CompanionLockContext;
 use crate::sync::temp;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -69,11 +70,11 @@ pub async fn download_file(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
     expected_size: Option<u64>,
 ) -> Result<DownloadResult, String> {
     let client = plain_client()?;
-    download_file_with_client(&client, server_url, connection_id, remote_path, session_token, expected_size).await
+    download_file_with_client(&client, server_url, connection_id, remote_path, lock_context, expected_size).await
 }
 
 pub async fn download_file_with_store(
@@ -81,11 +82,11 @@ pub async fn download_file_with_store(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
     expected_size: Option<u64>,
 ) -> Result<DownloadResult, String> {
     let client = http_clients.client_for_server(server_url)?;
-    download_file_with_client(&client, server_url, connection_id, remote_path, session_token, expected_size).await
+    download_file_with_client(&client, server_url, connection_id, remote_path, lock_context, expected_size).await
 }
 
 pub async fn download_file_with_client(
@@ -93,7 +94,7 @@ pub async fn download_file_with_client(
     server_url: &str,
     connection_id: &str,
     remote_path: &str,
-    session_token: &str,
+    lock_context: &CompanionLockContext,
     expected_size: Option<u64>,
 ) -> Result<DownloadResult, String> {
     let operation_id = uuid::Uuid::new_v4();
@@ -103,7 +104,7 @@ pub async fn download_file_with_client(
     let local_path = temp::temp_file_path(&op_dir, remote_path);
 
     // Build download URL
-    let url = format!("{}/api/viewer/{}/download", server_url.trim_end_matches('/'), connection_id);
+    let url = format!("{}/api/companion/{}/download", server_url.trim_end_matches('/'), connection_id);
 
     info!(
         "Downloading: server={}, conn_id={}, path='{}' → {}",
@@ -116,8 +117,12 @@ pub async fn download_file_with_client(
     let response = client
         .get(&url)
         .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .query(&[("path", remote_path)])
-        .header("Authorization", format!("Bearer {session_token}"))
+        .query(&[
+            ("path", remote_path),
+            ("operation_id", lock_context.operation_id.as_str()),
+            ("lock_id", lock_context.lock_id.as_str()),
+        ])
+        .header("Authorization", format!("Bearer {}", lock_context.operation_token))
         .send()
         .await
         .map_err(|error| {
@@ -135,6 +140,10 @@ pub async fn download_file_with_client(
             .map(str::to_owned);
         let body = response.text().await.unwrap_or_default();
         if let Some(message) = classify_proxy_auth_intercept("File download", Some(status), content_type.as_deref(), &body) {
+            let _ = fs::remove_dir_all(&op_dir);
+            return Err(message);
+        }
+        if let Some(message) = super::upload::classify_lifecycle_error(&body) {
             let _ = fs::remove_dir_all(&op_dir);
             return Err(message);
         }
@@ -214,7 +223,16 @@ mod tests {
     //
     #[tokio::test]
     async fn test_download_bad_server() {
-        let result = download_file("http://127.0.0.1:1", "test-conn", "/docs/test.txt", "fake-token", None).await;
+        let lock_context = CompanionLockContext {
+            lock_id: "lock-test".to_string(),
+            operation_id: "op-test".to_string(),
+            lock_capability: "cap-test".to_string(),
+            operation_token: "operation-token".to_string(),
+            renew_after_seconds: 600,
+            token_issued_at_epoch_seconds: 1_700_000_000,
+        };
+
+        let result = download_file("http://127.0.0.1:1", "test-conn", "/docs/test.txt", &lock_context, None).await;
         assert!(result.is_err());
     }
 

@@ -74,6 +74,27 @@ pub enum OperationStatus {
 /// Created when a `sambee://` URI is processed, and lives until the user
 /// finishes editing (upload or discard) or discards the session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompanionLockContext {
+    /// Server-side edit lock identifier.
+    pub lock_id: String,
+
+    /// Server-issued operation identifier for this edit session.
+    pub operation_id: String,
+
+    /// Capability secret proving ownership of the active lock.
+    pub lock_capability: String,
+
+    /// Operation-scoped companion token used for heartbeat and file transfer.
+    pub operation_token: String,
+
+    /// Seconds after token issuance when the companion should renew proactively.
+    pub renew_after_seconds: u64,
+
+    /// Unix timestamp when the current operation token was minted.
+    pub token_issued_at_epoch_seconds: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileOperation {
     /// Unique operation identifier.
     pub id: Uuid,
@@ -90,9 +111,6 @@ pub struct FileOperation {
     /// Local path to the downloaded temp copy.
     pub local_path: PathBuf,
 
-    /// Companion session JWT (longer-lived, obtained via token exchange).
-    pub token: String,
-
     /// When the file was downloaded.
     pub downloaded_at: SystemTime,
 
@@ -105,8 +123,8 @@ pub struct FileOperation {
     /// Display name of the native app used (e.g. "LibreOffice Writer").
     pub opened_with_app: Option<String>,
 
-    /// The lock ID returned by the server when the lock was acquired.
-    pub lock_id: Option<String>,
+    /// Active backend lock context for this operation.
+    pub lock_context: Option<CompanionLockContext>,
 
     /// Server-side `modified_at` at download time (ISO 8601 string).
     ///
@@ -233,6 +251,14 @@ impl OperationStore {
         let mut ops = self.inner.write().expect("OperationStore lock poisoned");
         if let Some(op) = ops.iter_mut().find(|o| &o.id == id) {
             op.opened_with_app = Some(app_name.to_string());
+        }
+    }
+
+    /// Replace the lock context for an active operation.
+    pub fn update_lock_context(&self, id: Uuid, lock_context: CompanionLockContext) {
+        let mut ops = self.inner.write().expect("OperationStore lock poisoned");
+        if let Some(op) = ops.iter_mut().find(|o| o.id == id) {
+            op.lock_context = Some(lock_context);
         }
     }
 }
@@ -424,12 +450,18 @@ mod tests {
             connection_id: "conn-123".to_string(),
             remote_path: "/docs/report.docx".to_string(),
             local_path: PathBuf::from("/tmp/sambee-companion/test/report-copy.docx"),
-            token: "test-token".to_string(),
             downloaded_at: SystemTime::now(),
             original_mtime: SystemTime::now(),
             status: OperationStatus::Editing,
             opened_with_app: Some("LibreOffice Writer".to_string()),
-            lock_id: Some("lock-abc".to_string()),
+            lock_context: Some(CompanionLockContext {
+                lock_id: "lock-abc".to_string(),
+                operation_id: "op-abc".to_string(),
+                lock_capability: "cap-abc".to_string(),
+                operation_token: "op-token-abc".to_string(),
+                renew_after_seconds: 600,
+                token_issued_at_epoch_seconds: 1_700_000_000,
+            }),
             server_last_modified: Some("2026-02-09T14:30:00".to_string()),
         }
     }
@@ -502,6 +534,29 @@ mod tests {
         store.remove(id1);
         assert!(store.get(id1).is_none());
         assert_eq!(store.all_operations().len(), 1);
+    }
+
+    #[test]
+    fn test_update_lock_context() {
+        let store = OperationStore::new();
+        let id = Uuid::new_v4();
+        store.add(make_test_operation(id));
+
+        store.update_lock_context(
+            id,
+            CompanionLockContext {
+                lock_id: "lock-new".to_string(),
+                operation_id: "op-new".to_string(),
+                lock_capability: "cap-new".to_string(),
+                operation_token: "token-new".to_string(),
+                renew_after_seconds: 600,
+                token_issued_at_epoch_seconds: 1_700_000_100,
+            },
+        );
+
+        let lock_context = store.get(id).and_then(|op| op.lock_context).expect("missing lock context");
+        assert_eq!(lock_context.lock_id, "lock-new");
+        assert_eq!(lock_context.operation_token, "token-new");
     }
 
     //

@@ -14,8 +14,10 @@ from typing import Generator
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import inspect, text
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from app.db.migrations import MIGRATION_TABLE_NAME, MIGRATIONS, run_migrations
 from app.models.connection import Connection
 from app.models.user import User, UserRole
 
@@ -180,6 +182,133 @@ class TestDatabaseEngine:
         from app.db.database import engine
 
         assert "sqlite" in str(engine.url)
+
+    def test_run_migrations_drops_legacy_edit_lock_companion_session(self, tmp_path: Path):
+        """Legacy persisted companion lock tokens are removed from edit_locks schema."""
+        db_path = tmp_path / "legacy-edit-locks.db"
+        test_engine = create_engine(
+            f"sqlite:///{db_path}",
+            connect_args={"check_same_thread": False},
+        )
+
+        try:
+            with test_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE {MIGRATION_TABLE_NAME} (
+                            version INTEGER PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+                connection.execute(
+                    text(
+                        """
+                        CREATE TABLE edit_locks (
+                            id CHAR(32) NOT NULL,
+                            file_path VARCHAR NOT NULL,
+                            connection_id CHAR(32) NOT NULL,
+                            locked_by VARCHAR NOT NULL,
+                            locked_at DATETIME NOT NULL,
+                            companion_session VARCHAR NOT NULL,
+                            last_heartbeat DATETIME NOT NULL,
+                            lock_capability VARCHAR DEFAULT '',
+                            operation_id VARCHAR DEFAULT '',
+                            PRIMARY KEY (id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_edit_locks_companion_session ON edit_locks (companion_session)"))
+                connection.execute(text("CREATE INDEX ix_edit_locks_connection_id ON edit_locks (connection_id)"))
+                connection.execute(text("CREATE INDEX ix_edit_locks_file_path ON edit_locks (file_path)"))
+                connection.execute(text("CREATE INDEX ix_edit_locks_lock_capability ON edit_locks (lock_capability)"))
+                connection.execute(text("CREATE INDEX ix_edit_locks_locked_by ON edit_locks (locked_by)"))
+                connection.execute(text("CREATE INDEX ix_edit_locks_operation_id ON edit_locks (operation_id)"))
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO edit_locks (
+                            id,
+                            file_path,
+                            connection_id,
+                            locked_by,
+                            locked_at,
+                            companion_session,
+                            last_heartbeat,
+                            lock_capability,
+                            operation_id
+                        ) VALUES (
+                            :id,
+                            :file_path,
+                            :connection_id,
+                            :locked_by,
+                            :locked_at,
+                            :companion_session,
+                            :last_heartbeat,
+                            :lock_capability,
+                            :operation_id
+                        )
+                        """
+                    ),
+                    {
+                        "id": "a" * 32,
+                        "file_path": "/docs/report.docx",
+                        "connection_id": "b" * 32,
+                        "locked_by": "testadmin",
+                        "locked_at": "2026-06-17 10:00:00",
+                        "companion_session": "legacy-secret",
+                        "last_heartbeat": "2026-06-17 10:00:30",
+                        "lock_capability": "capability-123",
+                        "operation_id": "operation-123",
+                    },
+                )
+                connection.execute(
+                    text(f"INSERT INTO {MIGRATION_TABLE_NAME} (version, name) VALUES (:version, :name)"),
+                    [{"version": migration.version, "name": migration.name} for migration in MIGRATIONS if migration.version < 11],
+                )
+
+            run_migrations(test_engine)
+
+            with test_engine.connect() as connection:
+                inspector = inspect(connection)
+                lock_columns = {column["name"] for column in inspector.get_columns("edit_locks")}
+                assert "companion_session" not in lock_columns
+
+                index_names = {index["name"] for index in inspector.get_indexes("edit_locks")}
+                assert "ix_edit_locks_companion_session" not in index_names
+                assert "ix_edit_locks_file_path" in index_names
+                assert "ix_edit_locks_connection_id" in index_names
+                assert "ix_edit_locks_locked_by" in index_names
+                assert "ix_edit_locks_operation_id" in index_names
+                assert "ix_edit_locks_lock_capability" in index_names
+
+                migrated_row = (
+                    connection.execute(
+                        text(
+                            """
+                        SELECT id, file_path, connection_id, locked_by, locked_at, last_heartbeat, lock_capability, operation_id
+                        FROM edit_locks
+                        """
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+                assert migrated_row["id"] == "a" * 32
+                assert migrated_row["file_path"] == "/docs/report.docx"
+                assert migrated_row["connection_id"] == "b" * 32
+                assert migrated_row["locked_by"] == "testadmin"
+                assert migrated_row["lock_capability"] == "capability-123"
+                assert migrated_row["operation_id"] == "operation-123"
+
+                applied_versions = set(connection.execute(text(f"SELECT version FROM {MIGRATION_TABLE_NAME}")).scalars().all())
+                assert 11 in applied_versions
+        finally:
+            test_engine.dispose()
 
 
 @pytest.mark.integration
@@ -413,7 +542,7 @@ class TestDatabaseSchemaValidation:
 
     def test_user_table_columns(self, session: Session):
         """Test that User table has expected columns."""
-        user = User(username="column_test", password_hash="hash", role="admin")
+        user = User(username="column_test", password_hash="hash", role=UserRole.ADMIN)
         session.add(user)
         session.commit()
         session.refresh(user)

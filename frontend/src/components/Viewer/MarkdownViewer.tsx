@@ -23,6 +23,7 @@ import apiService from "../../services/api";
 import { error as logError, info as logInfo } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import { getMarkdownContentStyles, getViewerColors } from "../../theme/viewerStyles";
+import type { EditLockInfo } from "../../types";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
 import {
@@ -128,7 +129,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [showHelp, setShowHelp] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [lockHeld, setLockHeld] = useState(false);
+  const [editLockInfo, setEditLockInfo] = useState<EditLockInfo | null>(null);
   const [sharing, setSharing] = useState(false);
   const [viewerSearchText, setViewerSearchText] = useState("");
   const [editorSearchText, setEditorSearchText] = useState("");
@@ -150,7 +151,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const editorRef = useRef<MarkdownRichEditorHandle | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const unsavedChangesCancelButtonRef = useRef<HTMLButtonElement | null>(null);
-  const lockHeldRef = useRef(false);
+  const lockHeldRef = useRef<EditLockInfo | null>(null);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
   const prefetchedShareFileRef = useRef<File | null>(null);
   const sharePrefetchPromiseRef = useRef<Promise<File> | null>(null);
@@ -357,30 +358,30 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     ) : null;
 
   const releaseEditLock = useCallback(async () => {
-    if (!lockHeld) {
+    if (!editLockInfo) {
       return;
     }
 
     try {
-      await apiService.releaseEditLock(connectionId, path);
+      await apiService.releaseEditLock(connectionId, path, editLockInfo);
     } catch (err) {
       logError("Failed to release markdown edit lock", { error: err, path, connectionId });
     } finally {
-      setLockHeld(false);
+      setEditLockInfo(null);
     }
-  }, [connectionId, lockHeld, path]);
+  }, [connectionId, editLockInfo, path]);
 
   useEffect(() => {
-    lockHeldRef.current = lockHeld;
-  }, [lockHeld]);
+    lockHeldRef.current = editLockInfo;
+  }, [editLockInfo]);
 
   useEffect(() => {
-    if (!isEditing || !lockHeld) {
+    if (!isEditing || !editLockInfo) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
-      void apiService.heartbeatEditLock(connectionId, path).catch((err) => {
+      void apiService.heartbeatEditLock(connectionId, path, editLockInfo).catch((err) => {
         logError("Failed to refresh markdown edit lock", { error: err, path, connectionId });
       });
     }, 30_000);
@@ -388,12 +389,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [connectionId, isEditing, lockHeld, path]);
+  }, [connectionId, editLockInfo, isEditing, path]);
 
   useEffect(() => {
     return () => {
       if (lockHeldRef.current) {
-        void apiService.releaseEditLock(connectionId, path).catch((err) => {
+        void apiService.releaseEditLock(connectionId, path, lockHeldRef.current).catch((err) => {
           logError("Failed to release markdown edit lock during cleanup", { error: err, path, connectionId });
         });
       }
@@ -577,8 +578,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     try {
       if (supportsEditLocks) {
-        await apiService.acquireEditLock(connectionId, path, editSessionIdRef.current);
-        setLockHeld(true);
+        const lockInfo = await apiService.acquireEditLock(connectionId, path, editSessionIdRef.current);
+        setEditLockInfo(lockInfo);
       }
 
       setDraftContent(content);

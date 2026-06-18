@@ -33,6 +33,13 @@ const mockMarkdownEditorCommands = {
   toggleInlineCode: vi.fn(),
 };
 
+const mockEditLockInfo = {
+  lock_id: "lock-1",
+  file_path: "/docs/readme.md",
+  locked_by: "alice",
+  locked_at: "2026-03-23T12:00:00Z",
+};
+
 vi.mock("../MarkdownRichEditor", () => {
   const MockMarkdownRichEditor = forwardRef<
     {
@@ -484,7 +491,7 @@ describe("MarkdownViewer", () => {
 
     expect(confirmSpy).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
+    expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.objectContaining(mockEditLockInfo));
   });
 
   it("renders only the close button in the top bar while editing", async () => {
@@ -1152,7 +1159,7 @@ describe("MarkdownViewer", () => {
     fireEvent.click(within(unsavedDialog).getByRole("button", { name: "Discard" }));
 
     await waitFor(() => {
-      expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
+      expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.objectContaining(mockEditLockInfo));
       expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
@@ -1187,7 +1194,7 @@ describe("MarkdownViewer", () => {
         filename: "readme.md",
         mimeType: "text/markdown;charset=utf-8",
       });
-      expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
+      expect(releaseSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.objectContaining(mockEditLockInfo));
       expect(onClose).toHaveBeenCalledTimes(1);
     });
   });
@@ -1224,7 +1231,7 @@ describe("MarkdownViewer", () => {
     });
 
     await waitFor(() => {
-      expect(heartbeatSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md");
+      expect(heartbeatSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.objectContaining(mockEditLockInfo));
     });
   });
 

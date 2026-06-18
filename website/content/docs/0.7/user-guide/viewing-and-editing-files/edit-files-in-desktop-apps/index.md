@@ -50,3 +50,5 @@ Closing the desktop app by itself does not upload the file and does not finish t
 - Changed file: use **Done Editing — Hold to Upload**.
 - Unchanged file: use **Done Editing — Hold to Close**.
 - Do not want to keep the local changes: use **Discard Changes — Hold**.
+
+If the **Done Editing** window tells you that the session expired, authentication failed, the lock was lost, or recovery is required, reopen the file from Sambee instead of retrying the old desktop-editing session indefinitely. That starts a fresh authenticated edit session with a new server-side lock.

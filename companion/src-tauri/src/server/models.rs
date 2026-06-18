@@ -70,6 +70,15 @@ pub struct HealthResponse {
     pub paired: bool,
 }
 
+/// Public pairing state for the current browser origin.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicPairingStatus {
+    Unpaired,
+    PendingLocalApproval,
+    Paired,
+}
+
 /// Response from `POST /api/pair/initiate`.
 #[derive(Debug, Serialize)]
 pub struct PairInitiateResponse {
@@ -88,6 +97,7 @@ pub struct PairConfirmResponse {
 pub struct PairStatusResponse {
     pub current_origin: Option<String>,
     pub current_origin_paired: bool,
+    pub status: PublicPairingStatus,
 }
 
 /// Response from `POST /api/pair/test`.

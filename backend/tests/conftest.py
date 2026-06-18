@@ -17,7 +17,7 @@ from app.core.security import create_access_token, get_password_hash
 from app.db.database import get_session
 from app.main import app
 from app.models.connection import Connection, ConnectionAccessMode, ConnectionScope
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 def pytest_configure(config):
@@ -204,7 +204,7 @@ def admin_user_fixture(session: Session) -> User:
     user = User(
         username="testadmin",
         password_hash=get_password_hash("adminpass123"),
-        role="admin",
+        role=UserRole.ADMIN,
     )
     session.add(user)
     session.commit()
@@ -218,7 +218,7 @@ def regular_user_fixture(session: Session) -> User:
     user = User(
         username="testuser",
         password_hash=get_password_hash("userpass123"),
-        role="editor",
+        role=UserRole.EDITOR,
     )
     session.add(user)
     session.commit()
@@ -232,7 +232,7 @@ def viewer_user_fixture(session: Session) -> User:
     user = User(
         username="testviewer",
         password_hash=get_password_hash("viewerpass123"),
-        role="viewer",
+        role=UserRole.VIEWER,
     )
     session.add(user)
     session.commit()
@@ -401,7 +401,7 @@ def other_private_connection_fixture(session: Session) -> Connection:
     other_user = User(
         username="otheruser",
         password_hash=get_password_hash("otherpass123"),
-        role="editor",
+        role=UserRole.EDITOR,
     )
     session.add(other_user)
     session.commit()

@@ -212,6 +212,129 @@ def _apply_user_identity_and_role_refresh_migration(connection: Connection) -> N
     connection.execute(text('CREATE INDEX IF NOT EXISTS ix_user_expires_at ON "user" (expires_at)'))
 
 
+def _apply_companion_uri_token_jti_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if inspector.has_table("companion_uri_token_jti"):
+        return
+
+    connection.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS companion_uri_token_jti (
+                jti VARCHAR PRIMARY KEY,
+                user_id CHAR(32),
+                connection_id CHAR(32),
+                path VARCHAR NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                consumed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_companion_uri_token_jti_user_id ON companion_uri_token_jti (user_id)"))
+    connection.execute(
+        text("CREATE INDEX IF NOT EXISTS ix_companion_uri_token_jti_connection_id ON companion_uri_token_jti (connection_id)")
+    )
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_companion_uri_token_jti_path ON companion_uri_token_jti (path)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_companion_uri_token_jti_expires_at ON companion_uri_token_jti (expires_at)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_companion_uri_token_jti_consumed_at ON companion_uri_token_jti (consumed_at)"))
+
+
+def _apply_edit_lock_capability_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("edit_locks"):
+        return
+
+    lock_columns = {column["name"] for column in inspector.get_columns("edit_locks")}
+
+    if "lock_capability" not in lock_columns:
+        connection.execute(text("ALTER TABLE edit_locks ADD COLUMN lock_capability VARCHAR DEFAULT ''"))
+
+    connection.execute(text("UPDATE edit_locks SET lock_capability = COALESCE(lock_capability, '')"))
+
+    if "companion_session" in lock_columns:
+        # Remove persisted bearer material from legacy locks during the cutover.
+        connection.execute(text("UPDATE edit_locks SET companion_session = '' WHERE companion_session IS NOT NULL"))
+
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_lock_capability ON edit_locks (lock_capability)"))
+
+
+def _apply_edit_lock_operation_id_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("edit_locks"):
+        return
+
+    lock_columns = {column["name"] for column in inspector.get_columns("edit_locks")}
+
+    if "operation_id" not in lock_columns:
+        connection.execute(text("ALTER TABLE edit_locks ADD COLUMN operation_id VARCHAR DEFAULT ''"))
+
+    connection.execute(text("UPDATE edit_locks SET operation_id = COALESCE(operation_id, '')"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_operation_id ON edit_locks (operation_id)"))
+
+
+def _apply_edit_lock_companion_session_drop_migration(connection: Connection) -> None:
+    inspector = inspect(connection)
+    if not inspector.has_table("edit_locks"):
+        return
+
+    lock_columns = {column["name"] for column in inspector.get_columns("edit_locks")}
+    if "companion_session" not in lock_columns:
+        return
+
+    connection.execute(text("DROP TABLE IF EXISTS edit_locks__cutover"))
+    connection.execute(
+        text(
+            """
+            CREATE TABLE edit_locks__cutover (
+                id CHAR(32) NOT NULL,
+                file_path VARCHAR NOT NULL,
+                connection_id CHAR(32) NOT NULL,
+                locked_by VARCHAR NOT NULL,
+                operation_id VARCHAR NOT NULL DEFAULT '',
+                locked_at DATETIME NOT NULL,
+                lock_capability VARCHAR NOT NULL DEFAULT '',
+                last_heartbeat DATETIME NOT NULL,
+                PRIMARY KEY (id)
+            )
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            INSERT INTO edit_locks__cutover (
+                id,
+                file_path,
+                connection_id,
+                locked_by,
+                operation_id,
+                locked_at,
+                lock_capability,
+                last_heartbeat
+            )
+            SELECT
+                id,
+                file_path,
+                connection_id,
+                locked_by,
+                operation_id,
+                locked_at,
+                lock_capability,
+                last_heartbeat
+            FROM edit_locks
+            """
+        )
+    )
+    connection.execute(text("DROP TABLE edit_locks"))
+    connection.execute(text("ALTER TABLE edit_locks__cutover RENAME TO edit_locks"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_file_path ON edit_locks (file_path)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_connection_id ON edit_locks (connection_id)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_locked_by ON edit_locks (locked_by)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_operation_id ON edit_locks (operation_id)"))
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_edit_locks_lock_capability ON edit_locks (lock_capability)"))
+
+
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=1, name="ensure_connection_slugs", apply=_apply_connection_slug_migration),
     Migration(version=2, name="add_user_role_and_session_fields", apply=_apply_user_role_migration),
@@ -220,6 +343,10 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(version=5, name="add_user_settings_table", apply=_apply_user_settings_migration),
     Migration(version=6, name="add_connection_access_mode", apply=_apply_connection_access_mode_migration),
     Migration(version=7, name="refresh_user_identity_and_roles", apply=_apply_user_identity_and_role_refresh_migration),
+    Migration(version=8, name="add_companion_uri_token_jti_registry", apply=_apply_companion_uri_token_jti_migration),
+    Migration(version=9, name="add_edit_lock_capability", apply=_apply_edit_lock_capability_migration),
+    Migration(version=10, name="add_edit_lock_operation_id", apply=_apply_edit_lock_operation_id_migration),
+    Migration(version=11, name="drop_edit_lock_companion_session", apply=_apply_edit_lock_companion_session_drop_migration),
 )
 
 

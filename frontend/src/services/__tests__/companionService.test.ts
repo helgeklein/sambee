@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import companionService, { COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL } from "../companion";
+import {
+  COMPANION_PAIR_CONFIRMATION_PENDING_CODE,
+  COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL,
+  default as companionService,
+} from "../companion";
 
 const { mockAxiosInstance } = vi.hoisted(() => ({
   mockAxiosInstance: {
@@ -29,13 +33,35 @@ describe("companionService.confirmPairing", () => {
 
   it("retries while the companion is still waiting for local approval", async () => {
     mockAxiosInstance.post
-      .mockRejectedValueOnce({ response: { data: { detail: COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL } } })
-      .mockRejectedValueOnce({ response: { data: { detail: COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL } } })
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            code: COMPANION_PAIR_CONFIRMATION_PENDING_CODE,
+            detail: COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL,
+          },
+        },
+      })
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            code: COMPANION_PAIR_CONFIRMATION_PENDING_CODE,
+            detail: COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL,
+          },
+        },
+      })
       .mockResolvedValueOnce({ data: { secret: "shared-secret" } });
 
     await companionService.confirmPairing("pair-1");
 
     expect(mockAxiosInstance.post).toHaveBeenCalledTimes(3);
+    expect(mockAxiosInstance.post).toHaveBeenNthCalledWith(
+      1,
+      "/pair/confirm",
+      expect.objectContaining({
+        pairing_id: "pair-1",
+        origin: window.location.origin,
+      })
+    );
     expect(localStorage.getItem("companion_secret")).toBe("shared-secret");
   });
 
@@ -45,6 +71,46 @@ describe("companionService.confirmPairing", () => {
 
     await expect(companionService.confirmPairing("pair-2")).rejects.toBe(error);
     expect(mockAxiosInstance.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("still retries when the companion returns only the stable pending code", async () => {
+    mockAxiosInstance.post
+      .mockRejectedValueOnce({
+        response: {
+          data: {
+            code: COMPANION_PAIR_CONFIRMATION_PENDING_CODE,
+            detail: "A different message should not break the retry",
+          },
+        },
+      })
+      .mockResolvedValueOnce({ data: { secret: "shared-secret" } });
+
+    await companionService.confirmPairing("pair-3");
+
+    expect(mockAxiosInstance.post).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem("companion_secret")).toBe("shared-secret");
+  });
+});
+
+describe("companionService.getPairStatus", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes the current browser origin as a query fallback", async () => {
+    mockAxiosInstance.get.mockResolvedValueOnce({
+      data: {
+        current_origin: window.location.origin,
+        current_origin_paired: false,
+        status: "unpaired",
+      },
+    });
+
+    await companionService.getPairStatus();
+
+    expect(mockAxiosInstance.get).toHaveBeenCalledWith("/pair/status", {
+      params: { origin: window.location.origin },
+    });
   });
 });
 

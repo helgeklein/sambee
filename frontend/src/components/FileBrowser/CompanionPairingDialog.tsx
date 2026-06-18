@@ -43,11 +43,13 @@ interface CompanionPairingDialogProps {
   onInitiate: () => Promise<{ pairingId: string; pairingCode: string }>;
   /** Confirm pairing after user verifies the code. */
   onConfirm: (pairingId: string) => Promise<void>;
+  /** Cancel a pending pairing when the dialog is dismissed mid-flow. */
+  onCancel: (pairingId: string) => Promise<void>;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, onClose, onInitiate, onConfirm }) => {
+const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, onClose, onInitiate, onConfirm, onCancel }) => {
   const [step, setStep] = useState<PairingStep>("idle");
   const [pairingCode, setPairingCode] = useState("");
   const [pairingId, setPairingId] = useState("");
@@ -56,6 +58,9 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const doneButtonRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(open);
+  const pendingPairingIdRef = useRef("");
+  const stepRef = useRef<PairingStep>("idle");
 
   /** Reset state when closing or retrying. */
   const resetState = useCallback(() => {
@@ -63,16 +68,31 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
     setPairingCode("");
     setPairingId("");
     setErrorMessage("");
+    pendingPairingIdRef.current = "";
   }, []);
+
+  const cancelPendingPairing = useCallback(() => {
+    const activePairingId = pendingPairingIdRef.current;
+    if (!activePairingId) {
+      return;
+    }
+
+    pendingPairingIdRef.current = "";
+    void onCancel(activePairingId).catch((err) => {
+      logger.warn("Pairing cancellation failed after dialog close", { error: err, pairingId: activePairingId }, "companion");
+    });
+  }, [onCancel]);
 
   /** Start the pairing handshake. */
   const handleStart = useCallback(async () => {
     setStep("showing_code");
     setErrorMessage("");
+    pendingPairingIdRef.current = "";
     try {
       const result = await onInitiate();
       setPairingCode(result.pairingCode);
       setPairingId(result.pairingId);
+      pendingPairingIdRef.current = result.pairingId;
     } catch (err) {
       logger.error("Pairing initiation failed", { error: err }, "companion");
       setStep("error");
@@ -95,9 +115,15 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
 
   /** Handle dialog close — reset state. */
   const handleClose = useCallback(() => {
+    const shouldCancelPendingPairing = pairingId && (step === "showing_code" || step === "confirming");
+
+    if (shouldCancelPendingPairing) {
+      cancelPendingPairing();
+    }
+
     resetState();
     onClose();
-  }, [resetState, onClose]);
+  }, [cancelPendingPairing, onClose, pairingId, resetState, step]);
 
   const handleKeyDown = useMemo(() => {
     if (step === "showing_code" && pairingCode) {
@@ -114,6 +140,10 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
 
     return dialogEnterKeyHandler();
   }, [handleClose, handleConfirm, handleStart, pairingCode, step]);
+
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
 
   useEffect(() => {
     if (!open) {
@@ -138,6 +168,23 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
     const frame = requestAnimationFrame(() => buttonToFocus.focus());
     return () => cancelAnimationFrame(frame);
   }, [open, pairingCode, step]);
+
+  useEffect(() => {
+    if (wasOpenRef.current && !open && (step === "showing_code" || step === "confirming")) {
+      cancelPendingPairing();
+      resetState();
+    }
+
+    wasOpenRef.current = open;
+  }, [cancelPendingPairing, open, resetState, step]);
+
+  useEffect(() => {
+    return () => {
+      if (pendingPairingIdRef.current && (stepRef.current === "showing_code" || stepRef.current === "confirming")) {
+        cancelPendingPairing();
+      }
+    };
+  }, [cancelPendingPairing]);
 
   return (
     <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} maxWidth="xs" fullWidth TransitionComponent={NoTransition}>

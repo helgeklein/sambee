@@ -731,6 +731,8 @@ describe("API Service", () => {
       mockAxiosInstance.post.mockResolvedValueOnce({
         data: {
           lock_id: "lock-1",
+          lock_capability: "cap-1",
+          operation_id: "op-1",
           file_path: "/docs/readme.md",
           locked_by: "alice",
           locked_at: "2026-03-23T12:00:00Z",
@@ -741,34 +743,59 @@ describe("API Service", () => {
 
       expect(result).toEqual({
         lock_id: "lock-1",
+        lock_capability: "cap-1",
+        operation_id: "op-1",
         file_path: "/docs/readme.md",
         locked_by: "alice",
         locked_at: "2026-03-23T12:00:00Z",
       });
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
-        "/companion/conn1/lock",
-        { companion_session: "session-1" },
-        { params: { path: "/docs/readme.md" } }
-      );
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/browse/conn1/lock", undefined, { params: { path: "/docs/readme.md" } });
     });
 
     it("heartbeatEditLock() refreshes the server-side lock heartbeat", async () => {
       mockAxiosInstance.post.mockResolvedValueOnce({ data: { status: "ok" } } as AxiosResponse);
 
-      await apiService.heartbeatEditLock("conn1", "/docs/readme.md");
-
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith("/companion/conn1/lock/heartbeat", undefined, {
-        params: { path: "/docs/readme.md" },
+      await apiService.heartbeatEditLock("conn1", "/docs/readme.md", {
+        lock_id: "lock-1",
+        lock_capability: "cap-1",
+        operation_id: "op-1",
+        file_path: "/docs/readme.md",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
       });
+
+      expect(mockAxiosInstance.post).toHaveBeenCalledWith(
+        "/browse/conn1/lock/heartbeat",
+        {
+          operation_id: "op-1",
+          lock_id: "lock-1",
+          lock_capability: "cap-1",
+        },
+        {
+          params: { path: "/docs/readme.md" },
+        }
+      );
     });
 
     it("releaseEditLock() releases the server-side lock", async () => {
       mockAxiosInstance.delete.mockResolvedValueOnce({ data: { status: "ok" } } as AxiosResponse);
 
-      await apiService.releaseEditLock("conn1", "/docs/readme.md");
+      await apiService.releaseEditLock("conn1", "/docs/readme.md", {
+        lock_id: "lock-1",
+        lock_capability: "cap-1",
+        operation_id: "op-1",
+        file_path: "/docs/readme.md",
+        locked_by: "alice",
+        locked_at: "2026-03-23T12:00:00Z",
+      });
 
-      expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/companion/conn1/lock", {
+      expect(mockAxiosInstance.delete).toHaveBeenCalledWith("/browse/conn1/lock", {
         params: { path: "/docs/readme.md" },
+        data: {
+          operation_id: "op-1",
+          lock_id: "lock-1",
+          lock_capability: "cap-1",
+        },
       });
     });
 
@@ -778,7 +805,6 @@ describe("API Service", () => {
           locked: true,
           locked_by: "alice",
           locked_at: "2026-03-23T12:00:00Z",
-          companion_session: "session-1",
         },
       } as AxiosResponse);
 
@@ -788,9 +814,8 @@ describe("API Service", () => {
         locked: true,
         locked_by: "alice",
         locked_at: "2026-03-23T12:00:00Z",
-        companion_session: "session-1",
       });
-      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/companion/conn1/lock-status", {
+      expect(mockAxiosInstance.get).toHaveBeenCalledWith("/browse/conn1/lock-status", {
         params: { path: "/docs/readme.md" },
       });
     });
@@ -806,12 +831,22 @@ describe("API Service", () => {
       await expect(apiService.acquireEditLock("local-drive:c", "/docs/readme.md", "session-1")).rejects.toThrow(
         LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
       );
-      await expect(apiService.heartbeatEditLock("local-drive:c", "/docs/readme.md")).rejects.toThrow(
-        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
-      );
-      await expect(apiService.releaseEditLock("local-drive:c", "/docs/readme.md")).rejects.toThrow(
-        LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE
-      );
+      await expect(
+        apiService.heartbeatEditLock("local-drive:c", "/docs/readme.md", {
+          lock_id: "lock-1",
+          file_path: "/docs/readme.md",
+          locked_by: "alice",
+          locked_at: "2026-03-23T12:00:00Z",
+        })
+      ).rejects.toThrow(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
+      await expect(
+        apiService.releaseEditLock("local-drive:c", "/docs/readme.md", {
+          lock_id: "lock-1",
+          file_path: "/docs/readme.md",
+          locked_by: "alice",
+          locked_at: "2026-03-23T12:00:00Z",
+        })
+      ).rejects.toThrow(LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE);
     });
   });
 

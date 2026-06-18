@@ -222,6 +222,23 @@ python3 scripts/docs-editor.py section rename --version 1.1 --book admin --from 
 
 `page create` creates the page directory, writes `index.md` by default or `inherit.md` with `--inherit`, and adds the page slug to `pages.<book>.<section>.items`.
 
+Use `page create` only when the page does not already exist in that version.
+
+If the page already exists as an inherited page marker:
+
+- the directory already exists
+- the nav entry already exists
+- the page folder contains an empty `inherit.md`
+
+Then the correct workflow is to materialize real content manually:
+
+1. remove the inherited marker
+1. add `index.md`
+1. copy the inherited page body as the starting point
+1. edit that authored copy for the version-specific behavior
+
+This is intentionally outside the scope of `page create`, because the page identity and nav structure already exist.
+
 Optional input includes `--position <index|before:<slug>|after:<slug>|start|end>`.
 
 Example:

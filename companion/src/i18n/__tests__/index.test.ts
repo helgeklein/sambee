@@ -14,7 +14,9 @@ describe("companion i18n", () => {
   });
 
   it("switches representative companion strings when the locale changes", async () => {
-    expect(translate("pairing.title")).toBe("Confirm this pairing request");
+    expect(translate("pairing.title")).toBe("Confirm this browser origin");
+    expect(translate("pairing.eyebrow")).toBe("Approve Browser Origin");
+    expect(translate("preferences.sections.pairedBrowsers")).toBe("Trusted Browser Origins");
     expect(translate("doneEditing.buttons.doneUpload")).toBe("✓ Done Editing — Hold to Upload");
     expect(translate("doneEditing.buttons.retryUpload")).toBe("✓ Done Editing — Hold to Retry Upload");
     expect(translate("recovery.actions.retryUpload")).toBe("Retry Upload");
@@ -23,7 +25,9 @@ describe("companion i18n", () => {
 
     await setLocale("en-XA");
 
-    expect(translate("pairing.title")).toBe("[Ćóńƒíŕḿ ťħíš ṕåíŕíńğ ŕéqúéšť]");
+    expect(translate("pairing.title")).toBe("[Ćóńƒíŕḿ ťħíš ƀŕóŵšéŕ óŕíğíń]");
+    expect(translate("pairing.eyebrow")).toBe("[Åṕṕŕóṽé Ɓŕóŵšéŕ Óŕíğíń]");
+    expect(translate("preferences.sections.pairedBrowsers")).toBe("[Ťŕúšťéď Ɓŕóŵšéŕ Óŕíğíńš]");
     expect(translate("doneEditing.buttons.doneUpload")).toBe("[✓ Ďóńé Éďíťíńğ — Ħóĺď ťó Úṕĺóåď]");
     expect(translate("doneEditing.buttons.retryUpload")).toBe("[✓ Ďóńé Éďíťíńğ — Ħóĺď ťó Ŕéťŕý Úṕĺóåď]");
     expect(translate("recovery.actions.retryUpload")).toBe("[Ŕéťŕý Úṕĺóåď]");

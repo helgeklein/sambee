@@ -208,6 +208,8 @@ export interface DirectorySearchResult {
 
 export interface EditLockInfo {
   lock_id: string;
+  lock_capability?: string;
+  operation_id?: string;
   file_path: string;
   locked_by: string;
   locked_at: string;
@@ -217,7 +219,6 @@ export interface EditLockStatus {
   locked: boolean;
   locked_by?: string | null;
   locked_at?: string | null;
-  companion_session?: string | null;
 }
 
 export interface AuthToken {

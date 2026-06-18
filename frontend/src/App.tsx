@@ -1,5 +1,5 @@
+import { ThemeProvider } from "@mui/material";
 import CssBaseline from "@mui/material/CssBaseline";
-import { ThemeProvider } from "@mui/material/styles";
 import { lazy, Suspense, useRef } from "react";
 import { Navigate, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import AppUpdatePrompt from "./components/AppUpdatePrompt";

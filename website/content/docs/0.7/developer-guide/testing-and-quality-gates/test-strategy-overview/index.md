@@ -21,7 +21,7 @@ Do not default to either no validation or every possible check.
 | Frontend behavior | `cd frontend && npm test`, `cd frontend && npx tsc --noEmit`, `cd frontend && npm run lint` |
 | Companion behavior | `cd companion && npx tsc --noEmit`, `cd companion && npm run lint`, `cd companion/src-tauri && cargo test` |
 
-For fast local iteration, `./scripts/test` runs the main backend and frontend test suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
+For fast local iteration, `./scripts/test` runs the main backend, frontend, and companion suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
 
 ## Cross-Boundary Changes Need Cross-Boundary Checks
 

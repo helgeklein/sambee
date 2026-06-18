@@ -6,12 +6,12 @@ import { clearCachedAsyncData } from "../../hooks/useCachedAsyncData";
 import { SambeeThemeProvider } from "../../theme";
 import { LocalDrivesSettings } from "../LocalDrivesSettings";
 
-const { mockCheckHealth, mockGetPairStatus, mockGetCompanionDownloads, mockHasStoredSecret, mockUnpairOrigin } = vi.hoisted(() => ({
+const { mockCheckHealth, mockGetPairStatus, mockGetCompanionDownloads, mockHasStoredSecret, mockUnpairCurrentOrigin } = vi.hoisted(() => ({
   mockCheckHealth: vi.fn(),
   mockGetPairStatus: vi.fn(),
   mockGetCompanionDownloads: vi.fn(),
   mockHasStoredSecret: vi.fn(),
-  mockUnpairOrigin: vi.fn(),
+  mockUnpairCurrentOrigin: vi.fn(),
 }));
 
 vi.mock("../../components/FileBrowser/CompanionPairingDialog", () => ({
@@ -40,7 +40,8 @@ vi.mock("../../services/companion", () => ({
     getPairStatus: mockGetPairStatus,
     confirmPairing: vi.fn(),
     testPairing: vi.fn(),
-    unpairOrigin: mockUnpairOrigin,
+    unpairCurrentOrigin: mockUnpairCurrentOrigin,
+    cancelPairing: vi.fn(),
     initiatePairing: vi.fn(),
   },
   clearStoredSecret: vi.fn(),
@@ -87,7 +88,7 @@ describe("LocalDrivesSettings", () => {
         "windows-x64": "https://downloads.example.test/Sambee-Companion.exe",
       },
     });
-    mockUnpairOrigin.mockResolvedValue(undefined);
+    mockUnpairCurrentOrigin.mockResolvedValue(undefined);
     vi.useRealTimers();
   });
 
@@ -113,6 +114,7 @@ describe("LocalDrivesSettings", () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: true,
+      status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(true);
 
@@ -135,6 +137,7 @@ describe("LocalDrivesSettings", () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: true,
+      status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(false);
 
@@ -151,6 +154,28 @@ describe("LocalDrivesSettings", () => {
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.downloadSectionTitle)).not.toBeInTheDocument();
     expect(screen.queryByText(LOCAL_DRIVES_PAGE_COPY.verificationSectionTitle)).not.toBeInTheDocument();
     expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.statusRecoverable)).toBeInTheDocument();
+    expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.pairingSectionRepair)).toBeInTheDocument();
+  });
+
+  it("shows a waiting state while local companion approval is still pending", async () => {
+    mockGetPairStatus.mockResolvedValue({
+      current_origin: window.location.origin,
+      current_origin_paired: false,
+      status: "pending_local_approval",
+    });
+    mockHasStoredSecret.mockReturnValue(false);
+
+    renderSettings();
+
+    await waitFor(() => {
+      expect(mockGetPairStatus).toHaveBeenCalled();
+    });
+
+    expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.statusPendingApproval)).toBeInTheDocument();
+    expect(screen.getByText(LOCAL_DRIVES_PAGE_COPY.pairingSectionPendingApproval)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.waitingForApprovalButton })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.testCurrentPairingButton })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: LOCAL_DRIVES_PAGE_COPY.unpairThisBrowserButton })).not.toBeInTheDocument();
   });
 
   it("unpairs the current browser from the top-level action", async () => {
@@ -159,6 +184,7 @@ describe("LocalDrivesSettings", () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: true,
+      status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(true);
 
@@ -168,7 +194,7 @@ describe("LocalDrivesSettings", () => {
     await user.click(unpairButton);
 
     await waitFor(() => {
-      expect(mockUnpairOrigin).toHaveBeenCalledWith(window.location.origin);
+      expect(mockUnpairCurrentOrigin).toHaveBeenCalled();
     });
   });
 
@@ -177,6 +203,7 @@ describe("LocalDrivesSettings", () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: false,
+      status: "unpaired",
     });
     mockHasStoredSecret.mockReturnValue(false);
 
@@ -192,6 +219,7 @@ describe("LocalDrivesSettings", () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: false,
+      status: "unpaired",
     });
     mockHasStoredSecret.mockReturnValue(false);
     mockGetCompanionDownloads.mockRejectedValue({
@@ -204,12 +232,14 @@ describe("LocalDrivesSettings", () => {
     expect(await screen.findByText("Companion download metadata feed request timed out.")).toBeInTheDocument();
   });
 
-  it("polls companion status every second while the page is visible", async () => {
+  it("uses a slower steady-state poll interval after pairing is already healthy", async () => {
     mockGetPairStatus.mockResolvedValue({
       current_origin: window.location.origin,
       current_origin_paired: true,
+      status: "paired",
     });
     mockHasStoredSecret.mockReturnValue(true);
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
 
     renderSettings();
 
@@ -217,14 +247,9 @@ describe("LocalDrivesSettings", () => {
       expect(mockCheckHealth).toHaveBeenCalled();
     });
 
-    const initialCheckHealthCalls = mockCheckHealth.mock.calls.length;
-
-    await waitFor(
-      () => {
-        expect(mockCheckHealth.mock.calls.length).toBeGreaterThanOrEqual(initialCheckHealthCalls + 2);
-      },
-      { timeout: 3_500 }
-    );
+    await waitFor(() => {
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 15_000);
+    });
   });
 
   it("hides Companion install and pairing UI on unsupported mobile platforms", async () => {

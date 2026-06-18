@@ -13,7 +13,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useState } from "preact/hooks";
 
 import { translate } from "../i18n";
-import { type AuthRetryResult, getTauriErrorMessage, isAuthRetryResult } from "../utils/tauriErrorMarkers";
+import { openSambeeStatusPage } from "../utils/openSambeeStatusPage";
+import {
+  type AuthRetryResult,
+  getTauriErrorMessage,
+  isAuthRetryResult,
+  isLifecycleErrorResult,
+  type LifecycleErrorResult,
+  type LifecycleErrorStatus,
+} from "../utils/tauriErrorMarkers";
 import { ModalDialog } from "./ModalDialog";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,6 +56,8 @@ interface RecoveryDialogProps {
   onDiscardAction?: (operationDir: string) => Promise<void>;
   /** Optional override used by browser previews for dismiss. */
   onDismissAction?: (operationDir: string) => Promise<void>;
+  /** Optional lifecycle hook used by previews/tests to reopen Sambee after a terminal status. */
+  onBlockedLifecycleAction?: (status: LifecycleErrorStatus, serverUrl: string) => Promise<void>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,10 +74,13 @@ interface ItemState {
   error: string | null;
   /** Whether this item has been resolved. */
   resolved: boolean;
+  /** Terminal lifecycle state that requires reopening the file from Sambee. */
+  blockedLifecycle: LifecycleErrorStatus | null;
 }
 
 type RecoveryUploadResult =
   | AuthRetryResult
+  | LifecycleErrorResult
   | {
       status: "completed";
       message: string;
@@ -79,11 +92,44 @@ type RecoveryUploadResult =
 /**
  * Displays recovery cards for leftover operations found on startup.
  */
-export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAction, onDismissAction }: RecoveryDialogProps) {
+export function RecoveryDialog({
+  leftovers,
+  onDone,
+  onUploadAction,
+  onDiscardAction,
+  onDismissAction,
+  onBlockedLifecycleAction,
+}: RecoveryDialogProps) {
+  const lifecycleMessage = useCallback((status: LifecycleErrorStatus, fallbackMessage: string) => {
+    switch (status) {
+      case "renewal_required":
+        return translate("recovery.lifecycle.renewalRequired", { message: fallbackMessage });
+      case "auth_failed":
+        return translate("recovery.lifecycle.authFailed", { message: fallbackMessage });
+      case "lock_lost":
+        return translate("recovery.lifecycle.lockLost", { message: fallbackMessage });
+      case "recovery_required":
+        return translate("recovery.lifecycle.recoveryRequired", { message: fallbackMessage });
+    }
+  }, []);
+
+  const blockedLifecyclePrimaryActionLabel = useCallback((status: LifecycleErrorStatus) => {
+    switch (status) {
+      case "renewal_required":
+        return translate("doneEditing.buttons.reopenRequired");
+      case "auth_failed":
+        return translate("doneEditing.buttons.authFailed");
+      case "lock_lost":
+        return translate("doneEditing.buttons.lockLost");
+      case "recovery_required":
+        return translate("doneEditing.buttons.recoveryRequired");
+    }
+  }, []);
+
   const [states, setStates] = useState<Record<string, ItemState>>(() => {
     const init: Record<string, ItemState> = {};
     for (const l of leftovers) {
-      init[l.operation_dir] = { loading: false, notice: null, error: null, resolved: false };
+      init[l.operation_dir] = { loading: false, notice: null, error: null, resolved: false, blockedLifecycle: null };
     }
     return init;
   });
@@ -116,7 +162,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
   //
   const handleUpload = useCallback(
     async (operationDir: string) => {
-      updateItemState(operationDir, { loading: true, notice: null, error: null });
+      updateItemState(operationDir, { loading: true, notice: null, error: null, blockedLifecycle: null });
       try {
         if (onUploadAction) {
           const result = await onUploadAction(operationDir);
@@ -125,6 +171,15 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
               loading: false,
               notice: translate("recovery.authRefreshedRetryUpload"),
               error: null,
+            });
+            return;
+          }
+          if (isLifecycleErrorResult(result)) {
+            updateItemState(operationDir, {
+              loading: false,
+              notice: null,
+              error: lifecycleMessage(result.status, result.message),
+              blockedLifecycle: result.status,
             });
             return;
           }
@@ -138,10 +193,19 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
             });
             return;
           }
+          if (isLifecycleErrorResult(result)) {
+            updateItemState(operationDir, {
+              loading: false,
+              notice: null,
+              error: lifecycleMessage(result.status, result.message),
+              blockedLifecycle: result.status,
+            });
+            return;
+          }
         }
         const updated = {
           ...states,
-          [operationDir]: { loading: false, notice: null, error: null, resolved: true },
+          [operationDir]: { loading: false, notice: null, error: null, resolved: true, blockedLifecycle: null },
         };
         setStates(updated);
         checkAllResolved(updated);
@@ -150,6 +214,25 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
       }
     },
     [checkAllResolved, onUploadAction, states, updateItemState]
+  );
+
+  const handleBlockedLifecycleAction = useCallback(
+    async (status: LifecycleErrorStatus, serverUrl: string, operationDir: string) => {
+      updateItemState(operationDir, { loading: true, error: null });
+      try {
+        if (onBlockedLifecycleAction) {
+          await onBlockedLifecycleAction(status, serverUrl);
+        } else {
+          await openSambeeStatusPage(serverUrl, status);
+        }
+      } catch (e) {
+        updateItemState(operationDir, { loading: false, error: getTauriErrorMessage(e) });
+        return;
+      }
+
+      updateItemState(operationDir, { loading: false });
+    },
+    [onBlockedLifecycleAction, updateItemState]
   );
 
   //
@@ -166,7 +249,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
         }
         const updated = {
           ...states,
-          [operationDir]: { loading: false, notice: null, error: null, resolved: true },
+          [operationDir]: { loading: false, notice: null, error: null, resolved: true, blockedLifecycle: null },
         };
         setStates(updated);
         checkAllResolved(updated);
@@ -191,7 +274,7 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
         }
         const updated = {
           ...states,
-          [operationDir]: { loading: false, notice: null, error: null, resolved: true },
+          [operationDir]: { loading: false, notice: null, error: null, resolved: true, blockedLifecycle: null },
         };
         setStates(updated);
         checkAllResolved(updated);
@@ -238,10 +321,18 @@ export function RecoveryDialog({ leftovers, onDone, onUploadAction, onDiscardAct
                 <button
                   type="button"
                   class="dialog-btn dialog-btn--primary"
-                  onClick={() => handleUpload(leftover.operation_dir)}
+                  onClick={() =>
+                    state?.blockedLifecycle
+                      ? void handleBlockedLifecycleAction(state.blockedLifecycle, leftover.server_url, leftover.operation_dir)
+                      : void handleUpload(leftover.operation_dir)
+                  }
                   disabled={state?.loading}
                 >
-                  {state?.notice ? translate("recovery.actions.retryUpload") : translate("recovery.actions.upload")}
+                  {state?.blockedLifecycle
+                    ? blockedLifecyclePrimaryActionLabel(state.blockedLifecycle)
+                    : state?.notice
+                      ? translate("recovery.actions.retryUpload")
+                      : translate("recovery.actions.upload")}
                 </button>
                 <button
                   type="button"

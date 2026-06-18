@@ -12,7 +12,7 @@ from app.api.websocket import ConnectionManager
 from app.core.security import encrypt_password
 from app.models.connection import Connection, ConnectionScope
 from app.models.file import DirectoryListing, FileInfo, FileType
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 @pytest.mark.performance
@@ -427,13 +427,13 @@ class TestWebSocketPerformance:
     async def test_websocket_connection_limit(self):
         """Test system can handle many WebSocket connections."""
         manager = ConnectionManager()
-        current_user = User(username="perf-user", password_hash="unused", role="admin")
+        current_user = User(username="perf-user", password_hash="unused", role=UserRole.ADMIN)
 
         # Simulate 100 concurrent WebSocket connections
         class MockWebSocket:
             def __init__(self, client_id: str):
                 self.client_id = client_id
-                self.messages = []
+                self.messages: list[dict[str, object]] = []
                 self.accepted = False
 
             async def accept(self):
@@ -464,12 +464,12 @@ class TestWebSocketPerformance:
     async def test_websocket_broadcast_performance(self):
         """Test broadcasting to many subscribers is fast."""
         manager = ConnectionManager()
-        current_user = User(username="perf-user", password_hash="unused", role="admin")
+        current_user = User(username="perf-user", password_hash="unused", role=UserRole.ADMIN)
 
         class MockWebSocket:
             def __init__(self, client_id: str):
                 self.client_id = client_id
-                self.messages = []
+                self.messages: list[dict[str, object]] = []
 
             async def accept(self):
                 pass
@@ -511,7 +511,7 @@ class TestWebSocketPerformance:
     async def test_websocket_subscription_overhead(self):
         """Test subscription/unsubscription performance."""
         manager = ConnectionManager()
-        current_user = User(username="perf-user", password_hash="unused", role="admin")
+        current_user = User(username="perf-user", password_hash="unused", role=UserRole.ADMIN)
 
         class MockWebSocket:
             def __init__(self, client_id: str):

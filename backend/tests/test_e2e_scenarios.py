@@ -10,6 +10,7 @@ Tests cover complete user journeys and workflows:
 - Error recovery scenarios
 """
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -20,7 +21,7 @@ import app.api.websocket as websocket_module
 from app.core.security import encrypt_password
 from app.models.connection import Connection, ConnectionScope
 from app.models.file import DirectoryListing, FileInfo, FileType
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 class _SessionContext:
@@ -481,7 +482,7 @@ class TestWebSocketScenarios:
         mock_ws = AsyncMock()
 
         original_db_session = websocket_module.DBSession
-        websocket_module.DBSession = lambda _engine: _SessionContext(session)
+        websocket_module.DBSession = cast(Any, lambda _engine: _SessionContext(session))
 
         try:
             with patch("app.api.websocket.get_monitor") as mock_get_monitor:
@@ -524,7 +525,7 @@ class TestWebSocketScenarios:
         mock_ws2 = AsyncMock()
 
         original_db_session = websocket_module.DBSession
-        websocket_module.DBSession = lambda _engine: _SessionContext(session)
+        websocket_module.DBSession = cast(Any, lambda _engine: _SessionContext(session))
 
         try:
             with patch("app.api.websocket.get_monitor") as mock_get_monitor:
@@ -870,7 +871,7 @@ class TestAuthenticationFlows:
 
     def test_login_success(self, client: TestClient, session: Session):
         """Test successful login."""
-        user = User(username="testuser", password_hash="correct_hash", role="editor")
+        user = User(username="testuser", password_hash="correct_hash", role=UserRole.EDITOR)
         session.add(user)
         session.commit()
 

@@ -8,14 +8,31 @@ import type { BackendAvailabilityStatus } from "../../services/backendAvailabili
 import { useSambeeTheme } from "../../theme/ThemeContext";
 import { EmptyStateIllustration } from "./EmptyStateIllustration";
 
+export type CompanionLifecycleStatus = "renewal_required" | "auth_failed" | "lock_lost" | "recovery_required";
+
+function getCompanionLifecycleMessage(t: ReturnType<typeof useTranslation>["t"], status: CompanionLifecycleStatus): string {
+  switch (status) {
+    case "renewal_required":
+      return t("fileBrowser.chrome.alerts.companionLifecycle.renewal_required");
+    case "auth_failed":
+      return t("fileBrowser.chrome.alerts.companionLifecycle.auth_failed");
+    case "lock_lost":
+      return t("fileBrowser.chrome.alerts.companionLifecycle.lock_lost");
+    case "recovery_required":
+      return t("fileBrowser.chrome.alerts.companionLifecycle.recovery_required");
+  }
+}
+
 interface FileBrowserAlertsProps {
   error: string | null;
+  companionLifecycleStatus?: CompanionLifecycleStatus | null;
   loadingConnections: boolean;
   connectionsCount: number;
   isAdmin: boolean;
   backendAvailabilityStatus: BackendAvailabilityStatus;
   /** Callback when user wants to open settings with connections tab */
   onOpenConnectionsSettings?: () => void;
+  onDismissCompanionLifecycleStatus?: () => void;
   onRetry?: () => void;
 }
 
@@ -30,11 +47,13 @@ interface FileBrowserAlertsProps {
  */
 export function FileBrowserAlerts({
   error,
+  companionLifecycleStatus,
   loadingConnections,
   connectionsCount,
   isAdmin,
   backendAvailabilityStatus,
   onOpenConnectionsSettings,
+  onDismissCompanionLifecycleStatus,
   onRetry,
 }: FileBrowserAlertsProps) {
   const { currentTheme } = useSambeeTheme();
@@ -122,6 +141,22 @@ export function FileBrowserAlerts({
           }
         >
           {error}
+        </Alert>
+      )}
+
+      {companionLifecycleStatus && !error && (
+        <Alert
+          severity={companionLifecycleStatus === "lock_lost" ? "error" : "warning"}
+          sx={{ mb: 2, mx: 2, ...getAlertStyles(companionLifecycleStatus === "lock_lost" ? "error" : "warning") }}
+          action={
+            onDismissCompanionLifecycleStatus ? (
+              <Button color="inherit" size="small" onClick={onDismissCompanionLifecycleStatus}>
+                {t("common.actions.close")}
+              </Button>
+            ) : undefined
+          }
+        >
+          {getCompanionLifecycleMessage(t, companionLifecycleStatus)}
         </Alert>
       )}
 

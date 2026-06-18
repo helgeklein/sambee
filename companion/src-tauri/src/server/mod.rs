@@ -16,10 +16,11 @@ pub mod watcher;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::http::{header, Method};
 use axum::Router;
 use log::{error, info};
 use tauri::AppHandle;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use self::auth::AuthState;
 use self::localization::LocalizationState;
@@ -78,20 +79,28 @@ async fn run_server(
 
 /// Build the axum [`Router`] with all routes and middleware.
 fn build_router(state: Arc<AppState>) -> Router {
-    let cors = CorsLayer::permissive();
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin, _| {
+            origin.to_str().ok().map(auth::is_allowed_browser_origin_for_cors).unwrap_or(false)
+        }))
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::ORIGIN,
+            header::HeaderName::from_static("x-companion-secret"),
+            header::HeaderName::from_static("x-companion-timestamp"),
+        ]);
 
     let public_routes = Router::new()
         .route("/api/health", axum::routing::get(handlers::health))
         .route("/api/pair/status", axum::routing::get(handlers::pair_status))
-        .route(
-            "/api/pairings",
-            axum::routing::get(handlers::list_pairings).delete(handlers::delete_pairing),
-        )
         .route("/api/pair/initiate", axum::routing::post(handlers::pair_initiate))
-        .route("/api/pair/confirm", axum::routing::post(handlers::pair_confirm));
+        .route("/api/pair/confirm", axum::routing::post(handlers::pair_confirm))
+        .route("/api/pair/cancel", axum::routing::post(handlers::pair_cancel));
 
     let authenticated_routes = Router::new()
         .route("/api/pair/test", axum::routing::post(handlers::test_pairing))
+        .route("/api/pair/current", axum::routing::delete(handlers::delete_current_pairing))
         .route("/api/localization", axum::routing::post(handlers::sync_localization))
         .route("/api/drives", axum::routing::get(handlers::list_drives))
         .route("/api/browse/{drive}/list", axum::routing::get(handlers::browse_list))
