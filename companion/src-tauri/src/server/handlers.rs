@@ -1191,7 +1191,10 @@ fn build_pair_status_response(pairing: &PairingState, current_origin: Option<&st
     let (current_origin_paired, status) = current_origin.map_or((false, PublicPairingStatus::Unpaired), |origin| {
         let paired = pairing.get_secret_for_origin(origin).is_some();
         if paired && !pairing.is_origin_paired(origin) {
-            pairing.record_verified_origin(origin, crate::server::pairing::VerifiedOriginRecordReason::RecoveredFromAuthenticatedRequest);
+            pairing.record_verified_origin(
+                origin,
+                crate::server::pairing::VerifiedOriginRecordReason::RecoveredFromAuthenticatedRequest,
+            );
         }
 
         let status = if paired {
@@ -1213,8 +1216,7 @@ fn build_pair_status_response(pairing: &PairingState, current_origin: Option<&st
 }
 
 fn resolve_pair_cancel_origin(headers: &HeaderMap, request_origin: Option<&str>) -> Result<String, ApiError> {
-    extract_origin(headers)
-        .or_else(|_| extract_normalized_request_origin(request_origin, "Missing origin in pairing cancel request"))
+    extract_origin(headers).or_else(|_| extract_normalized_request_origin(request_origin, "Missing origin in pairing cancel request"))
 }
 
 fn resolve_pair_confirm_origin(headers: &HeaderMap, request_origin: Option<&str>) -> Result<String, ApiError> {

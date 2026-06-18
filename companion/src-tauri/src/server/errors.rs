@@ -55,10 +55,7 @@ impl ApiError {
 
     /// Create a Conflict error with a stable machine-readable code.
     pub fn conflict_code(msg: impl Into<String>, code: &'static str) -> Self {
-        ApiError::ConflictWithCode {
-            message: msg.into(),
-            code,
-        }
+        ApiError::ConflictWithCode { message: msg.into(), code }
     }
 }
 

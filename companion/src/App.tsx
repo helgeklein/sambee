@@ -168,11 +168,10 @@ export function App() {
   //
   /** Called when the user closes the preferences panel. */
   const handlePreferencesClose = useCallback(() => {
-    void invoke("hide_window", { label: getCurrentWindow().label })
-      .catch((err) => {
-        log.warn("Failed to hide preferences window:", err);
-        setView({ kind: "idle" });
-      });
+    void invoke("hide_window", { label: getCurrentWindow().label }).catch((err) => {
+      log.warn("Failed to hide preferences window:", err);
+      setView({ kind: "idle" });
+    });
   }, []);
 
   // ── Render overlays (recovery + large file) ───────────────────────────

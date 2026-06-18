@@ -3,16 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../i18n";
 import { PairingWindow } from "../PairingWindow";
 
-const { invokeMock, listenHandlers, onCloseRequestedMock, closeRequestedHandlerRef, warnMock, errorMock } = vi.hoisted(
-  () => ({
-    invokeMock: vi.fn(),
-    listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
-    onCloseRequestedMock: vi.fn(),
-    closeRequestedHandlerRef: { current: null as ((event: { preventDefault: () => void }) => void | Promise<void>) | null },
-    warnMock: vi.fn(),
-    errorMock: vi.fn(),
-  })
-);
+const { invokeMock, listenHandlers, onCloseRequestedMock, closeRequestedHandlerRef, warnMock, errorMock } = vi.hoisted(() => ({
+  invokeMock: vi.fn(),
+  listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
+  onCloseRequestedMock: vi.fn(),
+  closeRequestedHandlerRef: { current: null as ((event: { preventDefault: () => void }) => void | Promise<void>) | null },
+  warnMock: vi.fn(),
+  errorMock: vi.fn(),
+}));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
