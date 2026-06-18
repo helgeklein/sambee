@@ -35,10 +35,10 @@ export function PairingWindow() {
   const closeWindow = useCallback(async () => {
     try {
       bypassNextCloseRequestRef.current = true;
-      await windowRef.close();
+      await invoke("hide_window", { label: windowRef.label });
     } catch (err) {
       bypassNextCloseRequestRef.current = false;
-      log.warn("Failed to close pairing window:", err);
+      log.warn("Failed to hide pairing window:", err);
     }
   }, [windowRef]);
 

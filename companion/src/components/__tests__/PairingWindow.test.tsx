@@ -3,11 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../i18n";
 import { PairingWindow } from "../PairingWindow";
 
-const { invokeMock, listenHandlers, closeWindowMock, onCloseRequestedMock, closeRequestedHandlerRef, warnMock, errorMock } = vi.hoisted(
+const { invokeMock, listenHandlers, onCloseRequestedMock, closeRequestedHandlerRef, warnMock, errorMock } = vi.hoisted(
   () => ({
     invokeMock: vi.fn(),
     listenHandlers: new Map<string, (event: { payload: unknown }) => void>(),
-    closeWindowMock: vi.fn(),
     onCloseRequestedMock: vi.fn(),
     closeRequestedHandlerRef: { current: null as ((event: { preventDefault: () => void }) => void | Promise<void>) | null },
     warnMock: vi.fn(),
@@ -30,7 +29,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
-    close: closeWindowMock,
+    label: "pairing",
     onCloseRequested: onCloseRequestedMock.mockImplementation((handler) => {
       closeRequestedHandlerRef.current = handler;
       return Promise.resolve(() => {
@@ -62,7 +61,6 @@ function emitEvent<TPayload>(eventName: string, payload: TPayload) {
 describe("PairingWindow", () => {
   beforeEach(() => {
     invokeMock.mockReset();
-    closeWindowMock.mockReset();
     onCloseRequestedMock.mockClear();
     closeRequestedHandlerRef.current = null;
     warnMock.mockReset();
@@ -126,7 +124,7 @@ describe("PairingWindow", () => {
     fireEvent.click(screen.getByRole("button", { name: translate("pairing.actions.close") }));
 
     await waitFor(() => {
-      expect(closeWindowMock).toHaveBeenCalledTimes(1);
+      expect(invokeMock).toHaveBeenCalledWith("hide_window", { label: "pairing" });
     });
   });
 
@@ -181,7 +179,7 @@ describe("PairingWindow", () => {
     });
 
     expect(invokeMock).toHaveBeenCalledWith("reject_pending_pairing", { pairingId: "pair-1" });
-    expect(closeWindowMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("hide_window", { label: "pairing" });
   });
 
   it("intercepts native window close and rejects the pending pairing first", async () => {
@@ -205,7 +203,7 @@ describe("PairingWindow", () => {
     await waitFor(() => {
       expect(preventDefault).toHaveBeenCalledTimes(1);
       expect(invokeMock).toHaveBeenCalledWith("reject_pending_pairing", { pairingId: "pair-1" });
-      expect(closeWindowMock).toHaveBeenCalledTimes(1);
+      expect(invokeMock).toHaveBeenCalledWith("hide_window", { label: "pairing" });
     });
   });
 });
