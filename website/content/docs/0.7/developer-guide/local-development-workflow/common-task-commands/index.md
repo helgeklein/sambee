@@ -58,7 +58,7 @@ cd companion/src-tauri && cargo test
 Useful related task:
 
 - VS Code task `Companion: Run Rust Tests`
-- VS Code task `Companion: Type Check + Lint`
+- VS Code task `Companion: Validation Suite`
 
 ## Local Dev Logs and Service Control
 

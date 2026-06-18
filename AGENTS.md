@@ -31,8 +31,7 @@
 ## Documentation
 
 - All end-user, admin, developer, and website docs live in `website/content/docs/`.
-- For all docs changes, follow the style guide `website/content/docs/website-dev-guide/authoring-and-tooling/docs-style-guide/index.md`.
-- Use the docs editor tool for all docs page/section/book changes: `website/content/docs/website-dev-guide/authoring-and-tooling/docs-editor-tool/`
+- For all docs changes, follow the `docs-update` skill.
 
 ## Dependencies
 

@@ -17,7 +17,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 
 
 @pytest.mark.unit
@@ -192,7 +192,7 @@ class TestLoginEndpoint:
         expired_user = User(
             username="expired-user",
             password_hash=get_password_hash("expiredpass123"),
-            role="editor",
+            role=UserRole.EDITOR,
             expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
         )
         session.add(expired_user)
@@ -317,7 +317,7 @@ class TestChangePasswordEndpoint:
         test_user = User(
             username="password_change_user",
             password_hash=get_password_hash("oldpass123"),
-            role="editor",
+            role=UserRole.EDITOR,
         )
         session.add(test_user)
         session.commit()
@@ -405,7 +405,7 @@ class TestTokenExpiration:
         expired_user = User(
             username="expired-token-user",
             password_hash=get_password_hash("expiredpass123"),
-            role="editor",
+            role=UserRole.EDITOR,
             expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
         )
         session.add(expired_user)
@@ -457,7 +457,7 @@ class TestAuthMethodNone:
         user = User(
             username=settings.admin_username,
             password_hash=get_password_hash("admin123"),
-            role="admin",
+            role=UserRole.ADMIN,
         )
         session.add(user)
         session.commit()

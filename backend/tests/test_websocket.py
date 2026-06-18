@@ -1,6 +1,7 @@
 """Tests for authenticated WebSocket subscriptions and connection authorization."""
 
 from collections.abc import Generator
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,7 +22,7 @@ class WebSocketClient:
         self.websocket_session.send_json(payload)
 
     def receive_json(self) -> dict[str, str]:
-        return self.websocket_session.receive_json()
+        return cast(dict[str, str], self.websocket_session.receive_json())
 
     def subscribe(self, connection_id: str, path: str = "") -> dict[str, str]:
         self.send_json({"action": "subscribe", "connection_id": connection_id, "path": path})
@@ -56,7 +57,7 @@ def websocket_state_fixture(session) -> Generator[None, None, None]:
     manager.subscriptions.clear()
     manager.users.clear()
     manager._resolved_paths.clear()
-    websocket_module.DBSession = lambda _engine: _SessionContext(session)
+    websocket_module.DBSession = cast(Any, lambda _engine: _SessionContext(session))
 
     yield
 

@@ -9,6 +9,7 @@ const PREVIEW_CONFLICT: ConflictInfo = {
   filename: "Quarterly Budget.xlsx",
   download_modified: "2026-04-24 12:14:03",
   server_modified: "2026-04-24 12:21:47",
+  server_url: "https://sambee.example.test",
 };
 
 /** Browser-only preview for the conflict dialog. */
@@ -24,6 +25,7 @@ export function ConflictDialogPreview() {
         throw new Error("Mock preview error: the conflict action failed.");
       }
       setVisible(false);
+      return undefined;
     },
     [actionResult]
   );

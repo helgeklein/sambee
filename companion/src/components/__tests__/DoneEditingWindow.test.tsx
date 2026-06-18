@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale, translate } from "../../i18n";
-import { DoneEditingWindow } from "../DoneEditingWindow";
+import { DoneEditingWindow, DoneEditingWindowView } from "../DoneEditingWindow";
 
 const HOLD_DURATION_MS = 1500;
 const DONE_EDITING_DEFAULT_HEIGHT = 200;
@@ -81,6 +81,7 @@ describe("DoneEditingWindow", () => {
           operation_id: "edit-1",
           filename: "report.docx",
           app_name: "LibreOffice Writer",
+          server_url: "https://sambee.example.test",
         });
       }
 
@@ -173,6 +174,7 @@ describe("DoneEditingWindow", () => {
           operation_id: "edit-2",
           filename: "report.docx",
           app_name: "LibreOffice Writer",
+          server_url: "https://sambee.example.test",
         });
       }
 
@@ -228,5 +230,42 @@ describe("DoneEditingWindow", () => {
     });
 
     expect(screen.getByText(translate("doneEditing.buttons.retryUpload"))).toBeInTheDocument();
+  });
+
+  it("uses a clickable primary action when reopen in Sambee is required", () => {
+    const onPrimaryClick = vi.fn();
+
+    render(
+      <DoneEditingWindowView
+        context={{
+          operation_id: "edit-3",
+          filename: "report.docx",
+          app_name: "LibreOffice Writer",
+          server_url: "https://sambee.example.test",
+        }}
+        fileStatus={{ kind: "modified", modifiedAt: "12:34:56" }}
+        processing={false}
+        uploadProgress={0}
+        notice={null}
+        error={translate("doneEditing.lifecycle.renewalRequired", { message: "renew now" })}
+        conflict={null}
+        holdProgress={0}
+        discardHoldProgress={0}
+        doneButtonLabel={translate("doneEditing.buttons.reopenRequired")}
+        doneAriaLabel={translate("doneEditing.aria.reopenInBrowser")}
+        discardAriaLabel={translate("doneEditing.aria.discardChanges", { seconds: HOLD_DURATION_MS / 1000 })}
+        doneHandlers={{}}
+        discardHandlers={{}}
+        onPrimaryClick={onPrimaryClick}
+        onConflictResolved={() => undefined}
+      />
+    );
+
+    const reopenButton = screen.getByRole("button", { name: translate("doneEditing.aria.reopenInBrowser") });
+    expect(reopenButton).toHaveTextContent(translate("doneEditing.buttons.reopenRequired"));
+
+    fireEvent.click(reopenButton);
+
+    expect(onPrimaryClick).toHaveBeenCalledTimes(1);
   });
 });

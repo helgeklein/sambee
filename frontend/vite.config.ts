@@ -20,6 +20,13 @@ const OPTIMIZE_DEPS_ENTRIES = [
   "!src/**/__mocks__/**",
   "!src/test/**",
 ];
+const OPTIMIZE_DEPS_INCLUDE = [
+  "yet-another-react-lightbox",
+  "yet-another-react-lightbox/plugins/zoom",
+];
+const OPTIMIZE_DEPS_EXCLUDE = [
+  "@mui/material/styles",
+];
 
 interface ProxyErrorLike {
   code?: unknown;
@@ -79,6 +86,7 @@ function readWorkspaceBuildValue(fileName: string, fallback: string): string {
 
 const SAMBEE_VERSION = readWorkspaceBuildValue("VERSION", "unknown");
 const SAMBEE_GIT_COMMIT = readWorkspaceBuildValue("GIT_COMMIT", "unknown");
+const MUI_ICONS_ESM_ALIAS = /^@mui\/icons-material\/(.+)$/;
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -89,6 +97,12 @@ export default defineConfig({
   },
   plugins: [react()],
   resolve: {
+    alias: [
+      {
+        find: MUI_ICONS_ESM_ALIAS,
+        replacement: "@mui/icons-material/esm/$1",
+      },
+    ],
     dedupe: ["react", "react-dom"],
   },
   server: {
@@ -167,7 +181,13 @@ export default defineConfig({
     // Exclude test-only files so browser startup does not prebundle Node-only
     // dependencies pulled in by the Vitest MSW server.
     entries: OPTIMIZE_DEPS_ENTRIES,
-    include: ["yet-another-react-lightbox", "yet-another-react-lightbox/plugins/zoom"],
+    include: OPTIMIZE_DEPS_INCLUDE,
+    // Vite 8 currently emits a broken optimized dep chunk for
+    // `@mui/material/styles`: the generated module calls Emotion's init helper
+    // without importing it. Keeping just that subpath off the optimizer path
+    // avoids the broken chunk without forcing the rest of MUI onto raw CJS
+    // helper modules.
+    exclude: OPTIMIZE_DEPS_EXCLUDE,
   },
   build: {
     rollupOptions: {

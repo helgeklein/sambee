@@ -1327,6 +1327,142 @@ class DocsEditorPageTests(DocsEditorTestCase):
                 inherit=True,
             )
 
+    def test_page_materialize_replaces_inherited_marker_with_real_content(
+        self,
+    ) -> None:
+        """Materializing a page should replace inherit.md with a real index.md."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+        expected_text = editor.replace_title_in_markdown(
+            editor.resolve_page_source_file(
+                "0.8",
+                (
+                    "website-dev-guide",
+                    "docs-platform",
+                    "website-and-docs-architecture-overview",
+                ),
+            ).read_text(encoding="utf-8"),
+            "Website and Docs Architecture Overview for 0.8",
+        )
+
+        plan = editor.plan_page_materialize(
+            "0.8",
+            book="website-dev-guide",
+            section="docs-platform",
+            page="website-and-docs-architecture-overview",
+            title="Website and Docs Architecture Overview for 0.8",
+        )
+        editor.apply_plan(plan)
+
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INHERIT,
+            )
+        )
+        self.assertEqual(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INDEX,
+            ).read_text(encoding="utf-8"),
+            expected_text,
+        )
+        self.assertEqual(editor.validate(), [])
+
+    def test_page_materialize_refuses_when_page_is_already_authored(self) -> None:
+        """Materializing should fail when the target page already has real content."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+
+        with self.assertRaisesRegex(
+            DOCS_EDITOR.DocsEditorError,
+            "page already has real content: 0.7/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
+        ):
+            editor.plan_page_materialize(
+                "0.7",
+                book="website-dev-guide",
+                section="docs-platform",
+                page="website-and-docs-architecture-overview",
+                title=None,
+            )
+
+    def test_page_inherit_replaces_real_content_with_inherited_marker(self) -> None:
+        """Converting a page back to inherited should replace index.md with inherit.md."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        self.promote_inherited_page_to_real_content(
+            root,
+            version="0.8",
+            book="website-dev-guide",
+            section="docs-platform",
+            page="website-and-docs-architecture-overview",
+            title="Website and Docs Architecture Overview for 0.8",
+            body="Version-specific override.",
+        )
+
+        editor = self.make_editor(root)
+        plan = editor.plan_page_inherit(
+            "0.8",
+            book="website-dev-guide",
+            section="docs-platform",
+            page="website-and-docs-architecture-overview",
+        )
+        editor.apply_plan(plan)
+
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INDEX,
+            )
+        )
+        self.assertEqual(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INHERIT,
+            ).read_text(encoding="utf-8"),
+            "",
+        )
+        self.assertEqual(editor.validate(), [])
+
+    def test_page_inherit_refuses_without_earlier_authored_source(self) -> None:
+        """Converting a page to inherited should fail when no earlier real page exists."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        editor = self.make_editor(root)
+
+        with self.assertRaisesRegex(
+            DOCS_EDITOR.DocsEditorError,
+            "cannot inherit page 0.7/website-dev-guide/docs-platform/website-and-docs-architecture-overview: no earlier version resolves to index.md",
+        ):
+            editor.plan_page_inherit(
+                "0.7",
+                book="website-dev-guide",
+                section="docs-platform",
+                page="website-and-docs-architecture-overview",
+            )
+
 
 class DocsEditorCliTests(DocsEditorTestCase):
     """Exercise the public CLI entrypoint and its user-facing output."""
@@ -1337,7 +1473,7 @@ class DocsEditorCliTests(DocsEditorTestCase):
         self.addCleanup(tempdir.cleanup)
 
         result = self.run_cli(
-            root, "--json", "version", "create", "1.2", "--after", "1.1"
+            root, "--json", "version", "create", "0.9", "--after", "0.8"
         )
 
         self.assert_preview_json_payload(
@@ -1345,10 +1481,23 @@ class DocsEditorCliTests(DocsEditorTestCase):
             destructive=False,
             entity="version",
             operation="create",
-            metadata={"new_version": "1.2"},
+            metadata={"new_version": "0.9", "source_version": "0.8"},
         )
-        self.assertFalse((root / "content" / "docs" / "1.2").exists())
-        self.assert_versions_state(root, slugs=["0.9", "1.0", "1.1", "2.0"])
+        self.assertFalse((root / "content" / "docs" / "0.9").exists())
+        self.assert_versions_state(root, current="0.7", slugs=["0.7", "0.8"])
+
+    def test_cli_version_create_preview_text_includes_metadata(self) -> None:
+        """Human-readable preview should show the operation metadata before file changes."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        result = self.run_cli(root, "version", "create", "0.9", "--after", "0.8")
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("Metadata:\n- Entity: version", result.stdout)
+        self.assertIn("- New version: 0.9", result.stdout)
+        self.assertIn("- Source version: 0.8", result.stdout)
+        self.assertIn("Run again with --apply to write these changes.", result.stdout)
 
     def test_cli_version_create_with_latest_bootstraps_first_version(self) -> None:
         """CLI apply should bootstrap the first docs version when metadata is empty."""
@@ -2799,9 +2948,9 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "section",
             "create",
             "--version",
-            "1.1",
+            "0.7",
             "--book",
-            "developer",
+            "website-dev-guide",
             "--section",
             "testing",
             "--inherit",
@@ -2813,9 +2962,11 @@ class DocsEditorCliTests(DocsEditorTestCase):
             returncode=1,
             stderr_fragment="--inherit and --structural-only cannot be combined",
         )
-        self.assertNotIn("testing", self.nav_section_slugs(root, "1.1", "developer"))
+        self.assertNotIn(
+            "testing", self.nav_section_slugs(root, "0.7", "website-dev-guide")
+        )
         self.assert_paths_missing(
-            self.docs_content_path(root, "1.1", "developer", "testing")
+            self.docs_content_path(root, "0.7", "website-dev-guide", "testing")
         )
 
     def test_cli_section_create_refuses_existing_section_collision(self) -> None:
@@ -3367,6 +3518,252 @@ class DocsEditorCliTests(DocsEditorTestCase):
             )
         )
 
+    def test_cli_page_materialize_preview_json_outputs_plan_without_writing(
+        self,
+    ) -> None:
+        """CLI preview should emit JSON for page materialization without mutating the workspace."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        result = self.run_cli(
+            root,
+            "--json",
+            "page",
+            "materialize",
+            "--version",
+            "0.8",
+            "--book",
+            "website-dev-guide",
+            "--section",
+            "docs-platform",
+            "--page",
+            "website-and-docs-architecture-overview",
+        )
+
+        payload = self.assert_preview_json_payload(
+            result,
+            destructive=False,
+            entity="page",
+            operation="materialize",
+            metadata={
+                "version": "0.8",
+                "book": "website-dev-guide",
+                "section": "docs-platform",
+                "page": "website-and-docs-architecture-overview",
+            },
+        )
+        self.assertIn(
+            {
+                "action": "delete_file",
+                "path": "content/docs/0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview/inherit.md",
+                "description": "Remove inherited page marker for 0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
+                "target": None,
+            },
+            payload["changes"],
+        )
+        self.assert_paths_exist(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INHERIT,
+            )
+        )
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INDEX,
+            )
+        )
+
+    def test_cli_page_materialize_apply_writes_real_content(self) -> None:
+        """CLI apply should replace inherit.md with a real index.md for a page."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        result = self.run_cli(
+            root,
+            "--apply",
+            "page",
+            "materialize",
+            "--version",
+            "0.8",
+            "--book",
+            "website-dev-guide",
+            "--section",
+            "docs-platform",
+            "--page",
+            "website-and-docs-architecture-overview",
+            "--title",
+            "Website and Docs Architecture Overview for 0.8",
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn(
+            "Applied: Materialize inherited page website-dev-guide/docs-platform/website-and-docs-architecture-overview in docs version 0.8",
+            result.stdout,
+        )
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INHERIT,
+            )
+        )
+        materialized_text = self.docs_content_path(
+            root,
+            "0.8",
+            "website-dev-guide",
+            "docs-platform",
+            "website-and-docs-architecture-overview",
+            DOCS_EDITOR.PAGE_INDEX,
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'title = "Website and Docs Architecture Overview for 0.8"',
+            materialized_text,
+        )
+
+    def test_cli_page_inherit_preview_json_outputs_plan_without_writing(
+        self,
+    ) -> None:
+        """CLI preview should emit JSON for page inheritance without mutating the workspace."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        self.promote_inherited_page_to_real_content(
+            root,
+            version="0.8",
+            book="website-dev-guide",
+            section="docs-platform",
+            page="website-and-docs-architecture-overview",
+            title="Website and Docs Architecture Overview for 0.8",
+            body="Version-specific override.",
+        )
+
+        result = self.run_cli(
+            root,
+            "--json",
+            "page",
+            "inherit",
+            "--version",
+            "0.8",
+            "--book",
+            "website-dev-guide",
+            "--section",
+            "docs-platform",
+            "--page",
+            "website-and-docs-architecture-overview",
+        )
+
+        payload = self.assert_preview_json_payload(
+            result,
+            destructive=True,
+            entity="page",
+            operation="inherit",
+            metadata={
+                "version": "0.8",
+                "book": "website-dev-guide",
+                "section": "docs-platform",
+                "page": "website-and-docs-architecture-overview",
+            },
+        )
+        self.assertIn(
+            {
+                "action": "delete_file",
+                "path": "content/docs/0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview/index.md",
+                "description": "Remove real page content for 0.8/website-dev-guide/docs-platform/website-and-docs-architecture-overview",
+                "target": None,
+            },
+            payload["changes"],
+        )
+        self.assert_paths_exist(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INDEX,
+            )
+        )
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INHERIT,
+            )
+        )
+
+    def test_cli_page_inherit_apply_writes_inherited_marker(self) -> None:
+        """CLI apply should replace index.md with inherit.md for a page."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        self.promote_inherited_page_to_real_content(
+            root,
+            version="0.8",
+            book="website-dev-guide",
+            section="docs-platform",
+            page="website-and-docs-architecture-overview",
+            title="Website and Docs Architecture Overview for 0.8",
+            body="Version-specific override.",
+        )
+
+        result = self.run_cli(
+            root,
+            "--apply",
+            "--yes",
+            "page",
+            "inherit",
+            "--version",
+            "0.8",
+            "--book",
+            "website-dev-guide",
+            "--section",
+            "docs-platform",
+            "--page",
+            "website-and-docs-architecture-overview",
+        )
+
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn(
+            "Applied: Convert page website-dev-guide/docs-platform/website-and-docs-architecture-overview to inherited content in docs version 0.8",
+            result.stdout,
+        )
+        self.assert_paths_missing(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INDEX,
+            )
+        )
+        self.assertEqual(
+            self.docs_content_path(
+                root,
+                "0.8",
+                "website-dev-guide",
+                "docs-platform",
+                "website-and-docs-architecture-overview",
+                DOCS_EDITOR.PAGE_INHERIT,
+            ).read_text(encoding="utf-8"),
+            "",
+        )
+
     def test_cli_page_create_with_inherit_refuses_unresolved_lineage(self) -> None:
         """CLI create should fail when inherited page content has no earlier source."""
         tempdir, root = self.build_temp_website()
@@ -3440,15 +3837,15 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "create",
             "--version",
-            "1.1",
+            "0.7",
             "--book",
-            "end-user",
+            "website-dev-guide",
             "--section",
-            "getting-started",
+            "authoring-and-tooling",
             "--page",
-            "install",
+            "docs-editor-tool",
             "--title",
-            "Install Sambee",
+            "Docs Editor Tool",
         )
 
         self.assert_cli_refusal(
@@ -3458,12 +3855,53 @@ class DocsEditorCliTests(DocsEditorTestCase):
         )
         self.assert_paths_exist(
             self.docs_content_path(
-                root, "1.1", "end-user", "getting-started", "install"
+                root,
+                "0.7",
+                "website-dev-guide",
+                "authoring-and-tooling",
+                "docs-editor-tool",
             )
         )
         self.assert_paths_missing(
-            self.docs_content_path(root, "1.1", "end-user", "getting-started", "setup")
+            self.docs_content_path(
+                root,
+                "0.7",
+                "website-dev-guide",
+                "authoring-and-tooling",
+                "docs-editor-tool-setup",
+            )
         )
+
+    def test_cli_page_create_refuses_existing_inherited_page_with_guidance(
+        self,
+    ) -> None:
+        """CLI create should explain how to materialize a page that already exists as inherit.md."""
+        tempdir, root = self.build_temp_website()
+        self.addCleanup(tempdir.cleanup)
+
+        result = self.run_cli(
+            root,
+            "page",
+            "create",
+            "--version",
+            "0.8",
+            "--book",
+            "website-dev-guide",
+            "--section",
+            "docs-platform",
+            "--page",
+            "website-and-docs-architecture-overview",
+            "--title",
+            "Website and Docs Architecture Overview",
+        )
+
+        self.assert_cli_refusal(
+            result,
+            returncode=1,
+            stderr_fragment="page already exists as an inherited marker",
+        )
+        self.assertIn("use page materialize instead", result.stderr)
+        self.assertIn("python3 scripts/docs-editor.py page materialize", result.stderr)
 
     def test_cli_page_create_refuses_unknown_position_anchor(self) -> None:
         """CLI create should fail when the requested page position anchor is unknown."""
@@ -3475,15 +3913,15 @@ class DocsEditorCliTests(DocsEditorTestCase):
             "page",
             "create",
             "--version",
-            "1.1",
+            "0.7",
             "--book",
-            "end-user",
+            "website-dev-guide",
             "--section",
-            "getting-started",
+            "authoring-and-tooling",
             "--page",
-            "upgrade",
+            "docs-editor-quickstart",
             "--title",
-            "Upgrade Sambee",
+            "Docs Editor Quickstart",
             "--position",
             "before:missing-page",
         )
@@ -3493,9 +3931,14 @@ class DocsEditorCliTests(DocsEditorTestCase):
             returncode=1,
             stderr_fragment="unknown position anchor: missing-page",
         )
+        self.assertIn("choose one of:", result.stderr)
         self.assert_paths_missing(
             self.docs_content_path(
-                root, "1.1", "end-user", "getting-started", "upgrade"
+                root,
+                "0.7",
+                "website-dev-guide",
+                "authoring-and-tooling",
+                "docs-editor-quickstart",
             )
         )
 

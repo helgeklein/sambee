@@ -144,6 +144,22 @@ if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
         OVERALL_STATUS=1
     fi
 
+    echo -e "${YELLOW}=== Companion: Windows Cross-Check ===${NC}"
+    echo -e "${BLUE}Running Windows GNU target cargo check...${NC}"
+    if [ "${CI:-}" = "true" ]; then
+        echo -e "${YELLOW}⚠ Companion Windows cross-check skipped in CI${NC}\n"
+    elif command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1 \
+        && rustup target list --installed 2>/dev/null | grep -q '^x86_64-pc-windows-gnu$'; then
+        if npm run check:rust:windows; then
+            echo -e "${GREEN}✓ Companion Windows cross-check passed${NC}\n"
+        else
+            echo -e "${RED}✗ Companion Windows cross-check failed${NC}\n"
+            OVERALL_STATUS=1
+        fi
+    else
+        echo -e "${YELLOW}⚠ Companion Windows cross-check skipped (missing x86_64-pc-windows-gnu target or MinGW toolchain)${NC}\n"
+    fi
+
     echo -e "${YELLOW}=== Companion: Rust Tests ===${NC}"
     cd "$REPO_ROOT/companion/src-tauri" || exit 1
 

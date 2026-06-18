@@ -34,7 +34,7 @@ Usage:
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import pyvips
@@ -70,7 +70,7 @@ def manifest() -> dict[str, Any]:
         pytest.skip("Test manifest not found. Run ./scripts/setup-test-images first.")
 
     with open(MANIFEST_FILE) as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def load_test_image(relative_path: str) -> bytes:
@@ -84,7 +84,7 @@ def load_test_image(relative_path: str) -> bytes:
 def get_image_colorspace(image_data: bytes) -> str:
     """Get the colorspace of an image using pyvips."""
     image = pyvips.Image.new_from_buffer(image_data, "")
-    return image.interpretation  # type: ignore
+    return cast(str, image.interpretation)
 
 
 def get_average_color(image_data: bytes) -> tuple[int, int, int]:
@@ -119,7 +119,7 @@ def color_distance(color1: tuple[int, int, int], color2: tuple[int, int, int]) -
     Returns:
         Distance in range 0-441 (sqrt(255^2 + 255^2 + 255^2))
     """
-    return ((color1[0] - color2[0]) ** 2 + (color1[1] - color2[1]) ** 2 + (color1[2] - color2[2]) ** 2) ** 0.5
+    return cast(float, ((color1[0] - color2[0]) ** 2 + (color1[1] - color2[1]) ** 2 + (color1[2] - color2[2]) ** 2) ** 0.5)
 
 
 @pytest.mark.integration

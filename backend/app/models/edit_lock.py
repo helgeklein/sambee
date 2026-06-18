@@ -39,8 +39,9 @@ class EditLock(SQLModel, table=True):
     file_path: str = Field(index=True)
     connection_id: uuid.UUID = Field(index=True)
     locked_by: str = Field(index=True)
+    operation_id: str = Field(default="", index=True)
     locked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    companion_session: str = Field(index=True)
+    lock_capability: str = Field(default="", index=True)
     last_heartbeat: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

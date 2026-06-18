@@ -12,3 +12,4 @@ pub mod open_file;
 pub mod pairing;
 pub mod update;
 pub mod upload;
+pub mod window;

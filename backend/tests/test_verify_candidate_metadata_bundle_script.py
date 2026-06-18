@@ -7,6 +7,7 @@ import shutil
 import stat
 import subprocess
 from pathlib import Path
+from typing import Mapping
 
 import pytest
 
@@ -155,7 +156,7 @@ def _run_script(
     expected_version: str,
     expected_revision: str,
     expected_source: str,
-    manifests: dict[str, object],
+    manifests: Mapping[str, object],
     bundles: dict[str, str],
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
@@ -184,7 +185,7 @@ def _run_script(
     )
 
 
-def _base_case() -> tuple[str, str, str, str, dict[str, str], dict[str, object], dict[str, str]]:
+def _base_case() -> tuple[str, str, str, str, str, str, dict[str, dict[str, object]], dict[str, str]]:
     image_repository = "ghcr.io/example/sambee"
     image_digest = "sha256:" + "1" * 64
     metadata_repository = "ghcr.io/example/sambee-signatures"

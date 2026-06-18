@@ -111,11 +111,12 @@ This is why local drives can participate in the same dual-pane and refresh workf
 For SMB-backed native-app editing, the companion is not the source of truth. It is the desktop-side coordinator for a backend-governed editing lifecycle.
 
 1. the browser launches a `sambee://` deep link
-2. the companion exchanges the URI token for an authenticated session
-3. it fetches metadata and downloads the file to a temp directory
-4. it acquires the backend edit lock
+2. the companion exchanges the URI token for a bootstrap token
+3. it fetches metadata and conflict baseline information
+4. it acquires the backend edit lock and receives operation-scoped lock context
+5. it downloads the file to a temp directory
 5. it opens the file in the chosen native application
-6. a "Done Editing" window stays open while heartbeat and file-status checks continue in the background
+6. a "Done Editing" window stays open while renewal, heartbeat, and file-status checks continue in the background
 7. on explicit user confirmation, the companion uploads the file or discards it
 8. the backend lock is released and the temp file is recycled
 

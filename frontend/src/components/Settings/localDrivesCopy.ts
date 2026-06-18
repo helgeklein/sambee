@@ -49,6 +49,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   get summaryPairingRequiredTitle() {
     return translate("settings.localDrives.summaryPairingRequiredTitle");
   },
+  get summaryPendingApprovalTitle() {
+    return translate("settings.localDrives.summaryPendingApprovalTitle");
+  },
   get summaryRepairTitle() {
     return translate("settings.localDrives.summaryRepairTitle");
   },
@@ -81,6 +84,12 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   },
   get pairingSectionRequired() {
     return translate("settings.localDrives.pairingSectionRequired");
+  },
+  get pairingSectionPendingApproval() {
+    return translate("settings.localDrives.pairingSectionPendingApproval");
+  },
+  get pairingSectionRepair() {
+    return translate("settings.localDrives.pairingSectionRepair");
   },
   get verificationSectionTitle() {
     return translate("settings.localDrives.verificationSectionTitle");
@@ -123,6 +132,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   },
   get statusPaired() {
     return translate("settings.localDrives.statusPaired");
+  },
+  get statusPendingApproval() {
+    return translate("settings.localDrives.statusPendingApproval");
   },
   get statusRecoverable() {
     return translate("settings.localDrives.statusRecoverable");
@@ -168,6 +180,9 @@ export const LOCAL_DRIVES_PAGE_COPY = {
   },
   get pairThisBrowserButton() {
     return translate("settings.localDrives.pairThisBrowserButton");
+  },
+  get waitingForApprovalButton() {
+    return translate("settings.localDrives.waitingForApprovalButton");
   },
   get unpairThisBrowserButton() {
     return translate("settings.localDrives.unpairThisBrowserButton");

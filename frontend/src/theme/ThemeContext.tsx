@@ -1,4 +1,4 @@
-import { createTheme, type Theme } from "@mui/material/styles";
+import { createTheme, type Theme } from "@mui/material";
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { loadCurrentUserSettings, patchCurrentUserSettings } from "../services/userSettingsSync";
 import { getContainedButtonFocusVisibleBoxShadow } from "./commonStyles";

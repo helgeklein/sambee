@@ -1,17 +1,26 @@
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
+from datetime import datetime, timedelta, timezone
 from functools import partial
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response, StreamingResponse
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.api._smb_helpers import build_smb_backend, disconnect_backend_safely
+from app.api.companion import (
+    COMPANION_ERROR_LOCK_LOST,
+    _get_current_companion_operation_user,
+    _raise_companion_operation_error,
+    _validate_operation_lock_scope,
+)
 from app.core.logging import get_logger, set_user
-from app.core.security import get_current_user_with_auth_check
+from app.core.security import get_current_user_for_token, get_current_user_with_auth_check, oauth2_scheme_optional
 from app.db.database import get_session
 from app.models.connection import Connection
+from app.models.edit_lock import HEARTBEAT_TIMEOUT_SECONDS, EditLock
 from app.models.file import FileType
 from app.models.user import User
 from app.services.connection_access import get_accessible_connection_or_404
@@ -26,6 +35,17 @@ from app.utils.file_type_registry import needs_processing
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _get_active_lock(connection_id: uuid.UUID, path: str, session: Session) -> EditLock | None:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)
+    statement = (
+        select(EditLock)
+        .where(EditLock.connection_id == connection_id)
+        .where(EditLock.file_path == path)
+        .where(EditLock.last_heartbeat >= cutoff)
+    )
+    return session.exec(statement).first()
 
 
 #
@@ -368,10 +388,46 @@ async def view_file(
 async def download_file(
     connection_id: uuid.UUID,
     path: str = Query(..., description="Path to the file"),
-    current_user: User = Depends(get_current_user_with_auth_check),
+    operation_id: Optional[str] = Query(None, description="Active companion operation ID"),
+    lock_id: Optional[str] = Query(None, description="Active companion lock ID"),
+    lock_capability: Optional[str] = Query(None, description="Active companion lock capability"),
+    token: Optional[str] = Depends(oauth2_scheme_optional),
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     """Download a file"""
+
+    if operation_id or lock_id or lock_capability:
+        if not operation_id or not lock_id or not lock_capability or not token:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing companion operation context",
+            )
+
+        current_user = _get_current_companion_operation_user(
+            token,
+            connection_id=connection_id,
+            path=path,
+            operation_id=operation_id,
+            lock_id=lock_id,
+            session=session,
+        )
+
+        lock = _get_active_lock(connection_id, path, session)
+        if not lock:
+            _raise_companion_operation_error(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code=COMPANION_ERROR_LOCK_LOST,
+                message="The edit lock is no longer active for this file. Reopen the file from Sambee and try again.",
+            )
+
+        _validate_operation_lock_scope(
+            lock,
+            operation_id=operation_id,
+            lock_id=lock_id,
+            lock_capability=lock_capability,
+        )
+    else:
+        current_user = await get_current_user_for_token(token, session)
 
     set_user(current_user.username)
     logger.info(f"Download file: connection_id={connection_id}, path='{path}'")

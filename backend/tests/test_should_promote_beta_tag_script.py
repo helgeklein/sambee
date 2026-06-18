@@ -3,13 +3,14 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "should_promote_beta_tag.py"
 
 
-def load_module():
+def load_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location("should_promote_beta_tag", SCRIPT_PATH)
     assert spec is not None
     assert spec.loader is not None

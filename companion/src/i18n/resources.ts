@@ -16,10 +16,10 @@ export const EN_TRANSLATIONS = {
   },
   pairing: {
     idleMessage: "Waiting for a pairing request.",
-    eyebrow: "Pair with Browser",
-    title: "Confirm this pairing request",
+    eyebrow: "Approve Browser Origin",
+    title: "Confirm this browser origin",
     closeTitle: "Close",
-    body: "Sambee in the browser wants to pair with this companion instance.",
+    body: "Sambee in the browser wants this origin to access local drives through this companion.",
     labels: {
       requestingOrigin: "Requesting origin",
       verificationCode: "Verification code",
@@ -33,11 +33,11 @@ export const EN_TRANSLATIONS = {
     approved: {
       title: "Approval sent",
       body: "The codes matched for {{origin}}.",
-      hint: "Waiting for Sambee to finish storing the pairing.",
+      hint: "Waiting for Sambee to finish storing trust for this origin.",
     },
     success: {
-      title: "Pairing successful",
-      body: "This browser is now paired with Sambee Companion and can access local drives.",
+      title: "Origin approved",
+      body: "This browser origin is now trusted by Sambee Companion and can access local drives.",
       hint: "This window will close automatically in a moment.",
     },
   },
@@ -49,9 +49,19 @@ export const EN_TRANSLATIONS = {
     unchanged: "Unchanged",
     parseConflictError: "Failed to parse conflict info",
     authRefreshedRetryUpload: "Authentication was refreshed. Hold Done Editing again to retry the upload.",
+    lifecycle: {
+      renewalRequired: "This edit session expired before Companion could renew it. Reopen the file from Sambee, then try saving again.",
+      authFailed: "Companion could not prove this edit session is still authorized. Reopen the file from Sambee to start a fresh session.",
+      lockLost: "This edit lock is no longer active on the server. Reopen the file from Sambee before trying to upload again.",
+      recoveryRequired: "This edit session expired and cannot be resumed. Reopen the file from Sambee to start a new recovery flow.",
+    },
     buttons: {
       doneUpload: "✓ Done Editing — Hold to Upload",
       retryUpload: "✓ Done Editing — Hold to Retry Upload",
+      reopenRequired: "Session Expired — Reopen from Sambee",
+      authFailed: "Authentication Failed — Reopen from Sambee",
+      lockLost: "Lock Lost — Reopen from Sambee",
+      recoveryRequired: "Recovery Required — Reopen from Sambee",
       doneClose: "✓ Done Editing — Hold to Close",
       uploading: "✓ Uploading…",
       closing: "✓ Closing…",
@@ -62,6 +72,8 @@ export const EN_TRANSLATIONS = {
       retryUpload: "Hold for {{seconds}} seconds to retry the upload after reauthentication",
       confirmClose: "Hold for {{seconds}} seconds to close and release lock",
       discardChanges: "Hold for {{seconds}} seconds to discard changes",
+      actionUnavailable: "This action is unavailable until the file is reopened from Sambee",
+      reopenInBrowser: "Open Sambee in your browser to start a new edit session",
       uploadProgress: "Upload progress",
     },
   },
@@ -78,6 +90,13 @@ export const EN_TRANSLATIONS = {
       cancel: "Cancel",
     },
     authRefreshedRetry: "Authentication was refreshed. Choose Overwrite or Save as Copy again to retry the upload.",
+    lifecycle: {
+      renewalRequired:
+        "This edit session expired before the upload could be authorized. Close this dialog and reopen the file from Sambee.",
+      authFailed: "Companion could not prove this edit session is still authorized. Close this dialog and reopen the file from Sambee.",
+      lockLost: "The server lock for this edit session is no longer active. Close this dialog and reopen the file from Sambee.",
+      recoveryRequired: "This edit session expired and cannot be resumed. Close this dialog and reopen the file from Sambee.",
+    },
   },
   largeFileWarning: {
     title: "⚠ Large File",
@@ -93,6 +112,13 @@ export const EN_TRANSLATIONS = {
     subtitle_other: "{{count}} files from a previous session need attention.",
     detail: "{{remotePath}} — modified {{localModified}}",
     authRefreshedRetryUpload: "Authentication was refreshed. Click Upload again to retry sending this file to the server.",
+    lifecycle: {
+      renewalRequired: "This recovered edit session expired before it could upload. Reopen the file from Sambee or discard this temp copy.",
+      authFailed:
+        "Companion could not prove this recovered edit session is still authorized. Reopen the file from Sambee or discard this temp copy.",
+      lockLost: "The server lock for this recovered edit session is gone. Reopen the file from Sambee or discard this temp copy.",
+      recoveryRequired: "This recovered edit session expired and cannot be resumed. Reopen the file from Sambee or discard this temp copy.",
+    },
     actions: {
       upload: "Upload",
       retryUpload: "Retry Upload",
@@ -120,7 +146,7 @@ export const EN_TRANSLATIONS = {
     title: "Preferences",
     closeTitle: "Close",
     sections: {
-      pairedBrowsers: "Paired Browsers",
+      pairedBrowsers: "Trusted Browser Origins",
       localization: "Localization",
       editingBehavior: "Editing Behavior",
       startup: "Startup",
@@ -128,19 +154,20 @@ export const EN_TRANSLATIONS = {
       notifications: "Notifications",
       tempFileCleanup: "Temp File Cleanup",
     },
-    pairedBrowsersHint: "These browser origins can access local drives through this companion. Removing one forces it to pair again.",
-    pairedBrowsersEmpty: "No browsers are currently paired with this companion.",
-    localizationStatusHint: "Shows the last localization synchronized from a paired Sambee browser.",
+    pairedBrowsersHint:
+      "These trusted browser origins can access local drives through this companion. Removing one forces that origin to request approval again.",
+    pairedBrowsersEmpty: "No browser origins are currently trusted by this companion.",
+    localizationStatusHint: "Shows the last localization synchronized from a trusted Sambee browser origin.",
     localizationStatus: {
       syncedBadge: "Synced from browser",
       languageLabel: "Language",
       regionalLocaleLabel: "Regional locale",
       updatedAtLabel: "Last updated",
-      sourceOriginLabel: "Source browser",
+      sourceOriginLabel: "Source origin",
       empty: "No browser localization has been synchronized yet.",
     },
-    unpairTitle: "Unpair browser",
-    unpairButton: "Unpair",
+    unpairTitle: "Remove trusted origin",
+    unpairButton: "Remove",
     conflictResolutionLabel: "Upload conflict resolution",
     conflictResolutionHint: "What to do when the file on the server changed while you were editing.",
     conflictActions: {
@@ -191,9 +218,9 @@ export const EN_TRANSLATIONS = {
     retentionHint: "Recycled temp files older than this are automatically deleted on startup (1–90).",
     savedIndicator: "Saved ✓",
     confirmUnpair: {
-      title: "Unpair browser?",
-      body: "{{origin}} will lose access to local drives until it pairs with this companion again.",
-      unpairing: "Unpairing…",
+      title: "Remove trusted origin?",
+      body: "{{origin}} will lose access to local drives until it requests approval from this companion again.",
+      unpairing: "Removing…",
     },
   },
 } satisfies TranslationTree;

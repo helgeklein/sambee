@@ -10,14 +10,14 @@ import threading
 from collections.abc import Awaitable, Callable
 from typing import Dict, Optional
 
-from smbprotocol.change_notify import (  # type: ignore[import-untyped]
+from smbprotocol.change_notify import (
     ChangeNotifyFlags,
     CompletionFilter,
     FileAction,
     FileSystemWatcher,
 )
-from smbprotocol.connection import Connection  # type: ignore[import-untyped]
-from smbprotocol.open import (  # type: ignore[import-untyped]
+from smbprotocol.connection import Connection
+from smbprotocol.open import (
     CreateDisposition,
     CreateOptions,
     DirectoryAccessMask,
@@ -26,8 +26,8 @@ from smbprotocol.open import (  # type: ignore[import-untyped]
     Open,
     ShareAccess,
 )
-from smbprotocol.session import Session  # type: ignore[import-untyped]
-from smbprotocol.tree import TreeConnect  # type: ignore[import-untyped]
+from smbprotocol.session import Session
+from smbprotocol.tree import TreeConnect
 
 logger = logging.getLogger(__name__)
 

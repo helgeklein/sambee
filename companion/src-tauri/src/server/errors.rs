@@ -8,6 +8,9 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 use serde_json::Value;
 
+/// Stable error code used while browser pairing is still awaiting companion approval.
+pub const PAIR_CONFIRMATION_PENDING_CODE: &str = "pair_confirmation_pending";
+
 /// API error type that converts into appropriate HTTP responses.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
@@ -20,8 +23,14 @@ pub enum ApiError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    #[error("Too many requests: {0}")]
+    TooManyRequests(String),
+
     #[error("Conflict")]
     Conflict(Value),
+
+    #[error("Conflict: {message}")]
+    ConflictWithCode { message: String, code: &'static str },
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -34,6 +43,8 @@ pub enum ApiError {
 #[derive(Serialize)]
 struct ErrorResponse {
     detail: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
 }
 
 impl ApiError {
@@ -41,27 +52,34 @@ impl ApiError {
     pub fn conflict_message(msg: impl Into<String>) -> Self {
         ApiError::Conflict(Value::String(msg.into()))
     }
+
+    /// Create a Conflict error with a stable machine-readable code.
+    pub fn conflict_code(msg: impl Into<String>, code: &'static str) -> Self {
+        ApiError::ConflictWithCode { message: msg.into(), code }
+    }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, detail) = match self {
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, Value::String(msg)),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, Value::String(msg)),
-            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, Value::String(msg)),
-            ApiError::Conflict(val) => (StatusCode::CONFLICT, val),
+        let (status, detail, code) = match self {
+            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, Value::String(msg), None),
+            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, Value::String(msg), None),
+            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, Value::String(msg), None),
+            ApiError::TooManyRequests(msg) => (StatusCode::TOO_MANY_REQUESTS, Value::String(msg), None),
+            ApiError::Conflict(val) => (StatusCode::CONFLICT, val, None),
+            ApiError::ConflictWithCode { message, code } => (StatusCode::CONFLICT, Value::String(message), Some(code)),
             ApiError::Io(ref e) => {
                 let code = match e.kind() {
                     std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
                     std::io::ErrorKind::PermissionDenied => StatusCode::FORBIDDEN,
                     _ => StatusCode::INTERNAL_SERVER_ERROR,
                 };
-                (code, Value::String(self.to_string()))
+                (code, Value::String(self.to_string()), None)
             }
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, Value::String(msg)),
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, Value::String(msg), None),
         };
 
-        let body = ErrorResponse { detail };
+        let body = ErrorResponse { detail, code };
 
         (status, axum::Json(body)).into_response()
     }

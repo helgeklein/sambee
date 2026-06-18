@@ -14,8 +14,7 @@
  * @see FileBrowser — the parent page-level orchestrator
  */
 
-import { Box, Chip, CircularProgress } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
+import { alpha, Box, Chip, CircularProgress, useTheme } from "@mui/material";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";

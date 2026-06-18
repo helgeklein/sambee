@@ -37,10 +37,27 @@ const COMPANION_PLATFORM_LABELS: Record<CompanionDownloadPlatform, string> = {
 };
 
 const COMPANION_PLATFORM_ORDER: CompanionDownloadPlatform[] = ["windows-x64", "windows-arm64", "macos-arm64", "linux-x64"];
-const LOCAL_DRIVES_STATUS_POLL_INTERVAL_MS = 1_000;
+const LOCAL_DRIVES_PENDING_STATUS_POLL_INTERVAL_MS = 1_000;
+const LOCAL_DRIVES_ACTIVE_STATUS_POLL_INTERVAL_MS = 5_000;
+const LOCAL_DRIVES_STEADY_STATUS_POLL_INTERVAL_MS = 15_000;
 const IOS_USER_AGENT_TOKENS = ["iphone", "ipad", "ipod"] as const;
 const MAC_PLATFORM_TOKEN = "macintel";
 const ANDROID_USER_AGENT_TOKEN = "android";
+
+function getLocalDrivesStatusPollInterval(
+  companionAvailable: boolean,
+  pairStatus: LocalDrivesSettingsData["currentPairStatus"]["status"] | null
+): number {
+  if (pairStatus === "pending_local_approval") {
+    return LOCAL_DRIVES_PENDING_STATUS_POLL_INTERVAL_MS;
+  }
+
+  if (!companionAvailable || pairStatus === "unpaired") {
+    return LOCAL_DRIVES_ACTIVE_STATUS_POLL_INTERVAL_MS;
+  }
+
+  return LOCAL_DRIVES_STEADY_STATUS_POLL_INTERVAL_MS;
+}
 
 function detectCurrentPlatform(): CompanionDownloadPlatform | null {
   const userAgent = window.navigator.userAgent.toLowerCase();
@@ -73,6 +90,8 @@ interface LocalDrivesSettingsProps {
   sectionTitle?: string;
   sectionDescription?: string;
 }
+
+type LocalDrivesViewState = "unavailable" | "unpaired" | "pending_local_approval" | "needs_repair" | "paired";
 
 const EMPTY_LOCAL_DRIVES_STATE: LocalDrivesSettingsData = {
   companionAvailable: false,
@@ -114,6 +133,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     enabled: !companionUnsupportedOnCurrentDevice,
   });
   const state = cachedState ?? EMPTY_LOCAL_DRIVES_STATE;
+  const statusPollInterval = getLocalDrivesStatusPollInterval(state.companionAvailable, state.currentPairStatus?.status ?? null);
 
   const showNotification = useCallback((message: string, severity: "success" | "error" | "info") => {
     setNotification({ open: true, message, severity });
@@ -124,29 +144,33 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       return;
     }
 
-    let intervalId: number | null = null;
+    let timeoutId: number | null = null;
+    let cancelled = false;
 
     const stopPolling = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
       }
     };
 
-    const startPolling = () => {
-      if (document.visibilityState !== "visible" || intervalId !== null) {
+    const scheduleNextRefresh = () => {
+      if (cancelled || document.visibilityState !== "visible" || timeoutId !== null) {
         return;
       }
 
-      intervalId = window.setInterval(() => {
-        void refresh();
-      }, LOCAL_DRIVES_STATUS_POLL_INTERVAL_MS);
+      timeoutId = window.setTimeout(() => {
+        timeoutId = null;
+        void refresh().finally(() => {
+          scheduleNextRefresh();
+        });
+      }, statusPollInterval);
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void refresh();
-        startPolling();
+        scheduleNextRefresh();
         return;
       }
 
@@ -157,10 +181,11 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      cancelled = true;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopPolling();
     };
-  }, [companionUnsupportedOnCurrentDevice, refresh]);
+  }, [companionUnsupportedOnCurrentDevice, refresh, statusPollInterval]);
 
   const handleConfirmPairing = useCallback(
     async (pairingId: string) => {
@@ -170,6 +195,18 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
       showNotification(LOCAL_DRIVES_PAGE_COPY.pairingCreated, "success");
     },
     [onConnectionsChanged, refresh, showNotification]
+  );
+
+  const handleCancelPairing = useCallback(
+    async (pairingId: string) => {
+      try {
+        await companionService.cancelPairing(pairingId);
+        await refresh();
+      } catch (error) {
+        logger.warn("Failed to cancel pending browser pairing", { error, pairingId }, "companion");
+      }
+    },
+    [refresh]
   );
 
   const handleTestPairing = useCallback(async () => {
@@ -190,7 +227,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     setUnpairing(true);
 
     try {
-      await companionService.unpairOrigin(currentOrigin);
+      await companionService.unpairCurrentOrigin();
       clearStoredSecret();
       await refresh();
       onConnectionsChanged?.();
@@ -203,9 +240,21 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     }
   }, [currentOrigin, onConnectionsChanged, refresh, showNotification]);
 
-  const currentOriginPaired = state.currentPairStatus?.current_origin_paired ?? false;
-  const currentOriginRecoverable = currentOriginPaired && !browserHasStoredSecret;
-  const browserFullyPaired = currentOriginPaired && browserHasStoredSecret;
+  const viewState: LocalDrivesViewState = useMemo(() => {
+    if (!state.companionAvailable) {
+      return "unavailable";
+    }
+
+    if (state.currentPairStatus?.status === "pending_local_approval") {
+      return "pending_local_approval";
+    }
+
+    if (state.currentPairStatus?.status === "paired") {
+      return browserHasStoredSecret ? "paired" : "needs_repair";
+    }
+
+    return "unpaired";
+  }, [browserHasStoredSecret, state.companionAvailable, state.currentPairStatus?.status]);
   const downloadEntries = useMemo(
     () =>
       COMPANION_PLATFORM_ORDER.flatMap((platformKey) => {
@@ -227,7 +276,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     () => downloadEntries.filter(([platformKey]) => platformKey !== primaryDownload?.[0]),
     [downloadEntries, primaryDownload]
   );
-  const showUnpairAction = browserFullyPaired;
+  const showUnpairAction = viewState === "paired";
   const showStatusContent = hasResolved || cachedState !== null;
   const cardActionRowSx = {
     display: "flex",
@@ -245,50 +294,54 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
     () => [
       {
         label: LOCAL_DRIVES_PAGE_COPY.companionRunningChecklistLabel,
-        complete: state.companionAvailable,
+        complete: viewState !== "unavailable",
       },
       {
         label: LOCAL_DRIVES_PAGE_COPY.browserFullyPairedChecklistLabel,
-        complete: browserFullyPaired,
+        complete: viewState === "paired",
       },
     ],
-    [browserFullyPaired, state.companionAvailable]
+    [viewState]
   );
   const summaryState = useMemo(() => {
-    if (!state.companionAvailable) {
-      return {
-        badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelUnavailable,
-        badgeVariant: "warning" as const,
-        title: LOCAL_DRIVES_PAGE_COPY.summaryUnavailableTitle,
-        message: LOCAL_DRIVES_PAGE_COPY.statusUnavailable,
-      };
+    switch (viewState) {
+      case "unavailable":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelUnavailable,
+          badgeVariant: "warning" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryUnavailableTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusUnavailable,
+        };
+      case "paired":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelReady,
+          badgeVariant: "success" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryReadyTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusPaired,
+        };
+      case "pending_local_approval":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryPendingApprovalTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusPendingApproval,
+        };
+      case "needs_repair":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryRepairTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusRecoverable,
+        };
+      case "unpaired":
+        return {
+          badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
+          badgeVariant: "themed" as const,
+          title: LOCAL_DRIVES_PAGE_COPY.summaryPairingRequiredTitle,
+          message: LOCAL_DRIVES_PAGE_COPY.statusUnpaired,
+        };
     }
-
-    if (browserFullyPaired) {
-      return {
-        badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelReady,
-        badgeVariant: "success" as const,
-        title: LOCAL_DRIVES_PAGE_COPY.summaryReadyTitle,
-        message: LOCAL_DRIVES_PAGE_COPY.statusPaired,
-      };
-    }
-
-    if (currentOriginRecoverable) {
-      return {
-        badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
-        badgeVariant: "themed" as const,
-        title: LOCAL_DRIVES_PAGE_COPY.summaryRepairTitle,
-        message: LOCAL_DRIVES_PAGE_COPY.statusRecoverable,
-      };
-    }
-
-    return {
-      badgeLabel: LOCAL_DRIVES_PAGE_COPY.statusLabelActionRequired,
-      badgeVariant: "themed" as const,
-      title: LOCAL_DRIVES_PAGE_COPY.summaryPairingRequiredTitle,
-      message: LOCAL_DRIVES_PAGE_COPY.statusUnpaired,
-    };
-  }, [browserFullyPaired, currentOriginRecoverable, state.companionAvailable]);
+  }, [viewState]);
   const sectionCardSx = {
     border: 1,
     borderColor: "divider",
@@ -309,9 +362,10 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
               ? theme.palette.success.main + (theme.palette.mode === "dark" ? "29" : "14")
               : theme.palette.warning.main + (theme.palette.mode === "dark" ? "29" : "14"),
         };
-  const shouldShowInstallSection = showStatusContent && !loading && !state.companionAvailable;
-  const shouldShowPairingSection = showStatusContent && !loading && state.companionAvailable && !browserFullyPaired;
-  const shouldShowVerificationSection = showStatusContent && !loading && browserFullyPaired;
+  const shouldShowInstallSection = showStatusContent && !loading && viewState === "unavailable";
+  const shouldShowPairingSection =
+    showStatusContent && !loading && ["unpaired", "pending_local_approval", "needs_repair"].includes(viewState);
+  const shouldShowVerificationSection = showStatusContent && !loading && viewState === "paired";
 
   return (
     <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "background.default", overflow: "hidden" }}>
@@ -462,16 +516,23 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
                 <Box sx={sectionCardSx}>
                   <Stack spacing={2}>
                     <Typography variant="body2" color="text.secondary">
-                      {LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
+                      {viewState === "pending_local_approval"
+                        ? LOCAL_DRIVES_PAGE_COPY.pairingSectionPendingApproval
+                        : viewState === "needs_repair"
+                          ? LOCAL_DRIVES_PAGE_COPY.pairingSectionRepair
+                          : LOCAL_DRIVES_PAGE_COPY.pairingSectionRequired}
                     </Typography>
                     <Box sx={cardActionRowSx}>
                       <Button
                         variant="contained"
                         startIcon={<UsbIcon />}
                         onClick={() => setPairingDialogOpen(true)}
+                        disabled={viewState === "pending_local_approval"}
                         sx={settingsPrimaryButtonSx}
                       >
-                        {LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
+                        {viewState === "pending_local_approval"
+                          ? LOCAL_DRIVES_PAGE_COPY.waitingForApprovalButton
+                          : LOCAL_DRIVES_PAGE_COPY.pairThisBrowserButton}
                       </Button>
                     </Box>
                   </Stack>
@@ -543,6 +604,7 @@ export function LocalDrivesSettings({ onConnectionsChanged, sectionTitle, sectio
           onClose={() => setPairingDialogOpen(false)}
           onInitiate={companionService.initiatePairing}
           onConfirm={handleConfirmPairing}
+          onCancel={handleCancelPairing}
         />
       )}
 

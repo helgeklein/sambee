@@ -19,14 +19,14 @@
  * @see FileBrowserPane — renders a single pane's UI (breadcrumbs, file list, etc.)
  */
 
-import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { AppBar, Box, Container, Divider, Snackbar, Toolbar, useMediaQuery, useTheme } from "@mui/material";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import CopyMoveDialog, { type CopyMoveMode, type OverwriteStrategy } from "../components/FileBrowser/CopyMoveDialog";
 import { DesktopToolbar } from "../components/FileBrowser/DesktopToolbar";
 import { DynamicViewer } from "../components/FileBrowser/DynamicViewer";
+import type { CompanionLifecycleStatus } from "../components/FileBrowser/FileBrowserAlerts";
 import { FileBrowserAlerts } from "../components/FileBrowser/FileBrowserAlerts";
 import { MobileToolbar } from "../components/FileBrowser/MobileToolbar";
 import OverwriteConflictDialog, { type ConflictResolution } from "../components/FileBrowser/OverwriteConflictDialog";
@@ -93,6 +93,20 @@ import { useFileBrowserPane } from "./FileBrowser/useFileBrowserPane";
 const SERVER_WEBSOCKET_RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 5_000] as const;
 const COMPANION_WEBSOCKET_RECONNECT_DELAY_MS = 5_000;
 const COMPANION_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
+
+const COMPANION_STATUS_QUERY_PARAM = "companion_status";
+
+function parseCompanionLifecycleStatus(rawStatus: string | null): CompanionLifecycleStatus | null {
+  switch (rawStatus) {
+    case "renewal_required":
+    case "auth_failed":
+    case "lock_lost":
+    case "recovery_required":
+      return rawStatus;
+    default:
+      return null;
+  }
+}
 
 const Browser: React.FC = () => {
   // Track renders for performance monitoring
@@ -216,7 +230,29 @@ const Browser: React.FC = () => {
       }),
     [params.targetId, params.targetType, params["*"], searchParams]
   );
+  const companionLifecycleStatus = useMemo(
+    () => parseCompanionLifecycleStatus(searchParams.get(COMPANION_STATUS_QUERY_PARAM)),
+    [searchParams]
+  );
   const resolvedRoute = useMemo(() => resolveBrowseRouteState(currentRoute, allConnections), [allConnections, currentRoute]);
+
+  const dismissCompanionLifecycleStatus = useCallback(() => {
+    if (!companionLifecycleStatus) {
+      return;
+    }
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete(COMPANION_STATUS_QUERY_PARAM);
+    const nextSearch = nextSearchParams.toString();
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : "",
+      },
+      { replace: true }
+    );
+  }, [companionLifecycleStatus, location.pathname, navigate, searchParams]);
 
   const leftPathNavigateRef = React.useRef<(path: string) => void>(() => undefined);
   const rightPathNavigateRef = React.useRef<(path: string) => void>(() => undefined);
@@ -857,6 +893,9 @@ const Browser: React.FC = () => {
       };
 
       ws.onerror = (error) => {
+        if (disposed || activeWs !== ws) {
+          return;
+        }
         logger.error("WebSocket error", { wsUrl, error: String(error) }, "websocket");
       };
 
@@ -909,7 +948,7 @@ const Browser: React.FC = () => {
       scheduleReconnect(reason, true);
     };
 
-    connectWebSocket();
+    scheduleReconnect("initial", true);
 
     return () => {
       disposed = true;
@@ -2086,10 +2125,12 @@ const Browser: React.FC = () => {
       >
         <FileBrowserAlerts
           error={leftPane.error}
+          companionLifecycleStatus={companionLifecycleStatus}
           loadingConnections={loadingConnections}
           connectionsCount={connections.length}
           isAdmin={isAdmin}
           backendAvailabilityStatus={backendAvailability.status}
+          onDismissCompanionLifecycleStatus={dismissCompanionLifecycleStatus}
           onRetry={leftPane.handleRefresh}
           onOpenConnectionsSettings={() => {
             if (useCompactLayout) {
@@ -2222,7 +2263,7 @@ const Browser: React.FC = () => {
         autoHideDuration={6000}
         onClose={() => setCompanionHintOpen(false)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-        message="Opening in Sambee Companion… If nothing happened, make sure the companion app is installed."
+        message={t("fileBrowser.chrome.alerts.companionLaunchHint")}
       />
       {/* Copy / Move Dialog (dual-pane F5/F6) */}
       <CopyMoveDialog
