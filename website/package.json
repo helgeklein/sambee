@@ -27,6 +27,6 @@
     "pagefind": "^1.4.0",
     "tailwind-bootstrap-grid": "^6.0.0",
     "tailwindcss": "^4.1.18",
-    "wrangler": "^4.94.0"
+    "wrangler": "^4.102.0"
   }
 }
