@@ -38,6 +38,8 @@ const PAIR_CONFIRM_RETRY_DELAY_MS = 250;
 
 /** Companion API detail used while local pairing approval is still pending. */
 export const COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL = "Waiting for companion confirmation";
+/** Stable companion API code used while local pairing approval is still pending. */
+export const COMPANION_PAIR_CONFIRMATION_PENDING_CODE = "pair_confirmation_pending";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -97,6 +99,7 @@ interface PairConfirmResponse {
 
 interface CompanionApiErrorResponse {
   detail?: string;
+  code?: string;
 }
 
 // ── HMAC Utilities ───────────────────────────────────────────────────────────
@@ -157,7 +160,10 @@ function isWaitingForCompanionConfirmation(error: unknown): boolean {
   }
 
   const response = (error as { response?: { data?: CompanionApiErrorResponse } }).response;
-  return response?.data?.detail === COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL;
+  return (
+    response?.data?.code === COMPANION_PAIR_CONFIRMATION_PENDING_CODE ||
+    response?.data?.detail === COMPANION_PAIR_CONFIRMATION_PENDING_DETAIL
+  );
 }
 
 // ── Secret Persistence ──────────────────────────────────────────────────────
@@ -296,6 +302,7 @@ class CompanionService {
       try {
         const response = await this.client.post<PairConfirmResponse>("/pair/confirm", {
           pairing_id: pairingId,
+          origin: window.location.origin || undefined,
         });
 
         storeSecret(response.data.secret);
@@ -321,7 +328,9 @@ class CompanionService {
 
   /** Query the companion for the current browser origin's pairing status. */
   async getPairStatus(): Promise<PairStatusResponse> {
-    const response = await this.client.get<PairStatusResponse>("/pair/status");
+    const response = await this.client.get<PairStatusResponse>("/pair/status", {
+      params: { origin: window.location.origin || undefined },
+    });
     return response.data;
   }
 

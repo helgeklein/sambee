@@ -10,6 +10,16 @@ Previously, those three functions were not clearly distinguished. The three mode
 
 In addition, several bugs were fixed to improve the overall experience.
 
+## More Secure Companion Pairing and Communication Flows
+
+This release makes Sambee Companion connections more secure, from the first pairing step through ongoing communication during local-drive access and desktop editing.
+
+**Pairing** is now tracked per Sambee site instead of through one global paired state, pending approvals can be cancelled cleanly, and the browser now shows clearer states when Companion is unavailable, waiting for local approval, needs repair, or has lost its editing session.
+
+Sambee also now trusts only the specific Sambee site you approved, limits what the local Companion service exposes, and uses narrower one-task-at-a-time edit credentials behind the scenes.
+
+**Native editing** is also more resilient. Sambee now uses tighter, task-specific edit permissions, renews long-running edit sessions when needed, and returns you to the browser with a clearer next step if sign-in, lock ownership, or recovery fails, instead of leaving you stuck with a vague error.
+
 ## Internals
 
 ### Documentation System

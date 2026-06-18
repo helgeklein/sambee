@@ -429,6 +429,7 @@ def render_report_html(data: dict[str, Any]) -> str:
         .replace("&", "\\u0026")
     )
     title = html.escape(data["meta"]["title"])
+    brand_mark = """<svg class="brand-mark" viewBox="0 0 320 320" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><rect x="2.5" y="30.784271" width="315" height="67" rx="20" fill="#1F262B" stroke="#1F262B" stroke-width="5"/><circle cx="42.5" cy="64.284271" r="10" fill="#F4C430"/><rect x="74.5" y="54.284271" width="200" height="20" rx="10" fill="#F4C430"/><rect x="2.5" y="124.28427" width="315" height="72" rx="20" fill="#F4C430" stroke="#1F262B" stroke-width="5"/><circle cx="40" cy="160.28427" r="10" fill="#1F262B"/><rect x="72" y="150.28427" width="200" height="20" rx="10" fill="#1F262B"/><rect x="2.5" y="222.78427" width="315" height="67" rx="20" fill="#1F262B" stroke="#1F262B" stroke-width="5"/><circle cx="42.5" cy="256.28427" r="10" fill="#F4C430"/><rect x="74.5" y="246.28427" width="200" height="20" rx="10" fill="#F4C430"/></svg>"""
     return f"""<!DOCTYPE html>
 <html lang=\"en\">
 <head>
@@ -437,18 +438,25 @@ def render_report_html(data: dict[str, Any]) -> str:
   <title>{title}</title>
   <style>
     :root {{
-      --line: #d7cdbf;
-      --text: #1e1b18;
-      --muted: #695f54;
-      --accent: #0f766e;
-      --accent-2: #a16207;
+      --bg: #fbf9f4;
+      --surface: #fbf9f4;
+      --surface-2: #f5f3ee;
+      --surface-3: #f0eee9;
+      --line: #d4c4ae;
+      --line-strong: #827562;
+      --text: #1b1c19;
+      --muted: #504535;
+      --accent: #7c5800;
+      --accent-fill: #ebb035;
+      --accent-fill-text: #624500;
       --danger: #b91c1c;
       --ok: #166534;
-      --shadow: 0 18px 40px rgba(37, 27, 17, 0.08);
-      --radius: 16px;
-      --radius-sm: 10px;
-      --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
-      --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
+      --shadow: 0 20px 44px rgba(52, 38, 18, 0.08);
+      --radius: 0;
+      --radius-sm: 0;
+      --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --font-display: Georgia, "Times New Roman", serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -456,34 +464,40 @@ def render_report_html(data: dict[str, Any]) -> str:
       font-family: var(--font-sans);
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(15,118,110,0.08), transparent 28%),
-        linear-gradient(180deg, #fbf8f2 0%, var(--bg) 100%);
+        radial-gradient(circle at top left, rgba(235,176,53,0.14), transparent 30%),
+        linear-gradient(180deg, #fdfbf7 0%, var(--bg) 100%);
     }}
     .shell {{ max-width: 1800px; margin: 0 auto; padding: 28px; }}
     .hero {{ display: grid; gap: 18px; margin-bottom: 20px; }}
-    .eyebrow {{ font: 600 12px/1.2 var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }}
-    h1 {{ margin: 0; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1; }}
-    .lede {{ max-width: 90ch; color: var(--muted); font-size: 1rem; line-height: 1.5; }}
+    .brand-banner {{ display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 0; background: rgba(251,249,244,0.92); box-shadow: var(--shadow); }}
+    .brand-lockup {{ display: flex; align-items: center; gap: 14px; min-width: 0; }}
+    .brand-mark {{ width: 42px; height: 42px; flex: none; }}
+    .brand-copy {{ min-width: 0; }}
+    .brand-wordmark {{ margin: 0; font: 700 clamp(1.85rem, 3vw, 2.8rem)/0.92 var(--font-sans); letter-spacing: -0.04em; color: var(--text); }}
+    .hero-copy {{ display: grid; gap: 10px; padding: 10px 4px 0; }}
+    h1 {{ margin: 0; font: 700 clamp(2.25rem, 4vw, 3.8rem)/0.96 var(--font-display); letter-spacing: -0.02em; }}
+    .lede {{ max-width: 90ch; color: var(--muted); font-size: 1rem; line-height: 1.6; }}
     .card {{ background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }}
     .toolbar {{ display: grid; gap: 14px; margin: 22px 0; }}
     .toolbar-grid {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }}
-    .toolbar h2 {{ margin: 0 0 8px; font-size: 0.92rem; }}
+    .toolbar h2 {{ margin: 0 0 8px; font-size: 0.92rem; letter-spacing: 0.01em; }}
     .toolbar-section {{ display: grid; gap: 8px; }}
     .toolbar-section + .toolbar-section {{ margin-top: 8px; }}
     .toolbar-label {{ font: 600 0.72rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }}
     .toolbar-copy {{ color: var(--muted); font-size: 0.84rem; line-height: 1.38; margin-bottom: 8px; }}
-    .search-input {{ width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font: 400 0.84rem/1.2 var(--font-sans); }}
+    .search-input {{ width: 100%; padding: 11px 14px; border: 1px solid var(--line); border-radius: 0; background: #fff; font: 400 0.84rem/1.2 var(--font-sans); }}
     .pill-row {{ display: flex; flex-wrap: wrap; gap: 8px; }}
     .filter-pill, .version-focus-pill, .action-button {{
       border: 1px solid var(--line);
       background: var(--surface-2);
       color: var(--text);
-      border-radius: 999px;
+      border-radius: 0;
       padding: 8px 12px;
       font: 500 0.82rem/1 var(--font-sans);
       cursor: pointer;
     }}
-    .filter-pill.active, .version-focus-pill.active {{ background: #e3f4f2; border-color: rgba(15,118,110,0.35); color: var(--accent); }}
+    .filter-pill:hover, .version-focus-pill:hover, .action-button:hover, .diff-modal__close:hover, .diff-modal-pill:hover {{ border-color: rgba(124,88,0,0.32); color: var(--accent); }}
+    .filter-pill.active, .version-focus-pill.active {{ background: rgba(235,176,53,0.18); border-color: rgba(124,88,0,0.3); color: var(--accent); }}
     .action-button {{ background: #fff; }}
     .controls-card {{ display: grid; gap: 10px; }}
     .controls-card .toolbar-copy {{ margin-bottom: 2px; font-size: 0.82rem; line-height: 1.35; }}
@@ -497,23 +511,23 @@ def render_report_html(data: dict[str, Any]) -> str:
     .main-table {{ overflow: visible; }}
     .table-wrap {{ overflow-x: auto; overflow-y: visible; max-height: none; }}
     table {{ width: 100%; border-collapse: collapse; }}
-    thead th {{ position: sticky; top: 0; background: rgba(255, 253, 248, 0.96); backdrop-filter: blur(10px); z-index: 2; text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); font-size: 0.79rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }}
+    thead th {{ position: sticky; top: 0; background: rgba(245, 243, 238, 0.96); backdrop-filter: blur(10px); z-index: 2; text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--line); font-size: 0.79rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }}
     tbody td {{ padding: 6px 10px; border-bottom: 1px solid rgba(215,205,191,0.7); vertical-align: top; }}
-    tbody tr:hover {{ background: rgba(15,118,110,0.035); }}
-    tbody tr.selected {{ background: rgba(15,118,110,0.08); }}
+    tbody tr:hover {{ background: rgba(235,176,53,0.08); }}
+    tbody tr.selected {{ background: rgba(235,176,53,0.14); }}
     .name-col {{ position: sticky; left: 0; background: inherit; min-width: 280px; max-width: 420px; z-index: 1; }}
     .row-title {{ display: flex; align-items: center; gap: 8px; min-width: 0; }}
     .indent-0 {{ padding-left: 0; }}
     .indent-1 {{ padding-left: 18px; }}
     .indent-2 {{ padding-left: 36px; }}
-    .toggle {{ width: 24px; height: 24px; border-radius: 7px; border: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; padding: 0; }}
+    .toggle {{ width: 24px; height: 24px; border-radius: 0; border: 1px solid var(--line); background: #fff; cursor: pointer; font: inherit; padding: 0; box-shadow: inset 0 1px 0 rgba(255,255,255,0.8); }}
     .row-label-block {{ min-width: 0; }}
     .row-label {{ font-weight: 500; overflow-wrap: anywhere; }}
     .row-subtitle {{ color: var(--muted); font-size: 0.78rem; line-height: 1.2; margin-top: 1px; }}
-    .kind-badge {{ display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 4px 8px; background: var(--surface-2); color: var(--muted); font: 600 0.72rem/1 var(--font-mono); text-transform: uppercase; }}
+    .kind-badge {{ display: inline-flex; align-items: center; gap: 5px; border-radius: 0; padding: 4px 8px; background: var(--surface-2); color: var(--muted); font: 600 0.72rem/1 var(--font-mono); text-transform: uppercase; }}
     .version-strip {{ display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; min-width: 240px; }}
-    .version-chip {{ display: inline-flex; flex-direction: column; gap: 3px; min-width: 64px; padding: 6px 8px; border-radius: 10px; border: 1px solid transparent; background: var(--surface-2); }}
-    .version-chip.collapsed {{ min-width: 16px; width: 16px; padding: 0; border-radius: 999px; overflow: hidden; justify-content: center; }}
+    .version-chip {{ display: inline-flex; flex-direction: column; gap: 3px; min-width: 64px; padding: 6px 8px; border-radius: 0; border: 1px solid transparent; background: var(--surface-2); }}
+    .version-chip.collapsed {{ min-width: 16px; width: 16px; padding: 0; border-radius: 0; overflow: hidden; justify-content: center; }}
     .version-chip.collapsed .version-chip__slug,
     .version-chip.collapsed .version-chip__state,
     .version-chip.collapsed .version-chip__diff {{ display: none; }}
@@ -522,8 +536,8 @@ def render_report_html(data: dict[str, Any]) -> str:
     .version-chip__state {{ font-size: 0.66rem; font-weight: 600; line-height: 1.05; }}
     .version-chip__diff {{ font: 600 0.68rem/1 var(--font-mono); display: flex; gap: 6px; }}
     .state-authored {{ background: #ebf6ff; color: #0f4c81; border-color: rgba(15,76,129,0.15); }}
-    .state-branched {{ background: #ecfdf5; color: var(--ok); border-color: rgba(22,101,52,0.15); }}
-    .state-inherited {{ background: #fff4e5; color: #9a5c00; border-color: rgba(154,92,0,0.15); }}
+    .state-branched {{ background: var(--accent-fill); color: var(--accent-fill-text); border-color: rgba(98,69,0,0.3); }}
+    .state-inherited {{ background: #f3ebdd; color: #7f5b14; border-color: rgba(127,91,20,0.16); }}
     .state-structural-only {{ background: #f3f4f6; color: #4b5563; border-color: rgba(75,85,99,0.12); }}
     .state-structural {{ background: #f3f4f6; color: #4b5563; border-color: rgba(75,85,99,0.12); }}
     .state-missing {{ background: #fff7ed; color: #c2410c; border-color: rgba(194,65,12,0.18); }}
@@ -534,7 +548,7 @@ def render_report_html(data: dict[str, Any]) -> str:
     .muted {{ color: var(--muted); }}
     .detail-meta {{ display: grid; gap: 10px; }}
     .selector-row {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }}
-    select {{ width: 100%; padding: 10px 12px; border: 1px solid #cdbfaa; border-radius: 12px; font: inherit; background: #fffdf9; color: var(--text); }}
+    select {{ width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 0; font: inherit; background: #fffdf9; color: var(--text); }}
     .diff-modal__toolbar {{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }}
     .diff-modal__toolbar-label {{ font: 600 0.72rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }}
     .diff-modal-pill {{
@@ -544,7 +558,7 @@ def render_report_html(data: dict[str, Any]) -> str:
       min-height: 34px;
       padding: 0 14px;
       border: 1px solid #cdbfaa;
-      border-radius: 999px;
+      border-radius: 0;
       background: #fffdf9;
       color: #52483d;
       font: 600 0.84rem/1 var(--font-sans);
@@ -553,12 +567,11 @@ def render_report_html(data: dict[str, Any]) -> str:
       transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease;
       justify-self: start;
     }}
-    .diff-modal-pill:hover {{ border-color: rgba(15,118,110,0.28); color: var(--accent); }}
-    .diff-modal-pill.active {{ background: #e3f4f2; border-color: rgba(15,118,110,0.35); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(15,118,110,0.08); }}
+    .diff-modal-pill.active {{ background: rgba(235,176,53,0.18); border-color: rgba(124,88,0,0.3); color: var(--accent); box-shadow: inset 0 0 0 1px rgba(124,88,0,0.06); }}
     .diff-summary {{ display: flex; gap: 12px; align-items: center; font: 700 0.95rem/1 var(--font-mono); }}
     .diff-meta {{ display: grid; gap: 12px; padding: 18px 20px; border-bottom: 1px solid #d9cdbd; background: #f6f1e8; }}
     .diff-meta__versions {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
-    .diff-meta__version {{ padding: 12px 14px; border: 1px solid #d9cdbd; border-radius: 14px; background: #fffdf9; }}
+    .diff-meta__version {{ padding: 12px 14px; border: 1px solid #d9cdbd; border-radius: 0; background: #fffdf9; }}
     .diff-meta__label {{ font: 700 0.76rem/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }}
     .diff-meta__state {{ margin-top: 8px; font-size: 0.92rem; }}
     .diff-meta__source {{ margin-top: 4px; color: var(--muted); font-size: 0.82rem; }}
@@ -567,7 +580,7 @@ def render_report_html(data: dict[str, Any]) -> str:
       min-height: 0;
       overflow: auto;
       border: 1px solid #d7cdbf;
-      border-radius: 0 0 18px 18px;
+      border-radius: 0;
       background: linear-gradient(90deg, #f6efe5 0 88px, #e6dac8 88px 89px, #fffdf9 89px 100%);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
       padding: 14px 0 20px;
@@ -583,35 +596,39 @@ def render_report_html(data: dict[str, Any]) -> str:
     .diff-line.add .diff-line__code {{ background: rgba(238, 250, 241, 0.78); }}
     .diff-line.remove .diff-line__code {{ background: rgba(253, 240, 240, 0.82); }}
     .diff-line.add .diff-line__code::before,
-    .diff-line.remove .diff-line__code::before {{ content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 999px; }}
+    .diff-line.remove .diff-line__code::before {{ content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 0; }}
     .diff-line.add .diff-line__code::before {{ background: #5ea975; }}
     .diff-line.remove .diff-line__code::before {{ background: #cf6f7a; }}
-    .inline-add {{ background: #bfe7ca; color: #12351f; border-radius: 3px; box-shadow: inset 0 -1px 0 rgba(18,53,31,0.08); }}
-    .inline-remove {{ background: #f4c9cf; color: #5a171d; border-radius: 3px; box-shadow: inset 0 -1px 0 rgba(90,23,29,0.08); }}
-    .warnings {{ margin-top: 18px; padding: 18px; }}
+    .inline-add {{ background: #bfe7ca; color: #12351f; border-radius: 0; box-shadow: inset 0 -1px 0 rgba(18,53,31,0.08); }}
+    .inline-remove {{ background: #f4c9cf; color: #5a171d; border-radius: 0; box-shadow: inset 0 -1px 0 rgba(90,23,29,0.08); }}
+    .warnings {{ margin-top: 18px; padding: 18px; background: linear-gradient(180deg, rgba(235,176,53,0.14), rgba(245,243,238,0.9)); }}
     .warnings ol {{ margin: 10px 0 0; padding-left: 18px; }}
     .warnings li {{ margin: 6px 0; font: 0.88rem/1.4 var(--font-mono); }}
     .hero .warnings {{ margin-top: 0; }}
     .diff-modal[hidden] {{ display: none; }}
     .diff-modal {{ position: fixed; inset: 0; z-index: 30; background: rgba(20, 16, 12, 0.76); display: grid; place-items: center; padding: 10px; backdrop-filter: blur(6px); }}
-    .diff-modal__panel {{ width: min(1520px, calc(100vw - 20px)); height: calc(100vh - 20px); background: #f7f3ec; border: 1px solid #cdbfaa; border-radius: 20px; box-shadow: 0 28px 70px rgba(20, 14, 10, 0.28); overflow: hidden; display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-height: 0; }}
+    .diff-modal__panel {{ width: min(1520px, calc(100vw - 20px)); height: calc(100vh - 20px); background: #f7f3ec; border: 1px solid #cdbfaa; border-radius: 0; box-shadow: 0 28px 70px rgba(20, 14, 10, 0.28); overflow: hidden; display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-height: 0; }}
     .diff-modal__header {{ display: flex; justify-content: space-between; gap: 16px; align-items: start; padding: 18px 20px 14px; border-bottom: 1px solid #d9cdbd; background: #f7f3ec; }}
     .diff-modal__title {{ margin: 0; font-size: 1.35rem; line-height: 1.1; }}
     .diff-modal__subtitle {{ margin-top: 4px; color: var(--muted); font-size: 0.92rem; }}
-    .diff-modal__close {{ border: 1px solid #cdbfaa; background: #fffdf9; border-radius: 999px; padding: 8px 12px; font: inherit; cursor: pointer; }}
+    .diff-modal__close {{ border: 1px solid #cdbfaa; background: #fffdf9; border-radius: 0; padding: 8px 12px; font: inherit; cursor: pointer; }}
     .diff-modal__controls {{ padding: 14px 20px; border-bottom: 1px solid #d9cdbd; display: grid; gap: 12px; background: #f4efe7; align-items: start; }}
     .diff-modal__body {{ min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #f7f3ec; }}
-    @media (max-width: 1200px) {{ .toolbar-grid {{ grid-template-columns: 1fr; }} .controls-grid {{ grid-template-columns: 1fr; }} .diff-modal {{ padding: 8px; }} .diff-modal__panel {{ width: calc(100vw - 16px); height: calc(100vh - 16px); }} }}
+    @media (max-width: 1200px) {{ .toolbar-grid {{ grid-template-columns: 1fr; }} .controls-grid {{ grid-template-columns: 1fr; }} .brand-banner {{ border-radius: 0; align-items: flex-start; }} .diff-modal {{ padding: 8px; }} .diff-modal__panel {{ width: calc(100vw - 16px); height: calc(100vh - 16px); }} }}
+    @media (max-width: 840px) {{ .brand-banner {{ flex-direction: column; }} }}
     @media (max-width: 720px) {{ .selector-row, .diff-meta__versions {{ grid-template-columns: 1fr; }} }}
   </style>
 </head>
 <body>
   <div class=\"shell\">
     <section class=\"hero\">
-      <div class=\"eyebrow\">Standalone repo report</div>
-      <div>
-        <h1>{title}</h1>
-        <p class=\"lede\">Explore books, sections, and pages across docs versions without a one-column-per-version matrix. Focus versions expand into full chips while the rest collapse into compact markers, so the main tree-table stays readable as the version count grows.</p>
+      <div class=\"brand-banner\">
+        <div class=\"brand-lockup\">
+          {brand_mark}
+          <div class=\"brand-copy\">
+            <p class=\"brand-wordmark\">Sambee Docs Report</p>
+          </div>
+        </div>
       </div>
       <section class=\"warnings\" id=\"warnings-panel\" hidden></section>
     </section>

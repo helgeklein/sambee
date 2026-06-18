@@ -24,7 +24,7 @@ use crate::{show_pairing_success, show_pairing_window};
 
 use super::auth;
 use super::drives;
-use super::errors::ApiError;
+use super::errors::{ApiError, PAIR_CONFIRMATION_PENDING_CODE};
 use super::models::*;
 use super::pairing::{PairingInitiateError, PairingState};
 use super::AppState;
@@ -266,6 +266,7 @@ pub async fn pair_initiate(
 #[derive(Deserialize)]
 pub struct PairConfirmRequest {
     pub pairing_id: String,
+    pub origin: Option<String>,
 }
 
 /// `POST /api/pair/confirm` — complete a pairing after dual confirmation.
@@ -274,8 +275,8 @@ pub async fn pair_confirm(
     headers: HeaderMap,
     Json(body): Json<PairConfirmRequest>,
 ) -> Result<Json<PairConfirmResponse>, ApiError> {
-    let origin = extract_origin(&headers)?;
-    let secret = state.pairing.confirm(&body.pairing_id, &origin).map_err(ApiError::BadRequest)?;
+    let origin = resolve_pair_confirm_origin(&headers, body.origin.as_deref())?;
+    let secret = state.pairing.confirm(&body.pairing_id, &origin).map_err(map_pair_confirm_error)?;
 
     show_pairing_success(&state.app);
 
@@ -301,9 +302,19 @@ pub async fn sync_localization(
     Ok(Json(LocalizationSyncResponse { applied, state: current }))
 }
 
+#[derive(Deserialize)]
+pub struct PairStatusQuery {
+    pub origin: Option<String>,
+}
+
 /// `GET /api/pair/status` — pairing status for the current browser origin.
-pub async fn pair_status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<PairStatusResponse> {
-    Json(build_pair_status_response(&state.pairing, extract_origin(&headers).ok().as_deref()))
+pub async fn pair_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PairStatusQuery>,
+) -> Json<PairStatusResponse> {
+    let origin = resolve_pair_status_origin(&headers, query.origin.as_deref()).ok();
+    Json(build_pair_status_response(&state.pairing, origin.as_deref()))
 }
 
 #[derive(Deserialize)]
@@ -1161,12 +1172,19 @@ fn extract_origin(headers: &HeaderMap) -> Result<String, ApiError> {
 }
 
 fn extract_origin_from_pair_initiate_request(body: &PairInitiateRequest) -> Result<String, ApiError> {
-    body.origin
-        .as_deref()
+    extract_normalized_request_origin(body.origin.as_deref(), "Missing origin in pairing request")
+}
+
+fn extract_origin_from_pair_confirm_request(body_origin: Option<&str>) -> Result<String, ApiError> {
+    extract_normalized_request_origin(body_origin, "Missing origin in pairing request")
+}
+
+fn extract_normalized_request_origin(request_origin: Option<&str>, missing_message: &str) -> Result<String, ApiError> {
+    request_origin
         .map(str::trim)
         .filter(|origin| !origin.is_empty())
         .and_then(auth::normalize_browser_origin)
-        .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing request".to_string()))
+        .ok_or_else(|| ApiError::BadRequest(missing_message.to_string()))
 }
 
 fn build_pair_status_response(pairing: &PairingState, current_origin: Option<&str>) -> PairStatusResponse {
@@ -1195,13 +1213,24 @@ fn build_pair_status_response(pairing: &PairingState, current_origin: Option<&st
 }
 
 fn resolve_pair_cancel_origin(headers: &HeaderMap, request_origin: Option<&str>) -> Result<String, ApiError> {
-    extract_origin(headers).or_else(|_| {
-        request_origin
-            .map(str::trim)
-            .filter(|origin| !origin.is_empty())
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| ApiError::BadRequest("Missing origin in pairing cancel request".to_string()))
-    })
+    extract_origin(headers)
+        .or_else(|_| extract_normalized_request_origin(request_origin, "Missing origin in pairing cancel request"))
+}
+
+fn resolve_pair_confirm_origin(headers: &HeaderMap, request_origin: Option<&str>) -> Result<String, ApiError> {
+    extract_origin(headers).or_else(|_| extract_origin_from_pair_confirm_request(request_origin))
+}
+
+fn resolve_pair_status_origin(headers: &HeaderMap, request_origin: Option<&str>) -> Result<String, ApiError> {
+    extract_origin(headers).or_else(|_| extract_normalized_request_origin(request_origin, "Missing origin in pairing status request"))
+}
+
+fn map_pair_confirm_error(message: String) -> ApiError {
+    if message == "Waiting for companion confirmation" {
+        return ApiError::conflict_code(message, PAIR_CONFIRMATION_PENDING_CODE);
+    }
+
+    ApiError::BadRequest(message)
 }
 
 /// Map an I/O error to an appropriate API error with context.
@@ -1353,7 +1382,10 @@ async fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Res
 
 #[cfg(test)]
 mod tests {
-    use super::{build_pair_status_response, normalize_drive_relative_path, resolve_pair_cancel_origin};
+    use super::{
+        build_pair_status_response, normalize_drive_relative_path, resolve_pair_cancel_origin, resolve_pair_confirm_origin,
+        resolve_pair_status_origin,
+    };
     use crate::server::models::PublicPairingStatus;
     use crate::server::pairing::PairingState;
     use axum::http::{HeaderMap, HeaderValue};
@@ -1398,8 +1430,26 @@ mod tests {
     fn resolve_pair_cancel_origin_falls_back_to_request_body() {
         let headers = HeaderMap::new();
 
-        let origin = resolve_pair_cancel_origin(&headers, Some("https://fallback.example")).unwrap();
+        let origin = resolve_pair_cancel_origin(&headers, Some("https://Sambee.Example:8443")).unwrap();
+
+        assert_eq!(origin, "https://sambee.example:8443");
+    }
+
+    #[test]
+    fn resolve_pair_confirm_origin_falls_back_to_request_body() {
+        let headers = HeaderMap::new();
+
+        let origin = resolve_pair_confirm_origin(&headers, Some("https://fallback.example")).unwrap();
 
         assert_eq!(origin, "https://fallback.example");
+    }
+
+    #[test]
+    fn resolve_pair_status_origin_falls_back_to_query_origin() {
+        let headers = HeaderMap::new();
+
+        let origin = resolve_pair_status_origin(&headers, Some("https://Sambee.Example")).unwrap();
+
+        assert_eq!(origin, "https://sambee.example");
     }
 }
