@@ -136,13 +136,41 @@ const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
 const MARKDOWN_TABLE_FONT_SIZE = "0.9375em";
 const MARKDOWN_TABLE_HEADER_FONT_SIZE = "0.75rem";
 const MARKDOWN_TABLE_HEADER_LETTER_SPACING = "0.16em";
-const MARKDOWN_TABLE_BG = "#fbf9f4";
-const MARKDOWN_TABLE_ROW_ALT_BG = "#f5f3ee";
-const MARKDOWN_TABLE_HEADER_BG = "#eae8e3";
-const MARKDOWN_TABLE_BORDER = "#d4c4ae";
-const MARKDOWN_TABLE_BORDER_STRONG = "#827562";
+const MARKDOWN_TABLE_LIGHT_BG = "#fbf9f4";
+const MARKDOWN_TABLE_LIGHT_ROW_ALT_BG = "#f5f3ee";
+const MARKDOWN_TABLE_LIGHT_HEADER_BG = "#eae8e3";
+const MARKDOWN_TABLE_LIGHT_BORDER = "#d4c4ae";
+const MARKDOWN_TABLE_LIGHT_BORDER_STRONG = "#827562";
+const MARKDOWN_TABLE_DARK_BG = "#1b1c19";
+const MARKDOWN_TABLE_DARK_ROW_ALT_BG = "#24231f";
+const MARKDOWN_TABLE_DARK_HEADER_BG = "#302e2a";
+const MARKDOWN_TABLE_DARK_BORDER = "#3b3935";
+const MARKDOWN_TABLE_DARK_BORDER_STRONG = "#504535";
+const MARKDOWN_TABLE_DARK_HEADER_TEXT = "#ebe8e2";
 const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
 const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
+
+function getMarkdownTableSurfaceColors(theme: Theme) {
+  if (theme.palette.mode === "dark") {
+    return {
+      tableBackground: MARKDOWN_TABLE_DARK_BG,
+      alternateRowBackground: MARKDOWN_TABLE_DARK_ROW_ALT_BG,
+      headerBackground: MARKDOWN_TABLE_DARK_HEADER_BG,
+      headerText: MARKDOWN_TABLE_DARK_HEADER_TEXT,
+      border: MARKDOWN_TABLE_DARK_BORDER,
+      borderStrong: MARKDOWN_TABLE_DARK_BORDER_STRONG,
+    };
+  }
+
+  return {
+    tableBackground: MARKDOWN_TABLE_LIGHT_BG,
+    alternateRowBackground: MARKDOWN_TABLE_LIGHT_ROW_ALT_BG,
+    headerBackground: MARKDOWN_TABLE_LIGHT_HEADER_BG,
+    headerText: undefined,
+    border: MARKDOWN_TABLE_LIGHT_BORDER,
+    borderStrong: MARKDOWN_TABLE_LIGHT_BORDER_STRONG,
+  };
+}
 
 function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
@@ -221,30 +249,33 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
 
     // Tables mirror the website docs treatment.
     "& table": {
-      width: "auto",
+      display: "block",
+      width: "max-content",
       maxWidth: "100%",
+      overflowX: "auto",
       borderCollapse: "collapse",
       margin: "1.25rem 0",
       fontSize: MARKDOWN_TABLE_FONT_SIZE,
-      border: `1px solid ${MARKDOWN_TABLE_BORDER_STRONG}`,
-      backgroundColor: MARKDOWN_TABLE_BG,
+      border: (theme) => `1px solid ${getMarkdownTableSurfaceColors(theme).borderStrong}`,
+      backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).tableBackground,
     },
     "& table td, & table th": {
-      border: `1px solid ${MARKDOWN_TABLE_BORDER}`,
+      border: (theme) => `1px solid ${getMarkdownTableSurfaceColors(theme).border}`,
       paddingBlock: MARKDOWN_TABLE_CELL_PADDING_BLOCK,
       paddingInline: MARKDOWN_TABLE_CELL_PADDING_INLINE,
       textAlign: "left",
       verticalAlign: "top",
     },
     "& table thead th": {
-      backgroundColor: MARKDOWN_TABLE_HEADER_BG,
+      backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).headerBackground,
+      color: (theme) => getMarkdownTableSurfaceColors(theme).headerText,
       fontSize: MARKDOWN_TABLE_HEADER_FONT_SIZE,
       fontWeight: 700,
       letterSpacing: MARKDOWN_TABLE_HEADER_LETTER_SPACING,
       textTransform: "uppercase",
     },
     "& table tbody tr:nth-of-type(even)": {
-      backgroundColor: MARKDOWN_TABLE_ROW_ALT_BG,
+      backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).alternateRowBackground,
     },
 
     // Blockquotes.
