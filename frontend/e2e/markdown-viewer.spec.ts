@@ -422,11 +422,58 @@ test("allows arrow navigation out of a code block after Shift+Tab enters it from
 
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("ArrowDown");
-  await page.keyboard.type("X");
 
   const firstTableCell = page.locator("table").getByRole("textbox").first();
+  await expect(firstTableCell).toBeFocused();
+  await page.keyboard.type("X");
   await expect(firstTableCell).toContainText("Col 1");
   await expect(firstTableCell).toContainText("X");
+});
+
+test("allows ArrowUp to leave a code block after Shift+Tab enters it from a table", async ({ page }) => {
+  await mockMarkdownViewerApi(page, logicalNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  await page.locator("table").getByRole("textbox").first().waitFor();
+
+  await page.evaluate(() => {
+    const editable = document.querySelector('table [role="textbox"]');
+
+    if (!(editable instanceof HTMLElement)) {
+      throw new Error("Expected first table cell editor to be present");
+    }
+
+    const selection = window.getSelection();
+    if (!selection) {
+      throw new Error("Expected a DOM selection");
+    }
+
+    selection.removeAllRanges();
+
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+    const firstTextNode = walker.nextNode();
+    const range = document.createRange();
+
+    if (firstTextNode instanceof Text) {
+      range.setStart(firstTextNode, 0);
+    } else {
+      range.selectNodeContents(editable);
+    }
+
+    range.collapse(true);
+    selection.addRange(range);
+    editable.focus();
+  });
+
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.type("X");
+
+  await expect(page.locator('[aria-label="Markdown editor"] p').nth(1)).toHaveText("sfdX");
 });
 
 test("moves ArrowDown from the last table row into the following paragraph", async ({ page }) => {

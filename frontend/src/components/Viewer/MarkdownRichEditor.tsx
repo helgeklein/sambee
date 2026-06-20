@@ -214,7 +214,7 @@ const TableCellShiftTabBridge = () => {
       }
 
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       moveIntoAdjacentTopLevelElement(rootEditor, rootEditorElement, adjacentElement, "up");
     };
 
@@ -844,11 +844,11 @@ function moveIntoAdjacentTopLevelElement(
 }
 
 function tryMoveOutOfTableWithTab(activeEditor: LexicalEditor, event: KeyboardNavigationEventLike & { shiftKey?: boolean }): boolean {
-  if (event.key !== "Tab") {
+  if (event.key !== "Tab" || event.shiftKey) {
     return false;
   }
 
-  const direction = event.shiftKey ? "up" : "down";
+  const direction = "down";
   const rootElement = activeEditor.getRootElement();
 
   if (!(rootElement instanceof HTMLElement)) {
