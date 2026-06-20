@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BACKEND_DIR="$REPO_ROOT/backend"
+VENV_DIR="$BACKEND_DIR/.venv"
+LOCKFILE="$BACKEND_DIR/requirements-dev.lock.txt"
+STAMP_FILE="$VENV_DIR/.requirements-dev.lock.sha256"
+
+echo "Setting up backend virtual environment from pinned dependencies..."
+
+if [[ ! -f "$LOCKFILE" ]]; then
+    echo "Backend lockfile not found: $LOCKFILE"
+    exit 1
+fi
+
+rm -rf "$VENV_DIR"
+python -m venv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+pip install --upgrade pip
+pip install --require-hashes -r "$LOCKFILE"
+sha256sum "$LOCKFILE" | awk '{print $1}' > "$STAMP_FILE"
+
+echo "Backend virtual environment is ready at $VENV_DIR"
+echo "Activate it with: source backend/.venv/bin/activate"

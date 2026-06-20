@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,9 +13,40 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+BACKEND_DIR="$REPO_ROOT/backend"
+BACKEND_VENV="$BACKEND_DIR/.venv"
+BACKEND_PYTHON="$BACKEND_VENV/bin/python"
+BACKEND_LOCKFILE="$BACKEND_DIR/requirements-dev.lock.txt"
+BACKEND_LOCK_STAMP="$BACKEND_VENV/.requirements-dev.lock.sha256"
+
+require_backend_venv() {
+    if [ ! -x "$BACKEND_PYTHON" ]; then
+        echo -e "${RED}✗ Backend virtual environment not found at backend/.venv${NC}"
+        echo -e "${YELLOW}Run scripts/setup-backend-venv to install the pinned backend dependencies.${NC}"
+        exit 1
+    fi
+
+    if [ ! -f "$BACKEND_LOCK_STAMP" ]; then
+        echo -e "${RED}✗ Backend virtual environment is missing its lockfile stamp${NC}"
+        echo -e "${YELLOW}Run scripts/setup-backend-venv to rebuild backend/.venv from pinned dependencies.${NC}"
+        exit 1
+    fi
+
+    current_lock_hash="$(sha256sum "$BACKEND_LOCKFILE" | awk '{print $1}')"
+    recorded_lock_hash="$(cat "$BACKEND_LOCK_STAMP")"
+
+    if [ "$current_lock_hash" != "$recorded_lock_hash" ]; then
+        echo -e "${RED}✗ Backend virtual environment is stale: requirements-dev.lock.txt changed${NC}"
+        echo -e "${YELLOW}Run scripts/setup-backend-venv to rebuild backend/.venv with the updated pinned dependencies.${NC}"
+        exit 1
+    fi
+}
+
 echo -e "${BLUE}======================================${NC}"
 echo -e "${BLUE}  Sambee - Test & Analysis Suite${NC}"
 echo -e "${BLUE}======================================${NC}\n"
+
+require_backend_venv
 
 # Track overall status
 OVERALL_STATUS=0
@@ -35,17 +66,11 @@ fi
 # BACKEND TESTS
 # ============================================
 echo -e "${YELLOW}=== Backend: Static Analysis ===${NC}"
-cd "$REPO_ROOT/backend" || exit 1
-
-# Activate virtual environment if it exists (for CI)
-if [ -d ".venv" ]; then
-    echo -e "${BLUE}Activating Python virtual environment...${NC}"
-    source .venv/bin/activate
-fi
+cd "$BACKEND_DIR" || exit 1
 
 # mypy - Type checking (non-fatal, just warnings)
 echo -e "${BLUE}Running mypy (type checking)...${NC}"
-if mypy app; then
+if "$BACKEND_PYTHON" -m mypy app; then
     echo -e "${GREEN}✓ mypy passed${NC}\n"
 else
     echo -e "${YELLOW}⚠ mypy found issues (non-fatal)${NC}\n"
@@ -70,11 +95,11 @@ fi
 # Use coverage only if COVERAGE env var is set
 if [ "${COVERAGE:-0}" = "1" ]; then
     # Coverage with parallel execution
-    PYTEST_CMD=(pytest -n "$NUM_WORKERS" -m "not performance" --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml)
+    PYTEST_CMD=("$BACKEND_PYTHON" -m pytest -n "$NUM_WORKERS" -m "not performance" --cov=app --cov-report=term-missing --cov-report=html --cov-report=xml)
     echo -e "${BLUE}Coverage: enabled${NC}"
 else
     # Parallel execution without coverage (fastest)
-    PYTEST_CMD=(pytest -n "$NUM_WORKERS" -m "not performance")
+    PYTEST_CMD=("$BACKEND_PYTHON" -m pytest -n "$NUM_WORKERS" -m "not performance")
     echo -e "${BLUE}Coverage: disabled${NC}"
 fi
 
@@ -89,9 +114,9 @@ echo -e "${YELLOW}=== Backend: Performance Tests ===${NC}"
 echo -e "${BLUE}Running performance tests serially...${NC}"
 
 if [ "${COVERAGE:-0}" = "1" ]; then
-    PERFORMANCE_PYTEST_CMD=(pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=html --cov-report=xml)
+    PERFORMANCE_PYTEST_CMD=("$BACKEND_PYTHON" -m pytest -m performance --cov=app --cov-append --cov-report=term-missing --cov-report=html --cov-report=xml)
 else
-    PERFORMANCE_PYTEST_CMD=(pytest -m performance)
+    PERFORMANCE_PYTEST_CMD=("$BACKEND_PYTHON" -m pytest -m performance)
 fi
 
 if "${PERFORMANCE_PYTEST_CMD[@]}"; then

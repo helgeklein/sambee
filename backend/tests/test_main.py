@@ -374,6 +374,4 @@ class TestRouterInclusion:
         """Test that websocket router is accessible."""
         from app.main import app
 
-        # Check that websocket route is registered
-        routes = [getattr(route, "path", None) for route in app.routes]
-        assert "/api/ws" in routes
+        assert str(app.url_path_for("websocket_endpoint")) == "/api/ws"
