@@ -130,6 +130,13 @@ const MARKDOWN_CODE_FONT_SIZE = "0.875em";
 const MARKDOWN_INLINE_CODE_PADDING = "0.125rem 0.375rem";
 const MARKDOWN_CODE_BLOCK_PADDING = "1.25rem";
 const MARKDOWN_CODE_BLOCK_LINE_HEIGHT = 1.65;
+const MARKDOWN_CODE_BLOCK_LIGHT_TEXT = "#1f262b";
+const MARKDOWN_CODE_BLOCK_DARK_TEXT = "#ebe8e2";
+const MARKDOWN_CODE_BLOCK_DARK_BG = "#1f1914";
+const MARKDOWN_CODE_INLINE_DARK_BG = "#2b2925";
+const MARKDOWN_CODE_BLOCK_DARK_BORDER = "#504535";
+const MARKDOWN_CODE_INLINE_DARK_BORDER = "#3b3935";
+const MARKDOWN_CODE_BLOCK_DARK_ACTIVE_LINE_BG = "#3d3d3d";
 export const MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG = "rgba(212, 196, 174, 0.35)";
 const MARKDOWN_TABLE_CELL_PADDING_INLINE = "0.675rem";
 const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
@@ -149,6 +156,28 @@ const MARKDOWN_TABLE_DARK_BORDER_STRONG = "#504535";
 const MARKDOWN_TABLE_DARK_HEADER_TEXT = "#ebe8e2";
 const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
 const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
+
+export function getMarkdownCodeSurfaceColors(theme: Theme) {
+  if (theme.palette.mode === "dark") {
+    return {
+      blockBackground: MARKDOWN_CODE_BLOCK_DARK_BG,
+      inlineBackground: MARKDOWN_CODE_INLINE_DARK_BG,
+      blockBorder: MARKDOWN_CODE_BLOCK_DARK_BORDER,
+      inlineBorder: MARKDOWN_CODE_INLINE_DARK_BORDER,
+      textColor: MARKDOWN_CODE_BLOCK_DARK_TEXT,
+      activeLineGutterBackground: MARKDOWN_CODE_BLOCK_DARK_ACTIVE_LINE_BG,
+    };
+  }
+
+  return {
+    blockBackground: MARKDOWN_COLORS.CODE_BG,
+    inlineBackground: MARKDOWN_COLORS.CODE_BG,
+    blockBorder: MARKDOWN_COLORS.CODE_BORDER,
+    inlineBorder: MARKDOWN_COLORS.CODE_BORDER,
+    textColor: MARKDOWN_CODE_BLOCK_LIGHT_TEXT,
+    activeLineGutterBackground: MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG,
+  };
+}
 
 function getMarkdownTableSurfaceColors(theme: Theme) {
   if (theme.palette.mode === "dark") {
@@ -205,9 +234,9 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
 
     // Code blocks: fixed width with internal scrolling.
     "& pre": {
-      backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      color: viewerText,
-      border: `1px solid ${MARKDOWN_COLORS.CODE_BORDER}`,
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
       borderRadius: 0,
       fontSize: MARKDOWN_CODE_FONT_SIZE,
       padding: MARKDOWN_CODE_BLOCK_PADDING,
@@ -219,12 +248,12 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
 
     // Inline code mirrors docs styling.
     "& code:not(pre code)": {
-      backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      color: viewerText,
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).inlineBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
       fontSize: MARKDOWN_CODE_FONT_SIZE,
       fontWeight: "normal",
       padding: MARKDOWN_INLINE_CODE_PADDING,
-      border: `1px solid ${MARKDOWN_COLORS.CODE_BORDER}`,
+      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).inlineBorder}`,
       borderRadius: 0,
       overflowWrap: "break-word",
     },
@@ -353,23 +382,25 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
     caretColor: viewerText,
     ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS}`]: {
-      "--baseBase": MARKDOWN_COLORS.CODE_BG,
-      "--baseBg": MARKDOWN_COLORS.CODE_BG,
-      "--baseBgSubtle": MARKDOWN_COLORS.CODE_BG,
-      "--baseBgHover": MARKDOWN_COLORS.CODE_BG,
-      "--baseBgActive": MARKDOWN_COLORS.CODE_BG,
+      "--baseBase": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBg": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBgSubtle": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBgHover": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBgActive": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
     },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} > div`]: {
-      backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      border: `1px solid ${MARKDOWN_COLORS.CODE_BORDER}`,
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
       borderRadius: 0,
       padding: MARKDOWN_CODE_BLOCK_PADDING,
       fontSize: MARKDOWN_CODE_FONT_SIZE,
       lineHeight: MARKDOWN_CODE_BLOCK_LINE_HEIGHT,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
     },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-scroller, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-gutters`]:
       {
-        backgroundColor: MARKDOWN_COLORS.CODE_BG,
+        backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+        color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
         fontSize: "inherit",
         lineHeight: "inherit",
       },
@@ -377,8 +408,8 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
       borderRadius: 0,
     },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor.cm-focused .cm-activeLineGutter`]: {
-      backgroundColor: MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG,
-      color: viewerText,
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
       fontWeight: 600,
     },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor:not(.cm-focused) .cm-activeLineGutter`]: {
@@ -394,6 +425,7 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
     },
     [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS}`]: {
       backgroundColor: "transparent !important",
+      color: "inherit",
       padding: 0,
     },
   };

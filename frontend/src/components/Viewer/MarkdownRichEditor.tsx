@@ -110,7 +110,7 @@ import {
   getSecondaryToolbarSurfaceColors,
 } from "../../theme/commonStyles";
 import { Z_INDEX } from "../../theme/constants";
-import { getMarkdownEditorContentStyles, getViewerColors, MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG } from "../../theme/viewerStyles";
+import { getMarkdownCodeSurfaceColors, getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
@@ -2395,22 +2395,25 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             "& .cm-sourceView, & .cm-mergeView": {
               minHeight: 0,
               height: "100%",
-              backgroundColor: secondaryToolbarColors.stripBackground,
+              backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+              border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
             },
             "& .cm-sourceView .cm-editor, & .cm-mergeView .cm-editor": {
               minHeight: 0,
               height: "100%",
-              backgroundColor: secondaryToolbarColors.stripBackground,
+              backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+              color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
             },
             "& .cm-sourceView .cm-scroller, & .cm-sourceView .cm-content, & .cm-sourceView .cm-gutters, & .cm-mergeView .cm-scroller, & .cm-mergeView .cm-content, & .cm-mergeView .cm-gutters":
               {
                 fontSize: `${MARKDOWN_EDITOR_SOURCE_FONT_SIZE_PX}px`,
-                backgroundColor: secondaryToolbarColors.stripBackground,
+                backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+                color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
               },
             "& .cm-sourceView .cm-editor.cm-focused > .cm-scroller > .cm-gutters .cm-activeLineGutter, & .cm-mergeView .cm-editor.cm-focused > .cm-scroller > .cm-gutters .cm-activeLineGutter":
               {
-                backgroundColor: MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG,
-                color: viewerText,
+                backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
+                color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
                 fontWeight: 600,
               },
             "& .cm-sourceView .cm-editor:not(.cm-focused) > .cm-scroller > .cm-gutters .cm-activeLineGutter, & .cm-mergeView .cm-editor:not(.cm-focused) > .cm-scroller > .cm-gutters .cm-activeLineGutter":
