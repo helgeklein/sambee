@@ -1,10 +1,12 @@
 import {
+  $isCodeBlockNode,
   activeEditor$,
   applyBlockType$,
   applyFormat$,
   applyListType$,
   BlockTypeSelect,
   ButtonWithTooltip,
+  CodeMirrorEditor,
   codeBlockPlugin,
   codeMirrorPlugin,
   currentBlockType$,
@@ -14,6 +16,7 @@ import {
   diffSourcePlugin,
   editorInTable$,
   headingsPlugin,
+  type IconKey,
   IS_APPLE,
   IS_BOLD,
   IS_CODE,
@@ -30,6 +33,7 @@ import {
   type MDXEditorMethods,
   MultipleChoiceToggleGroup,
   markdownShortcutPlugin,
+  lexicalTheme as mdxEditorLexicalTheme,
   quotePlugin,
   Separator,
   tablePlugin,
@@ -60,6 +64,8 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import type { Theme } from "@mui/material/styles";
+import type { SystemStyleObject } from "@mui/system";
 import {
   $createNodeSelection,
   $createRangeSelection,
@@ -81,6 +87,7 @@ import {
   UNDO_COMMAND,
 } from "lexical";
 import {
+  type ComponentProps,
   createContext,
   forwardRef,
   type ReactNode,
@@ -103,7 +110,7 @@ import {
   getSecondaryToolbarSurfaceColors,
 } from "../../theme/commonStyles";
 import { Z_INDEX } from "../../theme/constants";
-import { getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
+import { getMarkdownEditorContentStyles, getViewerColors, MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG } from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
@@ -112,6 +119,9 @@ import { mdxEditorSearchPlugin } from "./mdxEditorSearchPlugin";
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
 const MARKDOWN_EDITOR_CONTENT_CLASS = "sambee-markdown-editor-content";
+const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
+const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
+const MARKDOWN_EDITOR_SOURCE_FONT_SIZE_PX = 15;
 const MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE = "txt";
 const MARKDOWN_LINK_DIALOG_MAX_WIDTH = "sm";
 const MARKDOWN_CODE_BLOCK_LANGUAGES = {
@@ -122,6 +132,194 @@ const MARKDOWN_CODE_BLOCK_LANGUAGES = {
   ts: "TypeScript",
   tsx: "TypeScript (React)",
 } as const;
+
+const MARKDOWN_EDITOR_LEXICAL_THEME = {
+  ...mdxEditorLexicalTheme,
+  text: {
+    ...mdxEditorLexicalTheme.text,
+    code: MARKDOWN_EDITOR_INLINE_CODE_CLASS,
+  },
+} as const;
+
+const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>) => {
+  return (
+    <div className={MARKDOWN_EDITOR_CODE_BLOCK_CLASS}>
+      <CodeMirrorEditor {...props} />
+    </div>
+  );
+};
+
+const MARKDOWN_CODE_BLOCK_EDITOR_DESCRIPTOR = {
+  match: (_language: string | null | undefined, meta: string | null | undefined) => !meta,
+  priority: 2,
+  Editor: MarkdownCodeBlockEditor,
+} as const;
+
+type CodeBlockBoundaryDirection = "down" | "left" | "right" | "up";
+
+function getDirectChildAncestor(rootElement: HTMLElement, node: Node | null): HTMLElement | null {
+  let current: HTMLElement | null = node instanceof HTMLElement ? node : (node?.parentElement ?? null);
+
+  while (current && current.parentElement !== rootElement) {
+    current = current.parentElement;
+  }
+
+  return current?.parentElement === rootElement ? current : null;
+}
+
+function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
+  const domSelection = window.getSelection();
+
+  if (!domSelection?.isCollapsed || domSelection.rangeCount === 0) {
+    return false;
+  }
+
+  const blockElement = getDirectChildAncestor(rootElement, domSelection.anchorNode);
+
+  if (!(blockElement instanceof HTMLElement) || blockElement.matches("[data-lexical-decorator='true']")) {
+    return false;
+  }
+
+  const selectionRange = domSelection.getRangeAt(0).cloneRange();
+  const blockPrefixRange = document.createRange();
+  blockPrefixRange.selectNodeContents(blockElement);
+  blockPrefixRange.setEnd(selectionRange.endContainer, selectionRange.endOffset);
+
+  const blockTextLength = blockElement.textContent?.length ?? 0;
+  const caretTextOffset = blockPrefixRange.toString().length;
+
+  return direction === "down" || direction === "right" ? caretTextOffset >= blockTextLength : caretTextOffset === 0;
+}
+
+function getAdjacentCodeBlockContent(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): HTMLElement | null {
+  const domSelection = window.getSelection();
+
+  if (!domSelection?.isCollapsed) {
+    return null;
+  }
+
+  const blockElement = getDirectChildAncestor(rootElement, domSelection.anchorNode);
+
+  if (!(blockElement instanceof HTMLElement) || blockElement.matches("[data-lexical-decorator='true']")) {
+    return null;
+  }
+
+  const adjacentElement =
+    direction === "down" || direction === "right" ? blockElement.nextElementSibling : blockElement.previousElementSibling;
+
+  if (!(adjacentElement instanceof HTMLElement) || adjacentElement.getAttribute("data-lexical-decorator") !== "true") {
+    return null;
+  }
+
+  const codeContent = adjacentElement.querySelector(".cm-content[role='textbox']");
+  return codeContent instanceof HTMLElement ? codeContent : null;
+}
+
+function focusAdjacentCodeBlockContent(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
+  const codeContent = getAdjacentCodeBlockContent(rootElement, direction);
+
+  if (!(codeContent instanceof HTMLElement)) {
+    return false;
+  }
+
+  codeContent.focus({ preventScroll: true });
+
+  const domSelection = window.getSelection();
+
+  if (!domSelection) {
+    return true;
+  }
+
+  const lines = Array.from(codeContent.querySelectorAll(".cm-line"));
+  const targetLine = direction === "down" || direction === "right" ? lines[0] : lines[lines.length - 1];
+
+  if (!(targetLine instanceof HTMLElement)) {
+    return true;
+  }
+
+  const textWalker = document.createTreeWalker(targetLine, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (textWalker.nextNode()) {
+    const currentNode = textWalker.currentNode;
+    if (currentNode instanceof Text) {
+      textNodes.push(currentNode);
+    }
+  }
+
+  const targetTextNode = direction === "down" || direction === "right" ? textNodes[0] : textNodes[textNodes.length - 1];
+  const range = document.createRange();
+
+  if (targetTextNode instanceof Text) {
+    range.setStart(targetTextNode, direction === "down" || direction === "right" ? 0 : (targetTextNode.textContent?.length ?? 0));
+  } else {
+    range.selectNodeContents(targetLine);
+  }
+
+  range.collapse(true);
+  domSelection.removeAllRanges();
+  domSelection.addRange(range);
+  return true;
+}
+
+function tryMoveIntoAdjacentCodeBlock(
+  activeEditor: LexicalEditor,
+  event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">
+): boolean {
+  const direction =
+    event.key === "ArrowDown"
+      ? "down"
+      : event.key === "ArrowUp"
+        ? "up"
+        : event.key === "ArrowRight"
+          ? "right"
+          : event.key === "ArrowLeft"
+            ? "left"
+            : null;
+
+  if (!direction) {
+    return false;
+  }
+
+  const rootElement = activeEditor.getRootElement();
+
+  if (!(rootElement instanceof HTMLElement) || !isCaretAtBlockBoundary(rootElement, direction)) {
+    return false;
+  }
+
+  let adjacentCodeBlockNode: { select: () => void } | null = null;
+
+  activeEditor.getEditorState().read(() => {
+    const selection = $getSelection();
+
+    if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+      return;
+    }
+
+    const topLevelNode = selection.anchor.getNode().getTopLevelElementOrThrow();
+    const adjacentNode = direction === "down" || direction === "right" ? topLevelNode.getNextSibling() : topLevelNode.getPreviousSibling();
+
+    if ($isCodeBlockNode(adjacentNode)) {
+      adjacentCodeBlockNode = adjacentNode;
+    }
+  });
+
+  if (!adjacentCodeBlockNode) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (focusAdjacentCodeBlockContent(rootElement, direction)) {
+    return true;
+  }
+
+  activeEditor.update(() => {
+    adjacentCodeBlockNode?.select();
+  });
+
+  return true;
+}
 
 export interface MarkdownRichEditorHandle {
   focus: () => void;
@@ -244,6 +442,24 @@ const MarkdownActiveEditorBridge = ({ onActiveEditorChange }: { onActiveEditorCh
       onActiveEditorChange(null);
     };
   }, [activeEditor, onActiveEditorChange]);
+
+  return null;
+};
+
+const MarkdownViewModeBridge = ({ onViewModeChange }: { onViewModeChange: (viewMode: MarkdownEditorViewMode) => void }) => {
+  const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
+  const previousViewModeRef = useRef<MarkdownEditorViewMode | null>(null);
+
+  useEffect(() => {
+    const previousViewMode = previousViewModeRef.current;
+    previousViewModeRef.current = viewMode;
+
+    if (previousViewMode === null || previousViewMode === viewMode) {
+      return;
+    }
+
+    onViewModeChange(viewMode);
+  }, [onViewModeChange, viewMode]);
 
   return null;
 };
@@ -427,10 +643,48 @@ const MarkdownRichEditorCommandBridge = ({
   return null;
 };
 
+const MarkdownCodeBlockArrowNavigationBridge = () => {
+  const activeEditor = useCellValue(activeEditor$);
+
+  useEffect(() => {
+    if (!activeEditor) {
+      return;
+    }
+
+    const rootElement = activeEditor.getRootElement();
+    const handleRootKeyDown = (event: KeyboardEvent) => {
+      const handled = tryMoveIntoAdjacentCodeBlock(activeEditor, event);
+
+      if (handled) {
+        event.stopImmediatePropagation();
+      }
+    };
+
+    if (rootElement instanceof HTMLElement) {
+      rootElement.addEventListener("keydown", handleRootKeyDown, true);
+    }
+
+    const unregisterCommand = activeEditor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => tryMoveIntoAdjacentCodeBlock(activeEditor, event),
+      COMMAND_PRIORITY_HIGH
+    );
+
+    return () => {
+      unregisterCommand();
+      if (rootElement instanceof HTMLElement) {
+        rootElement.removeEventListener("keydown", handleRootKeyDown, true);
+      }
+    };
+  }, [activeEditor]);
+
+  return null;
+};
+
 interface MarkdownFormattingToggleDefinition {
   format: number;
   formatName: "bold" | "italic" | "underline";
-  icon: string;
+  icon: IconKey;
   shortcutLabel: string;
   addLabel: string;
   removeLabel: string;
@@ -440,7 +694,7 @@ const MarkdownInlineFormattingToggles = ({ includeUnderline = true }: { includeU
   const { t } = useTranslation();
   const [currentFormat, iconComponentFor] = useCellValues(currentFormat$, iconComponentFor$);
   const applyFormat = usePublisher(applyFormat$);
-  const toggleDefinitions: MarkdownFormattingToggleDefinition[] = [
+  const toggleDefinitions: readonly MarkdownFormattingToggleDefinition[] = [
     {
       format: IS_BOLD,
       formatName: "bold",
@@ -465,11 +719,15 @@ const MarkdownInlineFormattingToggles = ({ includeUnderline = true }: { includeU
       addLabel: t("viewer.edit.underline", { defaultValue: "Underline" }),
       removeLabel: t("viewer.edit.removeUnderline", { defaultValue: "Remove underline" }),
     },
-  ].filter((definition) => includeUnderline || definition.formatName !== "underline");
+  ];
+
+  const visibleToggleDefinitions = includeUnderline
+    ? toggleDefinitions
+    : toggleDefinitions.filter((definition) => definition.formatName !== "underline");
 
   return (
     <MultipleChoiceToggleGroup
-      items={toggleDefinitions.map(({ addLabel, format, formatName, icon, removeLabel, shortcutLabel }) => {
+      items={visibleToggleDefinitions.map(({ addLabel, format, formatName, icon, removeLabel, shortcutLabel }) => {
         const active = (currentFormat & format) !== 0;
 
         return {
@@ -793,7 +1051,7 @@ const MarkdownMobileFormatButton = ({
   hoverBackground: string;
   format: number;
   formatName: "bold" | "italic" | "underline" | "code";
-  icon: string;
+  icon: IconKey;
   inactiveLabel: string;
   shortcutLabel: string;
 }) => {
@@ -1273,6 +1531,7 @@ const MarkdownResponsiveToolbar = ({
   hoverBackground,
   isMobile,
   onLinkApplied,
+  onViewModeChange,
   preserveEditorSelection,
   readOnly,
   restoreEditorSelection,
@@ -1288,6 +1547,7 @@ const MarkdownResponsiveToolbar = ({
   hoverBackground: string;
   isMobile: boolean;
   onLinkApplied?: () => void;
+  onViewModeChange: (viewMode: MarkdownEditorViewMode) => void;
   preserveEditorSelection: () => void;
   readOnly: boolean;
   restoreEditorSelection: () => boolean;
@@ -1313,7 +1573,9 @@ const MarkdownResponsiveToolbar = ({
         onCurrentRangeChange={onCurrentRangeChange}
         onCommandsChange={onSearchCommandsChange}
       />
+      <MarkdownViewModeBridge onViewModeChange={onViewModeChange} />
       <MarkdownActiveEditorBridge onActiveEditorChange={onActiveEditorChange} />
+      <MarkdownCodeBlockArrowNavigationBridge />
       <MarkdownRichEditorCommandBridge onCommandsChange={onEditorCommandsChange} />
       {isMobile ? (
         <MarkdownMobileToolbar activeBackground={activeBackground} hoverBackground={hoverBackground} />
@@ -1490,6 +1752,11 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       "--baseBase": secondaryToolbarColors.groupedBackground,
       "--baseTextContrast": secondaryToolbarColors.textColor,
     };
+    const markdownEditorContentStyles = getMarkdownEditorContentStyles(
+      viewerText,
+      linkColor,
+      linkHoverColor
+    ) as unknown as SystemStyleObject<Theme>;
     const editorRootClassName = [className, MARKDOWN_EDITOR_POPUP_CLASS].filter(Boolean).join(" ");
 
     const syncPopupContainerLayering = useCallback(() => {
@@ -1503,8 +1770,33 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       });
     }, []);
 
-    const focusEditableArea = useCallback((preventScroll = false) => {
-      const editable = containerRef.current?.querySelector('[contenteditable="true"], textarea');
+    const focusEditableArea = useCallback((preventScroll = false, preferredViewMode?: MarkdownEditorViewMode) => {
+      const container = containerRef.current;
+
+      if (!container) {
+        return false;
+      }
+
+      const selectorGroups: Record<MarkdownEditorViewMode, string[]> = {
+        "rich-text": ['[role="textbox"][aria-label="Markdown editor"][contenteditable="true"]'],
+        source: ['.mdxeditor-source-editor .cm-content[contenteditable="true"]'],
+        diff: ['.mdxeditor-diff-source-wrapper .cm-merge-b .cm-content[contenteditable="true"]'],
+      };
+      const selectors = preferredViewMode
+        ? [...selectorGroups[preferredViewMode], "textarea"]
+        : [
+            '[role="textbox"][aria-label="Markdown editor"][contenteditable="true"]',
+            '.cm-content[contenteditable="true"]',
+            "textarea",
+            '[contenteditable="true"]',
+          ];
+
+      const editable = selectors
+        .flatMap((selector) => Array.from(container.querySelectorAll<HTMLElement>(selector)))
+        .find((element) => {
+          const computedStyle = getComputedStyle(element);
+          return computedStyle.display !== "none" && computedStyle.visibility !== "hidden";
+        });
 
       if (!(editable instanceof HTMLElement)) {
         return false;
@@ -1513,6 +1805,58 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       editable.focus({ preventScroll });
       return document.activeElement === editable;
     }, []);
+
+    const restoreFocusAfterViewModeChange = useCallback(
+      (viewMode: MarkdownEditorViewMode) => {
+        if (readOnly) {
+          return;
+        }
+
+        const interactionRoot = containerRef.current;
+        const activeElement = document.activeElement;
+
+        if (interactionRoot && activeElement instanceof HTMLElement && !interactionRoot.contains(activeElement)) {
+          return;
+        }
+
+        let cleanupRetryFocus: (() => void) | null = null;
+        let focusComplete = false;
+
+        const stopFocusRestore = () => {
+          if (focusComplete) {
+            return;
+          }
+
+          focusComplete = true;
+          cleanupRetryFocus?.();
+        };
+
+        const attemptFocus = () => {
+          if (focusComplete) {
+            return true;
+          }
+
+          editorRef.current?.focus();
+          const restored = focusEditableArea(true, viewMode);
+
+          if (restored) {
+            stopFocusRestore();
+          }
+
+          return restored;
+        };
+
+        cleanupRetryFocus = scheduleRetriableFocusRestore({
+          delaysMs: MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
+          attemptRestore: attemptFocus,
+        });
+
+        requestAnimationFrame(() => {
+          attemptFocus();
+        });
+      },
+      [focusEditableArea, readOnly]
+    );
 
     const captureViewport = useCallback((editable: HTMLElement): MarkdownRichEditorViewportSnapshot => {
       const anchors: MarkdownRichEditorViewportAnchor[] = [];
@@ -1895,7 +2239,10 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         quotePlugin(),
         thematicBreakPlugin(),
         tablePlugin(),
-        codeBlockPlugin({ defaultCodeBlockLanguage: MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE }),
+        codeBlockPlugin({
+          defaultCodeBlockLanguage: MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE,
+          codeBlockEditorDescriptors: [MARKDOWN_CODE_BLOCK_EDITOR_DESCRIPTOR],
+        }),
         codeMirrorPlugin({ codeBlockLanguages: MARKDOWN_CODE_BLOCK_LANGUAGES }),
         linkPlugin(),
         markdownShortcutPlugin(),
@@ -1909,6 +2256,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 hoverBackground={secondaryToolbarColors.hoverBackground}
                 isMobile={isMobile}
                 onLinkApplied={onUserEdit}
+                onViewModeChange={restoreFocusAfterViewModeChange}
                 preserveEditorSelection={() => {
                   preservedSelectionRef.current = captureSelection();
                 }}
@@ -1946,6 +2294,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         secondaryToolbarColors.pillBackground,
         captureSelection,
         restoreSelection,
+        restoreFocusAfterViewModeChange,
       ]
     );
 
@@ -2037,7 +2386,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
               boxSizing: "border-box",
               padding: muiTheme.spacing(2),
             },
-            "& [contenteditable='true']": {
+            [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}[contenteditable='true']`]: {
               minHeight: 320,
               height: "100%",
               overflowY: "auto",
@@ -2048,21 +2397,36 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
               height: "100%",
               backgroundColor: secondaryToolbarColors.stripBackground,
             },
-            "& .cm-editor": {
+            "& .cm-sourceView .cm-editor, & .cm-mergeView .cm-editor": {
               minHeight: 0,
               height: "100%",
               backgroundColor: secondaryToolbarColors.stripBackground,
             },
-            "& .cm-scroller, & .cm-content, & .cm-gutters": {
-              backgroundColor: secondaryToolbarColors.stripBackground,
-            },
-            [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: getMarkdownEditorContentStyles(viewerText, linkColor, linkHoverColor),
+            "& .cm-sourceView .cm-scroller, & .cm-sourceView .cm-content, & .cm-sourceView .cm-gutters, & .cm-mergeView .cm-scroller, & .cm-mergeView .cm-content, & .cm-mergeView .cm-gutters":
+              {
+                fontSize: `${MARKDOWN_EDITOR_SOURCE_FONT_SIZE_PX}px`,
+                backgroundColor: secondaryToolbarColors.stripBackground,
+              },
+            "& .cm-sourceView .cm-editor.cm-focused > .cm-scroller > .cm-gutters .cm-activeLineGutter, & .cm-mergeView .cm-editor.cm-focused > .cm-scroller > .cm-gutters .cm-activeLineGutter":
+              {
+                backgroundColor: MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG,
+                color: viewerText,
+                fontWeight: 600,
+              },
+            "& .cm-sourceView .cm-editor:not(.cm-focused) > .cm-scroller > .cm-gutters .cm-activeLineGutter, & .cm-mergeView .cm-editor:not(.cm-focused) > .cm-scroller > .cm-gutters .cm-activeLineGutter":
+              {
+                backgroundColor: "transparent",
+                color: "inherit",
+                fontWeight: "inherit",
+              },
+            [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: markdownEditorContentStyles,
           }}
         >
           <MDXEditor
             ref={editorRef}
             className={editorRootClassName}
             contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
+            lexicalTheme={MARKDOWN_EDITOR_LEXICAL_THEME}
             markdown={markdown}
             onChange={onChange}
             autoFocus={autoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}

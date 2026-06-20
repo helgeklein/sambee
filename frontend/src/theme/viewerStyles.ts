@@ -5,7 +5,8 @@
  * (ImageViewer, PDFViewer, MarkdownViewer).
  */
 
-import type { SxProps, Theme } from "@mui/material";
+import type { Theme } from "@mui/material";
+import type { SystemStyleObject } from "@mui/system";
 import type { ThemeConfig } from "./types";
 
 //
@@ -104,11 +105,13 @@ export function getViewerColors(theme: ThemeConfig, viewerType: "image" | "pdf" 
 //
 
 /**
- * GitHub-flavored markdown styling colors.
+ * Markdown styling colors aligned with the website docs code surfaces.
  */
 export const MARKDOWN_COLORS = {
   /** Code block and inline code background */
-  CODE_BG: "#f6f8fa",
+  CODE_BG: "#f0eee9",
+  /** Border used by docs code surfaces */
+  CODE_BORDER: "#d4c4ae",
   /** Table and blockquote border */
   BORDER: "#dfe2e5",
   /** Table header border */
@@ -123,7 +126,15 @@ export const MARKDOWN_COLORS = {
   HEADING_BORDER: "#eaecef",
 } as const;
 
-function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+const MARKDOWN_CODE_FONT_SIZE = "0.875em";
+const MARKDOWN_INLINE_CODE_PADDING = "0.125rem 0.375rem";
+const MARKDOWN_CODE_BLOCK_PADDING = "1.25rem";
+const MARKDOWN_CODE_BLOCK_LINE_HEIGHT = 1.65;
+export const MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG = "rgba(212, 196, 174, 0.35)";
+const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
+const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
+
+function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
     color: viewerText,
     fontFamily: "inherit",
@@ -157,23 +168,35 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
     // Code blocks: fixed width with internal scrolling.
     "& pre": {
       backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      borderRadius: 1,
-      p: { xs: 1, sm: 2 },
-      overflow: "auto",
+      color: viewerText,
+      border: `1px solid ${MARKDOWN_COLORS.CODE_BORDER}`,
+      borderRadius: 0,
+      fontSize: MARKDOWN_CODE_FONT_SIZE,
+      padding: MARKDOWN_CODE_BLOCK_PADDING,
+      margin: "1.25rem 0",
+      overflowX: "auto",
+      lineHeight: MARKDOWN_CODE_BLOCK_LINE_HEIGHT,
       width: "100%",
     },
 
-    // Inline code: break long words.
-    "& code": {
+    // Inline code mirrors docs styling.
+    "& code:not(pre code)": {
       backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      padding: "0.2em 0.4em",
-      borderRadius: "3px",
-      fontSize: "0.9em",
+      color: viewerText,
+      fontSize: MARKDOWN_CODE_FONT_SIZE,
+      fontWeight: "normal",
+      padding: MARKDOWN_INLINE_CODE_PADDING,
+      border: `1px solid ${MARKDOWN_COLORS.CODE_BORDER}`,
+      borderRadius: 0,
       overflowWrap: "break-word",
     },
 
-    // Code inside pre: preserve formatting (don't break).
+    // Code inside pre inherits the containing code surface.
     "& pre code": {
+      display: "block",
+      minWidth: "max-content",
+      color: "inherit",
+      border: 0,
       padding: 0,
       backgroundColor: "transparent",
       overflowWrap: "normal",
@@ -261,7 +284,7 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
  * @param linkHoverColor - Hover color for markdown links
  * @returns SxProps for the markdown container
  */
-export function getMarkdownContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+export function getMarkdownContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
     // Layout
     minHeight: 0,
@@ -273,11 +296,55 @@ export function getMarkdownContentStyles(viewerText: string, linkColor: string, 
   };
 }
 
-export function getMarkdownEditorContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+export function getMarkdownEditorContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
     minHeight: "100%",
     padding: 0,
     caretColor: viewerText,
     ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS}`]: {
+      "--baseBase": MARKDOWN_COLORS.CODE_BG,
+      "--baseBg": MARKDOWN_COLORS.CODE_BG,
+      "--baseBgSubtle": MARKDOWN_COLORS.CODE_BG,
+      "--baseBgHover": MARKDOWN_COLORS.CODE_BG,
+      "--baseBgActive": MARKDOWN_COLORS.CODE_BG,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} > div`]: {
+      backgroundColor: MARKDOWN_COLORS.CODE_BG,
+      border: `1px solid ${MARKDOWN_COLORS.CODE_BORDER}`,
+      borderRadius: 0,
+      padding: MARKDOWN_CODE_BLOCK_PADDING,
+      fontSize: MARKDOWN_CODE_FONT_SIZE,
+      lineHeight: MARKDOWN_CODE_BLOCK_LINE_HEIGHT,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-scroller, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-gutters`]:
+      {
+        backgroundColor: MARKDOWN_COLORS.CODE_BG,
+        fontSize: "inherit",
+        lineHeight: "inherit",
+      },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor`]: {
+      borderRadius: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor.cm-focused .cm-activeLineGutter`]: {
+      backgroundColor: MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG,
+      color: viewerText,
+      fontWeight: 600,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor:not(.cm-focused) .cm-activeLineGutter`]: {
+      backgroundColor: "transparent",
+      color: "inherit",
+      fontWeight: "inherit",
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} [role='combobox']`]: {
+      borderRadius: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content`]: {
+      padding: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS}`]: {
+      backgroundColor: "transparent !important",
+      padding: 0,
+    },
   };
 }
