@@ -131,6 +131,16 @@ const MARKDOWN_INLINE_CODE_PADDING = "0.125rem 0.375rem";
 const MARKDOWN_CODE_BLOCK_PADDING = "1.25rem";
 const MARKDOWN_CODE_BLOCK_LINE_HEIGHT = 1.65;
 export const MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG = "rgba(212, 196, 174, 0.35)";
+const MARKDOWN_TABLE_CELL_PADDING_INLINE = "0.675rem";
+const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
+const MARKDOWN_TABLE_FONT_SIZE = "0.9375em";
+const MARKDOWN_TABLE_HEADER_FONT_SIZE = "0.75rem";
+const MARKDOWN_TABLE_HEADER_LETTER_SPACING = "0.16em";
+const MARKDOWN_TABLE_BG = "#fbf9f4";
+const MARKDOWN_TABLE_ROW_ALT_BG = "#f5f3ee";
+const MARKDOWN_TABLE_HEADER_BG = "#eae8e3";
+const MARKDOWN_TABLE_BORDER = "#d4c4ae";
+const MARKDOWN_TABLE_BORDER_STRONG = "#827562";
 const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
 const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
 
@@ -209,23 +219,32 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
       display: "block",
     },
 
-    // Tables: horizontal scroll if too wide.
+    // Tables mirror the website docs treatment.
     "& table": {
+      width: "auto",
+      maxWidth: "100%",
       borderCollapse: "collapse",
-      width: "100%",
-      display: "block",
-      overflowX: "auto",
+      margin: "1.25rem 0",
+      fontSize: MARKDOWN_TABLE_FONT_SIZE,
+      border: `1px solid ${MARKDOWN_TABLE_BORDER_STRONG}`,
+      backgroundColor: MARKDOWN_TABLE_BG,
     },
     "& table td, & table th": {
-      border: `1px solid ${MARKDOWN_COLORS.BORDER}`,
-      padding: "6px 13px",
+      border: `1px solid ${MARKDOWN_TABLE_BORDER}`,
+      paddingBlock: MARKDOWN_TABLE_CELL_PADDING_BLOCK,
+      paddingInline: MARKDOWN_TABLE_CELL_PADDING_INLINE,
+      textAlign: "left",
+      verticalAlign: "top",
     },
-    "& table tr": {
-      backgroundColor: MARKDOWN_COLORS.ROW_BG,
-      borderTop: `1px solid ${MARKDOWN_COLORS.BORDER_STRONG}`,
+    "& table thead th": {
+      backgroundColor: MARKDOWN_TABLE_HEADER_BG,
+      fontSize: MARKDOWN_TABLE_HEADER_FONT_SIZE,
+      fontWeight: 700,
+      letterSpacing: MARKDOWN_TABLE_HEADER_LETTER_SPACING,
+      textTransform: "uppercase",
     },
-    "& table tr:nth-of-type(even)": {
-      backgroundColor: MARKDOWN_COLORS.ROW_BG_ALT,
+    "& table tbody tr:nth-of-type(even)": {
+      backgroundColor: MARKDOWN_TABLE_ROW_ALT_BG,
     },
 
     // Blockquotes.
