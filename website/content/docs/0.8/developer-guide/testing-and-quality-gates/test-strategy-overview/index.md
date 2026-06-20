@@ -23,6 +23,19 @@ Do not default to either no validation or every possible check.
 
 For fast local iteration, `./scripts/test` runs the main backend, frontend, and companion suites together. Its backend pass mirrors CI by running non-performance tests in parallel and `@performance` tests in a separate serial pass. The local companion pass now also includes the Windows GNU target compatibility check when the toolchain is installed. Use `COVERAGE=1 ./scripts/test` when you want the broader CI-style coverage pass.
 
+### Frontend Browser-Test Layers
+
+Keep frontend browser coverage explicit instead of folding it into the default Vitest command.
+
+- `cd frontend && npm test` runs the default Vitest suite.
+- `cd frontend && npm run test:e2e` runs the default Playwright Chromium suite.
+- `cd frontend && npm run test:e2e:smoke` runs the focused Chromium smoke slice.
+- `cd frontend && npm run test:e2e:markdown` runs the markdown editor Playwright coverage in Chromium.
+- `cd frontend && npm run test:e2e:firefox` runs the markdown editor Playwright coverage in Firefox.
+- `cd frontend && npm run test:e2e:all` runs all configured Playwright browser projects.
+
+Install Playwright browsers locally with `cd frontend && npm run test:e2e:install` when a fresh environment does not have the browser binaries yet.
+
 ## Cross-Boundary Changes Need Cross-Boundary Checks
 
 Run broader coverage when you change a shared contract, for example:
@@ -147,6 +160,7 @@ Run deeper or wider validation when:
 - the change affects a high-risk workflow such as file editing, locking, upload, or pairing
 - you changed dependencies or version metadata
 - you changed typed API contracts
+- you changed browser-sensitive editor behavior such as focus handoff, contenteditable selection, keyboard navigation, or decorator-backed editing flows
 - you changed companion native dependencies, Windows-specific crates, or Tauri integration
 - the change fixes a regression that previously escaped narrower coverage
 

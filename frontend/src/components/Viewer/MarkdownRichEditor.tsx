@@ -278,6 +278,16 @@ interface AdjacentTableNode {
   select: (coords?: [number, number]) => void;
 }
 
+function isHtmlElement(value: unknown): value is HTMLElement {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "nodeType" in value &&
+    "querySelector" in value &&
+    (value as Node).nodeType === Node.ELEMENT_NODE
+  );
+}
+
 type VerticalNavigationContext =
   | {
       kind: "root-block";
@@ -518,19 +528,19 @@ function focusAdjacentTableCell(tableElement: HTMLElement, coords: [number, numb
   const rowCells = Array.from(tableElement.querySelectorAll("tbody tr"));
   const targetRow = rowCells[coords[1]];
 
-  if (!(targetRow instanceof HTMLElement)) {
+  if (!isHtmlElement(targetRow)) {
     return false;
   }
 
   const targetCell = targetRow.querySelectorAll("th, td")[coords[0]];
 
-  if (!(targetCell instanceof HTMLElement)) {
+  if (!isHtmlElement(targetCell)) {
     return false;
   }
 
   const editable = targetCell.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
 
-  if (!(editable instanceof HTMLElement)) {
+  if (!isHtmlElement(editable)) {
     return false;
   }
 
@@ -1541,98 +1551,104 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
       COMMAND_PRIORITY_HIGH
     );
 
-    const unregisterUpdateListener = activeEditor.registerUpdateListener(({ editorState }) => {
-      if (!(rootElement instanceof HTMLElement)) {
-        return;
-      }
+    const unregisterUpdateListener =
+      typeof activeEditor.registerUpdateListener === "function"
+        ? activeEditor.registerUpdateListener(({ editorState }) => {
+            if (!(rootElement instanceof HTMLElement)) {
+              return;
+            }
 
-      let selectedDecoratorElement: HTMLElement | null = null;
-      const focusedTopLevelElement = getFocusedTopLevelElement(rootElement);
-      let selectionTopLevelKey: NodeKey | null = null;
+            let selectedDecoratorElement: HTMLElement | null = null;
+            const focusedTopLevelElement = getFocusedTopLevelElement(rootElement);
+            let selectionTopLevelKey: NodeKey | null = null;
 
-      editorState.read(() => {
-        const selection = $getSelection();
+            editorState.read(() => {
+              const selection = $getSelection();
 
-        if ($isRangeSelection(selection)) {
-          selectionTopLevelKey = selection.anchor.getNode().getTopLevelElementOrThrow().getKey();
-          return;
-        }
+              if ($isRangeSelection(selection)) {
+                selectionTopLevelKey = selection.anchor.getNode().getTopLevelElementOrThrow().getKey();
+                return;
+              }
 
-        if (!$isNodeSelection(selection)) {
-          return;
-        }
+              if (!$isNodeSelection(selection)) {
+                return;
+              }
 
-        const selectedNodes = selection.getNodes();
+              const selectedNodes = selection.getNodes();
 
-        if (selectedNodes.length !== 1) {
-          return;
-        }
+              if (selectedNodes.length !== 1) {
+                return;
+              }
 
-        const [selectedNode] = selectedNodes;
+              const [selectedNode] = selectedNodes;
 
-        if (!$isCodeBlockNode(selectedNode) && !$isTableNode(selectedNode)) {
-          return;
-        }
+              if (!$isCodeBlockNode(selectedNode) && !$isTableNode(selectedNode)) {
+                return;
+              }
 
-        const element = activeEditor.getElementByKey(selectedNode.getKey());
+              const element = activeEditor.getElementByKey(selectedNode.getKey());
 
-        if (!(element instanceof HTMLElement)) {
-          return;
-        }
+              if (!(element instanceof HTMLElement)) {
+                return;
+              }
 
-        selectedDecoratorElement = element;
-      });
+              selectedDecoratorElement = element;
+            });
 
-      if (
-        !(focusedTopLevelElement instanceof HTMLElement) ||
-        focusedTopLevelElement.getAttribute("data-lexical-decorator") !== "true" ||
-        focusedTopLevelElement.querySelector("table") === null
-      ) {
-        return;
-      }
+            if (
+              !(focusedTopLevelElement instanceof HTMLElement) ||
+              focusedTopLevelElement.getAttribute("data-lexical-decorator") !== "true" ||
+              focusedTopLevelElement.querySelector("table") === null
+            ) {
+              return;
+            }
 
-      const previousElement = focusedTopLevelElement.previousElementSibling;
+            const previousElement = focusedTopLevelElement.previousElementSibling;
 
-      if (!(previousElement instanceof HTMLElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
-        return;
-      }
+            if (!(previousElement instanceof HTMLElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
+              return;
+            }
 
-      if (!(selectedDecoratorElement instanceof HTMLElement)) {
-        if (selectionTopLevelKey === null) {
-          return;
-        }
+            if (!(selectedDecoratorElement instanceof HTMLElement)) {
+              if (selectionTopLevelKey === null) {
+                return;
+              }
 
-        const selectionTopLevelElement = activeEditor.getElementByKey(selectionTopLevelKey);
+              const selectionTopLevelElement = activeEditor.getElementByKey(selectionTopLevelKey);
 
-        if (!(selectionTopLevelElement instanceof HTMLElement)) {
-          return;
-        }
+              if (!(selectionTopLevelElement instanceof HTMLElement)) {
+                return;
+              }
 
-        const relation = selectionTopLevelElement.compareDocumentPosition(focusedTopLevelElement);
+              const relation = selectionTopLevelElement.compareDocumentPosition(focusedTopLevelElement);
 
-        if ((relation & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
-          return;
-        }
+              if ((relation & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
+                return;
+              }
 
-        selectedDecoratorElement = previousElement;
-      }
+              selectedDecoratorElement = previousElement;
+            }
 
-      if (focusedTopLevelElement.previousElementSibling !== selectedDecoratorElement || isFocusWithinElement(selectedDecoratorElement)) {
-        return;
-      }
+            if (
+              focusedTopLevelElement.previousElementSibling !== selectedDecoratorElement ||
+              isFocusWithinElement(selectedDecoratorElement)
+            ) {
+              return;
+            }
 
-      const focusTarget = getDecoratorFocusTarget(activeEditor, selectedDecoratorElement, "up");
+            const focusTarget = getDecoratorFocusTarget(activeEditor, selectedDecoratorElement, "up");
 
-      if (!focusTarget) {
-        return;
-      }
+            if (!focusTarget) {
+              return;
+            }
 
-      focusTarget.attemptFocus();
-      scheduleRetriableFocusRestore({
-        delaysMs: focusTarget.successRetryDelaysMs ?? [0, 16, 48, 120],
-        attemptRestore: focusTarget.attemptFocus,
-      });
-    });
+            focusTarget.attemptFocus();
+            scheduleRetriableFocusRestore({
+              delaysMs: focusTarget.successRetryDelaysMs ?? [0, 16, 48, 120],
+              attemptRestore: focusTarget.attemptFocus,
+            });
+          })
+        : () => {};
 
     return () => {
       unregisterUpdateListener();
