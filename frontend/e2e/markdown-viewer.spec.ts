@@ -4,6 +4,8 @@ const demoConnectionId = "85610f49-ab40-4d96-8750-ddab3e8e8764";
 const demoPath = "note.md";
 const initialMarkdown = Array.from({ length: 140 }, (_, index) => `line ${index + 1}`).join("\n");
 const codeBlockNavigationMarkdown = "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n";
+const logicalNavigationMarkdown =
+  "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n\n| Col 1 | Col2 |\n| --- | --- |\n| some data | more data |\n| Second row |  |\n\nomega\n";
 
 async function fulfillJson(route: Route, json: unknown, status = 200) {
   await route.fulfill({
@@ -245,6 +247,146 @@ test("moves ArrowDown from a paragraph into the adjacent code block", async ({ p
   await page.keyboard.type("X");
 
   await expect(page.locator(".cm-line").first()).toHaveText("Xsome text");
+});
+
+test("moves ArrowDown from a code block into the adjacent table", async ({ page }) => {
+  await mockMarkdownViewerApi(page, logicalNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  await page.locator('.cm-content[role="textbox"]').first().waitFor();
+
+  await page.evaluate(() => {
+    const code = document.querySelector('.cm-content[role="textbox"]');
+
+    if (!(code instanceof HTMLElement)) {
+      throw new Error("Expected code block editor to be present");
+    }
+
+    const view = (code as HTMLElement & {
+      cmTile?: {
+        view?: {
+          dispatch: (spec: { selection: { anchor: number; head: number } }) => void;
+          focus: () => void;
+          state: { doc: { length: number } };
+        };
+      };
+    }).cmTile?.view;
+
+    if (!view) {
+      throw new Error("Expected CodeMirror view to be present");
+    }
+
+    const targetOffset = view.state.doc.length;
+    view.dispatch({ selection: { anchor: targetOffset, head: targetOffset } });
+    view.focus();
+  });
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.type("X");
+
+  await expect(page.locator("table").getByRole("textbox").first()).toContainText("Col 1");
+  await expect(page.locator("table").getByRole("textbox").first()).toContainText("X");
+});
+
+test("moves ArrowUp from the first table cell into the adjacent code block", async ({ page }) => {
+  await mockMarkdownViewerApi(page, logicalNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  await page.locator("table").getByRole("textbox").first().waitFor();
+
+  await page.evaluate(() => {
+    const editable = document.querySelector('table [role="textbox"]');
+
+    if (!(editable instanceof HTMLElement)) {
+      throw new Error("Expected first table cell editor to be present");
+    }
+
+    const selection = window.getSelection();
+    if (!selection) {
+      throw new Error("Expected a DOM selection");
+    }
+
+    selection.removeAllRanges();
+
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+    const firstTextNode = walker.nextNode();
+
+    const range = document.createRange();
+
+    if (firstTextNode instanceof Text) {
+      range.setStart(firstTextNode, 0);
+    } else {
+      range.selectNodeContents(editable);
+    }
+
+    range.collapse(true);
+    selection.addRange(range);
+    editable.focus();
+  });
+
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.type("X");
+
+  await expect(page.locator(".cm-line").last()).toContainText("line 2");
+  await expect(page.locator(".cm-line").last()).toContainText("X");
+});
+
+test("moves ArrowDown from the last table row into the following paragraph", async ({ page }) => {
+  await mockMarkdownViewerApi(page, logicalNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  await page.locator("table").getByRole("textbox").last().waitFor();
+
+  await page.evaluate(() => {
+    const tableEditors = Array.from(document.querySelectorAll('table [role="textbox"]'));
+    const editable = tableEditors.find((node) => node.textContent?.includes("Second row"));
+
+    if (!(editable instanceof HTMLElement)) {
+      throw new Error("Expected last populated table cell editor to be present");
+    }
+
+    const selection = window.getSelection();
+    if (!selection) {
+      throw new Error("Expected a DOM selection");
+    }
+
+    selection.removeAllRanges();
+
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+    let lastTextNode: Text | null = null;
+
+    while (walker.nextNode()) {
+      if (walker.currentNode instanceof Text) {
+        lastTextNode = walker.currentNode;
+      }
+    }
+
+    const range = document.createRange();
+
+    if (lastTextNode instanceof Text) {
+      range.setStart(lastTextNode, lastTextNode.textContent?.length ?? 0);
+    } else {
+      range.selectNodeContents(editable);
+    }
+
+    range.collapse(true);
+    selection.addRange(range);
+    editable.focus();
+  });
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.type("X");
+
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText(/Xomega|omegaX/);
 });
 
 test("enters markdown edit mode without refetching the file or remounting the editor subtree", async ({ page }) => {

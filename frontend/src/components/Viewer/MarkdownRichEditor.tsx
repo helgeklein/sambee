@@ -1,5 +1,6 @@
 import {
   $isCodeBlockNode,
+  $isTableNode,
   activeEditor$,
   applyBlockType$,
   applyFormat$,
@@ -71,6 +72,7 @@ import {
   $createRangeSelection,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
+  $getRoot,
   $getSelection,
   $isNodeSelection,
   $isRangeSelection,
@@ -142,8 +144,19 @@ const MARKDOWN_EDITOR_LEXICAL_THEME = {
 } as const;
 
 const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>) => {
+  const activeEditor = useCellValue(activeEditor$);
+
   return (
-    <div className={MARKDOWN_EDITOR_CODE_BLOCK_CLASS}>
+    <div
+      className={MARKDOWN_EDITOR_CODE_BLOCK_CLASS}
+      onKeyDownCapture={(event) => {
+        tryMoveVerticallyAcrossDocument(activeEditor, {
+          key: event.key,
+          preventDefault: () => event.preventDefault(),
+          stopPropagation: () => event.stopPropagation(),
+        });
+      }}
+    >
       <CodeMirrorEditor {...props} />
     </div>
   );
@@ -163,6 +176,16 @@ interface CodeMirrorViewLike {
   state: {
     doc: {
       length: number;
+      lines?: number;
+      lineAt?: (position: number) => { number: number };
+    };
+    selection?: {
+      main?: {
+        anchor: number;
+        from: number;
+        head: number;
+        to: number;
+      };
     };
   };
 }
@@ -171,6 +194,39 @@ interface CodeMirrorContentElement extends HTMLElement {
   cmTile?: {
     view?: CodeMirrorViewLike;
   };
+}
+
+interface NestedLexicalContentEditableElement extends HTMLElement {
+  __lexicalEditor?: Pick<LexicalEditor, "focus" | "update">;
+}
+
+interface AdjacentTableNode {
+  getColCount: () => number;
+  getRowCount: () => number;
+  select: (coords?: [number, number]) => void;
+}
+
+type VerticalNavigationContext =
+  | {
+      kind: "root-block";
+      boundaryElement: HTMLElement;
+      topLevelElement: HTMLElement;
+    }
+  | {
+      kind: "code-block";
+      boundaryElement: HTMLElement;
+      topLevelElement: HTMLElement;
+    }
+  | {
+      kind: "table-cell";
+      boundaryElement: HTMLElement;
+      topLevelElement: HTMLElement;
+    };
+
+interface DecoratorFocusTarget {
+  selectTarget: () => void;
+  attemptFocus: () => boolean;
+  successRetryDelaysMs?: readonly number[];
 }
 
 function getDirectChildAncestor(rootElement: HTMLElement, node: Node | null): HTMLElement | null {
@@ -203,6 +259,48 @@ function getRangeClientRectCount(range: Range): number {
   return getClientRects.call(range).length;
 }
 
+function getSelectionAnchorElement(): HTMLElement | null {
+  const selection = window.getSelection();
+  const anchorNode = selection?.anchorNode;
+
+  if (!anchorNode) {
+    return null;
+  }
+
+  return anchorNode instanceof HTMLElement ? anchorNode : (anchorNode.parentElement ?? null);
+}
+
+function getAdjacentTopLevelElement(
+  topLevelElement: HTMLElement,
+  direction: Extract<CodeBlockBoundaryDirection, "down" | "up">
+): HTMLElement | null {
+  const adjacentElement = direction === "down" ? topLevelElement.nextElementSibling : topLevelElement.previousElementSibling;
+  return adjacentElement instanceof HTMLElement ? adjacentElement : null;
+}
+
+function getAdjacentDecoratorElement(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): HTMLElement | null {
+  const domSelection = window.getSelection();
+
+  if (!domSelection?.isCollapsed) {
+    return null;
+  }
+
+  const blockElement = getDirectChildAncestor(rootElement, domSelection.anchorNode);
+
+  if (!(blockElement instanceof HTMLElement) || blockElement.matches("[data-lexical-decorator='true']")) {
+    return null;
+  }
+
+  const adjacentElement =
+    direction === "down" || direction === "right" ? blockElement.nextElementSibling : blockElement.previousElementSibling;
+
+  if (!(adjacentElement instanceof HTMLElement) || adjacentElement.getAttribute("data-lexical-decorator") !== "true") {
+    return null;
+  }
+
+  return adjacentElement;
+}
+
 function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
   const domSelection = window.getSelection();
 
@@ -228,10 +326,8 @@ function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBo
 
   if (direction === "up" || direction === "down") {
     const adjacentElement = direction === "down" ? blockElement.nextElementSibling : blockElement.previousElementSibling;
-    const hasAdjacentCodeBlock =
-      adjacentElement instanceof HTMLElement &&
-      adjacentElement.getAttribute("data-lexical-decorator") === "true" &&
-      adjacentElement.querySelector(".cm-content[role='textbox']") instanceof HTMLElement;
+    const hasAdjacentDecorator =
+      adjacentElement instanceof HTMLElement && adjacentElement.getAttribute("data-lexical-decorator") === "true";
 
     const caretRect = getRangeBoundingRect(selectionRange);
     const blockRect = typeof blockElement.getBoundingClientRect === "function" ? blockElement.getBoundingClientRect() : null;
@@ -250,7 +346,7 @@ function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBo
 
     const blockVisualLineCount = getRangeClientRectCount(blockContentsRange);
 
-    if (hasAdjacentCodeBlock && blockVisualLineCount <= 1) {
+    if (hasAdjacentDecorator && blockVisualLineCount <= 1) {
       return true;
     }
   }
@@ -258,28 +354,439 @@ function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBo
   return direction === "down" || direction === "right" ? caretTextOffset >= blockTextLength : caretTextOffset === 0;
 }
 
+function isCaretAtElementBoundary(
+  element: HTMLElement,
+  direction: Extract<CodeBlockBoundaryDirection, "down" | "up">,
+  allowSingleLineFallback: boolean
+): boolean {
+  const selection = window.getSelection();
+
+  if (!selection?.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+
+  const selectionRange = selection.getRangeAt(0).cloneRange();
+
+  if (!element.contains(selectionRange.startContainer)) {
+    return false;
+  }
+
+  const prefixRange = document.createRange();
+  const contentsRange = document.createRange();
+  prefixRange.selectNodeContents(element);
+  contentsRange.selectNodeContents(element);
+  prefixRange.setEnd(selectionRange.endContainer, selectionRange.endOffset);
+
+  const elementTextLength = element.textContent?.length ?? 0;
+  const caretTextOffset = prefixRange.toString().length;
+  const caretRect = getRangeBoundingRect(selectionRange);
+  const elementRect = typeof element.getBoundingClientRect === "function" ? element.getBoundingClientRect() : null;
+  const hasVisualGeometry =
+    caretRect !== null &&
+    elementRect !== null &&
+    (caretRect.height > 0 || caretRect.width > 0 || caretRect.top !== 0 || caretRect.bottom !== 0);
+
+  if (hasVisualGeometry) {
+    const boundaryTolerancePx = 4;
+
+    return direction === "down"
+      ? caretRect.bottom >= elementRect.bottom - boundaryTolerancePx
+      : caretRect.top <= elementRect.top + boundaryTolerancePx;
+  }
+
+  if (allowSingleLineFallback && getRangeClientRectCount(contentsRange) <= 1) {
+    return true;
+  }
+
+  return direction === "down" ? caretTextOffset >= elementTextLength : caretTextOffset === 0;
+}
+
 function getAdjacentCodeBlockContent(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): HTMLElement | null {
-  const domSelection = window.getSelection();
+  const adjacentElement = getAdjacentDecoratorElement(rootElement, direction);
 
-  if (!domSelection?.isCollapsed) {
-    return null;
-  }
-
-  const blockElement = getDirectChildAncestor(rootElement, domSelection.anchorNode);
-
-  if (!(blockElement instanceof HTMLElement) || blockElement.matches("[data-lexical-decorator='true']")) {
-    return null;
-  }
-
-  const adjacentElement =
-    direction === "down" || direction === "right" ? blockElement.nextElementSibling : blockElement.previousElementSibling;
-
-  if (!(adjacentElement instanceof HTMLElement) || adjacentElement.getAttribute("data-lexical-decorator") !== "true") {
+  if (!(adjacentElement instanceof HTMLElement)) {
     return null;
   }
 
   const codeContent = adjacentElement.querySelector(".cm-content[role='textbox']");
   return codeContent instanceof HTMLElement ? codeContent : null;
+}
+
+function isFocusWithinElement(element: HTMLElement): boolean {
+  const activeElement = document.activeElement;
+  return activeElement instanceof HTMLElement && element.contains(activeElement);
+}
+
+function getAdjacentTableContent(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): HTMLElement | null {
+  const adjacentElement = getAdjacentDecoratorElement(rootElement, direction);
+
+  if (!(adjacentElement instanceof HTMLElement)) {
+    return null;
+  }
+
+  const tableElement = adjacentElement.querySelector("table");
+  return tableElement instanceof HTMLElement ? tableElement : null;
+}
+
+function getAdjacentTableEntryCoords(tableNode: AdjacentTableNode, direction: CodeBlockBoundaryDirection): [number, number] {
+  if (direction === "down" || direction === "right") {
+    return [0, 0];
+  }
+
+  return [Math.max(tableNode.getColCount() - 1, 0), Math.max(tableNode.getRowCount() - 1, 0)];
+}
+
+function focusAdjacentTableCell(tableElement: HTMLElement, coords: [number, number], direction: CodeBlockBoundaryDirection): boolean {
+  const rowCells = Array.from(tableElement.querySelectorAll("tbody tr"));
+  const targetRow = rowCells[coords[1]];
+
+  if (!(targetRow instanceof HTMLElement)) {
+    return false;
+  }
+
+  const targetCell = targetRow.querySelectorAll("th, td")[coords[0]];
+
+  if (!(targetCell instanceof HTMLElement)) {
+    return false;
+  }
+
+  const editable = targetCell.querySelector('[contenteditable="true"][data-lexical-editor="true"]');
+
+  if (!(editable instanceof HTMLElement)) {
+    return false;
+  }
+
+  const nestedEditor = (editable as NestedLexicalContentEditableElement).__lexicalEditor;
+
+  if (nestedEditor) {
+    nestedEditor.update(() => {
+      if (direction === "down" || direction === "right") {
+        $getRoot().selectStart();
+        return;
+      }
+
+      $getRoot().selectEnd();
+    });
+    nestedEditor.focus(undefined, {
+      defaultSelection: direction === "down" || direction === "right" ? "rootStart" : "rootEnd",
+    });
+  }
+
+  editable.focus({ preventScroll: true });
+
+  const selection = window.getSelection();
+  if (!selection) {
+    return isFocusWithinElement(tableElement);
+  }
+
+  const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    const currentNode = walker.currentNode;
+    if (currentNode instanceof Text) {
+      textNodes.push(currentNode);
+    }
+  }
+
+  const targetTextNode = direction === "down" || direction === "right" ? textNodes[0] : textNodes[textNodes.length - 1];
+  const range = document.createRange();
+
+  if (targetTextNode instanceof Text) {
+    const targetOffset = direction === "down" || direction === "right" ? 0 : (targetTextNode.textContent?.length ?? 0);
+    range.setStart(targetTextNode, targetOffset);
+  } else {
+    range.selectNodeContents(editable);
+  }
+
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return isFocusWithinElement(tableElement);
+}
+
+function focusRootBlockBoundary(
+  rootElement: HTMLElement,
+  blockElement: HTMLElement,
+  direction: Extract<CodeBlockBoundaryDirection, "down" | "up">
+): boolean {
+  // Prefer Lexical's own selection model when re-entering the root editor from a nested decorator.
+  const lexicalEditor = (rootElement as NestedLexicalContentEditableElement).__lexicalEditor;
+
+  lexicalEditor?.update(() => {
+    const lexicalNode = $getNearestNodeFromDOMNode(blockElement);
+
+    if ($isTextNode(lexicalNode)) {
+      if (direction === "down") {
+        lexicalNode.selectStart();
+        return;
+      }
+
+      lexicalNode.selectEnd();
+      return;
+    }
+
+    const selectableNode = lexicalNode as { selectStart?: () => void; selectEnd?: () => void } | null;
+
+    if (direction === "down") {
+      selectableNode?.selectStart?.();
+      return;
+    }
+
+    selectableNode?.selectEnd?.();
+  });
+
+  rootElement.focus({ preventScroll: true });
+
+  const selection = window.getSelection();
+
+  if (!selection) {
+    return false;
+  }
+
+  const walker = document.createTreeWalker(blockElement, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    const currentNode = walker.currentNode;
+    if (currentNode instanceof Text) {
+      textNodes.push(currentNode);
+    }
+  }
+
+  const targetTextNode = direction === "down" ? textNodes[0] : textNodes[textNodes.length - 1];
+  const range = document.createRange();
+
+  if (targetTextNode instanceof Text) {
+    range.setStart(targetTextNode, direction === "down" ? 0 : (targetTextNode.textContent?.length ?? 0));
+  } else {
+    range.selectNodeContents(blockElement);
+  }
+
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return blockElement.contains(selection.anchorNode);
+}
+
+function getVerticalNavigationContext(rootElement: HTMLElement): VerticalNavigationContext | null {
+  const selection = window.getSelection();
+
+  if (!selection?.isCollapsed || selection.rangeCount === 0) {
+    return null;
+  }
+
+  const anchorElement = getSelectionAnchorElement();
+
+  if (!anchorElement) {
+    return null;
+  }
+
+  const decoratorElement = anchorElement.closest("[data-lexical-decorator='true']");
+
+  if (decoratorElement instanceof HTMLElement && rootElement.contains(decoratorElement)) {
+    const codeContent = decoratorElement.querySelector(".cm-content[role='textbox']");
+
+    if (codeContent instanceof HTMLElement && codeContent.contains(anchorElement)) {
+      return {
+        kind: "code-block",
+        boundaryElement: codeContent,
+        topLevelElement: decoratorElement,
+      };
+    }
+
+    const tableEditable = anchorElement.closest('table [contenteditable="true"][data-lexical-editor="true"]');
+
+    if (tableEditable instanceof HTMLElement && decoratorElement.contains(tableEditable)) {
+      return {
+        kind: "table-cell",
+        boundaryElement: tableEditable,
+        topLevelElement: decoratorElement,
+      };
+    }
+  }
+
+  const blockElement = getDirectChildAncestor(rootElement, selection.anchorNode);
+
+  if (!(blockElement instanceof HTMLElement) || blockElement.matches("[data-lexical-decorator='true']")) {
+    return null;
+  }
+
+  return {
+    kind: "root-block",
+    boundaryElement: blockElement,
+    topLevelElement: blockElement,
+  };
+}
+
+function getDecoratorFocusTarget(
+  activeEditor: LexicalEditor,
+  adjacentElement: HTMLElement,
+  direction: Extract<CodeBlockBoundaryDirection, "down" | "up">
+): DecoratorFocusTarget | null {
+  const codeContent = adjacentElement.querySelector(".cm-content[role='textbox']");
+
+  if (codeContent instanceof HTMLElement) {
+    let adjacentCodeBlockNode: { select: () => void } | null = null;
+
+    activeEditor.update(() => {
+      const adjacentNode = $getNearestNodeFromDOMNode(adjacentElement);
+
+      if ($isCodeBlockNode(adjacentNode)) {
+        adjacentCodeBlockNode = adjacentNode;
+      }
+    });
+
+    if (!adjacentCodeBlockNode) {
+      return null;
+    }
+
+    return {
+      selectTarget: () => {
+        adjacentCodeBlockNode?.select();
+      },
+      attemptFocus: () => focusCodeBlockContent(codeContent, direction),
+      successRetryDelaysMs: [16, 48, 120, 300],
+    };
+  }
+
+  const tableElement = adjacentElement.querySelector("table");
+
+  if (tableElement instanceof HTMLElement) {
+    let adjacentTableNode: AdjacentTableNode | null = null;
+
+    activeEditor.update(() => {
+      const adjacentNode = $getNearestNodeFromDOMNode(adjacentElement);
+
+      if ($isTableNode(adjacentNode)) {
+        adjacentTableNode = adjacentNode;
+      }
+    });
+
+    if (!adjacentTableNode) {
+      return null;
+    }
+
+    const entryCoords = getAdjacentTableEntryCoords(adjacentTableNode, direction);
+
+    return {
+      selectTarget: () => {
+        adjacentTableNode?.select(entryCoords);
+      },
+      attemptFocus: () => focusAdjacentTableCell(tableElement, entryCoords, direction) || isFocusWithinElement(tableElement),
+      successRetryDelaysMs: [16, 48, 120, 300],
+    };
+  }
+
+  return null;
+}
+
+function tryMoveVerticallyAcrossDocument(
+  activeEditor: LexicalEditor,
+  event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">
+): boolean {
+  const direction = event.key === "ArrowDown" ? "down" : event.key === "ArrowUp" ? "up" : null;
+
+  if (!direction) {
+    return false;
+  }
+
+  const rootElement = activeEditor.getRootElement();
+
+  if (!(rootElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  const context = getVerticalNavigationContext(rootElement);
+
+  if (!context) {
+    return false;
+  }
+
+  const adjacentElement = getAdjacentTopLevelElement(context.topLevelElement, direction);
+
+  if (!(adjacentElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (context.kind === "root-block" && adjacentElement.getAttribute("data-lexical-decorator") !== "true") {
+    return false;
+  }
+
+  const allowSingleLineFallback = context.kind !== "root-block" || adjacentElement.getAttribute("data-lexical-decorator") === "true";
+
+  const isAtBoundary =
+    context.kind === "code-block"
+      ? isCodeBlockCaretAtBoundary(context.boundaryElement, direction)
+      : isCaretAtElementBoundary(context.boundaryElement, direction, allowSingleLineFallback);
+
+  if (!isAtBoundary) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (adjacentElement.getAttribute("data-lexical-decorator") === "true") {
+    const focusTarget = getDecoratorFocusTarget(activeEditor, adjacentElement, direction);
+
+    if (!focusTarget) {
+      return false;
+    }
+
+    focusTarget.selectTarget();
+
+    const attemptDecoratorFocus = () => {
+      if (focusTarget.attemptFocus()) {
+        if (focusTarget.successRetryDelaysMs) {
+          scheduleRetriableFocusRestore({
+            delaysMs: focusTarget.successRetryDelaysMs,
+            attemptRestore: focusTarget.attemptFocus,
+          });
+        }
+
+        return true;
+      }
+
+      return false;
+    };
+
+    if (attemptDecoratorFocus()) {
+      return true;
+    }
+
+    window.requestAnimationFrame(() => {
+      if (attemptDecoratorFocus()) {
+        return;
+      }
+
+      scheduleRetriableFocusRestore({
+        delaysMs: [0, 16, 48, 120],
+        attemptRestore: focusTarget.attemptFocus,
+      });
+    });
+
+    return true;
+  }
+
+  const tryFocusAdjacentRootBlock = () => focusRootBlockBoundary(rootElement, adjacentElement, direction);
+
+  if (tryFocusAdjacentRootBlock()) {
+    return true;
+  }
+
+  window.requestAnimationFrame(() => {
+    const tryFocusAdjacentRootBlockInFrame = () => focusRootBlockBoundary(rootElement, adjacentElement, direction);
+
+    if (tryFocusAdjacentRootBlockInFrame()) {
+      return;
+    }
+
+    scheduleRetriableFocusRestore({
+      delaysMs: [0, 16, 48],
+      attemptRestore: tryFocusAdjacentRootBlockInFrame,
+    });
+  });
+
+  return true;
 }
 
 function isCodeBlockContentFocused(codeContent: HTMLElement): boolean {
@@ -290,6 +797,26 @@ function isCodeBlockContentFocused(codeContent: HTMLElement): boolean {
   }
 
   return codeContent.closest(".cm-editor")?.classList.contains("cm-focused") ?? false;
+}
+
+function isCodeBlockCaretAtBoundary(codeContent: HTMLElement, direction: Extract<CodeBlockBoundaryDirection, "down" | "up">): boolean {
+  const codeMirrorView = (codeContent as CodeMirrorContentElement).cmTile?.view;
+  const selection = codeMirrorView?.state.selection?.main;
+  const codeMirrorDoc = codeMirrorView?.state.doc;
+  const lineCount = codeMirrorDoc?.lines;
+
+  if (selection && selection.from === selection.to) {
+    const caretPosition = typeof selection.head === "number" ? selection.head : selection.from;
+
+    if (typeof codeMirrorDoc?.lineAt === "function" && typeof lineCount === "number") {
+      const caretLineNumber = codeMirrorDoc.lineAt(caretPosition).number;
+      return direction === "down" ? caretLineNumber >= lineCount : caretLineNumber <= 1;
+    }
+
+    return direction === "down" ? caretPosition >= codeMirrorView.state.doc.length : caretPosition <= 0;
+  }
+
+  return isCaretAtElementBoundary(codeContent, direction, true);
 }
 
 function focusCodeBlockContent(codeContent: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
@@ -413,6 +940,88 @@ function tryMoveIntoAdjacentCodeBlock(
     scheduleRetriableFocusRestore({
       delaysMs: [0, 16, 48, 120],
       attemptRestore: tryFocusAdjacentCodeBlock,
+    });
+  });
+
+  return true;
+}
+
+function tryMoveIntoAdjacentTable(
+  activeEditor: LexicalEditor,
+  event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">
+): boolean {
+  const direction =
+    event.key === "ArrowDown"
+      ? "down"
+      : event.key === "ArrowUp"
+        ? "up"
+        : event.key === "ArrowRight"
+          ? "right"
+          : event.key === "ArrowLeft"
+            ? "left"
+            : null;
+
+  if (!direction) {
+    return false;
+  }
+
+  const rootElement = activeEditor.getRootElement();
+
+  if (!(rootElement instanceof HTMLElement) || !isCaretAtBlockBoundary(rootElement, direction)) {
+    return false;
+  }
+
+  const adjacentTableContent = getAdjacentTableContent(rootElement, direction);
+
+  let adjacentTableNode: AdjacentTableNode | null = null;
+
+  activeEditor.getEditorState().read(() => {
+    const selection = $getSelection();
+
+    if (!$isRangeSelection(selection) || !selection.isCollapsed()) {
+      return;
+    }
+
+    const topLevelNode = selection.anchor.getNode().getTopLevelElementOrThrow();
+    const adjacentNode = direction === "down" || direction === "right" ? topLevelNode.getNextSibling() : topLevelNode.getPreviousSibling();
+
+    if ($isTableNode(adjacentNode)) {
+      adjacentTableNode = adjacentNode;
+    }
+  });
+
+  if (!adjacentTableNode) {
+    return false;
+  }
+
+  const entryCoords = getAdjacentTableEntryCoords(adjacentTableNode, direction);
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  window.requestAnimationFrame(() => {
+    const tryFocusAdjacentTable = () => {
+      if (!adjacentTableContent) {
+        return false;
+      }
+
+      return focusAdjacentTableCell(adjacentTableContent, entryCoords, direction) || isFocusWithinElement(adjacentTableContent);
+    };
+
+    adjacentTableNode?.select(entryCoords);
+
+    if (tryFocusAdjacentTable()) {
+      scheduleRetriableFocusRestore({
+        delaysMs: [16, 48, 120],
+        attemptRestore: tryFocusAdjacentTable,
+      });
+
+      return;
+    }
+
+    scheduleRetriableFocusRestore({
+      delaysMs: [0, 16, 48, 120],
+      attemptRestore: tryFocusAdjacentTable,
     });
   });
 
@@ -741,7 +1350,7 @@ const MarkdownRichEditorCommandBridge = ({
   return null;
 };
 
-const MarkdownCodeBlockArrowNavigationBridge = () => {
+const MarkdownDecoratorArrowNavigationBridge = () => {
   const activeEditor = useCellValue(activeEditor$);
 
   useEffect(() => {
@@ -751,7 +1360,10 @@ const MarkdownCodeBlockArrowNavigationBridge = () => {
 
     const rootElement = activeEditor.getRootElement();
     const handleRootKeyDown = (event: KeyboardEvent) => {
-      const handled = tryMoveIntoAdjacentCodeBlock(activeEditor, event);
+      const handled =
+        tryMoveVerticallyAcrossDocument(activeEditor, event) ||
+        tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
+        tryMoveIntoAdjacentTable(activeEditor, event);
 
       if (handled) {
         event.stopImmediatePropagation();
@@ -764,7 +1376,10 @@ const MarkdownCodeBlockArrowNavigationBridge = () => {
 
     const unregisterCommand = activeEditor.registerCommand(
       KEY_DOWN_COMMAND,
-      (event) => tryMoveIntoAdjacentCodeBlock(activeEditor, event),
+      (event) =>
+        tryMoveVerticallyAcrossDocument(activeEditor, event) ||
+        tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
+        tryMoveIntoAdjacentTable(activeEditor, event),
       COMMAND_PRIORITY_HIGH
     );
 
@@ -1673,7 +2288,7 @@ const MarkdownResponsiveToolbar = ({
       />
       <MarkdownViewModeBridge onViewModeChange={onViewModeChange} />
       <MarkdownActiveEditorBridge onActiveEditorChange={onActiveEditorChange} />
-      <MarkdownCodeBlockArrowNavigationBridge />
+      <MarkdownDecoratorArrowNavigationBridge />
       <MarkdownRichEditorCommandBridge onCommandsChange={onEditorCommandsChange} />
       {isMobile ? (
         <MarkdownMobileToolbar activeBackground={activeBackground} hoverBackground={hoverBackground} />

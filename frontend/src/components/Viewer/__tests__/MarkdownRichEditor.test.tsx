@@ -33,16 +33,20 @@ function mockViewportWidth(width: number) {
 const {
   mockCodeBlockPlugin,
   mockCodeMirrorPlugin,
+  mockGetNearestNodeFromDOMNode,
   mockGetSelection,
   mockIsCodeBlockNode,
+  mockIsTableNode,
   mockIsRangeSelection,
   mockMdxEditorAutoFocusHistory,
   mockToggleLinkCommand,
 } = vi.hoisted(() => ({
   mockCodeBlockPlugin: vi.fn((params?: unknown) => ({ type: "codeBlockPlugin", params })),
   mockCodeMirrorPlugin: vi.fn((params?: unknown) => ({ type: "codeMirrorPlugin", params })),
+  mockGetNearestNodeFromDOMNode: vi.fn(),
   mockGetSelection: vi.fn(),
   mockIsCodeBlockNode: vi.fn(),
+  mockIsTableNode: vi.fn(),
   mockIsRangeSelection: vi.fn(),
   mockMdxEditorAutoFocusHistory: [] as boolean[],
   mockToggleLinkCommand: Symbol("toggleLinkCommand"),
@@ -86,6 +90,7 @@ vi.mock("lexical", async (importOriginal) => {
 
   return {
     ...actual,
+    $getNearestNodeFromDOMNode: mockGetNearestNodeFromDOMNode,
     $getSelection: mockGetSelection,
     $isRangeSelection: mockIsRangeSelection,
   };
@@ -230,6 +235,7 @@ vi.mock("@mdxeditor/editor", () => {
     activeEditor$: Symbol("activeEditor"),
     applyFormat$: Symbol("applyFormat"),
     $isCodeBlockNode: mockIsCodeBlockNode,
+    $isTableNode: mockIsTableNode,
     ButtonWithTooltip: ({ title, children, ...props }: { title: string; children?: ReactNode; [key: string]: unknown }) => (
       <button
         type="button"
@@ -326,8 +332,12 @@ describe("MarkdownRichEditor", () => {
     mockGetRootElement.mockImplementation(() => document.querySelector('textarea[aria-label="Mock editor input"]'));
     mockGetSelection.mockReset();
     mockGetSelection.mockReturnValue(null);
+    mockGetNearestNodeFromDOMNode.mockReset();
+    mockGetNearestNodeFromDOMNode.mockReturnValue(null);
     mockIsCodeBlockNode.mockReset();
     mockIsCodeBlockNode.mockReturnValue(false);
+    mockIsTableNode.mockReset();
+    mockIsTableNode.mockReturnValue(false);
     mockIsRangeSelection.mockReset();
     mockIsRangeSelection.mockReturnValue(false);
     mockRegisterCommand.mockClear();
@@ -867,7 +877,9 @@ describe("MarkdownRichEditor", () => {
       isCollapsed: () => true,
     });
     mockIsRangeSelection.mockReturnValue(true);
+    mockGetNearestNodeFromDOMNode.mockReturnValue(adjacentCodeBlockNode);
     mockIsCodeBlockNode.mockImplementation((node: unknown) => node === adjacentCodeBlockNode);
+    mockIsTableNode.mockReturnValue(false);
 
     const registerCommandCalls = mockRegisterCommand.mock.calls as unknown[][];
     const keyDownRegistrations = registerCommandCalls.filter((call) => call[0] === KEY_DOWN_COMMAND);
@@ -906,6 +918,108 @@ describe("MarkdownRichEditor", () => {
     expect(rightEvent.preventDefault).toHaveBeenCalled();
     expect(rightEvent.stopPropagation).toHaveBeenCalled();
     expect(adjacentCodeBlockNode.select).toHaveBeenCalledTimes(1);
+
+    window.requestAnimationFrame = originalRequestAnimationFrame;
+    selectionSpy.mockRestore();
+    rootElement.remove();
+  });
+
+  it("moves ArrowDown and ArrowRight into an adjacent table via the table selection API", async () => {
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    const rootElement = document.createElement("div");
+    const paragraph = document.createElement("p");
+    const textNode = document.createTextNode("Alpha");
+    paragraph.append(textNode);
+    rootElement.append(paragraph);
+
+    const decorator = document.createElement("div");
+    decorator.setAttribute("data-lexical-decorator", "true");
+    decorator.append(document.createElement("table"));
+    rootElement.append(decorator);
+
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    }) as typeof window.requestAnimationFrame;
+
+    mockGetRootElement.mockReturnValue(rootElement);
+
+    document.body.append(rootElement);
+
+    const caretRange = document.createRange();
+    caretRange.setStart(textNode, textNode.textContent?.length ?? 0);
+    caretRange.collapse(true);
+
+    const selectionSpy = vi.spyOn(window, "getSelection");
+    selectionSpy.mockReturnValue({
+      addRange: vi.fn(),
+      anchorNode: textNode,
+      getRangeAt: () => caretRange,
+      isCollapsed: true,
+      removeAllRanges: vi.fn(),
+      rangeCount: 1,
+    } as Selection);
+
+    const adjacentTableNode = {
+      getColCount: () => 2,
+      getRowCount: () => 3,
+      select: vi.fn(),
+    };
+
+    mockGetSelection.mockReturnValue({
+      anchor: {
+        getNode: () => ({
+          getTopLevelElementOrThrow: () => ({
+            getNextSibling: () => adjacentTableNode,
+          }),
+        }),
+      },
+      isCollapsed: () => true,
+    });
+    mockIsRangeSelection.mockReturnValue(true);
+    mockIsCodeBlockNode.mockReturnValue(false);
+    mockGetNearestNodeFromDOMNode.mockReturnValue(adjacentTableNode);
+    mockIsTableNode.mockImplementation((node: unknown) => node === adjacentTableNode);
+
+    const registerCommandCalls = mockRegisterCommand.mock.calls as unknown[][];
+    const keyDownRegistrations = registerCommandCalls.filter((call) => call[0] === KEY_DOWN_COMMAND);
+    const candidateHandlers = keyDownRegistrations.map(
+      (call) => call[1] as (event: { key: string; preventDefault: () => void; stopPropagation: () => void }) => boolean
+    );
+
+    const downEvent = {
+      key: "ArrowDown",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+    const downHandler = candidateHandlers.find((candidate) => candidate(downEvent) === true);
+
+    if (!downHandler) {
+      throw new Error("Expected an ArrowDown key handler registration");
+    }
+
+    expect(downEvent.preventDefault).toHaveBeenCalled();
+    expect(downEvent.stopPropagation).toHaveBeenCalled();
+    expect(adjacentTableNode.select).toHaveBeenCalledWith([0, 0]);
+
+    adjacentTableNode.select.mockClear();
+
+    const rightEvent = {
+      key: "ArrowRight",
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+    const rightHandler = candidateHandlers.find((candidate) => candidate(rightEvent) === true);
+
+    if (!rightHandler) {
+      throw new Error("Expected an ArrowRight key handler registration");
+    }
+
+    expect(rightEvent.preventDefault).toHaveBeenCalled();
+    expect(rightEvent.stopPropagation).toHaveBeenCalled();
+    expect(adjacentTableNode.select).toHaveBeenCalledWith([0, 0]);
 
     window.requestAnimationFrame = originalRequestAnimationFrame;
     selectionSpy.mockRestore();
