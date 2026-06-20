@@ -428,5 +428,9 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
       color: "inherit",
       padding: 0,
     },
+    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span`]: {
+      backgroundColor: "transparent !important",
+      color: "inherit",
+    },
   };
 }
