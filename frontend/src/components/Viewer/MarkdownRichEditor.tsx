@@ -2,6 +2,7 @@ import {
   $isCodeBlockNode,
   $isTableNode,
   activeEditor$,
+  addTableCellEditorChild$,
   applyBlockType$,
   applyFormat$,
   applyListType$,
@@ -36,6 +37,8 @@ import {
   markdownShortcutPlugin,
   lexicalTheme as mdxEditorLexicalTheme,
   quotePlugin,
+  realmPlugin,
+  rootEditor$,
   Separator,
   tablePlugin,
   thematicBreakPlugin,
@@ -46,6 +49,7 @@ import {
 } from "@mdxeditor/editor";
 import "@mdxeditor/editor/style.css";
 import { TOGGLE_LINK_COMMAND } from "@lexical/link";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { mergeRegister } from "@lexical/utils";
 import { useCellValues, useCellValue as useGurxCellValue, usePublisher } from "@mdxeditor/gurx";
 import {
@@ -144,13 +148,17 @@ const MARKDOWN_EDITOR_LEXICAL_THEME = {
 } as const;
 
 const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>) => {
-  const activeEditor = useCellValue(activeEditor$);
+  const rootEditor = useCellValue(rootEditor$);
 
   return (
     <div
       className={MARKDOWN_EDITOR_CODE_BLOCK_CLASS}
       onKeyDownCapture={(event) => {
-        tryMoveVerticallyAcrossDocument(activeEditor, {
+        if (!rootEditor) {
+          return;
+        }
+
+        tryMoveVerticallyAcrossDocument(rootEditor, {
           key: event.key,
           preventDefault: () => event.preventDefault(),
           stopPropagation: () => event.stopPropagation(),
@@ -161,6 +169,70 @@ const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>)
     </div>
   );
 };
+
+const TableCellShiftTabBridge = () => {
+  const [editor] = useLexicalComposerContext();
+  const rootEditor = useCellValue(rootEditor$);
+
+  useEffect(() => {
+    const cellEditorRoot = editor.getRootElement();
+    const rootEditorElement = rootEditor?.getRootElement();
+
+    if (!(cellEditorRoot instanceof HTMLElement) || !(rootEditorElement instanceof HTMLElement) || !rootEditor) {
+      return;
+    }
+
+    const handleKeyDownCapture = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || !event.shiftKey) {
+        return;
+      }
+
+      const cellEditable = cellEditorRoot.closest('table [contenteditable="true"][data-lexical-editor="true"]');
+
+      if (!(cellEditable instanceof HTMLElement)) {
+        return;
+      }
+
+      const tableDecoratorElement = cellEditable.closest("[data-lexical-decorator='true']");
+
+      if (!(tableDecoratorElement instanceof HTMLElement) || tableDecoratorElement.querySelector("table") === null) {
+        return;
+      }
+
+      const tableEditables = Array.from(
+        tableDecoratorElement.querySelectorAll('table [contenteditable="true"][data-lexical-editor="true"]')
+      ).filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+      if (tableEditables[0] !== cellEditable) {
+        return;
+      }
+
+      const adjacentElement = getAdjacentTopLevelElement(tableDecoratorElement, "up");
+
+      if (!(adjacentElement instanceof HTMLElement)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      moveIntoAdjacentTopLevelElement(rootEditor, rootEditorElement, adjacentElement, "up");
+    };
+
+    cellEditorRoot.addEventListener("keydown", handleKeyDownCapture, true);
+
+    return () => {
+      cellEditorRoot.removeEventListener("keydown", handleKeyDownCapture, true);
+    };
+  }, [editor, rootEditor]);
+
+  return null;
+};
+
+const tableCellShiftTabBridgePlugin = realmPlugin({
+  init(realm) {
+    realm.pub(addTableCellEditorChild$, TableCellShiftTabBridge);
+  },
+});
 
 const MARKDOWN_CODE_BLOCK_EDITOR_DESCRIPTOR = {
   match: (_language: string | null | undefined, meta: string | null | undefined) => !meta,
@@ -227,6 +299,12 @@ interface DecoratorFocusTarget {
   selectTarget: () => void;
   attemptFocus: () => boolean;
   successRetryDelaysMs?: readonly number[];
+}
+
+interface KeyboardNavigationEventLike {
+  key: string;
+  preventDefault: () => void;
+  stopPropagation: () => void;
 }
 
 function getDirectChildAncestor(rootElement: HTMLElement, node: Node | null): HTMLElement | null {
@@ -679,52 +757,28 @@ function getDecoratorFocusTarget(
   return null;
 }
 
-function tryMoveVerticallyAcrossDocument(
+function getFocusedTopLevelElement(rootElement: HTMLElement): HTMLElement | null {
+  const activeElement = document.activeElement;
+
+  if (!(activeElement instanceof HTMLElement) || !rootElement.contains(activeElement)) {
+    return null;
+  }
+
+  const decoratorElement = activeElement.closest("[data-lexical-decorator='true']");
+
+  if (decoratorElement instanceof HTMLElement && rootElement.contains(decoratorElement)) {
+    return decoratorElement;
+  }
+
+  return getDirectChildAncestor(rootElement, activeElement);
+}
+
+function moveIntoAdjacentTopLevelElement(
   activeEditor: LexicalEditor,
-  event: Pick<KeyboardEvent, "key" | "preventDefault" | "stopPropagation">
+  rootElement: HTMLElement,
+  adjacentElement: HTMLElement,
+  direction: Extract<CodeBlockBoundaryDirection, "down" | "up">
 ): boolean {
-  const direction = event.key === "ArrowDown" ? "down" : event.key === "ArrowUp" ? "up" : null;
-
-  if (!direction) {
-    return false;
-  }
-
-  const rootElement = activeEditor.getRootElement();
-
-  if (!(rootElement instanceof HTMLElement)) {
-    return false;
-  }
-
-  const context = getVerticalNavigationContext(rootElement);
-
-  if (!context) {
-    return false;
-  }
-
-  const adjacentElement = getAdjacentTopLevelElement(context.topLevelElement, direction);
-
-  if (!(adjacentElement instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (context.kind === "root-block" && adjacentElement.getAttribute("data-lexical-decorator") !== "true") {
-    return false;
-  }
-
-  const allowSingleLineFallback = context.kind !== "root-block" || adjacentElement.getAttribute("data-lexical-decorator") === "true";
-
-  const isAtBoundary =
-    context.kind === "code-block"
-      ? isCodeBlockCaretAtBoundary(context.boundaryElement, direction)
-      : isCaretAtElementBoundary(context.boundaryElement, direction, allowSingleLineFallback);
-
-  if (!isAtBoundary) {
-    return false;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-
   if (adjacentElement.getAttribute("data-lexical-decorator") === "true") {
     const focusTarget = getDecoratorFocusTarget(activeEditor, adjacentElement, direction);
 
@@ -787,6 +841,108 @@ function tryMoveVerticallyAcrossDocument(
   });
 
   return true;
+}
+
+function tryMoveOutOfTableWithTab(activeEditor: LexicalEditor, event: KeyboardNavigationEventLike & { shiftKey?: boolean }): boolean {
+  if (event.key !== "Tab") {
+    return false;
+  }
+
+  const direction = event.shiftKey ? "up" : "down";
+  const rootElement = activeEditor.getRootElement();
+
+  if (!(rootElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  const activeElement = document.activeElement;
+
+  if (!(activeElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  const boundaryEditable = activeElement.closest('table [contenteditable="true"][data-lexical-editor="true"]');
+
+  if (!(boundaryEditable instanceof HTMLElement) || !rootElement.contains(boundaryEditable)) {
+    return false;
+  }
+
+  const tableDecoratorElement = boundaryEditable.closest("[data-lexical-decorator='true']");
+
+  if (!(tableDecoratorElement instanceof HTMLElement) || tableDecoratorElement.querySelector("table") === null) {
+    return false;
+  }
+
+  const tableEditables = Array.from(
+    tableDecoratorElement.querySelectorAll('table [contenteditable="true"][data-lexical-editor="true"]')
+  ).filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+  if (tableEditables.length === 0) {
+    return false;
+  }
+
+  const boundaryTarget = direction === "up" ? tableEditables[0] : tableEditables[tableEditables.length - 1];
+
+  if (boundaryEditable !== boundaryTarget) {
+    return false;
+  }
+
+  const adjacentElement = getAdjacentTopLevelElement(tableDecoratorElement, direction);
+
+  if (!(adjacentElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  return moveIntoAdjacentTopLevelElement(activeEditor, rootElement, adjacentElement, direction);
+}
+
+function tryMoveVerticallyAcrossDocument(activeEditor: LexicalEditor, event: KeyboardNavigationEventLike): boolean {
+  const direction = event.key === "ArrowDown" ? "down" : event.key === "ArrowUp" ? "up" : null;
+
+  if (!direction) {
+    return false;
+  }
+
+  const rootElement = activeEditor.getRootElement();
+
+  if (!(rootElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  const context = getVerticalNavigationContext(rootElement);
+
+  if (!context) {
+    return false;
+  }
+
+  const adjacentElement = getAdjacentTopLevelElement(context.topLevelElement, direction);
+
+  if (!(adjacentElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (context.kind === "root-block" && adjacentElement.getAttribute("data-lexical-decorator") !== "true") {
+    return false;
+  }
+
+  const allowSingleLineFallback = context.kind !== "root-block" || adjacentElement.getAttribute("data-lexical-decorator") === "true";
+
+  const isAtBoundary =
+    context.kind === "code-block"
+      ? isCodeBlockCaretAtBoundary(context.boundaryElement, direction)
+      : isCaretAtElementBoundary(context.boundaryElement, direction, allowSingleLineFallback);
+
+  if (!isAtBoundary) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  return moveIntoAdjacentTopLevelElement(activeEditor, rootElement, adjacentElement, direction);
 }
 
 function isCodeBlockContentFocused(codeContent: HTMLElement): boolean {
@@ -1361,6 +1517,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
     const rootElement = activeEditor.getRootElement();
     const handleRootKeyDown = (event: KeyboardEvent) => {
       const handled =
+        tryMoveOutOfTableWithTab(activeEditor, event) ||
         tryMoveVerticallyAcrossDocument(activeEditor, event) ||
         tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
         tryMoveIntoAdjacentTable(activeEditor, event);
@@ -1377,13 +1534,108 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
     const unregisterCommand = activeEditor.registerCommand(
       KEY_DOWN_COMMAND,
       (event) =>
+        tryMoveOutOfTableWithTab(activeEditor, event) ||
         tryMoveVerticallyAcrossDocument(activeEditor, event) ||
         tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
         tryMoveIntoAdjacentTable(activeEditor, event),
       COMMAND_PRIORITY_HIGH
     );
 
+    const unregisterUpdateListener = activeEditor.registerUpdateListener(({ editorState }) => {
+      if (!(rootElement instanceof HTMLElement)) {
+        return;
+      }
+
+      let selectedDecoratorElement: HTMLElement | null = null;
+      const focusedTopLevelElement = getFocusedTopLevelElement(rootElement);
+      let selectionTopLevelKey: NodeKey | null = null;
+
+      editorState.read(() => {
+        const selection = $getSelection();
+
+        if ($isRangeSelection(selection)) {
+          selectionTopLevelKey = selection.anchor.getNode().getTopLevelElementOrThrow().getKey();
+          return;
+        }
+
+        if (!$isNodeSelection(selection)) {
+          return;
+        }
+
+        const selectedNodes = selection.getNodes();
+
+        if (selectedNodes.length !== 1) {
+          return;
+        }
+
+        const [selectedNode] = selectedNodes;
+
+        if (!$isCodeBlockNode(selectedNode) && !$isTableNode(selectedNode)) {
+          return;
+        }
+
+        const element = activeEditor.getElementByKey(selectedNode.getKey());
+
+        if (!(element instanceof HTMLElement)) {
+          return;
+        }
+
+        selectedDecoratorElement = element;
+      });
+
+      if (
+        !(focusedTopLevelElement instanceof HTMLElement) ||
+        focusedTopLevelElement.getAttribute("data-lexical-decorator") !== "true" ||
+        focusedTopLevelElement.querySelector("table") === null
+      ) {
+        return;
+      }
+
+      const previousElement = focusedTopLevelElement.previousElementSibling;
+
+      if (!(previousElement instanceof HTMLElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
+        return;
+      }
+
+      if (!(selectedDecoratorElement instanceof HTMLElement)) {
+        if (selectionTopLevelKey === null) {
+          return;
+        }
+
+        const selectionTopLevelElement = activeEditor.getElementByKey(selectionTopLevelKey);
+
+        if (!(selectionTopLevelElement instanceof HTMLElement)) {
+          return;
+        }
+
+        const relation = selectionTopLevelElement.compareDocumentPosition(focusedTopLevelElement);
+
+        if ((relation & Node.DOCUMENT_POSITION_FOLLOWING) === 0) {
+          return;
+        }
+
+        selectedDecoratorElement = previousElement;
+      }
+
+      if (focusedTopLevelElement.previousElementSibling !== selectedDecoratorElement || isFocusWithinElement(selectedDecoratorElement)) {
+        return;
+      }
+
+      const focusTarget = getDecoratorFocusTarget(activeEditor, selectedDecoratorElement, "up");
+
+      if (!focusTarget) {
+        return;
+      }
+
+      focusTarget.attemptFocus();
+      scheduleRetriableFocusRestore({
+        delaysMs: focusTarget.successRetryDelaysMs ?? [0, 16, 48, 120],
+        attemptRestore: focusTarget.attemptFocus,
+      });
+    });
+
     return () => {
+      unregisterUpdateListener();
       unregisterCommand();
       if (rootElement instanceof HTMLElement) {
         rootElement.removeEventListener("keydown", handleRootKeyDown, true);
@@ -2952,6 +3204,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         quotePlugin(),
         thematicBreakPlugin(),
         tablePlugin(),
+        tableCellShiftTabBridgePlugin(),
         codeBlockPlugin({
           defaultCodeBlockLanguage: MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE,
           codeBlockEditorDescriptors: [MARKDOWN_CODE_BLOCK_EDITOR_DESCRIPTOR],
