@@ -3,6 +3,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 const demoConnectionId = "85610f49-ab40-4d96-8750-ddab3e8e8764";
 const demoPath = "note.md";
 const initialMarkdown = Array.from({ length: 140 }, (_, index) => `line ${index + 1}`).join("\n");
+const codeBlockNavigationMarkdown = "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n";
 
 async function fulfillJson(route: Route, json: unknown, status = 200) {
   await route.fulfill({
@@ -12,7 +13,7 @@ async function fulfillJson(route: Route, json: unknown, status = 200) {
   });
 }
 
-async function mockMarkdownViewerApi(page: Page) {
+async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -74,7 +75,7 @@ async function mockMarkdownViewerApi(page: Page) {
             name: demoPath,
             path: demoPath,
             type: "file",
-            size: initialMarkdown.length,
+            size: markdown.length,
             mime_type: "text/markdown",
             modified_at: "2026-04-12T12:00:00Z",
           },
@@ -87,12 +88,12 @@ async function mockMarkdownViewerApi(page: Page) {
       await route.fulfill({
         status: 200,
         contentType: "text/markdown; charset=utf-8",
-        body: initialMarkdown,
+        body: markdown,
       });
       return;
     }
 
-    if (pathname === `/api/companion/${demoConnectionId}/lock` && request.method() === "POST") {
+    if (pathname === `/api/browse/${demoConnectionId}/lock` && request.method() === "POST") {
       await fulfillJson(route, {
         lock_id: "lock-1",
         file_path: demoPath,
@@ -102,12 +103,12 @@ async function mockMarkdownViewerApi(page: Page) {
       return;
     }
 
-    if (pathname === `/api/companion/${demoConnectionId}/lock/heartbeat` && request.method() === "POST") {
+    if (pathname === `/api/browse/${demoConnectionId}/lock/heartbeat` && request.method() === "POST") {
       await route.fulfill({ status: 204, body: "" });
       return;
     }
 
-    if (pathname === `/api/companion/${demoConnectionId}/lock` && request.method() === "DELETE") {
+    if (pathname === `/api/browse/${demoConnectionId}/lock` && request.method() === "DELETE") {
       await route.fulfill({ status: 204, body: "" });
       return;
     }
@@ -195,6 +196,57 @@ test("keeps the markdown editor viewport stable after cancelling the unsaved cha
   await expect.poll(async () => editorWrapper.evaluate((element) => (element as HTMLElement).scrollTop)).toBe(wrapperScrollTopBefore);
 });
 
+test("moves ArrowDown from a paragraph into the adjacent code block", async ({ page }) => {
+  await mockMarkdownViewerApi(page, codeBlockNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  const editor = page.getByRole("textbox", { name: "Markdown editor" });
+  await expect(editor).toBeVisible();
+
+  await page.evaluate(() => {
+    const editable = document.querySelector('[contenteditable="true"][aria-label="Markdown editor"]');
+
+    if (!(editable instanceof HTMLElement)) {
+      throw new Error("Expected markdown editor to be present");
+    }
+
+    const selection = window.getSelection();
+    if (!selection) {
+      throw new Error("Expected a DOM selection");
+    }
+
+    selection.removeAllRanges();
+
+    const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const text = node.textContent ?? "";
+        return text.trim().length > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+    const firstTextNode = walker.nextNode();
+
+    if (!firstTextNode) {
+      throw new Error("Expected markdown editor to contain text");
+    }
+
+    const range = document.createRange();
+    range.setStart(firstTextNode, 0);
+    range.collapse(true);
+    selection.addRange(range);
+    editable.focus();
+  });
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+
+  await page.keyboard.type("X");
+
+  await expect(page.locator(".cm-line").first()).toHaveText("Xsome text");
+});
+
 test("enters markdown edit mode without refetching the file or remounting the editor subtree", async ({ page }) => {
   let viewerFileRequestCount = 0;
 
@@ -278,7 +330,7 @@ test("enters markdown edit mode without refetching the file or remounting the ed
       return;
     }
 
-    if (pathname === `/api/companion/${demoConnectionId}/lock` && request.method() === "POST") {
+    if (pathname === `/api/browse/${demoConnectionId}/lock` && request.method() === "POST") {
       await fulfillJson(route, {
         lock_id: "lock-1",
         file_path: demoPath,
@@ -288,12 +340,12 @@ test("enters markdown edit mode without refetching the file or remounting the ed
       return;
     }
 
-    if (pathname === `/api/companion/${demoConnectionId}/lock/heartbeat` && request.method() === "POST") {
+    if (pathname === `/api/browse/${demoConnectionId}/lock/heartbeat` && request.method() === "POST") {
       await route.fulfill({ status: 204, body: "" });
       return;
     }
 
-    if (pathname === `/api/companion/${demoConnectionId}/lock` && request.method() === "DELETE") {
+    if (pathname === `/api/browse/${demoConnectionId}/lock` && request.method() === "DELETE") {
       await route.fulfill({ status: 204, body: "" });
       return;
     }

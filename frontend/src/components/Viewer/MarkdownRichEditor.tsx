@@ -157,6 +157,22 @@ const MARKDOWN_CODE_BLOCK_EDITOR_DESCRIPTOR = {
 
 type CodeBlockBoundaryDirection = "down" | "left" | "right" | "up";
 
+interface CodeMirrorViewLike {
+  dispatch: (spec: { selection: { anchor: number; head?: number } }) => void;
+  focus: () => void;
+  state: {
+    doc: {
+      length: number;
+    };
+  };
+}
+
+interface CodeMirrorContentElement extends HTMLElement {
+  cmTile?: {
+    view?: CodeMirrorViewLike;
+  };
+}
+
 function getDirectChildAncestor(rootElement: HTMLElement, node: Node | null): HTMLElement | null {
   let current: HTMLElement | null = node instanceof HTMLElement ? node : (node?.parentElement ?? null);
 
@@ -165,6 +181,26 @@ function getDirectChildAncestor(rootElement: HTMLElement, node: Node | null): HT
   }
 
   return current?.parentElement === rootElement ? current : null;
+}
+
+function getRangeBoundingRect(range: Range): DOMRect | null {
+  const getBoundingClientRect = (range as Range & { getBoundingClientRect?: () => DOMRect }).getBoundingClientRect;
+
+  if (typeof getBoundingClientRect !== "function") {
+    return null;
+  }
+
+  return getBoundingClientRect.call(range);
+}
+
+function getRangeClientRectCount(range: Range): number {
+  const getClientRects = (range as Range & { getClientRects?: () => DOMRectList }).getClientRects;
+
+  if (typeof getClientRects !== "function") {
+    return 0;
+  }
+
+  return getClientRects.call(range).length;
 }
 
 function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
@@ -182,11 +218,42 @@ function isCaretAtBlockBoundary(rootElement: HTMLElement, direction: CodeBlockBo
 
   const selectionRange = domSelection.getRangeAt(0).cloneRange();
   const blockPrefixRange = document.createRange();
+  const blockContentsRange = document.createRange();
   blockPrefixRange.selectNodeContents(blockElement);
+  blockContentsRange.selectNodeContents(blockElement);
   blockPrefixRange.setEnd(selectionRange.endContainer, selectionRange.endOffset);
 
   const blockTextLength = blockElement.textContent?.length ?? 0;
   const caretTextOffset = blockPrefixRange.toString().length;
+
+  if (direction === "up" || direction === "down") {
+    const adjacentElement = direction === "down" ? blockElement.nextElementSibling : blockElement.previousElementSibling;
+    const hasAdjacentCodeBlock =
+      adjacentElement instanceof HTMLElement &&
+      adjacentElement.getAttribute("data-lexical-decorator") === "true" &&
+      adjacentElement.querySelector(".cm-content[role='textbox']") instanceof HTMLElement;
+
+    const caretRect = getRangeBoundingRect(selectionRange);
+    const blockRect = typeof blockElement.getBoundingClientRect === "function" ? blockElement.getBoundingClientRect() : null;
+    const hasVisualGeometry =
+      caretRect !== null &&
+      blockRect !== null &&
+      (caretRect.height > 0 || caretRect.width > 0 || caretRect.top !== 0 || caretRect.bottom !== 0);
+
+    if (hasVisualGeometry) {
+      const boundaryTolerancePx = 4;
+
+      return direction === "down"
+        ? caretRect.bottom >= blockRect.bottom - boundaryTolerancePx
+        : caretRect.top <= blockRect.top + boundaryTolerancePx;
+    }
+
+    const blockVisualLineCount = getRangeClientRectCount(blockContentsRange);
+
+    if (hasAdjacentCodeBlock && blockVisualLineCount <= 1) {
+      return true;
+    }
+  }
 
   return direction === "down" || direction === "right" ? caretTextOffset >= blockTextLength : caretTextOffset === 0;
 }
@@ -215,11 +282,33 @@ function getAdjacentCodeBlockContent(rootElement: HTMLElement, direction: CodeBl
   return codeContent instanceof HTMLElement ? codeContent : null;
 }
 
-function focusAdjacentCodeBlockContent(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
-  const codeContent = getAdjacentCodeBlockContent(rootElement, direction);
+function isCodeBlockContentFocused(codeContent: HTMLElement): boolean {
+  const activeElement = document.activeElement;
 
-  if (!(codeContent instanceof HTMLElement)) {
+  if (activeElement !== codeContent) {
     return false;
+  }
+
+  return codeContent.closest(".cm-editor")?.classList.contains("cm-focused") ?? false;
+}
+
+function focusCodeBlockContent(codeContent: HTMLElement, direction: CodeBlockBoundaryDirection): boolean {
+  const codeMirrorView = (codeContent as CodeMirrorContentElement).cmTile?.view;
+
+  if (codeMirrorView) {
+    const targetOffset = direction === "down" || direction === "right" ? 0 : codeMirrorView.state.doc.length;
+
+    codeMirrorView.dispatch({
+      selection: {
+        anchor: targetOffset,
+        head: targetOffset,
+      },
+    });
+    codeMirrorView.focus();
+
+    if (isCodeBlockContentFocused(codeContent)) {
+      return true;
+    }
   }
 
   codeContent.focus({ preventScroll: true });
@@ -227,14 +316,14 @@ function focusAdjacentCodeBlockContent(rootElement: HTMLElement, direction: Code
   const domSelection = window.getSelection();
 
   if (!domSelection) {
-    return true;
+    return isCodeBlockContentFocused(codeContent);
   }
 
   const lines = Array.from(codeContent.querySelectorAll(".cm-line"));
   const targetLine = direction === "down" || direction === "right" ? lines[0] : lines[lines.length - 1];
 
   if (!(targetLine instanceof HTMLElement)) {
-    return true;
+    return isCodeBlockContentFocused(codeContent);
   }
 
   const textWalker = document.createTreeWalker(targetLine, NodeFilter.SHOW_TEXT);
@@ -258,7 +347,7 @@ function focusAdjacentCodeBlockContent(rootElement: HTMLElement, direction: Code
   range.collapse(true);
   domSelection.removeAllRanges();
   domSelection.addRange(range);
-  return true;
+  return isCodeBlockContentFocused(codeContent);
 }
 
 function tryMoveIntoAdjacentCodeBlock(
@@ -286,6 +375,8 @@ function tryMoveIntoAdjacentCodeBlock(
     return false;
   }
 
+  const adjacentCodeContent = getAdjacentCodeBlockContent(rootElement, direction);
+
   let adjacentCodeBlockNode: { select: () => void } | null = null;
 
   activeEditor.getEditorState().read(() => {
@@ -310,12 +401,19 @@ function tryMoveIntoAdjacentCodeBlock(
   event.preventDefault();
   event.stopPropagation();
 
-  if (focusAdjacentCodeBlockContent(rootElement, direction)) {
-    return true;
-  }
+  window.requestAnimationFrame(() => {
+    const tryFocusAdjacentCodeBlock = () => (adjacentCodeContent ? focusCodeBlockContent(adjacentCodeContent, direction) : false);
 
-  activeEditor.update(() => {
     adjacentCodeBlockNode?.select();
+
+    if (tryFocusAdjacentCodeBlock()) {
+      return;
+    }
+
+    scheduleRetriableFocusRestore({
+      delaysMs: [0, 16, 48, 120],
+      attemptRestore: tryFocusAdjacentCodeBlock,
+    });
   });
 
   return true;

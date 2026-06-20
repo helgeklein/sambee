@@ -805,7 +805,7 @@ describe("MarkdownRichEditor", () => {
     });
   });
 
-  it("moves ArrowDown and ArrowRight into an adjacent code block when the caret is at the end of the preceding block", async () => {
+  it("moves ArrowDown and ArrowRight into an adjacent code block via the node selection API", async () => {
     renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
 
     const rootElement = document.createElement("div");
@@ -813,6 +813,26 @@ describe("MarkdownRichEditor", () => {
     const textNode = document.createTextNode("Alpha");
     paragraph.append(textNode);
     rootElement.append(paragraph);
+
+    const decorator = document.createElement("div");
+    decorator.setAttribute("data-lexical-decorator", "true");
+
+    const codeContent = document.createElement("div");
+    codeContent.className = "cm-content cm-lineWrapping";
+    codeContent.setAttribute("role", "textbox");
+    const codeLine = document.createElement("div");
+    codeLine.className = "cm-line";
+    codeContent.append(codeLine);
+    const codeText = document.createTextNode("some text");
+    codeLine.append(codeText);
+    decorator.append(codeContent);
+    rootElement.append(decorator);
+
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    }) as typeof window.requestAnimationFrame;
 
     mockGetRootElement.mockReturnValue(rootElement);
 
@@ -824,9 +844,11 @@ describe("MarkdownRichEditor", () => {
 
     const selectionSpy = vi.spyOn(window, "getSelection");
     selectionSpy.mockReturnValue({
+      addRange: vi.fn(),
       anchorNode: textNode,
       getRangeAt: () => caretRange,
       isCollapsed: true,
+      removeAllRanges: vi.fn(),
       rangeCount: 1,
     } as Selection);
 
@@ -885,6 +907,7 @@ describe("MarkdownRichEditor", () => {
     expect(rightEvent.stopPropagation).toHaveBeenCalled();
     expect(adjacentCodeBlockNode.select).toHaveBeenCalledTimes(1);
 
+    window.requestAnimationFrame = originalRequestAnimationFrame;
     selectionSpy.mockRestore();
     rootElement.remove();
   });
