@@ -404,6 +404,22 @@ cd /workspace/companion \
 
 ## Phase 4: TypeScript 6 Upgrade
 
+### Status
+
+Completed on 2026-06-21.
+
+Implemented results:
+
+- frontend upgraded to `typescript@6.0.3`
+- companion upgraded to `typescript@6.0.3`
+- no repo-local `tsconfig` changes were required for the TS 6 migration
+
+Validation status:
+
+- frontend Phase 4 command set: passing
+- companion Phase 4 command set: passing
+- broader repo regression gate `./scripts/test`: passing
+
 ### Target
 
 - frontend: `typescript` `5.9.3` -> `6.0.3`
