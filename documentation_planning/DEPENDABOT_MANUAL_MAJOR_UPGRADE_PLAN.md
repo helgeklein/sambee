@@ -213,10 +213,29 @@ This broader gate is slower and should be run at minimum after:
 
 ### Validation
 
-1. Frontend unit tests covering i18n setup and common UI renders.
-2. Companion i18n tests.
-3. Full frontend typecheck.
-4. Companion typecheck.
+Frontend exact commands:
+
+```bash
+cd /workspace/frontend \
+  && npx vitest run \
+    src/i18n/__tests__/index.test.ts \
+    src/config/__tests__/browserCommands.test.ts \
+    src/pages/__tests__/PreferencesSettings.test.tsx \
+  && npx tsc --noEmit \
+  && npm run lint
+```
+
+Companion exact commands:
+
+```bash
+cd /workspace/companion \
+  && npx vitest run \
+    src/i18n/__tests__/index.test.ts \
+    src/components/__tests__/Preferences.test.tsx \
+    src/components/__tests__/PairingWindow.test.tsx \
+  && npx tsc --noEmit \
+  && npm run lint
+```
 
 ### Acceptance criteria
 
@@ -255,9 +274,15 @@ This broader gate is slower and should be run at minimum after:
 
 ### Validation
 
-1. Targeted markdown-related Vitest suites.
-2. Full frontend typecheck.
-3. Frontend lint.
+```bash
+cd /workspace/frontend \
+  && npx vitest run \
+    src/components/Viewer/__tests__/MarkdownViewer.test.tsx \
+    src/components/Viewer/__tests__/MarkdownRichEditor.test.tsx \
+  && npm run test:e2e:markdown \
+  && npx tsc --noEmit \
+  && npm run lint
+```
 
 ### Acceptance criteria
 
@@ -309,10 +334,19 @@ The current lockfile shows a transitive constraint from `vite-prerender-plugin` 
 
 ### Validation
 
-1. `npx tsc --noEmit`
-2. companion tests
-3. companion lint
-4. full companion validation suite
+```bash
+cd /workspace/companion \
+  && npx vitest run \
+    src/components/__tests__/AppPicker.test.tsx \
+    src/components/__tests__/Preferences.test.tsx \
+    src/components/__tests__/PairingWindow.test.tsx \
+  && npm run build \
+  && npx tsc --noEmit \
+  && npm run lint \
+  && cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings \
+  && cargo fmt --manifest-path src-tauri/Cargo.toml --check \
+  && npm run check:rust:windows
+```
 
 ### Acceptance criteria
 
@@ -352,10 +386,33 @@ The current lockfile shows a transitive constraint from `vite-prerender-plugin` 
 
 ### Validation
 
-1. frontend typecheck
-2. companion typecheck
-3. frontend lint
-4. companion lint
+Frontend exact commands:
+
+```bash
+cd /workspace/frontend \
+  && npx tsc --noEmit \
+  && npm run lint \
+  && npx vitest run \
+    src/i18n/__tests__/index.test.ts \
+    src/pages/__tests__/PreferencesSettings.test.tsx
+```
+
+Companion exact commands:
+
+```bash
+cd /workspace/companion \
+  && npx tsc --noEmit \
+  && npm run lint \
+  && npx vitest run \
+    src/i18n/__tests__/index.test.ts \
+    src/components/__tests__/Preferences.test.tsx
+```
+
+Broader repo gate before merge:
+
+```bash
+cd /workspace && ./scripts/test
+```
 
 ### Acceptance criteria
 
@@ -396,10 +453,17 @@ The current lockfile shows a transitive constraint from `vite-prerender-plugin` 
 
 ### Validation
 
-1. frontend typecheck
-2. targeted frontend tests for rendering-heavy surfaces
-3. frontend lint
-4. smoke-check app boot and major routes
+```bash
+cd /workspace/frontend \
+  && npx vitest run \
+    src/__tests__/App.test.tsx \
+    src/pages/__tests__/Login.test.tsx \
+    src/pages/__tests__/FileBrowser-viewer.test.tsx \
+    src/components/__tests__/ErrorBoundary.test.tsx \
+  && npm run build \
+  && npx tsc --noEmit \
+  && npm run lint
+```
 
 ### Acceptance criteria
 
@@ -439,9 +503,18 @@ The current lockfile shows a transitive constraint from `vite-prerender-plugin` 
 
 ### Validation
 
-1. routing-related frontend tests
-2. full frontend typecheck
-3. smoke-check route transitions and browser navigation
+```bash
+cd /workspace/frontend \
+  && npx vitest run \
+    src/__tests__/App.test.tsx \
+    src/pages/__tests__/FileBrowser-url-routing.test.tsx \
+    src/pages/__tests__/FileBrowser-navigation.test.tsx \
+    src/components/Settings/__tests__/SettingsLayout.test.tsx \
+    src/components/Mobile/__tests__/HamburgerMenu.test.tsx \
+  && npm run build \
+  && npx tsc --noEmit \
+  && npm run lint
+```
 
 ### Acceptance criteria
 
@@ -512,10 +585,29 @@ Recommended staging:
 
 ### Validation
 
-1. frontend typecheck after each staged major
-2. frontend lint after each staged major
-3. targeted tests for viewer dialogs, settings dialogs, forms, menus, and navigation controls
-4. manual smoke pass on core settings and file-browser flows after each staged major
+Run this command set after each staged major:
+
+```bash
+cd /workspace/frontend \
+  && npx vitest run \
+    src/components/Settings/__tests__/SettingsDialog.test.tsx \
+    src/components/Admin/__tests__/ConnectionDialog.test.tsx \
+    src/components/Admin/__tests__/ResponsiveFormDialog.test.tsx \
+    src/components/FileBrowser/__tests__/ConnectionSelector.test.tsx \
+    src/components/FileBrowser/__tests__/CompanionPairingDialog.test.tsx \
+    src/components/Viewer/__tests__/ViewerControls.test.tsx \
+    src/pages/__tests__/ConnectionSettings.test.tsx \
+    src/pages/__tests__/UserManagementSettings.test.tsx \
+  && npm run build \
+  && npx tsc --noEmit \
+  && npm run lint
+```
+
+Before merge for each staged major:
+
+```bash
+cd /workspace && ./scripts/test
+```
 
 ### Acceptance criteria
 
