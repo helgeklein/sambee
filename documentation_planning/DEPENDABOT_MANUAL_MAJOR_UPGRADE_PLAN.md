@@ -324,6 +324,23 @@ cd /workspace/frontend \
 
 ## Phase 3: Companion Vite Upgrade
 
+### Status
+
+Completed on 2026-06-21.
+
+Implemented results:
+
+- companion upgraded directly from `vite@6.4.2` to `vite@8.0.16`
+- intermediate `vite@7.3.5` validation passed cleanly
+- follow-up `vite@8.0.16` spike also passed cleanly, so the phase did not need to stop at Vite 7
+- current transitive `vite-prerender-plugin` blocker assumption is no longer valid because the latest published plugin peer range includes Vite 8
+
+Validation status:
+
+- companion Phase 3 command set on Vite 7: passing
+- companion Phase 3 command set on Vite 8: passing
+- broader repo regression gate `./scripts/test`: passing
+
 ### Target
 
 - companion: `vite` `6.4.2` -> `7.x`, then reassess `8.x`
@@ -382,8 +399,8 @@ cd /workspace/companion \
 
 ### Acceptance criteria
 
-- companion is on Vite 7 with a green validation suite
-- Vite 8 has a documented go/no-go decision with the actual blocker named
+- companion is on Vite 8 with a green validation suite
+- Vite 8 is confirmed unblocked for the current companion dependency graph
 
 ## Phase 4: TypeScript 6 Upgrade
 
@@ -669,10 +686,11 @@ cd /workspace && ./scripts/test
 
 ## Known Blockers And Watch Items
 
-### Companion Vite 8 blocker candidate
+### Companion Vite 8 blocker follow-up
 
-- `vite-prerender-plugin` in the current companion dependency graph only advertises Vite `5.x || 6.x || 7.x`
-- this must be resolved or replaced before treating companion Vite 8 as routine
+- the original `vite-prerender-plugin` peer-range blocker is no longer current
+- `@preact/preset-vite@2.10.5` currently resolves a `vite-prerender-plugin` release line that advertises Vite 8 compatibility
+- companion validation passed on `vite@8.0.16`, so this item no longer blocks the upgrade plan
 
 ### MUI migration surface
 
@@ -686,15 +704,14 @@ cd /workspace && ./scripts/test
 
 1. PR 1: i18next and react-i18next
 2. PR 2: react-markdown
-3. PR 3: companion Vite 7
-4. PR 4: companion Vite 8 spike or blocker documentation
-5. PR 5: TypeScript 6 across frontend and companion
-6. PR 6: React 19 and matching type packages
-7. PR 7: React Router 7
-8. PR 8: MUI 5 -> 6
-9. PR 9: MUI 6 -> 7
-10. PR 10: MUI 7 -> 9
-11. PR 11: Dependabot cleanup and remaining-ignore reduction
+3. PR 3: companion Vite 8
+4. PR 4: TypeScript 6 across frontend and companion
+5. PR 5: React 19 and matching type packages
+6. PR 6: React Router 7
+7. PR 7: MUI 5 -> 6
+8. PR 8: MUI 6 -> 7
+9. PR 9: MUI 7 -> 9
+10. PR 10: Dependabot cleanup and remaining-ignore reduction
 
 ## Exit Criteria
 
