@@ -627,6 +627,8 @@ cd /workspace/frontend \
 
 ## Phase 7: Material UI Migration Project
 
+Status: completed
+
 ### Target
 
 - frontend: `@mui/material` `5.18.0` -> `9.x`
@@ -717,6 +719,23 @@ cd /workspace && ./scripts/test
 - frontend is on MUI 9 with no legacy compatibility alias left in Vite config
 - all slot and prop migrations are complete
 - dialog, menu, form, and viewer behavior remains correct
+
+### Execution outcome
+
+- staged majors were completed in order: MUI `5 -> 6`, `6 -> 7`, then `7 -> 9`
+- the legacy `@mui/icons-material/esm/*` Vite alias was removed during the MUI 7 stage
+- MUI 9 required migrating remaining deprecated `PaperProps`, `MenuListProps`, `InputLabelProps`, `InputProps`, `FormHelperTextProps`, `TransitionProps`, and `TransitionComponent` usage to `slotProps` and `slots`
+- MUI 9 also required icon import updates such as `CheckCircleOutline` -> `CheckCircleOutlined`
+- the MUI 9 upgrade exposed a transitive package-export problem in `react-transition-group`; the repo now applies a deterministic install-time patch in `frontend/scripts/patch-react-transition-group.mjs` via the frontend `postinstall` script
+- that patch is temporary and should be removed once a released upstream version exports `./TransitionGroupContext` correctly for the current Vite/Rolldown resolution path
+
+### Validation results
+
+- focused staged-major validation passed for the planned frontend slice
+- frontend build passed: `cd /workspace/frontend && npm run build`
+- frontend typecheck passed: `cd /workspace/frontend && npx tsc --noEmit`
+- frontend lint passed: `cd /workspace/frontend && npm run lint`
+- full repository regression gate passed: `cd /workspace && ./scripts/test`
 
 ## Phase 8: Final Cleanup
 

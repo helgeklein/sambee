@@ -98,9 +98,6 @@ export function ConnectionSelector({
         anchorEl={anchorEl}
         open={open}
         onClose={handleClose}
-        MenuListProps={{
-          role: "listbox",
-        }}
         anchorOrigin={{
           vertical: "bottom",
           horizontal: "right",
@@ -110,6 +107,9 @@ export function ConnectionSelector({
           horizontal: "right",
         }}
         slotProps={{
+          list: {
+            role: "listbox",
+          },
           paper: {
             sx: secondaryToolbarMenuPaperSx,
           },

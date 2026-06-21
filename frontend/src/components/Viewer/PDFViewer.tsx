@@ -33,19 +33,21 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 type ZoomMode = "fit-page" | "fit-width" | number;
 
 /**
- * Match location within extracted PDF text
- */
-interface MatchLocation {
-  page: number;
-  index: number;
-  length: number;
-}
-
-/**
- * PDF Viewer Component
- * Displays PDF files with navigation, zoom, and search capabilities.
- * Uses react-pdf for client-side rendering to enable text search.
- * Fetches PDFs via API with authentication headers, then creates blob URLs.
+        slotProps={{
+          paper: {
+            onKeyDown: handlePaperKeyDown,
+            sx: {
+              margin: 0,
+              width: "100dvw",
+              maxWidth: "100dvw",
+              height: "100dvh",
+              maxHeight: "100dvh",
+              display: "flex",
+              flexDirection: "column",
+              backgroundColor: viewerBg,
+            },
+          },
+        }}
  */
 const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
   const { t } = useTranslation();

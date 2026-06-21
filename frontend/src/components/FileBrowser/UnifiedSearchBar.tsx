@@ -890,9 +890,17 @@ export function UnifiedSearchBar({
               onFocus={handleInputFocus}
               onBlur={() => setIsFocused(false)}
               inputRef={effectiveInputRef}
-              inputProps={{
-                ...(disableTabFocus ? { tabIndex: -1 } : {}),
-                "data-quick-bar-input": "true",
+              slotProps={{
+                htmlInput: {
+                  ...(disableTabFocus ? { tabIndex: -1 } : {}),
+                  "data-quick-bar-input": "true",
+                },
+                input: {
+                  sx: {
+                    px: 0,
+                  },
+                  endAdornment,
+                },
               }}
               sx={{
                 flex: 1,
@@ -915,12 +923,6 @@ export function UnifiedSearchBar({
                 "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
                   border: "none",
                 },
-              }}
-              InputProps={{
-                sx: {
-                  px: 0,
-                },
-                endAdornment,
               }}
             />
           </Box>

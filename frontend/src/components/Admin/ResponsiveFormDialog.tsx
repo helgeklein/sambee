@@ -107,8 +107,10 @@ export function ResponsiveFormDialog({
         open={open}
         onClose={handleRequestClose}
         sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
-        PaperProps={{
-          sx: mobileFullscreenDrawerPaperSx,
+        slotProps={{
+          paper: {
+            sx: mobileFullscreenDrawerPaperSx,
+          },
         }}
       >
         <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -181,9 +183,11 @@ export function ResponsiveFormDialog({
       maxWidth={maxWidth}
       fullWidth
       sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}
-      PaperProps={{
-        sx: {
-          bgcolor: "background.default",
+      slotProps={{
+        paper: {
+          sx: {
+            bgcolor: "background.default",
+          },
         },
       }}
     >

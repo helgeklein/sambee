@@ -488,6 +488,12 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               onBlur={handlePageInputBlur}
               onKeyDown={handlePageInputKeyDown}
               size="small"
+              slotProps={{
+                htmlInput: {
+                  inputMode: "numeric",
+                  pattern: "[0-9]*",
+                },
+              }}
               sx={{
                 width: isMobile ? `${PAGE_INPUT.WIDTH_MOBILE_PX}px` : `${PAGE_INPUT.WIDTH_DESKTOP_PX}px`,
                 "& .MuiInputBase-root": {
@@ -507,10 +513,6 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   textAlign: "center",
                   padding: isMobile ? `${PAGE_INPUT.PADDING_MOBILE_PX}px` : `${PAGE_INPUT.PADDING_DESKTOP_PX}px`,
                 },
-              }}
-              inputProps={{
-                inputMode: "numeric",
-                pattern: "[0-9]*",
               }}
             />
 
@@ -619,8 +621,10 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 placeholder={t("common.search.placeholder")}
                 size="small"
                 inputRef={searchInputRef}
-                inputProps={{
-                  [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
+                slotProps={{
+                  htmlInput: {
+                    [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
+                  },
                 }}
                 sx={{
                   flex: 1,

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "start": "vite",
+    "postinstall": "node scripts/patch-react-transition-group.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "biome check src",
@@ -30,8 +31,8 @@
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
     "@mdxeditor/editor": "^4.0.4",
-    "@mui/icons-material": "^5.18.0",
-    "@mui/material": "^5.18.0",
+    "@mui/icons-material": "^9.1.1",
+    "@mui/material": "^9.1.1",
     "@react-spring/web": "^10.1.1",
     "@tanstack/react-virtual": "^3.14.3",
     "@use-gesture/react": "^10.3.1",

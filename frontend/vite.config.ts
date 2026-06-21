@@ -86,7 +86,6 @@ function readWorkspaceBuildValue(fileName: string, fallback: string): string {
 
 const SAMBEE_VERSION = readWorkspaceBuildValue("VERSION", "unknown");
 const SAMBEE_GIT_COMMIT = readWorkspaceBuildValue("GIT_COMMIT", "unknown");
-const MUI_ICONS_ESM_ALIAS = /^@mui\/icons-material\/(.+)$/;
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -97,12 +96,6 @@ export default defineConfig({
   },
   plugins: [react()],
   resolve: {
-    alias: [
-      {
-        find: MUI_ICONS_ESM_ALIAS,
-        replacement: "@mui/icons-material/esm/$1",
-      },
-    ],
     dedupe: ["react", "react-dom"],
   },
   server: {

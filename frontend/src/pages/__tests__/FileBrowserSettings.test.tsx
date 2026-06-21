@@ -23,14 +23,14 @@ describe("FileBrowserSettings", () => {
     expect(screen.getByText("File Browser")).toBeInTheDocument();
     expect(screen.getByText("Quick navigation")).toBeInTheDocument();
     expect(screen.getByText("Choose how quick navigation discovers folders in the file browser.")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Include dot directories in quick nav" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Include dot directories in quick nav" })).toBeInTheDocument();
   });
 
   it("updates the dot-directory preference", async () => {
     const user = userEvent.setup();
     render(<FileBrowserSettings />);
 
-    await user.click(screen.getByRole("checkbox", { name: "Include dot directories in quick nav" }));
+    await user.click(screen.getByRole("switch", { name: "Include dot directories in quick nav" }));
 
     expect(setIncludeDotDirectoriesMock).toHaveBeenCalledWith(true);
   });
