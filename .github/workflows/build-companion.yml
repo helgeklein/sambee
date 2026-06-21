@@ -155,7 +155,33 @@ jobs:
       # ── Code signing tools (Windows only) ──
       - name: Install trusted-signing-cli
         if: runner.os == 'Windows'
-        run: cargo install trusted-signing-cli --version 0.9.0 --locked
+        shell: pwsh
+        env:
+          CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+          CARGO_HTTP_MULTIPLEXING: "false"
+          CARGO_NET_RETRY: "5"
+        run: |
+          $maxRetries = 3
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            try {
+              Write-Host "Installing trusted-signing-cli (attempt $i/$maxRetries)..."
+              cargo install trusted-signing-cli --version 0.9.0 --locked
+              Write-Host "trusted-signing-cli installed successfully."
+              break
+            } catch {
+              if ($LASTEXITCODE -eq 0) {
+                throw
+              }
+
+              if ($i -eq $maxRetries) {
+                throw "Failed to install trusted-signing-cli after $maxRetries attempts: $_"
+              }
+
+              Write-Host "Attempt $i failed: $_"
+              Write-Host "Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
 
       - name: Pre-install Azure Code Signing dlib
         if: runner.os == 'Windows'
