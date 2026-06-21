@@ -34,7 +34,3 @@
 ## PDF viewer
 
 - Follow intra-doc links when clicked (e.g., from a ToC to a given page)
-
-## Dev framework
-
-- Major updates

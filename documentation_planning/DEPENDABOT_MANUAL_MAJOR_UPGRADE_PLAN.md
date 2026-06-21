@@ -740,6 +740,8 @@ cd /workspace && ./scripts/test
 
 ## Phase 8: Final Cleanup
 
+Status: completed
+
 ### Goals
 
 - remove stale Dependabot ignore rules for majors already adopted
@@ -757,6 +759,19 @@ cd /workspace && ./scripts/test
 
 - Dependabot ignores reflect current reality instead of historical risk
 - unresolved manual exclusions have named blockers and an explicit re-evaluation condition
+
+### Execution outcome
+
+- removed the stale frontend npm major ignore rules for MUI, React, routing, i18n, TypeScript, jsdom, and Vite-related packages from `.github/dependabot.yml`
+- removed the stale companion npm major ignore rules for i18next, jsdom, `@preact/preset-vite`, TypeScript, and Vite from `.github/dependabot.yml`
+- kept only the remaining non-npm ignore rules that still have concrete repo-specific rationale, including the backend `pydantic-core` hash-pinning exception and coordinated Docker runtime-version ignores
+- confirmed the earlier companion Vite blocker note is now historical only: the companion is already on `vite@8.0.16`, so no companion Vite major ignore remains justified
+
+### Validation results
+
+- reviewed `.github/dependabot.yml` against the completed upgrade phases and removed npm manual-major ignores that no longer reflect the repository baseline
+- frontend remains on the completed target majors for i18next, `react-markdown`, TypeScript 6, React 19, React Router 7, and MUI 9
+- companion remains on the completed target majors for Vite 8 and TypeScript 6, with no remaining documented blocker requiring a broad npm major ignore
 
 ## Known Blockers And Watch Items
 
