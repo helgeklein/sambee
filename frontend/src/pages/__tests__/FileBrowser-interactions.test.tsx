@@ -422,7 +422,7 @@ describe("Browser Component - Interactions", () => {
         expectDirectoryLoad("conn-2", "Documents");
       });
 
-      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
       await user.click(listContainer);
       await user.keyboard(" ");
       await user.keyboard("{F6}");

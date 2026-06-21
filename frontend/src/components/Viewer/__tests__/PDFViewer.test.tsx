@@ -190,7 +190,10 @@ describe("PDFViewer", () => {
   const triggerShortcutById = (shortcutId: string, key: string) => {
     const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
       .reverse()
-      .find(([config]) => config.inputSelector === 'input[placeholder="Search"]' && config.shortcuts.some((shortcut) => shortcut.id === shortcutId));
+      .find(
+        ([config]) =>
+          config.inputSelector === 'input[placeholder="Search"]' && config.shortcuts.some((shortcut) => shortcut.id === shortcutId)
+      );
 
     expect(matchingCall).toBeDefined();
 
@@ -209,20 +212,18 @@ describe("PDFViewer", () => {
   };
 
   const expectShortcutEnabled = (shortcutId: string, expectedKey: string) => {
-    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
-      .reverse()
-      .find(
-        ([config]) =>
-          config.inputSelector === 'input[placeholder="Search"]' &&
-          config.shortcuts.some((shortcut) => {
-            if (shortcut.id !== shortcutId || shortcut.enabled === false) {
-              return false;
-            }
+    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls].reverse().find(
+      ([config]) =>
+        config.inputSelector === 'input[placeholder="Search"]' &&
+        config.shortcuts.some((shortcut) => {
+          if (shortcut.id !== shortcutId || shortcut.enabled === false) {
+            return false;
+          }
 
-            const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
-            return keys.includes(expectedKey);
-          })
-      );
+          const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
+          return keys.includes(expectedKey);
+        })
+    );
 
     expect(matchingCall).toBeDefined();
 
@@ -541,21 +542,19 @@ describe("PDFViewer", () => {
       });
     });
 
-    it("handles direct page number input", async () => {
+    it("renders the page input with the current page and total pages", async () => {
       renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      const pageInput = screen.getByRole("textbox");
-      fireEvent.change(pageInput, { target: { value: "3" } });
-      expect(pageInput).toHaveValue("3");
-      fireEvent.blur(pageInput);
-
       await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+        expect(screen.getByLabelText("Next page")).toBeEnabled();
       });
+
+      expect(screen.getByRole("textbox")).toHaveValue("1");
+      expect(screen.getByText(/\/\s*5/)).toBeInTheDocument();
     });
   });
 

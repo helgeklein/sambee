@@ -231,7 +231,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     if (pageNavigation) {
       setPageInput(pageNavigation.currentPage.toString());
     }
-  }, [pageNavigation?.currentPage]);
+  }, [pageNavigation]);
 
   React.useEffect(() => {
     const justOpened = showSearch && !previousShowSearchRef.current;

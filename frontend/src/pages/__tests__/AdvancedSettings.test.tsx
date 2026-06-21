@@ -145,7 +145,8 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("button", { name: /reset override/i }));
+    const resetOverrideButton = await screen.findByRole("button", { name: /reset override/i });
+    await user.click(resetOverrideButton);
 
     await waitFor(() => {
       expect(api.updateAdvancedSettings).toHaveBeenCalledWith({

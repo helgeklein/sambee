@@ -136,7 +136,10 @@ describe("Browser - PDF Viewer Integration", () => {
   const triggerShortcutById = (shortcutId: string, key: string) => {
     const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
       .reverse()
-      .find(([config]) => config.inputSelector === 'input[placeholder="Search"]' && config.shortcuts.some((shortcut) => shortcut.id === shortcutId));
+      .find(
+        ([config]) =>
+          config.inputSelector === 'input[placeholder="Search"]' && config.shortcuts.some((shortcut) => shortcut.id === shortcutId)
+      );
 
     expect(matchingCall).toBeDefined();
 
@@ -155,20 +158,18 @@ describe("Browser - PDF Viewer Integration", () => {
   };
 
   const expectShortcutEnabled = (shortcutId: string, expectedKey: string) => {
-    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
-      .reverse()
-      .find(
-        ([config]) =>
-          config.inputSelector === 'input[placeholder="Search"]' &&
-          config.shortcuts.some((shortcut) => {
-            if (shortcut.id !== shortcutId || shortcut.enabled === false) {
-              return false;
-            }
+    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls].reverse().find(
+      ([config]) =>
+        config.inputSelector === 'input[placeholder="Search"]' &&
+        config.shortcuts.some((shortcut) => {
+          if (shortcut.id !== shortcutId || shortcut.enabled === false) {
+            return false;
+          }
 
-            const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
-            return keys.includes(expectedKey);
-          })
-      );
+          const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
+          return keys.includes(expectedKey);
+        })
+    );
 
     expect(matchingCall).toBeDefined();
 
@@ -368,6 +369,7 @@ describe("Browser - PDF Viewer Integration", () => {
     });
 
     it("jumps to specific page via input", async () => {
+      const user = userEvent.setup();
       renderBrowser();
 
       const pdfFile = await getFileButton("document.pdf");
@@ -378,8 +380,8 @@ describe("Browser - PDF Viewer Integration", () => {
       });
 
       const pageInput = screen.getByRole("textbox");
-      fireEvent.change(pageInput, { target: { value: "5" } });
-      expect(pageInput).toHaveValue("5");
+      await user.clear(pageInput);
+      await user.type(pageInput, "5");
       fireEvent.blur(pageInput);
 
       await waitFor(() => {
@@ -410,6 +412,7 @@ describe("Browser - PDF Viewer Integration", () => {
     });
 
     it("goes to first page (Home key)", async () => {
+      const user = userEvent.setup();
       renderBrowser();
 
       const pdfFile = await getFileButton("document.pdf");
@@ -423,8 +426,8 @@ describe("Browser - PDF Viewer Integration", () => {
 
       // Go to page 5
       const pageInput = screen.getByRole("textbox");
-      fireEvent.change(pageInput, { target: { value: "5" } });
-      expect(pageInput).toHaveValue("5");
+      await user.clear(pageInput);
+      await user.type(pageInput, "5");
       fireEvent.blur(pageInput);
 
       await waitFor(() => {
