@@ -340,7 +340,7 @@ describe("Browser Component - Interactions", () => {
         ([connectionId, path]) => connectionId === "conn-2" && path === "Documents"
       ).length;
 
-      const listContainer = screen.getAllByTestId("virtual-list")[0];
+      const listContainer = (await screen.findAllByTestId("virtual-list"))[0];
       await user.click(listContainer);
       await user.keyboard(" ");
       await user.keyboard("{F5}");

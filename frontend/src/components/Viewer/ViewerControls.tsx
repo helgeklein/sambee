@@ -231,7 +231,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     if (pageNavigation) {
       setPageInput(pageNavigation.currentPage.toString());
     }
-  }, [pageNavigation]);
+  }, [pageNavigation?.currentPage]);
 
   React.useEffect(() => {
     const justOpened = showSearch && !previousShowSearchRef.current;
@@ -262,9 +262,9 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     setPageInput(event.target.value);
   };
 
-  const handlePageInputBlur = () => {
+  const commitPageInput = (rawValue: string) => {
     if (!pageNavigation) return;
-    const pageNum = Number.parseInt(pageInput, 10);
+    const pageNum = Number.parseInt(rawValue, 10);
     if (pageNum >= 1 && pageNum <= pageNavigation.totalPages) {
       pageNavigation.onPageChange(pageNum);
     } else {
@@ -272,9 +272,13 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     }
   };
 
+  const handlePageInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
+    commitPageInput(event.currentTarget.value);
+  };
+
   const handlePageInputKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter") {
-      handlePageInputBlur();
+      commitPageInput((event.currentTarget as HTMLInputElement).value);
     }
   };
 

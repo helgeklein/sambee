@@ -213,13 +213,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       return;
     }
 
-    const focusTimeoutId = window.setTimeout(() => {
-      containerRef.current?.focus();
-    }, 100);
-
-    return () => {
-      window.clearTimeout(focusTimeoutId);
-    };
+    containerRef.current.focus();
   }, [loading, error, searchPanelOpen]);
 
   // Calculate page scale based on zoom mode
@@ -903,6 +897,8 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       onClose={onClose}
       maxWidth={false}
       fullScreen
+      disableAutoFocus
+      disableEnforceFocus
       disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
       ref={dialogRef}
       sx={{
@@ -1008,6 +1004,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         {/* PDF content area */}
         <Box
           ref={containerRef}
+          data-testid="pdf-viewer-content"
           tabIndex={0}
           sx={{
             flex: 1,

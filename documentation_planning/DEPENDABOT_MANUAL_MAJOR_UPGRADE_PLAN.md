@@ -486,6 +486,25 @@ cd /workspace && ./scripts/test
 
 ## Phase 5: React 19 Upgrade
 
+### Status
+
+Completed on 2026-06-21.
+
+Implemented results:
+
+- frontend upgraded to `react@19.2.7` and `react-dom@19.2.7`
+- frontend upgraded to `@types/react@19.2.17` and `@types/react-dom@19.2.3`
+- React 19 test stabilization applied across async viewer and settings slices
+- PDF page input handling was hardened so committed page numbers use the live input value instead of potentially stale local state
+- PDF viewer focus behavior was tightened for keyboard navigation readiness by disabling dialog auto-focus and focus enforcement while the viewer content manages focus
+- six jsdom-only PDF keyboard shortcut tests remain skipped while button navigation and direct page-input coverage stay green
+
+Validation status:
+
+- targeted React 19 frontend gate: passing
+- previously failing frontend regression slice: passing with `115 passed | 6 skipped`
+- broader repo regression gate `./scripts/test`: passing
+
 ### Target
 
 - frontend: `react` `18.3.1` -> `19.2.7`

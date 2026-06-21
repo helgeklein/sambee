@@ -108,6 +108,8 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
+    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
+
     const valueInputs = screen.getAllByLabelText("Value");
     const smbReadChunkInput = valueInputs[0]!;
     await user.clear(smbReadChunkInput);
@@ -166,6 +168,8 @@ describe("AdvancedSettings", () => {
     await waitFor(() => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
+
+    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
 
     const valueInputs = screen.getAllByLabelText("Value");
     const smbReadChunkInput = valueInputs[0]!;
