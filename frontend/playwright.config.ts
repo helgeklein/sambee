@@ -7,7 +7,7 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
   fullyParallel: false,
-  retries: 0,
+  retries: process.env.CI ? 1 : 0,
   use: {
     baseURL,
     trace: "on-first-retry",
@@ -22,6 +22,10 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
+    },
+    {
+      name: "firefox",
+      use: { ...devices["Desktop Firefox"] },
     },
   ],
 });

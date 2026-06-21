@@ -5,7 +5,8 @@
  * (ImageViewer, PDFViewer, MarkdownViewer).
  */
 
-import type { SxProps, Theme } from "@mui/material";
+import type { Theme } from "@mui/material";
+import type { SystemStyleObject } from "@mui/system";
 import type { ThemeConfig } from "./types";
 
 //
@@ -104,11 +105,13 @@ export function getViewerColors(theme: ThemeConfig, viewerType: "image" | "pdf" 
 //
 
 /**
- * GitHub-flavored markdown styling colors.
+ * Markdown styling colors aligned with the website docs code surfaces.
  */
 export const MARKDOWN_COLORS = {
   /** Code block and inline code background */
-  CODE_BG: "#f6f8fa",
+  CODE_BG: "#f0eee9",
+  /** Border used by docs code surfaces */
+  CODE_BORDER: "#d4c4ae",
   /** Table and blockquote border */
   BORDER: "#dfe2e5",
   /** Table header border */
@@ -123,7 +126,82 @@ export const MARKDOWN_COLORS = {
   HEADING_BORDER: "#eaecef",
 } as const;
 
-function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+const MARKDOWN_CODE_FONT_SIZE = "0.875em";
+const MARKDOWN_INLINE_CODE_PADDING = "0.125rem 0.375rem";
+const MARKDOWN_CODE_BLOCK_PADDING = "1.25rem";
+const MARKDOWN_CODE_BLOCK_LINE_HEIGHT = 1.65;
+const MARKDOWN_CODE_BLOCK_LIGHT_TEXT = "#1f262b";
+const MARKDOWN_CODE_BLOCK_DARK_TEXT = "#ebe8e2";
+const MARKDOWN_CODE_BLOCK_DARK_BG = "#1f1914";
+const MARKDOWN_CODE_INLINE_DARK_BG = "#2b2925";
+const MARKDOWN_CODE_BLOCK_DARK_BORDER = "#504535";
+const MARKDOWN_CODE_INLINE_DARK_BORDER = "#3b3935";
+const MARKDOWN_CODE_BLOCK_DARK_ACTIVE_LINE_BG = "#3d3d3d";
+export const MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG = "rgba(212, 196, 174, 0.35)";
+const MARKDOWN_TABLE_CELL_PADDING_INLINE = "0.675rem";
+const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
+const MARKDOWN_TABLE_FONT_SIZE = "0.9375em";
+const MARKDOWN_TABLE_HEADER_FONT_SIZE = "0.75rem";
+const MARKDOWN_TABLE_HEADER_LETTER_SPACING = "0.16em";
+const MARKDOWN_TABLE_LIGHT_BG = "#fbf9f4";
+const MARKDOWN_TABLE_LIGHT_ROW_ALT_BG = "#f5f3ee";
+const MARKDOWN_TABLE_LIGHT_HEADER_BG = "#eae8e3";
+const MARKDOWN_TABLE_LIGHT_BORDER = "#d4c4ae";
+const MARKDOWN_TABLE_LIGHT_BORDER_STRONG = "#827562";
+const MARKDOWN_TABLE_DARK_BG = "#1b1c19";
+const MARKDOWN_TABLE_DARK_ROW_ALT_BG = "#24231f";
+const MARKDOWN_TABLE_DARK_HEADER_BG = "#302e2a";
+const MARKDOWN_TABLE_DARK_BORDER = "#3b3935";
+const MARKDOWN_TABLE_DARK_BORDER_STRONG = "#504535";
+const MARKDOWN_TABLE_DARK_HEADER_TEXT = "#ebe8e2";
+const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
+const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
+
+export function getMarkdownCodeSurfaceColors(theme: Theme) {
+  if (theme.palette.mode === "dark") {
+    return {
+      blockBackground: MARKDOWN_CODE_BLOCK_DARK_BG,
+      inlineBackground: MARKDOWN_CODE_INLINE_DARK_BG,
+      blockBorder: MARKDOWN_CODE_BLOCK_DARK_BORDER,
+      inlineBorder: MARKDOWN_CODE_INLINE_DARK_BORDER,
+      textColor: MARKDOWN_CODE_BLOCK_DARK_TEXT,
+      activeLineGutterBackground: MARKDOWN_CODE_BLOCK_DARK_ACTIVE_LINE_BG,
+    };
+  }
+
+  return {
+    blockBackground: MARKDOWN_COLORS.CODE_BG,
+    inlineBackground: MARKDOWN_COLORS.CODE_BG,
+    blockBorder: MARKDOWN_COLORS.CODE_BORDER,
+    inlineBorder: MARKDOWN_COLORS.CODE_BORDER,
+    textColor: MARKDOWN_CODE_BLOCK_LIGHT_TEXT,
+    activeLineGutterBackground: MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG,
+  };
+}
+
+function getMarkdownTableSurfaceColors(theme: Theme) {
+  if (theme.palette.mode === "dark") {
+    return {
+      tableBackground: MARKDOWN_TABLE_DARK_BG,
+      alternateRowBackground: MARKDOWN_TABLE_DARK_ROW_ALT_BG,
+      headerBackground: MARKDOWN_TABLE_DARK_HEADER_BG,
+      headerText: MARKDOWN_TABLE_DARK_HEADER_TEXT,
+      border: MARKDOWN_TABLE_DARK_BORDER,
+      borderStrong: MARKDOWN_TABLE_DARK_BORDER_STRONG,
+    };
+  }
+
+  return {
+    tableBackground: MARKDOWN_TABLE_LIGHT_BG,
+    alternateRowBackground: MARKDOWN_TABLE_LIGHT_ROW_ALT_BG,
+    headerBackground: MARKDOWN_TABLE_LIGHT_HEADER_BG,
+    headerText: undefined,
+    border: MARKDOWN_TABLE_LIGHT_BORDER,
+    borderStrong: MARKDOWN_TABLE_LIGHT_BORDER_STRONG,
+  };
+}
+
+function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
     color: viewerText,
     fontFamily: "inherit",
@@ -156,24 +234,36 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
 
     // Code blocks: fixed width with internal scrolling.
     "& pre": {
-      backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      borderRadius: 1,
-      p: { xs: 1, sm: 2 },
-      overflow: "auto",
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
+      borderRadius: 0,
+      fontSize: MARKDOWN_CODE_FONT_SIZE,
+      padding: MARKDOWN_CODE_BLOCK_PADDING,
+      margin: "1.25rem 0",
+      overflowX: "auto",
+      lineHeight: MARKDOWN_CODE_BLOCK_LINE_HEIGHT,
       width: "100%",
     },
 
-    // Inline code: break long words.
-    "& code": {
-      backgroundColor: MARKDOWN_COLORS.CODE_BG,
-      padding: "0.2em 0.4em",
-      borderRadius: "3px",
-      fontSize: "0.9em",
+    // Inline code mirrors docs styling.
+    "& code:not(pre code)": {
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).inlineBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+      fontSize: MARKDOWN_CODE_FONT_SIZE,
+      fontWeight: "normal",
+      padding: MARKDOWN_INLINE_CODE_PADDING,
+      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).inlineBorder}`,
+      borderRadius: 0,
       overflowWrap: "break-word",
     },
 
-    // Code inside pre: preserve formatting (don't break).
+    // Code inside pre inherits the containing code surface.
     "& pre code": {
+      display: "block",
+      minWidth: "max-content",
+      color: "inherit",
+      border: 0,
       padding: 0,
       backgroundColor: "transparent",
       overflowWrap: "normal",
@@ -186,23 +276,35 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
       display: "block",
     },
 
-    // Tables: horizontal scroll if too wide.
+    // Tables mirror the website docs treatment.
     "& table": {
-      borderCollapse: "collapse",
-      width: "100%",
       display: "block",
+      width: "max-content",
+      maxWidth: "100%",
       overflowX: "auto",
+      borderCollapse: "collapse",
+      margin: "1.25rem 0",
+      fontSize: MARKDOWN_TABLE_FONT_SIZE,
+      border: (theme) => `1px solid ${getMarkdownTableSurfaceColors(theme).borderStrong}`,
+      backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).tableBackground,
     },
     "& table td, & table th": {
-      border: `1px solid ${MARKDOWN_COLORS.BORDER}`,
-      padding: "6px 13px",
+      border: (theme) => `1px solid ${getMarkdownTableSurfaceColors(theme).border}`,
+      paddingBlock: MARKDOWN_TABLE_CELL_PADDING_BLOCK,
+      paddingInline: MARKDOWN_TABLE_CELL_PADDING_INLINE,
+      textAlign: "left",
+      verticalAlign: "top",
     },
-    "& table tr": {
-      backgroundColor: MARKDOWN_COLORS.ROW_BG,
-      borderTop: `1px solid ${MARKDOWN_COLORS.BORDER_STRONG}`,
+    "& table thead th": {
+      backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).headerBackground,
+      color: (theme) => getMarkdownTableSurfaceColors(theme).headerText,
+      fontSize: MARKDOWN_TABLE_HEADER_FONT_SIZE,
+      fontWeight: 700,
+      letterSpacing: MARKDOWN_TABLE_HEADER_LETTER_SPACING,
+      textTransform: "uppercase",
     },
-    "& table tr:nth-of-type(even)": {
-      backgroundColor: MARKDOWN_COLORS.ROW_BG_ALT,
+    "& table tbody tr:nth-of-type(even)": {
+      backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).alternateRowBackground,
     },
 
     // Blockquotes.
@@ -261,7 +363,7 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
  * @param linkHoverColor - Hover color for markdown links
  * @returns SxProps for the markdown container
  */
-export function getMarkdownContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+export function getMarkdownContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
     // Layout
     minHeight: 0,
@@ -273,11 +375,62 @@ export function getMarkdownContentStyles(viewerText: string, linkColor: string, 
   };
 }
 
-export function getMarkdownEditorContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SxProps<Theme> {
+export function getMarkdownEditorContentStyles(viewerText: string, linkColor: string, linkHoverColor: string): SystemStyleObject<Theme> {
   return {
     minHeight: "100%",
     padding: 0,
     caretColor: viewerText,
     ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS}`]: {
+      "--baseBase": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBg": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBgSubtle": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBgHover": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      "--baseBgActive": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} > div`]: {
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
+      borderRadius: 0,
+      padding: MARKDOWN_CODE_BLOCK_PADDING,
+      fontSize: MARKDOWN_CODE_FONT_SIZE,
+      lineHeight: MARKDOWN_CODE_BLOCK_LINE_HEIGHT,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-scroller, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content, & .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-gutters`]:
+      {
+        backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+        color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+        fontSize: "inherit",
+        lineHeight: "inherit",
+      },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor`]: {
+      borderRadius: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor.cm-focused .cm-activeLineGutter`]: {
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+      fontWeight: 600,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor:not(.cm-focused) .cm-activeLineGutter`]: {
+      backgroundColor: "transparent",
+      color: "inherit",
+      fontWeight: "inherit",
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} [role='combobox']`]: {
+      borderRadius: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content`]: {
+      padding: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS}`]: {
+      backgroundColor: "transparent !important",
+      color: "inherit",
+      padding: 0,
+    },
+    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span`]: {
+      backgroundColor: "transparent !important",
+      color: "inherit",
+    },
   };
 }

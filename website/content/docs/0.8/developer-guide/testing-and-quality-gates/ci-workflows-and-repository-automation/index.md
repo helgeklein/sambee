@@ -51,6 +51,8 @@ It first detects which top-level product areas changed, then fans out only the r
 
 - backend
 - frontend
+- frontend Playwright Chromium smoke
+- frontend Playwright Firefox markdown coverage on pushes to `main` and manual runs
 - companion
 
 Manual dispatch runs all three areas.
@@ -58,6 +60,14 @@ Manual dispatch runs all three areas.
 The workflow ends with a single gate job so branch protection can depend on one stable required check instead of a changing set of per-area jobs.
 
 In the backend job, regular tests run under `pytest-xdist` for throughput, while `@performance` tests run in a separate serial pass so wall-clock assertions are not distorted by parallel worker contention.
+
+For frontend coverage, the workflow is intentionally layered:
+
+- the `frontend` job keeps the fast TypeScript, lint, and Vitest checks in the main PR path
+- the `frontend-e2e` job runs a bounded Playwright Chromium smoke slice on frontend changes
+- the `frontend-e2e-firefox` job runs the markdown editor Playwright slice only on pushes to `main` and manual dispatch
+
+That split keeps pull-request runtime under control while still protecting the browser-sensitive editing workflows that unit tests do not cover.
 
 The current companion test job does not call `./scripts/test`.
 It runs explicit steps for Node install, companion TypeScript type checking, and `cargo test`.
@@ -84,6 +94,12 @@ When dependency manifests or lockfiles change, commit the corresponding lockfile
 For fast local iteration, use `./scripts/test`.
 
 When you want a closer CI-style pass, run the per-subsystem checks from [Test Strategy Overview](../test-strategy-overview/) and keep lockfile-driven installs intact.
+
+For frontend work, that usually means:
+
+- `cd frontend && npm test` for the default Vitest suite
+- `cd frontend && npm run test:e2e` for the default Chromium browser pass
+- `cd frontend && npm run test:e2e:firefox` when the change is browser-sensitive enough to justify the extra cross-browser pass
 
 `./scripts/test` now includes a local companion Windows GNU target compatibility check.
 That check is intentionally a local validation aid, not part of the current `CI: Test` workflow contract.
