@@ -727,7 +727,8 @@ cd /workspace && ./scripts/test
 - MUI 9 required migrating remaining deprecated `PaperProps`, `MenuListProps`, `InputLabelProps`, `InputProps`, `FormHelperTextProps`, `TransitionProps`, and `TransitionComponent` usage to `slotProps` and `slots`
 - MUI 9 also required icon import updates such as `CheckCircleOutline` -> `CheckCircleOutlined`
 - the MUI 9 upgrade exposed a transitive package-export problem in `react-transition-group`; the repo now applies a deterministic install-time patch in `frontend/scripts/patch-react-transition-group.mjs` via the frontend `postinstall` script
-- that patch is temporary and should be removed once a released upstream version exports `./TransitionGroupContext` correctly for the current Vite/Rolldown resolution path
+- that patch is intentionally self-limiting: it only fills missing export entries and preserves any future upstream export definition for `./TransitionGroupContext`
+- the patch is temporary and should be removed once a released upstream version exports `./TransitionGroupContext` correctly for the current Vite/Rolldown resolution path
 
 ### Validation results
 

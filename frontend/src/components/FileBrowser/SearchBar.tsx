@@ -88,28 +88,30 @@ export function SearchBar({ value, onChange, inputRef, useCompactLayout = false,
             border: "none",
           },
         }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon fontSize={useCompactLayout ? "medium" : "small"} />
-            </InputAdornment>
-          ),
-          endAdornment: value && (
-            <InputAdornment position="end">
-              <IconButton
-                size="small"
-                onClick={() => onChange("")}
-                edge="end"
-                sx={{
-                  minWidth: { xs: 44, sm: "auto" },
-                  minHeight: { xs: 44, sm: "auto" },
-                }}
-                aria-label={t("common.search.clear")}
-              >
-                <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
-              </IconButton>
-            </InputAdornment>
-          ),
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize={useCompactLayout ? "medium" : "small"} />
+              </InputAdornment>
+            ),
+            endAdornment: value && (
+              <InputAdornment position="end">
+                <IconButton
+                  size="small"
+                  onClick={() => onChange("")}
+                  edge="end"
+                  sx={{
+                    minWidth: { xs: 44, sm: "auto" },
+                    minHeight: { xs: 44, sm: "auto" },
+                  }}
+                  aria-label={t("common.search.clear")}
+                >
+                  <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
+                </IconButton>
+              </InputAdornment>
+            ),
+          },
         }}
       />
     </Paper>

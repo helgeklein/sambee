@@ -66,8 +66,10 @@ export const MobileSettingsDrawer: React.FC<MobileSettingsDrawerProps> = ({
       anchor="right"
       open={open}
       onClose={onClose}
-      PaperProps={{
-        sx: mobileFullscreenDrawerPaperSx,
+      slotProps={{
+        paper: {
+          sx: mobileFullscreenDrawerPaperSx,
+        },
       }}
     >
       <Box sx={getMobileViewportShellSx()}>

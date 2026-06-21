@@ -70,9 +70,11 @@ const ConfirmDeleteDialog: React.FC<ConfirmDeleteDialogProps> = ({ open, itemNam
       open={open}
       onClose={isDeleting ? undefined : onClose}
       onKeyDown={handleKeyDown}
-      TransitionComponent={NoTransition}
-      PaperProps={{
-        sx: { bgcolor: "background.default" },
+      slots={{ transition: NoTransition }}
+      slotProps={{
+        paper: {
+          sx: { bgcolor: "background.default" },
+        },
       }}
     >
       <DialogTitle>{title}</DialogTitle>

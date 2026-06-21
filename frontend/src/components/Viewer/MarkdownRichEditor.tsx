@@ -1446,14 +1446,16 @@ const MarkdownLinkDialogProvider = ({
         onClose={closeLinkDialog}
         fullWidth
         maxWidth={MARKDOWN_LINK_DIALOG_MAX_WIDTH}
-        TransitionProps={{
-          onExited: () => {
-            if (!shouldRestoreSelectionOnCloseRef.current) {
-              return;
-            }
+        slotProps={{
+          transition: {
+            onExited: () => {
+              if (!shouldRestoreSelectionOnCloseRef.current) {
+                return;
+              }
 
-            shouldRestoreSelectionOnCloseRef.current = false;
-            restoreEditorSelection();
+              shouldRestoreSelectionOnCloseRef.current = false;
+              restoreEditorSelection();
+            },
           },
         }}
         onKeyDown={(event) => {

@@ -15,6 +15,21 @@ const TRANSITION_GROUP_CONTEXT_EXPORT = {
   default: "./esm/TransitionGroupContext.js",
 };
 
+function mergeExportEntry(existingEntry, fallbackEntry) {
+  if (existingEntry === undefined) {
+    return fallbackEntry;
+  }
+
+  if (typeof existingEntry !== "object" || existingEntry === null || Array.isArray(existingEntry)) {
+    return existingEntry;
+  }
+
+  return {
+    ...fallbackEntry,
+    ...existingEntry,
+  };
+}
+
 async function patchReactTransitionGroupPackage() {
   let source;
 
@@ -29,8 +44,8 @@ async function patchReactTransitionGroupPackage() {
 
   const nextExports = {
     ...exportsField,
-    ".": exportsField["."] ?? ROOT_EXPORT,
-    "./TransitionGroupContext": TRANSITION_GROUP_CONTEXT_EXPORT,
+    ".": mergeExportEntry(exportsField["."], ROOT_EXPORT),
+    "./TransitionGroupContext": mergeExportEntry(exportsField["./TransitionGroupContext"], TRANSITION_GROUP_CONTEXT_EXPORT),
   };
 
   if (JSON.stringify(exportsField) === JSON.stringify(nextExports)) {

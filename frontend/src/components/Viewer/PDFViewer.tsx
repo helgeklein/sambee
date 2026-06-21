@@ -33,21 +33,19 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 type ZoomMode = "fit-page" | "fit-width" | number;
 
 /**
-        slotProps={{
-          paper: {
-            onKeyDown: handlePaperKeyDown,
-            sx: {
-              margin: 0,
-              width: "100dvw",
-              maxWidth: "100dvw",
-              height: "100dvh",
-              maxHeight: "100dvh",
-              display: "flex",
-              flexDirection: "column",
-              backgroundColor: viewerBg,
-            },
-          },
-        }}
+ * Match location within extracted PDF text.
+ */
+interface MatchLocation {
+  page: number;
+  index: number;
+  length: number;
+}
+
+/**
+ * PDF Viewer Component
+ * Displays PDF files with navigation, zoom, and search capabilities.
+ * Uses react-pdf for client-side rendering to enable text search.
+ * Fetches PDFs via API with authentication headers, then creates blob URLs.
  */
 const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose, isReadOnly = false }) => {
   const { t } = useTranslation();
@@ -113,6 +111,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setLoading(true);
         setError(null);
         setShareFile(null);
+        setNumPages(0);
+        setCurrentPage(1);
+        setPageTexts(new Map());
+        setMatchLocations([]);
+        setCurrentMatch(0);
 
         const blob = await fetchWithRetry(
           () =>
@@ -757,17 +760,19 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           justifyContent: "stretch",
         },
       }}
-      PaperProps={{
-        onKeyDown: handlePaperKeyDown,
-        sx: {
-          backgroundColor: viewerBg,
-          boxShadow: "none",
-          margin: 0,
-          width: "100dvw",
-          maxWidth: "100dvw",
-          height: "100dvh",
-          maxHeight: "100dvh",
-          overflow: "hidden",
+      slotProps={{
+        paper: {
+          onKeyDown: handlePaperKeyDown,
+          sx: {
+            backgroundColor: viewerBg,
+            boxShadow: "none",
+            margin: 0,
+            width: "100dvw",
+            maxWidth: "100dvw",
+            height: "100dvh",
+            maxHeight: "100dvh",
+            overflow: "hidden",
+          },
         },
       }}
     >
@@ -956,21 +961,23 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   </Box>
                 }
               >
-                <div style={{ position: "relative", display: "inline-block" }} data-page-number={currentPage}>
-                  <Page
-                    pageNumber={currentPage}
-                    scale={pageScale || undefined}
-                    width={pageWidth || undefined}
-                    rotate={rotation}
-                    renderTextLayer={true}
-                    renderAnnotationLayer={true}
-                    loading={<CircularProgress />}
-                    onRenderSuccess={() => {
-                      // Trigger highlighting effect when page finishes rendering
-                      setPageRenderTrigger((prev) => prev + 1);
-                    }}
-                  />
-                </div>
+                {numPages > 0 && (
+                  <div style={{ position: "relative", display: "inline-block" }} data-page-number={currentPage}>
+                    <Page
+                      pageNumber={currentPage}
+                      scale={pageScale || undefined}
+                      width={pageWidth || undefined}
+                      rotate={rotation}
+                      renderTextLayer={true}
+                      renderAnnotationLayer={true}
+                      loading={<CircularProgress />}
+                      onRenderSuccess={() => {
+                        // Trigger highlighting effect when page finishes rendering
+                        setPageRenderTrigger((prev) => prev + 1);
+                      }}
+                    />
+                  </div>
+                )}
               </Document>
             </Box>
           )}
