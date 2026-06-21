@@ -501,8 +501,15 @@ function getAdjacentCodeBlockContent(rootElement: HTMLElement, direction: CodeBl
 }
 
 function isFocusWithinElement(element: HTMLElement): boolean {
-  const activeElement = document.activeElement;
-  return activeElement instanceof HTMLElement && element.contains(activeElement);
+  const ownerDocument = element.ownerDocument;
+  const activeElement = ownerDocument?.activeElement;
+  const elementConstructor = ownerDocument?.defaultView?.HTMLElement;
+
+  if (!element.isConnected || !activeElement || !elementConstructor) {
+    return false;
+  }
+
+  return activeElement instanceof elementConstructor && element.contains(activeElement);
 }
 
 function getAdjacentTableContent(rootElement: HTMLElement, direction: CodeBlockBoundaryDirection): HTMLElement | null {
