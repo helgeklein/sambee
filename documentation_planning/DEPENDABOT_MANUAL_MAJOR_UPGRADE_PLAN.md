@@ -181,6 +181,22 @@ This broader gate is slower and should be run at minimum after:
 
 ## Phase 1: I18n Stack Upgrade
 
+### Status
+
+Completed on 2026-06-21.
+
+Implemented results:
+
+- frontend upgraded to `i18next@26.3.1` and `react-i18next@17.0.8`
+- companion upgraded to `i18next@26.3.1`
+- obsolete `showSupportNotice` init option removed from frontend and companion i18n initialization
+- companion preferences i18n assertions updated to use translation keys instead of stale hardcoded pseudo-localized strings
+
+Validation status:
+
+- frontend Phase 1 command set: passing
+- companion Phase 1 command set: passing
+
 ### Target
 
 - frontend: `i18next` `25.10.10` -> `26.3.1`
@@ -244,6 +260,22 @@ cd /workspace/companion \
 - no runtime locale initialization regressions in frontend or companion
 
 ## Phase 2: React Markdown Upgrade
+
+### Status
+
+Completed on 2026-06-21.
+
+Implemented results:
+
+- frontend upgraded to `react-markdown@10.1.0`
+- no repo-local `MarkdownViewer` code changes were required for the v10 migration
+
+Validation status:
+
+- targeted markdown Vitest suites: passing
+- markdown Playwright suite: passing
+- frontend typecheck: passing
+- frontend lint: passing
 
 ### Target
 
