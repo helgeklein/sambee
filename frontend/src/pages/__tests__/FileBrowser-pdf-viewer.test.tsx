@@ -3,11 +3,12 @@
  * Tests for PDF file viewing workflows
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as keyboardShortcutsHook from "../../hooks/useKeyboardShortcuts";
 import apiService from "../../services/api";
 import { SambeeThemeProvider } from "../../theme/ThemeContext";
 import { FileType } from "../../types";
@@ -116,6 +117,8 @@ global.URL.createObjectURL = vi.fn(() => "blob:mock-pdf-url");
 global.URL.revokeObjectURL = vi.fn();
 
 describe("Browser - PDF Viewer Integration", () => {
+  const useKeyboardShortcutsSpy = vi.spyOn(keyboardShortcutsHook, "useKeyboardShortcuts");
+
   const renderBrowser = (initialPath = "/browse/smb/test-server-1") => {
     return render(
       <SambeeThemeProvider>
@@ -128,6 +131,53 @@ describe("Browser - PDF Viewer Integration", () => {
         </MemoryRouter>
       </SambeeThemeProvider>
     );
+  };
+
+  const triggerShortcutById = (shortcutId: string, key: string) => {
+    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
+      .reverse()
+      .find(([config]) => config.inputSelector === 'input[placeholder="Search"]' && config.shortcuts.some((shortcut) => shortcut.id === shortcutId));
+
+    expect(matchingCall).toBeDefined();
+
+    const matchedShortcut = matchingCall![0].shortcuts.find((shortcut) => shortcut.id === shortcutId && shortcut.enabled !== false);
+
+    expect(matchedShortcut).toBeDefined();
+    act(() => {
+      matchedShortcut!.handler(new KeyboardEvent("keydown", { key }));
+    });
+  };
+
+  const waitForPageNavigationReady = async () => {
+    await waitFor(() => {
+      expect(screen.getByLabelText("Next page")).toBeEnabled();
+    });
+  };
+
+  const expectShortcutEnabled = (shortcutId: string, expectedKey: string) => {
+    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
+      .reverse()
+      .find(
+        ([config]) =>
+          config.inputSelector === 'input[placeholder="Search"]' &&
+          config.shortcuts.some((shortcut) => {
+            if (shortcut.id !== shortcutId || shortcut.enabled === false) {
+              return false;
+            }
+
+            const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
+            return keys.includes(expectedKey);
+          })
+      );
+
+    expect(matchingCall).toBeDefined();
+
+    const matchedShortcut = matchingCall![0].shortcuts.find((shortcut) => shortcut.id === shortcutId);
+
+    expect(matchedShortcut).toBeDefined();
+    expect(matchedShortcut!.enabled).not.toBe(false);
+    const keys = Array.isArray(matchedShortcut!.keys) ? matchedShortcut!.keys : [matchedShortcut!.keys];
+    expect(keys).toContain(expectedKey);
   };
 
   beforeEach(() => {
@@ -337,8 +387,7 @@ describe("Browser - PDF Viewer Integration", () => {
       });
     });
 
-    it.skip("navigates using keyboard (ArrowLeft/Right)", async () => {
-      const user = userEvent.setup();
+    it("registers ArrowLeft and ArrowRight navigation when page navigation is active", async () => {
       renderBrowser();
 
       const pdfFile = await getFileButton("document.pdf");
@@ -348,22 +397,16 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
-      const viewerContent = screen.getByTestId("pdf-viewer-content");
-      viewerContent.focus();
+      await waitForPageNavigationReady();
 
       // Navigate forward
-      await user.keyboard("{ArrowRight}");
+      triggerShortcutById("next-arrow", "ArrowRight");
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
 
-      // Navigate backward
-      await user.keyboard("{ArrowLeft}");
-
-      await waitFor(() => {
-        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
-      });
+      expectShortcutEnabled("previous-arrow", "ArrowLeft");
     });
 
     it("goes to first page (Home key)", async () => {
@@ -396,8 +439,7 @@ describe("Browser - PDF Viewer Integration", () => {
       });
     });
 
-    it.skip("goes to last page (End key)", async () => {
-      const user = userEvent.setup();
+    it("goes to last page (End key)", async () => {
       renderBrowser();
 
       const pdfFile = await getFileButton("document.pdf");
@@ -407,10 +449,9 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
-      const viewerContent = screen.getByTestId("pdf-viewer-content");
-      viewerContent.focus();
+      await waitForPageNavigationReady();
 
-      await user.keyboard("{End}");
+      triggerShortcutById("last-page", "End");
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "10");

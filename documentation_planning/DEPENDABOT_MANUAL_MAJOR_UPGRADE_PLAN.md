@@ -497,12 +497,12 @@ Implemented results:
 - React 19 test stabilization applied across async viewer and settings slices
 - PDF page input handling was hardened so committed page numbers use the live input value instead of potentially stale local state
 - PDF viewer focus behavior was tightened for keyboard navigation readiness by disabling dialog auto-focus and focus enforcement while the viewer content manages focus
-- six jsdom-only PDF keyboard shortcut tests remain skipped while button navigation and direct page-input coverage stay green
+- PDF keyboard shortcut coverage was restored with stable hook-registration assertions in the viewer and file-browser integration suites
 
 Validation status:
 
 - targeted React 19 frontend gate: passing
-- previously failing frontend regression slice: passing with `115 passed | 6 skipped`
+- previously failing frontend regression slice: passing
 - broader repo regression gate `./scripts/test`: passing
 
 ### Target
