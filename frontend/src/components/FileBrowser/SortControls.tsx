@@ -1,9 +1,15 @@
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
-import { Box, Button, Divider, Menu, MenuItem, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Box, Button, Divider, Menu, MenuItem, Typography } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { SortField } from "../../pages/FileBrowser/types";
-import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
+import {
+  getSecondaryToolbarMenuPaperStyle,
+  secondaryStripButtonContentSx,
+  secondaryStripButtonIconSx,
+  secondaryStripButtonLabelSx,
+  secondaryStripButtonSx,
+} from "../../theme/commonStyles";
 import { SORT_CONTROLS_STRINGS } from "./sortControlsStrings";
 
 interface SortControlsProps {
@@ -27,8 +33,6 @@ export function SortControls({
   onAfterChange,
   disableTabFocus,
 }: SortControlsProps) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { anchorEl, open, handleClick, handleKeyDown, handleKeyUp, handleClose } = usePillButtonMenu(onAfterChange);
 
   const handleCriterionChange = (field: SortField) => {
@@ -44,10 +48,11 @@ export function SortControls({
   };
 
   const currentLabel = SORT_CONTROLS_STRINGS.fieldLabel(sortBy);
-  const directionIcon = sortDirection === "asc" ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />;
+  const directionIcon =
+    sortDirection === "asc" ? <ArrowUpwardIcon sx={secondaryStripButtonIconSx} /> : <ArrowDownwardIcon sx={secondaryStripButtonIconSx} />;
 
   return (
-    <Box display="flex" alignItems="center" gap={1}>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <Button
         onClick={handleClick}
         onKeyDown={handleKeyDown}
@@ -55,19 +60,17 @@ export function SortControls({
         size="small"
         tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
-          ...pillButtonStyle,
+          ...secondaryStripButtonSx,
           color: "text.secondary",
-          minHeight: isMobile ? "44px" : undefined,
-          px: 2,
         }}
         aria-label={SORT_CONTROLS_STRINGS.ARIA_LABEL}
         aria-controls={open ? "sort-menu" : undefined}
         aria-haspopup="true"
         aria-expanded={open ? "true" : undefined}
       >
-        <Box display="flex" alignItems="center" gap={0.5}>
+        <Box sx={secondaryStripButtonContentSx}>
           {directionIcon}
-          <Typography variant="body2">{currentLabel}</Typography>
+          <Typography sx={secondaryStripButtonLabelSx}>{currentLabel}</Typography>
         </Box>
       </Button>
       <Menu

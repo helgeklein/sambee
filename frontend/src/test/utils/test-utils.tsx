@@ -27,7 +27,7 @@ function AllProviders({ children }: AllProvidersProps) {
     <LocalePreferencesProvider>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>{children}</BrowserRouter>
+        <BrowserRouter>{children}</BrowserRouter>
       </ThemeProvider>
     </LocalePreferencesProvider>
   );

@@ -491,19 +491,21 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
             justifyContent: "stretch",
           },
         }}
-        PaperProps={{
-          onKeyDown: handlePaperKeyDown,
-          sx: {
-            backgroundColor: viewerBg,
-            boxShadow: "none",
-            margin: 0,
-            width: "100dvw",
-            maxWidth: "100dvw",
-            height: "100dvh",
-            maxHeight: "100dvh",
-            overflow: "hidden",
-            display: "flex",
-            flexDirection: "column",
+        slotProps={{
+          paper: {
+            onKeyDown: handlePaperKeyDown,
+            sx: {
+              backgroundColor: viewerBg,
+              boxShadow: "none",
+              margin: 0,
+              width: "100dvw",
+              maxWidth: "100dvw",
+              height: "100dvh",
+              maxHeight: "100dvh",
+              overflow: "hidden",
+              display: "flex",
+              flexDirection: "column",
+            },
           },
         }}
       >

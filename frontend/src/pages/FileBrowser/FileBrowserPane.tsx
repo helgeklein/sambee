@@ -341,13 +341,13 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
       {/* Breadcrumbs + View/Sort controls (desktop) */}
       {!useCompactLayout && (
         <Box
-          display="flex"
-          alignItems="center"
           sx={{
             mb: 2,
             px: 2,
             height: STATUS_BAR_HEIGHT,
             boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
           }}
         >
           <BreadcrumbsNavigation

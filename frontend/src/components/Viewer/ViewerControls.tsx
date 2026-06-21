@@ -206,6 +206,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const searchTextLength = search?.searchText.length ?? 0;
   const searchMatches = search?.searchMatches ?? 0;
   const currentMatch = search?.currentMatch ?? 0;
+  const currentPage = pageNavigation?.currentPage;
   const canNavigateSearch = searchMatches > 0;
   const previousShowSearchRef = useRef(showSearch);
   const closeSearch = (reason: "escape" | "toggle") => {
@@ -228,10 +229,10 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
 
   // Update page input when page changes externally
   React.useEffect(() => {
-    if (pageNavigation) {
-      setPageInput(pageNavigation.currentPage.toString());
+    if (currentPage !== undefined) {
+      setPageInput(currentPage.toString());
     }
-  }, [pageNavigation]);
+  }, [currentPage]);
 
   React.useEffect(() => {
     const justOpened = showSearch && !previousShowSearchRef.current;
@@ -262,9 +263,9 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     setPageInput(event.target.value);
   };
 
-  const handlePageInputBlur = () => {
+  const commitPageInput = (rawValue: string) => {
     if (!pageNavigation) return;
-    const pageNum = Number.parseInt(pageInput, 10);
+    const pageNum = Number.parseInt(rawValue, 10);
     if (pageNum >= 1 && pageNum <= pageNavigation.totalPages) {
       pageNavigation.onPageChange(pageNum);
     } else {
@@ -272,9 +273,13 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     }
   };
 
+  const handlePageInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
+    commitPageInput(event.currentTarget.value);
+  };
+
   const handlePageInputKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Enter") {
-      handlePageInputBlur();
+      commitPageInput((event.currentTarget as HTMLInputElement).value);
     }
   };
 
@@ -483,6 +488,12 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
               onBlur={handlePageInputBlur}
               onKeyDown={handlePageInputKeyDown}
               size="small"
+              slotProps={{
+                htmlInput: {
+                  inputMode: "numeric",
+                  pattern: "[0-9]*",
+                },
+              }}
               sx={{
                 width: isMobile ? `${PAGE_INPUT.WIDTH_MOBILE_PX}px` : `${PAGE_INPUT.WIDTH_DESKTOP_PX}px`,
                 "& .MuiInputBase-root": {
@@ -502,10 +513,6 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                   textAlign: "center",
                   padding: isMobile ? `${PAGE_INPUT.PADDING_MOBILE_PX}px` : `${PAGE_INPUT.PADDING_DESKTOP_PX}px`,
                 },
-              }}
-              inputProps={{
-                inputMode: "numeric",
-                pattern: "[0-9]*",
               }}
             />
 
@@ -614,8 +621,10 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
                 placeholder={t("common.search.placeholder")}
                 size="small"
                 inputRef={searchInputRef}
-                inputProps={{
-                  [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
+                slotProps={{
+                  htmlInput: {
+                    [VIEWER_SEARCH_INPUT_ATTRIBUTE]: "true",
+                  },
                 }}
                 sx={{
                   flex: 1,

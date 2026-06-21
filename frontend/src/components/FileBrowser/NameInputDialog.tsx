@@ -181,8 +181,8 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
     <Dialog
       open={open}
       onClose={isSubmitting ? undefined : onClose}
-      TransitionComponent={NoTransition}
-      PaperProps={{ sx: { bgcolor: "background.default" } }}
+      slots={{ transition: NoTransition }}
+      slotProps={{ paper: { sx: { bgcolor: "background.default" } } }}
       maxWidth="sm"
       fullWidth
     >
@@ -199,7 +199,7 @@ const NameInputDialog: React.FC<NameInputDialogProps> = ({
           helperText={validationError}
           variant="outlined"
           {...FILENAME_FIELD_PROPS}
-          inputProps={FILENAME_INPUT_PROPS}
+          slotProps={{ htmlInput: FILENAME_INPUT_PROPS }}
           sx={{ mt: 1, ...FILENAME_INPUT_SX }}
         />
         {apiError && !validationError && (

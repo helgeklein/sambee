@@ -104,11 +104,11 @@ describe("SettingsDialog Component", () => {
 
     // Should show all categories in sidebar
     expect(screen.getByText("Settings")).toBeInTheDocument();
-    const appearanceOption = screen.getByRole("option", { name: /appearance/i });
+    const appearanceOption = await screen.findByRole("option", { name: /appearance/i });
     const fileBrowserOption = screen.getByRole("option", { name: /file browser/i });
     const connectionsOption = screen.getByRole("option", { name: /^connections$/i });
-    const userManagementOption = screen.getByRole("option", { name: /user management/i });
-    const systemOption = screen.getByRole("option", { name: /system/i });
+    const userManagementOption = await screen.findByRole("option", { name: /user management/i });
+    const systemOption = await screen.findByRole("option", { name: /system/i });
 
     expect(appearanceOption).toBeInTheDocument();
     expect(fileBrowserOption).toBeInTheDocument();
@@ -227,7 +227,7 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    const userManagementOption = screen.getByRole("option", { name: /user management/i });
+    const userManagementOption = await screen.findByRole("option", { name: /user management/i });
     await user.click(userManagementOption);
 
     expect(screen.getByText("User Management Settings Content")).toBeInTheDocument();
@@ -243,7 +243,7 @@ describe("SettingsDialog Component", () => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
 
-    const systemOption = screen.getByRole("option", { name: /system/i });
+    const systemOption = await screen.findByRole("option", { name: /system/i });
     await user.click(systemOption);
 
     expect(screen.getByText("System Settings Content")).toBeInTheDocument();
@@ -281,6 +281,8 @@ describe("SettingsDialog Component", () => {
     await waitFor(() => {
       expect(api.getCurrentUser).toHaveBeenCalled();
     });
+
+    await screen.findByRole("option", { name: /system/i });
 
     const appearanceOption = screen.getByRole("option", { name: /appearance/i });
     appearanceOption.focus();

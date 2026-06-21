@@ -108,6 +108,8 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
+    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
+
     const valueInputs = screen.getAllByLabelText("Value");
     const smbReadChunkInput = valueInputs[0]!;
     await user.clear(smbReadChunkInput);
@@ -143,7 +145,8 @@ describe("AdvancedSettings", () => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
 
-    await user.click(screen.getByRole("button", { name: /reset override/i }));
+    const resetOverrideButton = await screen.findByRole("button", { name: /reset override/i });
+    await user.click(resetOverrideButton);
 
     await waitFor(() => {
       expect(api.updateAdvancedSettings).toHaveBeenCalledWith({
@@ -166,6 +169,8 @@ describe("AdvancedSettings", () => {
     await waitFor(() => {
       expect(api.getAdvancedSettings).toHaveBeenCalled();
     });
+
+    expect(await screen.findByRole("heading", { name: /smb backends/i })).toBeInTheDocument();
 
     const valueInputs = screen.getAllByLabelText("Value");
     const smbReadChunkInput = valueInputs[0]!;

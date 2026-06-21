@@ -237,17 +237,17 @@ function SettingField({
           onChange(nextValue ? Number(nextValue) : null);
         }}
         onBlur={() => setTouched(true)}
-        inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
         variant="outlined"
         sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_NUMERIC_FIELD_MAX_WIDTH } }}
         error={displayError}
-        InputProps={
-          unitAdornment
+        slotProps={{
+          htmlInput: { inputMode: "numeric", pattern: "[0-9]*" },
+          input: unitAdornment
             ? {
                 endAdornment: <InputAdornment position="end">{unitAdornment}</InputAdornment>,
               }
-            : undefined
-        }
+            : undefined,
+        }}
         helperText={helperText}
       />
     </Box>
@@ -351,7 +351,9 @@ function ByteSizeSettingField({
             value={displayValue}
             onChange={(event) => handleValueChange(event.target.value)}
             onBlur={handleValueBlur}
-            inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
+            slotProps={{
+              htmlInput: { inputMode: "numeric", pattern: "[0-9]*" },
+            }}
             variant="outlined"
             sx={{ width: "100%", maxWidth: { xs: "100%", sm: DESKTOP_VALUE_FIELD_MAX_WIDTH } }}
             error={displayError}

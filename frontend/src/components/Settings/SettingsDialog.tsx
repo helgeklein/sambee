@@ -133,7 +133,13 @@ const SettingsDialog: React.FC<SettingsDialogProps> = ({
   }, [availableItems, focusCategoryButton, initialCategory, open]);
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth PaperProps={{ sx: { height: "80vh", bgcolor: "background.default" } }}>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      slotProps={{ paper: { sx: { height: "80vh", bgcolor: "background.default" } } }}
+    >
       {/* Close button in upper-right corner */}
       <IconButton
         onClick={onClose}

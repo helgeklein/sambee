@@ -25,7 +25,7 @@
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-store": "^2.4.3",
     "@tauri-apps/plugin-updater": "^2.10.1",
-    "i18next": "25.10.10",
+    "i18next": "^26.3.1",
     "preact": "^10.29.1"
   },
   "devDependencies": {
@@ -35,8 +35,8 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",
     "jsdom": "29.0.2",
-    "typescript": "5.9.3",
-    "vite": "6.4.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
     "vitest": "^4.1.4"
   }
 }

@@ -1174,17 +1174,19 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
             justifyContent: "stretch",
           },
         }}
-        PaperProps={{
-          onKeyDown: handlePaperKeyDown,
-          sx: {
-            margin: 0,
-            width: "100dvw",
-            maxWidth: "100dvw",
-            height: "100dvh",
-            maxHeight: "100dvh",
-            display: "flex",
-            flexDirection: "column",
-            backgroundColor: viewerBg,
+        slotProps={{
+          paper: {
+            onKeyDown: handlePaperKeyDown,
+            sx: {
+              margin: 0,
+              width: "100dvw",
+              maxWidth: "100dvw",
+              height: "100dvh",
+              maxHeight: "100dvh",
+              display: "flex",
+              flexDirection: "column",
+              backgroundColor: viewerBg,
+            },
           },
         }}
       >
@@ -1400,7 +1402,12 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         onClose={handleUnsavedChangesDialogClose}
         aria-labelledby="markdown-unsaved-changes-title"
         disableRestoreFocus
-        TransitionProps={{ onEntered: handleUnsavedChangesDialogEntered, onExited: handleUnsavedChangesDialogExited }}
+        slotProps={{
+          transition: {
+            onEntered: handleUnsavedChangesDialogEntered,
+            onExited: handleUnsavedChangesDialogExited,
+          },
+        }}
       >
         <DialogTitle id="markdown-unsaved-changes-title">{t("viewer.edit.unsavedChangesTitle")}</DialogTitle>
         <DialogContent>

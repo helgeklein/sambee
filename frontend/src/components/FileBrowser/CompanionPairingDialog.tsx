@@ -10,7 +10,7 @@
  * confirming.
  */
 
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import UsbIcon from "@mui/icons-material/Usb";
 import {
   Box,
@@ -187,7 +187,7 @@ const CompanionPairingDialog: React.FC<CompanionPairingDialogProps> = ({ open, o
   }, [cancelPendingPairing]);
 
   return (
-    <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} maxWidth="xs" fullWidth TransitionComponent={NoTransition}>
+    <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} maxWidth="xs" fullWidth slots={{ transition: NoTransition }}>
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <UsbIcon />
         {COMPANION_PAIRING_DIALOG_COPY.title}

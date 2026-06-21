@@ -5,6 +5,7 @@
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-builder
 WORKDIR /app
 COPY frontend/package*.json ./
+COPY frontend/scripts ./scripts
 RUN npm ci
 COPY frontend/ ./
 # Provide build metadata to the frontend bundle so client-side version checks

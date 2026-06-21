@@ -81,9 +81,27 @@ const HORIZONTAL_CHROME_SPACING = {
 } as const;
 
 const QUICK_BAR_MODE_LABEL_SX = {
-  fontSize: "0.75rem",
+  fontSize: "0.7rem",
   fontWeight: 600,
   lineHeight: 1.2,
+} as const;
+
+const QUICK_BAR_MODE_BUTTON_SX = {
+  ...pillButtonStyle,
+  minHeight: { xs: 32, sm: 28 },
+  minWidth: "auto",
+  px: { xs: 1, sm: 0.75 },
+  py: { xs: 0.125, sm: 0 },
+  borderRadius: 2.5,
+  color: "text.secondary",
+} as const;
+
+const QUICK_BAR_CLEAR_BUTTON_SX = {
+  minWidth: { xs: 44, sm: 26 },
+  minHeight: { xs: 44, sm: 26 },
+  width: { sm: 26 },
+  height: { sm: 26 },
+  p: { sm: 0.375 },
 } as const;
 
 const QUICK_BAR_MODE_MENU_ITEM_SX = {
@@ -292,19 +310,13 @@ export function UnifiedSearchBar({
           aria-controls={isModeMenuOpen ? "quick-bar-mode-menu" : undefined}
           aria-haspopup="true"
           aria-expanded={isModeMenuOpen ? "true" : undefined}
-          sx={{
-            ...pillButtonStyle,
-            minWidth: "auto",
-            px: 1.25,
-            py: 0.25,
-            color: "text.secondary",
-          }}
+          sx={QUICK_BAR_MODE_BUTTON_SX}
         >
-          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, whiteSpace: "nowrap" }}>
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.125, whiteSpace: "nowrap" }}>
             <Typography variant="body2" sx={QUICK_BAR_MODE_LABEL_SX}>
               {provider.modeLabel}
             </Typography>
-            <ArrowDropDownIcon fontSize="small" />
+            <ArrowDropDownIcon sx={{ fontSize: "1rem" }} />
           </Box>
         </Button>
         <Menu
@@ -396,10 +408,7 @@ export function UnifiedSearchBar({
                 effectiveInputRef.current?.focus();
               }}
               edge="end"
-              sx={{
-                minWidth: { xs: 44, sm: "auto" },
-                minHeight: { xs: 44, sm: "auto" },
-              }}
+              sx={QUICK_BAR_CLEAR_BUTTON_SX}
               aria-label={t("common.search.clear")}
             >
               <ClearIcon fontSize={useCompactLayout ? "medium" : "small"} />
@@ -890,9 +899,17 @@ export function UnifiedSearchBar({
               onFocus={handleInputFocus}
               onBlur={() => setIsFocused(false)}
               inputRef={effectiveInputRef}
-              inputProps={{
-                ...(disableTabFocus ? { tabIndex: -1 } : {}),
-                "data-quick-bar-input": "true",
+              slotProps={{
+                htmlInput: {
+                  ...(disableTabFocus ? { tabIndex: -1 } : {}),
+                  "data-quick-bar-input": "true",
+                },
+                input: {
+                  sx: {
+                    px: 0,
+                  },
+                  endAdornment,
+                },
               }}
               sx={{
                 flex: 1,
@@ -915,12 +932,6 @@ export function UnifiedSearchBar({
                 "& .Mui-focused .MuiOutlinedInput-notchedOutline": {
                   border: "none",
                 },
-              }}
-              InputProps={{
-                sx: {
-                  px: 0,
-                },
-                endAdornment,
               }}
             />
           </Box>

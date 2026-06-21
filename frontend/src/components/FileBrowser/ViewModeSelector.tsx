@@ -3,7 +3,13 @@ import ViewModule from "@mui/icons-material/ViewModule";
 import { Box, Button, Divider, Menu, MenuItem, Typography } from "@mui/material";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import type { ViewMode } from "../../pages/FileBrowser/types";
-import { getSecondaryToolbarMenuPaperStyle, pillButtonStyle } from "../../theme/commonStyles";
+import {
+  getSecondaryToolbarMenuPaperStyle,
+  secondaryStripButtonContentSx,
+  secondaryStripButtonIconSx,
+  secondaryStripButtonLabelSx,
+  secondaryStripButtonSx,
+} from "../../theme/commonStyles";
 import { VIEW_MODE_SELECTOR_STRINGS } from "./viewModeSelectorStrings";
 
 interface ViewModeSelectorProps {
@@ -28,11 +34,10 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
   };
 
   const currentLabel = VIEW_MODE_SELECTOR_STRINGS.optionLabel(viewMode);
-  const icon =
-    viewMode === "list" ? <ViewList fontSize="small" sx={{ display: "flex" }} /> : <ViewModule fontSize="small" sx={{ display: "flex" }} />;
+  const icon = viewMode === "list" ? <ViewList sx={secondaryStripButtonIconSx} /> : <ViewModule sx={secondaryStripButtonIconSx} />;
 
   return (
-    <Box display="flex" alignItems="center" gap={1}>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       <Button
         onClick={handleClick}
         onKeyDown={handleKeyDown}
@@ -40,20 +45,17 @@ export function ViewModeSelector({ viewMode, onViewModeChange, onAfterChange, di
         size="small"
         tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
-          ...pillButtonStyle,
+          ...secondaryStripButtonSx,
           color: "text.secondary",
-          px: 2,
         }}
         aria-label={VIEW_MODE_SELECTOR_STRINGS.ARIA_LABEL}
         aria-controls={open ? "view-mode-menu" : undefined}
         aria-haspopup="true"
         aria-expanded={open ? "true" : undefined}
       >
-        <Box display="flex" alignItems="center" gap={0.5}>
+        <Box sx={secondaryStripButtonContentSx}>
           {icon}
-          <Typography variant="body2" sx={{ lineHeight: 1.43 }}>
-            {currentLabel}
-          </Typography>
+          <Typography sx={secondaryStripButtonLabelSx}>{currentLabel}</Typography>
         </Box>
       </Button>
       <Menu

@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
 import * as logger from "../../../services/logger";
 import { SambeeThemeProvider } from "../../../theme";
+import { DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE, DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR } from "../../../utils/domTextSearch";
 import PDFViewer from "../PDFViewer";
 import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 
@@ -33,24 +35,51 @@ vi.mock("react-pdf", () => ({
     onLoadError?: (error: Error) => void;
     file: string;
   }) => {
+    const getPageItems = (pageNum: number) => {
+      if (pageNum === 1) {
+        return [
+          {
+            str: "Page sample text",
+            transform: [1, 0, 0, 1, 0, 0],
+            width: 120,
+            height: 12,
+          },
+          {
+            str: "MDT Dimmaktor",
+            transform: [1, 0, 0, 1, 0, 16],
+            width: 120,
+            height: 12,
+          },
+          {
+            str: "MDT_DB_Dimmaktor_02.pdf",
+            transform: [1, 0, 0, 1, 0, 32],
+            width: 160,
+            height: 12,
+          },
+        ];
+      }
+
+      return [
+        {
+          str: "Page sample text",
+          transform: [1, 0, 0, 1, 0, 0],
+          width: 120,
+          height: 12,
+        },
+      ];
+    };
+
     // Simulate successful load after a tick
     if (file && !file.includes("error")) {
       setTimeout(() => {
         const mockPdf = {
           numPages: 5,
-          getPage: () =>
+          getPage: (pageNum: number) =>
             Promise.resolve({
               getViewport: () => ({ width: 612, height: 792 }),
               getTextContent: () =>
                 Promise.resolve({
-                  items: [
-                    {
-                      str: "Page sample text",
-                      transform: [1, 0, 0, 1, 0, 0],
-                      width: 120,
-                      height: 12,
-                    },
-                  ],
+                  items: getPageItems(pageNum),
                 }),
             }),
         };
@@ -67,11 +96,25 @@ vi.mock("react-pdf", () => ({
       </div>
     );
   },
-  Page: ({ pageNumber, scale, width, rotate }: { pageNumber: number; scale?: number; width?: number; rotate?: number }) => (
-    <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale} data-width={width} data-rotate={rotate}>
-      Page {pageNumber}
-    </div>
-  ),
+  Page: ({ pageNumber, scale, width, rotate }: { pageNumber: number; scale?: number; width?: number; rotate?: number }) => {
+    const textLayerSpans =
+      pageNumber === 1
+        ? ["Page sample text", "MDT Di", "mmaktor", "MDT_DB_Di", "mmaktor_02.pdf"]
+        : pageNumber === 3
+          ? ["Pa", "ge sample text"]
+          : ["Page sample text"];
+
+    return (
+      <div data-testid="pdf-page" data-page={pageNumber} data-scale={scale} data-width={width} data-rotate={rotate}>
+        <canvas />
+        <div className="react-pdf__Page__textContent">
+          {textLayerSpans.map((text) => (
+            <span key={`${pageNumber}-${text}`}>{text}</span>
+          ))}
+        </div>
+      </div>
+    );
+  },
   pdfjs: { version: "3.11.174", GlobalWorkerOptions: { workerSrc: "" } },
 }));
 
@@ -182,6 +225,14 @@ describe("PDFViewer", () => {
         <PDFViewer {...props} />
       </SambeeThemeProvider>
     );
+  };
+
+  const getSearchHighlights = () => Array.from(document.querySelectorAll(DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR));
+
+  const waitForPageNavigationReady = async () => {
+    await waitFor(() => {
+      expect(screen.getByLabelText("Next page")).toBeEnabled();
+    });
   };
 
   it("shows a read-only badge in the toolbar when opened in read-only mode", async () => {
@@ -492,14 +543,18 @@ describe("PDFViewer", () => {
     });
 
     it("handles direct page number input", async () => {
+      const user = userEvent.setup();
       renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      const pageInput = screen.getByDisplayValue("1");
-      fireEvent.change(pageInput, { target: { value: "3" } });
+      await waitForPageNavigationReady();
+
+      const pageInput = screen.getByRole("textbox");
+      await user.clear(pageInput);
+      await user.type(pageInput, "3");
       fireEvent.blur(pageInput);
 
       await waitFor(() => {
@@ -509,6 +564,50 @@ describe("PDFViewer", () => {
   });
 
   describe("Keyboard Shortcuts", () => {
+    it("highlights split text-layer matches on the current page", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      const searchInput = await viewerSearch.openSearch("dimm");
+
+      await waitFor(() => {
+        expect(screen.getByText("1 / 2")).toBeInTheDocument();
+        expect(searchInput).toHaveValue("dimm");
+        expect(getSearchHighlights()).toHaveLength(4);
+      });
+
+      expect(
+        document.querySelectorAll(`${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}[${DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE}="true"]`)
+      ).toHaveLength(2);
+    });
+
+    it("rebuilds highlights when navigating to later pages with split text-layer spans", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
+      });
+
+      const searchInput = await viewerSearch.openSearch("page");
+
+      await waitFor(() => {
+        expect(screen.getByText("1 / 5")).toBeInTheDocument();
+        expect(searchInput).toHaveValue("page");
+      });
+
+      fireEvent.keyDown(searchInput, { key: "F3" });
+      fireEvent.keyDown(searchInput, { key: "F3" });
+
+      await waitFor(() => {
+        expect(screen.getByText("3 / 5")).toBeInTheDocument();
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+        expect(getSearchHighlights()).toHaveLength(2);
+      });
+    });
+
     it("navigates to next page on ArrowRight", async () => {
       renderPDFViewer();
 
@@ -516,7 +615,12 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      fireEvent.keyDown(document, { key: "ArrowRight" });
+      await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
+
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
@@ -530,15 +634,19 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
+
       // Go to page 2 first
-      fireEvent.keyDown(document, { key: "ArrowRight" });
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
 
-      // Go back
-      fireEvent.keyDown(document, { key: "ArrowLeft" });
+      fireEvent.keyDown(viewerContent, { key: "ArrowLeft" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -552,16 +660,19 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      // Go to page 3
-      fireEvent.keyDown(document, { key: "ArrowRight" });
-      fireEvent.keyDown(document, { key: "ArrowRight" });
+      await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
+
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
       });
 
-      // Go to first page
-      fireEvent.keyDown(document, { key: "Home" });
+      fireEvent.keyDown(viewerContent, { key: "Home" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -575,7 +686,12 @@ describe("PDFViewer", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      fireEvent.keyDown(document, { key: "End" });
+      await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
+
+      fireEvent.keyDown(viewerContent, { key: "End" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "5");

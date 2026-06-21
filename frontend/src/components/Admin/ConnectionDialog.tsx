@@ -287,8 +287,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
 
@@ -301,8 +303,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
 
@@ -315,8 +319,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
 
@@ -329,8 +335,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
 
@@ -344,22 +352,24 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         fullWidth
         required={!connection}
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
-        }}
-        InputProps={{
-          endAdornment: (
-            <InputAdornment position="end">
-              <IconButton
-                aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
-                onClick={() => setShowPassword(!showPassword)}
-                onMouseDown={(e) => e.preventDefault()}
-                edge="end"
-              >
-                {showPassword ? <VisibilityOff /> : <Visibility />}
-              </IconButton>
-            </InputAdornment>
-          ),
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
+          input: {
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label={CONNECTION_DIALOG_STRINGS.ARIA_TOGGLE_PASSWORD}
+                  onClick={() => setShowPassword(!showPassword)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  edge="end"
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          },
         }}
       />
 
@@ -370,8 +380,10 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({ open, onClose, onSa
         helperText={CONNECTION_DIALOG_STRINGS.HELPER_PATH_PREFIX}
         fullWidth
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
 

@@ -83,10 +83,11 @@ export function getSecondaryActionStripStyle(theme: Theme) {
   return {
     px: 2,
     py: 0.5,
-    minHeight: 36,
     bgcolor: colors.stripBackground,
     color: colors.textColor,
-    boxShadow: 2,
+    borderBottom: 1,
+    borderColor: colors.borderColor,
+    boxShadow: "rgba(0, 0, 0, 0.2) 0px 3px 1px -2px, rgba(0, 0, 0, 0.14) 0px 2px 2px 0px, rgba(0, 0, 0, 0.12) 0px 1px 5px 0px",
     zIndex: 1,
   };
 }
@@ -145,6 +146,10 @@ export const pillButtonStyle: SxProps<Theme> = {
   borderRadius: 3,
   bgcolor: (theme) => getSecondaryToolbarSurfaceColors(theme).pillBackground,
   color: (theme) => getSecondaryToolbarSurfaceColors(theme).textColor,
+  minHeight: 44,
+  px: 2,
+  whiteSpace: "nowrap",
+  flexShrink: 0,
   textTransform: "none",
   "&:focus": {
     outline: "none",
@@ -157,4 +162,30 @@ export const pillButtonStyle: SxProps<Theme> = {
     borderColor: "primary.main",
     boxShadow: (theme) => getPillButtonFocusVisibleBoxShadow(theme),
   },
+};
+
+export const secondaryStripButtonSx: SxProps<Theme> = {
+  ...pillButtonStyle,
+  minHeight: 28,
+  minWidth: 0,
+  px: 2,
+  py: 0.5,
+  borderRadius: 2,
+};
+
+export const secondaryStripButtonContentSx: SxProps<Theme> = {
+  display: "flex",
+  alignItems: "center",
+  gap: 0.5,
+};
+
+export const secondaryStripButtonLabelSx: SxProps<Theme> = {
+  fontSize: "0.875rem",
+  fontWeight: 500,
+  lineHeight: 1,
+};
+
+export const secondaryStripButtonIconSx: SxProps<Theme> = {
+  display: "flex",
+  fontSize: "1.25rem",
 };

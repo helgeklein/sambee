@@ -13,6 +13,14 @@ import { useSambeeTheme } from "../../theme";
 import { getViewerColors } from "../../theme/viewerStyles";
 import { isApiError } from "../../types";
 import { getApiErrorMessage } from "../../utils/apiErrors";
+import {
+  activateDomTextSearchMatch,
+  applyDomTextSearchHighlights,
+  clearDomTextSearchHighlights,
+  DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE,
+  DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR,
+  type DomTextSearchMatch,
+} from "../../utils/domTextSearch";
 import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, supportsNativeShare } from "../../utils/nativeShare";
@@ -25,34 +33,12 @@ pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/b
 type ZoomMode = "fit-page" | "fit-width" | number;
 
 /**
- * Text item data from PDF.js with positioning metadata
- */
-interface TextItemData {
-  text: string;
-  startIndex: number;
-  endIndex: number;
-  transform: number[];
-  width: number;
-  height: number;
-}
-
-/**
- * Match location with reference to containing text item
+ * Match location within extracted PDF text.
  */
 interface MatchLocation {
   page: number;
   index: number;
   length: number;
-  item: TextItemData;
-}
-
-/**
- * PDF.js viewport for coordinate calculations
- */
-interface PDFViewport {
-  width: number;
-  height: number;
-  scale: number;
 }
 
 /**
@@ -80,11 +66,10 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
 
   // Search state
   const [pageTexts, setPageTexts] = useState<Map<number, string>>(new Map());
-  const [pageTextItems, setPageTextItems] = useState<Map<number, TextItemData[]>>(new Map());
-  const [_pageViewports, setPageViewports] = useState<Map<number, PDFViewport>>(new Map());
   const [matchLocations, setMatchLocations] = useState<MatchLocation[]>([]);
   const [_extractingText, setExtractingText] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -126,6 +111,11 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setLoading(true);
         setError(null);
         setShareFile(null);
+        setNumPages(0);
+        setCurrentPage(1);
+        setPageTexts(new Map());
+        setMatchLocations([]);
+        setCurrentMatch(0);
 
         const blob = await fetchWithRetry(
           () =>
@@ -213,13 +203,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       return;
     }
 
-    const focusTimeoutId = window.setTimeout(() => {
-      containerRef.current?.focus();
-    }, 100);
-
-    return () => {
-      window.clearTimeout(focusTimeoutId);
-    };
+    containerRef.current.focus();
   }, [loading, error, searchPanelOpen]);
 
   // Calculate page scale based on zoom mode
@@ -284,48 +268,27 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       const extractAllText = async () => {
         setExtractingText(true);
         const texts = new Map<number, string>();
-        const textItemsMap = new Map<number, TextItemData[]>();
-        const viewportsMap = new Map<number, PDFViewport>();
         let hasText = false;
 
         try {
           for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            const viewport = page.getViewport({ scale: 1.0 });
 
-            // Store viewport for coordinate calculations
-            viewportsMap.set(i, viewport);
-
-            // Simple text extraction with item metadata (pdf-helper approach)
+            // Build a searchable logical text stream with separators between items.
             let fullText = "";
-            const items: TextItemData[] = [];
 
             for (let itemIndex = 0; itemIndex < textContent.items.length; itemIndex++) {
               const textItem = textContent.items[itemIndex];
               // biome-ignore lint/suspicious/noExplicitAny: PDF.js text item type not fully typed
               const item = textItem as any;
-              const startIndex = fullText.length;
-
-              // Add the text item's content
               fullText += item.str;
-              const endIndex = fullText.length;
 
-              items.push({
-                text: item.str,
-                startIndex,
-                endIndex,
-                transform: item.transform,
-                width: item.width,
-                height: item.height,
-              });
-
-              // Add space separator AFTER recording the item
+              // Preserve item boundaries so cross-item words do not become false positives.
               fullText += " ";
             }
 
             texts.set(i, fullText);
-            textItemsMap.set(i, items);
 
             // Check if this page has any non-whitespace text
             if (fullText.trim().length > 0) {
@@ -334,8 +297,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           }
 
           setPageTexts(texts);
-          setPageTextItems(textItemsMap);
-          setPageViewports(viewportsMap);
           setIsSearchable(hasText);
 
           if (!hasText) {
@@ -431,26 +392,16 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       // Search through all pages
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         const fullText = pageTexts.get(pageNum);
-        const items = pageTextItems.get(pageNum);
-        if (!fullText || !items) continue;
+        if (!fullText) continue;
 
         let match: RegExpExecArray | null;
         // biome-ignore lint/suspicious/noAssignInExpressions: Standard regex iteration pattern
         while ((match = regex.exec(fullText)) !== null) {
-          const matchPosition = match.index;
-          const matchText = match[0];
-
-          // Find which text item contains this match
-          const containingItem = items.find((item) => matchPosition >= item.startIndex && matchPosition < item.endIndex);
-
-          if (containingItem) {
-            matches.push({
-              page: pageNum,
-              index: matchPosition,
-              length: matchText.length,
-              item: containingItem,
-            });
-          }
+          matches.push({
+            page: pageNum,
+            index: match.index,
+            length: match[0].length,
+          });
         }
       }
 
@@ -466,7 +417,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setCurrentMatch(0);
       }
     },
-    [pageTexts, pageTextItems, numPages]
+    [pageTexts, numPages]
   );
 
   // Debounced search handler
@@ -520,170 +471,68 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
     [matchLocations, currentMatch]
   );
 
-  /**
-   * Render search highlights using div overlays positioned with PDF.js coordinates.
-   * Calculates precise position and width for matched text within text items.
-   * pageRenderTrigger is intentionally included to re-run when pages finish rendering.
-   */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger and rotation trigger re-runs for async text layer rendering
-  useEffect(() => {
-    // Clear all existing highlights
-    const highlightContainers = document.querySelectorAll(".pdf-highlight-container");
-    for (const container of highlightContainers) {
-      container.innerHTML = "";
+  const getCurrentPageMatchIndex = useCallback(() => {
+    if (currentMatch <= 0) {
+      return 0;
     }
+
+    const activeMatch = matchLocations[currentMatch - 1];
+    if (!activeMatch || activeMatch.page !== currentPage) {
+      return 0;
+    }
+
+    let pageMatchIndex = 0;
+    for (let index = 0; index < currentMatch; index += 1) {
+      if (matchLocations[index]?.page === currentPage) {
+        pageMatchIndex += 1;
+      }
+    }
+
+    return pageMatchIndex;
+  }, [currentMatch, currentPage, matchLocations]);
+
+  // Rebuild highlights from the rendered text layer so split/merged react-pdf spans stay searchable.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pageRenderTrigger intentionally retries after async text layer rendering
+  useEffect(() => {
+    const textLayers = document.querySelectorAll(".react-pdf__Page__textContent");
+    for (const layer of textLayers) {
+      clearDomTextSearchHighlights(layer);
+    }
+    searchHighlightsRef.current = [];
 
     if (!searchText.trim() || matchLocations.length === 0) {
       return;
     }
 
-    // Group matches by page
-    const matchesByPage = new Map<number, typeof matchLocations>();
-    for (const match of matchLocations) {
-      if (!matchesByPage.has(match.page)) {
-        matchesByPage.set(match.page, []);
-      }
-      matchesByPage.get(match.page)?.push(match);
-    }
-
-    // Track pages that need text layer spans but don't have them yet
-    let hasIncompletePages = false;
-
-    // Render highlights for all visible pages
-    for (const [pageNum, pageMatches] of matchesByPage.entries()) {
-      // Get page container
-      const pageContainer = document.querySelector(`[data-page-number="${pageNum}"]`);
-      if (!pageContainer) continue;
-
-      const canvas = pageContainer.querySelector("canvas");
-      if (!canvas) continue;
-
-      // Get highlight container
-      const highlightContainer = pageContainer.querySelector(".pdf-highlight-container");
-      if (!highlightContainer) continue;
-
-      // Get the text layer
-      const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
-      if (!textLayer) continue;
-
-      // Get all text layer spans
-      const textLayerSpans = Array.from(textLayer.querySelectorAll("span"));
-      if (textLayerSpans.length === 0) {
-        hasIncompletePages = true;
-        continue;
-      }
-
-      // Build a map from text content to spans and track usage
-      const spansByText = new Map<string, HTMLElement[]>();
-      const usedSpans = new Set<HTMLElement>();
-
-      for (const span of textLayerSpans) {
-        const text = span.textContent || "";
-        if (!spansByText.has(text)) {
-          spansByText.set(text, []);
-        }
-        spansByText.get(text)?.push(span);
-      }
-
-      // Render each match on this page
-      for (const match of pageMatches) {
-        const item = match.item;
-        const isCurrentMatch = currentMatch > 0 && matchLocations.indexOf(match) === currentMatch - 1;
-
-        // Find the corresponding span by text content
-        const candidates = spansByText.get(item.text);
-        if (!candidates || candidates.length === 0) {
-          // Text item may be split or combined differently by react-pdf - skip highlighting for this item
-          continue;
-        }
-
-        // Find the first unused candidate
-        let textSpan: HTMLElement | null = null;
-        for (const candidate of candidates) {
-          if (!usedSpans.has(candidate)) {
-            textSpan = candidate;
-            usedSpans.add(candidate);
-            break;
-          }
-        }
-
-        // If all candidates used, reuse the first one
-        if (!textSpan && candidates[0]) {
-          textSpan = candidates[0];
-        }
-
-        // Skip if no textSpan found
-        if (!textSpan) continue;
-
-        // Get the span's actual position and size
-        const spanRect = textSpan.getBoundingClientRect();
-        const containerRect = pageContainer.getBoundingClientRect();
-
-        // Calculate the offset of the match within the text item
-        const matchStartInItem = match.index - item.startIndex;
-
-        // Create canvas for text measurement
-        const measureCanvas = document.createElement("canvas");
-        const ctx = measureCanvas.getContext("2d");
-        if (!ctx) continue;
-
-        const computedStyle = window.getComputedStyle(textSpan);
-        ctx.font = computedStyle.font;
-
-        // Measure text before match
-        const textBefore = item.text.substring(0, matchStartInItem);
-        const measuredOffsetWidth = ctx.measureText(textBefore).width;
-
-        // Measure matched text
-        const matchedText = item.text.substring(matchStartInItem, matchStartInItem + match.length);
-        const measuredMatchWidth = ctx.measureText(matchedText).width;
-
-        // Scale measurements to match actual rendered span width
-        // This compensates for font rendering differences between canvas and browser
-        const spanWidth = spanRect.width;
-        const measuredFullWidth = ctx.measureText(item.text).width;
-        const scaleFactor = measuredFullWidth > 0 ? spanWidth / measuredFullWidth : 1.0;
-
-        const offsetWidth = measuredOffsetWidth * scaleFactor;
-        const matchWidth = measuredMatchWidth * scaleFactor;
-
-        // Calculate final position relative to the container
-        const x = spanRect.left - containerRect.left + offsetWidth;
-        const y = spanRect.top - containerRect.top;
-        const height = spanRect.height;
-
-        // Create highlight div
-        const highlight = document.createElement("div");
-        highlight.className = isCurrentMatch ? "search-highlight current" : "search-highlight";
-
-        // Apply styles
-        Object.assign(highlight.style, {
-          position: "absolute",
-          left: `${x}px`,
-          top: `${y}px`,
-          width: `${matchWidth}px`,
-          height: `${height}px`,
-          backgroundColor: isCurrentMatch
-            ? "rgba(255, 152, 0, 0.4)" // Orange for current match
-            : "rgba(255, 255, 0, 0.4)", // Yellow for other matches
-          pointerEvents: "none",
-          zIndex: "10",
-          borderRadius: "2px",
-        });
-
-        highlightContainer.appendChild(highlight);
-      }
-    }
-
-    // If some pages had containers and text layers but no spans yet,
-    // retry after a short delay to catch the async text layer rendering
-    if (hasIncompletePages) {
+    const pageContainer = document.querySelector(`[data-page-number="${currentPage}"]`);
+    if (!pageContainer) {
       const retryTimer = setTimeout(() => {
         setPageRenderTrigger((prev) => prev + 1);
       }, 50);
       return () => clearTimeout(retryTimer);
     }
-  }, [searchText, matchLocations, currentMatch, pageRenderTrigger]);
+
+    const textLayer = pageContainer.querySelector(".react-pdf__Page__textContent");
+    if (!(textLayer instanceof HTMLElement) || !textLayer.textContent?.trim()) {
+      const retryTimer = setTimeout(() => {
+        setPageRenderTrigger((prev) => prev + 1);
+      }, 50);
+      return () => clearTimeout(retryTimer);
+    }
+
+    const highlights = applyDomTextSearchHighlights(textLayer, searchText);
+    searchHighlightsRef.current = highlights;
+    activateDomTextSearchMatch(highlights, getCurrentPageMatchIndex());
+
+    return () => {
+      clearDomTextSearchHighlights(textLayer);
+      searchHighlightsRef.current = [];
+    };
+  }, [currentPage, getCurrentPageMatchIndex, matchLocations, pageRenderTrigger, searchText]);
+
+  useEffect(() => {
+    activateDomTextSearchMatch(searchHighlightsRef.current, getCurrentPageMatchIndex());
+  }, [getCurrentPageMatchIndex]);
 
   // Keyboard shortcuts - centralized configuration
   const handleOpenSearch = useCallback((_event?: KeyboardEvent) => {
@@ -911,17 +760,19 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           justifyContent: "stretch",
         },
       }}
-      PaperProps={{
-        onKeyDown: handlePaperKeyDown,
-        sx: {
-          backgroundColor: viewerBg,
-          boxShadow: "none",
-          margin: 0,
-          width: "100dvw",
-          maxWidth: "100dvw",
-          height: "100dvh",
-          maxHeight: "100dvh",
-          overflow: "hidden",
+      slotProps={{
+        paper: {
+          onKeyDown: handlePaperKeyDown,
+          sx: {
+            backgroundColor: viewerBg,
+            boxShadow: "none",
+            margin: 0,
+            width: "100dvw",
+            maxWidth: "100dvw",
+            height: "100dvh",
+            maxHeight: "100dvh",
+            overflow: "hidden",
+          },
         },
       }}
     >
@@ -1008,6 +859,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         {/* PDF content area */}
         <Box
           ref={containerRef}
+          data-testid="pdf-viewer-content"
           tabIndex={0}
           sx={{
             flex: 1,
@@ -1085,6 +937,17 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                     WebkitTextFillColor: "transparent !important",
                   },
                 },
+                [`& .react-pdf__Page__textContent ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}`]: {
+                  backgroundColor: "rgba(255, 255, 0, 0.4)",
+                  borderRadius: "2px",
+                  color: "transparent !important",
+                  WebkitTextFillColor: "transparent !important",
+                  padding: 0,
+                },
+                [`& .react-pdf__Page__textContent ${DOM_TEXT_SEARCH_HIGHLIGHT_SELECTOR}[${DOM_TEXT_SEARCH_CURRENT_MATCH_ATTRIBUTE}="true"]`]:
+                  {
+                    backgroundColor: "rgba(255, 152, 0, 0.4)",
+                  },
               }}
             >
               <Document
@@ -1098,33 +961,23 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
                   </Box>
                 }
               >
-                <div style={{ position: "relative", display: "inline-block" }} data-page-number={currentPage}>
-                  <Page
-                    pageNumber={currentPage}
-                    scale={pageScale || undefined}
-                    width={pageWidth || undefined}
-                    rotate={rotation}
-                    renderTextLayer={true}
-                    renderAnnotationLayer={true}
-                    loading={<CircularProgress />}
-                    onRenderSuccess={() => {
-                      // Trigger highlighting effect when page finishes rendering
-                      setPageRenderTrigger((prev) => prev + 1);
-                    }}
-                  />
-                  {/* Overlay container for search highlights */}
-                  <div
-                    className="pdf-highlight-container"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      pointerEvents: "none",
-                    }}
-                  />
-                </div>
+                {numPages > 0 && (
+                  <div style={{ position: "relative", display: "inline-block" }} data-page-number={currentPage}>
+                    <Page
+                      pageNumber={currentPage}
+                      scale={pageScale || undefined}
+                      width={pageWidth || undefined}
+                      rotate={rotation}
+                      renderTextLayer={true}
+                      renderAnnotationLayer={true}
+                      loading={<CircularProgress />}
+                      onRenderSuccess={() => {
+                        // Trigger highlighting effect when page finishes rendering
+                        setPageRenderTrigger((prev) => prev + 1);
+                      }}
+                    />
+                  </div>
+                )}
               </Document>
             </Box>
           )}

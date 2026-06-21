@@ -203,7 +203,7 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
       onKeyDown={handleKeyDown}
       fullWidth
       maxWidth="sm"
-      TransitionComponent={NoTransition}
+      slots={{ transition: NoTransition }}
     >
       <DialogTitle>{title}</DialogTitle>
 
@@ -223,9 +223,11 @@ const CopyMoveDialog: React.FC<CopyMoveDialogProps> = ({
             onChange={(e) => setDestFileName(e.target.value)}
             disabled={isProcessing}
             {...FILENAME_FIELD_PROPS}
-            inputProps={{
-              "aria-label": S.LABEL_FILENAME,
-              ...FILENAME_INPUT_PROPS,
+            slotProps={{
+              htmlInput: {
+                "aria-label": S.LABEL_FILENAME,
+                ...FILENAME_INPUT_PROPS,
+              },
             }}
             sx={{ mt: 2, ...FILENAME_INPUT_SX }}
           />

@@ -108,47 +108,6 @@ updates:
     labels:
       - dependencies
       - frontend
-    ignore:
-      # Frontend framework, routing, localization, compiler, markdown-rendering,
-      # test-runtime, and build-tool major upgrades require coordinated
-      # validation across the app runtime and test stack. Keep those upgrades
-      # manual instead of isolated Dependabot PRs.
-      - dependency-name: "@mui/icons-material"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "@mui/material"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react-dom"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react-i18next"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react-markdown"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "react-router-dom"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "i18next"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "typescript"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "jsdom"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "@vitejs/plugin-react"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "vite"
-        update-types:
-          - "version-update:semver-major"
     groups:
       frontend-npm:
         patterns:
@@ -167,24 +126,6 @@ updates:
     patterns:
       - "@tauri-apps/*"
     multi-ecosystem-group: companion-tauri
-    ignore:
-      # Companion build-tool, localization, compiler, and test-runtime major
-      # upgrades should be upgraded deliberately with manual testing.
-      - dependency-name: "i18next"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "jsdom"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "@preact/preset-vite"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "typescript"
-        update-types:
-          - "version-update:semver-major"
-      - dependency-name: "vite"
-        update-types:
-          - "version-update:semver-major"
     groups:
       companion-npm:
         patterns:

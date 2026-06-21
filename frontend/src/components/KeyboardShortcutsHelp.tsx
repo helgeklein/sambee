@@ -130,9 +130,11 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
       disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
-      PaperProps={{
-        sx: {
-          bgcolor: "background.default",
+      slotProps={{
+        paper: {
+          sx: {
+            bgcolor: "background.default",
+          },
         },
       }}
     >

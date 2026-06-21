@@ -8,9 +8,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
   return {
     ...actual,
     BrowserRouter: ({ children }: { children: React.ReactNode }) => (
-      <actual.MemoryRouter initialEntries={["/browse"]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        {children}
-      </actual.MemoryRouter>
+      <actual.MemoryRouter initialEntries={["/browse"]}>{children}</actual.MemoryRouter>
     ),
   };
 });

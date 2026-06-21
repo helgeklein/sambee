@@ -5,11 +5,6 @@ import { describe, expect, it } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import { SettingsLayout } from "../SettingsLayout";
 
-const routerFuture = {
-  v7_startTransition: true,
-  v7_relativeSplatPath: true,
-} as const;
-
 vi.mock("../settingsDataSources", () => ({
   prefetchSettingsDataForItems: vi.fn(),
 }));
@@ -21,7 +16,7 @@ vi.mock("../useSettingsAccess", () => ({
 function renderSettingsLayout(initialEntries: string[]) {
   return render(
     <SambeeThemeProvider>
-      <MemoryRouter initialEntries={initialEntries} future={routerFuture}>
+      <MemoryRouter initialEntries={initialEntries}>
         <Routes>
           <Route path="/settings" element={<SettingsLayout />}>
             <Route index element={<div>Settings home</div>} />

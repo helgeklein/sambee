@@ -4,6 +4,7 @@
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { MockedObject } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -118,7 +119,7 @@ describe("Browser - PDF Viewer Integration", () => {
   const renderBrowser = (initialPath = "/browse/smb/test-server-1") => {
     return render(
       <SambeeThemeProvider>
-        <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={[initialPath]}>
           <Routes>
             <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />
@@ -127,6 +128,12 @@ describe("Browser - PDF Viewer Integration", () => {
         </MemoryRouter>
       </SambeeThemeProvider>
     );
+  };
+
+  const waitForPageNavigationReady = async () => {
+    await waitFor(() => {
+      expect(screen.getByLabelText("Next page")).toBeEnabled();
+    });
   };
 
   beforeEach(() => {
@@ -317,6 +324,7 @@ describe("Browser - PDF Viewer Integration", () => {
     });
 
     it("jumps to specific page via input", async () => {
+      const user = userEvent.setup();
       renderBrowser();
 
       const pdfFile = await getFileButton("document.pdf");
@@ -326,8 +334,9 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      const pageInput = screen.getByDisplayValue("1");
-      fireEvent.change(pageInput, { target: { value: "5" } });
+      const pageInput = screen.getByRole("textbox");
+      await user.clear(pageInput);
+      await user.type(pageInput, "5");
       fireEvent.blur(pageInput);
 
       await waitFor(() => {
@@ -345,15 +354,18 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
-      // Navigate forward
-      fireEvent.keyDown(document, { key: "ArrowRight" });
+      await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
+
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
 
-      // Navigate backward
-      fireEvent.keyDown(document, { key: "ArrowLeft" });
+      fireEvent.keyDown(viewerContent, { key: "ArrowLeft" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -361,6 +373,7 @@ describe("Browser - PDF Viewer Integration", () => {
     });
 
     it("goes to first page (Home key)", async () => {
+      const user = userEvent.setup();
       renderBrowser();
 
       const pdfFile = await getFileButton("document.pdf");
@@ -370,17 +383,23 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
+      screen.getByTestId("pdf-viewer-content").focus();
+      expect(screen.getByTestId("pdf-viewer-content")).toHaveFocus();
+
       // Go to page 5
-      const pageInput = screen.getByDisplayValue("1");
-      fireEvent.change(pageInput, { target: { value: "5" } });
+      const pageInput = screen.getByRole("textbox");
+      await user.clear(pageInput);
+      await user.type(pageInput, "5");
       fireEvent.blur(pageInput);
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "5");
       });
 
-      // Press Home
-      fireEvent.keyDown(document, { key: "Home" });
+      screen.getByTestId("pdf-viewer-content").focus();
+      expect(screen.getByTestId("pdf-viewer-content")).toHaveFocus();
+
+      fireEvent.keyDown(screen.getByTestId("pdf-viewer-content"), { key: "Home" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
@@ -397,7 +416,12 @@ describe("Browser - PDF Viewer Integration", () => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
-      fireEvent.keyDown(document, { key: "End" });
+      await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
+
+      fireEvent.keyDown(viewerContent, { key: "End" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "10");

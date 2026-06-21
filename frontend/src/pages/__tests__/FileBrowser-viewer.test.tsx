@@ -278,11 +278,10 @@ describe("Browser Component - View and Advanced", () => {
       renderBrowser("/browse/smb/test-server-1");
 
       // UI should render without crashing - filename may be truncated
-      // Optimized: Use findByText
       expect(await screen.findByText("Sambee")).toBeInTheDocument();
 
-      // Component should be functional (not crashed)
-      expect(screen.getByRole("combobox")).toBeInTheDocument();
+      // Wait for the browser shell to finish its initial connection-loading state.
+      expect(await screen.findByRole("combobox")).toBeInTheDocument();
     });
 
     it("handles files with special characters in names", async () => {
@@ -307,11 +306,10 @@ describe("Browser Component - View and Advanced", () => {
       renderBrowser("/browse/smb/test-server-1");
 
       // UI should render without crashing - special chars may be escaped
-      // Optimized: Use findByText
       expect(await screen.findByText("Sambee")).toBeInTheDocument();
 
-      // Component should be functional (not crashed)
-      expect(screen.getByRole("combobox")).toBeInTheDocument();
+      // Wait for the browser shell to finish its initial connection-loading state.
+      expect(await screen.findByRole("combobox")).toBeInTheDocument();
     });
 
     it("updates UI when localStorage changes externally", async () => {

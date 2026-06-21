@@ -176,6 +176,12 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
               onBlur={handlePageInputBlur}
               onKeyDown={handlePageInputKeyDown}
               size="small"
+              slotProps={{
+                htmlInput: {
+                  inputMode: "numeric",
+                  pattern: "[0-9]*",
+                },
+              }}
               sx={{
                 width: isMobile ? "40px" : "60px",
                 "& .MuiInputBase-root": {
@@ -192,10 +198,6 @@ export const PDFControls: React.FC<PDFControlsProps> = ({
                   textAlign: "center",
                   padding: isMobile ? "4px" : "6px",
                 },
-              }}
-              inputProps={{
-                inputMode: "numeric",
-                pattern: "[0-9]*",
               }}
             />
 

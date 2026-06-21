@@ -383,8 +383,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.usernameHelp")}
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
       <TextField
@@ -394,8 +396,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.nameHelp")}
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
       <TextField
@@ -428,7 +432,7 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         fullWidth
         variant="outlined"
         helperText={t("settings.userManagement.editor.expiresAtHelp")}
-        InputLabelProps={{ shrink: true }}
+        slotProps={{ inputLabel: { shrink: true } }}
       />
       {isEditing ? (
         <FormControlLabel
@@ -451,8 +455,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
             helperText={t("settings.userManagement.editor.initialPasswordHelp")}
             fullWidth
             variant="outlined"
-            FormHelperTextProps={{
-              sx: { fontSize: "0.875rem" },
+            slotProps={{
+              formHelperText: {
+                sx: { fontSize: "0.875rem" },
+              },
             }}
           />
           <FormControlLabel
@@ -486,14 +492,14 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
       <TextField
         label={t("settings.userManagement.credentialsDialog.usernameLabel")}
         value={credentialsDialog.username}
-        InputProps={{ readOnly: true }}
+        slotProps={{ input: { readOnly: true } }}
         fullWidth
         variant="outlined"
       />
       <TextField
         label={t("settings.userManagement.credentialsDialog.temporaryPasswordLabel")}
         value={credentialsDialog.temporaryPassword}
-        InputProps={{ readOnly: true }}
+        slotProps={{ input: { readOnly: true } }}
         fullWidth
         variant="outlined"
       />
@@ -536,8 +542,10 @@ export function UserManagementSettings({ dialogSafeHeader = false }: UserManagem
         autoFocus
         fullWidth
         variant="outlined"
-        FormHelperTextProps={{
-          sx: { fontSize: "0.875rem" },
+        slotProps={{
+          formHelperText: {
+            sx: { fontSize: "0.875rem" },
+          },
         }}
       />
       <FormControlLabel

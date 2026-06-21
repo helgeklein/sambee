@@ -92,8 +92,24 @@ export function SecondaryActionStrip({
   connectionButtonRef,
 }: SecondaryActionStripProps) {
   return (
-    <Box display="flex" alignItems="center" justifyContent="space-between" sx={secondaryActionStripSx}>
-      <Box display="flex" gap={1}>
+    <Box
+      sx={[
+        secondaryActionStripSx,
+        {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 1.5,
+          flexWrap: "nowrap",
+          overflowX: "auto",
+          scrollbarWidth: "none",
+          "&::-webkit-scrollbar": {
+            display: "none",
+          },
+        },
+      ]}
+    >
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" }}>
         <ConnectionSelector
           connections={connections}
           selectedConnectionId={selectedConnectionId}
@@ -106,7 +122,7 @@ export function SecondaryActionStrip({
         />
       </Box>
       {hasFiles && (
-        <Box display="flex" gap={1}>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1, flex: "0 0 auto", ml: "auto" }}>
           <ViewModeSelector
             viewMode={viewMode}
             onViewModeChange={onViewModeChange}

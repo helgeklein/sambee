@@ -117,7 +117,7 @@ const OverwriteConflictDialog: React.FC<OverwriteConflictDialogProps> = ({ open,
   const isDirectory = conflict?.existing_file.type === FileType.DIRECTORY;
 
   return (
-    <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} fullWidth maxWidth="sm" TransitionComponent={NoTransition}>
+    <Dialog open={open} onClose={handleClose} onKeyDown={handleKeyDown} fullWidth maxWidth="sm" slots={{ transition: NoTransition }}>
       <DialogTitle>{S.TITLE(isDirectory)}</DialogTitle>
 
       <DialogContent>
