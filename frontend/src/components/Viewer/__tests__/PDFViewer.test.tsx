@@ -1,8 +1,7 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as keyboardShortcutsHook from "../../../hooks/useKeyboardShortcuts";
 import apiService from "../../../services/api";
 import * as logger from "../../../services/logger";
 import { SambeeThemeProvider } from "../../../theme";
@@ -149,7 +148,6 @@ global.ResizeObserver = class MockResizeObserver {
 
 describe("PDFViewer", () => {
   const viewerSearch = createViewerSearchTestDriver();
-  const useKeyboardShortcutsSpy = vi.spyOn(keyboardShortcutsHook, "useKeyboardShortcuts");
 
   const mockOnClose = vi.fn();
   const defaultProps = {
@@ -187,52 +185,10 @@ describe("PDFViewer", () => {
     );
   };
 
-  const triggerShortcutById = (shortcutId: string, key: string) => {
-    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls]
-      .reverse()
-      .find(
-        ([config]) =>
-          config.inputSelector === 'input[placeholder="Search"]' && config.shortcuts.some((shortcut) => shortcut.id === shortcutId)
-      );
-
-    expect(matchingCall).toBeDefined();
-
-    const matchedShortcut = matchingCall![0].shortcuts.find((shortcut) => shortcut.id === shortcutId && shortcut.enabled !== false);
-
-    expect(matchedShortcut).toBeDefined();
-    act(() => {
-      matchedShortcut!.handler(new KeyboardEvent("keydown", { key }));
-    });
-  };
-
   const waitForPageNavigationReady = async () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Next page")).toBeEnabled();
     });
-  };
-
-  const expectShortcutEnabled = (shortcutId: string, expectedKey: string) => {
-    const matchingCall = [...useKeyboardShortcutsSpy.mock.calls].reverse().find(
-      ([config]) =>
-        config.inputSelector === 'input[placeholder="Search"]' &&
-        config.shortcuts.some((shortcut) => {
-          if (shortcut.id !== shortcutId || shortcut.enabled === false) {
-            return false;
-          }
-
-          const keys = Array.isArray(shortcut.keys) ? shortcut.keys : [shortcut.keys];
-          return keys.includes(expectedKey);
-        })
-    );
-
-    expect(matchingCall).toBeDefined();
-
-    const matchedShortcut = matchingCall![0].shortcuts.find((shortcut) => shortcut.id === shortcutId);
-
-    expect(matchedShortcut).toBeDefined();
-    expect(matchedShortcut!.enabled).not.toBe(false);
-    const keys = Array.isArray(matchedShortcut!.keys) ? matchedShortcut!.keys : [matchedShortcut!.keys];
-    expect(keys).toContain(expectedKey);
   };
 
   it("shows a read-only badge in the toolbar when opened in read-only mode", async () => {
@@ -542,19 +498,24 @@ describe("PDFViewer", () => {
       });
     });
 
-    it("renders the page input with the current page and total pages", async () => {
+    it("handles direct page number input", async () => {
+      const user = userEvent.setup();
       renderPDFViewer();
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toBeInTheDocument();
       });
 
-      await waitFor(() => {
-        expect(screen.getByLabelText("Next page")).toBeEnabled();
-      });
+      await waitForPageNavigationReady();
 
-      expect(screen.getByRole("textbox")).toHaveValue("1");
-      expect(screen.getByText(/\/\s*5/)).toBeInTheDocument();
+      const pageInput = screen.getByRole("textbox");
+      await user.clear(pageInput);
+      await user.type(pageInput, "3");
+      fireEvent.blur(pageInput);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+      });
     });
   });
 
@@ -567,15 +528,18 @@ describe("PDFViewer", () => {
       });
 
       await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
 
-      triggerShortcutById("next-arrow", "ArrowRight");
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
     });
 
-    it("enables ArrowLeft navigation after advancing past the first page", async () => {
+    it("navigates to previous page on ArrowLeft", async () => {
       renderPDFViewer();
 
       await waitFor(() => {
@@ -583,19 +547,25 @@ describe("PDFViewer", () => {
       });
 
       await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
 
       // Go to page 2 first
-      fireEvent.click(screen.getByLabelText("Next page"));
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
 
-      // Go back
-      expectShortcutEnabled("previous-arrow", "ArrowLeft");
+      fireEvent.keyDown(viewerContent, { key: "ArrowLeft" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
     });
 
-    it("enables Home navigation after leaving the first page", async () => {
+    it("goes to first page on Home", async () => {
       renderPDFViewer();
 
       await waitFor(() => {
@@ -603,18 +573,22 @@ describe("PDFViewer", () => {
       });
 
       await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
 
-      // Go to page 3 using the direct page input path, which is already validated separately.
-      const pageInput = screen.getByRole("textbox");
-      fireEvent.change(pageInput, { target: { value: "3" } });
-      expect(pageInput).toHaveValue("3");
-      fireEvent.blur(pageInput);
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
+      fireEvent.keyDown(viewerContent, { key: "ArrowRight" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
       });
 
-      expectShortcutEnabled("first-page", "Home");
+      fireEvent.keyDown(viewerContent, { key: "Home" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
     });
 
     it("goes to last page on End", async () => {
@@ -625,8 +599,11 @@ describe("PDFViewer", () => {
       });
 
       await waitForPageNavigationReady();
+      const viewerContent = screen.getByTestId("pdf-viewer-content");
+      viewerContent.focus();
+      expect(viewerContent).toHaveFocus();
 
-      triggerShortcutById("last-page", "End");
+      fireEvent.keyDown(viewerContent, { key: "End" });
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "5");

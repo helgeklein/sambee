@@ -206,6 +206,7 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
   const searchTextLength = search?.searchText.length ?? 0;
   const searchMatches = search?.searchMatches ?? 0;
   const currentMatch = search?.currentMatch ?? 0;
+  const currentPage = pageNavigation?.currentPage;
   const canNavigateSearch = searchMatches > 0;
   const previousShowSearchRef = useRef(showSearch);
   const closeSearch = (reason: "escape" | "toggle") => {
@@ -228,10 +229,10 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
 
   // Update page input when page changes externally
   React.useEffect(() => {
-    if (pageNavigation) {
-      setPageInput(pageNavigation.currentPage.toString());
+    if (currentPage !== undefined) {
+      setPageInput(currentPage.toString());
     }
-  }, [pageNavigation]);
+  }, [currentPage]);
 
   React.useEffect(() => {
     const justOpened = showSearch && !previousShowSearchRef.current;

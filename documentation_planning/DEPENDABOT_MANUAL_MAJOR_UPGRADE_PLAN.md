@@ -495,15 +495,16 @@ Implemented results:
 - frontend upgraded to `react@19.2.7` and `react-dom@19.2.7`
 - frontend upgraded to `@types/react@19.2.17` and `@types/react-dom@19.2.3`
 - React 19 test stabilization applied across async viewer and settings slices
-- PDF page input handling was hardened so committed page numbers use the live input value instead of potentially stale local state
-- PDF viewer focus behavior was tightened for keyboard navigation readiness by disabling dialog auto-focus and focus enforcement while the viewer content manages focus
-- PDF keyboard shortcut coverage was restored with stable hook-registration assertions in the viewer and file-browser integration suites
+- PDF page input handling was hardened so committed page numbers use the live input value and the visible input only resynchronizes from the active page number
+- PDF viewer focus behavior was hardened without breaking modal accessibility by keeping the dialog's default focus management and focusing the viewer content inside the dialog when ready
+- PDF keyboard shortcut coverage was restored with real DOM keydown coverage in both the viewer and file-browser integration suites
 
 Validation status:
 
 - targeted React 19 frontend gate: passing
 - previously failing frontend regression slice: passing
-- broader repo regression gate `./scripts/test`: passing
+- frontend typecheck and lint gate: passing
+- broader frontend regression gate `npm test`: passing
 
 ### Target
 

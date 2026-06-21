@@ -897,8 +897,6 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
       onClose={onClose}
       maxWidth={false}
       fullScreen
-      disableAutoFocus
-      disableEnforceFocus
       disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
       ref={dialogRef}
       sx={{
