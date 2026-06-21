@@ -156,7 +156,6 @@ if (!i18n.isInitialized) {
     fallbackLng: DEFAULT_LANGUAGE,
     supportedLngs: SUPPORTED_LANGUAGES,
     defaultNS: "translation",
-    showSupportNotice: false,
     interpolation: {
       escapeValue: false,
     },

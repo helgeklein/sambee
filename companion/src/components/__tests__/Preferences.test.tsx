@@ -103,26 +103,26 @@ describe("Preferences", () => {
     render(<Preferences onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "[Ṕŕéƒéŕéńćéš]" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: translate("preferences.title") })).toBeInTheDocument();
     });
 
-    expect(screen.getByText("[Ṕåíŕéď Ɓŕóŵšéŕš]")).toBeInTheDocument();
+    expect(screen.getByText(translate("preferences.sections.pairedBrowsers"))).toBeInTheDocument();
     expect(screen.getByText(translate("preferences.sections.localization"))).toBeInTheDocument();
     expect(screen.getByText(translate("preferences.localizationStatus.syncedBadge"))).toBeInTheDocument();
-    expect(screen.getByText("[Éďíťíńğ Ɓéħåṽíóŕ]")).toBeInTheDocument();
-    expect(screen.getByText("[Šťåŕťúṕ]")).toBeInTheDocument();
+    expect(screen.getByText(translate("preferences.sections.editingBehavior"))).toBeInTheDocument();
+    expect(screen.getByText(translate("preferences.sections.startup"))).toBeInTheDocument();
     expect(screen.getByText(translate("preferences.sections.updates"))).toBeInTheDocument();
-    expect(screen.getByText("[Ńóťíƒíćåťíóńš]")).toBeInTheDocument();
+    expect(screen.getByText(translate("preferences.sections.notifications"))).toBeInTheDocument();
     expect(screen.getByText("en-XA")).toBeInTheDocument();
     expect(screen.getByText("en-GB")).toBeInTheDocument();
     expect(screen.getAllByText("https://example.test")).toHaveLength(2);
 
-    fireEvent.click(screen.getByRole("button", { name: "[Úńṕåíŕ]" }));
+    fireEvent.click(screen.getByRole("button", { name: translate("preferences.unpairButton") }));
 
-    expect(await screen.findByRole("heading", { name: "[Úńṕåíŕ ƀŕóŵšéŕ?]" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: translate("preferences.confirmUnpair.title") })).toBeInTheDocument();
     expect(screen.getByText(translate("preferences.confirmUnpair.body", { origin: "https://example.test" }))).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "[Ćåńćéĺ]" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "[Úńṕåíŕ]" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: translate("common.actions.cancel") })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: translate("preferences.unpairButton") }).length).toBeGreaterThan(0);
   });
 
   it("shows translated pending text while unpairing", async () => {
@@ -162,12 +162,12 @@ describe("Preferences", () => {
     render(<Preferences onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "[Ṕŕéƒéŕéńćéš]" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: translate("preferences.title") })).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "[Úńṕåíŕ]" }));
+    fireEvent.click(screen.getByRole("button", { name: translate("preferences.unpairButton") }));
 
-    const unpairButtons = await screen.findAllByRole("button", { name: "[Úńṕåíŕ]" });
+    const unpairButtons = await screen.findAllByRole("button", { name: translate("preferences.unpairButton") });
     fireEvent.click(unpairButtons[unpairButtons.length - 1]!);
 
     expect(await screen.findAllByText(translate("preferences.confirmUnpair.unpairing"))).toHaveLength(2);
