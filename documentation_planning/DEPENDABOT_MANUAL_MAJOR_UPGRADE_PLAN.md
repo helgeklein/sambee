@@ -98,24 +98,86 @@ The React and MUI work should not be first. The current codebase has real MUI v5
 - confirm runtime and CI prerequisites for later toolchain upgrades
 - define the rollback boundary between each later phase
 
+### Recorded baseline
+
+Environment baseline confirmed in the current workspace:
+
+- local Node: `v20.20.2`
+- local npm: `10.8.2`
+- Docker frontend builder image: `node:20-alpine`
+- GitHub Actions Node baseline: `node-version: '20'` across test, lint, companion build, dependency-security, website deploy, and Docker preview workflows
+
+Current session validation status:
+
+- frontend typecheck and lint: passing
+- companion typecheck, lint, Clippy, Rust fmt, and Windows GNU cross-check: passing
+- broader repo suite via `./scripts/test`: passing in the current session
+
+### Baseline command set
+
+Frontend fast gate:
+
+```bash
+cd /workspace/frontend && npx tsc --noEmit && npm run lint
+```
+
+Frontend targeted dependency-sensitive tests:
+
+```bash
+cd /workspace/frontend && npm test -- --run
+```
+
+Use a narrower Vitest slice first when a dependency change is isolated to one surface, then fall back to the full frontend test run before closing the phase.
+
+Companion fast gate:
+
+```bash
+cd /workspace/companion && npx tsc --noEmit && npm run lint
+```
+
+Companion full validation gate:
+
+```bash
+cd /workspace/companion \
+  && npx tsc --noEmit \
+  && npm run lint \
+  && cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings \
+  && cargo fmt --manifest-path src-tauri/Cargo.toml --check \
+  && npm run check:rust:windows
+```
+
+Broader repo regression gate:
+
+```bash
+cd /workspace && ./scripts/test
+```
+
+This broader gate is slower and should be run at minimum after:
+
+- toolchain phases
+- React or MUI phases
+- any phase that changes shared testing or build infrastructure
+
 ### Tasks
 
-1. Record the current baseline validation commands:
-   - frontend typecheck and lint
-   - targeted frontend Vitest slices
-   - companion typecheck, lint, and Rust validation suite
-2. Confirm Node 20.19+ everywhere that matters:
-   - local dev
-   - Docker image build
-   - GitHub Actions workflows
-3. Decide which validation suite is mandatory after every dependency slice.
-4. Do not start any migration slice until that baseline is consistently green.
+1. Treat the frontend fast gate as mandatory after every frontend dependency slice.
+2. Treat the companion fast gate as mandatory after every companion dependency slice.
+3. Treat the companion full validation gate as mandatory for companion toolchain changes and before closing any companion phase.
+4. Treat the broader repo regression gate as mandatory after:
+   - companion Vite work
+   - TypeScript 6
+   - React 19
+   - each MUI staged-major phase
+5. Keep the rollback boundary at one dependency slice per PR.
+6. Do not start Phase 1 work unless these recorded gates remain green on the current mainline baseline.
 
 ### Acceptance criteria
 
-- current frontend validation is green
-- current companion validation is green
-- no later phase depends on an unverified environment assumption
+- current frontend fast gate is green
+- current companion fast gate is green
+- current companion full validation gate is green
+- local, Docker, and CI Node baselines are all confirmed to satisfy the later Vite and jsdom requirements
+- every later phase has an explicit mandatory validation command set before merge
 
 ## Phase 1: I18n Stack Upgrade
 
