@@ -2,7 +2,7 @@
 title = "What's New"
 +++
 
-## Quick Bar UX Improvements
+## Quick Bar: UX Improvements
 
 The [quick bar](../../../user-guide/browsing-and-navigation/smart-navigation-and-the-quick-bar/) is Sambee's main navigation element. It sits in the top bar above the file list and is designed to be the single point of control for directory navigation, file list filtering, and command lookup and execution.
 
@@ -10,7 +10,7 @@ Previously, those three functions were not clearly distinguished. The three mode
 
 In addition, several bugs were fixed to improve the overall experience.
 
-## More Secure Companion Pairing and Communication Flows
+## Companion: More Secure Pairing & Communication Flows
 
 This release makes Sambee Companion connections more secure, from the first pairing step through ongoing communication during local-drive access and desktop editing.
 
@@ -19,6 +19,11 @@ This release makes Sambee Companion connections more secure, from the first pair
 Sambee also now trusts only the specific Sambee site you approved, limits what the local Companion service exposes, and uses narrower one-task-at-a-time edit credentials behind the scenes.
 
 **Native editing** is also more resilient. Sambee now uses tighter, task-specific edit permissions, renews long-running edit sessions when needed, and returns you to the browser with a clearer next step if sign-in, lock ownership, or recovery fails, instead of leaving you stuck with a vague error.
+
+## Markdown Viewer & Editor: Improvements
+
+- Styling of code blocks and tables
+- Keyboard navigation: arrow up/down movement between blocks (e.g., code, table, paragraph)
 
 ## Internals
 
