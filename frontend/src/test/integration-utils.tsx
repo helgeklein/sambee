@@ -18,11 +18,6 @@ import FileBrowser from "../pages/FileBrowser";
 import Login from "../pages/Login";
 import { server } from "./mocks/server";
 
-const routerFuture = {
-  v7_startTransition: true,
-  v7_relativeSplatPath: true,
-} as const;
-
 const theme = createTheme({
   palette: {
     mode: "light",
@@ -42,7 +37,7 @@ export function renderApp(initialRoute = "/") {
   return render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <MemoryRouter initialEntries={[initialRoute]} future={routerFuture}>
+      <MemoryRouter initialEntries={[initialRoute]}>
         <Suspense fallback={<div>Loading...</div>}>
           <Routes>
             <Route path="/login" element={<Login />} />
@@ -60,11 +55,7 @@ export function renderApp(initialRoute = "/") {
  * Render a component with React Router
  */
 export function renderWithRouter(ui: ReactElement, { initialRoute = "/" } = {}) {
-  return render(
-    <MemoryRouter initialEntries={[initialRoute]} future={routerFuture}>
-      {ui}
-    </MemoryRouter>
-  );
+  return render(<MemoryRouter initialEntries={[initialRoute]}>{ui}</MemoryRouter>);
 }
 
 /**

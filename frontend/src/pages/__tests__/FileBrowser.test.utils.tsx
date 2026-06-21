@@ -25,7 +25,7 @@ export const renderBrowser = (initialPath = "/browse") => {
   return render(
     <LocalePreferencesProvider>
       <SambeeThemeProvider>
-        <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={[initialPath]}>
           <Routes>
             <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />

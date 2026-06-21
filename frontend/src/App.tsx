@@ -51,7 +51,7 @@ function AppContent() {
       <AppUpdatePrompt />
       <CompanionLocalizationSync />
       <div ref={appRef}>
-        <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Router>
           <Suspense fallback={<div>{translate("app.loading")}</div>}>
             <Routes>
               <Route path="/login" element={<Login />} />

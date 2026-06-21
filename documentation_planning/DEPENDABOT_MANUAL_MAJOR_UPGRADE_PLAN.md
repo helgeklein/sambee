@@ -558,6 +558,24 @@ cd /workspace/frontend \
 
 ## Phase 6: React Router 7 Upgrade
 
+### Status
+
+Completed on 2026-06-21.
+
+Implemented results:
+
+- frontend upgraded to `react-router-dom@7.18.0`
+- obsolete v6 transition flags removed from the app router and shared router test wrappers because Router 7 now makes those behaviors the default
+- route-oriented test utilities and representative navigation suites stayed green on the upgraded router without additional runtime behavior changes
+- v8 follow-up captured: replace `react-router-dom` imports with `react-router` and `react-router/dom` before taking the next router major
+
+Validation status:
+
+- targeted Phase 6 route/navigation suites: passing
+- frontend build: passing
+- frontend typecheck: passing
+- frontend lint: passing
+
 ### Target
 
 - frontend: `react-router-dom` `6.30.4` -> `7.18.0`

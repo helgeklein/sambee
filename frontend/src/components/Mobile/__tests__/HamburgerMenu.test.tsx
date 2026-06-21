@@ -62,7 +62,7 @@ describe("HamburgerMenu", () => {
   test("renders menu when open", () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -86,7 +86,7 @@ describe("HamburgerMenu", () => {
   test("does not render when closed", () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={false}
             onClose={mockOnClose}
@@ -107,7 +107,7 @@ describe("HamburgerMenu", () => {
   test("shows connection selector with connections", () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -132,7 +132,7 @@ describe("HamburgerMenu", () => {
   test("calls onNavigateToRoot when Root is clicked", async () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -159,7 +159,7 @@ describe("HamburgerMenu", () => {
   test("calls onOpenSettings when Settings is clicked", async () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -186,7 +186,7 @@ describe("HamburgerMenu", () => {
   test("calls onLogout when Logout is clicked", async () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -212,7 +212,7 @@ describe("HamburgerMenu", () => {
   test("shows Settings for all users", () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -236,7 +236,7 @@ describe("HamburgerMenu", () => {
   test("connection selector is present with connections", () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}
@@ -261,7 +261,7 @@ describe("HamburgerMenu", () => {
   test("handles empty connections list", () => {
     render(
       <SambeeThemeProvider>
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <BrowserRouter>
           <HamburgerMenu
             open={true}
             onClose={mockOnClose}

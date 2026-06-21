@@ -119,7 +119,7 @@ describe("Browser - PDF Viewer Integration", () => {
   const renderBrowser = (initialPath = "/browse/smb/test-server-1") => {
     return render(
       <SambeeThemeProvider>
-        <MemoryRouter initialEntries={[initialPath]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <MemoryRouter initialEntries={[initialPath]}>
           <Routes>
             <Route path="/browse/:targetType/:targetId/*" element={<FileBrowser />} />
             <Route path="/browse" element={<FileBrowser />} />

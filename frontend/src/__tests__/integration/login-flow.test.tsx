@@ -16,7 +16,7 @@ import { assertErrorShown, mockApiError } from "../../test/integration-utils";
 // Helper to render Login with Router
 function renderLogin() {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <MemoryRouter>
       <Login />
     </MemoryRouter>
   );
