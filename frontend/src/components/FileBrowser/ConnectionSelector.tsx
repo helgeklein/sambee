@@ -5,7 +5,13 @@ import { useTranslation } from "react-i18next";
 import type { CompanionStatus } from "../../hooks/useCompanion";
 import { usePillButtonMenu } from "../../hooks/usePillButtonMenu";
 import { CONNECTION_TYPE_LOCAL, isLocalDrive } from "../../services/backendRouter";
-import { pillButtonStyle, secondaryToolbarMenuPaperSx } from "../../theme/commonStyles";
+import {
+  secondaryStripButtonContentSx,
+  secondaryStripButtonIconSx,
+  secondaryStripButtonLabelSx,
+  secondaryStripButtonSx,
+  secondaryToolbarMenuPaperSx,
+} from "../../theme/commonStyles";
 import type { Connection } from "../../types";
 import { LOCAL_DRIVES_MENU_ACTION_LABEL } from "../Settings/localDrivesCopy";
 
@@ -81,14 +87,13 @@ export function ConnectionSelector({
         aria-controls={open ? "connection-menu" : undefined}
         tabIndex={disableTabFocus ? -1 : undefined}
         sx={{
-          ...pillButtonStyle,
+          ...secondaryStripButtonSx,
           color: "text.secondary",
-          px: 2,
         }}
       >
-        <Box display="flex" alignItems="center" gap={0.5}>
-          <ActiveIcon fontSize="small" sx={{ display: "flex" }} />
-          <Typography variant="body2" sx={{ lineHeight: 1.43 }}>
+        <Box sx={secondaryStripButtonContentSx}>
+          <ActiveIcon sx={secondaryStripButtonIconSx} />
+          <Typography sx={secondaryStripButtonLabelSx}>
             {selectedConnection?.name || t("fileBrowser.chrome.connectionSelector.placeholder")}
           </Typography>
         </Box>
