@@ -16,6 +16,7 @@ vi.mock("react-pdf", () => ({
     onLoadSuccess,
     onLoadError,
     file,
+    onItemClick,
   }: {
     children: React.ReactNode;
     onLoadSuccess?: (pdf: {
@@ -34,7 +35,10 @@ vi.mock("react-pdf", () => ({
     }) => void;
     onLoadError?: (error: Error) => void;
     file: string;
+    onItemClick?: (args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void;
   }) => {
+    capturedInitialDocumentItemClick ??= onItemClick;
+
     const getPageItems = (pageNum: number) => {
       if (pageNum === 1) {
         return [
@@ -92,6 +96,13 @@ vi.mock("react-pdf", () => ({
     }
     return (
       <div data-testid="pdf-document" data-file={file}>
+        <button
+          type="button"
+          data-testid="pdf-internal-link"
+          onClick={() => capturedInitialDocumentItemClick?.({ dest: "chapter-3", pageIndex: 2, pageNumber: 3 })}
+        >
+          Jump to page 3
+        </button>
         {children}
       </div>
     );
@@ -133,6 +144,8 @@ const mockCreateObjectURL = vi.fn(() => "blob:mock-url");
 const mockRevokeObjectURL = vi.fn();
 global.URL.createObjectURL = mockCreateObjectURL;
 global.URL.revokeObjectURL = mockRevokeObjectURL;
+
+let capturedInitialDocumentItemClick: ((args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void) | undefined;
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -200,6 +213,7 @@ describe("PDFViewer", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedInitialDocumentItemClick = undefined;
     mockCreateObjectURL.mockReturnValue("blob:mock-url");
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
@@ -472,6 +486,20 @@ describe("PDFViewer", () => {
   });
 
   describe("Page Navigation", () => {
+    it("navigates to an internal PDF link target", async () => {
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      fireEvent.click(screen.getByTestId("pdf-internal-link"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+      });
+    });
+
     it("increments page on next button", async () => {
       renderPDFViewer();
 
