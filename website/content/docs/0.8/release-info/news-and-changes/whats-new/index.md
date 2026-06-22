@@ -20,6 +20,12 @@ Sambee also now trusts only the specific Sambee site you approved, limits what t
 
 **Native editing** is also more resilient. Sambee now uses tighter, task-specific edit permissions, renews long-running edit sessions when needed, and returns you to the browser with a clearer next step if sign-in, lock ownership, or recovery fails, instead of leaving you stuck with a vague error.
 
+## File Opening: Speed & Flexibility
+
+Sambee aims to empower its users, combining speed with flexibility. When it comes to opening files for previewing or editing, dedicated commands are needed for
+
+TODO
+
 ## Markdown Viewer & Editor
 
 - Styling of code blocks and tables

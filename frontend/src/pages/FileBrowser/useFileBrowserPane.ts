@@ -1106,21 +1106,24 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [connectionIsReadOnly, currentTheme, onCompanionHint]
   );
 
-  const openBrowserViewerPicker = useCallback(async (file: FileEntry, filePath: string, mimeType: string) => {
-    const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
-    const preferredViewerId = compatibleViewerIds.length > 0 ? await getPreferredViewerId(file.name, mimeType) : null;
-    const viewerIds = compatibleViewerIds.length > 0 ? compatibleViewerIds : getAllViewerIds();
+  const openBrowserViewerPicker = useCallback(
+    async (file: FileEntry, filePath: string, mimeType: string, options?: { includeAllViewers?: boolean }) => {
+      const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
+      const preferredViewerId = compatibleViewerIds.length > 0 ? await getPreferredViewerId(file.name, mimeType) : null;
+      const viewerIds = options?.includeAllViewers || compatibleViewerIds.length === 0 ? getAllViewerIds() : compatibleViewerIds;
 
-    setBrowserViewerPickerState({
-      fileName: file.name,
-      filePath,
-      mimeType,
-      viewerIds,
-      compatibleViewerIds,
-      preferredViewerId,
-      showNativeOption: compatibleViewerIds.length === 0,
-    });
-  }, []);
+      setBrowserViewerPickerState({
+        fileName: file.name,
+        filePath,
+        mimeType,
+        viewerIds,
+        compatibleViewerIds,
+        preferredViewerId,
+        showNativeOption: compatibleViewerIds.length === 0,
+      });
+    },
+    []
+  );
 
   const handleOpenFileForFile = useCallback(
     (file: FileEntry, index: number, mode: BrowserOpenMode = "associated-viewer") => {
@@ -1143,7 +1146,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       }
 
       if (mode === "force-viewer-picker") {
-        void openBrowserViewerPicker(file, filePath, mimeType);
+        void openBrowserViewerPicker(file, filePath, mimeType, { includeAllViewers: true });
         return;
       }
 
@@ -1156,11 +1159,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
       void getPreferredViewerId(file.name, mimeType).then((preferredViewerId) => {
         if (preferredViewerId && compatibleViewerIds.includes(preferredViewerId)) {
           openFileInViewer(file, filePath, mimeType, preferredViewerId);
-          return;
-        }
-
-        if (compatibleViewerIds.length === 1 && hasViewerSupport(mimeType)) {
-          openFileInViewer(file, filePath, mimeType, compatibleViewerIds[0]);
           return;
         }
 

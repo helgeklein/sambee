@@ -432,6 +432,94 @@ describe("Browser Component - Interactions", () => {
       });
       expect(api.moveItem).not.toHaveBeenCalled();
     });
+
+    it("shows the browser viewer picker on Enter when no Sambee viewer association exists", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "report.pdf",
+            path: "report.pdf",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/octet-stream",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
+        appearance: { theme_id: "sambee-light", custom_themes: [] },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+          viewer_associations: {},
+        },
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /report.pdf/i })).toBeInTheDocument();
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByRole("dialog", { name: "Choose Viewer" })).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId("pdf-document")).not.toBeInTheDocument();
+    });
+
+    it("shows all Sambee viewers in the forced browser picker", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "report.pdf",
+            path: "report.pdf",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/pdf",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /report.pdf/i })).toBeInTheDocument();
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Shift>}{Enter}{/Shift}");
+
+      await waitFor(() => {
+        expect(screen.getByRole("dialog", { name: "Choose Viewer" })).toBeInTheDocument();
+      });
+      expect(screen.getByText("PDF Viewer")).toBeInTheDocument();
+      expect(screen.getByText("Markdown Viewer")).toBeInTheDocument();
+      expect(screen.getByText("Image Viewer")).toBeInTheDocument();
+    });
   });
 
   describe("Keyboard Navigation", () => {

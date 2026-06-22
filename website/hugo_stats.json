@@ -722,6 +722,7 @@
       "feed-rules",
       "file-browser-as-the-core-surface",
       "file-list-and-main-ui",
+      "file-opening-speed--flexibility",
       "file-type-and-preview-behavior",
       "files-that-move-with-product-version-changes",
       "filesystem-contract",
