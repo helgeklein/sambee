@@ -69,6 +69,20 @@
       "problemMatcher": []
     },
     {
+      "label": "Website: Refresh Docs Derived Artifacts",
+      "type": "shell",
+      "command": "python3 scripts/update-docs-derived-artifacts.py",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "Backend: Run Tests",
       "type": "shell",
       "command": "pytest -v",
