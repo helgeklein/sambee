@@ -7,6 +7,10 @@ interface PillButtonMenuOptions {
   openOnSpaceKeyDown?: boolean;
 }
 
+function hasModifierKey(event: React.KeyboardEvent<HTMLElement>): boolean {
+  return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+}
+
 function isSpaceTriggerKey(key: string): boolean {
   return SPACE_TRIGGER_KEYS.has(key);
 }
@@ -48,7 +52,7 @@ export function usePillButtonMenu(onAfterClose?: () => void, options?: PillButto
       return;
     }
 
-    if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown" && !hasModifierKey(event)) {
       event.preventDefault();
       event.stopPropagation();
       setAnchorEl(event.currentTarget);
