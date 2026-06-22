@@ -1,14 +1,14 @@
 # TODO
 
-## Native editing
-
-- When opening a file with ctrl+enter for native editing from an SMB connection, the app picker always appears. When doing the same from a local drive connection, the file is opened in the default app. These two scenarios need to be consistent in their behavior.
-- If a user chooses "always use this app" in the app picker, they need a way to undo this choice in the companion preferences.
-
 ## File list
 
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
 - When I select multiple files and then press DEL, only one is deleted instead of all of them.
+
+### File opening in the browser
+
+- We need a kind of app picker for the browser, too.
+   - It should be displayed whenever the file type is unsupported or when the user actively invokes it (e.g., through a different keyboard shortcut).
 
 ## Authentication system
 
