@@ -2,7 +2,7 @@
 title = "What's New"
 +++
 
-## Quick Bar: UX Improvements
+## Quick Bar: UX
 
 The [quick bar](../../../user-guide/browsing-and-navigation/smart-navigation-and-the-quick-bar/) is Sambee's main navigation element. It sits in the top bar above the file list and is designed to be the single point of control for directory navigation, file list filtering, and command lookup and execution.
 
@@ -20,10 +20,14 @@ Sambee also now trusts only the specific Sambee site you approved, limits what t
 
 **Native editing** is also more resilient. Sambee now uses tighter, task-specific edit permissions, renews long-running edit sessions when needed, and returns you to the browser with a clearer next step if sign-in, lock ownership, or recovery fails, instead of leaving you stuck with a vague error.
 
-## Markdown Viewer & Editor: Improvements
+## Markdown Viewer & Editor
 
 - Styling of code blocks and tables
 - Keyboard navigation: arrow up/down movement between blocks (e.g., code, table, paragraph)
+
+## PDF Viewer
+
+- Intra-document links now work correctly, e.g. from a table-of-content.
 
 ## Internals
 

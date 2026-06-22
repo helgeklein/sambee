@@ -1157,16 +1157,24 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     };
   }, []);
 
+  const handleDialogClose = useCallback(
+    (_event: unknown, reason: string) => {
+      if (reason === "escapeKeyDown") {
+        return;
+      }
+
+      void handleRequestClose();
+    },
+    [handleRequestClose]
+  );
+
   return (
     <>
       <Dialog
         open={true}
-        onClose={() => {
-          void handleRequestClose();
-        }}
+        onClose={handleDialogClose}
         maxWidth={false}
         fullScreen
-        disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
         ref={dialogRef}
         sx={{
           "& .MuiDialog-container": {

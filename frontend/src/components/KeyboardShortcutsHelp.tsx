@@ -79,6 +79,14 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
     onClose();
   };
 
+  const handleDialogClose = (_event: unknown, reason: string) => {
+    if (reason === "escapeKeyDown") {
+      return;
+    }
+
+    onClose();
+  };
+
   const groupedShortcuts: ShortcutHelpSection[] = (() => {
     const sections = new Map<ShortcutHelpGroup, GroupedShortcut[]>();
     const sectionDescriptions = new Map<ShortcutHelpGroup, Map<string, GroupedShortcut>>();
@@ -125,9 +133,8 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleDialogClose}
       onKeyDownCapture={handleDialogKeyDown}
-      disableEscapeKeyDown
       maxWidth="sm"
       fullWidth
       slotProps={{

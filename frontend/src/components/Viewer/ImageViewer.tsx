@@ -474,16 +474,26 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
     shortcuts: imageShortcuts,
   });
 
+  const handleDialogClose = useCallback(
+    (_event: unknown, reason: string) => {
+      if (reason === "escapeKeyDown") {
+        return;
+      }
+
+      handleClose();
+    },
+    [handleClose]
+  );
+
   return (
     <>
       {/* Full-screen dialog overlay — consistent with PDFViewer and MarkdownViewer.
           Provides built-in focus trapping, aria-modal, and portal isolation. */}
       <Dialog
         open={true}
-        onClose={handleClose}
+        onClose={handleDialogClose}
         maxWidth={false}
         fullScreen
-        disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
         disableEnforceFocus // yarl lightbox manages its own focus
         sx={{
           "& .MuiDialog-container": {

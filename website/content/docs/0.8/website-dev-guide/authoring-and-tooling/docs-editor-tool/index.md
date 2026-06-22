@@ -277,6 +277,19 @@ Use it when you want a repo-local HTML view of:
 
 The wrapper script lives at `website/scripts/docs-report.py`.
 
+For normal contributor workflow, prefer the repo helper:
+
+```bash
+cd /workspace
+python3 scripts/update-docs-derived-artifacts.py
+```
+
+That helper centralizes the repo-local behavior around derived docs artifacts.
+
+- the pre-commit hook calls it automatically when staged docs inputs can stale the committed report
+- it stages the refreshed report for you in that hook-driven path
+- the VS Code workspace task `Website: Refresh Docs Derived Artifacts` runs the same helper manually
+
 Generate the report into the committed output path:
 
 ```bash

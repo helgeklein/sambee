@@ -100,6 +100,14 @@ export function ResponsiveFormDialog({
     onClose();
   };
 
+  const handleDialogClose = (_event: unknown, reason: string) => {
+    if (disableClose && reason === "escapeKeyDown") {
+      return;
+    }
+
+    handleRequestClose();
+  };
+
   if (isMobile) {
     return (
       <Drawer
@@ -175,11 +183,10 @@ export function ResponsiveFormDialog({
   return (
     <Dialog
       open={open}
-      onClose={handleRequestClose}
+      onClose={handleDialogClose}
       onKeyDown={onKeyDown}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
-      disableEscapeKeyDown={disableClose}
       maxWidth={maxWidth}
       fullWidth
       sx={{ zIndex: (currentTheme) => currentTheme.zIndex.modal + dialogZIndexOffset }}

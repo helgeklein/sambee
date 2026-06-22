@@ -156,6 +156,32 @@ describe("ViewerControls", () => {
     expect(screen.getByLabelText("Next page")).toBeInTheDocument();
   });
 
+  it("commits the page input when the form is submitted", async () => {
+    const mockClose = vi.fn();
+    const mockPageChange = vi.fn();
+
+    render(
+      <ViewerControls
+        filename="test.pdf"
+        config={{ pageNavigation: true }}
+        onClose={mockClose}
+        pageNavigation={{
+          currentPage: 1,
+          totalPages: 10,
+          onPageChange: mockPageChange,
+        }}
+      />
+    );
+
+    const pageInput = screen.getByRole("textbox");
+    fireEvent.change(pageInput, { target: { value: "4" } });
+    fireEvent.submit(pageInput.closest("form") as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(mockPageChange).toHaveBeenCalledWith(4);
+    });
+  });
+
   it("renders search controls when configured", () => {
     const mockClose = vi.fn();
     const mockSearchChange = vi.fn();

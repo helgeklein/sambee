@@ -41,6 +41,12 @@ interface MatchLocation {
   length: number;
 }
 
+interface PdfInternalLinkTarget {
+  dest?: unknown;
+  pageIndex?: number;
+  pageNumber?: number;
+}
+
 /**
  * PDF Viewer Component
  * Displays PDF files with navigation, zoom, and search capabilities.
@@ -66,6 +72,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const [rotation, setRotation] = useState<number>(0); // 0, 90, 180, 270
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const numPagesRef = useRef(0);
   const searchHighlightsRef = useRef<DomTextSearchMatch[]>([]);
 
   // Search state
@@ -111,6 +118,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
         setLoading(true);
         setError(null);
         setShareFile(null);
+        numPagesRef.current = 0;
         setNumPages(0);
         setCurrentPage(1);
         setPageTexts(new Map());
@@ -247,6 +255,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   const handleDocumentLoadSuccess = useCallback(
     // biome-ignore lint/suspicious/noExplicitAny: PDF.js document type not fully typed
     (pdf: any) => {
+      numPagesRef.current = pdf.numPages;
       setNumPages(pdf.numPages);
       setCurrentPage(1);
 
@@ -324,13 +333,37 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   }, []);
 
   // Page navigation
-  const handlePageChange = useCallback(
-    (page: number) => {
-      if (page >= 1 && page <= numPages) {
-        setCurrentPage(page);
+  const handlePageChange = useCallback((page: number) => {
+    const totalPages = numPagesRef.current;
+
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  }, []);
+
+  const handleInternalLinkNavigation = useCallback(
+    ({ dest, pageIndex, pageNumber }: PdfInternalLinkTarget) => {
+      const totalPages = numPagesRef.current;
+      const resolvedPageNumber =
+        typeof pageNumber === "number" && Number.isInteger(pageNumber)
+          ? pageNumber
+          : typeof pageIndex === "number" && Number.isInteger(pageIndex)
+            ? pageIndex + 1
+            : null;
+
+      if (resolvedPageNumber === null || resolvedPageNumber < 1 || resolvedPageNumber > totalPages) {
+        logError("Failed to resolve internal PDF link target", {
+          dest,
+          pageIndex,
+          pageNumber,
+          numPages: totalPages,
+        });
+        return;
       }
+
+      handlePageChange(resolvedPageNumber);
     },
-    [numPages]
+    [handlePageChange]
   );
 
   // Zoom controls
@@ -743,16 +776,25 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
   useKeyboardShortcuts({
     active: !showHelp,
     shortcuts: pdfShortcuts,
-    inputSelector: 'input[placeholder="Search"]',
   });
+
+  const handleDialogClose = useCallback(
+    (_event: unknown, reason: string) => {
+      if (reason === "escapeKeyDown") {
+        return;
+      }
+
+      onClose();
+    },
+    [onClose]
+  );
 
   return (
     <Dialog
       open={true}
-      onClose={onClose}
+      onClose={handleDialogClose}
       maxWidth={false}
       fullScreen
-      disableEscapeKeyDown // Escape handled by useKeyboardShortcuts
       ref={dialogRef}
       sx={{
         "& .MuiDialog-container": {
@@ -877,16 +919,13 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
           {/* Loading state */}
           {loading && (
             <Box
-              display="flex"
-              alignItems="center"
-              justifyContent="center"
-              position="absolute"
-              top={0}
-              left={0}
-              right={0}
-              bottom={0}
-              zIndex={2}
               sx={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                position: "absolute",
+                inset: 0,
+                zIndex: 2,
                 backgroundColor: pdfUrl ? "rgba(0, 0, 0, 0.3)" : "transparent",
               }}
             >
@@ -952,6 +991,7 @@ const PDFViewer: React.FC<ViewerComponentProps> = ({ connectionId, path, onClose
             >
               <Document
                 file={pdfUrl}
+                onItemClick={handleInternalLinkNavigation}
                 onLoadSuccess={handleDocumentLoadSuccess}
                 onLoadError={handleDocumentLoadError}
                 loading={<CircularProgress />}

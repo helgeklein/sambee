@@ -49,4 +49,6 @@ if [[ "$lfs_required" == true ]] && ! git lfs ls-files >/dev/null 2>&1; then
     exit 1
 fi
 
+python3 scripts/update-docs-derived-artifacts.py --staged-only --stage-output
+
 exit 0
