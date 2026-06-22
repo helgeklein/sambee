@@ -76,7 +76,7 @@ const TRAY_MENU_PREFERENCES: &str = "preferences";
 const TRAY_MENU_QUIT: &str = "quit";
 
 /// Label of the webview window created for the preferences / app-picker UI.
-const MAIN_WINDOW_LABEL: &str = "main";
+pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 
 /// Label of the dedicated pairing approval window.
 const PAIRING_WINDOW_LABEL: &str = "pairing";
@@ -94,16 +94,16 @@ const PAIRING_WIDTH: f64 = 460.0;
 const PAIRING_HEIGHT: f64 = 500.0;
 
 /// Width (logical pixels) of the app picker window.
-const APP_PICKER_WIDTH: f64 = 420.0;
+pub(crate) const APP_PICKER_WIDTH: f64 = 420.0;
 
 /// Initial height (logical pixels) of the app picker window before the webview resizes it.
-const APP_PICKER_INITIAL_HEIGHT: f64 = 320.0;
+pub(crate) const APP_PICKER_INITIAL_HEIGHT: f64 = 320.0;
 
 /// Delay before emitting UI events to a newly-created main window.
-const MAIN_WINDOW_CREATED_EVENT_DELAY_MS: u64 = 400;
+pub(crate) const MAIN_WINDOW_CREATED_EVENT_DELAY_MS: u64 = 400;
 
 /// Delay before emitting UI events to an already-open main window.
-const MAIN_WINDOW_REUSED_EVENT_DELAY_MS: u64 = 50;
+pub(crate) const MAIN_WINDOW_REUSED_EVENT_DELAY_MS: u64 = 50;
 
 /// Delay before re-asserting focus on the main window.
 const MAIN_WINDOW_FOCUS_RETRY_DELAY_MS: u64 = 150;
@@ -499,104 +499,19 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         .unwrap_or("")
         .to_string();
 
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let (tx, rx) = tokio::sync::oneshot::channel::<Option<sync::operations::SelectedApp>>();
-
-    // Register the pending selection
-    if let Some(pending) = app.try_state::<PendingAppSelections>() {
-        pending.insert(request_id.clone(), tx);
-    }
-
-    if let Some(pending_picker) = app.try_state::<PendingMainWindowAppPicker>() {
-        pending_picker.set(PendingAppPickerRequest {
-            extension: file_extension.clone(),
-            request_id: request_id.clone(),
-        });
-    }
-
-    // Ensure the main window exists so the app picker can be displayed
-    let newly_created = match ensure_main_window(
-        &app,
-        "Sambee Companion — Choose Application",
-        APP_PICKER_WIDTH,
-        APP_PICKER_INITIAL_HEIGHT,
-    ) {
-        Ok(created) => {
-            debug!(
-                "Main window ready for app picker: newly_created={}, request_id={}, extension='{}'",
-                created, request_id, file_extension
-            );
-            created
-        }
+    let selection = match commands::open_file::prompt_for_app_selection(&app, &file_extension).await {
+        Ok(selection) => selection,
         Err(e) => {
-            warn!("Failed to ensure main window for app picker: {e}");
-            false
-        }
-    };
-
-    // Delay event emission if the window was just created
-    let delay_ms = if newly_created {
-        MAIN_WINDOW_CREATED_EVENT_DELAY_MS
-    } else {
-        MAIN_WINDOW_REUSED_EVENT_DELAY_MS
-    };
-    let app_for_emit = app.clone();
-    let req_id_for_emit = request_id.clone();
-    let ext_for_emit = file_extension.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-
-        // Re-assert focus after the delay so the picker receives input
-        // immediately — focus may have been lost between window creation
-        // and the webview becoming ready.
-        if let Some(win) = app_for_emit.get_webview_window(MAIN_WINDOW_LABEL) {
-            let _ = win.set_focus();
-        }
-
-        match app_for_emit.emit_to(
-            MAIN_WINDOW_LABEL,
-            "show-app-picker",
-            serde_json::json!({
-                "extension": ext_for_emit,
-                "request_id": req_id_for_emit,
-            }),
-        ) {
-            Ok(()) => debug!("App picker event emitted successfully"),
-            Err(e) => warn!("Failed to emit app picker event: {e}"),
-        }
-
-        // Also send the current theme to the window
-        if let Some(theme_state) = app_for_emit.try_state::<ThemeState>() {
-            if let Some(theme) = theme_state.get() {
-                let _ = app_for_emit.emit_to(MAIN_WINDOW_LABEL, "apply-theme", &theme);
+            let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &lock_context).await;
+            let _ = sync::recycle::recycle_file(&download_result.local_path);
+            store.remove(operation.id);
+            refresh_tray_menu(&app);
+            if let Err(sidecar_err) = sync::operations::remove_operation_sidecar(&operation) {
+                warn!("Failed to remove sidecar after app picker failure: {sidecar_err}");
             }
-        }
-    });
-
-    // Wait for user selection (blocks lifecycle until picker answered)
-    debug!("Waiting for app picker selection: request_id={request_id}");
-    let selection = match rx.await {
-        Ok(selection) => {
-            debug!(
-                "App picker selection resolved: request_id={}, selected={}",
-                request_id,
-                selection.is_some()
-            );
-            selection
-        }
-        Err(e) => {
-            warn!(
-                "App picker selection channel closed before a response was received for {}: {e}",
-                request_id
-            );
-            None
+            return Err(e.into());
         }
     };
-
-    // Hide the main window after selection
-    if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        let _ = win.hide();
-    }
 
     let (app_executable, app_handler_id, app_display_name) = match selection {
         Some(selected) => {
@@ -713,7 +628,7 @@ fn setup_system_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>>
 /// Returns `true` if the window was newly created (caller should delay
 /// event emission to let the webview initialize), `false` if it already
 /// existed.
-fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f64) -> Result<bool, String> {
+pub(crate) fn ensure_main_window(app: &tauri::AppHandle, title: &str, width: f64, height: f64) -> Result<bool, String> {
     if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = win.set_title(title);
         let _ = win.set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }));

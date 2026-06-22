@@ -16,7 +16,8 @@ use tauri_plugin_shell::ShellExt;
 
 use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
 use crate::sync::operations::{
-    CompanionLockContext, FileOperation, OperationStatus, OperationStore, FILE_POLL_INTERVAL_SECS, HEARTBEAT_INTERVAL_SECS,
+    CompanionLockContext, FileOperation, OperationStatus, OperationStore, PendingAppSelections, SelectedApp, FILE_POLL_INTERVAL_SECS,
+    HEARTBEAT_INTERVAL_SECS,
 };
 
 fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
@@ -369,6 +370,103 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
     }
 
     Ok(())
+}
+
+/// Show the companion app picker for a file extension and wait for the user's selection.
+pub async fn prompt_for_app_selection(app: &AppHandle, extension: &str) -> Result<Option<SelectedApp>, String> {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let pending = app
+        .try_state::<PendingAppSelections>()
+        .ok_or_else(|| "PendingAppSelections not available".to_string())?;
+    let pending_picker = app
+        .try_state::<crate::PendingMainWindowAppPicker>()
+        .ok_or_else(|| "PendingMainWindowAppPicker not available".to_string())?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<SelectedApp>>();
+    pending.insert(request_id.clone(), tx);
+    pending_picker.set(crate::PendingAppPickerRequest {
+        extension: extension.to_string(),
+        request_id: request_id.clone(),
+    });
+
+    let newly_created = match crate::ensure_main_window(
+        app,
+        "Sambee Companion — Choose Application",
+        crate::APP_PICKER_WIDTH,
+        crate::APP_PICKER_INITIAL_HEIGHT,
+    ) {
+        Ok(created) => {
+            debug!(
+                "Main window ready for app picker: newly_created={}, request_id={}, extension='{}'",
+                created, request_id, extension
+            );
+            created
+        }
+        Err(err) => {
+            pending_picker.clear();
+            let _ = pending.respond(&request_id, None);
+            return Err(format!("Failed to ensure main window for app picker: {err}"));
+        }
+    };
+
+    let delay_ms = if newly_created {
+        crate::MAIN_WINDOW_CREATED_EVENT_DELAY_MS
+    } else {
+        crate::MAIN_WINDOW_REUSED_EVENT_DELAY_MS
+    };
+    let app_for_emit = app.clone();
+    let request_id_for_emit = request_id.clone();
+    let extension_for_emit = extension.to_string();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+
+        if let Some(win) = app_for_emit.get_webview_window(crate::MAIN_WINDOW_LABEL) {
+            let _ = win.set_focus();
+        }
+
+        match app_for_emit.emit_to(
+            crate::MAIN_WINDOW_LABEL,
+            "show-app-picker",
+            serde_json::json!({
+                "extension": extension_for_emit,
+                "request_id": request_id_for_emit,
+            }),
+        ) {
+            Ok(()) => debug!("App picker event emitted successfully"),
+            Err(err) => warn!("Failed to emit app picker event: {err}"),
+        }
+
+        if let Some(theme_state) = app_for_emit.try_state::<crate::ThemeState>() {
+            if let Some(theme) = theme_state.get() {
+                let _ = app_for_emit.emit_to(crate::MAIN_WINDOW_LABEL, "apply-theme", &theme);
+            }
+        }
+    });
+
+    debug!("Waiting for app picker selection: request_id={request_id}");
+    let selection = match rx.await {
+        Ok(selection) => {
+            debug!(
+                "App picker selection resolved: request_id={}, selected={}",
+                request_id,
+                selection.is_some()
+            );
+            selection
+        }
+        Err(err) => {
+            warn!(
+                "App picker selection channel closed before a response was received for {}: {err}",
+                request_id
+            );
+            None
+        }
+    };
+
+    if let Some(win) = app.get_webview_window(crate::MAIN_WINDOW_LABEL) {
+        let _ = win.hide();
+    }
+
+    Ok(selection)
 }
 
 //

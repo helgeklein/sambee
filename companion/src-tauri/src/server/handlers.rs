@@ -20,7 +20,7 @@ use tauri::Emitter;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
-use crate::{show_pairing_success, show_pairing_window};
+use crate::{commands, show_pairing_success, show_pairing_window};
 
 use super::auth;
 use super::drives;
@@ -773,12 +773,16 @@ pub struct OpenRequest {
     pub path: String,
 }
 
-/// `POST /api/browse/{drive}/open` — open a local file with the system default application.
+/// `POST /api/browse/{drive}/open` — open a local file through the companion app picker.
 ///
-/// This is the Phase 3a "direct local open" — instead of downloading the file,
-/// acquiring an edit lock, and re-uploading, the companion opens the file
-/// directly from disk. No lock, no temp copy, no upload — zero latency.
-pub async fn browse_open(Path(drive): Path<String>, Json(body): Json<OpenRequest>) -> Result<StatusCode, ApiError> {
+/// This keeps local-drive Ctrl+Enter behavior aligned with SMB native editing
+/// while still opening the real on-disk file directly, without a temp-copy
+/// lifecycle.
+pub async fn browse_open(
+    State(state): State<Arc<AppState>>,
+    Path(drive): Path<String>,
+    Json(body): Json<OpenRequest>,
+) -> Result<StatusCode, ApiError> {
     let base_path = drives::resolve_drive_path(&drive).ok_or_else(|| ApiError::NotFound(format!("Unknown drive: {drive}")))?;
     let file_path = resolve_safe_path(&base_path, &drive, &body.path)?;
 
@@ -786,9 +790,25 @@ pub async fn browse_open(Path(drive): Path<String>, Json(body): Json<OpenRequest
         return Err(ApiError::BadRequest(format!("Not a file: {}", file_path.display())));
     }
 
-    open_with_default(&file_path)?;
+    let extension = file_path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+    let selection = commands::open_file::prompt_for_app_selection(&state.app, extension)
+        .await
+        .map_err(ApiError::Internal)?;
 
-    log::info!("Opened file with default app: {}", file_path.display());
+    let Some(selected_app) = selection else {
+        log::info!("User cancelled app picker for local file: {}", file_path.display());
+        return Ok(StatusCode::NO_CONTENT);
+    };
+
+    commands::open_file::open_in_native_app(&state.app, &file_path, &selected_app.executable, selected_app.handler_id.as_deref())
+        .await
+        .map_err(ApiError::Internal)?;
+
+    log::info!(
+        "Opened local file with selected app: {} ({})",
+        file_path.display(),
+        selected_app.name
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -910,69 +930,6 @@ fn walk_directories(base: &std::path::Path, max_dirs: usize, include_dot_directo
 
     result.sort();
     result
-}
-
-/// Open a file using the platform's default application handler.
-///
-/// - **Linux**: `xdg-open`
-/// - **macOS**: `open`
-/// - **Windows**: `ShellExecuteW` via the Win32 API
-fn open_with_default(path: &std::path::Path) -> Result<(), ApiError> {
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| ApiError::Internal("Path contains invalid Unicode".to_string()))?;
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(path_str)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| ApiError::Internal(format!("Failed to open with xdg-open: {e}")))?;
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(path_str)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| ApiError::Internal(format!("Failed to open: {e}")))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-
-        use windows::core::PCWSTR;
-        use windows::Win32::UI::Shell::ShellExecuteW;
-        use windows::Win32::UI::WindowsAndMessaging::SW_SHOW;
-
-        let wide_open: Vec<u16> = OsStr::new("open").encode_wide().chain(std::iter::once(0)).collect();
-        let wide_path: Vec<u16> = OsStr::new(path_str).encode_wide().chain(std::iter::once(0)).collect();
-
-        unsafe {
-            let result = ShellExecuteW(
-                None,
-                PCWSTR(wide_open.as_ptr()),
-                PCWSTR(wide_path.as_ptr()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                SW_SHOW,
-            );
-            // ShellExecuteW returns an HINSTANCE; values > 32 indicate success
-            if (result.0 as usize) <= 32 {
-                return Err(ApiError::Internal(format!("ShellExecuteW failed with code {}", result.0 as usize)));
-            }
-        }
-    }
-
-    Ok(())
 }
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
