@@ -333,6 +333,7 @@ describe("Theme System - ThemeContext", () => {
           file_browser_view_mode: "list",
           pane_mode: "single",
           selected_connection_id: null,
+          viewer_associations: {},
         },
       });
 

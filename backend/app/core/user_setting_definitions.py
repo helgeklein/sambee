@@ -12,6 +12,7 @@ class UserSettingKey(StrEnum):
     BROWSER_FILE_BROWSER_VIEW_MODE = "browser.file_browser_view_mode"
     BROWSER_PANE_MODE = "browser.pane_mode"
     BROWSER_SELECTED_CONNECTION_ID = "browser.selected_connection_id"
+    BROWSER_VIEWER_ASSOCIATIONS = "browser.viewer_associations"
 
 
 DEFAULT_THEME_ID = "sambee-light"

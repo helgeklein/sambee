@@ -235,6 +235,7 @@ describe("Browser Component - Navigation", () => {
         file_browser_view_mode: "list",
         pane_mode: "single",
         selected_connection_id: "conn-1",
+        viewer_associations: {},
       },
     });
 

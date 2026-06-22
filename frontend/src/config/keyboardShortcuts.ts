@@ -462,6 +462,27 @@ export const BROWSER_SHORTCUTS = {
     helpGroup: "fileActions",
     ctrl: true,
   },
+  OPEN_IN_VIEWER_PICKER: {
+    id: "open-in-viewer-picker",
+    keys: "Enter",
+    get description() {
+      return translate("fileBrowser.shortcuts.openViewerPicker");
+    },
+    label: "Shift+Enter",
+    helpGroup: "fileActions",
+    shift: true,
+  },
+  OPEN_IN_NATIVE_PICKER: {
+    id: "open-in-native-picker",
+    keys: "Enter",
+    get description() {
+      return translate("fileBrowser.shortcuts.openNativePicker");
+    },
+    label: "Ctrl+Alt+Enter",
+    helpGroup: "fileActions",
+    ctrl: true,
+    alt: true,
+  },
   NEW_DIRECTORY: {
     id: "new-directory",
     keys: "F7",

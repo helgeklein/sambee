@@ -5,6 +5,7 @@
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import EditIcon from "@mui/icons-material/Edit";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import { Box, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from "@mui/material";
 import React, { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,8 +31,10 @@ interface FileRowProps {
     contentBox: Record<string, unknown>;
   };
   viewMode: ViewMode;
-  /** Called when "Open in app" is chosen from the context menu */
-  onOpenInApp?: (file: FileEntry, index: number) => void;
+  onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
+  onOpenViewerPicker?: (file: FileEntry, index: number) => void;
+  onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
+  onOpenNativePicker?: (file: FileEntry, index: number) => void;
   /** Called when "Rename" is chosen from the context menu */
   onRename?: (file: FileEntry, index: number) => void;
 }
@@ -43,13 +46,31 @@ interface FileRowProps {
 export const FileRow = React.memo(
   React.forwardRef<HTMLDivElement, FileRowProps>(
     (
-      { file, index, isSelected, isMultiSelected, virtualStart, virtualSize, onClick, fileRowStyles, viewMode, onOpenInApp, onRename },
+      {
+        file,
+        index,
+        isSelected,
+        isMultiSelected,
+        virtualStart,
+        virtualSize,
+        onClick,
+        fileRowStyles,
+        viewMode,
+        onOpenAssociatedViewer,
+        onOpenViewerPicker,
+        onOpenAssociatedNativeApp,
+        onOpenNativePicker,
+        onRename,
+      },
       ref
     ) => {
       const { t } = useTranslation();
       const isListMode = viewMode === "list";
       const isFile = file.type !== "directory";
-      const hasContextMenu = !!(onRename || (isFile && onOpenInApp));
+      const hasContextMenu = !!(
+        onRename ||
+        (isFile && (onOpenAssociatedViewer || onOpenViewerPicker || onOpenAssociatedNativeApp || onOpenNativePicker))
+      );
       const itemTypeLabel = t(file.type === "directory" ? "fileBrowser.row.itemTypes.folder" : "fileBrowser.row.itemTypes.file");
       const ariaLabel = `${itemTypeLabel}: ${file.name}${isMultiSelected ? t("fileBrowser.row.selectedSuffix") : ""}`;
 
@@ -79,10 +100,25 @@ export const FileRow = React.memo(
         setContextMenu(null);
       }, []);
 
-      const handleOpenInAppClick = useCallback(() => {
+      const handleOpenAssociatedViewerClick = useCallback(() => {
         setContextMenu(null);
-        onOpenInApp?.(file, index);
-      }, [onOpenInApp, file, index]);
+        onOpenAssociatedViewer?.(file, index);
+      }, [onOpenAssociatedViewer, file, index]);
+
+      const handleOpenViewerPickerClick = useCallback(() => {
+        setContextMenu(null);
+        onOpenViewerPicker?.(file, index);
+      }, [onOpenViewerPicker, file, index]);
+
+      const handleOpenAssociatedNativeAppClick = useCallback(() => {
+        setContextMenu(null);
+        onOpenAssociatedNativeApp?.(file, index);
+      }, [onOpenAssociatedNativeApp, file, index]);
+
+      const handleOpenNativePickerClick = useCallback(() => {
+        setContextMenu(null);
+        onOpenNativePicker?.(file, index);
+      }, [onOpenNativePicker, file, index]);
 
       const handleRenameClick = useCallback(() => {
         setContextMenu(null);
@@ -178,12 +214,36 @@ export const FileRow = React.memo(
                   <ListItemText>{t("common.actions.rename")}</ListItemText>
                 </MenuItem>
               )}
-              {isFile && onOpenInApp && (
-                <MenuItem onClick={handleOpenInAppClick}>
+              {isFile && onOpenAssociatedViewer && (
+                <MenuItem onClick={handleOpenAssociatedViewerClick}>
+                  <ListItemIcon>
+                    <VisibilityIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t("fileBrowser.row.openInBrowserViewer")}</ListItemText>
+                </MenuItem>
+              )}
+              {isFile && onOpenViewerPicker && (
+                <MenuItem onClick={handleOpenViewerPickerClick}>
+                  <ListItemIcon>
+                    <VisibilityIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t("fileBrowser.row.chooseBrowserViewer")}</ListItemText>
+                </MenuItem>
+              )}
+              {isFile && onOpenAssociatedNativeApp && (
+                <MenuItem onClick={handleOpenAssociatedNativeAppClick}>
                   <ListItemIcon>
                     <OpenInNewIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText>{t("fileBrowser.row.openInCompanionApp")}</ListItemText>
+                  <ListItemText>{t("fileBrowser.row.openInNativeApp")}</ListItemText>
+                </MenuItem>
+              )}
+              {isFile && onOpenNativePicker && (
+                <MenuItem onClick={handleOpenNativePickerClick}>
+                  <ListItemIcon>
+                    <OpenInNewIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t("fileBrowser.row.chooseNativeApp")}</ListItemText>
                 </MenuItem>
               )}
             </Menu>
@@ -203,7 +263,10 @@ export const FileRow = React.memo(
     prev.virtualStart === next.virtualStart &&
     prev.virtualSize === next.virtualSize &&
     prev.viewMode === next.viewMode &&
-    prev.onOpenInApp === next.onOpenInApp &&
+    prev.onOpenAssociatedViewer === next.onOpenAssociatedViewer &&
+    prev.onOpenViewerPicker === next.onOpenViewerPicker &&
+    prev.onOpenAssociatedNativeApp === next.onOpenAssociatedNativeApp &&
+    prev.onOpenNativePicker === next.onOpenNativePicker &&
     prev.onRename === next.onRename
 );
 

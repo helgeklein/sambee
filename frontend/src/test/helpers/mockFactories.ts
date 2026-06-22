@@ -42,6 +42,7 @@ export function setupSuccessfulApiMocks(api: ApiMock): void {
       file_browser_view_mode: "list",
       pane_mode: "single",
       selected_connection_id: null,
+      viewer_associations: {},
     },
   };
 
@@ -134,6 +135,7 @@ export function setupNavigationApiMocks(api: ApiMock): void {
       file_browser_view_mode: "list",
       pane_mode: "single",
       selected_connection_id: null,
+      viewer_associations: {},
     },
   };
 

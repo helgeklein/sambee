@@ -29,3 +29,9 @@ export interface NativeApp {
   /** Whether the OS reports this app as a recommended/suggested handler. */
   is_recommended: boolean;
 }
+
+export interface PendingAppPickerRequest {
+  extension: string;
+  request_id: string;
+  force_picker?: boolean;
+}

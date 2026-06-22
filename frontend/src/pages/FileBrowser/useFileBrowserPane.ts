@@ -27,7 +27,13 @@ import { logger } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
 import { FileType, isApiError } from "../../types";
-import { hasViewerSupport, isImageFile } from "../../utils/FileTypeRegistry";
+import {
+  getAllViewerIds,
+  getCompatibleViewerIds,
+  hasViewerSupport,
+  isImageFile,
+  isViewerCompatibleWithFile,
+} from "../../utils/FileTypeRegistry";
 import { compareLocalizedStrings } from "../../utils/localeFormatting";
 import { getConnectionById, isConnectionReadOnly } from "./access";
 import {
@@ -35,7 +41,14 @@ import {
   useQuickNavIncludeDotDirectoriesPreference,
   writeSelectedConnectionIdPreference,
 } from "./preferences";
-import type { FileBrowserPaneRecoverySnapshot, SortField, UseFileBrowserPaneConfig, UseFileBrowserPaneReturn } from "./types";
+import type {
+  BrowserOpenMode,
+  FileBrowserPaneRecoverySnapshot,
+  SortField,
+  UseFileBrowserPaneConfig,
+  UseFileBrowserPaneReturn,
+} from "./types";
+import { getPreferredViewerId, setPreferredViewerId } from "./viewerPreferences";
 
 // ============================================================================
 // Constants
@@ -105,6 +118,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // ──────────────────────────────────────────────────────────────────────────
 
   const [viewInfo, setViewInfo] = useState<UseFileBrowserPaneReturn["viewInfo"]>(null);
+  const [browserViewerPickerState, setBrowserViewerPickerState] = useState<UseFileBrowserPaneReturn["browserViewerPickerState"]>(null);
 
   // ──────────────────────────────────────────────────────────────────────────
   // CRUD Dialog State
@@ -1015,14 +1029,155 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     [focusedIndex, listContainerEl]
   );
 
-  const handleOpenFile = useCallback(
-    (options?: { requireListFocus?: boolean }) => {
-      const file = getFocusedFileForAction(options);
-      if (file) {
-        handleFileClick(file, focusedIndex);
+  const openFileInViewer = useCallback(
+    (file: FileEntry, filePath: string, mimeType: string, viewerId?: "image" | "markdown" | "pdf") => {
+      const viewerSessionId = createViewerSessionId();
+      const useImageGallery =
+        viewerId === "image" ? isImageFile(file.name) && imageFiles.length > 0 : isImageFile(file.name) && imageFiles.length > 0;
+
+      logger.info(
+        "File selected for viewing",
+        {
+          path: filePath,
+          fileName: file.name,
+          size: file.size,
+          mimeType,
+          viewerId,
+          isImage: useImageGallery,
+          imageFilesCount: imageFiles.length,
+        },
+        "viewer"
+      );
+
+      if (useImageGallery) {
+        const imageIndex = imageFiles.indexOf(filePath);
+        const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
+        currentViewIndexRef.current = effectiveIndex;
+        currentViewImagesRef.current = imageFiles;
+        setViewInfo({ path: filePath, mimeType, viewerId, images: imageFiles, currentIndex: effectiveIndex, sessionId: viewerSessionId });
+        return;
+      }
+
+      currentViewIndexRef.current = null;
+      currentViewImagesRef.current = undefined;
+      setViewInfo({ path: filePath, mimeType, viewerId, sessionId: viewerSessionId });
+    },
+    [imageFiles]
+  );
+
+  const openNativeFile = useCallback(
+    async (file: FileEntry, options?: { forcePicker?: boolean }) => {
+      if (!connectionIdRef.current || file.type === "directory") return;
+      if (connectionIsReadOnly && !isLocalDrive(connectionIdRef.current)) return;
+
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+
+      setOpenInAppLoading(true);
+      try {
+        if (isLocalDrive(connectionIdRef.current)) {
+          await api.openLocalFile(connectionIdRef.current, filePath, { forcePicker: options?.forcePicker ?? false });
+          logger.info("Opened local file directly", { path: filePath, forcePicker: options?.forcePicker ?? false }, "companion");
+        } else {
+          const themeJson = JSON.stringify({
+            id: currentTheme.id,
+            mode: currentTheme.mode,
+            primary: {
+              main: currentTheme.primary.main,
+            },
+          });
+          const uri = await api.getCompanionUri(connectionIdRef.current, filePath, themeJson, {
+            forcePicker: options?.forcePicker ?? false,
+          });
+          logger.info("Opening file in companion app", { path: filePath, forcePicker: options?.forcePicker ?? false }, "companion");
+          window.location.href = uri;
+          onCompanionHint?.();
+        }
+      } catch (err: unknown) {
+        let detail = "Failed to open file.";
+        if (isApiError(err) && err.response?.data?.detail) {
+          detail = err.response.data.detail;
+        }
+        setError(detail);
+        logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
+      } finally {
+        setOpenInAppLoading(false);
       }
     },
-    [focusedIndex, getFocusedFileForAction, handleFileClick]
+    [connectionIsReadOnly, currentTheme, onCompanionHint]
+  );
+
+  const openBrowserViewerPicker = useCallback(async (file: FileEntry, filePath: string, mimeType: string) => {
+    const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
+    const preferredViewerId = compatibleViewerIds.length > 0 ? await getPreferredViewerId(file.name, mimeType) : null;
+    const viewerIds = compatibleViewerIds.length > 0 ? compatibleViewerIds : getAllViewerIds();
+
+    setBrowserViewerPickerState({
+      fileName: file.name,
+      filePath,
+      mimeType,
+      viewerIds,
+      compatibleViewerIds,
+      preferredViewerId,
+      showNativeOption: compatibleViewerIds.length === 0,
+    });
+  }, []);
+
+  const handleOpenFileForFile = useCallback(
+    (file: FileEntry, index: number, mode: BrowserOpenMode = "associated-viewer") => {
+      if (file.type === "directory") {
+        handleFileClick(file, index);
+        return;
+      }
+
+      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
+      const mimeType = file.mime_type || "application/octet-stream";
+
+      if (mode === "associated-native-app") {
+        void openNativeFile(file);
+        return;
+      }
+
+      if (mode === "force-native-picker") {
+        void openNativeFile(file, { forcePicker: true });
+        return;
+      }
+
+      if (mode === "force-viewer-picker") {
+        void openBrowserViewerPicker(file, filePath, mimeType);
+        return;
+      }
+
+      const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
+      if (compatibleViewerIds.length === 0) {
+        void openBrowserViewerPicker(file, filePath, mimeType);
+        return;
+      }
+
+      void getPreferredViewerId(file.name, mimeType).then((preferredViewerId) => {
+        if (preferredViewerId && compatibleViewerIds.includes(preferredViewerId)) {
+          openFileInViewer(file, filePath, mimeType, preferredViewerId);
+          return;
+        }
+
+        if (compatibleViewerIds.length === 1 && hasViewerSupport(mimeType)) {
+          openFileInViewer(file, filePath, mimeType, compatibleViewerIds[0]);
+          return;
+        }
+
+        void openBrowserViewerPicker(file, filePath, mimeType);
+      });
+    },
+    [handleFileClick, openBrowserViewerPicker, openFileInViewer, openNativeFile]
+  );
+
+  const handleOpenFile = useCallback(
+    (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => {
+      const file = getFocusedFileForAction(options);
+      if (file) {
+        handleOpenFileForFile(file, focusedIndex, options?.mode ?? "associated-viewer");
+      }
+    },
+    [focusedIndex, getFocusedFileForAction, handleOpenFileForFile]
   );
 
   const handleNavigateUpDirectory = useCallback(() => {
@@ -1057,6 +1212,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
   const handleClose = useCallback(() => {
     setViewInfo(null);
+    setBrowserViewerPickerState(null);
     setSelectedFiles(new Set());
   }, []);
 
@@ -1392,82 +1548,56 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // Companion App
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleOpenInApp = useCallback(async () => {
-    if (!connectionId) return;
-    const file = filesRef.current[focusedIndex];
-    if (!file || file.type === "directory") return;
-    if (connectionIsReadOnly && !isLocalDrive(connectionId)) return;
-
-    const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
-
-    setOpenInAppLoading(true);
-    try {
-      if (isLocalDrive(connectionId)) {
-        // Direct local open — no download/lock/upload cycle
-        await api.openLocalFile(connectionId, filePath);
-        logger.info("Opened local file directly", { path: filePath }, "companion");
-      } else {
-        const themeJson = JSON.stringify({
-          id: currentTheme.id,
-          mode: currentTheme.mode,
-          primary: {
-            main: currentTheme.primary.main,
-          },
-        });
-        const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
-        logger.info("Opening file in companion app", { path: filePath }, "companion");
-        window.location.href = uri;
-        onCompanionHint?.();
-      }
-    } catch (err: unknown) {
-      let detail = "Failed to open file.";
-      if (isApiError(err) && err.response?.data?.detail) {
-        detail = err.response.data.detail;
-      }
-      setError(detail);
-      logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
-    } finally {
-      setOpenInAppLoading(false);
-    }
-  }, [connectionId, connectionIsReadOnly, focusedIndex, currentTheme, onCompanionHint]);
+  const handleOpenInApp = useCallback(
+    async (options?: { forcePicker?: boolean }) => {
+      if (!connectionId) return;
+      const file = filesRef.current[focusedIndex];
+      if (!file || file.type === "directory") return;
+      await openNativeFile(file, options);
+    },
+    [connectionId, focusedIndex, openNativeFile]
+  );
 
   const handleOpenInAppForFile = useCallback(
-    async (file: FileEntry, _index: number) => {
+    async (file: FileEntry, _index: number, options?: { forcePicker?: boolean }) => {
       if (!connectionId || file.type === "directory") return;
-      if (connectionIsReadOnly && !isLocalDrive(connectionId)) return;
-      const filePath = currentPathRef.current ? `${currentPathRef.current}/${file.name}` : file.name;
-
-      setOpenInAppLoading(true);
-      try {
-        if (isLocalDrive(connectionId)) {
-          // Direct local open — no download/lock/upload cycle
-          await api.openLocalFile(connectionId, filePath);
-          logger.info("Opened local file directly (context menu)", { path: filePath }, "companion");
-        } else {
-          const themeJson = JSON.stringify({
-            id: currentTheme.id,
-            mode: currentTheme.mode,
-            primary: {
-              main: currentTheme.primary.main,
-            },
-          });
-          const uri = await api.getCompanionUri(connectionId, filePath, themeJson);
-          logger.info("Opening file in companion app (context menu)", { path: filePath }, "companion");
-          window.location.href = uri;
-          onCompanionHint?.();
-        }
-      } catch (err: unknown) {
-        let detail = "Failed to open file.";
-        if (isApiError(err) && err.response?.data?.detail) {
-          detail = err.response.data.detail;
-        }
-        setError(detail);
-        logger.error(`Open in app failed: ${filePath}`, { error: err }, "companion");
-      } finally {
-        setOpenInAppLoading(false);
-      }
+      await openNativeFile(file, options);
     },
-    [connectionId, connectionIsReadOnly, currentTheme, onCompanionHint]
+    [connectionId, openNativeFile]
+  );
+
+  const closeBrowserViewerPicker = useCallback(() => {
+    setBrowserViewerPickerState(null);
+  }, []);
+
+  const confirmBrowserViewerPicker = useCallback(
+    async (selection: { viewerId: "image" | "markdown" | "pdf" | null; rememberSelection: boolean }) => {
+      const pickerState = browserViewerPickerState;
+      if (!pickerState) {
+        return;
+      }
+
+      setBrowserViewerPickerState(null);
+
+      const file = filesRef.current.find(
+        (entry) => (currentPathRef.current ? `${currentPathRef.current}/${entry.name}` : entry.name) === pickerState.filePath
+      );
+      if (!file || file.type === "directory") {
+        return;
+      }
+
+      if (selection.viewerId === null) {
+        await openNativeFile(file);
+        return;
+      }
+
+      if (selection.rememberSelection && isViewerCompatibleWithFile(selection.viewerId, file.name, pickerState.mimeType)) {
+        await setPreferredViewerId(file.name, pickerState.mimeType, selection.viewerId);
+      }
+
+      openFileInViewer(file, pickerState.filePath, pickerState.mimeType, selection.viewerId);
+    },
+    [browserViewerPickerState, openFileInViewer, openNativeFile]
   );
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1759,6 +1889,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     // Viewer
     viewInfo,
     setViewInfo,
+    browserViewerPickerState,
 
     // Dialog state
     deleteDialogOpen,
@@ -1796,6 +1927,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     handlePageDown,
     handlePageUp,
     handleOpenFile,
+    handleOpenFileForFile,
     navigateToPath,
     prepareDirectoryTransition,
     handleNavigateUpDirectory,
@@ -1808,6 +1940,8 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     // Viewer
     handleViewIndexChange,
     handleViewClose,
+    closeBrowserViewerPicker,
+    confirmBrowserViewerPicker,
 
     // CRUD dialogs
     handleDeleteRequest,

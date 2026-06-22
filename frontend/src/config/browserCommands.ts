@@ -29,6 +29,8 @@ export interface BrowserCommandContext {
   newDirectory: () => void;
   newFile: () => void;
   openInApp: () => void;
+  openInViewerPicker: () => void;
+  openInNativePicker: () => void;
   toggleDualPane: () => void;
   focusLeftPane: () => void;
   focusRightPane: () => void;
@@ -183,6 +185,26 @@ const BROWSER_COMMANDS = [
     shortcutLabel: "Ctrl+Enter",
     isEnabled: (context) => context.canOpenFocusedFileInApp,
     run: (context) => context.openInApp(),
+  }),
+  createCommand({
+    id: "browser.openInViewerPicker",
+    titleKey: "fileBrowser.commands.items.openInViewerPicker.title",
+    categoryKey: "fileBrowser.commands.categories.files",
+    keywords: ["viewer", "picker", "shift enter"],
+    defaultShortcutIds: ["open-in-viewer-picker"],
+    shortcutLabel: "Shift+Enter",
+    isEnabled: (context) => context.hasFocusedFile,
+    run: (context) => context.openInViewerPicker(),
+  }),
+  createCommand({
+    id: "browser.openInNativePicker",
+    titleKey: "fileBrowser.commands.items.openInNativePicker.title",
+    categoryKey: "fileBrowser.commands.categories.files",
+    keywords: ["native", "picker", "ctrl alt enter"],
+    defaultShortcutIds: ["open-in-native-picker"],
+    shortcutLabel: "Ctrl+Alt+Enter",
+    isEnabled: (context) => context.canOpenFocusedFileInApp,
+    run: (context) => context.openInNativePicker(),
   }),
   createCommand({
     id: "browser.toggleDualPane",

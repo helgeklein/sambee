@@ -373,7 +373,7 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
 }
 
 /// Show the companion app picker for a file extension and wait for the user's selection.
-pub async fn prompt_for_app_selection(app: &AppHandle, extension: &str) -> Result<Option<SelectedApp>, String> {
+pub async fn prompt_for_app_selection(app: &AppHandle, extension: &str, force_picker: bool) -> Result<Option<SelectedApp>, String> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let pending = app
         .try_state::<PendingAppSelections>()
@@ -387,6 +387,7 @@ pub async fn prompt_for_app_selection(app: &AppHandle, extension: &str) -> Resul
     pending_picker.set(crate::PendingAppPickerRequest {
         extension: extension.to_string(),
         request_id: request_id.clone(),
+        force_picker,
     });
 
     let newly_created = match crate::ensure_main_window(
@@ -430,6 +431,7 @@ pub async fn prompt_for_app_selection(app: &AppHandle, extension: &str) -> Resul
             serde_json::json!({
                 "extension": extension_for_emit,
                 "request_id": request_id_for_emit,
+                "force_picker": force_picker,
             }),
         ) {
             Ok(()) => debug!("App picker event emitted successfully"),

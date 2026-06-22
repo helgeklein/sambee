@@ -578,6 +578,12 @@ export const EN_TRANSLATIONS = {
         openInApp: {
           title: "Open Focused File In Companion App",
         },
+        openInViewerPicker: {
+          title: "Choose Browser Viewer For Focused File",
+        },
+        openInNativePicker: {
+          title: "Choose Native App For Focused File",
+        },
         toggleDualPane: {
           title: "Toggle Dual-Pane View",
         },
@@ -612,11 +618,29 @@ export const EN_TRANSLATIONS = {
     },
     row: {
       openInCompanionApp: "Open in companion app",
+      openInBrowserViewer: "Open in browser viewer",
+      chooseBrowserViewer: "Choose browser viewer",
+      openInNativeApp: "Open in native app",
+      chooseNativeApp: "Choose native app",
       itemTypes: {
         folder: "Folder",
         file: "File",
       },
       selectedSuffix: " (selected)",
+    },
+    viewerPicker: {
+      title: "Choose Viewer",
+      open: "Open",
+      alwaysUse: "Always use this viewer for this file type",
+      compatible: "Compatible viewer",
+      override: "Override viewer",
+      openInNativeApp: "Open in native app",
+      nativeDescription: "Use your desktop application instead of a Sambee viewer",
+      viewers: {
+        image: "Image Viewer",
+        markdown: "Markdown Viewer",
+        pdf: "PDF Viewer",
+      },
     },
     shortcuts: {
       navigateUp: "Go up one directory",
@@ -633,6 +657,8 @@ export const EN_TRANSLATIONS = {
       deleteItem: "Delete file or directory",
       renameItem: "Rename file or directory",
       openInCompanion: "Open in companion app",
+      openViewerPicker: "Choose browser viewer",
+      openNativePicker: "Choose native app",
       createDirectory: "Create new directory",
       createFile: "Create new file",
       toggleSelectionAndMoveDown: "Toggle selection & move down",

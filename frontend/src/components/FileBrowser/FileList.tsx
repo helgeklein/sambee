@@ -24,8 +24,10 @@ interface FileListProps {
     buttonFocusedMultiSelected: Record<string, unknown>;
   };
   viewMode: ViewMode;
-  /** Called when "Open in app" is chosen from a file's context menu */
-  onOpenInApp?: (file: FileEntry, index: number) => void;
+  onOpenAssociatedViewer?: (file: FileEntry, index: number) => void;
+  onOpenViewerPicker?: (file: FileEntry, index: number) => void;
+  onOpenAssociatedNativeApp?: (file: FileEntry, index: number) => void;
+  onOpenNativePicker?: (file: FileEntry, index: number) => void;
   /** Called when "Rename" is chosen from the context menu */
   onRename?: (file: FileEntry, index: number) => void;
 } //
@@ -43,7 +45,10 @@ export const FileList = React.memo(
     listContainerRef,
     fileRowStyles,
     viewMode,
-    onOpenInApp,
+    onOpenAssociatedViewer,
+    onOpenViewerPicker,
+    onOpenAssociatedNativeApp,
+    onOpenNativePicker,
     onRename,
   }: FileListProps) => {
     const { t } = useTranslation();
@@ -104,7 +109,10 @@ export const FileList = React.memo(
                     onClick={onFileClick}
                     fileRowStyles={fileRowStyles}
                     viewMode={viewMode}
-                    onOpenInApp={onOpenInApp}
+                    onOpenAssociatedViewer={onOpenAssociatedViewer}
+                    onOpenViewerPicker={onOpenViewerPicker}
+                    onOpenAssociatedNativeApp={onOpenAssociatedNativeApp}
+                    onOpenNativePicker={onOpenNativePicker}
                     onRename={onRename}
                   />
                 );

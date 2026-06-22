@@ -6,10 +6,12 @@ import type { Virtualizer } from "@tanstack/react-virtual";
 import type React from "react";
 import type { SearchProvider } from "../../components/FileBrowser/search/types";
 import type { Connection, FileEntry, FileType } from "../../types";
+import type { ViewerId } from "../../utils/FileTypeRegistry";
 
 export type SortField = "name" | "size" | "modified" | "type";
 
 export type ViewMode = "list" | "details";
+export type BrowserOpenMode = "associated-viewer" | "force-viewer-picker" | "associated-native-app" | "force-native-picker";
 
 // ============================================================================
 // Dual-pane types
@@ -24,9 +26,20 @@ export type PaneMode = "single" | "dual";
 export interface ViewInfo {
   path: string;
   mimeType: string;
+  viewerId?: ViewerId;
   images?: string[];
   currentIndex?: number;
   sessionId: string;
+}
+
+export interface BrowserViewerPickerState {
+  fileName: string;
+  filePath: string;
+  mimeType: string;
+  viewerIds: ViewerId[];
+  compatibleViewerIds: ViewerId[];
+  preferredViewerId: ViewerId | null;
+  showNativeOption: boolean;
 }
 
 export interface NavigationHistoryEntry {
@@ -166,6 +179,7 @@ export interface UseFileBrowserPaneReturn {
   // ── Viewer State ───────────────────────────────────────────────────────
   viewInfo: ViewInfo | null;
   setViewInfo: React.Dispatch<React.SetStateAction<ViewInfo | null>>;
+  browserViewerPickerState: BrowserViewerPickerState | null;
 
   // ── Dialog State ───────────────────────────────────────────────────────
   deleteDialogOpen: boolean;
@@ -205,7 +219,8 @@ export interface UseFileBrowserPaneReturn {
   handleEnd: () => void;
   handlePageDown: (e?: KeyboardEvent) => void;
   handlePageUp: (e?: KeyboardEvent) => void;
-  handleOpenFile: (options?: { requireListFocus?: boolean }) => void;
+  handleOpenFile: (options?: { requireListFocus?: boolean; mode?: BrowserOpenMode }) => void;
+  handleOpenFileForFile: (file: FileEntry, index: number, mode?: BrowserOpenMode) => void;
   navigateToPath: (path: string, options?: { blurActiveElement?: boolean }) => void;
   prepareDirectoryTransition: (connectionId: string, path: string) => void;
   handleNavigateUpDirectory: () => void;
@@ -218,6 +233,8 @@ export interface UseFileBrowserPaneReturn {
   // ── Viewer Handlers ────────────────────────────────────────────────────
   handleViewIndexChange: (index: number) => void;
   handleViewClose: () => void;
+  closeBrowserViewerPicker: () => void;
+  confirmBrowserViewerPicker: (selection: { viewerId: ViewerId | null; rememberSelection: boolean }) => Promise<void>;
 
   // ── CRUD Dialog Handlers ───────────────────────────────────────────────
   handleDeleteRequest: (options?: { requireListFocus?: boolean }) => void;
@@ -233,8 +250,8 @@ export interface UseFileBrowserPaneReturn {
   closeCreateDialog: () => void;
 
   // ── Companion App ──────────────────────────────────────────────────────
-  handleOpenInApp: () => Promise<void>;
-  handleOpenInAppForFile: (file: FileEntry, index: number) => Promise<void>;
+  handleOpenInApp: (options?: { forcePicker?: boolean }) => Promise<void>;
+  handleOpenInAppForFile: (file: FileEntry, index: number, options?: { forcePicker?: boolean }) => Promise<void>;
 
   // ── WebSocket Integration ──────────────────────────────────────────────
   /**

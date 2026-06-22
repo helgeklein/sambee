@@ -30,6 +30,8 @@ import "../styles/app-picker.css";
 interface AppPickerProps {
   /** File extension without leading dot (e.g. "docx", "png"). */
   extension: string;
+  /** Whether the picker must be shown even when a saved preference exists. */
+  forcePicker?: boolean;
 
   /**
    * Called when the user confirms their selection.
@@ -174,7 +176,7 @@ const APP_PICKER_ROUNDING_BUFFER = 1;
  * Tauri command. Shows the default handler first (labelled "(default)").
  * Supports "Always use" persistence and a "Browse" fallback.
  */
-export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
+export function AppPicker({ extension, forcePicker = false, onSelect, onCancel }: AppPickerProps) {
   const [state, setState] = useState<AppPickerViewState>({ kind: "loading" });
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [alwaysUse, setAlwaysUse] = useState(false);
@@ -304,6 +306,11 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
 
           setSelectedIndex(autoIndex);
           setAlwaysUse(preferredExe !== null);
+
+          if (!forcePicker && preferredExe && autoIndex >= 0) {
+            onSelect(apps[autoIndex], false);
+            return;
+          }
         }
       } catch (err: unknown) {
         if (cancelled) return;
@@ -316,7 +323,7 @@ export function AppPicker({ extension, onSelect, onCancel }: AppPickerProps) {
     return () => {
       cancelled = true;
     };
-  }, [extension]);
+  }, [extension, forcePicker, onSelect]);
 
   //
   // handleOpen
