@@ -30,7 +30,3 @@
 ## Text viewer and editor
 
 - Support various text-based files
-
-## PDF viewer
-
-- Follow intra-doc links when clicked (e.g., from a ToC to a given page)
