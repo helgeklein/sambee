@@ -28,6 +28,12 @@ describe("frontend i18n", () => {
     expect(CONNECTION_DIALOG_STRINGS.TITLE_ADD).toBe("Add Connection");
     expect(COMMON_SHORTCUTS.SEARCH.description).toBe("Search");
     expect(BROWSER_SHORTCUTS.SHOW_HELP.description).toBe("Show keyboard shortcuts");
+    expect(translate("fileBrowser.shortcuts.openSelectedItem")).toBe(
+      "Open the selected item normally. Use Shift+Enter to choose a Sambee viewer or Ctrl+Enter to open the file in its native app"
+    );
+    expect(BROWSER_SHORTCUTS.OPEN_IN_APP.description).toBe("Open the selected file in its native app");
+    expect(BROWSER_SHORTCUTS.OPEN_IN_VIEWER_PICKER.description).toBe("Choose how to open the selected file in Sambee");
+    expect(BROWSER_SHORTCUTS.OPEN_IN_NATIVE_PICKER.description).toBe("Choose a native app for the selected file");
     expect(SORT_CONTROLS_STRINGS.fieldLabel("modified")).toBe("Modified");
     expect(VIEW_MODE_SELECTOR_STRINGS.optionLabel("details")).toBe("Details");
     expect(STATUS_BAR_STRINGS.itemCount(2)).toBe("2 items");
@@ -49,6 +55,12 @@ describe("frontend i18n", () => {
     expect(CONNECTION_DIALOG_STRINGS.ERROR_USERNAME_REQUIRED).toBe("[Úšéŕńåḿé íš ŕéqúíŕéď]");
     expect(COMMON_SHORTCUTS.SEARCH.description).toBe("[Šéåŕćħ]");
     expect(BROWSER_SHORTCUTS.SHOW_HELP.description).toBe("[Šħóŵ ķéýƀóåŕď šħóŕťćúťš]");
+    expect(translate("fileBrowser.shortcuts.openSelectedItem")).toBe(
+      "[Óṕéń ťħé šéĺéćťéď íťéḿ ńóŕḿåĺĺý. Úšé Šħíƒť+Éńťéŕ ťó ćħóóšé å Šåḿƀéé ṽíéŵéŕ óŕ Ćťŕĺ+Éńťéŕ ťó óṕéń ťħé ƒíĺé íń íťš ńåťíṽé åṕṕ]"
+    );
+    expect(BROWSER_SHORTCUTS.OPEN_IN_APP.description).toBe("[Óṕéń ťħé šéĺéćťéď ƒíĺé íń íťš ńåťíṽé åṕṕ]");
+    expect(BROWSER_SHORTCUTS.OPEN_IN_VIEWER_PICKER.description).toBe("[Ćħóóšé ħóŵ ťó óṕéń ťħé šéĺéćťéď ƒíĺé íń Šåḿƀéé]");
+    expect(BROWSER_SHORTCUTS.OPEN_IN_NATIVE_PICKER.description).toBe("[Ćħóóšé å ńåťíṽé åṕṕ ƒóŕ ťħé šéĺéćťéď ƒíĺé]");
     expect(SORT_CONTROLS_STRINGS.fieldLabel("modified")).toBe("[Ḿóďíƒíéď]");
     expect(VIEW_MODE_SELECTOR_STRINGS.optionLabel("details")).toBe("[Ďéťåíĺš]");
     expect(STATUS_BAR_STRINGS.itemCount(2)).toBe("[2 íťéḿš]");

@@ -88,7 +88,7 @@ describe("KeyboardShortcutsHelp", () => {
       expect(screen.getByRole("button", { name: "[Ćĺóšé]" })).toBeInTheDocument();
     });
 
-    it("should hide shortcuts that are currently disabled", () => {
+    it("should show shortcuts even when they are currently disabled", () => {
       const shortcuts: KeyboardShortcut[] = [
         {
           id: "enabled",
@@ -115,8 +115,8 @@ describe("KeyboardShortcutsHelp", () => {
       render(<KeyboardShortcutsHelp open={true} onClose={mockOnClose} shortcuts={shortcuts} />);
 
       expect(screen.getByText("Open quick navigation")).toBeInTheDocument();
-      expect(screen.queryByText("Open settings")).not.toBeInTheDocument();
-      expect(screen.queryByText("Ctrl+,")).not.toBeInTheDocument();
+      expect(screen.getByText("Open settings")).toBeInTheDocument();
+      expect(screen.getByText("Ctrl+,")).toBeInTheDocument();
     });
   });
 

@@ -45,7 +45,6 @@ const SHORTCUT_HELP_GROUP_ORDER: ShortcutHelpGroup[] = [
  */
 export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ open, onClose, shortcuts, title }) => {
   const { t } = useTranslation();
-  const visibleShortcuts = shortcuts.filter((shortcut) => shortcut.enabled !== false);
   const dialogTitle = title ?? t("keyboardShortcutsHelp.defaultTitle");
 
   useEffect(() => {
@@ -91,7 +90,7 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({ op
     const sections = new Map<ShortcutHelpGroup, GroupedShortcut[]>();
     const sectionDescriptions = new Map<ShortcutHelpGroup, Map<string, GroupedShortcut>>();
 
-    for (const shortcut of visibleShortcuts) {
+    for (const shortcut of shortcuts) {
       const sectionId = shortcut.helpGroup ?? DEFAULT_SHORTCUT_HELP_GROUP;
       const label = shortcut.label || shortcut.keys.toString();
 

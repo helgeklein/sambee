@@ -1713,6 +1713,7 @@ const Browser: React.FC = () => {
       // Open file/folder (focus checked inside handler)
       {
         ...COMMON_SHORTCUTS.OPEN,
+        description: t("fileBrowser.shortcuts.openSelectedItem"),
         handler: () => activePane.handleOpenFile({ mode: "associated-viewer" }),
         enabled: browsing && hasFocusedFile,
       },
@@ -1720,6 +1721,18 @@ const Browser: React.FC = () => {
         ...BROWSER_SHORTCUTS.OPEN_IN_VIEWER_PICKER,
         handler: () => activePane.handleOpenFile({ mode: "force-viewer-picker" }),
         enabled: browsing && hasFocusedFile,
+      },
+      // Open in companion app (Ctrl+Enter)
+      {
+        ...BROWSER_SHORTCUTS.OPEN_IN_APP,
+        handler: () => activePane.handleOpenInApp(),
+        enabled: browsing && activePaneCanOpenInApp,
+      },
+      // Choose native app (Ctrl+Alt+Enter)
+      {
+        ...BROWSER_SHORTCUTS.OPEN_IN_NATIVE_PICKER,
+        handler: () => activePane.handleOpenInApp({ forcePicker: true }),
+        enabled: browsing && activePaneCanOpenInApp,
       },
       // Navigate up directory
       {
@@ -1792,17 +1805,6 @@ const Browser: React.FC = () => {
         ...BROWSER_SHORTCUTS.RENAME_ITEM,
         handler: activePane.handleRenameRequest,
         enabled: browsing && noDialogOpen && hasFocusedFile,
-      },
-      // Open in companion app (Ctrl+Enter)
-      {
-        ...BROWSER_SHORTCUTS.OPEN_IN_APP,
-        handler: () => activePane.handleOpenInApp(),
-        enabled: browsing && activePaneCanOpenInApp,
-      },
-      {
-        ...BROWSER_SHORTCUTS.OPEN_IN_NATIVE_PICKER,
-        handler: () => activePane.handleOpenInApp({ forcePicker: true }),
-        enabled: browsing && activePaneCanOpenInApp,
       },
       // Create new directory (F7)
       {
@@ -1899,6 +1901,7 @@ const Browser: React.FC = () => {
     handleFocusRightPane,
     handleCopyToOtherPane,
     handleMoveToOtherPane,
+    t,
   ]);
 
   useKeyboardShortcuts({
