@@ -10,15 +10,21 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use log::{debug, error, info, warn};
+use serde_json::Value as JsonValue;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_store::StoreBuilder;
 
+use crate::app_registry::{get_registry, NativeApp};
 use crate::http_client::{is_proxy_auth_required_error, SambeeHttpClientStore};
 use crate::sync::operations::{
     CompanionLockContext, FileOperation, OperationStatus, OperationStore, PendingAppSelections, SelectedApp, FILE_POLL_INTERVAL_SECS,
     HEARTBEAT_INTERVAL_SECS,
 };
+
+const APP_PREFERENCES_STORE_FILE: &str = "app-preferences.json";
+const APP_PREFERENCES_KEY: &str = "appPreferences";
 
 fn launch_explicit_app(app: &AppHandle, app_executable: &str, path_str: &str) -> Result<(), String> {
     let _child = app.shell().command(app_executable).arg(path_str).spawn().map_err(|e| {
@@ -35,6 +41,69 @@ fn should_skip_explicit_windows_launch(app_executable: &str, handler_id: Option<
     let normalized_executable = app_executable.replace('/', "\\").to_ascii_lowercase();
     let has_opaque_handler = handler_id.is_some_and(|value| !value.is_empty() && value.contains(':'));
     has_opaque_handler || normalized_executable.contains("\\windowsapps\\")
+}
+
+fn normalize_executable_for_matching(executable: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        executable.replace('/', "\\").to_ascii_lowercase()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        executable.to_string()
+    }
+}
+
+fn selected_app_from_native_app(app: &NativeApp) -> SelectedApp {
+    SelectedApp {
+        executable: app.executable.to_string_lossy().to_string(),
+        handler_id: app.handler_id.clone(),
+        name: app.name.clone(),
+    }
+}
+
+fn select_preferred_app_from_candidates(preferred_executable: Option<&str>, apps: &[NativeApp]) -> Option<SelectedApp> {
+    let preferred_executable = preferred_executable?.trim();
+    if preferred_executable.is_empty() {
+        return None;
+    }
+
+    let normalized_preference = normalize_executable_for_matching(preferred_executable);
+    apps.iter()
+        .find(|app| normalize_executable_for_matching(&app.executable.to_string_lossy()) == normalized_preference)
+        .map(selected_app_from_native_app)
+}
+
+fn resolve_preferred_app_selection(app: &AppHandle, extension: &str) -> Option<SelectedApp> {
+    let store = match StoreBuilder::new(app, APP_PREFERENCES_STORE_FILE).build() {
+        Ok(store) => store,
+        Err(err) => {
+            warn!("Failed to open native app preference store: {err}");
+            return None;
+        }
+    };
+
+    let Some(preferences_value) = store.get(APP_PREFERENCES_KEY) else {
+        return None;
+    };
+
+    let preferred_executable = match preferences_value {
+        JsonValue::Object(preferences) => preferences.get(extension).and_then(JsonValue::as_str).map(str::to_owned),
+        _ => {
+            warn!("Invalid native app preference payload in store; expected object at key '{APP_PREFERENCES_KEY}'");
+            return None;
+        }
+    };
+
+    let apps = get_registry().apps_for_extension(extension);
+    let selection = select_preferred_app_from_candidates(preferred_executable.as_deref(), &apps);
+
+    if selection.is_none() && preferred_executable.is_some() {
+        warn!("Saved preferred app for extension '{}' is no longer available; falling back to picker", extension);
+    }
+
+    selection
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -374,6 +443,13 @@ pub async fn open_in_native_app(app: &AppHandle, local_path: &Path, app_executab
 
 /// Show the companion app picker for a file extension and wait for the user's selection.
 pub async fn prompt_for_app_selection(app: &AppHandle, extension: &str, force_picker: bool) -> Result<Option<SelectedApp>, String> {
+    if !force_picker {
+        if let Some(selection) = resolve_preferred_app_selection(app, extension) {
+            debug!("Resolved preferred app without showing picker for extension '{}'", extension);
+            return Ok(Some(selection));
+        }
+    }
+
     let request_id = uuid::Uuid::new_v4().to_string();
     let pending = app
         .try_state::<PendingAppSelections>()
@@ -1315,6 +1391,50 @@ mod tests {
         let time = UNIX_EPOCH + Duration::from_secs(1_770_853_822);
         let formatted = format_system_time(time);
         assert_eq!(formatted, "23:50:22");
+    }
+
+    #[test]
+    fn selects_preferred_app_from_candidates() {
+        let apps = vec![
+            NativeApp {
+                name: "LibreOffice Writer".to_string(),
+                executable: "/usr/bin/libreoffice".into(),
+                handler_id: Some("writer-handler".to_string()),
+                icon: None,
+                is_default: true,
+                is_recommended: true,
+            },
+            NativeApp {
+                name: "OnlyOffice".to_string(),
+                executable: "/opt/onlyoffice/desktopeditors".into(),
+                handler_id: None,
+                icon: None,
+                is_default: false,
+                is_recommended: true,
+            },
+        ];
+
+        let selection = select_preferred_app_from_candidates(Some("/opt/onlyoffice/desktopeditors"), &apps)
+            .expect("expected preferred app selection");
+
+        assert_eq!(selection.name, "OnlyOffice");
+        assert_eq!(selection.executable, "/opt/onlyoffice/desktopeditors");
+        assert_eq!(selection.handler_id, None);
+    }
+
+    #[test]
+    fn ignores_missing_preferred_app_candidates() {
+        let apps = vec![NativeApp {
+            name: "LibreOffice Writer".to_string(),
+            executable: "/usr/bin/libreoffice".into(),
+            handler_id: Some("writer-handler".to_string()),
+            icon: None,
+            is_default: true,
+            is_recommended: true,
+        }];
+
+        assert!(select_preferred_app_from_candidates(Some("/missing/app"), &apps).is_none());
+        assert!(select_preferred_app_from_candidates(None, &apps).is_none());
     }
 
     //

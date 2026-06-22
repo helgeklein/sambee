@@ -576,10 +576,10 @@ export const EN_TRANSLATIONS = {
           title: "Create New File",
         },
         openInApp: {
-          title: "Open Focused File In Companion App",
+          title: "Open Focused File In Native App",
         },
         openInViewerPicker: {
-          title: "Choose Browser Viewer For Focused File",
+          title: "Choose Sambee Viewer For Focused File",
         },
         openInNativePicker: {
           title: "Choose Native App For Focused File",
@@ -617,9 +617,9 @@ export const EN_TRANSLATIONS = {
       emptyDirectory: "This directory is empty",
     },
     row: {
-      openInCompanionApp: "Open in companion app",
-      openInBrowserViewer: "Open in browser viewer",
-      chooseBrowserViewer: "Choose browser viewer",
+      openInCompanionApp: "Open in native app",
+      openInBrowserViewer: "Open in Sambee",
+      chooseBrowserViewer: "Choose Sambee viewer",
       openInNativeApp: "Open in native app",
       chooseNativeApp: "Choose native app",
       itemTypes: {
@@ -658,10 +658,10 @@ export const EN_TRANSLATIONS = {
       openInCompanion: "Open the selected file in its native app",
       openNativePicker: "Choose a native app for the selected file",
       openQuickNavigation: "Open quick navigation",
-      openSelectedItem: "Open the selected file in Sambee's viewer",
+      openSelectedItem: "Open the selected file in Sambee.",
       openSettings: "Open settings",
       openSmartNavigation: "Open navigate mode",
-      openViewerPicker: "Choose how to open the selected file in Sambee",
+      openViewerPicker: "Choose a Sambee viewer for the selected file",
       refresh: "Refresh file list",
       renameItem: "Rename file or directory",
       selectAllFiles: "Select all files",

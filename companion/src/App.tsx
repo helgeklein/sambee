@@ -37,10 +37,7 @@ interface AppPickerEventPayload {
 }
 
 /** Possible view states for the companion webview. */
-type ViewState =
-  | { kind: "idle" }
-  | { kind: "app-picker"; extension: string; requestId: string; forcePicker: boolean }
-  | { kind: "preferences" };
+type ViewState = { kind: "idle" } | { kind: "app-picker"; extension: string; requestId: string } | { kind: "preferences" };
 
 //
 // App
@@ -63,7 +60,6 @@ export function App() {
         kind: "app-picker",
         extension: event.payload.extension,
         requestId: event.payload.request_id,
-        forcePicker: event.payload.force_picker ?? false,
       });
     });
 
@@ -93,7 +89,6 @@ export function App() {
             kind: "app-picker",
             extension: pendingPicker.extension,
             requestId: pendingPicker.request_id,
-            forcePicker: pendingPicker.force_picker ?? false,
           });
         }
       } catch (err) {
@@ -196,7 +191,7 @@ export function App() {
   // Render the current view
   switch (view.kind) {
     case "app-picker":
-      return <AppPicker extension={view.extension} forcePicker={view.forcePicker} onSelect={handleAppSelected} onCancel={handleCancel} />;
+      return <AppPicker extension={view.extension} onSelect={handleAppSelected} onCancel={handleCancel} />;
     case "preferences":
       return <Preferences onClose={handlePreferencesClose} />;
     default:
