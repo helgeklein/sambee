@@ -472,6 +472,25 @@ describe("Browser Component - Interactions", () => {
       expect(screen.getByText("Test Server 1 (192.168.1.100/share1)")).toBeInTheDocument();
     });
 
+    it("opens the connection selector instead of the quick bar mode menu when Ctrl+ArrowDown is pressed on the mode button", async () => {
+      const user = userEvent.setup();
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Documents").length).toBeGreaterThan(0);
+      });
+
+      const modeButton = screen.getByRole("button", { name: "Switch quick bar mode" });
+      modeButton.focus();
+      expect(modeButton).toHaveFocus();
+
+      await user.keyboard("{Control>}{ArrowDown}{/Control}");
+
+      expect(await screen.findByRole("listbox")).toBeInTheDocument();
+      expect(screen.getByText("Test Server 1 (192.168.1.100/share1)")).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Filter" })).not.toBeInTheDocument();
+    });
+
     it("does not show an empty no-results dropdown when navigate mode opens", async () => {
       const user = userEvent.setup();
       renderBrowser("/browse/smb/test-server-1");
