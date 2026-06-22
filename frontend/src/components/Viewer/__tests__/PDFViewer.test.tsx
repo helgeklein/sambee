@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useCallback, useEffect, useRef } from "react";
 import type { Mock } from "vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
@@ -37,9 +38,11 @@ vi.mock("react-pdf", () => ({
     file: string;
     onItemClick?: (args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void;
   }) => {
+    const loadedFileRef = useRef<string | null>(null);
+
     capturedInitialDocumentItemClick ??= onItemClick;
 
-    const getPageItems = (pageNum: number) => {
+    const getPageItems = useCallback((pageNum: number) => {
       if (pageNum === 1) {
         return [
           {
@@ -71,29 +74,33 @@ vi.mock("react-pdf", () => ({
           height: 12,
         },
       ];
-    };
+    }, []);
 
-    // Simulate successful load after a tick
-    if (file && !file.includes("error")) {
-      setTimeout(() => {
-        const mockPdf = {
-          numPages: 5,
-          getPage: (pageNum: number) =>
-            Promise.resolve({
-              getViewport: () => ({ width: 612, height: 792 }),
-              getTextContent: () =>
-                Promise.resolve({
-                  items: getPageItems(pageNum),
-                }),
-            }),
-        };
-        onLoadSuccess?.(mockPdf);
-      }, 0);
-    } else if (file?.includes("error")) {
-      setTimeout(() => {
-        onLoadError?.(new Error("Failed to load PDF"));
-      }, 0);
-    }
+    useEffect(() => {
+      if (file && !file.includes("error") && loadedFileRef.current !== file) {
+        loadedFileRef.current = file;
+
+        setTimeout(() => {
+          const mockPdf = {
+            numPages: 5,
+            getPage: (pageNum: number) =>
+              Promise.resolve({
+                getViewport: () => ({ width: 612, height: 792 }),
+                getTextContent: () =>
+                  Promise.resolve({
+                    items: getPageItems(pageNum),
+                  }),
+              }),
+          };
+          onLoadSuccess?.(mockPdf);
+        }, 0);
+      } else if (file?.includes("error")) {
+        setTimeout(() => {
+          onLoadError?.(new Error("Failed to load PDF"));
+        }, 0);
+      }
+    }, [file, getPageItems, onLoadError, onLoadSuccess]);
+
     return (
       <div data-testid="pdf-document" data-file={file}>
         <button
@@ -146,6 +153,7 @@ global.URL.createObjectURL = mockCreateObjectURL;
 global.URL.revokeObjectURL = mockRevokeObjectURL;
 
 let capturedInitialDocumentItemClick: ((args: { dest?: unknown; pageIndex?: number; pageNumber?: number }) => void) | undefined;
+let mockBlobUrlCounter = 0;
 
 function mockMatchMedia(matches: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -214,7 +222,8 @@ describe("PDFViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     capturedInitialDocumentItemClick = undefined;
-    mockCreateObjectURL.mockReturnValue("blob:mock-url");
+    mockBlobUrlCounter = 0;
+    mockCreateObjectURL.mockImplementation(() => `blob:mock-url-${++mockBlobUrlCounter}`);
     mockMatchMedia(false);
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
@@ -320,7 +329,7 @@ describe("PDFViewer", () => {
 
       await waitFor(() => {
         const doc = screen.getByTestId("pdf-document");
-        expect(doc).toHaveAttribute("data-file", "blob:mock-url");
+        expect(doc).toHaveAttribute("data-file", "blob:mock-url-1");
       });
     });
 
@@ -392,7 +401,7 @@ describe("PDFViewer", () => {
 
       unmount();
 
-      expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url-1");
     });
 
     it("revokes old blob URL when path changes", async () => {
@@ -411,7 +420,7 @@ describe("PDFViewer", () => {
       );
 
       await waitFor(() => {
-        expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+        expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:mock-url-1");
       });
     });
 
@@ -587,6 +596,27 @@ describe("PDFViewer", () => {
 
       await waitFor(() => {
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
+      });
+    });
+
+    it("navigates when Enter is pressed in the page number input", async () => {
+      const user = userEvent.setup();
+      renderPDFViewer();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
+      });
+
+      await waitForPageNavigationReady();
+
+      const pageInput = screen.getByRole("textbox");
+      await user.clear(pageInput);
+      await user.type(pageInput, "4");
+      expect(pageInput).toHaveValue("4");
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "4");
       });
     });
   });

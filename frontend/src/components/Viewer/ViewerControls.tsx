@@ -273,13 +273,21 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     }
   };
 
-  const handlePageInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
-    commitPageInput(event.currentTarget.value);
+  const getInputValue = (eventTarget: EventTarget | null) => {
+    return eventTarget instanceof HTMLInputElement ? eventTarget.value : pageInput;
   };
 
-  const handlePageInputKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter") {
-      commitPageInput((event.currentTarget as HTMLInputElement).value);
+  const handlePageInputBlur = (event: React.FocusEvent<HTMLInputElement>) => {
+    commitPageInput(getInputValue(event.target));
+  };
+
+  const handlePageInputSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    commitPageInput(pageInput);
+
+    if (document.activeElement instanceof HTMLInputElement) {
+      document.activeElement.blur();
     }
   };
 
@@ -460,6 +468,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
         {/* Page navigation (for PDFs) */}
         {config.pageNavigation && pageNavigation && pageNavigation.totalPages > 0 && (
           <Box
+            component="form"
+            onSubmit={handlePageInputSubmit}
             sx={{
               display: "flex",
               alignItems: "center",
@@ -485,13 +495,12 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
             <TextField
               value={pageInput}
               onChange={handlePageInputChange}
-              onBlur={handlePageInputBlur}
-              onKeyDown={handlePageInputKeyDown}
               size="small"
               slotProps={{
                 htmlInput: {
                   inputMode: "numeric",
                   pattern: "[0-9]*",
+                  onBlur: handlePageInputBlur,
                 },
               }}
               sx={{
