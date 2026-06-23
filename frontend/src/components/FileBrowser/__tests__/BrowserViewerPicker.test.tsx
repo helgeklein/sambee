@@ -10,8 +10,7 @@ vi.mock("react-i18next", () => ({
         "fileBrowser.viewerPicker.title": "Choose Viewer",
         "fileBrowser.viewerPicker.open": "Open",
         "fileBrowser.viewerPicker.alwaysUse": "Always use this viewer for this file type",
-        "fileBrowser.viewerPicker.compatible": "Compatible viewer",
-        "fileBrowser.viewerPicker.override": "Override viewer",
+        "fileBrowser.viewerPicker.default": "Default",
         "fileBrowser.viewerPicker.openInNativeApp": "Open in native app",
         "fileBrowser.viewerPicker.nativeDescription": "Use your desktop application instead of a Sambee viewer",
         "fileBrowser.viewerPicker.viewers.image": "Image Viewer",
@@ -29,7 +28,7 @@ describe("BrowserViewerPicker", () => {
     vi.clearAllMocks();
   });
 
-  it("lets users persist a compatible Sambee viewer selection", () => {
+  it("starts with always-use checked when a preferred viewer already exists", () => {
     const onConfirm = vi.fn();
 
     render(
@@ -37,7 +36,7 @@ describe("BrowserViewerPicker", () => {
         open={true}
         fileName="report.pdf"
         viewerIds={["pdf", "markdown"]}
-        compatibleViewerIds={["pdf"]}
+        defaultViewerId="pdf"
         preferredViewerId="pdf"
         showNativeOption={false}
         onClose={vi.fn()}
@@ -45,16 +44,16 @@ describe("BrowserViewerPicker", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
+    expect(screen.getByRole("checkbox")).toBeChecked();
     expect(onConfirm).toHaveBeenCalledWith({
       viewerId: "pdf",
       rememberSelection: true,
     });
   });
 
-  it("prevents persisting incompatible override viewers", () => {
+  it("keeps always-use enabled when switching to a different Sambee viewer", () => {
     const onConfirm = vi.fn();
 
     render(
@@ -62,7 +61,7 @@ describe("BrowserViewerPicker", () => {
         open={true}
         fileName="report.pdf"
         viewerIds={["pdf", "markdown"]}
-        compatibleViewerIds={["pdf"]}
+        defaultViewerId="pdf"
         preferredViewerId="pdf"
         showNativeOption={false}
         onClose={vi.fn()}
@@ -73,13 +72,14 @@ describe("BrowserViewerPicker", () => {
     fireEvent.click(screen.getByText("Markdown Viewer"));
 
     const checkbox = screen.getByRole("checkbox");
-    expect(checkbox).toBeDisabled();
+    expect(checkbox).toBeEnabled();
+    expect(checkbox).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
 
     expect(onConfirm).toHaveBeenCalledWith({
       viewerId: "markdown",
-      rememberSelection: false,
+      rememberSelection: true,
     });
   });
 
@@ -91,7 +91,7 @@ describe("BrowserViewerPicker", () => {
         open={true}
         fileName="archive.bin"
         viewerIds={["image", "markdown", "pdf"]}
-        compatibleViewerIds={[]}
+        defaultViewerId={null}
         preferredViewerId={null}
         showNativeOption={true}
         onClose={vi.fn()}
@@ -107,6 +107,106 @@ describe("BrowserViewerPicker", () => {
     expect(onConfirm).toHaveBeenCalledWith({
       viewerId: null,
       rememberSelection: false,
+    });
+  });
+
+  it("preselects the default viewer when there is no saved association", () => {
+    const onConfirm = vi.fn();
+
+    render(
+      <BrowserViewerPicker
+        open={true}
+        fileName="notes.MD"
+        viewerIds={["image", "markdown", "pdf"]}
+        defaultViewerId="markdown"
+        preferredViewerId={null}
+        showNativeOption={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />
+    );
+
+    expect(screen.getByText("Default")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox")).toBeEnabled();
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      viewerId: "markdown",
+      rememberSelection: false,
+    });
+  });
+
+  it("focuses the viewer list when the dialog opens", async () => {
+    render(
+      <BrowserViewerPicker
+        open={true}
+        fileName="report.pdf"
+        viewerIds={["pdf", "markdown"]}
+        defaultViewerId="pdf"
+        preferredViewerId="pdf"
+        showNativeOption={false}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+      />
+    );
+
+    const list = screen.getByRole("listbox");
+
+    await vi.waitFor(() => {
+      expect(list).toHaveFocus();
+    });
+  });
+
+  it("moves between viewers with arrow keys", () => {
+    const onConfirm = vi.fn();
+
+    render(
+      <BrowserViewerPicker
+        open={true}
+        fileName="report.pdf"
+        viewerIds={["pdf", "markdown"]}
+        defaultViewerId="pdf"
+        preferredViewerId="pdf"
+        showNativeOption={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />
+    );
+
+    const list = screen.getByRole("listbox");
+
+    fireEvent.keyDown(list, { key: "ArrowUp" });
+    fireEvent.keyDown(list, { key: "Enter" });
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      viewerId: "markdown",
+      rememberSelection: true,
+    });
+  });
+
+  it("applies the current selection when Enter is pressed", () => {
+    const onConfirm = vi.fn();
+
+    render(
+      <BrowserViewerPicker
+        open={true}
+        fileName="report.pdf"
+        viewerIds={["pdf", "markdown"]}
+        defaultViewerId="pdf"
+        preferredViewerId="pdf"
+        showNativeOption={false}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />
+    );
+
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "Choose Viewer" }), { key: "Enter" });
+
+    expect(onConfirm).toHaveBeenCalledWith({
+      viewerId: "pdf",
+      rememberSelection: true,
     });
   });
 });

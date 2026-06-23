@@ -36,3 +36,7 @@
 ## Dependencies
 
 - Before changing pinned or hashed dependencies or lockfiles, consult `website/content/docs/<VERSION>/developer-guide/release-and-versioning/dependency-and-release-workflow/index.md`.
+
+## Frontend testing / issue reproduction
+
+- Only ever use the following connection for testing in the VS Code browser: http://localhost:3000/browse/smb/demo

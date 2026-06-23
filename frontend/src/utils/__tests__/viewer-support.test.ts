@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasViewerSupport, isImageFile } from "../FileTypeRegistry";
+import { getCompatibleViewerIds, hasViewerSupport, isImageFile } from "../FileTypeRegistry";
 
 describe("hasViewerSupport", () => {
   it("returns true for image formats", () => {
@@ -62,5 +62,11 @@ describe("isImageFile", () => {
     expect(isImageFile("document.pdf")).toBe(false);
     expect(isImageFile("spreadsheet.xlsx")).toBe(false);
     expect(isImageFile("text.txt")).toBe(false);
+  });
+});
+
+describe("getCompatibleViewerIds", () => {
+  it("falls back to the extension when MIME metadata is too generic for markdown", () => {
+    expect(getCompatibleViewerIds("notes.MD", "text/plain")).toEqual(["markdown"]);
   });
 });

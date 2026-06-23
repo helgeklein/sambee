@@ -38,6 +38,7 @@ export interface BrowserViewerPickerState {
   mimeType: string;
   viewerIds: ViewerId[];
   compatibleViewerIds: ViewerId[];
+  defaultViewerId: ViewerId | null;
   preferredViewerId: ViewerId | null;
   showNativeOption: boolean;
 }

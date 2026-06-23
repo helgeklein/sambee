@@ -632,8 +632,7 @@ export const EN_TRANSLATIONS = {
       title: "Choose Viewer",
       open: "Open",
       alwaysUse: "Always use this viewer for this file type",
-      compatible: "Compatible viewer",
-      override: "Override viewer",
+      default: "Default",
       openInNativeApp: "Open in native app",
       nativeDescription: "Use your desktop application instead of a Sambee viewer",
       viewers: {

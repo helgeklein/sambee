@@ -22,9 +22,18 @@ Sambee also now trusts only the specific Sambee site you approved, limits what t
 
 ## File Opening: Speed & Flexibility
 
-Sambee aims to empower its users, combining speed with flexibility. When it comes to opening files for previewing or editing, dedicated commands are needed for
+When opening files for previewing or editing, you want quick previews, but you also want the ability to choose which app a file is opened in. Both paths are now efficiently available:
 
-TODO
+Opening in Sambee's viewers in the browser:
+
+- Clicking a file or pressing <kbd>Enter</kbd> opens the file in Sambee's associated viewer.
+- If no associated viewer exists or if <kbd>Shift + Enter</kbd> is pressed, a viewer picker dialog is shown.
+   - This viewer picker allows choosing a Sambee browser viewer as well as a native app.
+
+Opening in natively installed apps:
+
+- To open a file in the associated native app, press <kbd>Ctrl + Enter</kbd> (or right-click and select **open in native app**).
+- If no associated native app has been choosen yet or if <kbd>Ctrl + Alt + Enter</kbd> is pressed, an app picker dialog is shown.
 
 ## Markdown Viewer & Editor
 

@@ -27,13 +27,7 @@ import { logger } from "../../services/logger";
 import { useSambeeTheme } from "../../theme";
 import type { FileEntry } from "../../types";
 import { FileType, isApiError } from "../../types";
-import {
-  getAllViewerIds,
-  getCompatibleViewerIds,
-  hasViewerSupport,
-  isImageFile,
-  isViewerCompatibleWithFile,
-} from "../../utils/FileTypeRegistry";
+import { getAllViewerIds, getCompatibleViewerIds, isImageFile } from "../../utils/FileTypeRegistry";
 import { compareLocalizedStrings } from "../../utils/localeFormatting";
 import { getConnectionById, isConnectionReadOnly } from "./access";
 import {
@@ -823,59 +817,6 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   // File Click / Viewer
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleFileClick = useCallback(
-    (file: FileEntry, index?: number) => {
-      if (index !== undefined) {
-        updateFocus(index, { immediate: true });
-      }
-
-      if (file.type === "directory") {
-        const currentScrollOffset = parentRef.current?.scrollTop || 0;
-        const currentFocusedIndex = focusedIndex;
-        navigationHistory.current.set(currentPath, {
-          focusedIndex: currentFocusedIndex,
-          scrollOffset: currentScrollOffset,
-          selectedFileName: file.name,
-        });
-
-        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
-        logger.info("Navigating to directory", { from: currentPath, to: newPath, directory: file.name }, "browser");
-
-        navigateToPath(newPath, { blurActiveElement: true });
-      } else {
-        const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
-        const viewerSessionId = createViewerSessionId();
-        const mimeType = file.mime_type || "application/octet-stream";
-        const isImage = isImageFile(file.name);
-
-        logger.info(
-          "File selected for viewing",
-          { path: filePath, fileName: file.name, size: file.size, mimeType, isImage, imageFilesCount: imageFiles.length },
-          "viewer"
-        );
-
-        if (isImage && imageFiles.length > 0) {
-          const imageIndex = imageFiles.indexOf(filePath);
-          const effectiveIndex = imageIndex >= 0 ? imageIndex : 0;
-          currentViewIndexRef.current = effectiveIndex;
-          currentViewImagesRef.current = imageFiles;
-          setViewInfo({ path: filePath, mimeType, images: imageFiles, currentIndex: effectiveIndex, sessionId: viewerSessionId });
-        } else {
-          currentViewIndexRef.current = null;
-          currentViewImagesRef.current = undefined;
-          const canView = hasViewerSupport(mimeType);
-
-          if (canView) {
-            setViewInfo({ path: filePath, mimeType, sessionId: viewerSessionId });
-          } else {
-            logger.info("No viewer component available, file will not open", { mimeType }, "viewer");
-          }
-        }
-      }
-    },
-    [currentPath, updateFocus, imageFiles, focusedIndex, navigateToPath]
-  );
-
   const handleViewIndexChange = useCallback((index: number) => {
     currentViewIndexRef.current = index;
     setViewInfo((prev) => {
@@ -1109,8 +1050,14 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
   const openBrowserViewerPicker = useCallback(
     async (file: FileEntry, filePath: string, mimeType: string, options?: { includeAllViewers?: boolean }) => {
       const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
-      const preferredViewerId = compatibleViewerIds.length > 0 ? await getPreferredViewerId(file.name, mimeType) : null;
-      const viewerIds = options?.includeAllViewers || compatibleViewerIds.length === 0 ? getAllViewerIds() : compatibleViewerIds;
+      const preferredViewerId = await getPreferredViewerId(file.name, mimeType);
+      const defaultViewerId = compatibleViewerIds[0] ?? null;
+      const viewerIds =
+        options?.includeAllViewers ||
+        compatibleViewerIds.length === 0 ||
+        (preferredViewerId !== null && !compatibleViewerIds.includes(preferredViewerId))
+          ? getAllViewerIds()
+          : compatibleViewerIds;
 
       setBrowserViewerPickerState({
         fileName: file.name,
@@ -1118,11 +1065,67 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         mimeType,
         viewerIds,
         compatibleViewerIds,
+        defaultViewerId,
         preferredViewerId,
         showNativeOption: compatibleViewerIds.length === 0,
       });
     },
     []
+  );
+
+  const openFileWithAssociatedViewer = useCallback(
+    (file: FileEntry, filePath: string, mimeType: string) => {
+      const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
+      void getPreferredViewerId(file.name, mimeType).then((preferredViewerId) => {
+        if (preferredViewerId) {
+          openFileInViewer(file, filePath, mimeType, preferredViewerId);
+          return;
+        }
+
+        if (compatibleViewerIds.length === 0) {
+          void openBrowserViewerPicker(file, filePath, mimeType);
+          return;
+        }
+
+        if (compatibleViewerIds.length === 1) {
+          openFileInViewer(file, filePath, mimeType, compatibleViewerIds[0]);
+          return;
+        }
+
+        void openBrowserViewerPicker(file, filePath, mimeType);
+      });
+    },
+    [openBrowserViewerPicker, openFileInViewer]
+  );
+
+  const handleFileClick = useCallback(
+    (file: FileEntry, index?: number) => {
+      if (index !== undefined) {
+        updateFocus(index, { immediate: true });
+      }
+
+      if (file.type === "directory") {
+        const currentScrollOffset = parentRef.current?.scrollTop || 0;
+        const currentFocusedIndex = focusedIndex;
+        navigationHistory.current.set(currentPath, {
+          focusedIndex: currentFocusedIndex,
+          scrollOffset: currentScrollOffset,
+          selectedFileName: file.name,
+        });
+
+        const newPath = currentPath ? `${currentPath}/${file.name}` : file.name;
+        logger.info("Navigating to directory", { from: currentPath, to: newPath, directory: file.name }, "browser");
+
+        navigateToPath(newPath, { blurActiveElement: true });
+        return;
+      }
+
+      const filePath = currentPath ? `${currentPath}/${file.name}` : file.name;
+      const mimeType = file.mime_type || "application/octet-stream";
+
+      openFileWithAssociatedViewer(file, filePath, mimeType);
+    },
+    [currentPath, updateFocus, focusedIndex, navigateToPath, openFileWithAssociatedViewer]
   );
 
   const handleOpenFileForFile = useCallback(
@@ -1150,22 +1153,9 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
-      const compatibleViewerIds = getCompatibleViewerIds(file.name, mimeType);
-      if (compatibleViewerIds.length === 0) {
-        void openBrowserViewerPicker(file, filePath, mimeType);
-        return;
-      }
-
-      void getPreferredViewerId(file.name, mimeType).then((preferredViewerId) => {
-        if (preferredViewerId && compatibleViewerIds.includes(preferredViewerId)) {
-          openFileInViewer(file, filePath, mimeType, preferredViewerId);
-          return;
-        }
-
-        void openBrowserViewerPicker(file, filePath, mimeType);
-      });
+      openFileWithAssociatedViewer(file, filePath, mimeType);
     },
-    [handleFileClick, openBrowserViewerPicker, openFileInViewer, openNativeFile]
+    [handleFileClick, openNativeFile, openBrowserViewerPicker, openFileWithAssociatedViewer]
   );
 
   const handleOpenFile = useCallback(
@@ -1393,14 +1383,11 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
 
       setDeleteDialogOpen(false);
       setDeleteTarget(null);
+      pendingFocusNameRef.current = null;
 
       lastForceReloadRef.current = Date.now();
       loadFilesRef.current?.(currentPathRef.current, true);
-
-      const newLength = filesRef.current.length - 1;
-      if (focusedIndex >= newLength && newLength > 0) {
-        setFocusedIndex(newLength - 1);
-      }
+      listContainerEl?.focus();
 
       logger.info(`Deleted: ${deleteTarget.path}`, undefined, "file-browser");
     } catch (err: unknown) {
@@ -1413,14 +1400,13 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
     } finally {
       setIsDeleting(false);
     }
-  }, [connectionIsReadOnly, deleteTarget, connectionId, focusedIndex]);
+  }, [connectionIsReadOnly, deleteTarget, connectionId, listContainerEl]);
 
   const closeDeleteDialog = useCallback(() => {
     setDeleteDialogOpen(false);
     setDeleteTarget(null);
   }, []);
 
-  // ──────────────────────────────────────────────────────────────────────────
   // Rename
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -1589,7 +1575,7 @@ export function useFileBrowserPane(config: UseFileBrowserPaneConfig): UseFileBro
         return;
       }
 
-      if (selection.rememberSelection && isViewerCompatibleWithFile(selection.viewerId, file.name, pickerState.mimeType)) {
+      if (selection.rememberSelection) {
         await setPreferredViewerId(file.name, pickerState.mimeType, selection.viewerId);
       }
 

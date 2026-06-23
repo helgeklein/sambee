@@ -294,7 +294,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".md", ".markdown"],
     mimeTypes: ["text/markdown"],
     category: "text",
-    viewerComponent: () => import("../components/Viewer/MarkdownViewer"),
+    viewerComponent: markdownViewerComponentLoader,
     icon: "text",
     color: "#083fa1",
     description: "Markdown",
@@ -305,7 +305,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".pdf"],
     mimeTypes: ["application/pdf"],
     category: "document",
-    viewerComponent: () => import("../components/Viewer/PDFViewer"),
+    viewerComponent: pdfViewerComponentLoader,
     icon: "pdf",
     color: "#d32f2f",
     description: "PDF Document",
@@ -746,7 +746,9 @@ export const getViewerDefinitions = (): ViewerDefinition[] =>
 export const getAllViewerIds = (): ViewerId[] => Object.keys(VIEWER_DEFINITIONS) as ViewerId[];
 
 export const getCompatibleViewerIds = (filename: string, mimeType: string): ViewerId[] => {
-  const viewerId = getViewerIdForFileType(getFileTypeByMime(mimeType) ?? getFileTypeByExtension(filename));
+  const mimeViewerId = getViewerIdForFileType(getFileTypeByMime(mimeType));
+  const extensionViewerId = getViewerIdForFileType(getFileTypeByExtension(filename));
+  const viewerId = mimeViewerId ?? extensionViewerId;
   return viewerId ? [viewerId] : [];
 };
 

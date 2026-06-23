@@ -1,5 +1,9 @@
 # TODO
 
+## Markdown viewer
+
+- Make navigation in tables more natural. Allow arrow key navigation between cells like in a spreadsheet app.
+
 ## File list
 
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
