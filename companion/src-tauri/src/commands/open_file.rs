@@ -84,9 +84,7 @@ fn resolve_preferred_app_selection(app: &AppHandle, extension: &str) -> Option<S
         }
     };
 
-    let Some(preferences_value) = store.get(APP_PREFERENCES_KEY) else {
-        return None;
-    };
+    let preferences_value = store.get(APP_PREFERENCES_KEY)?;
 
     let preferred_executable = match preferences_value {
         JsonValue::Object(preferences) => preferences.get(extension).and_then(JsonValue::as_str).map(str::to_owned),
