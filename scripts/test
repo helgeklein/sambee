@@ -188,6 +188,15 @@ if [ -d "$REPO_ROOT/companion/src-tauri" ]; then
     echo -e "${YELLOW}=== Companion: Rust Tests ===${NC}"
     cd "$REPO_ROOT/companion/src-tauri" || exit 1
 
+    echo -e "${YELLOW}=== Companion: Clippy ===${NC}"
+    echo -e "${BLUE}Running cargo clippy (--lib --tests -D warnings)...${NC}"
+    if cargo clippy --lib --tests -- -D warnings 2>&1; then
+        echo -e "${GREEN}✓ Companion Clippy passed${NC}\n"
+    else
+        echo -e "${RED}✗ Companion Clippy failed${NC}\n"
+        OVERALL_STATUS=1
+    fi
+
     echo -e "${BLUE}Running cargo test...${NC}"
     if cargo test 2>&1; then
         echo -e "${GREEN}✓ Companion Rust tests passed${NC}\n"
