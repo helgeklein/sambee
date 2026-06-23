@@ -10,8 +10,8 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use log::{debug, error, info, warn};
-use serde_json::Value as JsonValue;
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_store::StoreBuilder;
@@ -98,7 +98,10 @@ fn resolve_preferred_app_selection(app: &AppHandle, extension: &str) -> Option<S
     let selection = select_preferred_app_from_candidates(preferred_executable.as_deref(), &apps);
 
     if selection.is_none() && preferred_executable.is_some() {
-        warn!("Saved preferred app for extension '{}' is no longer available; falling back to picker", extension);
+        warn!(
+            "Saved preferred app for extension '{}' is no longer available; falling back to picker",
+            extension
+        );
     }
 
     selection
@@ -1412,8 +1415,8 @@ mod tests {
             },
         ];
 
-        let selection = select_preferred_app_from_candidates(Some("/opt/onlyoffice/desktopeditors"), &apps)
-            .expect("expected preferred app selection");
+        let selection =
+            select_preferred_app_from_candidates(Some("/opt/onlyoffice/desktopeditors"), &apps).expect("expected preferred app selection");
 
         assert_eq!(selection.name, "OnlyOffice");
         assert_eq!(selection.executable, "/opt/onlyoffice/desktopeditors");

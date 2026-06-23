@@ -94,7 +94,9 @@ impl SambeeUri {
 
         // Optional: theme (base64-encoded JSON CompanionTheme)
         let theme = params.get("theme").filter(|s| !s.is_empty()).cloned();
-        let force_picker = params.get("forcePicker").is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
+        let force_picker = params
+            .get("forcePicker")
+            .is_some_and(|value| value == "1" || value.eq_ignore_ascii_case("true"));
 
         Ok(Self {
             server,
