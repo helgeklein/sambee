@@ -13,6 +13,7 @@ interface DynamicViewerProps {
   viewInfo: {
     path: string;
     mimeType: string;
+    viewerId?: "image" | "markdown" | "pdf";
     images?: string[];
     currentIndex?: number;
     sessionId: string;
@@ -117,10 +118,11 @@ export const DynamicViewer = memo(function DynamicViewer({
       "viewer"
     );
 
-    getViewerComponentLoadResult(viewInfo.mimeType).then((result: ViewerComponentLoadResult) => {
+    getViewerComponentLoadResult(viewInfo.mimeType, viewInfo.viewerId).then((result: ViewerComponentLoadResult) => {
       if (mounted) {
         logger.info("DynamicViewer: Viewer component loaded", {
           mimeType: viewInfo.mimeType,
+          viewerId: viewInfo.viewerId,
           componentFound: result.status === "loaded",
           resultStatus: result.status,
           sessionId: viewInfo.sessionId,
@@ -138,7 +140,7 @@ export const DynamicViewer = memo(function DynamicViewer({
     return () => {
       mounted = false;
     };
-  }, [retryToken, viewInfo.mimeType, viewInfo.sessionId]);
+  }, [retryToken, viewInfo.mimeType, viewInfo.sessionId, viewInfo.viewerId]);
 
   useEffect(() => {
     if (loadState.status !== "loaded") {

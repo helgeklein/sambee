@@ -20,6 +20,21 @@ Sambee also now trusts only the specific Sambee site you approved, limits what t
 
 **Native editing** is also more resilient. Sambee now uses tighter, task-specific edit permissions, renews long-running edit sessions when needed, and returns you to the browser with a clearer next step if sign-in, lock ownership, or recovery fails, instead of leaving you stuck with a vague error.
 
+## File Opening: Speed & Flexibility
+
+When opening files for previewing or editing, you want quick previews, but you also want the ability to choose which app a file is opened in. Both paths are now efficiently available:
+
+Opening in Sambee's viewers in the browser:
+
+- Clicking a file or pressing <kbd>Enter</kbd> opens the file in Sambee's associated viewer.
+- If no associated viewer exists or if <kbd>Shift + Enter</kbd> is pressed, a viewer picker dialog is shown.
+   - This viewer picker allows choosing a Sambee browser viewer as well as a native app.
+
+Opening in natively installed apps:
+
+- To open a file in the associated native app, press <kbd>Ctrl + Enter</kbd> (or right-click and select **open in native app**).
+- If no associated native app has been choosen yet or if <kbd>Ctrl + Alt + Enter</kbd> is pressed, an app picker dialog is shown.
+
 ## Markdown Viewer & Editor
 
 - Styling of code blocks and tables

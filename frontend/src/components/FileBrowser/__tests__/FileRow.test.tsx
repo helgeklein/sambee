@@ -38,7 +38,10 @@ describe("FileRow", () => {
           contentBox: {},
         }}
         viewMode="list"
-        onOpenInApp={vi.fn()}
+        onOpenAssociatedViewer={vi.fn()}
+        onOpenViewerPicker={vi.fn()}
+        onOpenAssociatedNativeApp={vi.fn()}
+        onOpenNativePicker={vi.fn()}
         onRename={vi.fn()}
       />
     );
@@ -51,6 +54,9 @@ describe("FileRow", () => {
     fireEvent.contextMenu(rowButton);
 
     expect(screen.getByText(translate("common.actions.rename"))).toBeInTheDocument();
-    expect(screen.getByText(translate("fileBrowser.row.openInCompanionApp"))).toBeInTheDocument();
+    expect(screen.getByText(translate("fileBrowser.row.openInBrowserViewer"))).toBeInTheDocument();
+    expect(screen.getByText(translate("fileBrowser.row.chooseBrowserViewer"))).toBeInTheDocument();
+    expect(screen.getByText(translate("fileBrowser.row.openInNativeApp"))).toBeInTheDocument();
+    expect(screen.getByText(translate("fileBrowser.row.chooseNativeApp"))).toBeInTheDocument();
   });
 });

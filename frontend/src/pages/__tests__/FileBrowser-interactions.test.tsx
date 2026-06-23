@@ -432,6 +432,178 @@ describe("Browser Component - Interactions", () => {
       });
       expect(api.moveItem).not.toHaveBeenCalled();
     });
+
+    it("opens the detected default viewer on Enter when there is only one compatible Sambee viewer", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "notes.MD",
+            path: "notes.MD",
+            type: FileType.FILE,
+            size: 2048,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "text/plain",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
+        appearance: { theme_id: "sambee-light", custom_themes: [] },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+          viewer_associations: {},
+        },
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /notes\.md/i })).toBeInTheDocument();
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByText("Markdown Viewer")).toBeInTheDocument();
+      });
+      expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
+    });
+
+    it("opens the saved preferred Sambee viewer on Enter even when it is outside the default compatible subset", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "report.pdf",
+            path: "report.pdf",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/pdf",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+      vi.mocked(api.getCurrentUserSettings).mockResolvedValue({
+        appearance: { theme_id: "sambee-light", custom_themes: [] },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+          viewer_associations: {
+            "mime:application/pdf": "markdown",
+            "ext:.pdf": "markdown",
+          },
+        },
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /report.pdf/i })).toBeInTheDocument();
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Enter}");
+
+      await waitFor(() => {
+        expect(screen.getByText("Markdown Viewer")).toBeInTheDocument();
+      });
+      expect(screen.queryByRole("dialog", { name: "Choose Viewer" })).not.toBeInTheDocument();
+    });
+
+    it("shows all Sambee viewers in the forced browser picker", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "report.pdf",
+            path: "report.pdf",
+            type: FileType.FILE,
+            size: 102400,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/pdf",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /report.pdf/i })).toBeInTheDocument();
+      });
+
+      const listContainer = screen.getByTestId("virtual-list");
+      await user.click(listContainer);
+      await user.keyboard("{Shift>}{Enter}{/Shift}");
+
+      await waitFor(() => {
+        expect(screen.getByRole("dialog", { name: "Choose Viewer" })).toBeInTheDocument();
+      });
+      expect(screen.getByText("PDF Viewer")).toBeInTheDocument();
+      expect(screen.getByText("Markdown Viewer")).toBeInTheDocument();
+      expect(screen.getByText("Image Viewer")).toBeInTheDocument();
+    });
+
+    it("shows the viewer picker on mouse click when no associated viewer exists", async () => {
+      const user = userEvent.setup();
+
+      vi.mocked(api.listDirectory).mockResolvedValue({
+        path: "",
+        items: [
+          {
+            name: "archive.bin",
+            path: "archive.bin",
+            type: FileType.FILE,
+            size: 2048,
+            modified_at: "2024-01-01T00:00:00Z",
+            mime_type: "application/octet-stream",
+            is_readable: true,
+            is_hidden: false,
+          },
+        ],
+        total: 1,
+      });
+
+      renderBrowser("/browse/smb/test-server-1");
+
+      const fileButton = await screen.findByRole("button", { name: /archive.bin/i });
+      await user.click(fileButton);
+
+      await waitFor(() => {
+        expect(screen.getByRole("dialog", { name: "Choose Viewer" })).toBeInTheDocument();
+      });
+      expect(screen.getByText("Open in native app")).toBeInTheDocument();
+    });
   });
 
   describe("Keyboard Navigation", () => {
@@ -670,6 +842,7 @@ describe("Browser Component - Interactions", () => {
           file_browser_view_mode: "list",
           pane_mode: "single",
           selected_connection_id: null,
+          viewer_associations: {},
         },
       });
 

@@ -18,6 +18,7 @@ import { alpha, Box, Chip, CircularProgress, useTheme } from "@mui/material";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { BreadcrumbsNavigation } from "../../components/FileBrowser/BreadcrumbsNavigation";
+import { BrowserViewerPicker } from "../../components/FileBrowser/BrowserViewerPicker";
 import ConfirmDeleteDialog from "../../components/FileBrowser/ConfirmDeleteDialog";
 import CreateItemDialog from "../../components/FileBrowser/CreateItemDialog";
 import { FileList } from "../../components/FileBrowser/FileList";
@@ -129,6 +130,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     selectedFiles,
     sortedAndFilteredFiles,
     // Dialogs
+    browserViewerPickerState,
     deleteDialogOpen,
     deleteTarget,
     isDeleting,
@@ -149,6 +151,7 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     rowVirtualizer,
     // Handlers
     handleFileClick,
+    handleOpenFileForFile,
     handleOpenInAppForFile,
     handleRenameForFile,
     closeDeleteDialog,
@@ -157,6 +160,8 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
     handleRenameConfirm,
     closeCreateDialog,
     handleCreateConfirm,
+    closeBrowserViewerPicker,
+    confirmBrowserViewerPicker,
   } = pane;
 
   const currentConnection = useMemo(() => connections.find((connection) => connection.id === connectionId), [connections, connectionId]);
@@ -428,11 +433,31 @@ export const FileBrowserPane: React.FC<FileBrowserPaneProps> = ({
             listContainerRef={listContainerRef}
             fileRowStyles={fileRowStyles}
             viewMode={viewMode}
-            onOpenInApp={canOpenFocusedFileInApp ? handleOpenInAppForFile : undefined}
+            onOpenAssociatedViewer={(file, index) => handleOpenFileForFile(file, index, "associated-viewer")}
+            onOpenViewerPicker={(file, index) => handleOpenFileForFile(file, index, "force-viewer-picker")}
+            onOpenAssociatedNativeApp={canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index) : undefined}
+            onOpenNativePicker={
+              canOpenFocusedFileInApp ? (file, index) => void handleOpenInAppForFile(file, index, { forcePicker: true }) : undefined
+            }
             onRename={canRenameItems ? handleRenameForFile : undefined}
           />
         </Box>
       )}
+
+      {browserViewerPickerState ? (
+        <BrowserViewerPicker
+          open={true}
+          fileName={browserViewerPickerState.fileName}
+          viewerIds={browserViewerPickerState.viewerIds}
+          defaultViewerId={browserViewerPickerState.defaultViewerId}
+          preferredViewerId={browserViewerPickerState.preferredViewerId}
+          showNativeOption={browserViewerPickerState.showNativeOption}
+          onClose={closeBrowserViewerPicker}
+          onConfirm={(selection) => {
+            void confirmBrowserViewerPicker(selection);
+          }}
+        />
+      ) : null}
 
       {/* Status Bar */}
       {!useCompactLayout && !loading && (sortedAndFilteredFiles.length > 0 || isCurrentDirectoryFilterActive) && (

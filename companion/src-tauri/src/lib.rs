@@ -33,6 +33,7 @@ use crate::uri::{sanitized_uri_for_logging, SambeeUri};
 pub struct PendingAppPickerRequest {
     pub extension: String,
     pub request_id: String,
+    pub force_picker: bool,
 }
 
 #[derive(Clone, Default)]
@@ -499,7 +500,7 @@ async fn start_edit_lifecycle(app: tauri::AppHandle, uri: SambeeUri) -> Result<(
         .unwrap_or("")
         .to_string();
 
-    let selection = match commands::open_file::prompt_for_app_selection(&app, &file_extension).await {
+    let selection = match commands::open_file::prompt_for_app_selection(&app, &file_extension, uri.force_picker).await {
         Ok(selection) => selection,
         Err(e) => {
             let _ = commands::upload::release_lock_with_store(&http_clients, &uri.server, &uri.conn_id, &uri.path, &lock_context).await;

@@ -28,6 +28,13 @@ export interface ViewerComponentProps {
 }
 
 export type ViewerComponent = React.ComponentType<ViewerComponentProps>;
+export type ViewerId = "image" | "markdown" | "pdf";
+
+export interface ViewerDefinition {
+  id: ViewerId;
+  translationKey: string;
+  description: string;
+}
 
 export type ViewerComponentLoadResult =
   | { status: "loaded"; component: ViewerComponent }
@@ -56,6 +63,29 @@ interface FileTypeDefinition {
 
 // Image viewer component loader
 const imageViewerComponentLoader = () => import("../components/Viewer/ImageViewer");
+const markdownViewerComponentLoader = () => import("../components/Viewer/MarkdownViewer");
+const pdfViewerComponentLoader = () => import("../components/Viewer/PDFViewer");
+
+const VIEWER_DEFINITIONS: Record<ViewerId, ViewerDefinition & { loader: () => Promise<{ default: ViewerComponent }> }> = {
+  image: {
+    id: "image",
+    translationKey: "fileBrowser.viewerPicker.viewers.image",
+    description: "Image viewer",
+    loader: imageViewerComponentLoader,
+  },
+  markdown: {
+    id: "markdown",
+    translationKey: "fileBrowser.viewerPicker.viewers.markdown",
+    description: "Markdown viewer",
+    loader: markdownViewerComponentLoader,
+  },
+  pdf: {
+    id: "pdf",
+    translationKey: "fileBrowser.viewerPicker.viewers.pdf",
+    description: "PDF viewer",
+    loader: pdfViewerComponentLoader,
+  },
+};
 
 // ============================================================================
 // Registry Data
@@ -264,7 +294,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".md", ".markdown"],
     mimeTypes: ["text/markdown"],
     category: "text",
-    viewerComponent: () => import("../components/Viewer/MarkdownViewer"),
+    viewerComponent: markdownViewerComponentLoader,
     icon: "text",
     color: "#083fa1",
     description: "Markdown",
@@ -275,7 +305,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".pdf"],
     mimeTypes: ["application/pdf"],
     category: "document",
-    viewerComponent: () => import("../components/Viewer/PDFViewer"),
+    viewerComponent: pdfViewerComponentLoader,
     icon: "pdf",
     color: "#d32f2f",
     description: "PDF Document",
@@ -429,7 +459,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
   {
     extensions: [".html", ".htm"],
     mimeTypes: ["text/html"],
-    category: "code",
+    viewerComponent: markdownViewerComponentLoader,
     icon: "code",
     color: "#e34f26",
     description: "HTML",
@@ -438,7 +468,7 @@ const FILE_TYPE_REGISTRY: FileTypeDefinition[] = [
     extensions: [".css"],
     mimeTypes: ["text/css"],
     category: "code",
-    icon: "code",
+    viewerComponent: pdfViewerComponentLoader,
     color: "#1572b6",
     description: "CSS",
   },
@@ -690,10 +720,65 @@ export const isMarkdownFile = (filename: string): boolean => {
   return ext === ".md" || ext === ".markdown";
 };
 
+function getViewerIdForFileType(fileType: FileTypeDefinition | null): ViewerId | null {
+  if (!fileType?.viewerComponent) {
+    return null;
+  }
+
+  if (fileType.viewerComponent === imageViewerComponentLoader) {
+    return "image";
+  }
+
+  if (fileType.viewerComponent === markdownViewerComponentLoader) {
+    return "markdown";
+  }
+
+  if (fileType.viewerComponent === pdfViewerComponentLoader) {
+    return "pdf";
+  }
+
+  return null;
+}
+
+export const getViewerDefinitions = (): ViewerDefinition[] =>
+  Object.values(VIEWER_DEFINITIONS).map(({ loader: _loader, ...definition }) => definition);
+
+export const getAllViewerIds = (): ViewerId[] => Object.keys(VIEWER_DEFINITIONS) as ViewerId[];
+
+export const getCompatibleViewerIds = (filename: string, mimeType: string): ViewerId[] => {
+  const mimeViewerId = getViewerIdForFileType(getFileTypeByMime(mimeType));
+  const extensionViewerId = getViewerIdForFileType(getFileTypeByExtension(filename));
+  const viewerId = mimeViewerId ?? extensionViewerId;
+  return viewerId ? [viewerId] : [];
+};
+
+export const isViewerCompatibleWithFile = (viewerId: ViewerId, filename: string, mimeType: string): boolean => {
+  return getCompatibleViewerIds(filename, mimeType).includes(viewerId);
+};
+
+export const getViewerComponentLoadResultForViewer = async (viewerId: ViewerId): Promise<ViewerComponentLoadResult> => {
+  const viewer = VIEWER_DEFINITIONS[viewerId];
+  if (!viewer) {
+    return { status: "unsupported" };
+  }
+
+  try {
+    const module = await viewer.loader();
+    return { status: "loaded", component: module.default };
+  } catch (error) {
+    logger.error(`Failed to load viewer component for ${viewerId}`, { error, viewerId }, "viewer");
+    return { status: "failed", error };
+  }
+};
+
 /**
  * Get viewer component for a MIME type
  */
-export const getViewerComponentLoadResult = async (mimeType: string): Promise<ViewerComponentLoadResult> => {
+export const getViewerComponentLoadResult = async (mimeType: string, viewerId?: ViewerId): Promise<ViewerComponentLoadResult> => {
+  if (viewerId) {
+    return getViewerComponentLoadResultForViewer(viewerId);
+  }
+
   const fileType = getFileTypeByMime(mimeType);
   if (!fileType?.viewerComponent) {
     return { status: "unsupported" };

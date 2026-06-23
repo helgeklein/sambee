@@ -156,6 +156,7 @@ export interface CurrentUserSettings {
     file_browser_view_mode: "list" | "details";
     pane_mode: "single" | "dual";
     selected_connection_id: string | null;
+    viewer_associations: Record<string, string>;
   };
 }
 
@@ -173,6 +174,7 @@ export interface CurrentUserSettingsUpdate {
     file_browser_view_mode?: "list" | "details";
     pane_mode?: "single" | "dual";
     selected_connection_id?: string | null;
+    viewer_associations?: Record<string, string>;
   };
 }
 

@@ -32,6 +32,7 @@ class BrowserUserSettingsRead(SQLModel):
     file_browser_view_mode: str
     pane_mode: str
     selected_connection_id: Optional[str] = None
+    viewer_associations: dict[str, str] = Field(default_factory=dict)
 
 
 class CurrentUserSettingsRead(SQLModel):
@@ -55,6 +56,7 @@ class BrowserUserSettingsUpdate(SQLModel):
     file_browser_view_mode: Optional[str] = None
     pane_mode: Optional[str] = None
     selected_connection_id: Optional[str] = None
+    viewer_associations: Optional[dict[str, str]] = None
 
 
 class CurrentUserSettingsUpdate(SQLModel):

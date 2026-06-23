@@ -771,6 +771,9 @@ pub async fn browse_move(Path(drive): Path<String>, Json(body): Json<CopyMoveReq
 pub struct OpenRequest {
     /// Relative path of the file to open.
     pub path: String,
+    /// Whether to force the native app picker instead of auto-using a saved app.
+    #[serde(default)]
+    pub force_picker: bool,
 }
 
 /// `POST /api/browse/{drive}/open` — open a local file through the companion app picker.
@@ -791,7 +794,7 @@ pub async fn browse_open(
     }
 
     let extension = file_path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
-    let selection = commands::open_file::prompt_for_app_selection(&state.app, extension)
+    let selection = commands::open_file::prompt_for_app_selection(&state.app, extension, body.force_picker)
         .await
         .map_err(ApiError::Internal)?;
 

@@ -188,6 +188,7 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     // Viewer
     viewInfo: null,
     setViewInfo: vi.fn(),
+    browserViewerPickerState: null,
 
     // Dialog state
     deleteDialogOpen: false,
@@ -233,6 +234,7 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     handlePageDown: vi.fn(),
     handlePageUp: vi.fn(),
     handleOpenFile: vi.fn(),
+    handleOpenFileForFile: vi.fn(),
     handleNavigateUpDirectory: vi.fn(),
     handleNavigateUp: vi.fn(),
     handleClose: vi.fn(),
@@ -242,6 +244,8 @@ function createMockPane(overrides: Partial<UseFileBrowserPaneReturn> = {}): UseF
     // Viewer handlers
     handleViewIndexChange: vi.fn(),
     handleViewClose: vi.fn(),
+    closeBrowserViewerPicker: vi.fn(),
+    confirmBrowserViewerPicker: vi.fn(),
 
     // CRUD handlers
     handleDeleteRequest: vi.fn(),

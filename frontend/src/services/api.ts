@@ -1136,7 +1136,7 @@ class ApiService {
    * The returned URI encodes the server origin, token, connection, path,
    * and (optionally) the current UI theme so the companion can match it.
    */
-  async getCompanionUri(connectionId: string, path: string, themeJson?: string): Promise<string> {
+  async getCompanionUri(connectionId: string, path: string, themeJson?: string, options?: { forcePicker?: boolean }): Promise<string> {
     const response = await this.api.post<{ uri_token: string; expires_in: number }>("/companion/uri-token", {
       connection_id: connectionId,
       path,
@@ -1152,6 +1152,10 @@ class ApiService {
       uri += `&theme=${btoa(themeJson)}`;
     }
 
+    if (options?.forcePicker) {
+      uri += "&forcePicker=1";
+    }
+
     return uri;
   }
 
@@ -1161,10 +1165,10 @@ class ApiService {
    * This is a companion-only operation (Phase 3a "direct local open"):
    * no download, no edit lock, no upload — the file is already on disk.
    */
-  async openLocalFile(connectionId: string, path: string): Promise<void> {
+  async openLocalFile(connectionId: string, path: string, options?: { forcePicker?: boolean }): Promise<void> {
     const segment = getBrowseSegment(connectionId);
     const { client, extraConfig } = await this.getClientConfig(connectionId);
-    await client.post(`/browse/${segment}/open`, { path }, extraConfig);
+    await client.post(`/browse/${segment}/open`, { path, force_picker: options?.forcePicker ?? false }, extraConfig);
   }
 
   /**

@@ -1,12 +1,42 @@
 import type { CurrentUserSettings, CurrentUserSettingsUpdate } from "../types";
+import { isAuthRequired } from "./authConfig";
 
 export const USER_SETTINGS_CHANGED_EVENT = "sambee:user-settings-changed";
 
 let cachedSettings: CurrentUserSettings | null = null;
 let pendingLoad: Promise<CurrentUserSettings | null> | null = null;
 
+function mergeViewerAssociations(settings: CurrentUserSettings | null, payload: CurrentUserSettingsUpdate): CurrentUserSettings | null {
+  if (!settings || !payload.browser || !("viewer_associations" in payload.browser) || !payload.browser.viewer_associations) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    browser: {
+      ...settings.browser,
+      viewer_associations: {
+        ...settings.browser.viewer_associations,
+        ...payload.browser.viewer_associations,
+      },
+    },
+  };
+}
+
 function hasAccessToken(): boolean {
   return Boolean(localStorage.getItem("access_token"));
+}
+
+async function canAccessCurrentUserSettings(): Promise<boolean> {
+  if (hasAccessToken()) {
+    return true;
+  }
+
+  try {
+    return !(await isAuthRequired());
+  } catch {
+    return false;
+  }
 }
 
 function publish(settings: CurrentUserSettings): void {
@@ -24,7 +54,7 @@ export function clearCurrentUserSettingsCache(): void {
 }
 
 export async function loadCurrentUserSettings(forceRefresh: boolean = false): Promise<CurrentUserSettings | null> {
-  if (!hasAccessToken()) {
+  if (!(await canAccessCurrentUserSettings())) {
     clearCurrentUserSettingsCache();
     return null;
   }
@@ -68,7 +98,7 @@ export async function loadCurrentUserSettings(forceRefresh: boolean = false): Pr
 }
 
 export async function patchCurrentUserSettings(payload: CurrentUserSettingsUpdate): Promise<CurrentUserSettings | null> {
-  if (!hasAccessToken()) {
+  if (!(await canAccessCurrentUserSettings())) {
     return null;
   }
 
@@ -83,9 +113,11 @@ export async function patchCurrentUserSettings(payload: CurrentUserSettingsUpdat
       return null;
     }
 
-    const settings = await request;
+    const settings = mergeViewerAssociations(await request, payload);
     cachedSettings = settings;
-    publish(settings);
+    if (settings) {
+      publish(settings);
+    }
     return settings;
   } catch {
     return null;

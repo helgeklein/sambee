@@ -19,6 +19,7 @@ class TestCurrentUserSettingsApi:
         assert data["browser"]["file_browser_view_mode"] == "list"
         assert data["browser"]["pane_mode"] == "single"
         assert data["browser"]["selected_connection_id"] is None
+        assert data["browser"]["viewer_associations"] == {}
 
     def test_user_can_update_own_settings(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         response = client.put(
@@ -45,6 +46,10 @@ class TestCurrentUserSettingsApi:
                     "file_browser_view_mode": "details",
                     "pane_mode": "dual",
                     "selected_connection_id": "conn-123",
+                    "viewer_associations": {
+                        ".md": "markdown",
+                        "application/pdf": "pdf",
+                    },
                 },
             },
         )
@@ -59,6 +64,10 @@ class TestCurrentUserSettingsApi:
         assert data["browser"]["file_browser_view_mode"] == "details"
         assert data["browser"]["pane_mode"] == "dual"
         assert data["browser"]["selected_connection_id"] == "conn-123"
+        assert data["browser"]["viewer_associations"] == {
+            ".md": "markdown",
+            "application/pdf": "pdf",
+        }
 
         rows = session.exec(select(UserSetting)).all()
         values = {row.key: row.value for row in rows}
@@ -70,6 +79,7 @@ class TestCurrentUserSettingsApi:
         assert values[UserSettingKey.BROWSER_FILE_BROWSER_VIEW_MODE.value] == "details"
         assert values[UserSettingKey.BROWSER_PANE_MODE.value] == "dual"
         assert values[UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value] == "conn-123"
+        assert values[UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value] == '{".md":"markdown","application/pdf":"pdf"}'
 
     def test_user_can_clear_custom_themes(self, client: TestClient, auth_headers_user: dict[str, str], session: Session) -> None:
         seed_response = client.put(
@@ -129,6 +139,32 @@ class TestCurrentUserSettingsApi:
         keys = {row.key for row in rows}
         assert UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value not in keys
 
+    def test_user_can_clear_viewer_associations(
+        self,
+        client: TestClient,
+        auth_headers_user: dict[str, str],
+        session: Session,
+    ) -> None:
+        seed_response = client.put(
+            "/api/auth/me/settings",
+            headers=auth_headers_user,
+            json={"browser": {"viewer_associations": {".md": "markdown"}}},
+        )
+        assert seed_response.status_code == 200
+
+        clear_response = client.put(
+            "/api/auth/me/settings",
+            headers=auth_headers_user,
+            json={"browser": {"viewer_associations": {}}},
+        )
+
+        assert clear_response.status_code == 200
+        assert clear_response.json()["browser"]["viewer_associations"] == {}
+
+        rows = session.exec(select(UserSetting)).all()
+        keys = {row.key for row in rows}
+        assert UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value not in keys
+
     def test_user_settings_are_isolated_per_user(
         self,
         client: TestClient,
@@ -185,6 +221,16 @@ class TestCurrentUserSettingsApi:
 
         assert response.status_code == 400
         assert response.json()["detail"] == "File browser view mode must be one of: list, details"
+
+    def test_update_rejects_invalid_viewer_associations(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
+        response = client.put(
+            "/api/auth/me/settings",
+            headers=auth_headers_user,
+            json={"browser": {"viewer_associations": {"   ": "markdown"}}},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Viewer associations must use non-empty file keys and viewer IDs"
 
     def test_update_rejects_invalid_regional_locale(self, client: TestClient, auth_headers_user: dict[str, str]) -> None:
         response = client.put(

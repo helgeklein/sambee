@@ -67,6 +67,7 @@ let currentUserSettingsResponse: CurrentUserSettings = {
     file_browser_view_mode: "list",
     pane_mode: "single",
     selected_connection_id: null,
+    viewer_associations: {},
   },
 };
 
@@ -308,6 +309,20 @@ export const handlers = [
         browser: {
           ...currentUserSettingsResponse.browser,
           selected_connection_id: browser["selected_connection_id"],
+        },
+      };
+    }
+
+    if (
+      browser?.["viewer_associations"] &&
+      typeof browser["viewer_associations"] === "object" &&
+      !Array.isArray(browser["viewer_associations"])
+    ) {
+      currentUserSettingsResponse = {
+        ...currentUserSettingsResponse,
+        browser: {
+          ...currentUserSettingsResponse.browser,
+          viewer_associations: browser["viewer_associations"] as CurrentUserSettings["browser"]["viewer_associations"],
         },
       };
     }

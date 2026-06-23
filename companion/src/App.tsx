@@ -32,6 +32,8 @@ interface AppPickerEventPayload {
   extension: string;
   /** Opaque request ID that must be echoed back with the result. */
   request_id: string;
+  /** Whether the native app picker must always be shown. */
+  force_picker?: boolean;
 }
 
 /** Possible view states for the companion webview. */

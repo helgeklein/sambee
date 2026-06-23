@@ -173,6 +173,37 @@ def _parse_custom_themes(raw_value: str | None) -> list[dict[str, Any]]:
     return valid_themes
 
 
+def _parse_viewer_associations(raw_value: str | None) -> dict[str, str]:
+    if raw_value is None:
+        return {}
+
+    try:
+        parsed = json.loads(raw_value)
+    except JSONDecodeError:
+        logger.error("Invalid stored viewer associations JSON for user settings")
+        return {}
+
+    if not isinstance(parsed, dict):
+        logger.error("Invalid stored viewer associations value for user settings: expected object")
+        return {}
+
+    valid_associations: dict[str, str] = {}
+    for raw_key, raw_value in parsed.items():
+        if not isinstance(raw_key, str) or not isinstance(raw_value, str):
+            logger.error("Invalid stored viewer association encountered in user settings")
+            continue
+
+        normalized_key = raw_key.strip().lower()
+        normalized_value = raw_value.strip()
+        if not normalized_key or not normalized_value:
+            logger.error("Invalid stored viewer association encountered in user settings")
+            continue
+
+        valid_associations[normalized_key] = normalized_value
+
+    return valid_associations
+
+
 def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) -> CurrentUserSettingsRead:
     values = _load_user_setting_map(user_id, session)
     return CurrentUserSettingsRead(
@@ -203,6 +234,7 @@ def build_current_user_settings_read(*, user_id: uuid.UUID, session: Session) ->
                 default=DEFAULT_PANE_MODE,
             ),
             selected_connection_id=_parse_optional_string(values.get(UserSettingKey.BROWSER_SELECTED_CONNECTION_ID.value)),
+            viewer_associations=_parse_viewer_associations(values.get(UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS.value)),
         ),
     )
 
@@ -326,6 +358,34 @@ def update_current_user_settings(*, user_id: uuid.UUID, payload: CurrentUserSett
             _delete_user_setting(
                 user_id=user_id,
                 key=UserSettingKey.BROWSER_SELECTED_CONNECTION_ID,
+                session=session,
+            )
+
+        has_updates = True
+
+    if payload.browser and "viewer_associations" in payload.browser.model_fields_set:
+        viewer_associations = payload.browser.viewer_associations or {}
+        normalized_associations: dict[str, str] = {}
+
+        for raw_key, raw_value in viewer_associations.items():
+            normalized_key = raw_key.strip().lower()
+            normalized_value = raw_value.strip()
+            if not normalized_key or not normalized_value:
+                raise ValueError("Viewer associations must use non-empty file keys and viewer IDs")
+
+            normalized_associations[normalized_key] = normalized_value
+
+        if normalized_associations:
+            _upsert_user_setting(
+                user_id=user_id,
+                key=UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS,
+                value=json.dumps(normalized_associations, separators=(",", ":"), sort_keys=True),
+                session=session,
+            )
+        else:
+            _delete_user_setting(
+                user_id=user_id,
+                key=UserSettingKey.BROWSER_VIEWER_ASSOCIATIONS,
                 session=session,
             )
 

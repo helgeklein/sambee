@@ -210,6 +210,34 @@ describe("AppPicker", () => {
     });
   });
 
+  it("does not auto-submit the saved preferred app on load", async () => {
+    await setLocale("en");
+
+    const apps: NativeApp[] = [
+      {
+        name: "LibreOffice Writer",
+        executable: "/usr/bin/libreoffice",
+        icon: null,
+        is_default: true,
+        is_recommended: true,
+      },
+    ];
+
+    invokeMock.mockResolvedValue(apps);
+    getPreferredAppMock.mockResolvedValue("/usr/bin/libreoffice");
+
+    const onSelect = vi.fn();
+
+    render(<AppPicker extension="docx" onSelect={onSelect} onCancel={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("LibreOffice Writer")).toBeInTheDocument();
+    });
+
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.getByRole("checkbox")).toBeChecked();
+  });
+
   it("cancels on Escape", async () => {
     await setLocale("en");
 
