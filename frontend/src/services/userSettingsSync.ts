@@ -32,7 +32,11 @@ async function canAccessCurrentUserSettings(): Promise<boolean> {
     return true;
   }
 
-  return !(await isAuthRequired());
+  try {
+    return !(await isAuthRequired());
+  } catch {
+    return false;
+  }
 }
 
 function publish(settings: CurrentUserSettings): void {
