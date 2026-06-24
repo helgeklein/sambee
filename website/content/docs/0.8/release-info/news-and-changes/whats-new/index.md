@@ -35,12 +35,15 @@ Opening in natively installed apps:
 - To open a file in the associated native app, press <kbd>Ctrl + Enter</kbd> (or right-click and select **open in native app**).
 - If no associated native app has been choosen yet or if <kbd>Ctrl + Alt + Enter</kbd> is pressed, an app picker dialog is shown.
 
-## Markdown Viewer & Editor
+## Markdown Editor: UX
 
-- Styling of code blocks and tables
-- Keyboard navigation: arrow up/down movement between blocks (e.g., code, table, paragraph)
+The Markdown editor got a makeover to improve UX and align the styling with Sambee's theme for all supported components, e.g., tables.
+
+The fact that rich text mode uses independent sub-editors for table cells, for example, should not matter to users. Navigation within Markdown documents should feel natural. That is now the case: you can seamlessly move the cursor across element borders, i.e., between code blocks, tables, and, of course, paragraphs. You can also move between table cells with the arrow keys as you've come to expect it from many other apps.
 
 ## PDF Viewer
+
+Fixes:
 
 - Intra-document links now work correctly, e.g. from a table-of-content.
 

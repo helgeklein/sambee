@@ -34,10 +34,16 @@ describe("viewerStyles markdown regressions", () => {
 
     const preStyles = styles["& pre"] as Record<string, unknown>;
     const inlineCodeStyles = styles["& code:not(pre code)"] as Record<string, unknown>;
+    const preCodeStyles = styles["& pre code, & pre code.hljs"] as Record<string, unknown>;
 
     expect(resolveThemeValue(preStyles.backgroundColor, darkTheme)).toBe("#1f1914");
     expect(resolveThemeValue(preStyles.color, darkTheme)).toBe("#ebe8e2");
     expect(resolveThemeValue(preStyles.border, darkTheme)).toBe("1px solid #504535");
+    expect(preStyles.padding).toBe("1.25rem");
+
+    expect(preCodeStyles.display).toBe("block");
+    expect(preCodeStyles.padding).toBe(0);
+    expect(preCodeStyles.backgroundColor).toBe("transparent");
 
     expect(resolveThemeValue(inlineCodeStyles.backgroundColor, darkTheme)).toBe("#2b2925");
     expect(resolveThemeValue(inlineCodeStyles.color, darkTheme)).toBe("#ebe8e2");
@@ -75,7 +81,8 @@ describe("viewerStyles markdown regressions", () => {
     expect(tableStyles.width).toBe("max-content");
     expect(tableStyles.maxWidth).toBe("100%");
     expect(tableStyles.overflowX).toBe("auto");
-    expect(resolveThemeValue(tableStyles.border, lightTheme)).toBe("1px solid #827562");
+    expect(tableStyles.border).toBe(0);
+    expect(resolveThemeValue(tableStyles.boxShadow, lightTheme)).toBe("inset 0 0 0 1px #d4c4ae");
     expect(resolveThemeValue(tableStyles.backgroundColor, lightTheme)).toBe("#fbf9f4");
   });
 });

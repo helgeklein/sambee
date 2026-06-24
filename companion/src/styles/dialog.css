@@ -21,7 +21,7 @@
 /* ── Dialog panel ──────────────────────────────────────────────────────── */
 
 .dialog-panel {
-  background: var(--bg-color, #f6f1e8);
+  background: var(--bg-color, #fbf9f4);
   color: var(--text-color, #1f262b);
   border-radius: 8px;
   padding: 20px;
@@ -132,7 +132,7 @@
 }
 
 .recovery-item {
-  background: var(--bg-color, #f6f1e8);
+  background: var(--bg-color, #fbf9f4);
   border: 1px solid var(--border-color, #d1d5db);
   border-radius: 8px;
   padding: 12px 16px;

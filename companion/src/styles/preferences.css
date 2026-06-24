@@ -160,7 +160,7 @@
   font-size: 0.8125rem;
   border: 1px solid var(--border-color, #d1d5db);
   border-radius: 4px;
-  background: var(--bg-color, #f6f1e8);
+  background: var(--bg-color, #fbf9f4);
   color: var(--text-color, #1f262b);
   cursor: pointer;
 }
@@ -178,7 +178,7 @@
   font-size: 0.8125rem;
   border: 1px solid var(--border-color, #d1d5db);
   border-radius: 4px;
-  background: var(--bg-color, #f6f1e8);
+  background: var(--bg-color, #fbf9f4);
   color: var(--text-color, #1f262b);
 }
 

@@ -394,7 +394,7 @@ describe("MarkdownRichEditor", () => {
     });
   });
 
-  it("opens mobile overflow actions and routes mode changes through the view mode signal", async () => {
+  it("shows source mode but omits diff mode from the mobile overflow menu", async () => {
     mockViewportWidth(320);
     mockMobileMode(true);
 
@@ -407,8 +407,9 @@ describe("MarkdownRichEditor", () => {
 
     moreButton.click();
 
-    expect(await findByText("Source mode")).toBeInTheDocument();
     expect(await findByText("Insert code block")).toBeInTheDocument();
+    expect(await findByText("Source mode")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("Diff mode");
 
     (await findByText("Source mode")).click();
 

@@ -138,21 +138,20 @@ const MARKDOWN_CODE_BLOCK_DARK_BORDER = "#504535";
 const MARKDOWN_CODE_INLINE_DARK_BORDER = "#3b3935";
 const MARKDOWN_CODE_BLOCK_DARK_ACTIVE_LINE_BG = "#3d3d3d";
 export const MARKDOWN_CODE_BLOCK_ACTIVE_LINE_NUMBER_BG = "rgba(212, 196, 174, 0.35)";
-const MARKDOWN_TABLE_CELL_PADDING_INLINE = "0.675rem";
-const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
-const MARKDOWN_TABLE_FONT_SIZE = "0.9375em";
-const MARKDOWN_TABLE_HEADER_FONT_SIZE = "0.75rem";
-const MARKDOWN_TABLE_HEADER_LETTER_SPACING = "0.16em";
+export const MARKDOWN_CONTENT_PADDING = { xs: 2, sm: 4 } as const;
+export const MARKDOWN_TABLE_CELL_PADDING_INLINE = "0.675rem";
+export const MARKDOWN_TABLE_CELL_PADDING_BLOCK = "0.8em";
+export const MARKDOWN_TABLE_FONT_SIZE = "0.9375em";
+export const MARKDOWN_TABLE_HEADER_FONT_SIZE = "0.75rem";
+export const MARKDOWN_TABLE_HEADER_LETTER_SPACING = "0.16em";
 const MARKDOWN_TABLE_LIGHT_BG = "#fbf9f4";
 const MARKDOWN_TABLE_LIGHT_ROW_ALT_BG = "#f5f3ee";
 const MARKDOWN_TABLE_LIGHT_HEADER_BG = "#eae8e3";
 const MARKDOWN_TABLE_LIGHT_BORDER = "#d4c4ae";
-const MARKDOWN_TABLE_LIGHT_BORDER_STRONG = "#827562";
 const MARKDOWN_TABLE_DARK_BG = "#1b1c19";
 const MARKDOWN_TABLE_DARK_ROW_ALT_BG = "#24231f";
 const MARKDOWN_TABLE_DARK_HEADER_BG = "#302e2a";
 const MARKDOWN_TABLE_DARK_BORDER = "#3b3935";
-const MARKDOWN_TABLE_DARK_BORDER_STRONG = "#504535";
 const MARKDOWN_TABLE_DARK_HEADER_TEXT = "#ebe8e2";
 const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
 const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
@@ -179,7 +178,7 @@ export function getMarkdownCodeSurfaceColors(theme: Theme) {
   };
 }
 
-function getMarkdownTableSurfaceColors(theme: Theme) {
+export function getMarkdownTableSurfaceColors(theme: Theme) {
   if (theme.palette.mode === "dark") {
     return {
       tableBackground: MARKDOWN_TABLE_DARK_BG,
@@ -187,7 +186,6 @@ function getMarkdownTableSurfaceColors(theme: Theme) {
       headerBackground: MARKDOWN_TABLE_DARK_HEADER_BG,
       headerText: MARKDOWN_TABLE_DARK_HEADER_TEXT,
       border: MARKDOWN_TABLE_DARK_BORDER,
-      borderStrong: MARKDOWN_TABLE_DARK_BORDER_STRONG,
     };
   }
 
@@ -197,7 +195,6 @@ function getMarkdownTableSurfaceColors(theme: Theme) {
     headerBackground: MARKDOWN_TABLE_LIGHT_HEADER_BG,
     headerText: undefined,
     border: MARKDOWN_TABLE_LIGHT_BORDER,
-    borderStrong: MARKDOWN_TABLE_LIGHT_BORDER_STRONG,
   };
 }
 
@@ -259,7 +256,9 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
     },
 
     // Code inside pre inherits the containing code surface.
-    "& pre code": {
+    // Match highlight.js specificity so its default block padding cannot reintroduce
+    // a second inset inside viewer-mode code blocks.
+    "& pre code, & pre code.hljs": {
       display: "block",
       minWidth: "max-content",
       color: "inherit",
@@ -285,7 +284,8 @@ function getMarkdownDocumentStyles(viewerText: string, linkColor: string, linkHo
       borderCollapse: "collapse",
       margin: "1.25rem 0",
       fontSize: MARKDOWN_TABLE_FONT_SIZE,
-      border: (theme) => `1px solid ${getMarkdownTableSurfaceColors(theme).borderStrong}`,
+      border: 0,
+      boxShadow: (theme) => `inset 0 0 0 1px ${getMarkdownTableSurfaceColors(theme).border}`,
       backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).tableBackground,
     },
     "& table td, & table th": {
@@ -370,7 +370,7 @@ export function getMarkdownContentStyles(viewerText: string, linkColor: string, 
     minWidth: 0,
     width: "100%",
     maxWidth: "100%",
-    p: { xs: 2, sm: 4 },
+    p: MARKDOWN_CONTENT_PADDING,
     ...getMarkdownDocumentStyles(viewerText, linkColor, linkHoverColor),
   };
 }

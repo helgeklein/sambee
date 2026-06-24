@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 
 const demoConnectionId = "85610f49-ab40-4d96-8750-ddab3e8e8764";
 const demoPath = "note.md";
@@ -6,6 +6,7 @@ const initialMarkdown = Array.from({ length: 140 }, (_, index) => `line ${index 
 const codeBlockNavigationMarkdown = "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n";
 const logicalNavigationMarkdown =
   "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n\n| Col 1 | Col2 |\n| --- | --- |\n| some data | more data |\n| Second row |  |\n\nomega\n";
+const tableCellNavigationMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1 | B1 |\n| A2 | B2 |\n\nomega\n";
 
 async function fulfillJson(route: Route, json: unknown, status = 200) {
   await route.fulfill({
@@ -43,6 +44,57 @@ async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
         username: "demo-admin",
         role: "admin",
         is_active: true,
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/auth/me/settings") && request.method() === "GET") {
+      await fulfillJson(route, {
+        appearance: {
+          theme_id: "sambee-light",
+          custom_themes: [],
+        },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+          viewer_associations: {},
+        },
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/auth/me/settings") && request.method() === "PUT") {
+      await fulfillJson(route, {
+        appearance: {
+          theme_id: "sambee-light",
+          custom_themes: [],
+        },
+        localization: {
+          language: "browser",
+          regional_locale: "browser",
+        },
+        browser: {
+          quick_nav_include_dot_directories: false,
+          file_browser_view_mode: "list",
+          pane_mode: "single",
+          selected_connection_id: null,
+          viewer_associations: {},
+        },
+      });
+      return;
+    }
+
+    if (pathname.endsWith("/version")) {
+      await fulfillJson(route, {
+        version: "0.8.0-test",
+        build_time: "2026-04-12T12:00:00Z",
+        git_commit: "deadbeef",
       });
       return;
     }
@@ -117,6 +169,113 @@ async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
 
     await fulfillJson(route, { detail: `Unhandled mocked route: ${request.method()} ${pathname}` }, 404);
   });
+}
+
+async function openMarkdownEditor(page: Page, markdown = initialMarkdown) {
+  await mockMarkdownViewerApi(page, markdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+}
+
+async function moveCaretToTableCellBoundaryByKeyboard(
+  page: Page,
+  cellIndex: number,
+  boundary: "end" | "start"
+) {
+  const targetCell = getTableCellTextbox(page, cellIndex);
+  await targetCell.click();
+  await waitForEditableFocusWithin(targetCell);
+
+  await moveFocusedCaretToBoundaryByKeyboard(page, targetCell, boundary);
+}
+
+async function moveFocusedCaretToBoundaryByKeyboard(page: Page, locator: Locator, boundary: "end" | "start") {
+
+  await page.keyboard.press(boundary === "start" ? "Home" : "End");
+
+  await expect
+    .poll(() =>
+      locator.evaluate((element, expectedBoundary) => {
+        const selection = window.getSelection();
+
+        if (!selection?.anchorNode || !element.contains(selection.anchorNode)) {
+          return false;
+        }
+
+        const prefixRange = document.createRange();
+        prefixRange.selectNodeContents(element);
+        prefixRange.setEnd(selection.anchorNode, selection.anchorOffset);
+
+        const caretTextOffset = prefixRange.toString().length;
+        const elementTextLength = element.textContent?.length ?? 0;
+
+        return expectedBoundary === "start" ? caretTextOffset === 0 : caretTextOffset >= elementTextLength;
+      }, boundary)
+    )
+    .toBe(true);
+}
+
+function getTableCellTextbox(page: Page, cellIndex: number) {
+  return page.locator("table").getByRole("textbox").nth(cellIndex);
+}
+
+async function waitForSelectionWithin(locator: Locator) {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) => {
+        const selection = window.getSelection();
+        return Boolean(selection?.anchorNode && element.contains(selection.anchorNode));
+      })
+    )
+    .toBe(true);
+}
+
+async function waitForEditableFocusWithin(locator: Locator) {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) => {
+        const activeElement = document.activeElement;
+        const selection = window.getSelection();
+
+        const hasActiveEditable = Boolean(
+          activeElement instanceof HTMLElement && element.contains(activeElement) && activeElement.getAttribute("contenteditable") === "true"
+        );
+        const hasSelectionWithin = Boolean(selection?.anchorNode && element.contains(selection.anchorNode));
+
+        return hasActiveEditable || hasSelectionWithin;
+      })
+    )
+    .toBe(true);
+}
+
+async function waitForSelectionAtTextStart(locator: Locator) {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) => {
+        const selection = window.getSelection();
+
+        if (!selection?.anchorNode || !element.contains(selection.anchorNode)) {
+          return false;
+        }
+
+        if (selection.anchorNode.nodeType === Node.TEXT_NODE) {
+          return selection.anchorOffset === 0;
+        }
+
+        const firstTextNodeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+          acceptNode(node) {
+            return node.textContent && node.textContent.length > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+          },
+        });
+        const firstTextNode = firstTextNodeWalker.nextNode();
+
+        return selection.anchorOffset === 0 && selection.anchorNode.contains(firstTextNode);
+      })
+    )
+    .toBe(true);
 }
 
 test("keeps the markdown editor viewport stable after cancelling the unsaved changes dialog", async ({ page }) => {
@@ -285,10 +444,103 @@ test("moves ArrowDown from a code block into the adjacent table", async ({ page 
   });
 
   await page.keyboard.press("ArrowDown");
+  await waitForEditableFocusWithin(page.locator("table").getByRole("textbox").first());
   await page.keyboard.type("X");
 
   await expect(page.locator("table").getByRole("textbox").first()).toContainText("Col 1");
   await expect(page.locator("table").getByRole("textbox").first()).toContainText("X");
+});
+
+test("moves ArrowUp out of the table when there is no cell above", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 0, "start");
+  await page.keyboard.press("ArrowUp");
+  const firstParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').first();
+  await waitForSelectionWithin(firstParagraph);
+  await page.keyboard.type("U");
+
+  await expect(firstParagraph).toHaveText("Ualpha");
+});
+
+test("moves ArrowRight to the next cell when the caret is at the end of a cell", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+  await page.keyboard.press("ArrowRight");
+  const targetCell = getTableCellTextbox(page, 3);
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.type("R");
+
+  await expect(targetCell).toContainText("RB1");
+});
+
+test("moves ArrowLeft to the previous cell when the caret is at the start of a cell", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 3, "start");
+  await page.keyboard.press("ArrowLeft");
+  const targetCell = getTableCellTextbox(page, 2);
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.type("L");
+
+  await expect(targetCell).toContainText("A1L");
+});
+
+test("moves ArrowDown to the cell below when the caret is at the bottom of a cell", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+  await page.keyboard.press("ArrowDown");
+  const targetCell = getTableCellTextbox(page, 4);
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.type("D");
+
+  await expect(targetCell).toContainText("DA2");
+});
+
+test("moves ArrowUp to the cell above when the caret is at the top of a cell", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 4, "start");
+  await page.keyboard.press("ArrowUp");
+  const targetCell = getTableCellTextbox(page, 2);
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.type("U");
+
+  await expect(targetCell).toContainText("UA1");
+});
+
+test("moves ArrowDown out of the table when there is no cell below", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 3, "end");
+  await page.keyboard.press("ArrowDown");
+  const targetCell = getTableCellTextbox(page, 5);
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowDown");
+  const secondParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
+  await waitForSelectionWithin(secondParagraph);
+  await page.keyboard.type("D");
+
+  await expect(secondParagraph).toHaveText("Domega");
+});
+
+test("moves ArrowDown out of the table from the other last-row cell", async ({ page }) => {
+  await openMarkdownEditor(page, tableCellNavigationMarkdown);
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+  await page.keyboard.press("ArrowDown");
+  const targetCell = getTableCellTextbox(page, 4);
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowDown");
+  const secondParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
+  await waitForSelectionWithin(secondParagraph);
+  await page.keyboard.type("D");
+
+  await expect(secondParagraph).toHaveText("Domega");
 });
 
 test("enters markdown edit mode without refetching the file or remounting the editor subtree", async ({ page }) => {

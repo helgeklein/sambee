@@ -14,7 +14,6 @@ import {
   currentBlockType$,
   currentFormat$,
   currentListType$,
-  DiffSourceToggleWrapper,
   diffSourcePlugin,
   editorInTable$,
   headingsPlugin,
@@ -78,6 +77,7 @@ import {
   $getNodeByKey,
   $getRoot,
   $getSelection,
+  $isElementNode,
   $isNodeSelection,
   $isRangeSelection,
   $isTextNode,
@@ -116,7 +116,18 @@ import {
   getSecondaryToolbarSurfaceColors,
 } from "../../theme/commonStyles";
 import { Z_INDEX } from "../../theme/constants";
-import { getMarkdownCodeSurfaceColors, getMarkdownEditorContentStyles, getViewerColors } from "../../theme/viewerStyles";
+import {
+  getMarkdownCodeSurfaceColors,
+  getMarkdownEditorContentStyles,
+  getMarkdownTableSurfaceColors,
+  getViewerColors,
+  MARKDOWN_CONTENT_PADDING,
+  MARKDOWN_TABLE_CELL_PADDING_BLOCK,
+  MARKDOWN_TABLE_CELL_PADDING_INLINE,
+  MARKDOWN_TABLE_FONT_SIZE,
+  MARKDOWN_TABLE_HEADER_FONT_SIZE,
+  MARKDOWN_TABLE_HEADER_LETTER_SPACING,
+} from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
@@ -128,6 +139,9 @@ const MARKDOWN_EDITOR_CONTENT_CLASS = "sambee-markdown-editor-content";
 const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
 const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
 const MARKDOWN_EDITOR_SOURCE_FONT_SIZE_PX = 15;
+const MARKDOWN_TABLE_TOOL_OFFSET_PX = 4;
+const MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX = 32;
+const MARKDOWN_TABLE_TOOL_GUTTER_PX = MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX + MARKDOWN_TABLE_TOOL_OFFSET_PX * 2;
 const MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE = "txt";
 const MARKDOWN_LINK_DIALOG_MAX_WIDTH = "sm";
 const MARKDOWN_CODE_BLOCK_LANGUAGES = {
@@ -170,7 +184,312 @@ const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>)
   );
 };
 
-const TableCellShiftTabBridge = () => {
+type TableCellBoundaryDirection = Extract<CodeBlockBoundaryDirection, "down" | "up">;
+type TableCellDirection = CodeBlockBoundaryDirection;
+
+interface TableCellPosition {
+  columnIndex: number;
+  rowIndex: number;
+  tableDecoratorElement: HTMLElement;
+  tableElement: HTMLElement;
+}
+
+function getEditableCellElements(rowElement: HTMLElement): HTMLElement[] {
+  return Array.from(rowElement.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]')).filter(
+    (element): element is HTMLElement => element instanceof HTMLElement
+  );
+}
+
+function getLogicalTableCellEditable(tableElement: HTMLElement, coords: [number, number]): HTMLElement | null {
+  const targetRow = getTableRowElements(tableElement)[coords[1]];
+
+  if (!targetRow) {
+    return null;
+  }
+
+  return getEditableCellElements(targetRow)[coords[0]] ?? null;
+}
+
+function getTableRowElements(tableElement: HTMLElement): HTMLElement[] {
+  return Array.from(tableElement.querySelectorAll("tr")).filter(
+    (row): row is HTMLElement =>
+      row instanceof HTMLElement && row.querySelector('[contenteditable="true"][data-lexical-editor="true"]') !== null
+  );
+}
+
+function getTableCellPosition(cellEditable: HTMLElement): TableCellPosition | null {
+  const tableDecoratorElement = cellEditable.closest("[data-lexical-decorator='true']");
+  const tableElement = tableDecoratorElement?.querySelector("table");
+  const cellElement = cellEditable.closest("th, td");
+  const rowElement = cellElement?.closest("tr");
+
+  if (
+    !(tableDecoratorElement instanceof HTMLElement) ||
+    !(tableElement instanceof HTMLElement) ||
+    !(cellElement instanceof HTMLElement) ||
+    !(rowElement instanceof HTMLElement)
+  ) {
+    return null;
+  }
+
+  const rowElements = getTableRowElements(tableElement);
+  const rowIndex = rowElements.indexOf(rowElement);
+
+  if (rowIndex < 0) {
+    return null;
+  }
+
+  const rowEditables = getEditableCellElements(rowElement);
+  const columnIndex = rowEditables.indexOf(cellEditable);
+
+  if (columnIndex < 0) {
+    return null;
+  }
+
+  return {
+    columnIndex,
+    rowIndex,
+    tableDecoratorElement,
+    tableElement,
+  };
+}
+
+function isCaretAtEditableBoundary(element: HTMLElement, direction: TableCellBoundaryDirection, allowSingleLineFallback = false): boolean {
+  const selection = window.getSelection();
+
+  if (!selection?.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+
+  const selectionRange = selection.getRangeAt(0).cloneRange();
+
+  if (!element.contains(selectionRange.startContainer)) {
+    return false;
+  }
+
+  const prefixRange = document.createRange();
+  const contentsRange = document.createRange();
+  const startBoundaryRange = document.createRange();
+  const endBoundaryRange = document.createRange();
+  prefixRange.selectNodeContents(element);
+  contentsRange.selectNodeContents(element);
+  startBoundaryRange.selectNodeContents(element);
+  startBoundaryRange.collapse(true);
+  endBoundaryRange.selectNodeContents(element);
+  endBoundaryRange.collapse(false);
+  prefixRange.setEnd(selectionRange.endContainer, selectionRange.endOffset);
+
+  const elementTextLength = element.textContent?.length ?? 0;
+  const caretTextOffset = prefixRange.toString().length;
+  const textNodeWalker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      return (node.textContent?.length ?? 0) > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const textNodes: Text[] = [];
+
+  while (textNodeWalker.nextNode()) {
+    const currentNode = textNodeWalker.currentNode;
+
+    if (currentNode instanceof Text) {
+      textNodes.push(currentNode);
+    }
+  }
+
+  const firstTextNode = textNodes[0];
+  const lastTextNode = textNodes[textNodes.length - 1];
+  const isAtFirstTextBoundary = selectionRange.startContainer === firstTextNode && selectionRange.startOffset === 0;
+  const isAtLastTextBoundary =
+    selectionRange.endContainer === lastTextNode && selectionRange.endOffset >= (lastTextNode?.textContent?.length ?? 0);
+
+  const caretRect = getRangeBoundingRect(selectionRange);
+  const elementRect = typeof element.getBoundingClientRect === "function" ? element.getBoundingClientRect() : null;
+  const hasVisualGeometry =
+    caretRect !== null &&
+    elementRect !== null &&
+    (caretRect.height > 0 || caretRect.width > 0 || caretRect.top !== 0 || caretRect.bottom !== 0);
+
+  if (hasVisualGeometry) {
+    const boundaryTolerancePx = 4;
+
+    if (direction === "up" && startBoundaryRange.compareBoundaryPoints(Range.START_TO_START, selectionRange) === 0) {
+      return true;
+    }
+
+    if (direction === "down" && endBoundaryRange.compareBoundaryPoints(Range.END_TO_END, selectionRange) === 0) {
+      return true;
+    }
+
+    if (direction === "up" && caretTextOffset === 0) {
+      return true;
+    }
+
+    if (direction === "down" && caretTextOffset >= elementTextLength) {
+      return true;
+    }
+
+    if (direction === "up" && isAtFirstTextBoundary) {
+      return true;
+    }
+
+    if (direction === "down" && isAtLastTextBoundary) {
+      return true;
+    }
+
+    return direction === "down"
+      ? caretRect.bottom >= elementRect.bottom - boundaryTolerancePx
+      : caretRect.top <= elementRect.top + boundaryTolerancePx;
+  }
+
+  if (allowSingleLineFallback && getRangeClientRectCount(contentsRange) <= 1) {
+    return true;
+  }
+
+  if (direction === "up" && isAtFirstTextBoundary) {
+    return true;
+  }
+
+  if (direction === "down" && isAtLastTextBoundary) {
+    return true;
+  }
+
+  return direction === "down" ? caretTextOffset >= elementTextLength : caretTextOffset === 0;
+}
+
+function isCaretAtEditableHorizontalBoundary(element: HTMLElement, direction: Extract<TableCellDirection, "left" | "right">): boolean {
+  const selection = window.getSelection();
+
+  if (!selection?.isCollapsed || selection.rangeCount === 0) {
+    return false;
+  }
+
+  const selectionRange = selection.getRangeAt(0).cloneRange();
+
+  if (!element.contains(selectionRange.startContainer)) {
+    return false;
+  }
+
+  const prefixRange = document.createRange();
+  prefixRange.selectNodeContents(element);
+  prefixRange.setEnd(selectionRange.endContainer, selectionRange.endOffset);
+
+  const elementTextLength = element.textContent?.length ?? 0;
+  const caretTextOffset = prefixRange.toString().length;
+
+  return direction === "right" ? caretTextOffset >= elementTextLength : caretTextOffset === 0;
+}
+
+function moveWithinTableByArrow(cellEditable: HTMLElement, direction: TableCellDirection): boolean {
+  const position = getTableCellPosition(cellEditable);
+
+  if (!position) {
+    return false;
+  }
+
+  if ((direction === "left" || direction === "right") && !isCaretAtEditableHorizontalBoundary(cellEditable, direction)) {
+    return false;
+  }
+
+  if ((direction === "up" || direction === "down") && !isCaretAtEditableBoundary(cellEditable, direction, true)) {
+    return false;
+  }
+
+  const targetCoords: [number, number] | null =
+    direction === "left"
+      ? position.columnIndex > 0
+        ? [position.columnIndex - 1, position.rowIndex]
+        : null
+      : direction === "right"
+        ? [position.columnIndex + 1, position.rowIndex]
+        : direction === "up"
+          ? position.rowIndex > 0
+            ? [position.columnIndex, position.rowIndex - 1]
+            : null
+          : [position.columnIndex, position.rowIndex + 1];
+
+  if (!targetCoords) {
+    return false;
+  }
+
+  if (getLogicalTableCellEditable(position.tableElement, targetCoords) === null) {
+    return false;
+  }
+
+  const attemptMove = () => focusLogicalTableCell(position.tableElement, targetCoords, direction);
+
+  window.requestAnimationFrame(() => {
+    if (attemptMove()) {
+      scheduleRetriableFocusRestore({
+        delaysMs: [16, 48, 120],
+        attemptRestore: attemptMove,
+      });
+      return;
+    }
+
+    scheduleRetriableFocusRestore({
+      delaysMs: [0, 16, 48, 120],
+      attemptRestore: attemptMove,
+    });
+  });
+
+  return true;
+}
+
+function moveOutOfTableVertically(
+  rootEditor: LexicalEditor,
+  rootEditorElement: HTMLElement,
+  cellEditable: HTMLElement,
+  direction: TableCellBoundaryDirection
+): boolean {
+  const position = getTableCellPosition(cellEditable);
+
+  if (!position || !isCaretAtEditableBoundary(cellEditable, direction, true)) {
+    return false;
+  }
+
+  const rowCount = getTableRowElements(position.tableElement).length;
+  const isBoundaryRow = direction === "up" ? position.rowIndex === 0 : position.rowIndex === rowCount - 1;
+
+  if (!isBoundaryRow) {
+    return false;
+  }
+
+  const adjacentElement = getAdjacentTopLevelElement(position.tableDecoratorElement, direction);
+
+  if (!(adjacentElement instanceof HTMLElement)) {
+    return false;
+  }
+
+  const attemptExit = () => {
+    if (adjacentElement.getAttribute("data-lexical-decorator") === "true") {
+      return moveIntoAdjacentTopLevelElement(rootEditor, rootEditorElement, adjacentElement, direction);
+    }
+
+    return focusRootBlockBoundary(rootEditorElement, adjacentElement, direction);
+  };
+
+  window.requestAnimationFrame(() => {
+    const attemptRestore = attemptExit;
+
+    if (attemptRestore()) {
+      scheduleRetriableFocusRestore({
+        delaysMs: [0, 16, 48, 120],
+        attemptRestore,
+      });
+
+      return;
+    }
+
+    scheduleRetriableFocusRestore({
+      delaysMs: [0, 16, 48, 120],
+      attemptRestore,
+    });
+  });
+
+  return true;
+}
+
+const TableCellKeyboardBridge = () => {
   const [editor] = useLexicalComposerContext();
   const rootEditor = useCellValue(rootEditor$);
 
@@ -182,46 +501,89 @@ const TableCellShiftTabBridge = () => {
       return;
     }
 
-    const handleKeyDownCapture = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || !event.shiftKey) {
-        return;
-      }
-
+    const handleKeyboardEvent = (event: KeyboardEvent) => {
       const cellEditable = cellEditorRoot.closest('table [contenteditable="true"][data-lexical-editor="true"]');
 
       if (!(cellEditable instanceof HTMLElement)) {
+        return false;
+      }
+
+      if (event.key === "Tab" && event.shiftKey) {
+        const tableDecoratorElement = cellEditable.closest("[data-lexical-decorator='true']");
+
+        if (!(tableDecoratorElement instanceof HTMLElement) || tableDecoratorElement.querySelector("table") === null) {
+          return false;
+        }
+
+        const tableEditables = Array.from(
+          tableDecoratorElement.querySelectorAll('table [contenteditable="true"][data-lexical-editor="true"]')
+        ).filter((element): element is HTMLElement => element instanceof HTMLElement);
+
+        if (tableEditables[0] !== cellEditable) {
+          return false;
+        }
+
+        const adjacentElement = getAdjacentTopLevelElement(tableDecoratorElement, "up");
+
+        if (!(adjacentElement instanceof HTMLElement)) {
+          return false;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        moveIntoAdjacentTopLevelElement(rootEditor, rootEditorElement, adjacentElement, "up");
+        return true;
+      }
+
+      const direction =
+        event.key === "ArrowDown"
+          ? "down"
+          : event.key === "ArrowUp"
+            ? "up"
+            : event.key === "ArrowLeft"
+              ? "left"
+              : event.key === "ArrowRight"
+                ? "right"
+                : null;
+
+      if (!direction) {
+        return false;
+      }
+
+      const movedWithinTable = moveWithinTableByArrow(cellEditable, direction);
+
+      if (movedWithinTable) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+
+      const movedOutOfTable =
+        (direction === "up" || direction === "down") && moveOutOfTableVertically(rootEditor, rootEditorElement, cellEditable, direction);
+
+      if (movedOutOfTable) {
+        event.preventDefault();
+        event.stopPropagation();
+        return true;
+      }
+
+      return false;
+    };
+
+    const handleKeyDownCapture = (event: KeyboardEvent) => {
+      if (!handleKeyboardEvent(event)) {
         return;
       }
 
-      const tableDecoratorElement = cellEditable.closest("[data-lexical-decorator='true']");
-
-      if (!(tableDecoratorElement instanceof HTMLElement) || tableDecoratorElement.querySelector("table") === null) {
-        return;
-      }
-
-      const tableEditables = Array.from(
-        tableDecoratorElement.querySelectorAll('table [contenteditable="true"][data-lexical-editor="true"]')
-      ).filter((element): element is HTMLElement => element instanceof HTMLElement);
-
-      if (tableEditables[0] !== cellEditable) {
-        return;
-      }
-
-      const adjacentElement = getAdjacentTopLevelElement(tableDecoratorElement, "up");
-
-      if (!(adjacentElement instanceof HTMLElement)) {
-        return;
-      }
-
-      event.preventDefault();
       event.stopImmediatePropagation();
-      moveIntoAdjacentTopLevelElement(rootEditor, rootEditorElement, adjacentElement, "up");
     };
 
     cellEditorRoot.addEventListener("keydown", handleKeyDownCapture, true);
+    const unregisterCommand = editor.registerCommand(KEY_DOWN_COMMAND, (event) => handleKeyboardEvent(event), COMMAND_PRIORITY_HIGH);
 
     return () => {
       cellEditorRoot.removeEventListener("keydown", handleKeyDownCapture, true);
+      unregisterCommand();
     };
   }, [editor, rootEditor]);
 
@@ -230,7 +592,7 @@ const TableCellShiftTabBridge = () => {
 
 const tableCellShiftTabBridgePlugin = realmPlugin({
   init(realm) {
-    realm.pub(addTableCellEditorChild$, TableCellShiftTabBridge);
+    realm.pub(addTableCellEditorChild$, TableCellKeyboardBridge);
   },
 });
 
@@ -531,6 +893,156 @@ function getAdjacentTableEntryCoords(tableNode: AdjacentTableNode, direction: Co
   return [Math.max(tableNode.getColCount() - 1, 0), Math.max(tableNode.getRowCount() - 1, 0)];
 }
 
+function focusLogicalTableCell(tableElement: HTMLElement, coords: [number, number], direction: CodeBlockBoundaryDirection): boolean {
+  const rowCells = getTableRowElements(tableElement);
+  const targetRow = rowCells[coords[1]];
+
+  if (!isHtmlElement(targetRow)) {
+    return false;
+  }
+
+  const editable = getEditableCellElements(targetRow)[coords[0]];
+
+  if (!isHtmlElement(editable)) {
+    return false;
+  }
+
+  const nestedEditor = (editable as NestedLexicalContentEditableElement).__lexicalEditor;
+
+  const selection = window.getSelection();
+  if (!selection) {
+    return isFocusWithinElement(tableElement);
+  }
+
+  const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+  while (walker.nextNode()) {
+    const currentNode = walker.currentNode;
+    if (currentNode instanceof Text) {
+      textNodes.push(currentNode);
+    }
+  }
+
+  const getLastVisualLineStartPosition = (): { offset: number; textNode: Text } | null => {
+    const lastTextNode = textNodes[textNodes.length - 1];
+
+    if (!(lastTextNode instanceof Text)) {
+      return null;
+    }
+
+    const endRange = document.createRange();
+    endRange.setStart(lastTextNode, lastTextNode.textContent?.length ?? 0);
+    endRange.collapse(true);
+
+    const endRect = getRangeBoundingRect(endRange);
+
+    if (!endRect) {
+      return null;
+    }
+
+    const lineTopTolerancePx = 1;
+    let foundSameLine = false;
+    let candidate: { offset: number; textNode: Text } = {
+      offset: lastTextNode.textContent?.length ?? 0,
+      textNode: lastTextNode,
+    };
+
+    for (let nodeIndex = textNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
+      const textNode = textNodes[nodeIndex];
+      const textLength = textNode.textContent?.length ?? 0;
+
+      for (let offset = textLength; offset >= 0; offset -= 1) {
+        const probeRange = document.createRange();
+        probeRange.setStart(textNode, offset);
+        probeRange.collapse(true);
+
+        const probeRect = getRangeBoundingRect(probeRange);
+
+        if (!probeRect) {
+          continue;
+        }
+
+        if (Math.abs(probeRect.top - endRect.top) <= lineTopTolerancePx) {
+          candidate = { offset, textNode };
+          foundSameLine = true;
+          continue;
+        }
+
+        if (foundSameLine && probeRect.top < endRect.top - lineTopTolerancePx) {
+          return candidate;
+        }
+      }
+    }
+
+    return candidate;
+  };
+
+  const upwardTextBoundary = direction === "up" ? getLastVisualLineStartPosition() : null;
+  const targetTextNode =
+    direction === "up"
+      ? upwardTextBoundary?.textNode
+      : direction === "down" || direction === "right"
+        ? textNodes[0]
+        : textNodes[textNodes.length - 1];
+
+  const applyNestedSelection = () => {
+    nestedEditor?.update(() => {
+      const boundaryLexicalNode = targetTextNode ? $getNearestNodeFromDOMNode(targetTextNode) : null;
+
+      if ($isTextNode(boundaryLexicalNode)) {
+        const targetOffset =
+          direction === "up"
+            ? (upwardTextBoundary?.offset ?? 0)
+            : direction === "down" || direction === "right"
+              ? 0
+              : (targetTextNode?.textContent?.length ?? 0);
+        boundaryLexicalNode.select(targetOffset, targetOffset);
+        return;
+      }
+
+      if (direction === "down" || direction === "right") {
+        $getRoot().selectStart();
+        return;
+      }
+
+      $getRoot().selectEnd();
+    });
+  };
+
+  if (nestedEditor) {
+    applyNestedSelection();
+    nestedEditor.focus(
+      () => {
+        applyNestedSelection();
+      },
+      {
+        defaultSelection: direction === "down" || direction === "right" ? "rootStart" : "rootEnd",
+      }
+    );
+  } else {
+    editable.focus({ preventScroll: true });
+  }
+
+  const range = document.createRange();
+
+  if (targetTextNode instanceof Text) {
+    const targetOffset =
+      direction === "up"
+        ? (upwardTextBoundary?.offset ?? 0)
+        : direction === "down" || direction === "right"
+          ? 0
+          : (targetTextNode.textContent?.length ?? 0);
+    range.setStart(targetTextNode, targetOffset);
+  } else {
+    range.selectNodeContents(editable);
+  }
+
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  return isFocusWithinElement(tableElement);
+}
+
 function focusAdjacentTableCell(tableElement: HTMLElement, coords: [number, number], direction: CodeBlockBoundaryDirection): boolean {
   const rowCells = Array.from(tableElement.querySelectorAll("tbody tr"));
   const targetRow = rowCells[coords[1]];
@@ -607,37 +1119,6 @@ function focusRootBlockBoundary(
   // Prefer Lexical's own selection model when re-entering the root editor from a nested decorator.
   const lexicalEditor = (rootElement as NestedLexicalContentEditableElement).__lexicalEditor;
 
-  lexicalEditor?.update(() => {
-    const lexicalNode = $getNearestNodeFromDOMNode(blockElement);
-
-    if ($isTextNode(lexicalNode)) {
-      if (direction === "down") {
-        lexicalNode.selectStart();
-        return;
-      }
-
-      lexicalNode.selectEnd();
-      return;
-    }
-
-    const selectableNode = lexicalNode as { selectStart?: () => void; selectEnd?: () => void } | null;
-
-    if (direction === "down") {
-      selectableNode?.selectStart?.();
-      return;
-    }
-
-    selectableNode?.selectEnd?.();
-  });
-
-  rootElement.focus({ preventScroll: true });
-
-  const selection = window.getSelection();
-
-  if (!selection) {
-    return false;
-  }
-
   const walker = document.createTreeWalker(blockElement, NodeFilter.SHOW_TEXT);
   const textNodes: Text[] = [];
   while (walker.nextNode()) {
@@ -648,18 +1129,146 @@ function focusRootBlockBoundary(
   }
 
   const targetTextNode = direction === "down" ? textNodes[0] : textNodes[textNodes.length - 1];
-  const range = document.createRange();
 
-  if (targetTextNode instanceof Text) {
-    range.setStart(targetTextNode, direction === "down" ? 0 : (targetTextNode.textContent?.length ?? 0));
+  const getLastVisualLineStartPosition = (): { offset: number; textNode: Text } | null => {
+    if (!(targetTextNode instanceof Text)) {
+      return null;
+    }
+
+    const endRange = document.createRange();
+    endRange.setStart(targetTextNode, targetTextNode.textContent?.length ?? 0);
+    endRange.collapse(true);
+
+    const endRect = getRangeBoundingRect(endRange);
+
+    if (!endRect) {
+      return null;
+    }
+
+    const lineTopTolerancePx = 1;
+    let foundSameLine = false;
+    let candidate: { offset: number; textNode: Text } = {
+      offset: targetTextNode.textContent?.length ?? 0,
+      textNode: targetTextNode,
+    };
+
+    for (let nodeIndex = textNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
+      const textNode = textNodes[nodeIndex];
+      const textLength = textNode.textContent?.length ?? 0;
+
+      for (let offset = textLength; offset >= 0; offset -= 1) {
+        const probeRange = document.createRange();
+        probeRange.setStart(textNode, offset);
+        probeRange.collapse(true);
+
+        const probeRect = getRangeBoundingRect(probeRange);
+
+        if (!probeRect) {
+          continue;
+        }
+
+        if (Math.abs(probeRect.top - endRect.top) <= lineTopTolerancePx) {
+          candidate = { offset, textNode };
+          foundSameLine = true;
+          continue;
+        }
+
+        if (foundSameLine && probeRect.top < endRect.top - lineTopTolerancePx) {
+          return candidate;
+        }
+      }
+    }
+
+    return candidate;
+  };
+
+  const upwardTextBoundary = direction === "up" ? getLastVisualLineStartPosition() : null;
+
+  const selectLexicalBoundary = () => {
+    lexicalEditor?.update(() => {
+      const targetDomTextNode = upwardTextBoundary?.textNode ?? targetTextNode;
+      const targetTextLexicalNode = targetDomTextNode ? $getNearestNodeFromDOMNode(targetDomTextNode) : null;
+
+      if ($isTextNode(targetTextLexicalNode)) {
+        const targetOffset = direction === "down" ? 0 : (upwardTextBoundary?.offset ?? targetDomTextNode?.textContent?.length ?? 0);
+        targetTextLexicalNode.select(targetOffset, targetOffset);
+        return;
+      }
+
+      const lexicalNode = $getNearestNodeFromDOMNode(blockElement);
+
+      if ($isElementNode(lexicalNode)) {
+        const descendant = direction === "down" ? lexicalNode.getFirstDescendant() : lexicalNode.getLastDescendant();
+
+        if ($isTextNode(descendant)) {
+          const descendantTextLength = descendant.getTextContent().length;
+          const targetOffset = direction === "down" ? 0 : descendantTextLength;
+          descendant.select(targetOffset, targetOffset);
+          return;
+        }
+      }
+
+      if ($isTextNode(lexicalNode)) {
+        if (direction === "down") {
+          lexicalNode.selectStart();
+          return;
+        }
+
+        lexicalNode.selectEnd();
+        return;
+      }
+
+      const selectableNode = lexicalNode as { selectStart?: () => void; selectEnd?: () => void } | null;
+
+      if (direction === "down") {
+        selectableNode?.selectStart?.();
+        return;
+      }
+
+      selectableNode?.selectEnd?.();
+    });
+  };
+
+  const placeDomSelection = () => {
+    const selection = window.getSelection();
+
+    if (!selection) {
+      return false;
+    }
+    const range = document.createRange();
+
+    if (direction === "up" && upwardTextBoundary) {
+      range.setStart(upwardTextBoundary.textNode, upwardTextBoundary.offset);
+    } else if (targetTextNode instanceof Text) {
+      range.setStart(targetTextNode, direction === "down" ? 0 : (targetTextNode.textContent?.length ?? 0));
+    } else {
+      range.selectNodeContents(blockElement);
+    }
+
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    return blockElement.contains(selection.anchorNode);
+  };
+
+  if (lexicalEditor) {
+    selectLexicalBoundary();
+
+    lexicalEditor.focus(
+      () => {
+        selectLexicalBoundary();
+        placeDomSelection();
+      },
+      {
+        defaultSelection: direction === "down" ? "rootStart" : "rootEnd",
+      }
+    );
   } else {
-    range.selectNodeContents(blockElement);
+    rootElement.focus({ preventScroll: true });
   }
 
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
-  return blockElement.contains(selection.anchorNode);
+  return placeDomSelection();
 }
 
 function getVerticalNavigationContext(rootElement: HTMLElement): VerticalNavigationContext | null {
@@ -839,10 +1448,20 @@ function moveIntoAdjacentTopLevelElement(
   }
 
   const tryFocusAdjacentRootBlock = () => focusRootBlockBoundary(rootElement, adjacentElement, direction);
+  const scheduleRootBlockRestore = () => {
+    scheduleRetriableFocusRestore({
+      delaysMs: [0, 16, 48],
+      attemptRestore: tryFocusAdjacentRootBlock,
+    });
+  };
 
   if (tryFocusAdjacentRootBlock()) {
+    scheduleRootBlockRestore();
+
     return true;
   }
+
+  scheduleRootBlockRestore();
 
   window.requestAnimationFrame(() => {
     const tryFocusAdjacentRootBlockInFrame = () => focusRootBlockBoundary(rootElement, adjacentElement, direction);
@@ -1398,11 +2017,6 @@ const MarkdownLinkDialogProvider = ({
   }, []);
 
   const submitLinkDialog = useCallback(() => {
-    if (!activeEditor) {
-      closeLinkDialog();
-      return;
-    }
-
     const normalizedUrl = linkUrlInputRef.current?.value.trim() ?? "";
     if (!normalizedUrl) {
       return;
@@ -1410,7 +2024,7 @@ const MarkdownLinkDialogProvider = ({
 
     shouldRestoreSelectionOnCloseRef.current = false;
     restoreEditorSelection();
-    activeEditor.dispatchCommand(TOGGLE_LINK_COMMAND, {
+    activeEditor?.dispatchCommand(TOGGLE_LINK_COMMAND, {
       url: normalizedUrl,
     });
     onLinkApplied?.();
@@ -1816,6 +2430,36 @@ const InlineCodeToggle = () => {
   );
 };
 
+const MarkdownViewModeToggle = () => {
+  const { t } = useTranslation();
+  const iconComponentFor = useGurxCellValue(iconComponentFor$);
+  const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
+  const setViewMode = usePublisher(viewMode$);
+
+  return (
+    <MultipleChoiceToggleGroup
+      items={[
+        {
+          title: t("viewer.edit.richTextMode", { defaultValue: "Rich-text mode" }),
+          contents: iconComponentFor("rich_text"),
+          active: viewMode === "rich-text",
+          onChange: () => {
+            setViewMode("rich-text");
+          },
+        },
+        {
+          title: t("viewer.edit.sourceMode", { defaultValue: "Source mode" }),
+          contents: iconComponentFor("markdown"),
+          active: viewMode === "source",
+          onChange: () => {
+            setViewMode("source");
+          },
+        },
+      ]}
+    />
+  );
+};
+
 const InsertCodeBlockButton = () => {
   const iconComponentFor = useGurxCellValue(iconComponentFor$);
   const insertCodeBlock = usePublisher(insertCodeBlock$);
@@ -2156,7 +2800,7 @@ const MarkdownMobileMoreActionsMenu = () => {
   );
 
   const handleModeAction = useCallback(
-    (nextViewMode: MarkdownEditorViewMode) => {
+    (nextViewMode: Extract<MarkdownEditorViewMode, "rich-text" | "source">) => {
       runMenuAction(() => {
         setViewMode(nextViewMode);
       });
@@ -2333,33 +2977,27 @@ const MarkdownMobileMoreActionsMenu = () => {
             <ListItemText primary={t("viewer.edit.insertCodeBlock", { defaultValue: "Insert code block" })} />
           </MenuItem>,
         ]}
-        <MenuItem
-          selected={viewMode === "rich-text"}
-          onClick={() => {
-            handleModeAction("rich-text");
-          }}
-        >
-          <ListItemIcon>{iconComponentFor("rich_text")}</ListItemIcon>
-          <ListItemText primary={t("viewer.edit.richTextMode", { defaultValue: "Rich-text mode" })} />
-        </MenuItem>
-        <MenuItem
-          selected={viewMode === "diff"}
-          onClick={() => {
-            handleModeAction("diff");
-          }}
-        >
-          <ListItemIcon>{iconComponentFor("difference")}</ListItemIcon>
-          <ListItemText primary={t("viewer.edit.diffMode", { defaultValue: "Diff mode" })} />
-        </MenuItem>
-        <MenuItem
-          selected={viewMode === "source"}
-          onClick={() => {
-            handleModeAction("source");
-          }}
-        >
-          <ListItemIcon>{iconComponentFor("markdown")}</ListItemIcon>
-          <ListItemText primary={t("viewer.edit.sourceMode", { defaultValue: "Source mode" })} />
-        </MenuItem>
+        {viewMode === "rich-text" ? (
+          <MenuItem
+            selected={false}
+            onClick={() => {
+              handleModeAction("source");
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("markdown")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.sourceMode", { defaultValue: "Source mode" })} />
+          </MenuItem>
+        ) : (
+          <MenuItem
+            selected={false}
+            onClick={() => {
+              handleModeAction("rich-text");
+            }}
+          >
+            <ListItemIcon>{iconComponentFor("rich_text")}</ListItemIcon>
+            <ListItemText primary={t("viewer.edit.richTextMode", { defaultValue: "Rich-text mode" })} />
+          </MenuItem>
+        )}
       </Menu>
     </>
   );
@@ -2497,7 +3135,7 @@ const MarkdownMobileToolbar = ({ activeBackground, hoverBackground }: { activeBa
 
 const MarkdownDesktopToolbar = () => {
   return (
-    <DiffSourceToggleWrapper>
+    <>
       <MarkdownUndoRedoControls />
       <Separator />
       <BlockTypeSelect />
@@ -2512,7 +3150,9 @@ const MarkdownDesktopToolbar = () => {
       <InsertThematicBreakButton />
       <Separator />
       <InsertCodeBlockButton />
-    </DiffSourceToggleWrapper>
+      <Separator />
+      <MarkdownViewModeToggle />
+    </>
   );
 };
 
@@ -2716,10 +3356,12 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
     const hasAttemptedAutoFocusRef = useRef(false);
+    const { t } = useTranslation();
     const { currentTheme } = useSambeeTheme();
     const muiTheme = useTheme();
     const isMobile = useMediaQuery(muiTheme.breakpoints.down("sm"));
     const {
+      viewerBg,
       toolbarBg: _toolbarBg,
       toolbarText: _toolbarText,
       viewerText,
@@ -2759,6 +3401,45 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         }
       });
     }, []);
+
+    const syncTableToolButtonLabels = useCallback(() => {
+      const container = containerRef.current;
+
+      if (!container) {
+        return;
+      }
+
+      const buttonLabels = [
+        {
+          selector: ".mdxeditor [class*='addColumnButton']",
+          label: t("viewer.edit.addColumn", { defaultValue: "Add column" }),
+        },
+        {
+          selector: ".mdxeditor [class*='addRowButton']",
+          label: t("viewer.edit.addRow", { defaultValue: "Add row" }),
+        },
+      ];
+
+      for (const { selector, label } of buttonLabels) {
+        for (const button of container.querySelectorAll<HTMLButtonElement>(selector)) {
+          if (button.getAttribute("aria-label") !== label) {
+            button.setAttribute("aria-label", label);
+          }
+
+          if (button.getAttribute("title") !== label) {
+            button.setAttribute("title", label);
+          }
+
+          if (button.getAttribute("data-editor-tooltip") !== label) {
+            button.setAttribute("data-editor-tooltip", label);
+          }
+
+          if (!button.hasAttribute("data-toolbar-item")) {
+            button.setAttribute("data-toolbar-item", "");
+          }
+        }
+      }
+    }, [t]);
 
     const focusEditableArea = useCallback((preventScroll = false, preferredViewMode?: MarkdownEditorViewMode) => {
       const container = containerRef.current;
@@ -3099,9 +3780,11 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
 
     useEffect(() => {
       syncPopupContainerLayering();
+      syncTableToolButtonLabels();
 
       const observer = new MutationObserver(() => {
         syncPopupContainerLayering();
+        syncTableToolButtonLabels();
       });
 
       observer.observe(document.body, { childList: true, subtree: true });
@@ -3109,7 +3792,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       return () => {
         observer.disconnect();
       };
-    }, [syncPopupContainerLayering]);
+    }, [syncPopupContainerLayering, syncTableToolButtonLabels]);
 
     useEffect(() => {
       if (!autoFocus || readOnly || hasAttemptedAutoFocusRef.current) {
@@ -3303,6 +3986,19 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 color: secondaryToolbarColors.textColor,
                 boxShadow: secondaryToolbarColors.shadow,
               },
+            [`.${MARKDOWN_EDITOR_POPUP_CLASS} [class*='tableColumnEditorPopoverContent']`]: {
+              backgroundColor: viewerBg,
+              color: viewerText,
+              border: `1px solid ${secondaryToolbarColors.borderColor}`,
+              boxShadow: secondaryToolbarColors.shadow,
+            },
+            [`.${MARKDOWN_EDITOR_POPUP_CLASS} [class*='tableColumnEditorToolbar']`]: {
+              backgroundColor: viewerBg,
+              color: viewerText,
+            },
+            [`.${MARKDOWN_EDITOR_POPUP_CLASS} [class*='tableColumnEditorPopoverContent'] [class*='popoverArrow'] polygon`]: {
+              fill: viewerBg,
+            },
             [`.${MARKDOWN_EDITOR_POPUP_CLASS} [class*='toolbarNodeKindSelectItem'][data-highlighted], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='toolbarNodeKindSelectItem'][data-state='checked'], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='selectItem'][data-highlighted], .${MARKDOWN_EDITOR_POPUP_CLASS} [class*='selectItem'][data-state='checked']`]:
               {
                 backgroundColor: secondaryToolbarColors.pillBackground,
@@ -3375,7 +4071,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             "& .mdxeditor > :not(.mdxeditor-toolbar)": {
               minHeight: 0,
               boxSizing: "border-box",
-              padding: muiTheme.spacing(2),
+              padding: MARKDOWN_CONTENT_PADDING,
             },
             [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}[contenteditable='true']`]: {
               minHeight: 320,
@@ -3383,6 +4079,144 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
               overflowY: "auto",
               overflowX: "hidden",
             },
+            "& .mdxeditor [class*='tableEditor']": {
+              display: "inline-table",
+              width: "auto",
+              maxWidth: "none",
+              border: 0,
+              borderCollapse: "collapse",
+              borderSpacing: 0,
+              backgroundColor: viewerBg,
+              fontSize: MARKDOWN_TABLE_FONT_SIZE,
+              marginInline: 0,
+              marginBlockStart: 0,
+              marginBlockEnd: 0,
+            },
+            "& .mdxeditor [class*='tableEditor'] > colgroup > col:first-of-type, & .mdxeditor [class*='tableEditor'] > colgroup > col:last-of-type":
+              {
+                width: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              },
+            "& .mdxeditor [class*='tableEditor'] > tbody > tr > td:not([data-tool-cell='true']), & .mdxeditor [class*='tableEditor'] > tbody > tr > th:not([data-tool-cell='true'])":
+              {
+                border: (theme) => `1px solid ${getMarkdownTableSurfaceColors(theme).border}`,
+                backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).tableBackground,
+                paddingBlock: MARKDOWN_TABLE_CELL_PADDING_BLOCK,
+                paddingInline: MARKDOWN_TABLE_CELL_PADDING_INLINE,
+                textAlign: "left",
+                verticalAlign: "top",
+              },
+            "& .mdxeditor [class*='tableEditor'] > thead > tr, & .mdxeditor [class*='tableEditor'] > tfoot > tr": {
+              height: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+            },
+            "& .mdxeditor [class*='tableEditor'] > thead > tr > th": {
+              backgroundColor: viewerBg,
+              color: "inherit",
+              border: 0,
+              padding: 0,
+              height: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              lineHeight: "normal",
+              fontSize: "inherit",
+              fontWeight: 400,
+              letterSpacing: "normal",
+              textTransform: "none",
+              textAlign: "center",
+              verticalAlign: "middle",
+            },
+            "& .mdxeditor [class*='tableEditor'] > tfoot > tr > th": {
+              backgroundColor: viewerBg,
+              color: "inherit",
+              border: 0,
+              padding: 0,
+              height: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              lineHeight: "normal",
+              textAlign: "center",
+              verticalAlign: "middle",
+            },
+            "& .mdxeditor [class*='tableEditor'] > tbody > tr:first-of-type > td:not([data-tool-cell='true']), & .mdxeditor [class*='tableEditor'] > tbody > tr:first-of-type > th:not([data-tool-cell='true'])":
+              {
+                backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).headerBackground,
+                color: (theme) => getMarkdownTableSurfaceColors(theme).headerText,
+                fontSize: MARKDOWN_TABLE_HEADER_FONT_SIZE,
+                fontWeight: 700,
+                letterSpacing: MARKDOWN_TABLE_HEADER_LETTER_SPACING,
+                textTransform: "uppercase",
+              },
+            "& .mdxeditor [class*='tableEditor'] > tbody > tr:nth-of-type(odd):not(:first-of-type) > td:not([data-tool-cell='true']), & .mdxeditor [class*='tableEditor'] > tbody > tr:nth-of-type(odd):not(:first-of-type) > th:not([data-tool-cell='true'])":
+              {
+                backgroundColor: (theme) => getMarkdownTableSurfaceColors(theme).alternateRowBackground,
+              },
+            "& .mdxeditor [class*='tableEditor'] > tbody > tr > :is(th, td)[data-tool-cell='true']": {
+              paddingBlock: 0,
+              paddingInline: 0,
+              border: 0,
+              width: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              maxWidth: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              minWidth: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              textAlign: "center",
+              verticalAlign: "middle",
+              backgroundColor: viewerBg,
+            },
+            "& .mdxeditor [class*='toolCell']": {
+              paddingBlock: 0,
+              paddingInline: 0,
+              border: 0,
+              width: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              maxWidth: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              minWidth: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              backgroundColor: viewerBg,
+            },
+            "& .mdxeditor [class*='tableEditor'] :is(th, td)[data-tool-cell='true'] > button": {
+              margin: "0 auto",
+              position: "relative",
+              left: "auto",
+              top: "auto",
+              transform: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxSizing: "border-box",
+              width: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              height: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              minWidth: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              minHeight: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              padding: 0,
+              borderRadius: 0,
+              border: 0,
+              backgroundColor: "transparent",
+              boxShadow: "none",
+              color: (theme) => (theme.palette.mode === "dark" ? "rgba(235, 232, 226, 0.78)" : "rgba(31, 38, 43, 0.72)"),
+              opacity: 0.68,
+            },
+            "& .mdxeditor [class*='tableEditor']:hover :is(th, td)[data-tool-cell='true'] > button": {
+              opacity: 0.86,
+            },
+            "& .mdxeditor [class*='tableEditor'] :is(th, td)[data-tool-cell='true'] > button:hover": {
+              backgroundColor: secondaryToolbarColors.hoverBackground,
+              color: secondaryToolbarColors.textColor,
+              opacity: 1,
+            },
+            "& .mdxeditor [class*='tableEditor'] > tbody > tr:first-of-type > th[data-tool-cell='true'][rowspan]": {
+              width: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              maxWidth: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              minWidth: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              height: `${MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX}px`,
+              textAlign: "center",
+              verticalAlign: "middle",
+            },
+            "& .mdxeditor [class*='tableEditor'] > thead > tr > th:last-of-type[data-tool-cell='true']": {
+              width: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              maxWidth: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+              minWidth: `${MARKDOWN_TABLE_TOOL_GUTTER_PX}px`,
+            },
+            "& .mdxeditor :is([class*='tableEditor'] > thead > tr > th:last-of-type > button[class*='iconButton'], [class*='codeMirrorToolbar'] > button[class*='iconButton'])":
+              {
+                color: (theme) => (theme.palette.mode === "dark" ? "rgba(255, 186, 176, 0.82)" : "rgba(151, 32, 19, 0.72)"),
+              },
+            "& .mdxeditor :is([class*='tableEditor'] > thead > tr > th:last-of-type > button[class*='iconButton'], [class*='codeMirrorToolbar'] > button[class*='iconButton']):hover":
+              {
+                backgroundColor: secondaryToolbarColors.hoverBackground,
+                color: secondaryToolbarColors.textColor,
+              },
             "& .cm-sourceView, & .cm-mergeView": {
               minHeight: 0,
               height: "100%",

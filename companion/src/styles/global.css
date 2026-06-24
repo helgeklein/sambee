@@ -36,7 +36,7 @@
   --companion-btn-primary-shadow-hover: 0 6px 14px rgba(31, 38, 43, 0.22);
 
   color: var(--text-primary, #1f262b);
-  background-color: var(--bg-default, #f6f1e8);
+  background-color: var(--bg-default, #fbf9f4);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
