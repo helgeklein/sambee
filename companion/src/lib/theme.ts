@@ -67,7 +67,7 @@ const SAMBEE_LIGHT: CompanionTheme = {
     contrastText: "#1F262B",
   },
   background: {
-    default: "#F6F1E8",
+    default: "#FBF9F4",
     paper: "#FFFFFF",
   },
   text: {
@@ -125,7 +125,7 @@ function themeToVariables(theme: CompanionTheme): Record<string, string> {
     "--primary-contrast": theme.primary.contrastText ?? "#1F262B",
 
     // Backgrounds
-    "--bg-default": theme.background?.default ?? (isDark ? "#1F262B" : "#F6F1E8"),
+    "--bg-default": theme.background?.default ?? (isDark ? "#1F262B" : "#FBF9F4"),
     "--bg-paper": theme.background?.paper ?? (isDark ? "#2A3239" : "#FFFFFF"),
 
     // Text
@@ -143,7 +143,7 @@ function themeToVariables(theme: CompanionTheme): Record<string, string> {
     "--accent-dark": theme.primary.dark ?? theme.primary.main,
     "--text-color": theme.text?.primary ?? (isDark ? "#F6F1E8" : "#1F262B"),
     "--muted-color": theme.text?.secondary ?? (isDark ? "#F6F1E8B3" : "#1F262BB3"),
-    "--bg-color": theme.background?.default ?? (isDark ? "#1F262B" : "#F6F1E8"),
+    "--bg-color": theme.background?.default ?? (isDark ? "#1F262B" : "#FBF9F4"),
 
     // UI chrome — borders, tracks, surfaces derived from mode
     "--border-color": isDark ? "#374151" : "#D1D5DB",

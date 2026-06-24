@@ -18,7 +18,7 @@
   --app-picker-visible-rows: 6;
   --app-picker-scrollbar-size: 14px;
   --app-picker-scrollbar-balance-size: 0px;
-  --app-picker-scrollbar-track: var(--bg-default, #f6f1e8);
+  --app-picker-scrollbar-track: var(--bg-default, #fbf9f4);
   --app-picker-scrollbar-thumb: color-mix(in srgb, var(--accent-dark, #d4a020) 34%, var(--border-color, #d1d5db));
   --app-picker-scrollbar-thumb-hover: color-mix(in srgb, var(--accent-dark, #d4a020) 52%, var(--border-color, #d1d5db));
 }
@@ -29,7 +29,7 @@
   gap: 1.125rem;
   padding: 1.25rem;
   box-sizing: border-box;
-  background: var(--bg-color, #f6f1e8);
+  background: var(--bg-color, #fbf9f4);
   color: var(--text-color, #1f262b);
   font-family: system-ui, -apple-system, sans-serif;
   height: auto;
@@ -235,7 +235,7 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  background-color: var(--bg-default, #f6f1e8);
+  background-color: var(--bg-default, #fbf9f4);
   border: 1px solid var(--border-color, #d1d5db);
   border-radius: 4px;
 }

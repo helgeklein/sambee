@@ -2,7 +2,8 @@
 
 ## Markdown viewer
 
-- Make navigation in tables more natural. Allow arrow key navigation between cells like in a spreadsheet app.
+- Tables:
+   - We need a way to insert newlines into table cells. Currently, `Enter` (alone or in combination with `Shift` or `Alt`) moves to the cell below.
 
 ## File list
 

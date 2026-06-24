@@ -60,7 +60,7 @@ function ThemePreview({
           width: 40,
           height: 40,
           borderRadius: 1,
-          bgcolor: theme.background?.default || "#F6F1E8",
+          bgcolor: theme.background?.default || "#FBF9F4",
           border: "1px solid",
           borderColor: "divider",
         }}

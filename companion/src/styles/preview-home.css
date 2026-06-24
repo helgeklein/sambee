@@ -4,7 +4,7 @@
   color: var(--text-primary, #1f262b);
   background:
     radial-gradient(circle at top left, color-mix(in srgb, var(--accent-color, #f4c430) 14%, transparent), transparent 26%),
-    linear-gradient(180deg, color-mix(in srgb, var(--bg-default, #f6f1e8) 82%, white), var(--bg-default, #f6f1e8));
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-default, #fbf9f4) 82%, white), var(--bg-default, #fbf9f4));
 }
 
 .preview-home__hero {

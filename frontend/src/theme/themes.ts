@@ -21,7 +21,7 @@ export const builtInThemes: ThemeConfig[] = [
       contrastText: "#1F262B", // Dark text for contrast
     },
     background: {
-      default: "#F6F1E8", // Cream/off-white
+      default: "#FBF9F4", // Warm off-white
       paper: "#FFFFFF",
     },
     text: {
@@ -48,8 +48,8 @@ export const builtInThemes: ThemeConfig[] = [
         hover: "#FF5900", // Lighter on hover for visual feedback
       },
       pdfViewer: {
-        viewerBackground: "#F6F1E8", // Default background
-        toolbarBackground: "#F6F1E8", // Default background
+        viewerBackground: "#FBF9F4", // Default background
+        toolbarBackground: "#FBF9F4", // Default background
         toolbarText: "#1F262B", // Primary text
       },
       imageViewer: {
@@ -59,7 +59,7 @@ export const builtInThemes: ThemeConfig[] = [
       },
       markdownViewer: {
         viewerText: "#1F262B", // Primary text
-        viewerBackground: "#F6F1E8", // Default background
+        viewerBackground: "#FBF9F4", // Default background
         toolbarBackground: "#1F262B", // Dark mode background
         toolbarText: "#F6F1E8", // Dark mode primary text
         secondaryToolbarSelected: "#D4A02042", // Selected background for the markdown editor secondary toolbar

@@ -16,7 +16,7 @@
   gap: 8px;
   font-family: system-ui, -apple-system, sans-serif;
   color: var(--text-color, #1f262b);
-  background: var(--bg-color, #f6f1e8);
+  background: var(--bg-color, #fbf9f4);
   height: 100vh;
   box-sizing: border-box;
   overflow-y: auto;

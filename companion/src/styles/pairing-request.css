@@ -6,7 +6,7 @@
   padding: 1.25rem;
   color: var(--text-color, #1f262b);
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-color, #f4c430) 10%, transparent), transparent 28%), var(--bg-default, #f6f1e8);
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-color, #f4c430) 10%, transparent), transparent 28%), var(--bg-default, #fbf9f4);
 }
 
 .pairing-request__header {
