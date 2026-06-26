@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { KEY_DOWN_COMMAND } from "lexical";
-import { type ComponentProps, createRef, type ForwardedRef, forwardRef, type ReactNode, useEffect, useState } from "react";
+import { type ComponentProps, createRef, type ForwardedRef, forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownRichEditor, { type MarkdownRichEditorHandle } from "../MarkdownRichEditor";
+import { normalizeMarkdownTableCellLineBreaks } from "../markdownTableCellLineBreaks";
 
 function mockMobileMode(isMobile: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -39,6 +40,8 @@ const {
   mockIsTableNode,
   mockIsRangeSelection,
   mockMdxEditorAutoFocusHistory,
+  mockMdxEditorChangeHandlerRef,
+  mockNestedEditorUpdatedCommand,
   mockToggleLinkCommand,
 } = vi.hoisted(() => ({
   mockCodeBlockPlugin: vi.fn((params?: unknown) => ({ type: "codeBlockPlugin", params })),
@@ -49,6 +52,8 @@ const {
   mockIsTableNode: vi.fn(),
   mockIsRangeSelection: vi.fn(),
   mockMdxEditorAutoFocusHistory: [] as boolean[],
+  mockMdxEditorChangeHandlerRef: { current: null as null | ((markdown: string) => void) },
+  mockNestedEditorUpdatedCommand: Symbol("NESTED_EDITOR_UPDATED_COMMAND"),
   mockToggleLinkCommand: Symbol("toggleLinkCommand"),
 }));
 
@@ -66,7 +71,10 @@ const mockInsertThematicBreak = vi.fn();
 const mockApplyBlockType = vi.fn();
 const mockApplyListType = vi.fn();
 const mockDispatchCommand = vi.fn();
+const mockGetMarkdown = vi.fn((markdown: string) => markdown);
 const mockRegisterCommand = vi.fn(() => vi.fn());
+const mockSetMarkdown = vi.fn();
+const mockSetSourceEditorMarkdown = vi.fn();
 const mockSetViewMode = vi.fn();
 let mockCurrentBlockType: "paragraph" | "quote" | "h1" | "h2" | "h3" = "paragraph";
 let mockCurrentListType: "" | "bullet" | "number" | "check" = "";
@@ -136,6 +144,14 @@ vi.mock("@mdxeditor/gurx", () => ({
       return mockSetViewMode;
     }
 
+    if (String(signal).includes("markdownSignal")) {
+      return mockSetSourceEditorMarkdown;
+    }
+
+    if (String(signal).includes("markdownSourceEditorValue")) {
+      return mockSetSourceEditorMarkdown;
+    }
+
     return mockApplyFormat;
   },
 }));
@@ -172,10 +188,44 @@ vi.mock("@mdxeditor/editor", () => {
           autoFocus?: boolean | object;
           contentEditableClassName?: string;
           markdown?: string;
+          onChange?: (markdown: string) => void;
         },
-        _ref: ForwardedRef<unknown>
+        ref: ForwardedRef<unknown>
       ) => {
         mockMdxEditorAutoFocusHistory.push(Boolean(props.autoFocus));
+        const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+        const [currentMarkdown, setCurrentMarkdown] = useState(props.markdown ?? "");
+
+        useEffect(() => {
+          setCurrentMarkdown(props.markdown ?? "");
+        }, [props.markdown]);
+
+        useEffect(() => {
+          const handleEditorChange = (nextMarkdown: string) => {
+            setCurrentMarkdown(nextMarkdown);
+            props.onChange?.(nextMarkdown);
+          };
+
+          mockMdxEditorChangeHandlerRef.current = handleEditorChange;
+
+          return () => {
+            if (mockMdxEditorChangeHandlerRef.current === handleEditorChange) {
+              mockMdxEditorChangeHandlerRef.current = null;
+            }
+          };
+        }, [props.onChange]);
+
+        useImperativeHandle(ref, () => ({
+          focus: () => {
+            textareaRef.current?.focus({ preventScroll: true });
+          },
+          getMarkdown: () => mockGetMarkdown(currentMarkdown),
+          setMarkdown: (nextMarkdown: string) => {
+            mockSetMarkdown(nextMarkdown);
+            setCurrentMarkdown(nextMarkdown);
+            props.onChange?.(nextMarkdown);
+          },
+        }));
 
         return (
           <div data-testid="mock-mdx-editor">
@@ -194,8 +244,13 @@ vi.mock("@mdxeditor/editor", () => {
               <textarea
                 aria-label="Mock editor input"
                 className={props.contentEditableClassName}
-                defaultValue={props.markdown ?? ""}
+                value={currentMarkdown}
+                onChange={(event) => {
+                  setCurrentMarkdown(event.target.value);
+                  props.onChange?.(event.target.value);
+                }}
                 ref={(element) => {
+                  textareaRef.current = element;
                   if (element && props.autoFocus) {
                     element.focus();
                   }
@@ -274,6 +329,7 @@ vi.mock("@mdxeditor/editor", () => {
     currentFormat$: Symbol("currentFormat"),
     MDX_FOCUS_SEARCH_NAME: "MdxFocusSearch",
     MDX_SEARCH_NAME: "MdxSearch",
+    NESTED_EDITOR_UPDATED_COMMAND: mockNestedEditorUpdatedCommand,
     iconComponentFor$: Symbol("iconComponentFor"),
     insertCodeBlock$: Symbol("insertCodeBlock"),
     insertTable$: Symbol("insertTable"),
@@ -288,10 +344,19 @@ vi.mock("@mdxeditor/editor", () => {
         code: "mock-inline-code",
       },
     },
-    MultipleChoiceToggleGroup: ({ items }: { items: Array<{ title: string; contents: ReactNode }> }) => (
+    markdown$: Symbol("markdownSignal"),
+    markdownSourceEditorValue$: Symbol("markdownSourceEditorValue"),
+    MultipleChoiceToggleGroup: ({ items }: { items: Array<{ title: string; contents: ReactNode; onChange?: () => void }> }) => (
       <div className="mdxeditor-toolbar-mock-group">
         {items.map((item) => (
-          <button key={item.title} type="button" data-toolbar-item data-editor-tooltip={item.title} aria-label={item.title}>
+          <button
+            key={item.title}
+            type="button"
+            data-toolbar-item
+            data-editor-tooltip={item.title}
+            aria-label={item.title}
+            onClick={item.onChange}
+          >
             {item.contents}
           </button>
         ))}
@@ -312,6 +377,38 @@ describe("MarkdownRichEditor", () => {
     );
   }
 
+  function appendNestedTableCellEditable(
+    editorContainer: HTMLElement,
+    nestedEditor?: {
+      dispatchCommand?: (command: unknown, payload: boolean) => void;
+      update?: (callback: () => void) => void;
+    }
+  ) {
+    const table = document.createElement("table");
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    const nestedEditable = document.createElement("div") as HTMLDivElement & {
+      __lexicalEditor?: {
+        dispatchCommand?: (command: unknown, payload: boolean) => void;
+        update?: (callback: () => void) => void;
+      };
+    };
+
+    nestedEditable.setAttribute("contenteditable", "true");
+    nestedEditable.setAttribute("data-lexical-editor", "true");
+
+    if (nestedEditor) {
+      nestedEditable.__lexicalEditor = nestedEditor;
+    }
+
+    cell.append(nestedEditable);
+    row.append(cell);
+    table.append(row);
+    editorContainer.append(table);
+
+    return nestedEditable;
+  }
+
   beforeEach(() => {
     mockViewportWidth(1280);
     mockMobileMode(false);
@@ -324,10 +421,12 @@ describe("MarkdownRichEditor", () => {
     mockCodeBlockPlugin.mockClear();
     mockCodeMirrorPlugin.mockClear();
     mockMdxEditorAutoFocusHistory.length = 0;
+    mockMdxEditorChangeHandlerRef.current = null;
     mockInsertCodeBlock.mockReset();
     mockInsertTable.mockReset();
     mockInsertThematicBreak.mockReset();
     mockDispatchCommand.mockReset();
+    mockGetMarkdown.mockClear();
     mockGetRootElement.mockReset();
     mockGetRootElement.mockImplementation(() => document.querySelector('textarea[aria-label="Mock editor input"]'));
     mockGetSelection.mockReset();
@@ -341,6 +440,8 @@ describe("MarkdownRichEditor", () => {
     mockIsRangeSelection.mockReset();
     mockIsRangeSelection.mockReturnValue(false);
     mockRegisterCommand.mockClear();
+    mockSetMarkdown.mockReset();
+    mockSetSourceEditorMarkdown.mockReset();
     mockSetViewMode.mockReset();
     mockCurrentBlockType = "paragraph";
     mockCurrentListType = "";
@@ -411,9 +512,146 @@ describe("MarkdownRichEditor", () => {
     expect(await findByText("Source mode")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent("Diff mode");
 
+    act(() => {
+      mockMdxEditorChangeHandlerRef.current?.("# Mobile source");
+    });
+
     (await findByText("Source mode")).click();
 
-    expect(mockSetViewMode).toHaveBeenCalledWith("source");
+    await waitFor(() => {
+      expect(mockSetSourceEditorMarkdown).toHaveBeenCalledWith(normalizeMarkdownTableCellLineBreaks("# Mobile source"));
+      expect(mockSetViewMode).toHaveBeenCalledWith("source");
+    });
+  });
+
+  it("pushes canonical markdown back into the editor before entering source mode from the desktop toggle", async () => {
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    act(() => {
+      mockMdxEditorChangeHandlerRef.current?.("# Published before source mode");
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Source mode" }));
+
+    await waitFor(() => {
+      expect(mockGetMarkdown).toHaveBeenLastCalledWith("# Published before source mode");
+      expect(mockSetSourceEditorMarkdown).toHaveBeenCalledWith(
+        normalizeMarkdownTableCellLineBreaks("# Published before source mode")
+      );
+      expect(mockSetViewMode).toHaveBeenCalledWith("source");
+    });
+  });
+
+  it("canonicalizes consecutive in-cell line breaks before entering source mode", async () => {
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    const sourceMarkdown = "| A |\n| - |\n| foo&#10;&#xA;bar |";
+
+    act(() => {
+      mockMdxEditorChangeHandlerRef.current?.(sourceMarkdown);
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Source mode" }));
+
+    await waitFor(() => {
+      expect(mockSetSourceEditorMarkdown).toHaveBeenCalledWith(normalizeMarkdownTableCellLineBreaks(sourceMarkdown));
+      expect(mockSetViewMode).toHaveBeenCalledWith("source");
+    });
+  });
+
+  it("strips trailing in-cell line breaks before entering source mode", async () => {
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    const sourceMarkdown = "| A |\n| - |\n| foo&#10;&#xA;<br /> |";
+
+    act(() => {
+      mockMdxEditorChangeHandlerRef.current?.(sourceMarkdown);
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Source mode" }));
+
+    await waitFor(() => {
+      expect(mockSetSourceEditorMarkdown).toHaveBeenCalledWith(normalizeMarkdownTableCellLineBreaks(sourceMarkdown));
+      expect(mockSetViewMode).toHaveBeenCalledWith("source");
+    });
+  });
+
+  it("restores focus after a successful source-mode transition triggered through the toolbar", async () => {
+    const ViewModeHarness = () => {
+      const [, setRenderTick] = useState(0);
+
+      useEffect(() => {
+        mockSetViewMode.mockImplementation((nextViewMode: "rich-text" | "source" | "diff") => {
+          mockViewMode = nextViewMode;
+          setRenderTick((value) => value + 1);
+        });
+
+        return () => {
+          mockSetViewMode.mockReset();
+        };
+      }, []);
+
+      return <MarkdownRichEditor markdown="# Alpha" onChange={() => {}} ariaLabel="Markdown editor" />;
+    };
+
+    render(
+      <SambeeThemeProvider>
+        <ViewModeHarness />
+      </SambeeThemeProvider>
+    );
+
+    const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
+
+    if (!(editorInput instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected mock editor input to exist");
+    }
+
+    const sourceModeButton = await screen.findByRole("button", { name: "Source mode" });
+    sourceModeButton.focus();
+    fireEvent.click(sourceModeButton);
+
+    await waitFor(() => {
+      expect(mockSetViewMode).toHaveBeenCalledWith("source");
+      expect(editorInput).toHaveFocus();
+    });
+  });
+
+  it("restores the preserved selection when source-mode entry fails", async () => {
+    mockGetMarkdown.mockImplementation(() => undefined);
+
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
+
+    if (!(editorInput instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected mock editor input to exist");
+    }
+
+    editorInput.focus();
+    editorInput.setSelectionRange(1, 3);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Source mode" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Canonical markdown export is unavailable");
+      expect(editorInput).toHaveFocus();
+      expect(editorInput.selectionStart).toBe(1);
+      expect(editorInput.selectionEnd).toBe(3);
+    });
+  });
+
+  it("fails closed when canonical export is unavailable during source-mode entry", async () => {
+    mockGetMarkdown.mockImplementation(() => undefined);
+
+    renderEditor({ markdown: "# Alpha", onChange: () => {}, ariaLabel: "Markdown editor" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Source mode" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent("Canonical markdown export is unavailable");
+    });
+
+    expect(mockSetViewMode).not.toHaveBeenCalledWith("source");
   });
 
   it("routes mobile overflow insert actions through the existing command signals", async () => {
@@ -622,6 +860,191 @@ describe("MarkdownRichEditor", () => {
     editorRef.current.restorePreservedSelection();
 
     expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it("resolves flushPendingEdits immediately when no nested publication work is pending", async () => {
+    const editorRef = createRef<MarkdownRichEditorHandle>();
+    const onChange = vi.fn();
+
+    render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor ref={editorRef} markdown="# Alpha" onChange={onChange} ariaLabel="Markdown editor" />
+      </SambeeThemeProvider>
+    );
+
+    if (!editorRef.current) {
+      throw new Error("Expected markdown editor ref handle");
+    }
+
+    onChange.mockClear();
+
+    await act(async () => {
+      await editorRef.current?.flushPendingEdits();
+    });
+
+    expect(mockDispatchCommand).not.toHaveBeenCalledWith(mockNestedEditorUpdatedCommand, undefined);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("returns resolved flush promises without dispatching when no nested publication work is pending", async () => {
+    const editorRef = createRef<MarkdownRichEditorHandle>();
+    const onChange = vi.fn();
+
+    render(
+      <SambeeThemeProvider>
+        <MarkdownRichEditor ref={editorRef} markdown="# Alpha" onChange={onChange} ariaLabel="Markdown editor" />
+      </SambeeThemeProvider>
+    );
+
+    if (!editorRef.current) {
+      throw new Error("Expected markdown editor ref handle");
+    }
+
+    onChange.mockClear();
+
+    const firstFlushPromise = editorRef.current.flushPendingEdits();
+    const secondFlushPromise = editorRef.current.flushPendingEdits();
+
+    await act(async () => {
+      await firstFlushPromise;
+      await secondFlushPromise;
+    });
+
+    expect(mockDispatchCommand).not.toHaveBeenCalledWith(mockNestedEditorUpdatedCommand, undefined);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("publishes focused nested table-cell edits without an explicit flush and normalizes the reported markdown", async () => {
+    const onChange = vi.fn();
+    const publishedMarkdown = "| A |\n| - |\n| foo&#10;bar |";
+
+    mockDispatchCommand.mockImplementation((command) => {
+      if (command === mockNestedEditorUpdatedCommand) {
+        mockMdxEditorChangeHandlerRef.current?.(publishedMarkdown);
+      }
+
+      return true;
+    });
+
+    renderEditor({ markdown: "# Alpha", onChange, ariaLabel: "Markdown editor" });
+
+    const editorContainer = screen.getByTestId("mock-mdx-editor");
+
+    if (!(editorContainer instanceof HTMLElement)) {
+      throw new Error("Expected markdown editor container to exist");
+    }
+
+    const table = document.createElement("table");
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    const nestedEditable = document.createElement("div");
+    nestedEditable.setAttribute("contenteditable", "true");
+    nestedEditable.setAttribute("data-lexical-editor", "true");
+    cell.append(nestedEditable);
+    row.append(cell);
+    table.append(row);
+    editorContainer.append(table);
+
+    fireEvent.input(nestedEditable);
+
+    await waitFor(() => {
+      expect(mockDispatchCommand).toHaveBeenCalledWith(mockNestedEditorUpdatedCommand, undefined);
+      expect(onChange).toHaveBeenCalledWith(normalizeMarkdownTableCellLineBreaks(publishedMarkdown));
+    });
+  });
+
+  it("does not trigger nested publication from nested beforeinput events", async () => {
+    const onChange = vi.fn();
+
+    renderEditor({ markdown: "# Alpha", onChange, ariaLabel: "Markdown editor" });
+    onChange.mockClear();
+
+    const editorContainer = screen.getByTestId("mock-mdx-editor");
+
+    if (!(editorContainer instanceof HTMLElement)) {
+      throw new Error("Expected markdown editor container to exist");
+    }
+
+    const nestedEditable = appendNestedTableCellEditable(editorContainer);
+
+    fireEvent(
+      nestedEditable,
+      new Event("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+      })
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockDispatchCommand).not.toHaveBeenCalledWith(mockNestedEditorUpdatedCommand, undefined);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("re-publishes the latest nested table-cell markdown when another edit lands during an in-flight flush", async () => {
+    const onChange = vi.fn();
+    const firstPublishedMarkdown = "| A |\n| - |\n| foo&#10;bar |";
+    const secondPublishedMarkdown = "| A |\n| - |\n| foo&#10;bar&#10;baz |";
+
+    renderEditor({ markdown: "# Alpha", onChange, ariaLabel: "Markdown editor" });
+
+    const editorContainer = screen.getByTestId("mock-mdx-editor");
+
+    if (!(editorContainer instanceof HTMLElement)) {
+      throw new Error("Expected markdown editor container to exist");
+    }
+
+    const nestedEditable = appendNestedTableCellEditable(editorContainer);
+    let nestedDispatchCount = 0;
+
+    mockDispatchCommand.mockImplementation((command) => {
+      if (command !== mockNestedEditorUpdatedCommand) {
+        return true;
+      }
+
+      nestedDispatchCount += 1;
+
+      if (nestedDispatchCount === 1) {
+        fireEvent.input(nestedEditable);
+        mockMdxEditorChangeHandlerRef.current?.(firstPublishedMarkdown);
+        return true;
+      }
+
+      if (nestedDispatchCount === 2) {
+        mockMdxEditorChangeHandlerRef.current?.(secondPublishedMarkdown);
+      }
+
+      return true;
+    });
+
+    fireEvent.input(nestedEditable);
+
+    await waitFor(() => {
+      expect(nestedDispatchCount).toBe(2);
+      expect(onChange).toHaveBeenLastCalledWith(normalizeMarkdownTableCellLineBreaks(secondPublishedMarkdown));
+    });
+  });
+
+  it("does not trigger nested publication for ordinary root editor input", async () => {
+    const onChange = vi.fn();
+
+    renderEditor({ markdown: "# Alpha", onChange, ariaLabel: "Markdown editor" });
+
+    const editorInput = document.querySelector('textarea[aria-label="Mock editor input"]');
+
+    if (!(editorInput instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected mock editor input to exist");
+    }
+
+    fireEvent.input(editorInput, { target: { value: "# Alpha\nBeta" } });
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith("# Alpha\nBeta");
+    });
+
+    expect(mockDispatchCommand).not.toHaveBeenCalledWith(mockNestedEditorUpdatedCommand, undefined);
   });
 
   it("stops autofocus after the editor input is focused so toolbar interactions keep focus", async () => {

@@ -58,7 +58,9 @@ export const COMMON_SHORTCUTS = {
   },
   SAVE: {
     id: "save",
-    keys: "s",
+    // Nested contenteditable paths can surface Ctrl+S as either "s" or "S"
+    // depending on how the browser/editor reports the key event.
+    keys: ["s", "S"],
     get description() {
       return translate("viewer.shortcuts.save");
     },

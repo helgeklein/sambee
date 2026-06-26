@@ -4,15 +4,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownViewer from "../MarkdownViewer";
+import { normalizeMarkdownTableCellLineBreaks } from "../markdownTableCellLineBreaks";
 import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
 
 const mockMarkdownEditorBehavior = {
+  canonicalMarkdownOverride: null as string | null,
   changeBeforeUserEdit: false,
   delayFocus: false,
   emitNonEditableInputBeforeInitialChange: false,
   focusEditableBeforeInitialChange: false,
   focusCurrentSearchResultCalls: 0,
   focusResetsScrollPosition: false,
+  flushRejectError: null as Error | null,
   initialNormalizedMarkdown: null as string | null,
   lastSearchOpen: false,
   lastSearchText: "",
@@ -21,6 +24,7 @@ const mockMarkdownEditorBehavior = {
   preserveSelectionCalls: 0,
   restorePreservedSelectionCalls: 0,
   skipUserEdit: false,
+  throwOnCanonicalExport: null as Error | null,
   throwOnInsertCodeBlock: false,
   throwOnRender: false,
 };
@@ -44,6 +48,8 @@ vi.mock("../MarkdownRichEditor", () => {
   const MockMarkdownRichEditor = forwardRef<
     {
       focus: () => void;
+      flushPendingEdits: () => Promise<void>;
+      getCanonicalMarkdown: () => string;
       preserveSelection: () => void;
       restorePreservedSelection: () => boolean;
       focusCurrentSearchResult: () => boolean;
@@ -89,6 +95,7 @@ vi.mock("../MarkdownRichEditor", () => {
       const textareaRef = useRef<HTMLTextAreaElement | null>(null);
       const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
       const previousMarkdownRef = useRef(markdown);
+      const latestMarkdownRef = useRef(markdown);
       const preservedSelectionRef = useRef<{
         type: "textarea";
         start: number;
@@ -133,6 +140,7 @@ vi.mock("../MarkdownRichEditor", () => {
       }, [onChange]);
 
       useEffect(() => {
+        latestMarkdownRef.current = markdown;
         const textarea = textareaRef.current;
 
         if (
@@ -212,6 +220,20 @@ vi.mock("../MarkdownRichEditor", () => {
           }
 
           return restored;
+        },
+        flushPendingEdits: () => {
+          if (mockMarkdownEditorBehavior.flushRejectError) {
+            return Promise.reject(mockMarkdownEditorBehavior.flushRejectError);
+          }
+
+          return Promise.resolve();
+        },
+        getCanonicalMarkdown: () => {
+          if (mockMarkdownEditorBehavior.throwOnCanonicalExport) {
+            throw mockMarkdownEditorBehavior.throwOnCanonicalExport;
+          }
+
+          return mockMarkdownEditorBehavior.canonicalMarkdownOverride ?? latestMarkdownRef.current;
         },
         focusCurrentSearchResult: () => {
           mockMarkdownEditorBehavior.focusCurrentSearchResultCalls += 1;
@@ -345,11 +367,13 @@ describe("MarkdownViewer", () => {
     localStorage.setItem("access_token", "mock-token");
     vi.restoreAllMocks();
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
+    mockMarkdownEditorBehavior.canonicalMarkdownOverride = null;
     mockMarkdownEditorBehavior.delayFocus = false;
     mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusEditableBeforeInitialChange = false;
     mockMarkdownEditorBehavior.focusCurrentSearchResultCalls = 0;
     mockMarkdownEditorBehavior.focusResetsScrollPosition = false;
+    mockMarkdownEditorBehavior.flushRejectError = null;
     mockMarkdownEditorBehavior.initialNormalizedMarkdown = null;
     mockMarkdownEditorBehavior.lastSearchOpen = false;
     mockMarkdownEditorBehavior.lastSearchText = "";
@@ -358,6 +382,7 @@ describe("MarkdownViewer", () => {
     mockMarkdownEditorBehavior.preserveSelectionCalls = 0;
     mockMarkdownEditorBehavior.restorePreservedSelectionCalls = 0;
     mockMarkdownEditorBehavior.skipUserEdit = false;
+    mockMarkdownEditorBehavior.throwOnCanonicalExport = null;
     mockMarkdownEditorBehavior.throwOnInsertCodeBlock = false;
     mockMarkdownEditorBehavior.throwOnRender = false;
     mockMarkdownEditorCommands.createLink.mockReset();
@@ -557,6 +582,36 @@ describe("MarkdownViewer", () => {
     expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
   });
 
+  it("saves canonical editor export instead of stale outer draft state", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    const saveSpy = vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    mockMarkdownEditorBehavior.canonicalMarkdownOverride = "# Canonical\n";
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Stale draft\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", "# Canonical\n", {
+        filename: "readme.md",
+        mimeType: "text/markdown;charset=utf-8",
+      });
+    });
+  });
+
   it("restores focus to the editor after save even when editor focus is delayed", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
@@ -581,6 +636,45 @@ describe("MarkdownViewer", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("textbox", { name: "Markdown editor" })).toHaveFocus();
+    });
+  });
+
+  it("does not flip the editor surface to read-only during a stay-in-editor save", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    let resolveSave: (() => void) | null = null;
+    const saveSpy = vi.spyOn(apiService, "saveTextFile").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        })
+    );
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+    });
+    expect(editor.readOnly).toBe(false);
+
+    resolveSave?.();
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
     });
   });
 
@@ -707,6 +801,68 @@ describe("MarkdownViewer", () => {
     expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
   });
 
+  it("fails closed when flushing pending editor edits fails before save", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    const saveSpy = vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    const releaseSpy = vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    mockMarkdownEditorBehavior.flushRejectError = new Error("Flush failed");
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to save markdown changes.: Flush failed")).toBeInTheDocument();
+    });
+
+    expect(saveSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
+  });
+
+  it("fails closed when canonical markdown export throws before save", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    const saveSpy = vi.spyOn(apiService, "saveTextFile").mockResolvedValue();
+    const releaseSpy = vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    mockMarkdownEditorBehavior.throwOnCanonicalExport = new Error("Export failed");
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Updated\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to save markdown changes.: Export failed")).toBeInTheDocument();
+    });
+
+    expect(saveSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    expect(releaseSpy).not.toHaveBeenCalledWith("conn1", "/docs/readme.md");
+  });
+
   it("shows the backend read-only detail when a stale client save is rejected with 403", async () => {
     vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
     vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
@@ -797,6 +953,62 @@ describe("MarkdownViewer", () => {
     expect(link).toHaveAttribute("href", "https://example.com/docs");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("renders canonical table-cell br tags as visual line breaks only inside table cells", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(
+      "Outside <br /> stays literal.\n\n| A |\n| - |\n| foo<br />bar |\n"
+    );
+
+    renderViewer();
+
+    expect(await screen.findByText("Outside <br /> stays literal.")).toBeInTheDocument();
+
+    const tableCell = screen.getByRole("cell", { name: /foo\s+bar/ });
+    expect(tableCell.querySelectorAll("br")).toHaveLength(1);
+
+    const viewerRoot = tableCell.closest('[data-markdown-search-root="true"]');
+    if (!(viewerRoot instanceof HTMLElement)) {
+      throw new Error("Expected viewer root to exist");
+    }
+
+    expect(viewerRoot.querySelectorAll("br")).toHaveLength(1);
+  });
+
+  it("does not rewrite inline code containing br text inside a table cell into DOM breaks", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("| A |\n| - |\n| `foo <br /> bar` |\n");
+
+    renderViewer();
+
+    const codeElement = await screen.findByText("foo <br /> bar");
+    expect(codeElement.tagName).toBe("CODE");
+
+    const tableCell = codeElement.closest("td");
+    if (!(tableCell instanceof HTMLTableCellElement)) {
+      throw new Error("Expected code element to be inside a table cell");
+    }
+
+    expect(tableCell.querySelectorAll("br")).toHaveLength(0);
+  });
+
+  it("preserves mixed inline formatting while rendering table-cell br tags structurally", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(
+      "| A |\n| - |\n| *Alpha*<br />[Docs](https://example.com/docs) |\n"
+    );
+
+    renderViewer();
+
+    const emphasis = await screen.findByText("Alpha");
+    expect(emphasis.tagName).toBe("EM");
+
+    const link = screen.getByRole("link", { name: "Docs" });
+    const tableCell = link.closest("td");
+    if (!(tableCell instanceof HTMLTableCellElement)) {
+      throw new Error("Expected link to be inside a table cell");
+    }
+
+    expect(tableCell.querySelectorAll("br")).toHaveLength(1);
+    expect(link).toHaveAttribute("href", "https://example.com/docs");
   });
 
   it("opens a markdown link on the first click even before viewer autofocus settles", async () => {
@@ -1053,6 +1265,130 @@ describe("MarkdownViewer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+  });
+
+  it("seeds legacy table-cell br variants from canonical markdown without a false dirty state", async () => {
+    const loadedMarkdown = ["| Column |", "| --- |", "| foo<BR>bar |"].join("\n");
+    const canonicalMarkdown = normalizeMarkdownTableCellLineBreaks(loadedMarkdown);
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(loadedMarkdown);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = canonicalMarkdown;
+
+    renderViewer();
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+
+    expect(editor.value).toBe(canonicalMarkdown);
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(editor, { target: { value: `${canonicalMarkdown}\nEdited\n` } });
+
+    expect(await screen.findByLabelText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("normalizes malformed closing br tags in table cells before rendering and editor re-entry", async () => {
+    const loadedMarkdown = ["| Column |", "| --- |", "| foo</br>bar |", ""].join("\n");
+    const canonicalMarkdown = normalizeMarkdownTableCellLineBreaks(loadedMarkdown);
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(loadedMarkdown);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = canonicalMarkdown;
+
+    renderViewer();
+
+    const tableCell = await screen.findByRole("cell", { name: /foo\s+bar/ });
+    expect(tableCell.querySelectorAll("br")).toHaveLength(1);
+    expect(tableCell.textContent).toBe("foo\nbar");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+
+    expect(editor.value).toBe(canonicalMarkdown);
+    expect(editor.value).not.toContain("</br>");
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+  });
+
+  it("seeds numeric table-cell newline entities from canonical markdown without a false dirty state", async () => {
+    const loadedMarkdown = ["| Left | Right |", "| --- | --- |", "| foo&#10;bar | baz&#x000A;qux |"].join("\n");
+    const canonicalMarkdown = normalizeMarkdownTableCellLineBreaks(loadedMarkdown);
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(loadedMarkdown);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = canonicalMarkdown;
+
+    renderViewer();
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+
+    expect(editor.value).toBe(canonicalMarkdown);
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps already-canonical table-cell markdown pristine on the first no-op publication", async () => {
+    const loadedMarkdown = ["| Column |", "| --- |", "| foo<br />bar |", ""].join("\n");
+    const canonicalMarkdown = normalizeMarkdownTableCellLineBreaks(loadedMarkdown);
+
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(loadedMarkdown);
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockMarkdownEditorBehavior.initialNormalizedMarkdown = canonicalMarkdown;
+
+    renderViewer();
+
+    await screen.findByRole("table");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const editor = (await screen.findByRole("textbox", { name: "Markdown editor" })) as HTMLTextAreaElement;
+
+    expect(editor.value).toBe(canonicalMarkdown);
 
     await waitFor(() => {
       expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();

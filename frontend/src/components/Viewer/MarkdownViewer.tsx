@@ -39,6 +39,7 @@ import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
+import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { default as MarkdownRichEditor, type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
 import {
@@ -48,6 +49,7 @@ import {
   MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
 } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
+import { normalizeMarkdownTableCellLineBreaks, remarkRenderMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { useMarkdownEditSession } from "./useMarkdownEditSession";
 import { VIEWER_SEARCH_INPUT_ATTRIBUTE, ViewerControls, ViewerFilenameBadge } from "./ViewerControls";
 import { createEditToolbarAction, createSaveToolbarAction } from "./viewerToolbarActions";
@@ -252,10 +254,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
           maxRetries: 1,
           retryDelay: 1000,
         });
-        setContent(data);
+        const normalizedData = normalizeMarkdownTableCellLineBreaks(data);
+        setContent(normalizedData);
         if (!isEditingRef.current) {
-          setDraftContent(data);
-          setEditBaselineContent(data);
+          setDraftContent(normalizedData);
+          setEditBaselineContent(normalizedData);
         }
       } catch (err) {
         if (abortController.signal.aborted) {
@@ -625,11 +628,20 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   const persistDraft = useCallback(
     async (afterSave: PendingUnsavedChangesAction = "stay-edit") => {
+      emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:start", {
+        afterSave,
+        isEditing,
+        isReadOnly,
+        draftContentLength: draftContent.length,
+      });
+
       if (!isEditing) {
+        emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:skipped", { reason: "not-editing" });
         return false;
       }
 
       if (isReadOnly) {
+        emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:skipped", { reason: "read-only" });
         return false;
       }
 
@@ -638,14 +650,28 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         editorRef.current?.preserveSelection();
       }
 
-      const savedContent = draftContent;
       setEditError(null);
       setIsSaving(true);
 
       try {
+        let savedContent = draftContent;
+
+        if (editorRef.current) {
+          emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:flush-start");
+          await editorRef.current.flushPendingEdits();
+          emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:flush-resolved");
+          savedContent = editorRef.current.getCanonicalMarkdown();
+          emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:getCanonicalMarkdown", {
+            savedContentLength: savedContent.length,
+          });
+        }
+
         await apiService.saveTextFile(connectionId, path, savedContent, {
           filename,
           mimeType: "text/markdown;charset=utf-8",
+        });
+        emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:save-resolved", {
+          savedContentLength: savedContent.length,
         });
         setContent(savedContent);
         setEditBaselineContent(savedContent);
@@ -660,10 +686,16 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
         return true;
       } catch (err) {
+        emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:error", {
+          message: err instanceof Error ? err.message : String(err),
+        });
         setEditError(getApiErrorMessage(err, t("viewer.edit.saveFailed"), { includeOriginalMessage: true }));
         logError("Failed to save markdown", { error: err, path, connectionId });
         return false;
       } finally {
+        emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:finally", {
+          afterSave,
+        });
         setIsSaving(false);
 
         if (afterSave === "stay-edit") {
@@ -844,6 +876,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   );
 
   const activeEditorSearchText = isEditing && searchPanelOpen ? editorSearchText : "";
+  const editorShouldBeReadOnly = Boolean(isSaving && pendingUnsavedChangesAction);
 
   const handleSearchPanelToggle = useCallback(
     (open: boolean) => {
@@ -1032,6 +1065,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         handler: () => {
           void handleSave();
         },
+        allowInInput: true,
         enabled: isEditing && !isSaving,
       },
       {
@@ -1339,7 +1373,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     onUserEdit={handleEditorUserEdit}
                     ariaLabel={t("viewer.edit.editorLabel")}
                     autoFocus={true}
-                    readOnly={isSaving}
+                    readOnly={editorShouldBeReadOnly}
                     searchText={activeEditorSearchText}
                     searchOpen={searchPanelOpen}
                     onSearchStateChange={handleEditorSearchStateChange}
@@ -1362,7 +1396,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 }}
               >
                 <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
+                  remarkPlugins={[remarkGfm, remarkRenderMarkdownTableCellLineBreaks]}
                   rehypePlugins={[rehypeHighlight]}
                   components={{
                     // Destructure `node` (injected by react-markdown's passNode)
