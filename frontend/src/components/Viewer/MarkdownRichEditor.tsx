@@ -564,6 +564,10 @@ const TableCellKeyboardBridge = () => {
           return false;
         }
 
+        // The loaded empty-internal-line bug is package-owned: imported
+        // canonical <br /> nodes leave the collapsed caret on an adjacent
+        // generic-html break boundary. Claim insertion ownership here so the
+        // default path does not build the wrong topology before save/export.
         return insertTextAtAdjacentImportedBreak(selection, payload);
       },
       COMMAND_PRIORITY_CRITICAL
@@ -3982,6 +3986,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         throw new Error("Canonical markdown export is unavailable");
       }
 
+      // MDXEditor is the only authoritative rich-text payload. The outer draft
+      // can lag while a nested table cell still owns focus, so every save/source
+      // transition re-normalizes the live export instead of trusting draft state.
       return normalizeMarkdownTableCellLineBreaks(markdown);
     }, []);
 

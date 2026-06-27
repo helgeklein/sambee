@@ -657,6 +657,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         let savedContent = draftContent;
 
         if (editorRef.current) {
+          // While a nested table cell is focused, the wrapper draft can be
+          // behind the live nested editor. Save must flush pending publication
+          // and then persist the editor's canonical export, not the stale draft.
           emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:flush-start");
           await editorRef.current.flushPendingEdits();
           emitMarkdownDebugTrace("MarkdownViewer", "persistDraft:flush-resolved");

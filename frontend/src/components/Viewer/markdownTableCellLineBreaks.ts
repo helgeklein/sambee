@@ -90,6 +90,8 @@ function normalizePhrasingChildren(children: MarkdownAstNode[]): MarkdownAstNode
 function stripTrailingBreaks(children: MarkdownAstNode[]): MarkdownAstNode[] {
   const trimmedChildren = [...children];
 
+  // Trailing in-cell breaks are intentionally unsupported. We normalize them
+  // away here so save, reload, and source mode all share the same contract.
   while (trimmedChildren.length > 0) {
     const lastChild = trimmedChildren[trimmedChildren.length - 1];
 
@@ -149,6 +151,10 @@ function convertCanonicalBreakHtmlToMdastBreaks(children: MarkdownAstNode[]): Ma
 export function normalizeMarkdownTableCellLineBreaks(markdown: string): string {
   const tree = markdownParser.parse(markdown) as MarkdownAstNode;
 
+  // Canonicalization has to happen while the content is still a table-cell AST.
+  // Once a literal newline is flattened into raw pipe-table text, markdown
+  // parsing treats it as row structure and the original in-cell meaning is not
+  // recoverable. Persisted table-cell breaks therefore normalize to <br /> here.
   visit(tree, "tableCell", (node) => {
     const tableCellNode = node as MarkdownAstNode;
     const children = Array.isArray(tableCellNode.children) ? tableCellNode.children : [];
@@ -160,6 +166,8 @@ export function normalizeMarkdownTableCellLineBreaks(markdown: string): string {
 
 export function remarkRenderMarkdownTableCellLineBreaks() {
   return (tree: MarkdownAstNode) => {
+    // Viewer rendering is scoped structurally to table cells so literal <br />
+    // text outside tables stays literal markdown content.
     visit(tree, "tableCell", (node) => {
       const tableCellNode = node as MarkdownAstNode;
       const children = Array.isArray(tableCellNode.children) ? tableCellNode.children : [];
