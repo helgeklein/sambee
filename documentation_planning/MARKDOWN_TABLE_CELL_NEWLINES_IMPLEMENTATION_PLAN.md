@@ -139,6 +139,44 @@ Current relevant behavior:
 - Prior experiments with invisible placeholders or non-editable sentinels to force rendering have not been robust.
 - Those approaches risk contaminating selection behavior, editing semantics, and persisted content.
 
+### Empty internal line blocker
+
+Problem statement:
+
+- One blocker remains for otherwise-supported non-trailing in-cell breaks: an empty internal line between two populated lines in a loaded table cell.
+- Canonical markdown such as `line 1<br /><br />line 3` imports into the nested table-cell editor as adjacent line-break nodes.
+- When the caret is placed on the visually empty middle line and the user types, the browser/editor stack can treat the insertion point as a fragile gap between adjacent break nodes rather than as a stable editable line.
+- The observed failure mode is not just cosmetic: caret behavior becomes confusing, the live edit topology is wrong before save, and persisted markdown can gain an extra break around the inserted character after save and reopen.
+- This is the last known functional blocker in the feature workstream; save, source-mode transitions, viewer rendering, and non-empty in-cell break handling are otherwise on the now-stable path.
+
+Tried and discarded potential solutions:
+
+- Editor-only hidden placeholder characters inserted into the empty line.
+- Invisible placeholder or sentinel nodes added only to make the empty line addressable.
+- DOM-level `beforeinput` interception that manually inserts text around the adjacent-break boundary.
+- Other fixes that depend on hidden editing-surface artifacts rather than the editor's own line-break model.
+
+Reasons these approaches are discarded:
+
+- Hidden placeholder content creates extra logical caret stops, so users must sometimes arrow through an apparently empty line more than once.
+- Placeholder or sentinel approaches violate the design goal of relying on built-in rich-text line-break semantics instead of simulated editing artifacts.
+- DOM-level insertion repair treats the browser symptom after selection has already fallen into an unstable topology, which is brittle and hard to reason about across typing, composition, deletion, and caret movement.
+- These approaches introduce confusing editing semantics even when persistence is repaired, so they do not meet the correctness bar for this feature.
+
+Remaining potential solutions:
+
+- A nested Lexical command/plugin fix scoped to table-cell editors that handles adjacent line-break selections at the editor-model layer.
+- An upstream MDXEditor / Lexical table-cell fix, or a locally carried package patch, if the root cause is best addressed inside the package's own nested table editor.
+- A model-level selection-normalization strategy that keeps caret movement and text insertion on stable editor positions without adding hidden content, if that can be proven not to distort arrow, delete, or undo semantics.
+- A package-version audit to determine whether a newer MDXEditor or Lexical release already fixes the adjacent-break topology, provided any upgrade is validated against the same repro and regression suite.
+
+Constraints on the remaining solutions:
+
+- Do not add hidden placeholders or non-editable sentinels to the editing surface.
+- Do not rely on source-mode switches, blur, save, or other incidental UI transitions to repair the live editor model.
+- Any accepted fix must preserve ordinary arrow-key behavior, including one-step movement through a visually empty internal line.
+- Any accepted fix must preserve canonical `<br />` persistence and must not widen the supported scope to trailing in-cell breaks.
+
 ## Design Goals
 
 - Preserve valid markdown semantics while adding in-cell newline support.
@@ -337,7 +375,10 @@ Status note:
   - immediate toolbar Save no longer hangs from the focused trailing-break state
   - `Ctrl+S` now reaches the same save path from focused nested table-cell editing
 - Remaining work in this stream is to validate the harder editing semantics and end-to-end behavior on top of the now-stable save/source-mode path.
-- Remaining work in this stream is now specifically any remaining adjacent-break caret-motion variants and the measured performance follow-up on top of the now-stable save/source-mode path.
+- The one remaining functional blocker is empty internal table-cell lines loaded as adjacent line-break nodes.
+- In practice, the failing repro is: load a table cell whose canonical content is `line 1<br /><br />line 3`, move the caret onto the visually empty middle line, type a character, and save.
+- In the failing state, the browser/editor stack misroutes the insertion at the adjacent-break boundary, caret behavior becomes unstable, and the saved markdown can acquire an extra break around the inserted text.
+- Remaining work in this stream is therefore specifically the empty-internal-line / adjacent-break editing bug and any measured performance follow-up on top of the now-stable save/source-mode path.
 
 ### Changes
 
