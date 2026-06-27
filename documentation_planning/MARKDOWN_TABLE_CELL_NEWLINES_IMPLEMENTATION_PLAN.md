@@ -170,6 +170,26 @@ Remaining potential solutions:
 - A model-level selection-normalization strategy that keeps caret movement and text insertion on stable editor positions without adding hidden content, if that can be proven not to distort arrow, delete, or undo semantics.
 - A package-version audit to determine whether a newer MDXEditor or Lexical release already fixes the adjacent-break topology, provided any upgrade is validated against the same repro and regression suite.
 
+#### Viability findings for the nested Lexical command/plugin approach
+
+What was proved:
+
+- The focused browser repro still fails on the current implementation: loading `line 1<br /><br />line 3`, typing `s` on the empty middle line, and saving persists the wrong topology.
+- In the real nested table-cell DOM, the loaded empty line materializes as `<span>A1</span><br><br><span>A3</span>`.
+- At that visual caret position, Lexical does not expose an ordinary text insertion point; the collapsed selection resolves onto the second `br` fallback node, represented as a `generic-html` node.
+
+Prototype outcome:
+
+- A narrow table-cell-scoped command/plugin prototype was able to identify the adjacent-break node and mutate near it.
+- That prototype did not gain exclusive ownership of the keystroke. The default editor path still inserted text as well, producing duplicated content (`A1<br />s<br />s<br />A3`).
+- This means the wrapper-level command seam can see the problem, but does not currently provide a clean local fix for it.
+
+Conclusion:
+
+- The local nested command/plugin approach is not proven viable in its current wrapper-level form.
+- It is not fully ruled out, but it appears to require deeper ownership of the table-cell insertion path than the wrapper can currently provide without fighting the default editor behavior.
+- Treat further local wrapper/plugin work on this path as lower priority than an upstream MDXEditor / Lexical table-cell patch or a coordinated package-upgrade investigation.
+
 Constraints on the remaining solutions:
 
 - Do not add hidden placeholders or non-editable sentinels to the editing surface.
