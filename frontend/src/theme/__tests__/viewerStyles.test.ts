@@ -71,6 +71,17 @@ describe("viewerStyles markdown regressions", () => {
     expect(resolveThemeValue(activeLineStyles.color, darkTheme)).toBe("#ebe8e2");
   });
 
+  it("clears MDXEditor's nested inline-code span background in rich-text mode", () => {
+    const styles = getMarkdownEditorContentStyles("#1f262b", "#c24400", "#ff5900") as Record<string, unknown>;
+
+    const nestedInlineCodeSpanStyles = styles[
+      "& .sambee-markdown-inline-code span, & code:not(pre code) span"
+    ] as Record<string, unknown>;
+
+    expect(nestedInlineCodeSpanStyles.backgroundColor).toBe("transparent !important");
+    expect(nestedInlineCodeSpanStyles.color).toBe("inherit");
+  });
+
   it("keeps markdown tables naturally sized but horizontally scrollable", () => {
     const lightTheme = createMuiTheme("light");
     const styles = getMarkdownContentStyles("#1f262b", "#c24400", "#ff5900") as Record<string, unknown>;

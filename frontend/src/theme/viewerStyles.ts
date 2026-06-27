@@ -428,7 +428,10 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
       color: "inherit",
       padding: 0,
     },
-    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span`]: {
+    // MDXEditor renders inline code text inside its own nested span that carries
+    // a background color. Clear that inner fill so the outer code chip remains
+    // one uniform surface.
+    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span, & code:not(pre code) span`]: {
       backgroundColor: "transparent !important",
       color: "inherit",
     },
