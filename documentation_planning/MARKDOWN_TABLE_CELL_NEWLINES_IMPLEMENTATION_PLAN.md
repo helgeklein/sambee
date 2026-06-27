@@ -155,6 +155,7 @@ Tried and discarded potential solutions:
 - Invisible placeholder or sentinel nodes added only to make the empty line addressable.
 - DOM-level `beforeinput` interception that manually inserts text around the adjacent-break boundary.
 - Other fixes that depend on hidden editing-surface artifacts rather than the editor's own line-break model.
+- A nested Lexical command/plugin fix scoped to table-cell editors that handles adjacent line-break selections at the editor-model layer.
 
 Reasons these approaches are discarded:
 
@@ -165,10 +166,72 @@ Reasons these approaches are discarded:
 
 Remaining potential solutions:
 
-- A nested Lexical command/plugin fix scoped to table-cell editors that handles adjacent line-break selections at the editor-model layer.
 - An upstream MDXEditor / Lexical table-cell fix, or a locally carried package patch, if the root cause is best addressed inside the package's own nested table editor.
 - A model-level selection-normalization strategy that keeps caret movement and text insertion on stable editor positions without adding hidden content, if that can be proven not to distort arrow, delete, or undo semantics.
 - A package-version audit to determine whether a newer MDXEditor or Lexical release already fixes the adjacent-break topology, provided any upgrade is validated against the same repro and regression suite.
+
+#### Viability evaluation and proofing plan for an upstream MDXEditor / Lexical fix or local package patch
+
+Current viability assessment:
+
+- This is currently the strongest remaining path.
+- The wrapper-level prototype already showed that the failing insertion point is real, but that the application layer does not cleanly own it.
+- The failure shape sits inside the nested table-cell editor's own selection and insertion model, which makes a package-level fix more plausible than more wrapper-side interception.
+- A pure Lexical-only version bump is not currently a strong standalone remedy: the installed and latest published `@mdxeditor/editor` package still declares the Lexical family at `^0.35.0`, while newer Lexical releases have moved well beyond that line.
+
+What this path must prove:
+
+- The nested table-cell editor can expose a stable insertion position for a loaded empty internal line without hidden content.
+- Typing on that line must be handled by one authoritative editor path, not by competing wrapper and default insertions.
+- The resulting nested markdown must still serialize back through the existing canonical `<br />` pipeline without any special-case save or source-mode repair.
+
+Recommended execution order:
+
+1. Confirm whether the bug reproduces in the smallest possible package-owned table-cell harness, outside the application wrapper.
+2. Inspect the package path that maps adjacent imported breaks into nested editor nodes and handles collapsed text insertion at that boundary.
+3. Determine whether the fix belongs in MDXEditor table-cell integration code, in its break import/export layer, or in the underlying Lexical selection/insertion path.
+4. If a targeted package patch is found, carry it locally first and prove it against the existing application repro and regression suite before considering any upstreaming or package upgrade decision.
+
+Proof harnesses:
+
+- A package-level reproducible harness using the real nested table-cell editor path with loaded `line 1<br /><br />line 3` content.
+- The existing browser-level application repro, kept unchanged as the user-visible acceptance check.
+- Focused serialization checks proving that the package fix does not bypass or dilute the existing canonicalization boundary.
+
+Required proof cases:
+
+- Typing on the loaded empty middle line produces exactly `line 1<br />s<br />line 3` after save and reopen.
+- Left and right arrow movement traverses the empty line in one visual step per keypress.
+- Backspace and delete at both boundaries do not create duplicate breaks, skip deletions, or collapse the wrong line.
+- Undo and redo remain coherent across the first insertion into the formerly empty line.
+- Source-mode entry from the focused edited cell still yields canonical `<br />` output with no extra repair path.
+- Dirty tracking still updates while focus remains inside the nested cell.
+
+Implementation constraints:
+
+- Do not add placeholders, sentinel nodes, or editor-only hidden content.
+- Do not accept a fix that only appears correct after blur, save, or mode switching.
+- Do not take a package change that requires unsupported version skew between `@mdxeditor/editor` and the Lexical package family.
+
+Pass criteria:
+
+- The package-level harness and the application-level browser repro both pass with the same fix.
+- The fix eliminates duplicate insertion ownership at the adjacent-break boundary.
+- Existing passing table-cell newline coverage remains green, especially consecutive breaks, delete across breaks, undo/redo, save, reload, and source-mode entry.
+- The saved payload remains canonical and does not require any new downstream normalization rule beyond the current table-cell canonicalization utility.
+
+Failure conditions:
+
+- The bug cannot be reproduced or fixed inside the package-owned table-cell path without application-only interception.
+- The fix depends on hidden editing artifacts or creates extra caret stops.
+- The fix requires unvalidated cross-version mixing of MDXEditor and newer Lexical packages.
+- The fix resolves typing but regresses navigation, deletion, history, or canonical serialization.
+
+Decision rule:
+
+- Prefer this path if the package-level harness reproduces the bug and a targeted patch makes both the harness and the unchanged browser repro pass.
+- Prefer a coordinated package upgrade only if the exact repro is shown to be fixed by a supported MDXEditor-plus-Lexical version set.
+- Deprioritize further wrapper-side work if the package harness confirms that the insertion ownership problem is internal to the nested table editor.
 
 #### Viability findings for the nested Lexical command/plugin approach
 
