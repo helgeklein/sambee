@@ -54,21 +54,33 @@ describe("viewerStyles markdown regressions", () => {
     const darkTheme = createMuiTheme("dark");
     const styles = getMarkdownEditorContentStyles("#ebe8e2", "#f4c430", "#f6e58d") as Record<string, unknown>;
 
-    const codeBlockWrapperStyles = styles["& .sambee-markdown-code-block > div"] as Record<string, unknown>;
+    const codeMirrorWrapperStyles = styles["& [class*='codeMirrorWrapper']"] as Record<string, unknown>;
+    const codeMirrorToolbarStyles = styles["& [class*='codeMirrorToolbar']"] as Record<string, unknown>;
     const codeMirrorSurfaceStyles = styles[
-      "& .sambee-markdown-code-block .cm-editor, & .sambee-markdown-code-block .cm-scroller, & .sambee-markdown-code-block .cm-content, & .sambee-markdown-code-block .cm-gutters"
+      "& [class*='codeMirrorWrapper'] .cm-editor, & [class*='codeMirrorWrapper'] .cm-scroller, & [class*='codeMirrorWrapper'] .cm-content, & [class*='codeMirrorWrapper'] .cm-gutters"
     ] as Record<string, unknown>;
-    const activeLineStyles = styles["& .sambee-markdown-code-block .cm-editor.cm-focused .cm-activeLineGutter"] as Record<string, unknown>;
+    const codeMirrorGutterStyles = styles["& [class*='codeMirrorWrapper'] .cm-gutters"] as Record<string, unknown>;
+    const codeMirrorComboboxStyles = styles["& [class*='codeMirrorWrapper'] [role='combobox']"] as Record<string, unknown>;
+    const activeLineGutterStyles = styles[
+      "& [class*='codeMirrorWrapper'] .cm-editor.cm-focused .cm-activeLineGutter"
+    ] as Record<string, unknown>;
 
-    expect(resolveThemeValue(codeBlockWrapperStyles.backgroundColor, darkTheme)).toBe("#1f1914");
-    expect(resolveThemeValue(codeBlockWrapperStyles.border, darkTheme)).toBe("1px solid #504535");
-    expect(resolveThemeValue(codeBlockWrapperStyles.color, darkTheme)).toBe("#ebe8e2");
+    expect(resolveThemeValue(codeMirrorWrapperStyles.borderColor, darkTheme)).toBe("#504535");
+    expect(codeMirrorWrapperStyles.borderRadius).toBe(0);
+    expect(resolveThemeValue(codeMirrorWrapperStyles.backgroundColor, darkTheme)).toBe("#1f1914");
+    expect(resolveThemeValue(codeMirrorToolbarStyles.backgroundColor, darkTheme)).toBe("#1f1914");
+    expect(resolveThemeValue(codeMirrorToolbarStyles.borderLeft, darkTheme)).toBe("1px solid #504535");
+    expect(resolveThemeValue(codeMirrorToolbarStyles.borderBottom, darkTheme)).toBe("1px solid #504535");
+    expect(codeMirrorToolbarStyles.borderBottomLeftRadius).toBe(0);
 
     expect(resolveThemeValue(codeMirrorSurfaceStyles.backgroundColor, darkTheme)).toBe("#1f1914");
     expect(resolveThemeValue(codeMirrorSurfaceStyles.color, darkTheme)).toBe("#ebe8e2");
+    expect(resolveThemeValue(codeMirrorGutterStyles.borderRight, darkTheme)).toBe("1px solid #504535");
+    expect(codeMirrorComboboxStyles.borderRadius).toBe(0);
 
-    expect(resolveThemeValue(activeLineStyles.backgroundColor, darkTheme)).toBe("#3d3d3d");
-    expect(resolveThemeValue(activeLineStyles.color, darkTheme)).toBe("#ebe8e2");
+    expect(styles["& [class*='codeMirrorWrapper'] .cm-editor.cm-focused .cm-activeLine"]).toBeUndefined();
+    expect(resolveThemeValue(activeLineGutterStyles.backgroundColor, darkTheme)).toBe("#3d3d3d");
+    expect(resolveThemeValue(activeLineGutterStyles.color, darkTheme)).toBe("#ebe8e2");
   });
 
   it("clears MDXEditor's nested inline-code span background in rich-text mode", () => {
