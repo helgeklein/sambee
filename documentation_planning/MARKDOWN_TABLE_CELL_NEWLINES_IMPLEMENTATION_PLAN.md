@@ -202,6 +202,10 @@ Execution update on 2026-06-27:
   - Immediately before insertion, the nested editor's collapsed selection sits on the second imported `generic-html` break node with an element-point selection (`key=16`, `type=element`, `offset=0`).
   - At the same moment, the DOM selection is `P` offset `2`, which corresponds to the boundary between the two adjacent imported break nodes.
   - This proves the failure is package-owned and specifically tied to adjacent imported break nodes being treated as editable insertion anchors.
+- A focused app-level proof now passes with the same seam.
+  - Extending the existing `addTableCellEditorChild$` bridge to handle `CONTROLLED_TEXT_INSERTION_COMMAND` authoritatively at that adjacent imported-break boundary produces the correct saved payload: `A1<br />s<br />A3`.
+  - The focused browser proof preserves in-cell focus after typing and saves one canonical upload with no malformed `</br>` output.
+  - This means the existing MDXEditor extension seam is sufficient for a local production fix without hidden placeholders or save-time repair.
 
 Recommended execution order:
 

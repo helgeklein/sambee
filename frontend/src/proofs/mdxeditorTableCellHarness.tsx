@@ -1,29 +1,24 @@
-import '@mdxeditor/editor/style.css';
+import "@mdxeditor/editor/style.css";
 
-import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { addTableCellEditorChild$, MDXEditor, type MDXEditorMethods, realmPlugin, tablePlugin } from "@mdxeditor/editor";
 import {
-  addTableCellEditorChild$,
-  MDXEditor,
-  realmPlugin,
-  tablePlugin,
-  type MDXEditorMethods,
-} from '@mdxeditor/editor';
-import {
+  $createTextNode,
   $getSelection,
   $isElementNode,
   $isRangeSelection,
   $isTextNode,
   COMMAND_PRIORITY_CRITICAL,
   CONTROLLED_TEXT_INSERTION_COMMAND,
-  SELECTION_CHANGE_COMMAND,
   type LexicalEditor,
   type LexicalNode,
   type RangeSelection,
-} from 'lexical';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import ReactDOM from 'react-dom/client';
+  SELECTION_CHANGE_COMMAND,
+} from "lexical";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom/client";
 
-const INITIAL_MARKDOWN = '| Col 1 | Col 2 |\n| --- | --- |\n| A1<br /><br />A3 | B1 |\n';
+const INITIAL_MARKDOWN = "| Col 1 | Col 2 |\n| --- | --- |\n| A1<br /><br />A3 | B1 |\n";
 
 type NodeSummary = {
   key: string;
@@ -43,7 +38,7 @@ type NodeSummary = {
 };
 
 type SelectionSummary = {
-  kind: 'range' | 'other' | 'none';
+  kind: "range" | "other" | "none";
   isCollapsed?: boolean;
   anchor?: {
     key: string;
@@ -132,18 +127,18 @@ function summarizeNode(node: LexicalNode): NodeSummary {
 
 function summarizeSelection(selection: RangeSelection | null): SelectionSummary {
   if (selection === null) {
-    return { kind: 'none' };
+    return { kind: "none" };
   }
 
   if (!$isRangeSelection(selection)) {
-    return { kind: 'other' };
+    return { kind: "other" };
   }
 
   const anchorNode = selection.anchor.getNode();
   const focusNode = selection.focus.getNode();
 
   return {
-    kind: 'range',
+    kind: "range",
     isCollapsed: selection.isCollapsed(),
     anchor: {
       key: selection.anchor.key,
@@ -161,11 +156,11 @@ function summarizeSelection(selection: RangeSelection | null): SelectionSummary 
 }
 
 function captureEntry(editor: LexicalEditor, reason: string, payload: string | null, getMarkdown: () => string) {
-  let selectionSummary: SelectionSummary = { kind: 'none' };
+  let selectionSummary: SelectionSummary = { kind: "none" };
 
   editor.getEditorState().read(() => {
     const selection = $getSelection();
-    selectionSummary = $isRangeSelection(selection) ? summarizeSelection(selection) : { kind: selection === null ? 'none' : 'other' };
+    selectionSummary = $isRangeSelection(selection) ? summarizeSelection(selection) : { kind: selection === null ? "none" : "other" };
   });
 
   const domSelection = window.getSelection();
@@ -185,47 +180,90 @@ function captureEntry(editor: LexicalEditor, reason: string, payload: string | n
   });
 }
 
+function getAdjacentImportedBreakTarget(selection: RangeSelection): LexicalNode | null {
+  if (!selection.isCollapsed()) {
+    return null;
+  }
+
+  if (selection.anchor.type !== "element" || selection.focus.type !== "element") {
+    return null;
+  }
+
+  const anchorNode = selection.anchor.getNode();
+  const focusNode = selection.focus.getNode();
+
+  if (anchorNode !== focusNode || anchorNode.getType() !== "generic-html") {
+    return null;
+  }
+
+  const previousSibling = anchorNode.getPreviousSibling();
+  const nextSibling = anchorNode.getNextSibling();
+
+  if (previousSibling?.getType() !== "generic-html" || nextSibling?.getType() !== "text") {
+    return null;
+  }
+
+  return anchorNode;
+}
+
 function TableCellSelectionProbe({ getMarkdown }: { getMarkdown: () => string }) {
   const [editor] = useLexicalComposerContext();
 
-  if (typeof window !== 'undefined') {
+  if (typeof window !== "undefined") {
     window.__MDX_TABLE_CELL_HARNESS_PLUGIN__ ??= { initCount: 0, renderCount: 0 };
     window.__MDX_TABLE_CELL_HARNESS_PLUGIN__.renderCount += 1;
   }
 
   useEffect(() => {
     const handleBeforeInput = (event: InputEvent) => {
-      captureEntry(editor, 'beforeinput', typeof event.data === 'string' ? event.data : null, getMarkdown);
+      captureEntry(editor, "beforeinput", typeof event.data === "string" ? event.data : null, getMarkdown);
     };
 
-    captureEntry(editor, 'probe-mounted', null, getMarkdown);
+    captureEntry(editor, "probe-mounted", null, getMarkdown);
 
     const unregisterRootListener = editor.registerRootListener((nextRootElement, prevRootElement) => {
-      prevRootElement?.removeEventListener('beforeinput', handleBeforeInput, true);
-      nextRootElement?.addEventListener('beforeinput', handleBeforeInput, true);
+      prevRootElement?.removeEventListener("beforeinput", handleBeforeInput, true);
+      nextRootElement?.addEventListener("beforeinput", handleBeforeInput, true);
     });
 
     const unregisterInsertion = editor.registerCommand(
       CONTROLLED_TEXT_INSERTION_COMMAND,
       (payload) => {
-        captureEntry(editor, 'controlled-text-insertion', typeof payload === 'string' ? payload : null, getMarkdown);
+        captureEntry(editor, "controlled-text-insertion", typeof payload === "string" ? payload : null, getMarkdown);
+
+        if (typeof payload === "string") {
+          const selection = $getSelection();
+
+          if ($isRangeSelection(selection)) {
+            const importedBreakTarget = getAdjacentImportedBreakTarget(selection);
+
+            if (importedBreakTarget !== null) {
+              const textNode = $createTextNode(payload);
+              importedBreakTarget.insertBefore(textNode);
+              textNode.selectEnd();
+              captureEntry(editor, "patched-adjacent-break-insertion", payload, getMarkdown);
+              return true;
+            }
+          }
+        }
+
         return false;
       },
-      COMMAND_PRIORITY_CRITICAL,
+      COMMAND_PRIORITY_CRITICAL
     );
 
     const unregisterSelection = editor.registerCommand(
       SELECTION_CHANGE_COMMAND,
       () => {
-        captureEntry(editor, 'selection-change', null, getMarkdown);
+        captureEntry(editor, "selection-change", null, getMarkdown);
         return false;
       },
-      COMMAND_PRIORITY_CRITICAL,
+      COMMAND_PRIORITY_CRITICAL
     );
 
     return () => {
       const rootElement = editor.getRootElement();
-      rootElement?.removeEventListener('beforeinput', handleBeforeInput, true);
+      rootElement?.removeEventListener("beforeinput", handleBeforeInput, true);
       unregisterRootListener();
       unregisterInsertion();
       unregisterSelection();
@@ -240,7 +278,7 @@ function createProbePlugin(getMarkdown: () => string) {
 
   return realmPlugin({
     init(realm) {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== "undefined") {
         window.__MDX_TABLE_CELL_HARNESS_PLUGIN__ ??= { initCount: 0, renderCount: 0 };
         window.__MDX_TABLE_CELL_HARNESS_PLUGIN__.initCount += 1;
       }
@@ -258,7 +296,7 @@ function HarnessApp() {
       createProbePlugin(() => {
         return editorRef.current?.getMarkdown() ?? markdown;
       }),
-    [markdown],
+    [markdown]
   );
 
   useEffect(() => {
@@ -273,7 +311,7 @@ function HarnessApp() {
         harnessState.log = [];
       },
       focusEditor: () => {
-        editorRef.current?.focus(undefined, { defaultSelection: 'rootEnd', preventScroll: true });
+        editorRef.current?.focus(undefined, { defaultSelection: "rootEnd", preventScroll: true });
       },
     };
 
@@ -283,9 +321,9 @@ function HarnessApp() {
   }, [markdown]);
 
   return (
-    <main style={{ margin: '0 auto', maxWidth: 960, padding: 24 }}>
-      <h1 style={{ fontFamily: 'sans-serif' }}>MDXEditor Table Cell Harness</h1>
-      <p style={{ fontFamily: 'sans-serif' }}>Standalone package-owned repro for loaded empty internal table-cell lines.</p>
+    <main style={{ margin: "0 auto", maxWidth: 960, padding: 24 }}>
+      <h1 style={{ fontFamily: "sans-serif" }}>MDXEditor Table Cell Harness</h1>
+      <p style={{ fontFamily: "sans-serif" }}>Standalone package-owned repro for loaded empty internal table-cell lines.</p>
       <MDXEditor
         ref={editorRef}
         markdown={INITIAL_MARKDOWN}
@@ -299,14 +337,14 @@ function HarnessApp() {
   );
 }
 
-const rootElement = document.getElementById('root');
+const rootElement = document.getElementById("root");
 
 if (!rootElement) {
-  throw new Error('Expected root element to exist');
+  throw new Error("Expected root element to exist");
 }
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <HarnessApp />
-  </React.StrictMode>,
+  </React.StrictMode>
 );

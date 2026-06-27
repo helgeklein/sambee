@@ -33,10 +33,10 @@ import {
   MDXEditor,
   type MDXEditorMethods,
   MultipleChoiceToggleGroup,
-  markdown$ as mdxEditorMarkdown$,
   markdownShortcutPlugin,
-  NESTED_EDITOR_UPDATED_COMMAND,
   lexicalTheme as mdxEditorLexicalTheme,
+  markdown$ as mdxEditorMarkdown$,
+  NESTED_EDITOR_UPDATED_COMMAND,
   quotePlugin,
   realmPlugin,
   rootEditor$,
@@ -75,6 +75,7 @@ import type { SystemStyleObject } from "@mui/system";
 import {
   $createNodeSelection,
   $createRangeSelection,
+  $createTextNode,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $getRoot,
@@ -88,9 +89,11 @@ import {
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
   INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
   type LexicalEditor,
+  type LexicalNode,
   type NodeKey,
   REDO_COMMAND,
   UNDO_COMMAND,
@@ -141,8 +144,6 @@ import { mdxEditorSearchPlugin } from "./mdxEditorSearchPlugin";
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
 const MARKDOWN_EDITOR_CONTENT_CLASS = "sambee-markdown-editor-content";
-const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
-const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
 const MARKDOWN_EDITOR_SOURCE_FONT_SIZE_PX = 15;
 const MARKDOWN_TABLE_TOOL_OFFSET_PX = 4;
 const MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX = 32;
@@ -455,6 +456,32 @@ function moveOutOfTableVertically(
   return true;
 }
 
+function getAdjacentImportedBreakInsertionTarget(selection: RangeSelection): LexicalNode | null {
+  if (!selection.isCollapsed()) {
+    return null;
+  }
+
+  if (selection.anchor.type !== "element" || selection.focus.type !== "element") {
+    return null;
+  }
+
+  const anchorNode = selection.anchor.getNode();
+  const focusNode = selection.focus.getNode();
+
+  if (anchorNode !== focusNode || anchorNode.getType() !== "generic-html") {
+    return null;
+  }
+
+  const previousSibling = anchorNode.getPreviousSibling();
+  const nextSibling = anchorNode.getNextSibling();
+
+  if (previousSibling?.getType() !== "generic-html" || nextSibling?.getType() !== "text") {
+    return null;
+  }
+
+  return anchorNode;
+}
+
 const TableCellKeyboardBridge = () => {
   const [editor] = useLexicalComposerContext();
   const rootEditor = useCellValue(rootEditor$);
@@ -545,11 +572,42 @@ const TableCellKeyboardBridge = () => {
     };
 
     cellEditorRoot.addEventListener("keydown", handleKeyDownCapture, true);
-    const unregisterCommand = editor.registerCommand(KEY_DOWN_COMMAND, (event) => handleKeyboardEvent(event), COMMAND_PRIORITY_HIGH);
+    const unregisterKeyboardCommand = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => handleKeyboardEvent(event),
+      COMMAND_PRIORITY_HIGH
+    );
+    const unregisterInsertionCommand = editor.registerCommand(
+      CONTROLLED_TEXT_INSERTION_COMMAND,
+      (payload) => {
+        if (typeof payload !== "string") {
+          return false;
+        }
+
+        const selection = $getSelection();
+
+        if (!$isRangeSelection(selection)) {
+          return false;
+        }
+
+        const importedBreakTarget = getAdjacentImportedBreakInsertionTarget(selection);
+
+        if (importedBreakTarget === null) {
+          return false;
+        }
+
+        const textNode = $createTextNode(payload);
+        importedBreakTarget.insertBefore(textNode);
+        textNode.selectEnd();
+        return true;
+      },
+      COMMAND_PRIORITY_CRITICAL
+    );
 
     return () => {
       cellEditorRoot.removeEventListener("keydown", handleKeyDownCapture, true);
-      unregisterCommand();
+      unregisterKeyboardCommand();
+      unregisterInsertionCommand();
     };
   }, [editor, rootEditor]);
 
@@ -1938,11 +1996,7 @@ const MarkdownViewModeBridge = ({ onViewModeChange }: { onViewModeChange: (viewM
   return null;
 };
 
-const MarkdownSourceModeSeedBridge = ({
-  onPublisherChange,
-}: {
-  onPublisherChange: (publisher: (markdown: string) => void) => void;
-}) => {
+const MarkdownSourceModeSeedBridge = ({ onPublisherChange }: { onPublisherChange: (publisher: (markdown: string) => void) => void }) => {
   const publishSourceModeMarkdown = usePublisher(mdxEditorMarkdown$);
 
   useEffect(() => {
@@ -3824,10 +3878,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         return;
       }
 
-      if (
-        needsPublicationRetriggerRef.current &&
-        pendingPublicationGenerationRef.current > inFlightPublicationGenerationRef.current
-      ) {
+      if (needsPublicationRetriggerRef.current && pendingPublicationGenerationRef.current > inFlightPublicationGenerationRef.current) {
         emitMarkdownDebugTrace("MarkdownRichEditor", "completePendingPublicationFlush:retrigger", {
           inFlightGeneration: inFlightPublicationGenerationRef.current,
           pendingGeneration: pendingPublicationGenerationRef.current,
@@ -3850,37 +3901,40 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       resolvePendingPublication?.();
     }, [schedulePendingPublicationDispatch]);
 
-    const requestPendingPublication = useCallback((ensurePromise: boolean) => {
-      pendingPublicationGenerationRef.current += 1;
+    const requestPendingPublication = useCallback(
+      (ensurePromise: boolean) => {
+        pendingPublicationGenerationRef.current += 1;
 
-      emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication", {
-        ensurePromise,
-        pendingGeneration: pendingPublicationGenerationRef.current,
-        inFlightGeneration: inFlightPublicationGenerationRef.current,
-        hasPromise: pendingPublicationPromiseRef.current !== null,
-      });
-
-      if (ensurePromise && pendingPublicationPromiseRef.current === null) {
-        pendingPublicationPromiseRef.current = new Promise<void>((resolve) => {
-          resolvePendingPublicationPromiseRef.current = resolve;
-        });
-
-        emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication:created-promise", {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication", {
+          ensurePromise,
           pendingGeneration: pendingPublicationGenerationRef.current,
-        });
-      }
-
-      if (inFlightPublicationGenerationRef.current !== 0) {
-        needsPublicationRetriggerRef.current = true;
-        emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication:marked-retrigger", {
           inFlightGeneration: inFlightPublicationGenerationRef.current,
-          pendingGeneration: pendingPublicationGenerationRef.current,
+          hasPromise: pendingPublicationPromiseRef.current !== null,
         });
-      }
 
-      schedulePendingPublicationDispatch();
-      return pendingPublicationPromiseRef.current;
-    }, [schedulePendingPublicationDispatch]);
+        if (ensurePromise && pendingPublicationPromiseRef.current === null) {
+          pendingPublicationPromiseRef.current = new Promise<void>((resolve) => {
+            resolvePendingPublicationPromiseRef.current = resolve;
+          });
+
+          emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication:created-promise", {
+            pendingGeneration: pendingPublicationGenerationRef.current,
+          });
+        }
+
+        if (inFlightPublicationGenerationRef.current !== 0) {
+          needsPublicationRetriggerRef.current = true;
+          emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication:marked-retrigger", {
+            inFlightGeneration: inFlightPublicationGenerationRef.current,
+            pendingGeneration: pendingPublicationGenerationRef.current,
+          });
+        }
+
+        schedulePendingPublicationDispatch();
+        return pendingPublicationPromiseRef.current;
+      },
+      [schedulePendingPublicationDispatch]
+    );
 
     const synchronizeFocusedNestedTableCell = useCallback(async () => {
       const activeEditorRoot = activeEditorRef.current?.getRootElement();
@@ -3939,8 +3993,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
 
     const handleMdxEditorChange = useCallback(
       (nextMarkdown: string) => {
-        const isPublicationDrivenUpdate =
-          inFlightPublicationGenerationRef.current !== 0 || pendingPublicationGenerationRef.current !== 0;
+        const isPublicationDrivenUpdate = inFlightPublicationGenerationRef.current !== 0 || pendingPublicationGenerationRef.current !== 0;
         const reportedMarkdown = isPublicationDrivenUpdate ? normalizeMarkdownTableCellLineBreaks(nextMarkdown) : nextMarkdown;
 
         emitMarkdownDebugTrace("MarkdownRichEditor", "handleMdxEditorChange", {
@@ -4000,7 +4053,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           });
         } catch (error) {
           setViewModeTransitionError(
-            error instanceof Error && error.message ? error.message : t("viewer.edit.sourceModeFailed", { defaultValue: "Unable to switch to source mode." })
+            error instanceof Error && error.message
+              ? error.message
+              : t("viewer.edit.sourceModeFailed", { defaultValue: "Unable to switch to source mode." })
           );
 
           requestAnimationFrame(() => {
@@ -4246,7 +4301,6 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           eventType: event.type,
         });
         nestedEditor.dispatchCommand(INSERT_LINE_BREAK_COMMAND, false);
-
       };
 
       interactionRoot.addEventListener("keydown", handleNestedShiftEnter, true);
@@ -4338,6 +4392,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         captureSelection,
         restoreSelection,
         restoreFocusAfterViewModeChange,
+        requestViewModeChange,
       ]
     );
 
