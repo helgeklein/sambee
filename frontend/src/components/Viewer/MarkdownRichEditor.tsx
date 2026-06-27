@@ -75,7 +75,6 @@ import type { SystemStyleObject } from "@mui/system";
 import {
   $createNodeSelection,
   $createRangeSelection,
-  $createTextNode,
   $getNearestNodeFromDOMNode,
   $getNodeByKey,
   $getRoot,
@@ -93,7 +92,7 @@ import {
   INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
   type LexicalEditor,
-  type LexicalNode,
+  type RangeSelection,
   type NodeKey,
   REDO_COMMAND,
   UNDO_COMMAND,
@@ -140,6 +139,7 @@ import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConst
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
 import { normalizeMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { mdxEditorSearchPlugin } from "./mdxEditorSearchPlugin";
+import { insertTextAtAdjacentImportedBreak } from "./tableCellAdjacentBreakInsertion";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
@@ -456,32 +456,6 @@ function moveOutOfTableVertically(
   return true;
 }
 
-function getAdjacentImportedBreakInsertionTarget(selection: RangeSelection): LexicalNode | null {
-  if (!selection.isCollapsed()) {
-    return null;
-  }
-
-  if (selection.anchor.type !== "element" || selection.focus.type !== "element") {
-    return null;
-  }
-
-  const anchorNode = selection.anchor.getNode();
-  const focusNode = selection.focus.getNode();
-
-  if (anchorNode !== focusNode || anchorNode.getType() !== "generic-html") {
-    return null;
-  }
-
-  const previousSibling = anchorNode.getPreviousSibling();
-  const nextSibling = anchorNode.getNextSibling();
-
-  if (previousSibling?.getType() !== "generic-html" || nextSibling?.getType() !== "text") {
-    return null;
-  }
-
-  return anchorNode;
-}
-
 const TableCellKeyboardBridge = () => {
   const [editor] = useLexicalComposerContext();
   const rootEditor = useCellValue(rootEditor$);
@@ -590,16 +564,7 @@ const TableCellKeyboardBridge = () => {
           return false;
         }
 
-        const importedBreakTarget = getAdjacentImportedBreakInsertionTarget(selection);
-
-        if (importedBreakTarget === null) {
-          return false;
-        }
-
-        const textNode = $createTextNode(payload);
-        importedBreakTarget.insertBefore(textNode);
-        textNode.selectEnd();
-        return true;
+        return insertTextAtAdjacentImportedBreak(selection, payload);
       },
       COMMAND_PRIORITY_CRITICAL
     );

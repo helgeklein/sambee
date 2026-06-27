@@ -7,6 +7,7 @@ const codeBlockNavigationMarkdown = "`test22`\n\nsfd\n\n```txt\nsome text\nline 
 const logicalNavigationMarkdown =
   "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n\n| Col 1 | Col2 |\n| --- | --- |\n| some data | more data |\n| Second row |  |\n\nomega\n";
 const tableCellNavigationMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1 | B1 |\n| A2 | B2 |\n\nomega\n";
+const loadedEmptyInternalLineMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1<br /><br />A3 | B1 |\n\nomega\n";
 
 type MockMarkdownViewerApiOptions = {
   onUploadBody?: (body: string) => void;
@@ -362,6 +363,43 @@ async function moveCaretToTextNodeBoundary(locator: Locator, textContent: string
     },
     { expectedTextContent: textContent, expectedBoundary: boundary }
   );
+
+  await waitForSelectionWithin(locator);
+}
+
+async function moveCaretToLoadedEmptyInternalLine(locator: Locator) {
+  await locator.click();
+  await locator.evaluate((element) => {
+    const selection = window.getSelection();
+
+    if (!selection) {
+      throw new Error("Expected DOM selection to exist");
+    }
+
+    const paragraph = element.firstChild;
+
+    if (!(paragraph instanceof Node)) {
+      throw new Error("Expected table-cell paragraph node");
+    }
+
+    const childNodes = Array.from(paragraph.childNodes);
+    const firstBreakIndex = childNodes.findIndex((node) => node.nodeName === "BR");
+    const secondBreakIndex = childNodes.findIndex((node, index) => node.nodeName === "BR" && index > firstBreakIndex);
+
+    if (firstBreakIndex < 0 || secondBreakIndex < 0) {
+      throw new Error("Expected adjacent BR nodes for the loaded empty internal line");
+    }
+
+    const range = document.createRange();
+    range.setStart(paragraph, secondBreakIndex);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    if (element instanceof HTMLElement) {
+      element.focus();
+    }
+  });
 
   await waitForSelectionWithin(locator);
 }
@@ -927,6 +965,67 @@ test("reloads and structurally renders saved consecutive Shift+Enter breaks insi
   const firstDataCell = page.locator("table td").first();
   await expect(firstDataCell).toBeVisible();
   await expect.poll(() => firstDataCell.evaluate((element) => element.querySelectorAll("br").length)).toBe(2);
+});
+
+test("saves, reloads, and renders a loaded empty internal table-cell line as canonical br tags", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, loadedEmptyInternalLineMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+    persistUploadedMarkdown: true,
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  const targetCell = getTableCellTextbox(page, 2);
+  await moveCaretToLoadedEmptyInternalLine(targetCell);
+  await page.keyboard.type("s");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br />s<br />A3");
+  expect(uploadBodies[0]).not.toContain("A1<br /><br />s</br>A3");
+
+  await page.reload();
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+
+  const firstDataCell = page.locator("table td").first();
+  await expect(firstDataCell).toBeVisible();
+  await expect.poll(() => firstDataCell.evaluate((element) => element.querySelectorAll("br").length)).toBe(2);
+  await expect(firstDataCell).toContainText("A1");
+  await expect(firstDataCell).toContainText("s");
+  await expect(firstDataCell).toContainText("A3");
+});
+
+test("switches to source mode after typing into a loaded empty internal table-cell line with canonical br tags", async ({ page }) => {
+  await mockMarkdownViewerApi(page, loadedEmptyInternalLineMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  const targetCell = getTableCellTextbox(page, 2);
+  await moveCaretToLoadedEmptyInternalLine(targetCell);
+  await page.keyboard.type("s");
+
+  const sourceModeToggle = page.getByRole("radio", { name: "Source mode" });
+  await expect(sourceModeToggle).toBeVisible();
+  await sourceModeToggle.click();
+
+  const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
+  await expect(sourceEditor).toBeVisible();
+
+  await expect.poll(() => getCodeMirrorDocumentText(sourceEditor)).toContain("A1<br />s<br />A3");
+  expect(await getCodeMirrorDocumentText(sourceEditor)).not.toContain("A1<br /><br />s</br>A3");
 });
 
 test("switches to source mode after a trailing Shift+Enter without persisting the unsupported trailing break", async ({ page }) => {

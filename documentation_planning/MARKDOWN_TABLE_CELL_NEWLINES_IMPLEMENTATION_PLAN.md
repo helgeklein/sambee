@@ -206,6 +206,10 @@ Execution update on 2026-06-27:
   - Extending the existing `addTableCellEditorChild$` bridge to handle `CONTROLLED_TEXT_INSERTION_COMMAND` authoritatively at that adjacent imported-break boundary produces the correct saved payload: `A1<br />s<br />A3`.
   - The focused browser proof preserves in-cell focus after typing and saves one canonical upload with no malformed `</br>` output.
   - This means the existing MDXEditor extension seam is sufficient for a local production fix without hidden placeholders or save-time repair.
+- Automated coverage now exists for that same production seam.
+  - A focused unit test now covers the selection predicate directly and explicitly proves that the helper targets the loaded empty-internal-line shape but not a trailing-break shape.
+  - End-to-end coverage now verifies the loaded-empty-line scenario through the real wrapper path for save, reload, viewer rendering, and source-mode entry.
+  - The focused editor/viewer Vitest slice passes with the added helper coverage.
 
 Recommended execution order:
 
@@ -931,6 +935,9 @@ Execution update on 2026-06-26:
 - The latest post-fix rerun on 2026-06-26 kept correctness intact and improved some timings:
   - small fixture: publication `77.78 ms`, flush `104.77 ms`, source mode `190.61 ms`
   - large fixture: publication `77.19 ms`, flush `225.22 ms`, source mode `175.06 ms`
+- Latest rerun on 2026-06-27 after the loaded-empty-line fix kept correctness intact but still missed the provisional latency targets:
+  - small fixture: publication `114.41 ms`, flush `155.62 ms`, source mode `131.88 ms`
+  - large fixture: publication `86.17 ms`, flush `233.52 ms`, source mode `176.18 ms`
 - Interpretation:
   - the current path stayed correct under burst input
   - small-fixture publication and flush improved materially after the latest save/source-mode fixes, but still miss the provisional targets
