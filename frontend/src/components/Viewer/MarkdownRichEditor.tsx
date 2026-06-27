@@ -92,7 +92,6 @@ import {
   INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
   type LexicalEditor,
-  type RangeSelection,
   type NodeKey,
   REDO_COMMAND,
   UNDO_COMMAND,
@@ -161,6 +160,16 @@ const MARKDOWN_CODE_BLOCK_LANGUAGES = {
   tsx: "TypeScript (React)",
 };
 
+type TableCellDirection = "down" | "left" | "right" | "up";
+type TableCellBoundaryDirection = Extract<TableCellDirection, "down" | "up">;
+
+interface TableCellPosition {
+  columnIndex: number;
+  rowIndex: number;
+  tableDecoratorElement: HTMLElement;
+  tableElement: HTMLElement;
+}
+
 function getEditableCellElements(rowElement: HTMLElement): HTMLElement[] {
   return Array.from(rowElement.querySelectorAll('[contenteditable="true"][data-lexical-editor="true"]')).filter(
     (element): element is HTMLElement => element instanceof HTMLElement
@@ -177,10 +186,9 @@ function getLogicalTableCellEditable(tableElement: HTMLElement, coords: [number,
   return getEditableCellElements(targetRow)[coords[0]] ?? null;
 }
 
-function getTableRowElements(tableElement: HTMLElement): HTMLElement[] {
+function getTableRowElements(tableElement: HTMLElement): HTMLTableRowElement[] {
   return Array.from(tableElement.querySelectorAll("tr")).filter(
-    (row): row is HTMLElement =>
-      row instanceof HTMLElement && row.querySelector('[contenteditable="true"][data-lexical-editor="true"]') !== null
+    (row) => row.querySelector('[contenteditable="true"][data-lexical-editor="true"]') !== null
   );
 }
 
@@ -636,13 +644,7 @@ interface AdjacentTableNode {
 }
 
 function isHtmlElement(value: unknown): value is HTMLElement {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "nodeType" in value &&
-    "querySelector" in value &&
-    (value as Node).nodeType === Node.ELEMENT_NODE
-  );
+  return value instanceof HTMLElement;
 }
 
 type VerticalNavigationContext =
@@ -944,6 +946,11 @@ function focusLogicalTableCell(tableElement: HTMLElement, coords: [number, numbe
 
     for (let nodeIndex = textNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
       const textNode = textNodes[nodeIndex];
+
+      if (!textNode || !(textNode instanceof Text)) {
+        continue;
+      }
+
       const textLength = textNode.textContent?.length ?? 0;
 
       for (let offset = textLength; offset >= 0; offset -= 1) {
@@ -1149,6 +1156,11 @@ function focusRootBlockBoundary(
 
     for (let nodeIndex = textNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
       const textNode = textNodes[nodeIndex];
+
+      if (!textNode || !(textNode instanceof Text)) {
+        continue;
+      }
+
       const textLength = textNode.textContent?.length ?? 0;
 
       for (let offset = textLength; offset >= 0; offset -= 1) {
@@ -1512,7 +1524,11 @@ function tryMoveOutOfTableWithTab(activeEditor: LexicalEditor, event: KeyboardNa
     return false;
   }
 
-  const boundaryTarget = direction === "up" ? tableEditables[0] : tableEditables[tableEditables.length - 1];
+  const boundaryTarget = tableEditables[tableEditables.length - 1];
+
+  if (!boundaryTarget) {
+    return false;
+  }
 
   if (boundaryEditable !== boundaryTarget) {
     return false;
@@ -2235,7 +2251,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
             });
 
             if (
-              !(focusedTopLevelElement instanceof HTMLElement) ||
+              !isHtmlElement(focusedTopLevelElement) ||
               focusedTopLevelElement.getAttribute("data-lexical-decorator") !== "true" ||
               focusedTopLevelElement.querySelector("table") === null
             ) {
@@ -2244,18 +2260,18 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
 
             const previousElement = focusedTopLevelElement.previousElementSibling;
 
-            if (!(previousElement instanceof HTMLElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
+            if (!isHtmlElement(previousElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
               return;
             }
 
-            if (!(selectedDecoratorElement instanceof HTMLElement)) {
+            if (!isHtmlElement(selectedDecoratorElement)) {
               if (selectionTopLevelKey === null) {
                 return;
               }
 
               const selectionTopLevelElement = activeEditor.getElementByKey(selectionTopLevelKey);
 
-              if (!(selectionTopLevelElement instanceof HTMLElement)) {
+              if (!isHtmlElement(selectionTopLevelElement)) {
                 return;
               }
 
@@ -4259,7 +4275,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return;
         }
 
-        const nestedEditor = nestedEditable.__lexicalEditor;
+        const nestedEditor = (nestedEditable as NestedLexicalContentEditableElement).__lexicalEditor;
 
         if (!nestedEditor) {
           return;
