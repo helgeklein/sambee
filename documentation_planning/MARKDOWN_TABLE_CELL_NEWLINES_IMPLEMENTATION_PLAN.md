@@ -185,6 +185,24 @@ What this path must prove:
 - Typing on that line must be handled by one authoritative editor path, not by competing wrapper and default insertions.
 - The resulting nested markdown must still serialize back through the existing canonical `<br />` pipeline without any special-case save or source-mode repair.
 
+Execution update on 2026-06-27:
+
+- A focused package-level probe patched MDXEditor's `MdastHTMLVisitor` so imported `<br>` nodes entered the editor as Lexical `LineBreakNode`s instead of `GenericHTMLNode("br")`.
+- That probe did not fix the user-visible bug. The focused save repro still persisted `A1<br /><br />s<br />A3` instead of the desired `A1<br />s<br />A3`.
+- This means an import-layer `br` remap by itself is insufficient; the remaining failure is deeper than the first HTML-to-line-break conversion step.
+- The package flow is now traced more precisely:
+  - canonical table-cell `<br />` parses into `mdxJsxTextElement("br")` nodes, not mdast `break` nodes
+  - MDXEditor imports those nodes through `MdastHTMLVisitor`, which currently creates `GenericHTMLNode("br")`
+  - freshly typed `Shift+Enter` breaks therefore use a different internal node shape from loaded canonical `<br />` breaks
+  - Lexical text insertion then resolves the collapsed empty-line caret from an element-style selection rather than from an ordinary text point
+- The likely clean patch target is therefore not save/export. It is the loaded table-cell break model plus the collapsed-caret normalization that runs before default text insertion.
+- A separate hardening issue also exists in the application wrapper: `MarkdownDecoratorArrowNavigationBridge` currently assumes every range-selection anchor has a valid top-level element, which is not always true during these adjacent-break states.
+- A standalone MDXEditor table-cell harness now reproduces the bug outside the application wrapper and captures the exact pre-insertion selection state.
+  - Typing into loaded `A1<br /><br />A3` from the visual empty middle line still exports malformed package markdown: `A1<br /><br>s</br>A3`.
+  - Immediately before insertion, the nested editor's collapsed selection sits on the second imported `generic-html` break node with an element-point selection (`key=16`, `type=element`, `offset=0`).
+  - At the same moment, the DOM selection is `P` offset `2`, which corresponds to the boundary between the two adjacent imported break nodes.
+  - This proves the failure is package-owned and specifically tied to adjacent imported break nodes being treated as editable insertion anchors.
+
 Recommended execution order:
 
 1. Confirm whether the bug reproduces in the smallest possible package-owned table-cell harness, outside the application wrapper.
