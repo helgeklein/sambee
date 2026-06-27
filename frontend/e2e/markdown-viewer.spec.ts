@@ -704,7 +704,7 @@ test("moves ArrowDown out of the table when there is no cell below", async ({ pa
   await page.keyboard.press("ArrowDown");
   const targetCell = getTableCellTextbox(page, 5);
   await waitForEditableFocusWithin(targetCell);
-  await page.keyboard.press("End");
+  await moveCaretToTableCellBoundaryByKeyboard(page, 5, "end");
   await page.keyboard.press("ArrowDown");
   const secondParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
   await waitForSelectionWithin(secondParagraph);
@@ -720,7 +720,7 @@ test("moves ArrowDown out of the table from the other last-row cell", async ({ p
   await page.keyboard.press("ArrowDown");
   const targetCell = getTableCellTextbox(page, 4);
   await waitForEditableFocusWithin(targetCell);
-  await page.keyboard.press("End");
+  await moveCaretToTableCellBoundaryByKeyboard(page, 4, "end");
   await page.keyboard.press("ArrowDown");
   const secondParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
   await waitForSelectionWithin(secondParagraph);
