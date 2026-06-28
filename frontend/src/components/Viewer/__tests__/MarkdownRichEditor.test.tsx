@@ -1,6 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { KEY_DOWN_COMMAND } from "lexical";
-import { type ComponentProps, createRef, type ForwardedRef, forwardRef, type ReactNode, useEffect, useImperativeHandle, useRef, useState } from "react";
+import {
+  type ComponentProps,
+  createRef,
+  type ForwardedRef,
+  forwardRef,
+  type ReactNode,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SambeeThemeProvider } from "../../../theme";
 import MarkdownRichEditor, { type MarkdownRichEditorHandle } from "../MarkdownRichEditor";
@@ -535,9 +545,7 @@ describe("MarkdownRichEditor", () => {
 
     await waitFor(() => {
       expect(mockGetMarkdown).toHaveBeenLastCalledWith("# Published before source mode");
-      expect(mockSetSourceEditorMarkdown).toHaveBeenCalledWith(
-        normalizeMarkdownTableCellLineBreaks("# Published before source mode")
-      );
+      expect(mockSetSourceEditorMarkdown).toHaveBeenCalledWith(normalizeMarkdownTableCellLineBreaks("# Published before source mode"));
       expect(mockSetViewMode).toHaveBeenCalledWith("source");
     });
   });

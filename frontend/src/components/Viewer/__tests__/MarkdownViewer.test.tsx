@@ -956,9 +956,7 @@ describe("MarkdownViewer", () => {
   });
 
   it("renders canonical table-cell br tags as visual line breaks only inside table cells", async () => {
-    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(
-      "Outside <br /> stays literal.\n\n| A |\n| - |\n| foo<br />bar |\n"
-    );
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("Outside <br /> stays literal.\n\n| A |\n| - |\n| foo<br />bar |\n");
 
     renderViewer();
 
@@ -992,9 +990,7 @@ describe("MarkdownViewer", () => {
   });
 
   it("preserves mixed inline formatting while rendering table-cell br tags structurally", async () => {
-    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce(
-      "| A |\n| - |\n| *Alpha*<br />[Docs](https://example.com/docs) |\n"
-    );
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("| A |\n| - |\n| *Alpha*<br />[Docs](https://example.com/docs) |\n");
 
     renderViewer();
 

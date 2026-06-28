@@ -416,12 +416,13 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
         fontSize: "inherit",
         lineHeight: "inherit",
       },
-    "& [class*='codeMirrorWrapper'] .cm-editor, & [class*='codeMirrorWrapper'] .cm-scroller, & [class*='codeMirrorWrapper'] .cm-content, & [class*='codeMirrorWrapper'] .cm-gutters": {
-      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
-      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
-      fontSize: "inherit",
-      lineHeight: "inherit",
-    },
+    "& [class*='codeMirrorWrapper'] .cm-editor, & [class*='codeMirrorWrapper'] .cm-scroller, & [class*='codeMirrorWrapper'] .cm-content, & [class*='codeMirrorWrapper'] .cm-gutters":
+      {
+        backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+        color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+        fontSize: "inherit",
+        lineHeight: "inherit",
+      },
     "& [class*='codeMirrorWrapper'] .cm-gutters": {
       borderRight: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
       paddingRight: "0.35rem",

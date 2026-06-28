@@ -61,9 +61,10 @@ describe("viewerStyles markdown regressions", () => {
     ] as Record<string, unknown>;
     const codeMirrorGutterStyles = styles["& [class*='codeMirrorWrapper'] .cm-gutters"] as Record<string, unknown>;
     const codeMirrorComboboxStyles = styles["& [class*='codeMirrorWrapper'] [role='combobox']"] as Record<string, unknown>;
-    const activeLineGutterStyles = styles[
-      "& [class*='codeMirrorWrapper'] .cm-editor.cm-focused .cm-activeLineGutter"
-    ] as Record<string, unknown>;
+    const activeLineGutterStyles = styles["& [class*='codeMirrorWrapper'] .cm-editor.cm-focused .cm-activeLineGutter"] as Record<
+      string,
+      unknown
+    >;
 
     expect(resolveThemeValue(codeMirrorWrapperStyles.borderColor, darkTheme)).toBe("#504535");
     expect(codeMirrorWrapperStyles.borderRadius).toBe(0);
@@ -86,9 +87,7 @@ describe("viewerStyles markdown regressions", () => {
   it("clears MDXEditor's nested inline-code span background in rich-text mode", () => {
     const styles = getMarkdownEditorContentStyles("#1f262b", "#c24400", "#ff5900") as Record<string, unknown>;
 
-    const nestedInlineCodeSpanStyles = styles[
-      "& .sambee-markdown-inline-code span, & code:not(pre code) span"
-    ] as Record<string, unknown>;
+    const nestedInlineCodeSpanStyles = styles["& .sambee-markdown-inline-code span, & code:not(pre code) span"] as Record<string, unknown>;
 
     expect(nestedInlineCodeSpanStyles.backgroundColor).toBe("transparent !important");
     expect(nestedInlineCodeSpanStyles.color).toBe("inherit");

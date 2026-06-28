@@ -39,9 +39,9 @@ import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
-import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { default as MarkdownRichEditor, type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
+import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import {
   MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS,
   MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,

@@ -3,9 +3,7 @@
 ## Markdown viewer
 
 - Tables:
-   - Show tools/controls only when the cursor is in the table or the mouse is hovering above it.
-      - Don't reserve space around the table for the controls. A table's visible left border, for example, should be vertically aligned with the left border of other elements on the page.
-      - When the controls are shown, overlay them on top of other items that may be rendered above/below the table.
+   - Optimize controls accoring to MARKDOWN_TABLE_CONTROLS_RESERVED_GUTTER_IMPLEMENTATION_PLAN.md.
 - Code blocks:
    - Show tools/controls only when the cursor is in the code block or the mouse is hovering above it.
       - Specifically: language selector for syntax highlighting and trashcan.

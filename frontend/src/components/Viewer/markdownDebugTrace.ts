@@ -16,10 +16,7 @@ export function emitMarkdownDebugTrace(scope: string, event: string, detail?: Re
   }
 
   const payload = {
-    at:
-      typeof performance !== "undefined" && typeof performance.now === "function"
-        ? Number(performance.now().toFixed(2))
-        : Date.now(),
+    at: typeof performance !== "undefined" && typeof performance.now === "function" ? Number(performance.now().toFixed(2)) : Date.now(),
     scope,
     event,
     ...(detail ?? {}),
