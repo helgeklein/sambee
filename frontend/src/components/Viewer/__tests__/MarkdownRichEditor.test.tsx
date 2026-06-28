@@ -333,6 +333,10 @@ vi.mock("@mdxeditor/editor", () => {
         return mockActiveEditor;
       }
 
+      if (String(signal).includes("rootEditor")) {
+        return mockActiveEditor;
+      }
+
       return "rich-text";
     },
     useEditorSearch: () => mockSearchState,
@@ -356,6 +360,7 @@ vi.mock("@mdxeditor/editor", () => {
     },
     markdown$: Symbol("markdownSignal"),
     markdownSourceEditorValue$: Symbol("markdownSourceEditorValue"),
+    rootEditor$: Symbol("rootEditor"),
     MultipleChoiceToggleGroup: ({ items }: { items: Array<{ title: string; contents: ReactNode; onChange?: () => void }> }) => (
       <div className="mdxeditor-toolbar-mock-group">
         {items.map((item) => (
