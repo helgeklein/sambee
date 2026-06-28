@@ -637,6 +637,68 @@ test("moves ArrowDown from a code block into the adjacent table", async ({ page 
   await expect(page.locator("table").getByRole("textbox").first()).toContainText("X");
 });
 
+test("moves ArrowUp selection out of a code block after returning from the adjacent table", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "This regression reproduces in the Chromium-based editor environment used for markdown validation.");
+
+  await mockMarkdownViewerApi(page, logicalNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  await page.locator('.cm-content[role="textbox"]').first().waitFor();
+
+  await page.evaluate(() => {
+    const code = document.querySelector('.cm-content[role="textbox"]');
+
+    if (!(code instanceof HTMLElement)) {
+      throw new Error("Expected code block editor to be present");
+    }
+
+    const view = (code as HTMLElement & {
+      cmTile?: {
+        view?: {
+          dispatch: (spec: { selection: { anchor: number; head: number } }) => void;
+          focus: () => void;
+          state: { doc: { length: number } };
+        };
+      };
+    }).cmTile?.view;
+
+    if (!view) {
+      throw new Error("Expected CodeMirror view to be present");
+    }
+
+    const targetOffset = view.state.doc.length;
+    view.dispatch({ selection: { anchor: targetOffset, head: targetOffset } });
+    view.focus();
+  });
+
+  await page.keyboard.press("ArrowDown");
+  const firstTableCell = page.locator("table").getByRole("textbox").first();
+  await waitForEditableFocusWithin(firstTableCell);
+
+  await page.keyboard.press("ArrowUp");
+  await expect(page.locator(".cm-line").first()).toBeVisible();
+  const precedingParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
+  let escapedIntoParagraph = false;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await page.keyboard.press("ArrowUp");
+
+    escapedIntoParagraph = await precedingParagraph.evaluate((element) => {
+      const selection = window.getSelection();
+      return Boolean(selection?.anchorNode && element.contains(selection.anchorNode));
+    });
+
+    if (escapedIntoParagraph) {
+      break;
+    }
+  }
+
+  expect(escapedIntoParagraph).toBe(true);
+});
+
 test("moves ArrowUp out of the table when there is no cell above", async ({ page }) => {
   await openMarkdownEditor(page, tableCellNavigationMarkdown);
 

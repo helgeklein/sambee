@@ -1546,6 +1546,27 @@ function tryMoveOutOfTableWithTab(activeEditor: LexicalEditor, event: KeyboardNa
   return moveIntoAdjacentTopLevelElement(activeEditor, rootElement, adjacentElement, direction);
 }
 
+function isEventFromNestedTableCell(
+  rootElement: HTMLElement,
+  event: Pick<KeyboardEvent, "target"> | Pick<React.KeyboardEvent, "target">
+): boolean {
+  const target = event.target;
+
+  if (!(target instanceof Node)) {
+    return false;
+  }
+
+  const targetElement = target instanceof HTMLElement ? target : target.parentElement;
+
+  if (!(targetElement instanceof HTMLElement) || !rootElement.contains(targetElement)) {
+    return false;
+  }
+
+  const nestedTableEditable = targetElement.closest('table [contenteditable="true"][data-lexical-editor="true"]');
+
+  return nestedTableEditable instanceof HTMLElement && nestedTableEditable !== rootElement;
+}
+
 function tryMoveVerticallyAcrossDocument(activeEditor: LexicalEditor, event: KeyboardNavigationEventLike): boolean {
   const direction = event.key === "ArrowDown" ? "down" : event.key === "ArrowUp" ? "up" : null;
 
@@ -2172,20 +2193,24 @@ const MarkdownRichEditorCommandBridge = ({
 };
 
 const MarkdownDecoratorArrowNavigationBridge = () => {
-  const activeEditor = useCellValue(activeEditor$);
+  const rootEditor = useCellValue(rootEditor$);
 
   useEffect(() => {
-    if (!activeEditor) {
+    if (!rootEditor) {
       return;
     }
 
-    const rootElement = activeEditor.getRootElement();
+    const rootElement = rootEditor.getRootElement();
     const handleRootKeyDown = (event: KeyboardEvent) => {
+      if (rootElement instanceof HTMLElement && isEventFromNestedTableCell(rootElement, event)) {
+        return;
+      }
+
       const handled =
-        tryMoveOutOfTableWithTab(activeEditor, event) ||
-        tryMoveVerticallyAcrossDocument(activeEditor, event) ||
-        tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
-        tryMoveIntoAdjacentTable(activeEditor, event);
+        tryMoveOutOfTableWithTab(rootEditor, event) ||
+        tryMoveVerticallyAcrossDocument(rootEditor, event) ||
+        tryMoveIntoAdjacentCodeBlock(rootEditor, event) ||
+        tryMoveIntoAdjacentTable(rootEditor, event);
 
       if (handled) {
         event.stopImmediatePropagation();
@@ -2196,19 +2221,26 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
       rootElement.addEventListener("keydown", handleRootKeyDown, true);
     }
 
-    const unregisterCommand = activeEditor.registerCommand(
+    const unregisterCommand = rootEditor.registerCommand(
       KEY_DOWN_COMMAND,
-      (event) =>
-        tryMoveOutOfTableWithTab(activeEditor, event) ||
-        tryMoveVerticallyAcrossDocument(activeEditor, event) ||
-        tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
-        tryMoveIntoAdjacentTable(activeEditor, event),
+      (event) => {
+        if (rootElement instanceof HTMLElement && isEventFromNestedTableCell(rootElement, event)) {
+          return false;
+        }
+
+        return (
+          tryMoveOutOfTableWithTab(rootEditor, event) ||
+          tryMoveVerticallyAcrossDocument(rootEditor, event) ||
+          tryMoveIntoAdjacentCodeBlock(rootEditor, event) ||
+          tryMoveIntoAdjacentTable(rootEditor, event)
+        );
+      },
       COMMAND_PRIORITY_HIGH
     );
 
     const unregisterUpdateListener =
-      typeof activeEditor.registerUpdateListener === "function"
-        ? activeEditor.registerUpdateListener(({ editorState }) => {
+      typeof rootEditor.registerUpdateListener === "function"
+        ? rootEditor.registerUpdateListener(({ editorState }) => {
             if (!(rootElement instanceof HTMLElement)) {
               return;
             }
@@ -2241,7 +2273,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
                 return;
               }
 
-              const element = activeEditor.getElementByKey(selectedNode.getKey());
+              const element = rootEditor.getElementByKey(selectedNode.getKey());
 
               if (!(element instanceof HTMLElement)) {
                 return;
@@ -2269,7 +2301,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
                 return;
               }
 
-              const selectionTopLevelElement = activeEditor.getElementByKey(selectionTopLevelKey);
+              const selectionTopLevelElement = rootEditor.getElementByKey(selectionTopLevelKey);
 
               if (!isHtmlElement(selectionTopLevelElement)) {
                 return;
@@ -2291,7 +2323,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
               return;
             }
 
-            const focusTarget = getDecoratorFocusTarget(activeEditor, selectedDecoratorElement, "up");
+            const focusTarget = getDecoratorFocusTarget(rootEditor, selectedDecoratorElement, "up");
 
             if (!focusTarget) {
               return;
@@ -2312,7 +2344,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
         rootElement.removeEventListener("keydown", handleRootKeyDown, true);
       }
     };
-  }, [activeEditor]);
+  }, [rootEditor]);
 
   return null;
 };
