@@ -388,6 +388,18 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
       "--baseBgHover": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
       "--baseBgActive": (theme: Theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
     },
+    "& [class*='codeMirrorWrapper']": {
+      borderColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBorder,
+      borderRadius: 0,
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+    },
+    "& [class*='codeMirrorToolbar']": {
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+      borderLeft: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
+      borderBottom: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
+      padding: "0.4rem",
+      borderBottomLeftRadius: 0,
+    },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} > div`]: {
       backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
       border: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
@@ -404,10 +416,26 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
         fontSize: "inherit",
         lineHeight: "inherit",
       },
+    "& [class*='codeMirrorWrapper'] .cm-editor, & [class*='codeMirrorWrapper'] .cm-scroller, & [class*='codeMirrorWrapper'] .cm-content, & [class*='codeMirrorWrapper'] .cm-gutters":
+      {
+        backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).blockBackground,
+        color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+        fontSize: "inherit",
+        lineHeight: "inherit",
+      },
+    "& [class*='codeMirrorWrapper'] .cm-gutters": {
+      borderRight: (theme) => `1px solid ${getMarkdownCodeSurfaceColors(theme).blockBorder}`,
+      paddingRight: "0.35rem",
+    },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor`]: {
       borderRadius: 0,
     },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-editor.cm-focused .cm-activeLineGutter`]: {
+      backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
+      color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
+      fontWeight: 600,
+    },
+    "& [class*='codeMirrorWrapper'] .cm-editor.cm-focused .cm-activeLineGutter": {
       backgroundColor: (theme) => getMarkdownCodeSurfaceColors(theme).activeLineGutterBackground,
       color: (theme) => getMarkdownCodeSurfaceColors(theme).textColor,
       fontWeight: 600,
@@ -417,7 +445,15 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
       color: "inherit",
       fontWeight: "inherit",
     },
+    "& [class*='codeMirrorWrapper'] .cm-editor:not(.cm-focused) .cm-activeLineGutter": {
+      backgroundColor: "transparent",
+      color: "inherit",
+      fontWeight: "inherit",
+    },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} [role='combobox']`]: {
+      borderRadius: 0,
+    },
+    "& [class*='codeMirrorWrapper'] [role='combobox']": {
       borderRadius: 0,
     },
     [`& .${MARKDOWN_EDITOR_CODE_BLOCK_CLASS} .cm-content`]: {
@@ -428,7 +464,10 @@ export function getMarkdownEditorContentStyles(viewerText: string, linkColor: st
       color: "inherit",
       padding: 0,
     },
-    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span`]: {
+    // MDXEditor renders inline code text inside its own nested span that carries
+    // a background color. Clear that inner fill so the outer code chip remains
+    // one uniform surface.
+    [`& .${MARKDOWN_EDITOR_INLINE_CODE_CLASS} span, & code:not(pre code) span`]: {
       backgroundColor: "transparent !important",
       color: "inherit",
     },

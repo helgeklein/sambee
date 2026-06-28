@@ -35,6 +35,8 @@ import {
   MultipleChoiceToggleGroup,
   markdownShortcutPlugin,
   lexicalTheme as mdxEditorLexicalTheme,
+  markdown$ as mdxEditorMarkdown$,
+  NESTED_EDITOR_UPDATED_COMMAND,
   quotePlugin,
   realmPlugin,
   rootEditor$,
@@ -86,6 +88,8 @@ import {
   CAN_UNDO_COMMAND,
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_HIGH,
+  CONTROLLED_TEXT_INSERTION_COMMAND,
+  INSERT_LINE_BREAK_COMMAND,
   KEY_DOWN_COMMAND,
   type LexicalEditor,
   type NodeKey,
@@ -129,21 +133,24 @@ import {
   MARKDOWN_TABLE_HEADER_LETTER_SPACING,
 } from "../../theme/viewerStyles";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
+import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import { MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
+import { normalizeMarkdownTableCellLineBreaks } from "./markdownTableCellLineBreaks";
 import { mdxEditorSearchPlugin } from "./mdxEditorSearchPlugin";
+import { insertTextAtAdjacentImportedBreak } from "./tableCellAdjacentBreakInsertion";
 
 const MARKDOWN_EDITOR_POPUP_CLASS = "sambee-markdown-editor-popup";
 const MARKDOWN_EDITOR_POPUP_Z_INDEX = Z_INDEX.VIEWER_TOOLBAR + 1;
 const MARKDOWN_EDITOR_CONTENT_CLASS = "sambee-markdown-editor-content";
-const MARKDOWN_EDITOR_INLINE_CODE_CLASS = "sambee-markdown-inline-code";
-const MARKDOWN_EDITOR_CODE_BLOCK_CLASS = "sambee-markdown-code-block";
 const MARKDOWN_EDITOR_SOURCE_FONT_SIZE_PX = 15;
 const MARKDOWN_TABLE_TOOL_OFFSET_PX = 4;
 const MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX = 32;
 const MARKDOWN_TABLE_TOOL_GUTTER_PX = MARKDOWN_TABLE_TOOL_BUTTON_SIZE_PX + MARKDOWN_TABLE_TOOL_OFFSET_PX * 2;
+const NESTED_TABLE_CELL_EDITABLE_SELECTOR = 'table [contenteditable="true"][data-lexical-editor="true"]';
 const MARKDOWN_CODE_BLOCK_DEFAULT_LANGUAGE = "txt";
 const MARKDOWN_LINK_DIALOG_MAX_WIDTH = "sm";
+const MARKDOWN_EDITOR_LEXICAL_THEME = mdxEditorLexicalTheme;
 const MARKDOWN_CODE_BLOCK_LANGUAGES = {
   txt: "Plain text",
   css: "CSS",
@@ -151,41 +158,10 @@ const MARKDOWN_CODE_BLOCK_LANGUAGES = {
   jsx: "JavaScript (React)",
   ts: "TypeScript",
   tsx: "TypeScript (React)",
-} as const;
-
-const MARKDOWN_EDITOR_LEXICAL_THEME = {
-  ...mdxEditorLexicalTheme,
-  text: {
-    ...mdxEditorLexicalTheme.text,
-    code: MARKDOWN_EDITOR_INLINE_CODE_CLASS,
-  },
-} as const;
-
-const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>) => {
-  const rootEditor = useCellValue(rootEditor$);
-
-  return (
-    <div
-      className={MARKDOWN_EDITOR_CODE_BLOCK_CLASS}
-      onKeyDownCapture={(event) => {
-        if (!rootEditor) {
-          return;
-        }
-
-        tryMoveVerticallyAcrossDocument(rootEditor, {
-          key: event.key,
-          preventDefault: () => event.preventDefault(),
-          stopPropagation: () => event.stopPropagation(),
-        });
-      }}
-    >
-      <CodeMirrorEditor {...props} />
-    </div>
-  );
 };
 
-type TableCellBoundaryDirection = Extract<CodeBlockBoundaryDirection, "down" | "up">;
-type TableCellDirection = CodeBlockBoundaryDirection;
+type TableCellDirection = "down" | "left" | "right" | "up";
+type TableCellBoundaryDirection = Extract<TableCellDirection, "down" | "up">;
 
 interface TableCellPosition {
   columnIndex: number;
@@ -210,10 +186,9 @@ function getLogicalTableCellEditable(tableElement: HTMLElement, coords: [number,
   return getEditableCellElements(targetRow)[coords[0]] ?? null;
 }
 
-function getTableRowElements(tableElement: HTMLElement): HTMLElement[] {
+function getTableRowElements(tableElement: HTMLElement): HTMLTableRowElement[] {
   return Array.from(tableElement.querySelectorAll("tr")).filter(
-    (row): row is HTMLElement =>
-      row instanceof HTMLElement && row.querySelector('[contenteditable="true"][data-lexical-editor="true"]') !== null
+    (row) => row.querySelector('[contenteditable="true"][data-lexical-editor="true"]') !== null
   );
 }
 
@@ -579,11 +554,37 @@ const TableCellKeyboardBridge = () => {
     };
 
     cellEditorRoot.addEventListener("keydown", handleKeyDownCapture, true);
-    const unregisterCommand = editor.registerCommand(KEY_DOWN_COMMAND, (event) => handleKeyboardEvent(event), COMMAND_PRIORITY_HIGH);
+    const unregisterKeyboardCommand = editor.registerCommand(
+      KEY_DOWN_COMMAND,
+      (event) => handleKeyboardEvent(event),
+      COMMAND_PRIORITY_HIGH
+    );
+    const unregisterInsertionCommand = editor.registerCommand(
+      CONTROLLED_TEXT_INSERTION_COMMAND,
+      (payload) => {
+        if (typeof payload !== "string") {
+          return false;
+        }
+
+        const selection = $getSelection();
+
+        if (!$isRangeSelection(selection)) {
+          return false;
+        }
+
+        // The loaded empty-internal-line bug is package-owned: imported
+        // canonical <br /> nodes leave the collapsed caret on an adjacent
+        // generic-html break boundary. Claim insertion ownership here so the
+        // default path does not build the wrong topology before save/export.
+        return insertTextAtAdjacentImportedBreak(selection, payload);
+      },
+      COMMAND_PRIORITY_CRITICAL
+    );
 
     return () => {
       cellEditorRoot.removeEventListener("keydown", handleKeyDownCapture, true);
-      unregisterCommand();
+      unregisterKeyboardCommand();
+      unregisterInsertionCommand();
     };
   }, [editor, rootEditor]);
 
@@ -595,6 +596,8 @@ const tableCellShiftTabBridgePlugin = realmPlugin({
     realm.pub(addTableCellEditorChild$, TableCellKeyboardBridge);
   },
 });
+
+const MarkdownCodeBlockEditor = (props: ComponentProps<typeof CodeMirrorEditor>) => <CodeMirrorEditor {...props} />;
 
 const MARKDOWN_CODE_BLOCK_EDITOR_DESCRIPTOR = {
   match: (_language: string | null | undefined, meta: string | null | undefined) => !meta,
@@ -631,7 +634,7 @@ interface CodeMirrorContentElement extends HTMLElement {
 }
 
 interface NestedLexicalContentEditableElement extends HTMLElement {
-  __lexicalEditor?: Pick<LexicalEditor, "focus" | "update">;
+  __lexicalEditor?: Pick<LexicalEditor, "dispatchCommand" | "focus" | "update">;
 }
 
 interface AdjacentTableNode {
@@ -641,13 +644,7 @@ interface AdjacentTableNode {
 }
 
 function isHtmlElement(value: unknown): value is HTMLElement {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "nodeType" in value &&
-    "querySelector" in value &&
-    (value as Node).nodeType === Node.ELEMENT_NODE
-  );
+  return value instanceof HTMLElement;
 }
 
 type VerticalNavigationContext =
@@ -949,6 +946,11 @@ function focusLogicalTableCell(tableElement: HTMLElement, coords: [number, numbe
 
     for (let nodeIndex = textNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
       const textNode = textNodes[nodeIndex];
+
+      if (!textNode || !(textNode instanceof Text)) {
+        continue;
+      }
+
       const textLength = textNode.textContent?.length ?? 0;
 
       for (let offset = textLength; offset >= 0; offset -= 1) {
@@ -1154,6 +1156,11 @@ function focusRootBlockBoundary(
 
     for (let nodeIndex = textNodes.length - 1; nodeIndex >= 0; nodeIndex -= 1) {
       const textNode = textNodes[nodeIndex];
+
+      if (!textNode || !(textNode instanceof Text)) {
+        continue;
+      }
+
       const textLength = textNode.textContent?.length ?? 0;
 
       for (let offset = textLength; offset >= 0; offset -= 1) {
@@ -1517,7 +1524,11 @@ function tryMoveOutOfTableWithTab(activeEditor: LexicalEditor, event: KeyboardNa
     return false;
   }
 
-  const boundaryTarget = direction === "up" ? tableEditables[0] : tableEditables[tableEditables.length - 1];
+  const boundaryTarget = tableEditables[tableEditables.length - 1];
+
+  if (!boundaryTarget) {
+    return false;
+  }
 
   if (boundaryEditable !== boundaryTarget) {
     return false;
@@ -1533,6 +1544,27 @@ function tryMoveOutOfTableWithTab(activeEditor: LexicalEditor, event: KeyboardNa
   event.stopPropagation();
 
   return moveIntoAdjacentTopLevelElement(activeEditor, rootElement, adjacentElement, direction);
+}
+
+function isEventFromNestedTableCell(
+  rootElement: HTMLElement,
+  event: Pick<KeyboardEvent, "target"> | Pick<React.KeyboardEvent, "target">
+): boolean {
+  const target = event.target;
+
+  if (!(target instanceof Node)) {
+    return false;
+  }
+
+  const targetElement = target instanceof HTMLElement ? target : target.parentElement;
+
+  if (!(targetElement instanceof HTMLElement) || !rootElement.contains(targetElement)) {
+    return false;
+  }
+
+  const nestedTableEditable = targetElement.closest('table [contenteditable="true"][data-lexical-editor="true"]');
+
+  return nestedTableEditable instanceof HTMLElement && nestedTableEditable !== rootElement;
 }
 
 function tryMoveVerticallyAcrossDocument(activeEditor: LexicalEditor, event: KeyboardNavigationEventLike): boolean {
@@ -1822,6 +1854,8 @@ function tryMoveIntoAdjacentTable(
 
 export interface MarkdownRichEditorHandle {
   focus: () => void;
+  flushPendingEdits: () => Promise<void>;
+  getCanonicalMarkdown: () => string;
   preserveSelection: () => void;
   restorePreservedSelection: () => boolean;
   focusCurrentSearchResult: () => boolean;
@@ -1910,6 +1944,11 @@ interface MarkdownRichEditorCommands {
   insertCodeBlock: () => void;
 }
 
+type MarkdownViewModeRequestHandler = (
+  viewMode: Extract<MarkdownEditorViewMode, "rich-text" | "source">,
+  commitViewMode: (viewMode: Extract<MarkdownEditorViewMode, "rich-text" | "source">) => void
+) => void;
+
 interface MarkdownRichEditorSearchBridgeProps {
   searchText: string;
   searchOpen: boolean;
@@ -1959,6 +1998,20 @@ const MarkdownViewModeBridge = ({ onViewModeChange }: { onViewModeChange: (viewM
 
     onViewModeChange(viewMode);
   }, [onViewModeChange, viewMode]);
+
+  return null;
+};
+
+const MarkdownSourceModeSeedBridge = ({ onPublisherChange }: { onPublisherChange: (publisher: (markdown: string) => void) => void }) => {
+  const publishSourceModeMarkdown = usePublisher(mdxEditorMarkdown$);
+
+  useEffect(() => {
+    onPublisherChange(publishSourceModeMarkdown);
+
+    return () => {
+      onPublisherChange(() => {});
+    };
+  }, [onPublisherChange, publishSourceModeMarkdown]);
 
   return null;
 };
@@ -2140,20 +2193,24 @@ const MarkdownRichEditorCommandBridge = ({
 };
 
 const MarkdownDecoratorArrowNavigationBridge = () => {
-  const activeEditor = useCellValue(activeEditor$);
+  const rootEditor = useCellValue(rootEditor$);
 
   useEffect(() => {
-    if (!activeEditor) {
+    if (!rootEditor) {
       return;
     }
 
-    const rootElement = activeEditor.getRootElement();
+    const rootElement = rootEditor.getRootElement();
     const handleRootKeyDown = (event: KeyboardEvent) => {
+      if (rootElement instanceof HTMLElement && isEventFromNestedTableCell(rootElement, event)) {
+        return;
+      }
+
       const handled =
-        tryMoveOutOfTableWithTab(activeEditor, event) ||
-        tryMoveVerticallyAcrossDocument(activeEditor, event) ||
-        tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
-        tryMoveIntoAdjacentTable(activeEditor, event);
+        tryMoveOutOfTableWithTab(rootEditor, event) ||
+        tryMoveVerticallyAcrossDocument(rootEditor, event) ||
+        tryMoveIntoAdjacentCodeBlock(rootEditor, event) ||
+        tryMoveIntoAdjacentTable(rootEditor, event);
 
       if (handled) {
         event.stopImmediatePropagation();
@@ -2164,19 +2221,26 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
       rootElement.addEventListener("keydown", handleRootKeyDown, true);
     }
 
-    const unregisterCommand = activeEditor.registerCommand(
+    const unregisterCommand = rootEditor.registerCommand(
       KEY_DOWN_COMMAND,
-      (event) =>
-        tryMoveOutOfTableWithTab(activeEditor, event) ||
-        tryMoveVerticallyAcrossDocument(activeEditor, event) ||
-        tryMoveIntoAdjacentCodeBlock(activeEditor, event) ||
-        tryMoveIntoAdjacentTable(activeEditor, event),
+      (event) => {
+        if (rootElement instanceof HTMLElement && isEventFromNestedTableCell(rootElement, event)) {
+          return false;
+        }
+
+        return (
+          tryMoveOutOfTableWithTab(rootEditor, event) ||
+          tryMoveVerticallyAcrossDocument(rootEditor, event) ||
+          tryMoveIntoAdjacentCodeBlock(rootEditor, event) ||
+          tryMoveIntoAdjacentTable(rootEditor, event)
+        );
+      },
       COMMAND_PRIORITY_HIGH
     );
 
     const unregisterUpdateListener =
-      typeof activeEditor.registerUpdateListener === "function"
-        ? activeEditor.registerUpdateListener(({ editorState }) => {
+      typeof rootEditor.registerUpdateListener === "function"
+        ? rootEditor.registerUpdateListener(({ editorState }) => {
             if (!(rootElement instanceof HTMLElement)) {
               return;
             }
@@ -2209,7 +2273,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
                 return;
               }
 
-              const element = activeEditor.getElementByKey(selectedNode.getKey());
+              const element = rootEditor.getElementByKey(selectedNode.getKey());
 
               if (!(element instanceof HTMLElement)) {
                 return;
@@ -2219,7 +2283,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
             });
 
             if (
-              !(focusedTopLevelElement instanceof HTMLElement) ||
+              !isHtmlElement(focusedTopLevelElement) ||
               focusedTopLevelElement.getAttribute("data-lexical-decorator") !== "true" ||
               focusedTopLevelElement.querySelector("table") === null
             ) {
@@ -2228,18 +2292,18 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
 
             const previousElement = focusedTopLevelElement.previousElementSibling;
 
-            if (!(previousElement instanceof HTMLElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
+            if (!isHtmlElement(previousElement) || previousElement.getAttribute("data-lexical-decorator") !== "true") {
               return;
             }
 
-            if (!(selectedDecoratorElement instanceof HTMLElement)) {
+            if (!isHtmlElement(selectedDecoratorElement)) {
               if (selectionTopLevelKey === null) {
                 return;
               }
 
-              const selectionTopLevelElement = activeEditor.getElementByKey(selectionTopLevelKey);
+              const selectionTopLevelElement = rootEditor.getElementByKey(selectionTopLevelKey);
 
-              if (!(selectionTopLevelElement instanceof HTMLElement)) {
+              if (!isHtmlElement(selectionTopLevelElement)) {
                 return;
               }
 
@@ -2259,7 +2323,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
               return;
             }
 
-            const focusTarget = getDecoratorFocusTarget(activeEditor, selectedDecoratorElement, "up");
+            const focusTarget = getDecoratorFocusTarget(rootEditor, selectedDecoratorElement, "up");
 
             if (!focusTarget) {
               return;
@@ -2280,7 +2344,7 @@ const MarkdownDecoratorArrowNavigationBridge = () => {
         rootElement.removeEventListener("keydown", handleRootKeyDown, true);
       }
     };
-  }, [activeEditor]);
+  }, [rootEditor]);
 
   return null;
 };
@@ -2430,7 +2494,7 @@ const InlineCodeToggle = () => {
   );
 };
 
-const MarkdownViewModeToggle = () => {
+const MarkdownViewModeToggle = ({ onRequestViewModeChange }: { onRequestViewModeChange: MarkdownViewModeRequestHandler }) => {
   const { t } = useTranslation();
   const iconComponentFor = useGurxCellValue(iconComponentFor$);
   const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
@@ -2444,7 +2508,7 @@ const MarkdownViewModeToggle = () => {
           contents: iconComponentFor("rich_text"),
           active: viewMode === "rich-text",
           onChange: () => {
-            setViewMode("rich-text");
+            onRequestViewModeChange("rich-text", setViewMode);
           },
         },
         {
@@ -2452,7 +2516,7 @@ const MarkdownViewModeToggle = () => {
           contents: iconComponentFor("markdown"),
           active: viewMode === "source",
           onChange: () => {
-            setViewMode("source");
+            onRequestViewModeChange("source", setViewMode);
           },
         },
       ]}
@@ -2748,7 +2812,7 @@ const MarkdownMobileLinkButton = ({ activeBackground, hoverBackground }: { activ
   );
 };
 
-const MarkdownMobileMoreActionsMenu = () => {
+const MarkdownMobileMoreActionsMenu = ({ onRequestViewModeChange }: { onRequestViewModeChange: MarkdownViewModeRequestHandler }) => {
   const { t } = useTranslation();
   const iconComponentFor = useGurxCellValue(iconComponentFor$);
   const currentBlockType = useCellValue(currentBlockType$) as MarkdownEditorBlockType;
@@ -2802,10 +2866,10 @@ const MarkdownMobileMoreActionsMenu = () => {
   const handleModeAction = useCallback(
     (nextViewMode: Extract<MarkdownEditorViewMode, "rich-text" | "source">) => {
       runMenuAction(() => {
-        setViewMode(nextViewMode);
+        onRequestViewModeChange(nextViewMode, setViewMode);
       });
     },
-    [runMenuAction, setViewMode]
+    [onRequestViewModeChange, runMenuAction, setViewMode]
   );
 
   return (
@@ -3003,7 +3067,15 @@ const MarkdownMobileMoreActionsMenu = () => {
   );
 };
 
-const MarkdownMobileToolbar = ({ activeBackground, hoverBackground }: { activeBackground: string; hoverBackground: string }) => {
+const MarkdownMobileToolbar = ({
+  activeBackground,
+  hoverBackground,
+  onRequestViewModeChange,
+}: {
+  activeBackground: string;
+  hoverBackground: string;
+  onRequestViewModeChange: MarkdownViewModeRequestHandler;
+}) => {
   const { t } = useTranslation();
   const viewMode = useCellValue(viewMode$) as MarkdownEditorViewMode;
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -3128,12 +3200,12 @@ const MarkdownMobileToolbar = ({ activeBackground, hoverBackground }: { activeBa
           </>
         )}
       </Box>
-      <MarkdownMobileMoreActionsMenu />
+      <MarkdownMobileMoreActionsMenu onRequestViewModeChange={onRequestViewModeChange} />
     </Box>
   );
 };
 
-const MarkdownDesktopToolbar = () => {
+const MarkdownDesktopToolbar = ({ onRequestViewModeChange }: { onRequestViewModeChange: MarkdownViewModeRequestHandler }) => {
   return (
     <>
       <MarkdownUndoRedoControls />
@@ -3151,7 +3223,7 @@ const MarkdownDesktopToolbar = () => {
       <Separator />
       <InsertCodeBlockButton />
       <Separator />
-      <MarkdownViewModeToggle />
+      <MarkdownViewModeToggle onRequestViewModeChange={onRequestViewModeChange} />
     </>
   );
 };
@@ -3160,6 +3232,7 @@ const MarkdownResponsiveToolbar = ({
   activeBackground,
   hoverBackground,
   isMobile,
+  onRequestViewModeChange,
   onLinkApplied,
   onViewModeChange,
   preserveEditorSelection,
@@ -3169,6 +3242,7 @@ const MarkdownResponsiveToolbar = ({
   onCurrentRangeChange,
   onSearchCommandsChange,
   onActiveEditorChange,
+  onSourceEditorPublisherChange,
   onEditorCommandsChange,
   searchOpen,
   searchText,
@@ -3176,6 +3250,7 @@ const MarkdownResponsiveToolbar = ({
   activeBackground: string;
   hoverBackground: string;
   isMobile: boolean;
+  onRequestViewModeChange: MarkdownViewModeRequestHandler;
   onLinkApplied?: () => void;
   onViewModeChange: (viewMode: MarkdownEditorViewMode) => void;
   preserveEditorSelection: () => void;
@@ -3185,6 +3260,7 @@ const MarkdownResponsiveToolbar = ({
   onCurrentRangeChange: (range: Range | null) => void;
   onSearchCommandsChange: (commands: MarkdownRichEditorSearchCommands | null) => void;
   onActiveEditorChange: (editor: LexicalEditor | null) => void;
+  onSourceEditorPublisherChange: (publisher: (markdown: string) => void) => void;
   onEditorCommandsChange: (commands: MarkdownRichEditorCommands | null) => void;
   searchOpen: boolean;
   searchText: string;
@@ -3204,13 +3280,18 @@ const MarkdownResponsiveToolbar = ({
         onCommandsChange={onSearchCommandsChange}
       />
       <MarkdownViewModeBridge onViewModeChange={onViewModeChange} />
+      <MarkdownSourceModeSeedBridge onPublisherChange={onSourceEditorPublisherChange} />
       <MarkdownActiveEditorBridge onActiveEditorChange={onActiveEditorChange} />
       <MarkdownDecoratorArrowNavigationBridge />
       <MarkdownRichEditorCommandBridge onCommandsChange={onEditorCommandsChange} />
       {isMobile ? (
-        <MarkdownMobileToolbar activeBackground={activeBackground} hoverBackground={hoverBackground} />
+        <MarkdownMobileToolbar
+          activeBackground={activeBackground}
+          hoverBackground={hoverBackground}
+          onRequestViewModeChange={onRequestViewModeChange}
+        />
       ) : (
-        <MarkdownDesktopToolbar />
+        <MarkdownDesktopToolbar onRequestViewModeChange={onRequestViewModeChange} />
       )}
     </MarkdownLinkDialogProvider>
   );
@@ -3355,7 +3436,15 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     const preservedSelectionRef = useRef<MarkdownRichEditorSelectionSnapshot | null>(null);
     const searchCommandsRef = useRef<MarkdownRichEditorSearchCommands>(NOOP_SEARCH_COMMANDS);
     const commandsRef = useRef<MarkdownRichEditorCommands>(NOOP_EDITOR_COMMANDS);
+    const pendingPublicationGenerationRef = useRef(0);
+    const pendingPublicationScheduledRef = useRef(false);
+    const inFlightPublicationGenerationRef = useRef(0);
+    const needsPublicationRetriggerRef = useRef(false);
+    const pendingPublicationPromiseRef = useRef<Promise<void> | null>(null);
+    const resolvePendingPublicationPromiseRef = useRef<(() => void) | null>(null);
     const hasAttemptedAutoFocusRef = useRef(false);
+    const sourceEditorPublisherRef = useRef<(markdown: string) => void>(() => {});
+    const [viewModeTransitionError, setViewModeTransitionError] = useState<string | null>(null);
     const { t } = useTranslation();
     const { currentTheme } = useSambeeTheme();
     const muiTheme = useTheme();
@@ -3731,6 +3820,272 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       [focusEditableArea, restoreViewport]
     );
 
+    const schedulePendingPublicationDispatch = useCallback(() => {
+      emitMarkdownDebugTrace("MarkdownRichEditor", "schedulePendingPublicationDispatch:enter", {
+        pendingScheduled: pendingPublicationScheduledRef.current,
+        inFlightGeneration: inFlightPublicationGenerationRef.current,
+        pendingGeneration: pendingPublicationGenerationRef.current,
+      });
+
+      if (pendingPublicationScheduledRef.current || inFlightPublicationGenerationRef.current !== 0) {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "schedulePendingPublicationDispatch:skipped", {
+          reason: pendingPublicationScheduledRef.current ? "already-scheduled" : "in-flight",
+          inFlightGeneration: inFlightPublicationGenerationRef.current,
+          pendingGeneration: pendingPublicationGenerationRef.current,
+        });
+        return;
+      }
+
+      pendingPublicationScheduledRef.current = true;
+
+      queueMicrotask(() => {
+        pendingPublicationScheduledRef.current = false;
+
+        emitMarkdownDebugTrace("MarkdownRichEditor", "schedulePendingPublicationDispatch:microtask", {
+          inFlightGeneration: inFlightPublicationGenerationRef.current,
+          pendingGeneration: pendingPublicationGenerationRef.current,
+          hasActiveEditor: activeEditorRef.current !== null,
+        });
+
+        if (inFlightPublicationGenerationRef.current !== 0 || pendingPublicationGenerationRef.current === 0) {
+          emitMarkdownDebugTrace("MarkdownRichEditor", "schedulePendingPublicationDispatch:microtask-skipped", {
+            reason: inFlightPublicationGenerationRef.current !== 0 ? "in-flight" : "no-pending-generation",
+            inFlightGeneration: inFlightPublicationGenerationRef.current,
+            pendingGeneration: pendingPublicationGenerationRef.current,
+          });
+          return;
+        }
+
+        const activeEditor = activeEditorRef.current;
+
+        if (!activeEditor) {
+          emitMarkdownDebugTrace("MarkdownRichEditor", "schedulePendingPublicationDispatch:no-active-editor", {
+            pendingGeneration: pendingPublicationGenerationRef.current,
+          });
+          const resolvePendingPublication = resolvePendingPublicationPromiseRef.current;
+
+          pendingPublicationPromiseRef.current = null;
+          resolvePendingPublicationPromiseRef.current = null;
+          needsPublicationRetriggerRef.current = false;
+          inFlightPublicationGenerationRef.current = 0;
+          resolvePendingPublication?.();
+          return;
+        }
+
+        inFlightPublicationGenerationRef.current = pendingPublicationGenerationRef.current;
+        emitMarkdownDebugTrace("MarkdownRichEditor", "schedulePendingPublicationDispatch:dispatch", {
+          dispatchGeneration: inFlightPublicationGenerationRef.current,
+          pendingGeneration: pendingPublicationGenerationRef.current,
+        });
+        activeEditor.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
+      });
+    }, []);
+
+    const completePendingPublicationFlush = useCallback(() => {
+      emitMarkdownDebugTrace("MarkdownRichEditor", "completePendingPublicationFlush:enter", {
+        inFlightGeneration: inFlightPublicationGenerationRef.current,
+        pendingGeneration: pendingPublicationGenerationRef.current,
+        needsRetrigger: needsPublicationRetriggerRef.current,
+      });
+
+      if (inFlightPublicationGenerationRef.current === 0) {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "completePendingPublicationFlush:skipped", {
+          reason: "no-in-flight-generation",
+        });
+        return;
+      }
+
+      if (needsPublicationRetriggerRef.current && pendingPublicationGenerationRef.current > inFlightPublicationGenerationRef.current) {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "completePendingPublicationFlush:retrigger", {
+          inFlightGeneration: inFlightPublicationGenerationRef.current,
+          pendingGeneration: pendingPublicationGenerationRef.current,
+        });
+        inFlightPublicationGenerationRef.current = 0;
+        needsPublicationRetriggerRef.current = false;
+        schedulePendingPublicationDispatch();
+        return;
+      }
+
+      const resolvePendingPublication = resolvePendingPublicationPromiseRef.current;
+
+      pendingPublicationPromiseRef.current = null;
+      resolvePendingPublicationPromiseRef.current = null;
+      inFlightPublicationGenerationRef.current = 0;
+      needsPublicationRetriggerRef.current = false;
+      emitMarkdownDebugTrace("MarkdownRichEditor", "completePendingPublicationFlush:resolved", {
+        pendingGeneration: pendingPublicationGenerationRef.current,
+      });
+      resolvePendingPublication?.();
+    }, [schedulePendingPublicationDispatch]);
+
+    const requestPendingPublication = useCallback(
+      (ensurePromise: boolean) => {
+        pendingPublicationGenerationRef.current += 1;
+
+        emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication", {
+          ensurePromise,
+          pendingGeneration: pendingPublicationGenerationRef.current,
+          inFlightGeneration: inFlightPublicationGenerationRef.current,
+          hasPromise: pendingPublicationPromiseRef.current !== null,
+        });
+
+        if (ensurePromise && pendingPublicationPromiseRef.current === null) {
+          pendingPublicationPromiseRef.current = new Promise<void>((resolve) => {
+            resolvePendingPublicationPromiseRef.current = resolve;
+          });
+
+          emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication:created-promise", {
+            pendingGeneration: pendingPublicationGenerationRef.current,
+          });
+        }
+
+        if (inFlightPublicationGenerationRef.current !== 0) {
+          needsPublicationRetriggerRef.current = true;
+          emitMarkdownDebugTrace("MarkdownRichEditor", "requestPendingPublication:marked-retrigger", {
+            inFlightGeneration: inFlightPublicationGenerationRef.current,
+            pendingGeneration: pendingPublicationGenerationRef.current,
+          });
+        }
+
+        schedulePendingPublicationDispatch();
+        return pendingPublicationPromiseRef.current;
+      },
+      [schedulePendingPublicationDispatch]
+    );
+
+    const synchronizeFocusedNestedTableCell = useCallback(async () => {
+      const activeEditorRoot = activeEditorRef.current?.getRootElement();
+
+      if (!(activeEditorRoot instanceof HTMLElement) || !activeEditorRoot.closest(NESTED_TABLE_CELL_EDITABLE_SELECTOR)) {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "synchronizeFocusedNestedTableCell:skipped", {
+          reason: "no-focused-nested-editor",
+        });
+        return false;
+      }
+
+      emitMarkdownDebugTrace("MarkdownRichEditor", "synchronizeFocusedNestedTableCell:dispatch");
+      activeEditorRef.current?.dispatchCommand(NESTED_EDITOR_UPDATED_COMMAND, undefined);
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          resolve();
+        });
+      });
+
+      emitMarkdownDebugTrace("MarkdownRichEditor", "synchronizeFocusedNestedTableCell:resolved");
+      return true;
+    }, []);
+
+    const flushPendingEdits = useCallback(() => {
+      emitMarkdownDebugTrace("MarkdownRichEditor", "flushPendingEdits:start", {
+        pendingGeneration: pendingPublicationGenerationRef.current,
+        inFlightGeneration: inFlightPublicationGenerationRef.current,
+      });
+
+      // Save/source-mode callers use this as a boundary wait. If there is no
+      // nested publication work in flight already, creating a new request here
+      // re-enters the table publication path unnecessarily and can hang.
+      if (pendingPublicationGenerationRef.current === 0 && inFlightPublicationGenerationRef.current === 0) {
+        return synchronizeFocusedNestedTableCell().then((didSynchronizeNestedCell) => {
+          emitMarkdownDebugTrace("MarkdownRichEditor", "flushPendingEdits:resolved-no-pending-work", {
+            didSynchronizeNestedCell,
+          });
+        });
+      }
+
+      const pendingPublicationPromise = requestPendingPublication(true);
+
+      if (pendingPublicationPromise === null) {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "flushPendingEdits:resolved-immediately");
+        return Promise.resolve();
+      }
+
+      return pendingPublicationPromise.then(() => {
+        emitMarkdownDebugTrace("MarkdownRichEditor", "flushPendingEdits:resolved", {
+          pendingGeneration: pendingPublicationGenerationRef.current,
+          inFlightGeneration: inFlightPublicationGenerationRef.current,
+        });
+      });
+    }, [requestPendingPublication, synchronizeFocusedNestedTableCell]);
+
+    const handleMdxEditorChange = useCallback(
+      (nextMarkdown: string) => {
+        const isPublicationDrivenUpdate = inFlightPublicationGenerationRef.current !== 0 || pendingPublicationGenerationRef.current !== 0;
+        const reportedMarkdown = isPublicationDrivenUpdate ? normalizeMarkdownTableCellLineBreaks(nextMarkdown) : nextMarkdown;
+
+        emitMarkdownDebugTrace("MarkdownRichEditor", "handleMdxEditorChange", {
+          isPublicationDrivenUpdate,
+          nextMarkdownLength: nextMarkdown.length,
+          reportedMarkdownLength: reportedMarkdown.length,
+          inFlightGeneration: inFlightPublicationGenerationRef.current,
+          pendingGeneration: pendingPublicationGenerationRef.current,
+        });
+
+        onChange(reportedMarkdown);
+        completePendingPublicationFlush();
+      },
+      [completePendingPublicationFlush, onChange]
+    );
+
+    const getCanonicalMarkdown = useCallback(() => {
+      const markdown = editorRef.current?.getMarkdown();
+
+      if (typeof markdown !== "string") {
+        throw new Error("Canonical markdown export is unavailable");
+      }
+
+      // MDXEditor is the only authoritative rich-text payload. The outer draft
+      // can lag while a nested table cell still owns focus, so every save/source
+      // transition re-normalizes the live export instead of trusting draft state.
+      return normalizeMarkdownTableCellLineBreaks(markdown);
+    }, []);
+
+    const requestViewModeChange = useCallback<MarkdownViewModeRequestHandler>(
+      async (nextViewMode, commitViewMode) => {
+        setViewModeTransitionError(null);
+
+        if (nextViewMode === "rich-text") {
+          commitViewMode(nextViewMode);
+          return;
+        }
+
+        preservedSelectionRef.current = captureSelection();
+
+        try {
+          await flushPendingEdits();
+
+          const canonicalMarkdown = getCanonicalMarkdown();
+          onChange(canonicalMarkdown);
+
+          // Source mode must consume canonical markdown after MDXEditor finishes
+          // its own rich-text exit synchronization. Seeding the markdown cell
+          // before the mode commit gets overwritten by that internal sync.
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              resolve();
+            });
+          });
+
+          commitViewMode("source");
+
+          requestAnimationFrame(() => {
+            sourceEditorPublisherRef.current(canonicalMarkdown);
+          });
+        } catch (error) {
+          setViewModeTransitionError(
+            error instanceof Error && error.message
+              ? error.message
+              : t("viewer.edit.sourceModeFailed", { defaultValue: "Unable to switch to source mode." })
+          );
+
+          requestAnimationFrame(() => {
+            restoreSelection(preservedSelectionRef.current);
+          });
+        }
+      },
+      [captureSelection, flushPendingEdits, getCanonicalMarkdown, onChange, restoreSelection, t]
+    );
+
     useImperativeHandle(
       ref,
       () => ({
@@ -3740,6 +4095,8 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             focusEditableArea();
           });
         },
+        flushPendingEdits,
+        getCanonicalMarkdown,
         preserveSelection: () => {
           preservedSelectionRef.current = captureSelection();
         },
@@ -3775,8 +4132,21 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           commandsRef.current.insertCodeBlock();
         },
       }),
-      [captureSelection, focusCurrentSearchRange, focusEditableArea, restoreSelection]
+      [captureSelection, flushPendingEdits, focusCurrentSearchRange, focusEditableArea, getCanonicalMarkdown, restoreSelection]
     );
+
+    useEffect(() => {
+      return () => {
+        const resolvePendingPublication = resolvePendingPublicationPromiseRef.current;
+
+        pendingPublicationPromiseRef.current = null;
+        resolvePendingPublicationPromiseRef.current = null;
+        inFlightPublicationGenerationRef.current = 0;
+        needsPublicationRetriggerRef.current = false;
+        pendingPublicationScheduledRef.current = false;
+        resolvePendingPublication?.();
+      };
+    }, []);
 
     useEffect(() => {
       syncPopupContainerLayering();
@@ -3859,7 +4229,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
     }, [autoFocus, focusEditableArea, readOnly]);
 
     useEffect(() => {
-      if (readOnly || !onUserEdit) {
+      if (readOnly) {
         return;
       }
 
@@ -3876,7 +4246,25 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return;
         }
 
-        onUserEdit();
+        onUserEdit?.();
+
+        if (target.closest(NESTED_TABLE_CELL_EDITABLE_SELECTOR)) {
+          // Publishing from nested beforeinput was the crash trigger for
+          // Shift+Enter + continued typing. We only publish after the nested
+          // edit has actually landed in editor state.
+          if (event.type === "beforeinput") {
+            emitMarkdownDebugTrace("MarkdownRichEditor", "handleUserEdit:nested-skipped", {
+              eventType: event.type,
+              reason: "beforeinput",
+            });
+            return;
+          }
+
+          emitMarkdownDebugTrace("MarkdownRichEditor", "handleUserEdit:nested", {
+            eventType: event.type,
+          });
+          requestPendingPublication(false);
+        }
       };
 
       const eventNames = ["beforeinput", "input", "change", "paste", "cut", "drop"];
@@ -3888,6 +4276,57 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         for (const eventName of eventNames) {
           interactionRoot.removeEventListener(eventName, handleUserEdit);
         }
+      };
+    }, [onUserEdit, readOnly, requestPendingPublication]);
+
+    useEffect(() => {
+      if (readOnly) {
+        return;
+      }
+
+      const interactionRoot = containerRef.current;
+
+      if (!interactionRoot) {
+        return;
+      }
+
+      const handleNestedShiftEnter = (event: KeyboardEvent) => {
+        if (event.key !== "Enter" || !event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+          return;
+        }
+
+        const target = event.target;
+
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+
+        const nestedEditable = target.closest(NESTED_TABLE_CELL_EDITABLE_SELECTOR);
+
+        if (!(nestedEditable instanceof HTMLElement)) {
+          return;
+        }
+
+        const nestedEditor = (nestedEditable as NestedLexicalContentEditableElement).__lexicalEditor;
+
+        if (!nestedEditor) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        onUserEdit?.();
+        emitMarkdownDebugTrace("MarkdownRichEditor", "handleNestedShiftEnter", {
+          eventType: event.type,
+        });
+        nestedEditor.dispatchCommand(INSERT_LINE_BREAK_COMMAND, false);
+      };
+
+      interactionRoot.addEventListener("keydown", handleNestedShiftEnter, true);
+
+      return () => {
+        interactionRoot.removeEventListener("keydown", handleNestedShiftEnter, true);
       };
     }, [onUserEdit, readOnly]);
 
@@ -3929,6 +4368,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 activeBackground={secondaryToolbarColors.pillBackground}
                 hoverBackground={secondaryToolbarColors.hoverBackground}
                 isMobile={isMobile}
+                onRequestViewModeChange={requestViewModeChange}
                 onLinkApplied={onUserEdit}
                 onViewModeChange={restoreFocusAfterViewModeChange}
                 preserveEditorSelection={() => {
@@ -3947,6 +4387,9 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
                 }}
                 onActiveEditorChange={(editor) => {
                   activeEditorRef.current = editor;
+                }}
+                onSourceEditorPublisherChange={(publisher) => {
+                  sourceEditorPublisherRef.current = publisher;
                 }}
                 onEditorCommandsChange={(commands) => {
                   commandsRef.current = commands ?? NOOP_EDITOR_COMMANDS;
@@ -3969,6 +4412,7 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         captureSelection,
         restoreSelection,
         restoreFocusAfterViewModeChange,
+        requestViewModeChange,
       ]
     );
 
@@ -4250,13 +4694,26 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
             [`& .${MARKDOWN_EDITOR_CONTENT_CLASS}`]: markdownEditorContentStyles,
           }}
         >
+          {viewModeTransitionError ? (
+            <Box
+              role="alert"
+              sx={{
+                px: 2,
+                py: 1,
+                color: "error.main",
+                borderBottom: (theme) => `1px solid ${theme.palette.divider}`,
+              }}
+            >
+              {viewModeTransitionError}
+            </Box>
+          ) : null}
           <MDXEditor
             ref={editorRef}
             className={editorRootClassName}
             contentEditableClassName={MARKDOWN_EDITOR_CONTENT_CLASS}
             lexicalTheme={MARKDOWN_EDITOR_LEXICAL_THEME}
             markdown={markdown}
-            onChange={onChange}
+            onChange={handleMdxEditorChange}
             autoFocus={autoFocus ? { defaultSelection: "rootStart", preventScroll: true } : false}
             readOnly={readOnly}
             plugins={plugins}

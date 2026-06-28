@@ -7,6 +7,12 @@ const codeBlockNavigationMarkdown = "`test22`\n\nsfd\n\n```txt\nsome text\nline 
 const logicalNavigationMarkdown =
   "`test22`\n\nsfd\n\n```txt\nsome text\nline 2\n```\n\n| Col 1 | Col2 |\n| --- | --- |\n| some data | more data |\n| Second row |  |\n\nomega\n";
 const tableCellNavigationMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1 | B1 |\n| A2 | B2 |\n\nomega\n";
+const loadedEmptyInternalLineMarkdown = "alpha\n\n| Col 1 | Col 2 |\n| --- | --- |\n| A1<br /><br />A3 | B1 |\n\nomega\n";
+
+type MockMarkdownViewerApiOptions = {
+  onUploadBody?: (body: string) => void;
+  persistUploadedMarkdown?: boolean;
+};
 
 async function fulfillJson(route: Route, json: unknown, status = 200) {
   await route.fulfill({
@@ -16,7 +22,9 @@ async function fulfillJson(route: Route, json: unknown, status = 200) {
   });
 }
 
-async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
+async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown, options: MockMarkdownViewerApiOptions = {}) {
+  let currentMarkdown = markdown;
+
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -129,7 +137,7 @@ async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
             name: demoPath,
             path: demoPath,
             type: "file",
-            size: markdown.length,
+            size: currentMarkdown.length,
             mime_type: "text/markdown",
             modified_at: "2026-04-12T12:00:00Z",
           },
@@ -142,7 +150,7 @@ async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
       await route.fulfill({
         status: 200,
         contentType: "text/markdown; charset=utf-8",
-        body: markdown,
+        body: currentMarkdown,
       });
       return;
     }
@@ -167,6 +175,22 @@ async function mockMarkdownViewerApi(page: Page, markdown = initialMarkdown) {
       return;
     }
 
+    if (pathname === `/api/browse/${demoConnectionId}/upload` && request.method() === "POST") {
+      const uploadedBody = request.postDataBuffer()?.toString("utf8") ?? "";
+      options.onUploadBody?.(uploadedBody);
+
+      if (options.persistUploadedMarkdown) {
+        currentMarkdown = uploadedBody;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ path: demoPath }),
+      });
+      return;
+    }
+
     await fulfillJson(route, { detail: `Unhandled mocked route: ${request.method()} ${pathname}` }, 404);
   });
 }
@@ -180,6 +204,28 @@ async function openMarkdownEditor(page: Page, markdown = initialMarkdown) {
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
 }
 
+async function getCodeMirrorDocumentText(locator: Locator) {
+  return locator.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) {
+      throw new Error("Expected CodeMirror content element to be present");
+    }
+
+    const view = (element as HTMLElement & {
+      cmTile?: {
+        view?: {
+          state: { doc: { toString: () => string } };
+        };
+      };
+    }).cmTile?.view;
+
+    if (!view) {
+      throw new Error("Expected CodeMirror view to be present");
+    }
+
+    return view.state.doc.toString();
+  });
+}
+
 async function moveCaretToTableCellBoundaryByKeyboard(
   page: Page,
   cellIndex: number,
@@ -189,12 +235,53 @@ async function moveCaretToTableCellBoundaryByKeyboard(
   await targetCell.click();
   await waitForEditableFocusWithin(targetCell);
 
-  await moveFocusedCaretToBoundaryByKeyboard(page, targetCell, boundary);
+  await moveFocusedCaretToBoundary(page, targetCell, boundary);
 }
 
-async function moveFocusedCaretToBoundaryByKeyboard(page: Page, locator: Locator, boundary: "end" | "start") {
+async function moveFocusedCaretToBoundary(page: Page, locator: Locator, boundary: "end" | "start") {
+  await locator.evaluate((element, expectedBoundary) => {
+    const selection = window.getSelection();
 
-  await page.keyboard.press(boundary === "start" ? "Home" : "End");
+    if (!selection) {
+      throw new Error("Expected DOM selection to exist");
+    }
+
+    const textNodes: Text[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return (node.textContent?.length ?? 0) > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      },
+    });
+
+    while (walker.nextNode()) {
+      const currentNode = walker.currentNode;
+
+      if (currentNode instanceof Text) {
+        textNodes.push(currentNode);
+      }
+    }
+
+    const range = document.createRange();
+
+    if (textNodes.length === 0) {
+      range.selectNodeContents(element);
+      range.collapse(expectedBoundary === "start");
+    } else if (expectedBoundary === "start") {
+      range.setStart(textNodes[0], 0);
+      range.collapse(true);
+    } else {
+      const lastTextNode = textNodes[textNodes.length - 1];
+      range.setStart(lastTextNode, lastTextNode.textContent?.length ?? 0);
+      range.collapse(true);
+    }
+
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    if (element instanceof HTMLElement) {
+      element.focus();
+    }
+  }, boundary);
 
   await expect
     .poll(() =>
@@ -216,6 +303,105 @@ async function moveFocusedCaretToBoundaryByKeyboard(page: Page, locator: Locator
       }, boundary)
     )
     .toBe(true);
+}
+
+async function getCaretTextOffset(locator: Locator) {
+  return locator.evaluate((element) => {
+    const selection = window.getSelection();
+
+    if (!selection?.anchorNode || !element.contains(selection.anchorNode)) {
+      return null;
+    }
+
+    const prefixRange = document.createRange();
+    prefixRange.selectNodeContents(element);
+    prefixRange.setEnd(selection.anchorNode, selection.anchorOffset);
+    return prefixRange.toString().length;
+  });
+}
+
+async function moveCaretToTextNodeBoundary(locator: Locator, textContent: string, boundary: "start" | "end") {
+  await locator.evaluate(
+    (element, { expectedTextContent, expectedBoundary }) => {
+      const selection = window.getSelection();
+
+      if (!selection) {
+        throw new Error("Expected DOM selection to exist");
+      }
+
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+          return node.textContent && node.textContent.length > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        },
+      });
+
+      let targetNode: Text | null = null;
+
+      while (walker.nextNode()) {
+        const currentNode = walker.currentNode;
+
+        if (currentNode instanceof Text && currentNode.textContent === expectedTextContent) {
+          targetNode = currentNode;
+          break;
+        }
+      }
+
+      if (!targetNode) {
+        throw new Error(`Expected to find text node ${expectedTextContent}`);
+      }
+
+      const range = document.createRange();
+      const offset = expectedBoundary === "start" ? 0 : targetNode.textContent?.length ?? 0;
+      range.setStart(targetNode, offset);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      if (element instanceof HTMLElement) {
+        element.focus();
+      }
+    },
+    { expectedTextContent: textContent, expectedBoundary: boundary }
+  );
+
+  await waitForSelectionWithin(locator);
+}
+
+async function moveCaretToLoadedEmptyInternalLine(locator: Locator) {
+  await locator.click();
+  await locator.evaluate((element) => {
+    const selection = window.getSelection();
+
+    if (!selection) {
+      throw new Error("Expected DOM selection to exist");
+    }
+
+    const paragraph = element.firstChild;
+
+    if (!(paragraph instanceof Node)) {
+      throw new Error("Expected table-cell paragraph node");
+    }
+
+    const childNodes = Array.from(paragraph.childNodes);
+    const firstBreakIndex = childNodes.findIndex((node) => node.nodeName === "BR");
+    const secondBreakIndex = childNodes.findIndex((node, index) => node.nodeName === "BR" && index > firstBreakIndex);
+
+    if (firstBreakIndex < 0 || secondBreakIndex < 0) {
+      throw new Error("Expected adjacent BR nodes for the loaded empty internal line");
+    }
+
+    const range = document.createRange();
+    range.setStart(paragraph, secondBreakIndex);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    if (element instanceof HTMLElement) {
+      element.focus();
+    }
+  });
+
+  await waitForSelectionWithin(locator);
 }
 
 function getTableCellTextbox(page: Page, cellIndex: number) {
@@ -451,6 +637,68 @@ test("moves ArrowDown from a code block into the adjacent table", async ({ page 
   await expect(page.locator("table").getByRole("textbox").first()).toContainText("X");
 });
 
+test("moves ArrowUp selection out of a code block after returning from the adjacent table", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "This regression reproduces in the Chromium-based editor environment used for markdown validation.");
+
+  await mockMarkdownViewerApi(page, logicalNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+
+  await page.locator('.cm-content[role="textbox"]').first().waitFor();
+
+  await page.evaluate(() => {
+    const code = document.querySelector('.cm-content[role="textbox"]');
+
+    if (!(code instanceof HTMLElement)) {
+      throw new Error("Expected code block editor to be present");
+    }
+
+    const view = (code as HTMLElement & {
+      cmTile?: {
+        view?: {
+          dispatch: (spec: { selection: { anchor: number; head: number } }) => void;
+          focus: () => void;
+          state: { doc: { length: number } };
+        };
+      };
+    }).cmTile?.view;
+
+    if (!view) {
+      throw new Error("Expected CodeMirror view to be present");
+    }
+
+    const targetOffset = view.state.doc.length;
+    view.dispatch({ selection: { anchor: targetOffset, head: targetOffset } });
+    view.focus();
+  });
+
+  await page.keyboard.press("ArrowDown");
+  const firstTableCell = page.locator("table").getByRole("textbox").first();
+  await waitForEditableFocusWithin(firstTableCell);
+
+  await page.keyboard.press("ArrowUp");
+  await expect(page.locator(".cm-line").first()).toBeVisible();
+  const precedingParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
+  let escapedIntoParagraph = false;
+
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await page.keyboard.press("ArrowUp");
+
+    escapedIntoParagraph = await precedingParagraph.evaluate((element) => {
+      const selection = window.getSelection();
+      return Boolean(selection?.anchorNode && element.contains(selection.anchorNode));
+    });
+
+    if (escapedIntoParagraph) {
+      break;
+    }
+  }
+
+  expect(escapedIntoParagraph).toBe(true);
+});
+
 test("moves ArrowUp out of the table when there is no cell above", async ({ page }) => {
   await openMarkdownEditor(page, tableCellNavigationMarkdown);
 
@@ -518,7 +766,7 @@ test("moves ArrowDown out of the table when there is no cell below", async ({ pa
   await page.keyboard.press("ArrowDown");
   const targetCell = getTableCellTextbox(page, 5);
   await waitForEditableFocusWithin(targetCell);
-  await page.keyboard.press("End");
+  await moveCaretToTableCellBoundaryByKeyboard(page, 5, "end");
   await page.keyboard.press("ArrowDown");
   const secondParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
   await waitForSelectionWithin(secondParagraph);
@@ -534,13 +782,415 @@ test("moves ArrowDown out of the table from the other last-row cell", async ({ p
   await page.keyboard.press("ArrowDown");
   const targetCell = getTableCellTextbox(page, 4);
   await waitForEditableFocusWithin(targetCell);
-  await page.keyboard.press("End");
+  await moveCaretToTableCellBoundaryByKeyboard(page, 4, "end");
   await page.keyboard.press("ArrowDown");
   const secondParagraph = page.locator('[contenteditable="true"][aria-label="Markdown editor"] > p').nth(1);
   await waitForSelectionWithin(secondParagraph);
   await page.keyboard.type("D");
 
   await expect(secondParagraph).toHaveText("Domega");
+});
+
+test("saves Shift+Enter table-cell breaks as canonical br tags", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("bar");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br />bar");
+  expect(uploadBodies[0]).not.toContain("A1&#10;bar");
+});
+
+test("saves consecutive Shift+Enter table-cell breaks as repeated canonical br tags", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("bar");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br /><br />bar");
+  expect(uploadBodies[0]).not.toContain("A1&#10;&#xA;bar");
+});
+
+test("deletes across an internal Shift+Enter break and saves the joined canonical cell content", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("b");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("c");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Backspace");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br />bc");
+  expect(uploadBodies[0]).not.toContain("A1<br />b<br />c");
+});
+
+test("undoes and redoes Shift+Enter table-cell edits before saving", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("b");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("c");
+  await page.keyboard.press("Control+Z");
+  await page.keyboard.press("Control+Z");
+  await page.keyboard.press("Control+Y");
+  await page.keyboard.press("Control+Y");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br />b<br />c");
+});
+
+test("moves the caret left and back right across the final internal Shift+Enter break", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("b");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("c");
+
+  const targetCell = getTableCellTextbox(page, 2);
+  const endingOffset = await getCaretTextOffset(targetCell);
+
+  expect(endingOffset).not.toBeNull();
+
+  await page.keyboard.press("ArrowLeft");
+  await waitForEditableFocusWithin(targetCell);
+  await expect.poll(() => getCaretTextOffset(targetCell)).toBe((endingOffset ?? 0) - 1);
+
+  await page.keyboard.press("ArrowRight");
+  await waitForEditableFocusWithin(targetCell);
+  await expect.poll(() => getCaretTextOffset(targetCell)).toBe(endingOffset);
+
+  await page.keyboard.type("X");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br />b<br />cX");
+});
+
+test("moves the caret left across the first internal Shift+Enter break and inserts before the next line", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("b");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("c");
+
+  const targetCell = getTableCellTextbox(page, 2);
+  await moveCaretToTextNodeBoundary(targetCell, "b", "start");
+
+  await page.keyboard.press("ArrowLeft");
+  await waitForEditableFocusWithin(targetCell);
+  await page.keyboard.type("X");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1X<br />b<br />c");
+});
+
+test("reloads and structurally renders saved consecutive Shift+Enter breaks inside the table cell", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+    persistUploadedMarkdown: true,
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("bar");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br /><br />bar");
+
+  await page.reload();
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+
+  const firstDataCell = page.locator("table td").first();
+  await expect(firstDataCell).toBeVisible();
+  await expect.poll(() => firstDataCell.evaluate((element) => element.querySelectorAll("br").length)).toBe(2);
+});
+
+test("saves, reloads, and renders a loaded empty internal table-cell line as canonical br tags", async ({ page }) => {
+  const uploadBodies: string[] = [];
+
+  await mockMarkdownViewerApi(page, loadedEmptyInternalLineMarkdown, {
+    onUploadBody: (body) => {
+      uploadBodies.push(body);
+    },
+    persistUploadedMarkdown: true,
+  });
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  const targetCell = getTableCellTextbox(page, 2);
+  await moveCaretToLoadedEmptyInternalLine(targetCell);
+  await page.keyboard.type("s");
+
+  const saveButton = page.getByRole("button", { name: "Save" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
+
+  await expect.poll(() => uploadBodies.length).toBe(1);
+  expect(uploadBodies[0]).toContain("A1<br />s<br />A3");
+  expect(uploadBodies[0]).not.toContain("A1<br /><br />s</br>A3");
+
+  await page.reload();
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+
+  const firstDataCell = page.locator("table td").first();
+  await expect(firstDataCell).toBeVisible();
+  await expect.poll(() => firstDataCell.evaluate((element) => element.querySelectorAll("br").length)).toBe(2);
+  await expect(firstDataCell).toContainText("A1");
+  await expect(firstDataCell).toContainText("s");
+  await expect(firstDataCell).toContainText("A3");
+});
+
+test("switches to source mode after typing into a loaded empty internal table-cell line with canonical br tags", async ({ page }) => {
+  await mockMarkdownViewerApi(page, loadedEmptyInternalLineMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  const targetCell = getTableCellTextbox(page, 2);
+  await moveCaretToLoadedEmptyInternalLine(targetCell);
+  await page.keyboard.type("s");
+
+  const sourceModeToggle = page.getByRole("radio", { name: "Source mode" });
+  await expect(sourceModeToggle).toBeVisible();
+  await sourceModeToggle.click();
+
+  const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
+  await expect(sourceEditor).toBeVisible();
+
+  await expect.poll(() => getCodeMirrorDocumentText(sourceEditor)).toContain("A1<br />s<br />A3");
+  expect(await getCodeMirrorDocumentText(sourceEditor)).not.toContain("A1<br /><br />s</br>A3");
+});
+
+test("switches to source mode after a trailing Shift+Enter without persisting the unsupported trailing break", async ({ page }) => {
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+
+  await page.keyboard.press("Shift+Enter");
+
+  const sourceModeToggle = page.getByRole("radio", { name: "Source mode" });
+  await expect(sourceModeToggle).toBeVisible();
+  await sourceModeToggle.click();
+
+  const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
+  await expect(sourceEditor).toBeVisible();
+
+  const sourceText = await getCodeMirrorDocumentText(sourceEditor);
+  expect(sourceText).toContain("A1");
+  expect(sourceText).not.toMatch(/A1<br\s*\/>/);
+});
+
+test("switches to source mode after Shift+Enter plus continued typing with canonical br tags", async ({ page }) => {
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("bar");
+
+  const sourceModeToggle = page.getByRole("radio", { name: "Source mode" });
+  await expect(sourceModeToggle).toBeVisible();
+  await sourceModeToggle.click();
+
+  const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
+  await expect(sourceEditor).toBeVisible();
+
+  await expect.poll(() => getCodeMirrorDocumentText(sourceEditor)).toContain("A1<br />bar");
+  expect(await getCodeMirrorDocumentText(sourceEditor)).not.toContain("A1&#xA;bar");
+});
+
+test("mobile toolbar can switch to source mode after Shift+Enter without persisting a trailing break", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+  await page.keyboard.press("Shift+Enter");
+
+  const moreActionsButton = page.getByRole("button", { name: "More actions" });
+  await expect(moreActionsButton).toBeVisible();
+  await moreActionsButton.click();
+
+  const sourceModeMenuItem = page.getByRole("menuitem", { name: "Source mode" });
+  await expect(sourceModeMenuItem).toBeVisible();
+  await sourceModeMenuItem.click();
+
+  const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
+  await expect(sourceEditor).toBeVisible();
+
+  const sourceText = await getCodeMirrorDocumentText(sourceEditor);
+  expect(sourceText).toContain("A1");
+  expect(sourceText).not.toMatch(/A1<br\s*\/>/);
+});
+
+test("mobile toolbar switches to source mode after Shift+Enter plus continued typing with canonical br tags", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockMarkdownViewerApi(page, tableCellNavigationMarkdown);
+
+  await page.goto("/browse/smb/demo");
+  await page.getByRole("button", { name: `File: ${demoPath}` }).click();
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+
+  await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("bar");
+
+  const moreActionsButton = page.getByRole("button", { name: "More actions" });
+  await expect(moreActionsButton).toBeVisible();
+  await moreActionsButton.click();
+
+  const sourceModeMenuItem = page.getByRole("menuitem", { name: "Source mode" });
+  await expect(sourceModeMenuItem).toBeVisible();
+  await sourceModeMenuItem.click();
+
+  const sourceEditor = page.locator('.cm-content[role="textbox"]').first();
+  await expect(sourceEditor).toBeVisible();
+
+  await expect.poll(() => getCodeMirrorDocumentText(sourceEditor)).toContain("A1<br />bar");
+  expect(await getCodeMirrorDocumentText(sourceEditor)).not.toContain("A1&#xA;bar");
 });
 
 test("enters markdown edit mode without refetching the file or remounting the editor subtree", async ({ page }) => {

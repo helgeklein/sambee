@@ -3,7 +3,18 @@
 ## Markdown viewer
 
 - Tables:
-   - We need a way to insert newlines into table cells. Currently, `Enter` (alone or in combination with `Shift` or `Alt`) moves to the cell below.
+   - Optimize controls accoring to MARKDOWN_TABLE_CONTROLS_RESERVED_GUTTER_IMPLEMENTATION_PLAN.md.
+- Code blocks:
+   - Show tools/controls only when the cursor is in the code block or the mouse is hovering above it.
+      - Specifically: language selector for syntax highlighting and trashcan.
+   - Move the language selector for syntax highlighting:
+      - Move it directly beneath the bottom right of the code block.
+      - Adjust keyboard navigation so that leaving the block with the arrow keys moves the cursor to the language selector.
+      - Depending on whether scrolling in the language selector's list of languages needs to be activated with Shift or works with arrow down immediately, allow leaving the language selector with arrow down or tab.
+
+## Mobile
+
+- Browsers use default font colors (and, likely fonts) for file list links (file and directory list items). This doesn't happen on desktop and must have been introduced on mobile relatively recently.
 
 ## File list
 

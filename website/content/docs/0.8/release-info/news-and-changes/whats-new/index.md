@@ -35,11 +35,13 @@ Opening in natively installed apps:
 - To open a file in the associated native app, press <kbd>Ctrl + Enter</kbd> (or right-click and select **open in native app**).
 - If no associated native app has been choosen yet or if <kbd>Ctrl + Alt + Enter</kbd> is pressed, an app picker dialog is shown.
 
-## Markdown Editor: UX
+## Markdown Editor: UX & Table Features
 
 The Markdown editor got a makeover to improve UX and align the styling with Sambee's theme for all supported components, e.g., tables.
 
-The fact that rich text mode uses independent sub-editors for table cells, for example, should not matter to users. Navigation within Markdown documents should feel natural. That is now the case: you can seamlessly move the cursor across element borders, i.e., between code blocks, tables, and, of course, paragraphs. You can also move between table cells with the arrow keys as you've come to expect it from many other apps.
+The fact that rich text mode uses independent sub-editors for table cells, for example, should not matter to users. Navigation within Markdown documents should feel natural. That is now the case: you can **seamlessly move the cursor** across element borders, i.e., between code blocks, tables, and, of course, paragraphs. You can also move between table cells with the arrow keys as you've come to expect it from many other apps.
+
+Markdown's historical limitations sometimes still shine through in unexpected places. One such thing is the inability of many Markdown tools to deal with newlines in table cells: they simply don't provide any way to add line breaks and display breaks in existing MD files as literal HTML `<br>` tags. This was the case for Sambee's Markdown editor component, MDXEditor, too. It took a surprisingly large effort to find and implement a way around the built-in limitation, but it was certainly worth it: you can now **structure your table cells by adding newlines**, simulating paragraphs in regular text copy outside tables.
 
 ## PDF Viewer
 
