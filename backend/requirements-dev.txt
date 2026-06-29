@@ -3,9 +3,9 @@ pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pytest-xdist==3.8.0
 black==26.5.1
-ruff==0.15.18
+ruff==0.15.20
 mypy==2.1.0
 httpx==0.28.1
 faker==40.23.0
-ipython==9.14.1
+ipython==9.15.0
 rich==15.0.0
