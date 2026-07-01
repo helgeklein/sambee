@@ -843,6 +843,10 @@ export const EN_TRANSLATIONS = {
       discardConfirm: "Discard unsaved changes?",
       closeConfirm: "You have unsaved changes. Close the viewer anyway?",
       editorLabel: "Markdown editor",
+      editorLoadTitle: "Editor failed to load",
+      editorLoadMessage:
+        "The markdown editor could not be loaded. Your draft is still kept in memory. Retry the editor or return to the read-only preview.",
+      editorLoadFailedReason: "The editor code could not be loaded.",
       editorCrashTitle: "Editor unavailable",
       editorCrashMessage:
         "The markdown editor encountered an internal error. Your draft is still kept in memory. Retry the editor or return to the read-only preview.",

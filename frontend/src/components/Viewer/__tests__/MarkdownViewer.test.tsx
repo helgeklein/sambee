@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import apiService from "../../../services/api";
@@ -6,6 +6,26 @@ import { SambeeThemeProvider } from "../../../theme";
 import MarkdownViewer from "../MarkdownViewer";
 import { normalizeMarkdownTableCellLineBreaks } from "../markdownTableCellLineBreaks";
 import { createViewerSearchTestDriver } from "./viewerSearchTestUtils";
+
+const { mockEnsureLexicalPrism, mockResetLexicalPrismForRetry } = vi.hoisted(() => ({
+  mockEnsureLexicalPrism: vi.fn(),
+  mockResetLexicalPrismForRetry: vi.fn(),
+}));
+
+const { mockLoadMarkdownRichEditor } = vi.hoisted(() => ({
+  mockLoadMarkdownRichEditor: vi.fn(),
+}));
+
+vi.mock("../ensureLexicalPrism", () => ({
+  ensureLexicalPrism: mockEnsureLexicalPrism,
+  resetLexicalPrismForRetry: mockResetLexicalPrismForRetry,
+}));
+
+vi.mock("../loadMarkdownRichEditor", () => ({
+  loadMarkdownRichEditor: mockLoadMarkdownRichEditor,
+}));
+
+configure({ asyncUtilTimeout: 5000 });
 
 const mockMarkdownEditorBehavior = {
   canonicalMarkdownOverride: null as string | null,
@@ -44,293 +64,286 @@ const mockEditLockInfo = {
   locked_at: "2026-03-23T12:00:00Z",
 };
 
-vi.mock("../MarkdownRichEditor", () => {
-  const MockMarkdownRichEditor = forwardRef<
-    {
-      focus: () => void;
-      flushPendingEdits: () => Promise<void>;
-      getCanonicalMarkdown: () => string;
-      preserveSelection: () => void;
-      restorePreservedSelection: () => boolean;
-      focusCurrentSearchResult: () => boolean;
-      nextSearchResult: () => void;
-      previousSearchResult: () => void;
-      createLink: () => void;
-      insertTable: () => void;
-      insertThematicBreak: () => void;
-      toggleInlineCode: () => void;
-      insertCodeBlock: () => void;
-    },
-    {
-      markdown: string;
-      onChange: (markdown: string) => void;
-      onUserEdit?: () => void;
-      ariaLabel: string;
-      autoFocus?: boolean;
-      readOnly?: boolean;
-      className?: string;
-      searchText?: string;
-      searchOpen?: boolean;
-      onSearchStateChange?: (state: {
-        searchText: string;
-        searchMatches: number;
-        currentMatch: number;
-        isSearchOpen: boolean;
-        isSearchable: boolean;
-        viewMode: "rich-text" | "source" | "diff";
-      }) => void;
+const MockMarkdownRichEditor = forwardRef<
+  {
+    focus: () => void;
+    flushPendingEdits: () => Promise<void>;
+    getCanonicalMarkdown: () => string;
+    preserveSelection: () => void;
+    restorePreservedSelection: () => boolean;
+    focusCurrentSearchResult: () => boolean;
+    nextSearchResult: () => void;
+    previousSearchResult: () => void;
+    createLink: () => void;
+    insertTable: () => void;
+    insertThematicBreak: () => void;
+    toggleInlineCode: () => void;
+    insertCodeBlock: () => void;
+  },
+  {
+    markdown: string;
+    onChange: (markdown: string) => void;
+    onUserEdit?: () => void;
+    ariaLabel: string;
+    autoFocus?: boolean;
+    readOnly?: boolean;
+    className?: string;
+    searchText?: string;
+    searchOpen?: boolean;
+    onSearchStateChange?: (state: {
+      searchText: string;
+      searchMatches: number;
+      currentMatch: number;
+      isSearchOpen: boolean;
+      isSearchable: boolean;
+      viewMode: "rich-text" | "source" | "diff";
+    }) => void;
+  }
+>(
+  (
+    { markdown, onChange, onUserEdit, ariaLabel, readOnly = false, className, searchText = "", searchOpen = false, onSearchStateChange },
+    ref
+  ) => {
+    if (mockMarkdownEditorBehavior.throwOnRender) {
+      throw new Error("Editor render failed");
     }
-  >(
-    (
-      { markdown, onChange, onUserEdit, ariaLabel, readOnly = false, className, searchText = "", searchOpen = false, onSearchStateChange },
-      ref
-    ) => {
-      if (mockMarkdownEditorBehavior.throwOnRender) {
-        throw new Error("Editor render failed");
+
+    mockMarkdownEditorBehavior.lastSearchOpen = searchOpen;
+    mockMarkdownEditorBehavior.lastSearchText = searchText;
+
+    const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
+    const previousMarkdownRef = useRef(markdown);
+    const latestMarkdownRef = useRef(markdown);
+    const preservedSelectionRef = useRef<{
+      type: "textarea";
+      start: number;
+      end: number;
+      direction: "forward" | "backward" | "none";
+      scrollTop: number;
+    } | null>(null);
+    const [currentMatch, setCurrentMatch] = useState(0);
+
+    useEffect(() => {
+      if (!searchOpen || !searchText) {
+        setCurrentMatch(0);
+        return;
       }
 
-      mockMarkdownEditorBehavior.lastSearchOpen = searchOpen;
-      mockMarkdownEditorBehavior.lastSearchText = searchText;
+      setCurrentMatch(1);
+    }, [searchOpen, searchText]);
 
-      const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-      const toolbarButtonRef = useRef<HTMLButtonElement | null>(null);
-      const previousMarkdownRef = useRef(markdown);
-      const latestMarkdownRef = useRef(markdown);
-      const preservedSelectionRef = useRef<{
-        type: "textarea";
-        start: number;
-        end: number;
-        direction: "forward" | "backward" | "none";
-        scrollTop: number;
-      } | null>(null);
-      const [currentMatch, setCurrentMatch] = useState(0);
+    useEffect(() => {
+      onSearchStateChange?.({
+        searchText,
+        searchMatches: searchText ? 2 : 0,
+        currentMatch: searchText ? currentMatch : 0,
+        isSearchOpen: searchOpen,
+        isSearchable: true,
+        viewMode: "rich-text",
+      });
+    }, [currentMatch, onSearchStateChange, searchOpen, searchText]);
 
-      useEffect(() => {
-        if (!searchOpen || !searchText) {
-          setCurrentMatch(0);
+    useEffect(() => {
+      if (mockMarkdownEditorBehavior.focusEditableBeforeInitialChange) {
+        textareaRef.current?.focus();
+      }
+
+      if (mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange && toolbarButtonRef.current) {
+        toolbarButtonRef.current.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      }
+
+      if (mockMarkdownEditorBehavior.initialNormalizedMarkdown !== null) {
+        onChange(mockMarkdownEditorBehavior.initialNormalizedMarkdown);
+      }
+    }, [onChange]);
+
+    useEffect(() => {
+      latestMarkdownRef.current = markdown;
+      const textarea = textareaRef.current;
+
+      if (
+        !textarea ||
+        previousMarkdownRef.current === markdown ||
+        !mockMarkdownEditorBehavior.moveCaretToEndOnMarkdownPropChangeWhenFocused ||
+        document.activeElement !== textarea
+      ) {
+        previousMarkdownRef.current = markdown;
+        return;
+      }
+
+      textarea.setSelectionRange(markdown.length, markdown.length);
+      previousMarkdownRef.current = markdown;
+    }, [markdown]);
+
+    useImperativeHandle(ref, () => ({
+      focus: () => {
+        if (mockMarkdownEditorBehavior.delayFocus) {
+          window.setTimeout(() => {
+            if (mockMarkdownEditorBehavior.focusResetsScrollPosition && textareaRef.current) {
+              textareaRef.current.scrollTop = 0;
+            }
+            textareaRef.current?.focus({ preventScroll: true });
+          }, 72);
           return;
         }
 
-        setCurrentMatch(1);
-      }, [searchOpen, searchText]);
-
-      useEffect(() => {
-        onSearchStateChange?.({
-          searchText,
-          searchMatches: searchText ? 2 : 0,
-          currentMatch: searchText ? currentMatch : 0,
-          isSearchOpen: searchOpen,
-          isSearchable: true,
-          viewMode: "rich-text",
-        });
-      }, [currentMatch, onSearchStateChange, searchOpen, searchText]);
-
-      useEffect(() => {
-        if (mockMarkdownEditorBehavior.focusEditableBeforeInitialChange) {
-          textareaRef.current?.focus();
+        if (mockMarkdownEditorBehavior.focusResetsScrollPosition && textareaRef.current) {
+          textareaRef.current.scrollTop = 0;
         }
 
-        if (mockMarkdownEditorBehavior.emitNonEditableInputBeforeInitialChange && toolbarButtonRef.current) {
-          toolbarButtonRef.current.dispatchEvent(new InputEvent("input", { bubbles: true }));
-        }
-
-        if (mockMarkdownEditorBehavior.initialNormalizedMarkdown !== null) {
-          onChange(mockMarkdownEditorBehavior.initialNormalizedMarkdown);
-        }
-      }, [onChange]);
-
-      useEffect(() => {
-        latestMarkdownRef.current = markdown;
+        textareaRef.current?.focus({ preventScroll: true });
+      },
+      preserveSelection: () => {
+        mockMarkdownEditorBehavior.preserveSelectionCalls += 1;
         const textarea = textareaRef.current;
 
-        if (
-          !textarea ||
-          previousMarkdownRef.current === markdown ||
-          !mockMarkdownEditorBehavior.moveCaretToEndOnMarkdownPropChangeWhenFocused ||
-          document.activeElement !== textarea
-        ) {
-          previousMarkdownRef.current = markdown;
+        if (!textarea) {
+          preservedSelectionRef.current = null;
           return;
         }
 
-        textarea.setSelectionRange(markdown.length, markdown.length);
-        previousMarkdownRef.current = markdown;
-      }, [markdown]);
+        preservedSelectionRef.current = {
+          type: "textarea",
+          start: textarea.selectionStart,
+          end: textarea.selectionEnd,
+          direction: textarea.selectionDirection ?? "none",
+          scrollTop: textarea.scrollTop,
+        };
+      },
+      restorePreservedSelection: () => {
+        mockMarkdownEditorBehavior.restorePreservedSelectionCalls += 1;
+        const textarea = textareaRef.current;
 
-      useImperativeHandle(ref, () => ({
-        focus: () => {
-          if (mockMarkdownEditorBehavior.delayFocus) {
-            window.setTimeout(() => {
-              if (mockMarkdownEditorBehavior.focusResetsScrollPosition && textareaRef.current) {
-                textareaRef.current.scrollTop = 0;
-              }
-              textareaRef.current?.focus({ preventScroll: true });
-            }, 72);
-            return;
-          }
+        if (!textarea) {
+          return false;
+        }
 
-          if (mockMarkdownEditorBehavior.focusResetsScrollPosition && textareaRef.current) {
-            textareaRef.current.scrollTop = 0;
-          }
+        textarea.focus({ preventScroll: true });
 
-          textareaRef.current?.focus({ preventScroll: true });
-        },
-        preserveSelection: () => {
-          mockMarkdownEditorBehavior.preserveSelectionCalls += 1;
-          const textarea = textareaRef.current;
-
-          if (!textarea) {
-            preservedSelectionRef.current = null;
-            return;
-          }
-
-          preservedSelectionRef.current = {
-            type: "textarea",
-            start: textarea.selectionStart,
-            end: textarea.selectionEnd,
-            direction: textarea.selectionDirection ?? "none",
-            scrollTop: textarea.scrollTop,
-          };
-        },
-        restorePreservedSelection: () => {
-          mockMarkdownEditorBehavior.restorePreservedSelectionCalls += 1;
-          const textarea = textareaRef.current;
-
-          if (!textarea) {
-            return false;
-          }
-
-          textarea.focus({ preventScroll: true });
-
-          if (!preservedSelectionRef.current) {
-            return document.activeElement === textarea;
-          }
-
-          textarea.setSelectionRange(
-            preservedSelectionRef.current.start,
-            preservedSelectionRef.current.end,
-            preservedSelectionRef.current.direction
-          );
-          textarea.scrollTop = preservedSelectionRef.current.scrollTop;
-          mockMarkdownEditorBehavior.lastRestoredScrollTop = preservedSelectionRef.current.scrollTop;
-          const restored = document.activeElement === textarea;
-
-          if (restored) {
-            preservedSelectionRef.current = null;
-          }
-
-          return restored;
-        },
-        flushPendingEdits: () => {
-          if (mockMarkdownEditorBehavior.flushRejectError) {
-            return Promise.reject(mockMarkdownEditorBehavior.flushRejectError);
-          }
-
-          return Promise.resolve();
-        },
-        getCanonicalMarkdown: () => {
-          if (mockMarkdownEditorBehavior.throwOnCanonicalExport) {
-            throw mockMarkdownEditorBehavior.throwOnCanonicalExport;
-          }
-
-          return mockMarkdownEditorBehavior.canonicalMarkdownOverride ?? latestMarkdownRef.current;
-        },
-        focusCurrentSearchResult: () => {
-          mockMarkdownEditorBehavior.focusCurrentSearchResultCalls += 1;
-          const textarea = textareaRef.current;
-
-          if (!textarea) {
-            return false;
-          }
-
-          textarea.focus({ preventScroll: true });
+        if (!preservedSelectionRef.current) {
           return document.activeElement === textarea;
-        },
-        nextSearchResult: () => {
-          if (!searchText) {
+        }
+
+        textarea.setSelectionRange(
+          preservedSelectionRef.current.start,
+          preservedSelectionRef.current.end,
+          preservedSelectionRef.current.direction
+        );
+        textarea.scrollTop = preservedSelectionRef.current.scrollTop;
+        mockMarkdownEditorBehavior.lastRestoredScrollTop = preservedSelectionRef.current.scrollTop;
+        const restored = document.activeElement === textarea;
+
+        if (restored) {
+          preservedSelectionRef.current = null;
+        }
+
+        return restored;
+      },
+      flushPendingEdits: () => {
+        if (mockMarkdownEditorBehavior.flushRejectError) {
+          return Promise.reject(mockMarkdownEditorBehavior.flushRejectError);
+        }
+
+        return Promise.resolve();
+      },
+      getCanonicalMarkdown: () => {
+        if (mockMarkdownEditorBehavior.throwOnCanonicalExport) {
+          throw mockMarkdownEditorBehavior.throwOnCanonicalExport;
+        }
+
+        return mockMarkdownEditorBehavior.canonicalMarkdownOverride ?? latestMarkdownRef.current;
+      },
+      focusCurrentSearchResult: () => {
+        mockMarkdownEditorBehavior.focusCurrentSearchResultCalls += 1;
+        const textarea = textareaRef.current;
+
+        if (!textarea) {
+          return false;
+        }
+
+        textarea.focus({ preventScroll: true });
+        return document.activeElement === textarea;
+      },
+      nextSearchResult: () => {
+        if (!searchText) {
+          return;
+        }
+
+        setCurrentMatch((previousMatch) => (previousMatch >= 2 ? 1 : previousMatch + 1));
+      },
+      previousSearchResult: () => {
+        if (!searchText) {
+          return;
+        }
+
+        setCurrentMatch((previousMatch) => (previousMatch <= 1 ? 2 : previousMatch - 1));
+      },
+      createLink: () => {
+        mockMarkdownEditorCommands.createLink();
+      },
+      insertTable: () => {
+        mockMarkdownEditorCommands.insertTable();
+      },
+      insertThematicBreak: () => {
+        mockMarkdownEditorCommands.insertThematicBreak();
+      },
+      toggleInlineCode: () => {
+        mockMarkdownEditorCommands.toggleInlineCode();
+      },
+      insertCodeBlock: () => {
+        if (mockMarkdownEditorBehavior.throwOnInsertCodeBlock) {
+          throw new Error("Insert code block failed");
+        }
+
+        mockMarkdownEditorCommands.insertCodeBlock();
+      },
+    }));
+
+    return (
+      <div
+        className={className}
+        onChangeCapture={(event) => {
+          if (!mockMarkdownEditorBehavior.skipUserEdit) {
             return;
           }
 
-          setCurrentMatch((previousMatch) => (previousMatch >= 2 ? 1 : previousMatch + 1));
-        },
-        previousSearchResult: () => {
-          if (!searchText) {
-            return;
+          const target = event.target;
+          if (target instanceof HTMLTextAreaElement) {
+            onUserEdit?.();
           }
-
-          setCurrentMatch((previousMatch) => (previousMatch <= 1 ? 2 : previousMatch - 1));
-        },
-        createLink: () => {
-          mockMarkdownEditorCommands.createLink();
-        },
-        insertTable: () => {
-          mockMarkdownEditorCommands.insertTable();
-        },
-        insertThematicBreak: () => {
-          mockMarkdownEditorCommands.insertThematicBreak();
-        },
-        toggleInlineCode: () => {
-          mockMarkdownEditorCommands.toggleInlineCode();
-        },
-        insertCodeBlock: () => {
-          if (mockMarkdownEditorBehavior.throwOnInsertCodeBlock) {
-            throw new Error("Insert code block failed");
-          }
-
-          mockMarkdownEditorCommands.insertCodeBlock();
-        },
-      }));
-
-      return (
-        <div
-          className={className}
-          onChangeCapture={(event) => {
-            if (!mockMarkdownEditorBehavior.skipUserEdit) {
+        }}
+      >
+        <button ref={toolbarButtonRef} type="button">
+          Toolbar action
+        </button>
+        <textarea
+          ref={textareaRef}
+          aria-label={ariaLabel}
+          value={markdown}
+          readOnly={readOnly}
+          onChange={(event) => {
+            if (mockMarkdownEditorBehavior.skipUserEdit) {
+              onChange(event.target.value);
               return;
             }
 
-            const target = event.target;
-            if (target instanceof HTMLTextAreaElement) {
-              onUserEdit?.();
-            }
-          }}
-        >
-          <button ref={toolbarButtonRef} type="button">
-            Toolbar action
-          </button>
-          <textarea
-            ref={textareaRef}
-            aria-label={ariaLabel}
-            value={markdown}
-            readOnly={readOnly}
-            onChange={(event) => {
-              if (mockMarkdownEditorBehavior.skipUserEdit) {
-                onChange(event.target.value);
-                return;
-              }
-
-              if (mockMarkdownEditorBehavior.changeBeforeUserEdit) {
-                onChange(event.target.value);
-                onUserEdit?.();
-                return;
-              }
-
-              onUserEdit?.();
+            if (mockMarkdownEditorBehavior.changeBeforeUserEdit) {
               onChange(event.target.value);
-            }}
-          />
-        </div>
-      );
-    }
-  );
+              onUserEdit?.();
+              return;
+            }
 
-  MockMarkdownRichEditor.displayName = "MockMarkdownRichEditor";
+            onUserEdit?.();
+            onChange(event.target.value);
+          }}
+        />
+      </div>
+    );
+  }
+);
 
-  return {
-    __esModule: true,
-    default: MockMarkdownRichEditor,
-  };
-});
+MockMarkdownRichEditor.displayName = "MockMarkdownRichEditor";
 
 describe("MarkdownViewer", () => {
   const viewerSearch = createViewerSearchTestDriver({
@@ -366,6 +379,11 @@ describe("MarkdownViewer", () => {
     localStorage.clear();
     localStorage.setItem("access_token", "mock-token");
     vi.restoreAllMocks();
+    mockEnsureLexicalPrism.mockReset();
+    mockEnsureLexicalPrism.mockResolvedValue(undefined);
+    mockLoadMarkdownRichEditor.mockReset();
+    mockLoadMarkdownRichEditor.mockResolvedValue({ default: MockMarkdownRichEditor });
+    mockResetLexicalPrismForRetry.mockReset();
     mockMarkdownEditorBehavior.changeBeforeUserEdit = false;
     mockMarkdownEditorBehavior.canonicalMarkdownOverride = null;
     mockMarkdownEditorBehavior.delayFocus = false;
@@ -454,6 +472,37 @@ describe("MarkdownViewer", () => {
     });
     expect(acquireLockSpy).toHaveBeenCalledWith("conn1", "/docs/readme.md", expect.any(String));
     expect(getFileContentSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries loading the editor after a transient Prism bootstrap failure", async () => {
+    vi.spyOn(apiService, "getFileContent").mockResolvedValueOnce("# Readme\n");
+    vi.spyOn(apiService, "supportsEditLocks").mockReturnValue(true);
+    vi.spyOn(apiService, "releaseEditLock").mockResolvedValue();
+    vi.spyOn(apiService, "acquireEditLock").mockResolvedValueOnce({
+      lock_id: "lock-1",
+      file_path: "/docs/readme.md",
+      locked_by: "alice",
+      locked_at: "2026-03-23T12:00:00Z",
+    });
+    mockEnsureLexicalPrism.mockRejectedValueOnce(new Error("Loading Prism failed")).mockResolvedValueOnce(undefined);
+
+    renderViewer();
+
+    await screen.findByText("Readme");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(await screen.findByText("Editor failed to load")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry editor" }));
+
+    await waitFor(() => {
+      expect(mockResetLexicalPrismForRetry).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Markdown editor" })).toBeInTheDocument();
+    });
+    expect(mockEnsureLexicalPrism).toHaveBeenCalledTimes(2);
   });
 
   it("resets the viewer scroll position when entering edit mode", async () => {
@@ -1757,7 +1806,9 @@ describe("MarkdownViewer", () => {
 
     fireEvent.keyDown(document, { key: "h", ctrlKey: true, altKey: true });
 
-    expect(mockMarkdownEditorCommands.insertThematicBreak).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(mockMarkdownEditorCommands.insertThematicBreak).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("inserts a code block from the markdown shortcut", async () => {
@@ -1786,6 +1837,7 @@ describe("MarkdownViewer", () => {
 
     await screen.findByText("Alpha");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await vi.dynamicImportSettled();
 
     await screen.findByText("Editor unavailable");
 
@@ -1808,6 +1860,7 @@ describe("MarkdownViewer", () => {
 
     await screen.findByText("Alpha");
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    await vi.dynamicImportSettled();
     await screen.findByRole("textbox", { name: "Markdown editor" });
 
     fireEvent.keyDown(document, { key: "E", ctrlKey: true, shiftKey: true });
