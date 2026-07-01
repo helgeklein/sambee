@@ -4090,6 +4090,10 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
       ref,
       () => ({
         focus: () => {
+          if (focusEditableArea()) {
+            return;
+          }
+
           editorRef.current?.focus();
           requestAnimationFrame(() => {
             focusEditableArea();
@@ -4173,14 +4177,17 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
 
       let autofocusComplete = false;
       let cleanupRetryFocus: (() => void) | null = null;
+      let verificationFrameId: number | null = null;
       const interactionRoot = containerRef.current;
 
-      const handleFocusIn = (event: FocusEvent) => {
-        const target = event.target;
+      const hasEditableFocus = () => {
+        const activeElement = document.activeElement;
 
-        if (target instanceof HTMLElement && target.matches('[contenteditable="true"], textarea')) {
-          stopAutoFocus();
-        }
+        return (
+          activeElement instanceof HTMLElement &&
+          interactionRoot?.contains(activeElement) === true &&
+          activeElement.matches('[contenteditable="true"], textarea')
+        );
       };
 
       const observer = new MutationObserver(() => {
@@ -4193,8 +4200,11 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
         }
 
         autofocusComplete = true;
+        if (verificationFrameId !== null) {
+          cancelAnimationFrame(verificationFrameId);
+          verificationFrameId = null;
+        }
         observer.disconnect();
-        interactionRoot?.removeEventListener("focusin", handleFocusIn);
         cleanupRetryFocus?.();
       };
 
@@ -4203,23 +4213,43 @@ const MarkdownRichEditor = forwardRef<MarkdownRichEditorHandle, MarkdownRichEdit
           return;
         }
 
-        editorRef.current?.focus();
-
-        if (focusEditableArea()) {
+        if (hasEditableFocus()) {
           stopAutoFocus();
+          return;
         }
+
+        if (!focusEditableArea()) {
+          editorRef.current?.focus();
+          focusEditableArea();
+        }
+
+        if (verificationFrameId !== null) {
+          cancelAnimationFrame(verificationFrameId);
+        }
+
+        verificationFrameId = requestAnimationFrame(() => {
+          verificationFrameId = null;
+
+          if (hasEditableFocus()) {
+            stopAutoFocus();
+          }
+        });
       };
 
       cleanupRetryFocus = scheduleRetriableFocusRestore({
         delaysMs: MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
         attemptRestore: () => {
+          if (hasEditableFocus()) {
+            stopAutoFocus();
+            return true;
+          }
+
           attemptFocus();
           return autofocusComplete;
         },
       });
 
       if (interactionRoot) {
-        interactionRoot.addEventListener("focusin", handleFocusIn);
         observer.observe(interactionRoot, { childList: true, subtree: true });
       }
 
