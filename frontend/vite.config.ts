@@ -105,6 +105,7 @@ export default defineConfig({
       "/api": {
         target: BACKEND_PROXY_TARGET,
         changeOrigin: true,
+        ws: true,
         timeout: BACKEND_PROXY_TIMEOUT_MS,
         proxyTimeout: BACKEND_PROXY_TIMEOUT_MS,
         configure(proxy) {
