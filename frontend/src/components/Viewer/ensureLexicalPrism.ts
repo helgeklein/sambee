@@ -5,22 +5,26 @@ type PrismGlobal = typeof globalThis & {
   Prism?: unknown;
 };
 
-const PRISM_LANGUAGE_MODULES = [
-  "prismjs/components/prism-clike",
-  "prismjs/components/prism-javascript",
-  "prismjs/components/prism-markup",
-  "prismjs/components/prism-markdown",
-  "prismjs/components/prism-c",
-  "prismjs/components/prism-css",
-  "prismjs/components/prism-objectivec",
-  "prismjs/components/prism-sql",
-  "prismjs/components/prism-powershell",
-  "prismjs/components/prism-python",
-  "prismjs/components/prism-rust",
-  "prismjs/components/prism-swift",
-  "prismjs/components/prism-typescript",
-  "prismjs/components/prism-java",
-  "prismjs/components/prism-cpp",
+const PRISM_LANGUAGE_LOADERS = [
+  // Keep these as explicit import expressions so Vite can rewrite and bundle
+  // the Prism component modules for the browser. `import(someVariable)` with
+  // bare package specifiers leaves resolution to the runtime loader and fails
+  // in edit mode.
+  () => import("prismjs/components/prism-clike.js"),
+  () => import("prismjs/components/prism-javascript.js"),
+  () => import("prismjs/components/prism-markup.js"),
+  () => import("prismjs/components/prism-markdown.js"),
+  () => import("prismjs/components/prism-c.js"),
+  () => import("prismjs/components/prism-css.js"),
+  () => import("prismjs/components/prism-objectivec.js"),
+  () => import("prismjs/components/prism-sql.js"),
+  () => import("prismjs/components/prism-powershell.js"),
+  () => import("prismjs/components/prism-python.js"),
+  () => import("prismjs/components/prism-rust.js"),
+  () => import("prismjs/components/prism-swift.js"),
+  () => import("prismjs/components/prism-typescript.js"),
+  () => import("prismjs/components/prism-java.js"),
+  () => import("prismjs/components/prism-cpp.js"),
 ] as const;
 
 export async function ensureLexicalPrism(): Promise<void> {
@@ -46,8 +50,8 @@ export async function ensureLexicalPrism(): Promise<void> {
         (window as Window & { Prism?: unknown }).Prism = prismInstance;
       }
 
-      for (const languageModule of PRISM_LANGUAGE_MODULES) {
-        await import(languageModule);
+      for (const loadLanguageModule of PRISM_LANGUAGE_LOADERS) {
+        await loadLanguageModule();
       }
 
       prismReady = true;
