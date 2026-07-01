@@ -47,6 +47,7 @@ import {
   MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS,
   MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
+  MARKDOWN_VIEWER_UNSAVED_DIALOG_AUTOFOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
 } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
@@ -298,12 +299,18 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   // Auto-focus the content when loaded so keyboard scrolling works
   useEffect(() => {
-    if (!loading && !error && !isEditing && contentRef.current) {
-      // Small delay to ensure dialog transition is complete
-      setTimeout(() => {
-        focusViewerContent();
-      }, MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS);
+    if (loading || error || isEditing || !contentRef.current) {
+      return;
     }
+
+    // Small delay to ensure dialog transition is complete.
+    const timeoutId = window.setTimeout(() => {
+      focusViewerContent();
+    }, MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [error, focusViewerContent, isEditing, loading]);
 
   useEffect(() => {
@@ -753,6 +760,30 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     setPendingUnsavedChangesAction(null);
   }, [isSaving]);
+
+  useEffect(() => {
+    if (!unsavedChangesDialogOpen) {
+      return;
+    }
+
+    return scheduleRetriableFocusRestore({
+      delaysMs: MARKDOWN_VIEWER_UNSAVED_DIALOG_AUTOFOCUS_DELAYS_MS,
+      attemptRestore: () => {
+        const cancelButton = unsavedChangesCancelButtonRef.current;
+
+        if (!cancelButton || cancelButton.disabled) {
+          return false;
+        }
+
+        if (document.activeElement === cancelButton) {
+          return true;
+        }
+
+        cancelButton.focus();
+        return document.activeElement === cancelButton;
+      },
+    });
+  }, [unsavedChangesDialogOpen]);
 
   const handleUnsavedChangesDialogExited = useCallback(() => {
     const cleanupFocus = restoreEditingFocus();
@@ -1219,6 +1250,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         maxWidth={false}
         fullScreen
         ref={dialogRef}
+        disableEnforceFocus
         sx={{
           "& .MuiDialog-container": {
             alignItems: "stretch",
@@ -1474,6 +1506,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         open={unsavedChangesDialogOpen}
         onClose={handleUnsavedChangesDialogClose}
         aria-labelledby="markdown-unsaved-changes-title"
+        disableAutoFocus
+        disableEnforceFocus
         disableRestoreFocus
         slotProps={{
           transition: {
