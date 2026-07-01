@@ -11,7 +11,17 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { type ErrorInfo, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ErrorInfo,
+  type ForwardRefExoticComponent,
+  memo,
+  type RefAttributes,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -38,14 +48,18 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
+import { ensureLexicalPrism, resetLexicalPrismForRetry } from "./ensureLexicalPrism";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
+import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
-import { default as MarkdownRichEditor, type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
+import type { MarkdownRichEditorHandle, MarkdownRichEditorProps, MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
 import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import {
+  MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
   MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS,
   MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
+  MARKDOWN_VIEWER_UNSAVED_DIALOG_AUTOFOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_UNSAVED_DIALOG_RESTORE_FOCUS_DELAY_MS,
 } from "./markdownEditorConstants";
 import { areMarkdownSearchStatesEqual } from "./markdownSearchState";
@@ -62,6 +76,12 @@ const MDX_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(
 const MDX_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(MdxFocusSearch)";
 const MARKDOWN_HASH_PREFIX = "#";
 const MARKDOWN_SUPPORTED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+const MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS = [
+  ...MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
+  ...MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
+];
+
+type MarkdownRichEditorComponent = ForwardRefExoticComponent<MarkdownRichEditorProps & RefAttributes<MarkdownRichEditorHandle>>;
 
 function resolveMarkdownLinkHref(href: string): string | null {
   const trimmedHref = href.trim();
@@ -110,6 +130,7 @@ function getEditorErrorMessage(error: unknown, fallbackMessage: string): string 
 
 type PendingUnsavedChangesAction = "cancel-edit" | "close-viewer" | "stay-edit";
 type MarkdownSearchCloseReason = "escape" | "toggle";
+type EditorModuleLoadState = "idle" | "loading" | "loaded" | "failed";
 
 function preserveMarkdownEditorSelection(editorRef: React.RefObject<MarkdownRichEditorHandle | null>): void {
   editorRef.current?.preserveSelection();
@@ -140,6 +161,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [editorBoundaryKey, setEditorBoundaryKey] = useState(0);
   const [editorFailed, setEditorFailed] = useState(false);
+  const [editorLoadState, setEditorLoadState] = useState<EditorModuleLoadState>("idle");
+  const [editorLoadError, setEditorLoadError] = useState<Error | null>(null);
+  const [editorLoadNonce, setEditorLoadNonce] = useState(0);
+  const [EditorComponent, setEditorComponent] = useState<MarkdownRichEditorComponent | null>(null);
   const [pendingUnsavedChangesAction, setPendingUnsavedChangesAction] = useState<PendingUnsavedChangesAction | null>(null);
   const [editorSearchState, setEditorSearchState] = useState<MarkdownRichEditorSearchState>({
     searchText: "",
@@ -160,6 +185,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const editBaselineContentRef = useRef("");
   const isEditingRef = useRef(false);
+  const editorLoadStateRef = useRef<EditorModuleLoadState>("idle");
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -216,9 +242,67 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     isEditingRef.current = isEditing;
   }, [isEditing]);
 
+  useEffect(() => {
+    editorLoadStateRef.current = editorLoadState;
+  }, [editorLoadState]);
+
   const handleEditorSearchStateChange = useCallback((nextState: MarkdownRichEditorSearchState) => {
     setEditorSearchState((previousState) => (areMarkdownSearchStatesEqual(previousState, nextState) ? previousState : nextState));
   }, []);
+
+  useEffect(() => {
+    if (!isEditing) {
+      return;
+    }
+
+    // Do not key this effect off editorLoadState. It sets that state itself,
+    // and including it here causes the cleanup to cancel the in-flight load.
+    if (EditorComponent || editorLoadStateRef.current === "loading") {
+      return;
+    }
+
+    let cancelled = false;
+
+    setEditorLoadState("loading");
+    setEditorLoadError(null);
+
+    void (async () => {
+      try {
+        await ensureLexicalPrism();
+        const module = await loadMarkdownRichEditor();
+
+        if (cancelled) {
+          return;
+        }
+
+        setEditorComponent(() => module.default as MarkdownRichEditorComponent);
+        setEditorLoadState("loaded");
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const resolvedError = error instanceof Error ? error : new Error(t("viewer.edit.editorLoadFailedReason"));
+        setEditorLoadError(resolvedError);
+        setEditorLoadState("failed");
+        logError(
+          "Markdown editor failed to load",
+          {
+            error,
+            path,
+            connectionId,
+            nonce: editorLoadNonce,
+          },
+          "viewer",
+          resolvedError
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [EditorComponent, connectionId, editorLoadNonce, isEditing, path, t]);
 
   const {
     beginBaselineSyncWindow,
@@ -292,20 +376,26 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   // Auto-focus the content when loaded so keyboard scrolling works
   useEffect(() => {
-    if (!loading && !error && !isEditing && contentRef.current) {
-      // Small delay to ensure dialog transition is complete
-      setTimeout(() => {
-        focusViewerContent();
-      }, MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS);
-    }
-  }, [error, focusViewerContent, isEditing, loading]);
-
-  useEffect(() => {
-    if (!isEditing || !editorRef.current) {
+    if (loading || error || isEditing || !contentRef.current) {
       return;
     }
 
-    const timeoutIds = MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS.map((delayMs) =>
+    // Small delay to ensure dialog transition is complete.
+    const timeoutId = window.setTimeout(() => {
+      focusViewerContent();
+    }, MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [error, focusViewerContent, isEditing, loading]);
+
+  useEffect(() => {
+    if (!isEditing || editorLoadState !== "loaded" || editorLoadError || !EditorComponent) {
+      return;
+    }
+
+    const timeoutIds = MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS.map((delayMs) =>
       window.setTimeout(() => {
         editorRef.current?.focus();
       }, delayMs)
@@ -316,7 +406,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         window.clearTimeout(timeoutId);
       }
     };
-  }, [isEditing]);
+  }, [EditorComponent, editorLoadError, editorLoadState, isEditing]);
 
   useEffect(() => {
     if (!isEditing) {
@@ -547,6 +637,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       setEditBaselineContent(nextContent);
       markEditSessionPristine();
       setEditError(null);
+      setEditorLoadError(null);
       setEditorFailed(false);
       setEditorBoundaryKey((previousKey) => previousKey + 1);
       setIsEditing(false);
@@ -578,6 +669,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     }
 
     setEditError(null);
+    setEditorLoadError(null);
 
     try {
       if (supportsEditLocks) {
@@ -591,6 +683,13 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       clearPendingBaselineSync();
       beginBaselineSyncWindow();
       markEditSessionPristine();
+      setEditorLoadState((previousState) => {
+        if (EditorComponent) {
+          return "loaded";
+        }
+
+        return previousState === "failed" ? "idle" : previousState;
+      });
       setEditorFailed(false);
       setEditorBoundaryKey((previousKey) => previousKey + 1);
       setIsEditing(true);
@@ -604,6 +703,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     clearPendingBaselineSync,
     connectionId,
     content,
+    EditorComponent,
     error,
     isReadOnly,
     loading,
@@ -747,6 +847,30 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     setPendingUnsavedChangesAction(null);
   }, [isSaving]);
+
+  useEffect(() => {
+    if (!unsavedChangesDialogOpen) {
+      return;
+    }
+
+    return scheduleRetriableFocusRestore({
+      delaysMs: MARKDOWN_VIEWER_UNSAVED_DIALOG_AUTOFOCUS_DELAYS_MS,
+      attemptRestore: () => {
+        const cancelButton = unsavedChangesCancelButtonRef.current;
+
+        if (!cancelButton || cancelButton.disabled) {
+          return false;
+        }
+
+        if (document.activeElement === cancelButton) {
+          return true;
+        }
+
+        cancelButton.focus();
+        return document.activeElement === cancelButton;
+      },
+    });
+  }, [unsavedChangesDialogOpen]);
 
   const handleUnsavedChangesDialogExited = useCallback(() => {
     const cleanupFocus = restoreEditingFocus();
@@ -902,7 +1026,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
   const runEditorCommand = useCallback(
     (commandLabel: string, command: () => void) => {
-      if (!isEditing || editorFailed) {
+      if (!isEditing || editorFailed || editorLoadState !== "loaded" || editorLoadError || !EditorComponent) {
         return;
       }
 
@@ -916,7 +1040,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         logError("Markdown editor command failed", { error: err, path, connectionId, command: commandLabel });
       }
     },
-    [connectionId, editorFailed, isEditing, path, t]
+    [EditorComponent, connectionId, editorFailed, editorLoadError, editorLoadState, isEditing, path, t]
   );
 
   const handleEditorCrashed = useCallback(
@@ -930,8 +1054,18 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const handleRetryEditor = useCallback(() => {
     setEditError(null);
     setEditorFailed(false);
+    setEditorLoadError(null);
+
+    if (editorLoadState === "failed") {
+      resetLexicalPrismForRetry();
+      setEditorComponent(null);
+      setEditorLoadState("idle");
+      setEditorLoadNonce((previousValue) => previousValue + 1);
+      return;
+    }
+
     setEditorBoundaryKey((previousKey) => previousKey + 1);
-  }, []);
+  }, [editorLoadState]);
 
   const handleToggleInlineCode = useCallback(() => {
     runEditorCommand(t("viewer.shortcuts.inlineCode"), () => {
@@ -1140,7 +1274,9 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     ]
   );
 
-  const isSearchable = isEditing ? !editorFailed && editorSearchState.isSearchable : !loading && !error && content.trim().length > 0;
+  const isSearchable = isEditing
+    ? !editorFailed && editorLoadState === "loaded" && !editorLoadError && editorSearchState.isSearchable
+    : !loading && !error && content.trim().length > 0;
 
   useKeyboardShortcuts({
     active: !showHelp,
@@ -1158,7 +1294,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                 void handleSave();
               },
               isMobile,
-              disabled: isSaving,
+              disabled: isSaving || editorLoadState !== "loaded" || !!editorLoadError,
             }),
           ]
         : [
@@ -1175,7 +1311,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   }),
                 ]),
           ],
-    [error, handleEnterEditMode, handleSave, isEditing, isMobile, isReadOnly, isSaving, loading]
+    [editorLoadError, editorLoadState, error, handleEnterEditMode, handleSave, isEditing, isMobile, isReadOnly, isSaving, loading]
   );
 
   // Log when markdown viewer opens
@@ -1213,6 +1349,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         maxWidth={false}
         fullScreen
         ref={dialogRef}
+        disableEnforceFocus
         sx={{
           "& .MuiDialog-container": {
             alignItems: "stretch",
@@ -1355,33 +1492,68 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                   },
                 }}
               >
-                <MarkdownEditorErrorBoundary
-                  key={editorBoundaryKey}
-                  title={t("viewer.edit.editorCrashTitle")}
-                  description={t("viewer.edit.editorCrashMessage")}
-                  retryLabel={t("viewer.edit.retryEditor")}
-                  returnToPreviewLabel={t("viewer.edit.returnToPreview")}
-                  onError={handleEditorCrashed}
-                  onRetry={handleRetryEditor}
-                  onReturnToPreview={() => {
-                    void handleCancelEdit();
-                  }}
-                >
-                  <MarkdownRichEditor
-                    ref={editorRef}
-                    className="sambee-markdown-editor"
-                    markdown={draftContent}
-                    diffMarkdown={content}
-                    onChange={handleEditorChange}
-                    onUserEdit={handleEditorUserEdit}
-                    ariaLabel={t("viewer.edit.editorLabel")}
-                    autoFocus={true}
-                    readOnly={editorShouldBeReadOnly}
-                    searchText={activeEditorSearchText}
-                    searchOpen={searchPanelOpen}
-                    onSearchStateChange={handleEditorSearchStateChange}
-                  />
-                </MarkdownEditorErrorBoundary>
+                {editorLoadState === "loading" ? (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      height: "100%",
+                    }}
+                  >
+                    <CircularProgress />
+                  </Box>
+                ) : editorLoadError ? (
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2, py: 2 }}>
+                    <Alert severity="error">
+                      <Box component="div" sx={{ fontWeight: 600, mb: 0.5 }}>
+                        {t("viewer.edit.editorLoadTitle")}
+                      </Box>
+                      {t("viewer.edit.editorLoadMessage")}
+                    </Alert>
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                      <Button variant="contained" onClick={handleRetryEditor}>
+                        {t("viewer.edit.retryEditor")}
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => {
+                          void handleCancelEdit();
+                        }}
+                      >
+                        {t("viewer.edit.returnToPreview")}
+                      </Button>
+                    </Box>
+                  </Box>
+                ) : EditorComponent ? (
+                  <MarkdownEditorErrorBoundary
+                    key={editorBoundaryKey}
+                    title={t("viewer.edit.editorCrashTitle")}
+                    description={t("viewer.edit.editorCrashMessage")}
+                    retryLabel={t("viewer.edit.retryEditor")}
+                    returnToPreviewLabel={t("viewer.edit.returnToPreview")}
+                    onError={handleEditorCrashed}
+                    onRetry={handleRetryEditor}
+                    onReturnToPreview={() => {
+                      void handleCancelEdit();
+                    }}
+                  >
+                    <EditorComponent
+                      ref={editorRef}
+                      className="sambee-markdown-editor"
+                      markdown={draftContent}
+                      diffMarkdown={content}
+                      onChange={handleEditorChange}
+                      onUserEdit={handleEditorUserEdit}
+                      ariaLabel={t("viewer.edit.editorLabel")}
+                      autoFocus={true}
+                      readOnly={editorShouldBeReadOnly}
+                      searchText={activeEditorSearchText}
+                      searchOpen={searchPanelOpen}
+                      onSearchStateChange={handleEditorSearchStateChange}
+                    />
+                  </MarkdownEditorErrorBoundary>
+                ) : null}
               </Box>
             ) : (
               <Box
@@ -1453,6 +1625,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
         open={unsavedChangesDialogOpen}
         onClose={handleUnsavedChangesDialogClose}
         aria-labelledby="markdown-unsaved-changes-title"
+        disableAutoFocus
+        disableEnforceFocus
         disableRestoreFocus
         slotProps={{
           transition: {

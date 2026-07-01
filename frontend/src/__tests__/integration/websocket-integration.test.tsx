@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildServerWebSocketUrl } from "../../services/serverWebsocket";
 
 describe("Server WebSocket URL", () => {
-  it("uses the backend dev port and includes the auth token", () => {
+  it("uses the current page origin in dev and includes the auth token", () => {
     const wsUrl = buildServerWebSocketUrl(
       {
         protocol: "http:",
@@ -13,7 +13,7 @@ describe("Server WebSocket URL", () => {
       "mock-token"
     );
 
-    expect(wsUrl).toBe("ws://localhost:8000/api/ws?token=mock-token");
+    expect(wsUrl).toBe("ws://localhost:3000/api/ws?token=mock-token");
   });
 
   it("uses the current production port when present", () => {
@@ -65,6 +65,6 @@ describe("Server WebSocket URL", () => {
       "token with spaces/+?"
     );
 
-    expect(wsUrl).toBe("ws://localhost:8000/api/ws?token=token%20with%20spaces%2F%2B%3F");
+    expect(wsUrl).toBe("ws://localhost:3000/api/ws?token=token%20with%20spaces%2F%2B%3F");
   });
 });

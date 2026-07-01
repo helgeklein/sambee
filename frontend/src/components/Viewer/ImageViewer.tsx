@@ -406,7 +406,13 @@ const ImageViewer: React.FC<ViewerComponentProps> = ({
                 pointerEvents: "none",
               }}
             >
-              <Box color="error.main" textAlign="center" px={2}>
+              <Box
+                sx={{
+                  color: "error.main",
+                  textAlign: "center",
+                  px: 2,
+                }}
+              >
                 {error}
               </Box>
             </Box>
