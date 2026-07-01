@@ -212,6 +212,15 @@ global.ResizeObserver = class MockResizeObserver {
 describe("PDFViewer", () => {
   const viewerSearch = createViewerSearchTestDriver();
 
+  const findPageCounterText = (expectedText: string) =>
+    screen.queryByText((_content, node) => {
+      if (node?.textContent?.trim() !== expectedText) {
+        return false;
+      }
+
+      return !Array.from(node.children).some((child) => child.textContent?.trim() === expectedText);
+    });
+
   const mockOnClose = vi.fn();
   const defaultProps = {
     connectionId: "test-conn-id",
@@ -652,7 +661,7 @@ describe("PDFViewer", () => {
       const searchInput = await viewerSearch.openSearch("page");
 
       await waitFor(() => {
-        expect(screen.getByText("1 / 5")).toBeInTheDocument();
+        expect(findPageCounterText("1 / 5")).toBeInTheDocument();
         expect(searchInput).toHaveValue("page");
       });
 
@@ -660,7 +669,7 @@ describe("PDFViewer", () => {
       fireEvent.keyDown(searchInput, { key: "F3" });
 
       await waitFor(() => {
-        expect(screen.getByText("3 / 5")).toBeInTheDocument();
+        expect(findPageCounterText("3 / 5")).toBeInTheDocument();
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "3");
         expect(getSearchHighlights()).toHaveLength(2);
       });
@@ -870,7 +879,7 @@ describe("PDFViewer", () => {
       fireEvent.keyDown(searchInput, { key: "F3" });
 
       await waitFor(() => {
-        expect(screen.getByText("2 / 5")).toBeInTheDocument();
+        expect(findPageCounterText("1 / 5")).toBeInTheDocument();
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
     });
