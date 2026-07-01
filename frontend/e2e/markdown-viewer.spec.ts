@@ -201,7 +201,19 @@ async function openMarkdownEditor(page: Page, markdown = initialMarkdown) {
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
+}
+
+async function waitForMarkdownEditorReady(page: Page) {
+  const editor = page.getByRole("textbox", { name: "Markdown editor" });
+  const saveButton = page.getByRole("button", { name: "Save" });
+
+  await expect(editor).toBeVisible();
+  await expect(saveButton).toBeVisible();
+  // The viewer schedules several focus-retry passes after entering edit mode.
+  // Table-cell caret tests are boundary-sensitive, so wait until that window
+  // has elapsed before taking over selection programmatically.
+  await page.waitForTimeout(400);
 }
 
 async function getCodeMirrorDocumentText(locator: Locator) {
@@ -600,6 +612,7 @@ test("moves ArrowDown from a code block into the adjacent table", async ({ page 
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
+  await waitForMarkdownEditorReady(page);
 
   await page.locator('.cm-content[role="textbox"]').first().waitFor();
 
@@ -645,6 +658,7 @@ test("moves ArrowUp selection out of a code block after returning from the adjac
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
+  await waitForMarkdownEditorReady(page);
 
   await page.locator('.cm-content[role="textbox"]').first().waitFor();
 
@@ -803,7 +817,7 @@ test("saves Shift+Enter table-cell breaks as canonical br tags", async ({ page }
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
 
@@ -860,7 +874,7 @@ test("deletes across an internal Shift+Enter break and saves the joined canonica
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
 
@@ -892,7 +906,7 @@ test("undoes and redoes Shift+Enter table-cell edits before saving", async ({ pa
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
 
@@ -925,7 +939,7 @@ test("moves the caret left and back right across the final internal Shift+Enter 
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
 
@@ -969,7 +983,7 @@ test("moves the caret left across the first internal Shift+Enter break and inser
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
 
@@ -1006,7 +1020,7 @@ test("reloads and structurally renders saved consecutive Shift+Enter breaks insi
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
 
@@ -1120,7 +1134,7 @@ test("switches to source mode after Shift+Enter plus continued typing with canon
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
   await page.keyboard.press("Shift+Enter");
@@ -1144,7 +1158,7 @@ test("mobile toolbar can switch to source mode after Shift+Enter without persist
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
   await page.keyboard.press("Shift+Enter");
@@ -1172,7 +1186,7 @@ test("mobile toolbar switches to source mode after Shift+Enter plus continued ty
   await page.goto("/browse/smb/demo");
   await page.getByRole("button", { name: `File: ${demoPath}` }).click();
   await page.getByRole("button", { name: "Edit" }).click();
-  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toBeVisible();
+  await waitForMarkdownEditorReady(page);
 
   await moveCaretToTableCellBoundaryByKeyboard(page, 2, "end");
   await page.keyboard.press("Shift+Enter");

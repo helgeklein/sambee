@@ -42,7 +42,7 @@ import { BROWSER_SHORTCUTS, COMMON_SHORTCUTS, COPY_MOVE_SHORTCUTS, PANE_SHORTCUT
 import { useCompanion } from "../hooks/useCompanion";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import api from "../services/api";
-import { markBackendAvailable, markBackendReconnecting, useBackendAvailability } from "../services/backendAvailability";
+import { markBackendAvailable, useBackendAvailability } from "../services/backendAvailability";
 import { subscribeBackendRecoveryReconnect } from "../services/backendRecoveryEvents";
 import { isLocalDrive, mergeConnections } from "../services/backendRouter";
 import {
@@ -324,6 +324,9 @@ const Browser: React.FC = () => {
     isDualMode && quickBarFocusedFile !== undefined && canCopyToConnection(quickBarPaneConnection, quickBarOtherPaneConnection);
   const quickBarCanMoveToOtherPane =
     isDualMode && quickBarFocusedFile !== undefined && canMoveBetweenConnections(quickBarPaneConnection, quickBarOtherPaneConnection);
+  const hasVisibleLocalDrivePane =
+    Boolean(leftPane.connectionId && isLocalDrive(leftPane.connectionId)) ||
+    Boolean(isDualMode && rightPane.connectionId && isLocalDrive(rightPane.connectionId));
 
   useEffect(() => {
     if ((!isDualMode || !rightPane.connectionId) && quickBarPaneId === "right") {
@@ -917,7 +920,6 @@ const Browser: React.FC = () => {
           return;
         }
 
-        markBackendReconnecting("WebSocket disconnected");
         logger.warn("WebSocket disconnected", { wsUrl, willReconnect: !disposed }, "websocket");
         if (activeWs === ws) {
           activeWs = null;
@@ -970,9 +972,9 @@ const Browser: React.FC = () => {
    * since the browser WebSocket API does not support custom headers.
    * Reconnects independently from the server WebSocket.
    */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: handleDirectoryChanged refs are stable; companion.status drives connect/disconnect.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: handleDirectoryChanged refs are stable; companion/local pane state drives connect/disconnect.
   useEffect(() => {
-    if (companion.status !== "paired") return;
+    if (companion.status !== "paired" || !hasVisibleLocalDrivePane) return;
 
     let disposed = false;
     let activeWs: WebSocket | null = null;
@@ -1094,7 +1096,7 @@ const Browser: React.FC = () => {
       }
       companionWsRef.current = null;
     };
-  }, [companion.status]);
+  }, [companion.status, hasVisibleLocalDrivePane]);
 
   // Subscribe/unsubscribe when either pane's directory changes.
   // Returns a cleanup function that unsubscribes from the paths that were
