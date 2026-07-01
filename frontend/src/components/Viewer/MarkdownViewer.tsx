@@ -48,10 +48,10 @@ import type { ViewerComponentProps } from "../../utils/FileTypeRegistry";
 import { blurActiveToolbarControl } from "../../utils/keyboardUtils";
 import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supportsNativeShare } from "../../utils/nativeShare";
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
-import { scheduleRetriableFocusRestore } from "./focusRestoration";
-import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import { ensureLexicalPrism, resetLexicalPrismForRetry } from "./ensureLexicalPrism";
+import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import { loadMarkdownRichEditor } from "./loadMarkdownRichEditor";
+import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
 import type { MarkdownRichEditorHandle, MarkdownRichEditorProps, MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
 import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import {
@@ -185,6 +185,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   const editSessionIdRef = useRef(typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
   const editBaselineContentRef = useRef("");
   const isEditingRef = useRef(false);
+  const editorLoadStateRef = useRef<EditorModuleLoadState>("idle");
   const fetchWithRetry = useApiRetry();
 
   const { currentTheme } = useSambeeTheme();
@@ -241,6 +242,10 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     isEditingRef.current = isEditing;
   }, [isEditing]);
 
+  useEffect(() => {
+    editorLoadStateRef.current = editorLoadState;
+  }, [editorLoadState]);
+
   const handleEditorSearchStateChange = useCallback((nextState: MarkdownRichEditorSearchState) => {
     setEditorSearchState((previousState) => (areMarkdownSearchStatesEqual(previousState, nextState) ? previousState : nextState));
   }, []);
@@ -252,7 +257,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
 
     // Do not key this effect off editorLoadState. It sets that state itself,
     // and including it here causes the cleanup to cancel the in-flight load.
-    if (EditorComponent || editorLoadState === "loading") {
+    if (EditorComponent || editorLoadStateRef.current === "loading") {
       return;
     }
 
@@ -664,7 +669,7 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
     }
 
     setEditError(null);
-  setEditorLoadError(null);
+    setEditorLoadError(null);
 
     try {
       if (supportsEditLocks) {

@@ -100,7 +100,10 @@ const MockMarkdownRichEditor = forwardRef<
     }) => void;
   }
 >(
-  ({ markdown, onChange, onUserEdit, ariaLabel, readOnly = false, className, searchText = "", searchOpen = false, onSearchStateChange }, ref) => {
+  (
+    { markdown, onChange, onUserEdit, ariaLabel, readOnly = false, className, searchText = "", searchOpen = false, onSearchStateChange },
+    ref
+  ) => {
     if (mockMarkdownEditorBehavior.throwOnRender) {
       throw new Error("Editor render failed");
     }
