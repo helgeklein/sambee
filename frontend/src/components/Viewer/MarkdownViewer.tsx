@@ -250,6 +250,8 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
       return;
     }
 
+    // Do not key this effect off editorLoadState. It sets that state itself,
+    // and including it here causes the cleanup to cancel the in-flight load.
     if (EditorComponent || editorLoadState === "loading") {
       return;
     }

@@ -34,6 +34,8 @@ export async function ensureLexicalPrism(): Promise<void> {
 
   prismSetupPromise = (async () => {
     try {
+      // Lexical's code-highlighting path expects Prism to exist on the global
+      // object before the Prism language bundles evaluate.
       const prismModule = await import("prismjs");
       const prismInstance = prismModule.default ?? prismModule;
       const prismGlobal = globalThis as PrismGlobal;
@@ -50,6 +52,8 @@ export async function ensureLexicalPrism(): Promise<void> {
 
       prismReady = true;
     } catch (error) {
+      // A failed bootstrap must stay retryable. Caching a rejected promise here
+      // makes the editor permanently unloadable until a full page refresh.
       prismSetupPromise = null;
       throw error;
     }
