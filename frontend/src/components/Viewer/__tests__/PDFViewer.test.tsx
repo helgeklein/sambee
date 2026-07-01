@@ -872,14 +872,14 @@ describe("PDFViewer", () => {
 
       await waitFor(() => {
         expect(searchInput).toHaveFocus();
-        expect(screen.getByText("1 / 5")).toBeInTheDocument();
+        expect(findPageCounterText("1 / 5")).toBeInTheDocument();
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "1");
       });
 
       fireEvent.keyDown(searchInput, { key: "F3" });
 
       await waitFor(() => {
-        expect(findPageCounterText("1 / 5")).toBeInTheDocument();
+        expect(findPageCounterText("2 / 5")).toBeInTheDocument();
         expect(screen.getByTestId("pdf-page")).toHaveAttribute("data-page", "2");
       });
     });
