@@ -11,7 +11,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { type ErrorInfo, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ErrorInfo, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -40,9 +40,10 @@ import { createShareFile, shareNativeContent, shouldWarmNativeSharePayload, supp
 import { KeyboardShortcutsHelp } from "../KeyboardShortcutsHelp";
 import { scheduleRetriableFocusRestore } from "./focusRestoration";
 import MarkdownEditorErrorBoundary from "./MarkdownEditorErrorBoundary";
-import { default as MarkdownRichEditor, type MarkdownRichEditorHandle, type MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
+import type { MarkdownRichEditorHandle, MarkdownRichEditorSearchState } from "./MarkdownRichEditor";
 import { emitMarkdownDebugTrace } from "./markdownDebugTrace";
 import {
+  MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
   MARKDOWN_VIEWER_CONTENT_AUTOFOCUS_DELAY_MS,
   MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
   MARKDOWN_VIEWER_RESTORE_FOCUS_DELAYS_MS,
@@ -62,6 +63,11 @@ const MDX_EDITOR_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(
 const MDX_EDITOR_CURRENT_SEARCH_MATCH_SELECTOR = "& .sambee-markdown-editor ::highlight(MdxFocusSearch)";
 const MARKDOWN_HASH_PREFIX = "#";
 const MARKDOWN_SUPPORTED_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+const MarkdownRichEditor = lazy(() => import("./MarkdownRichEditor"));
+const MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS = [
+  ...MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS,
+  ...MARKDOWN_EDITOR_AUTOFOCUS_RETRY_DELAYS_MS,
+];
 
 function resolveMarkdownLinkHref(href: string): string | null {
   const trimmedHref = href.trim();
@@ -301,11 +307,11 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
   }, [error, focusViewerContent, isEditing, loading]);
 
   useEffect(() => {
-    if (!isEditing || !editorRef.current) {
+    if (!isEditing) {
       return;
     }
 
-    const timeoutIds = MARKDOWN_VIEWER_ENTER_EDIT_FOCUS_DELAYS_MS.map((delayMs) =>
+    const timeoutIds = MARKDOWN_VIEWER_EDIT_FOCUS_RETRY_DELAYS_MS.map((delayMs) =>
       window.setTimeout(() => {
         editorRef.current?.focus();
       }, delayMs)
@@ -1367,20 +1373,35 @@ export const MarkdownViewer: React.FC<ViewerComponentProps> = ({ connectionId, p
                     void handleCancelEdit();
                   }}
                 >
-                  <MarkdownRichEditor
-                    ref={editorRef}
-                    className="sambee-markdown-editor"
-                    markdown={draftContent}
-                    diffMarkdown={content}
-                    onChange={handleEditorChange}
-                    onUserEdit={handleEditorUserEdit}
-                    ariaLabel={t("viewer.edit.editorLabel")}
-                    autoFocus={true}
-                    readOnly={editorShouldBeReadOnly}
-                    searchText={activeEditorSearchText}
-                    searchOpen={searchPanelOpen}
-                    onSearchStateChange={handleEditorSearchStateChange}
-                  />
+                  <Suspense
+                    fallback={
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          height: "100%",
+                        }}
+                      >
+                        <CircularProgress />
+                      </Box>
+                    }
+                  >
+                    <MarkdownRichEditor
+                      ref={editorRef}
+                      className="sambee-markdown-editor"
+                      markdown={draftContent}
+                      diffMarkdown={content}
+                      onChange={handleEditorChange}
+                      onUserEdit={handleEditorUserEdit}
+                      ariaLabel={t("viewer.edit.editorLabel")}
+                      autoFocus={true}
+                      readOnly={editorShouldBeReadOnly}
+                      searchText={activeEditorSearchText}
+                      searchOpen={searchPanelOpen}
+                      onSearchStateChange={handleEditorSearchStateChange}
+                    />
+                  </Suspense>
                 </MarkdownEditorErrorBoundary>
               </Box>
             ) : (

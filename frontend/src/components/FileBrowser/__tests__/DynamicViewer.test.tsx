@@ -2,8 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DynamicViewer } from "../DynamicViewer";
 
-const { mockGetViewerComponentLoadResult } = vi.hoisted(() => ({
+const { mockGetViewerComponentLoadResult, mockLogger } = vi.hoisted(() => ({
   mockGetViewerComponentLoadResult: vi.fn(),
+  mockLogger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+  },
+}));
+
+vi.mock("../../../services/logger", () => ({
+  logger: mockLogger,
 }));
 
 vi.mock("../../../utils/FileTypeRegistry", async () => {
@@ -54,6 +63,18 @@ describe("DynamicViewer", () => {
     expect(await screen.findByRole("dialog", { name: /viewer unavailable/i })).toBeInTheDocument();
     expect(screen.getByText(/loading chunk 42 failed/i)).toBeInTheDocument();
     expect(screen.getByText(/the file browser is still available/i)).toBeInTheDocument();
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "DynamicViewer: Viewer component failed to load",
+      expect.objectContaining({
+        errorMessage: "Loading chunk 42 failed",
+        isLikelyAssetLoadFailure: true,
+        mimeType: "application/pdf",
+        path: "/docs/file.pdf",
+        sessionId: "session-1",
+      }),
+      "viewer",
+      expect.any(Error)
+    );
   });
 
   it("retries loading the viewer component from the failure dialog", async () => {

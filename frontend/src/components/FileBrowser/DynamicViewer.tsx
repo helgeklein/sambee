@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { translate } from "../../i18n";
 import { logger } from "../../services/logger";
 import type { ViewerComponentLoadResult, ViewerComponent as ViewerComponentType } from "../../utils/FileTypeRegistry";
-import { getViewerComponentLoadResult } from "../../utils/FileTypeRegistry";
+import { getViewerComponentLoadResult, getViewerLoadErrorDiagnostics } from "../../utils/FileTypeRegistry";
 
 interface DynamicViewerProps {
   connectionId: string;
@@ -130,6 +130,21 @@ export const DynamicViewer = memo(function DynamicViewer({
         if (result.status === "loaded") {
           setLoadState({ status: "loaded", component: result.component });
         } else if (result.status === "failed") {
+          logger.error(
+            "DynamicViewer: Viewer component failed to load",
+            {
+              loadAttempt,
+              mimeType: viewInfo.mimeType,
+              path: viewInfo.path,
+              sessionId: viewInfo.sessionId,
+              viewerId: viewInfo.viewerId,
+              online: typeof navigator !== "undefined" ? navigator.onLine : undefined,
+              pageUrl: typeof window !== "undefined" ? window.location.href : undefined,
+              ...getViewerLoadErrorDiagnostics(result.error),
+            },
+            "viewer",
+            result.error instanceof Error ? result.error : undefined
+          );
           setLoadState({ status: "failed", error: result.error });
         } else {
           setLoadState({ status: "unsupported" });
@@ -140,7 +155,7 @@ export const DynamicViewer = memo(function DynamicViewer({
     return () => {
       mounted = false;
     };
-  }, [retryToken, viewInfo.mimeType, viewInfo.sessionId, viewInfo.viewerId]);
+  }, [retryToken, viewInfo.mimeType, viewInfo.path, viewInfo.sessionId, viewInfo.viewerId]);
 
   useEffect(() => {
     if (loadState.status !== "loaded") {

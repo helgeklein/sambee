@@ -41,6 +41,14 @@ export type ViewerComponentLoadResult =
   | { status: "unsupported" }
   | { status: "failed"; error: unknown };
 
+interface ViewerLoadErrorDiagnostics {
+  errorCode?: string;
+  errorMessage?: string;
+  errorName: string;
+  errorStack?: string;
+  isLikelyAssetLoadFailure: boolean;
+}
+
 export type FileCategory = "image" | "document" | "text" | "video" | "audio" | "archive" | "code" | "spreadsheet" | "directory" | "other";
 
 // Icon identifier - matches icon names from fileIcons.tsx
@@ -86,6 +94,64 @@ const VIEWER_DEFINITIONS: Record<ViewerId, ViewerDefinition & { loader: () => Pr
     loader: pdfViewerComponentLoader,
   },
 };
+
+const ASSET_LOAD_FAILURE_PATTERN =
+  /ChunkLoadError|Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk .* failed|CSS_CHUNK_LOAD_FAILED/i;
+
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) {
+      return message.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function getErrorName(error: unknown): string {
+  if (error instanceof Error && error.name.trim()) {
+    return error.name.trim();
+  }
+
+  if (typeof error === "object" && error !== null && "name" in error) {
+    const name = (error as { name?: unknown }).name;
+    if (typeof name === "string" && name.trim()) {
+      return name.trim();
+    }
+  }
+
+  return typeof error;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return undefined;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code.trim() : undefined;
+}
+
+export function getViewerLoadErrorDiagnostics(error: unknown): ViewerLoadErrorDiagnostics {
+  const errorMessage = getErrorMessage(error);
+  const errorName = getErrorName(error);
+  const errorCode = getErrorCode(error);
+
+  return {
+    errorCode,
+    errorMessage,
+    errorName,
+    errorStack: error instanceof Error ? error.stack : undefined,
+    isLikelyAssetLoadFailure: Boolean(
+      (errorMessage && ASSET_LOAD_FAILURE_PATTERN.test(errorMessage)) || (errorCode && ASSET_LOAD_FAILURE_PATTERN.test(errorCode))
+    ),
+  };
+}
 
 // ============================================================================
 // Registry Data
@@ -766,7 +832,15 @@ export const getViewerComponentLoadResultForViewer = async (viewerId: ViewerId):
     const module = await viewer.loader();
     return { status: "loaded", component: module.default };
   } catch (error) {
-    logger.error(`Failed to load viewer component for ${viewerId}`, { error, viewerId }, "viewer");
+    logger.error(
+      `Failed to load viewer component for ${viewerId}`,
+      {
+        viewerId,
+        ...getViewerLoadErrorDiagnostics(error),
+      },
+      "viewer",
+      error instanceof Error ? error : undefined
+    );
     return { status: "failed", error };
   }
 };
@@ -788,7 +862,15 @@ export const getViewerComponentLoadResult = async (mimeType: string, viewerId?: 
     const module = await fileType.viewerComponent();
     return { status: "loaded", component: module.default };
   } catch (error) {
-    logger.error(`Failed to load viewer component for ${mimeType}`, { error, mimeType }, "viewer");
+    logger.error(
+      `Failed to load viewer component for ${mimeType}`,
+      {
+        mimeType,
+        ...getViewerLoadErrorDiagnostics(error),
+      },
+      "viewer",
+      error instanceof Error ? error : undefined
+    );
     return { status: "failed", error };
   }
 };
