@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 
 const INTERACTIVE_SHORTCUT_BLOCK_SELECTOR = [
   "button",
@@ -153,7 +153,7 @@ export const withShortcut = (shortcut: Omit<KeyboardShortcut, "handler" | "enabl
  * ```
  */
 export const useKeyboardShortcuts = ({ shortcuts, inputSelector = "input, textarea", active = true }: UseKeyboardShortcutsConfig): void => {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) {
       return;
     }

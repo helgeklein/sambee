@@ -126,7 +126,20 @@ function getErrorMessage(error: unknown): string {
   return "";
 }
 
+function isRequestSignalAborted(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("config" in error)) {
+    return false;
+  }
+
+  const config = (error as { config?: { signal?: AbortSignal | null } }).config;
+  return config?.signal?.aborted === true;
+}
+
 export function isLocalAbortError(error: unknown): boolean {
+  if (isRequestSignalAborted(error)) {
+    return true;
+  }
+
   const code = getErrorCode(error);
   if (code === "ERR_CANCELED") {
     return true;

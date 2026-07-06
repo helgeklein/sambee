@@ -5,7 +5,9 @@ import ImageViewer from "../ImageViewer";
 
 vi.mock("yet-another-react-lightbox", () => ({
   __esModule: true,
-  default: () => <div data-testid="image-lightbox" />,
+  default: ({ slides, index }: { slides: Array<{ src: string }>; index: number }) => (
+    <div data-testid="image-lightbox" data-current-src={slides[index]?.src ?? ""} />
+  ),
 }));
 
 vi.mock("yet-another-react-lightbox/plugins/fullscreen", () => ({
@@ -18,18 +20,21 @@ vi.mock("yet-another-react-lightbox/plugins/zoom", () => ({
   default: {},
 }));
 
+const mockUseCachedImageGallery = vi.fn(() => ({
+  currentIndex: 0,
+  setCurrentIndex: vi.fn(),
+  currentPath: "/images/photo.jpg",
+  filename: "photo.jpg",
+  imageCacheRef: { current: new Map() },
+  getCachedImageSrc: () => undefined,
+  loadingStates: new Map(),
+  errorStates: new Map(),
+  showLoadingSpinner: false,
+  markCachedImagesAsLoaded: vi.fn(),
+}));
+
 vi.mock("../../../hooks/useCachedImageGallery", () => ({
-  useCachedImageGallery: () => ({
-    currentIndex: 0,
-    setCurrentIndex: vi.fn(),
-    currentPath: "/images/photo.jpg",
-    filename: "photo.jpg",
-    imageCacheRef: { current: new Map() },
-    loadingStates: {},
-    errorStates: {},
-    showLoadingSpinner: false,
-    markCachedImagesAsLoaded: vi.fn(),
-  }),
+  useCachedImageGallery: () => mockUseCachedImageGallery(),
 }));
 
 vi.mock("../../../services/api", () => ({
@@ -45,6 +50,20 @@ vi.mock("../../../services/logger", () => ({
 
 describe("ImageViewer", () => {
   beforeEach(() => {
+    mockUseCachedImageGallery.mockReset();
+    mockUseCachedImageGallery.mockReturnValue({
+      currentIndex: 0,
+      setCurrentIndex: vi.fn(),
+      currentPath: "/images/photo.jpg",
+      filename: "photo.jpg",
+      imageCacheRef: { current: new Map() },
+      getCachedImageSrc: () => undefined,
+      loadingStates: new Map(),
+      errorStates: new Map(),
+      showLoadingSpinner: false,
+      markCachedImagesAsLoaded: vi.fn(),
+    });
+
     Object.defineProperty(window, "matchMedia", {
       writable: true,
       configurable: true,
@@ -96,5 +115,28 @@ describe("ImageViewer", () => {
 
     expect(screen.getByTestId("image-lightbox")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("renders slide sources from the hook cache accessor instead of the raw cache ref", () => {
+    mockUseCachedImageGallery.mockReturnValue({
+      currentIndex: 0,
+      setCurrentIndex: vi.fn(),
+      currentPath: "/images/photo.jpg",
+      filename: "photo.jpg",
+      imageCacheRef: { current: new Map([[0, "blob:stale-ref"]]) },
+      getCachedImageSrc: (index: number) => (index === 0 ? "blob:fresh-accessor" : undefined),
+      loadingStates: new Map(),
+      errorStates: new Map(),
+      showLoadingSpinner: false,
+      markCachedImagesAsLoaded: vi.fn(),
+    });
+
+    render(
+      <SambeeThemeProvider>
+        <ImageViewer connectionId="conn-1" path="/images/photo.jpg" onClose={() => {}} images={["/images/photo.jpg"]} />
+      </SambeeThemeProvider>
+    );
+
+    expect(screen.getByTestId("image-lightbox")).toHaveAttribute("data-current-src", "blob:fresh-accessor");
   });
 });
