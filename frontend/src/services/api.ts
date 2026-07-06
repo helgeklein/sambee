@@ -26,6 +26,7 @@ import { FileType } from "../types";
 import {
   getBackendAvailabilitySnapshot,
   isBackendConnectivityError,
+  isLocalAbortError,
   markBackendAvailable,
   markBackendReconnecting,
   markBackendUnavailable,
@@ -44,6 +45,25 @@ const CONNECTIONS_API_BASE = "/connections";
 const API_PATH_SUFFIX = "/api";
 const LOCAL_DRIVE_EDIT_LOCKS_UNSUPPORTED_MESSAGE = "Edit locks are not supported for local drives";
 const DIRECTORY_LIST_REQUEST_TIMEOUT_MS = 40_000;
+
+function isViewerBlobRequest(config: AxiosError["config"] | undefined): boolean {
+  const method = config?.method?.toLowerCase();
+  if (method && method !== "get") {
+    return false;
+  }
+
+  const rawUrl = config?.url;
+  if (!rawUrl) {
+    return false;
+  }
+
+  try {
+    const resolvedUrl = new URL(rawUrl, window.location.origin);
+    return /^\/api\/viewer\/[^/]+\/file$/.test(resolvedUrl.pathname) || /^\/viewer\/[^/]+\/file$/.test(resolvedUrl.pathname);
+  } catch {
+    return false;
+  }
+}
 
 function normalizeUser(user: User): User {
   return { ...user };
@@ -123,18 +143,20 @@ class ApiService {
       },
       (error: AxiosError) => {
         const backendSnapshot = getBackendAvailabilitySnapshot();
+        const viewerBlobRequest = isViewerBlobRequest(error.config);
+        const suppressViewerBlobErrorLog = viewerBlobRequest && isBackendConnectivityError(error);
 
-        if (axios.isCancel(error) || error.code === "ERR_CANCELED") {
+        if (axios.isCancel(error) || error.code === "ERR_CANCELED" || isLocalAbortError(error)) {
           return Promise.reject(error);
         }
 
-        if (isBackendConnectivityError(error)) {
+        if (!viewerBlobRequest && isBackendConnectivityError(error)) {
           if (backendSnapshot.status === "unavailable") {
             markBackendUnavailable(error.message);
           } else {
             markBackendReconnecting(error.message);
           }
-        } else if (error.response?.status) {
+        } else if (!viewerBlobRequest && error.response?.status) {
           if (error.response.status === 401 && backendSnapshot.recoveryLock) {
             markBackendReconnecting("Authenticated backend session is not ready yet.");
           } else {
@@ -145,17 +167,20 @@ class ApiService {
         const requestId = logger.extractRequestId(error.response?.headers as Record<string, string>);
 
         // Log the error with context
-        logger.error(
-          "API request failed",
-          {
-            method: error.config?.method,
-            url: error.config?.url,
-            status: error.response?.status,
-            statusText: error.response?.statusText,
-            message: error.message,
-          },
-          "api"
-        ); // Redirect to login on any 401 Unauthorized response
+        if (!suppressViewerBlobErrorLog) {
+          logger.error(
+            "API request failed",
+            {
+              method: error.config?.method,
+              url: error.config?.url,
+              status: error.response?.status,
+              statusText: error.response?.statusText,
+              message: error.message,
+            },
+            "api"
+          );
+        }
+        // Redirect to login on any 401 Unauthorized response
         // This includes expired tokens, invalid credentials, etc.
         if (error.response?.status === 401) {
           if (backendSnapshot.recoveryLock) {

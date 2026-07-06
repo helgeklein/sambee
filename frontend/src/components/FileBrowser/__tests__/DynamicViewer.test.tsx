@@ -110,4 +110,31 @@ describe("DynamicViewer", () => {
     expect(screen.getByText(/does not have an available viewer/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
   });
+
+  it("keeps the loaded viewer mounted when only the viewed path changes", async () => {
+    mockGetViewerComponentLoadResult.mockResolvedValue({
+      status: "loaded",
+      component: function LoadedViewer() {
+        return <div data-testid="loaded-viewer">Loaded Viewer</div>;
+      },
+    });
+
+    const { rerender } = render(<DynamicViewer {...defaultProps} />);
+
+    expect(await screen.findByTestId("loaded-viewer")).toBeInTheDocument();
+    expect(mockGetViewerComponentLoadResult).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <DynamicViewer
+        {...defaultProps}
+        viewInfo={{
+          ...defaultProps.viewInfo,
+          path: "/docs/other-file.pdf",
+        }}
+      />
+    );
+
+    expect(screen.getByTestId("loaded-viewer")).toBeInTheDocument();
+    expect(mockGetViewerComponentLoadResult).toHaveBeenCalledTimes(1);
+  });
 });
