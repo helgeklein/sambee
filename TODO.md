@@ -12,10 +12,6 @@
       - Adjust keyboard navigation so that leaving the block with the arrow keys moves the cursor to the language selector.
       - Depending on whether scrolling in the language selector's list of languages needs to be activated with Shift or works with arrow down immediately, allow leaving the language selector with arrow down or tab.
 
-## Mobile
-
-- Browsers use default font colors (and, likely fonts) for file list links (file and directory list items). This doesn't happen on desktop and must have been introduced on mobile relatively recently.
-
 ## File list
 
 - Make file operations discoverable by adding a toolbar with icons below the bar that contains the connection list
